@@ -8,6 +8,7 @@ class ProtocolConfig(BaseModel):
     """Base configuration for a protocol."""
     
     type: str = Field(..., description="Fully qualified class name of the protocol")
+    name: Optional[str] = Field(None, description="Optional name for the protocol instance")
     enabled: bool = Field(True, description="Whether the protocol is enabled")
     config: Dict[str, Any] = Field(default_factory=dict, description="Protocol-specific configuration")
 
@@ -16,8 +17,8 @@ class AgentConfig(BaseModel):
     """Configuration for an agent."""
     
     name: str = Field(..., description="Name of the agent")
-    protocols: Dict[str, ProtocolConfig] = Field(
-        default_factory=dict, 
+    protocols: List[ProtocolConfig] = Field(
+        default_factory=list, 
         description="Protocols to register with the agent"
     )
     services: List[Dict[str, Any]] = Field(
@@ -40,8 +41,8 @@ class NetworkConfig(BaseModel):
     """Configuration for a network."""
     
     name: str = Field(..., description="Name of the network")
-    protocols: Dict[str, ProtocolConfig] = Field(
-        default_factory=dict,
+    protocols: List[ProtocolConfig] = Field(
+        default_factory=list,
         description="Protocols to register with the network"
     )
     
@@ -56,4 +57,4 @@ class OpenAgentsConfig(BaseModel):
     """Root configuration for OpenAgents."""
     
     network: NetworkConfig = Field(..., description="Network configuration")
-    agents: List[AgentConfig] = Field(default_factory=list, description="Agent configurations") 
+    service_agents: List[AgentConfig] = Field(default_factory=list, description="Service agent configurations") 
