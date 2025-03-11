@@ -32,6 +32,7 @@ theme:
     - search.highlight
     - search.share
     - content.code.annotate
+  custom_dir: docs/overrides
 
 # Extensions
 markdown_extensions:
@@ -84,6 +85,15 @@ plugins:
 extra_css:
   - stylesheets/extra.css
 
+# Extra
+extra:
+  404_page: 404.md
+  homepage: https://openagents.org
+  social:
+    - icon: fontawesome/solid/globe
+      link: https://openagents.org
+      name: OpenAgents Website
+
 # Navigation structure
 nav:
   - Home: index.md
@@ -127,8 +137,4 @@ nav:
     - Pub-Sub Messaging: examples/pub-sub-messaging.md
     - Request-Response: examples/request-response.md
   - FAQ: faq.md
-  - Changelog: changelog.md
-
-# Extra
-extra:
-  404_page: 404.md 
+  - Changelog: changelog.md 

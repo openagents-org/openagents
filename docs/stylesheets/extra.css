@@ -76,4 +76,37 @@
 
 .md-404 a:hover {
   background-color: var(--md-primary-fg-color--dark);
+}
+
+/* Website link in header */
+.md-header__website-link {
+  display: flex;
+  align-items: center;
+  margin-right: 1rem;
+}
+
+.md-header__website-link a {
+  display: flex;
+  align-items: center;
+  color: var(--md-primary-bg-color);
+  font-size: 0.7rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.2rem;
+  background-color: rgba(255, 255, 255, 0.1);
+  transition: background-color 0.2s;
+}
+
+.md-header__website-link a:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.md-header__website-text {
+  margin-left: 0.3rem;
+}
+
+/* Hide text on small screens */
+@media screen and (max-width: 76.1875em) {
+  .md-header__website-text {
+    display: none;
+  }
 } 
