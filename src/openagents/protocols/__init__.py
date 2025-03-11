@@ -1,0 +1,1 @@
+"""Protocol implementations for the OpenAgents framework.""" 

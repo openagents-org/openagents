@@ -1,0 +1,1 @@
+"""Communication protocol for agent messaging.""" 

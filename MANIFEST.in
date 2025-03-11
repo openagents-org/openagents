@@ -1,0 +1,4 @@
+include README.md
+include LICENSE
+recursive-include src/openagents/protocols */protocol_manifest.json
+recursive-include src/openagents/configs *.yaml 

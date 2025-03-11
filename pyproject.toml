@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openagents"
+version = "0.2.0"
+description = "A flexible framework for building multi-agent systems with customizable protocols"
+readme = "README.md"
+authors = [
+    {name = "OpenAgents Team", email = "info@openagents.org"}
+]
+license = {text = "Apache-2.0"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.7"
+dependencies = [
+    "pyyaml>=5.1",
+    "typing-extensions>=4.0.0",
+    "pydantic>=1.8.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/bestagents/openagents"
+Documentation = "https://openagents.readthedocs.io"
+Repository = "https://github.com/bestagents/openagents"
+Issues = "https://github.com/bestagents/openagents/issues"
+
+[project.scripts]
+openagents = "openagents.cli.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+openagents = ["protocols/*/protocol_manifest.json", "configs/*.yaml"]
