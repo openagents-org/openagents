@@ -21,8 +21,8 @@ python:
      path: .
    - method: pip
      requirements: docs/requirements.txt
-   - method: pip
-     requirements: []
+   - method: setuptools
+     path: .
      extra_requirements:
        - docs
         
