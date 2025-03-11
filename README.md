@@ -205,3 +205,26 @@ We welcome contributions to the OpenAgents framework! Whether you want to fix bu
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## Continuous Integration
+
+This project uses GitHub Actions for continuous integration testing. The workflow automatically runs pytest on Python versions 3.8, 3.9, 3.10, and 3.11 whenever code is pushed to the main, master, or develop branches, or when pull requests are made to these branches.
+
+### Test Status
+
+[![Python Tests](https://github.com/openagents/openagents/actions/workflows/pytest.yml/badge.svg)](https://github.com/openagents/openagents/actions/workflows/pytest.yml)
+
+### Test Coverage
+
+[![codecov](https://codecov.io/gh/openagents/openagents/branch/main/graph/badge.svg)](https://codecov.io/gh/openagents/openagents)
+
+### Workflow Details
+
+The CI workflow:
+- Runs on multiple Python versions (3.8, 3.9, 3.10, 3.11)
+- Installs all dependencies from requirements.txt
+- Caches pip dependencies for faster runs
+- Runs specific test files focused on discovery and discoverability
+- Reports test coverage to Codecov
+
+For more details, see the [workflow configuration file](.github/workflows/pytest.yml).
+
