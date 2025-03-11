@@ -1,0 +1,34 @@
+# Default network configuration
+name: "default-network"
+protocols:
+  discovery:
+    enabled: true
+    config:
+      cleanup_interval: 60.0
+      max_inactive_time: 300.0
+      
+  communication:
+    enabled: true
+    config:
+      max_message_size: 1048576  # 1MB
+      max_history_size: 1000
+      cleanup_interval: 300.0
+
+security:
+  authentication_required: true
+  encryption_required: true
+  allowed_protocols:
+    - discovery
+    - communication
+    - heartbeat
+    - identity_authentication
+
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "network.log"
+
+performance:
+  max_agents: 1000
+  max_messages_per_second: 10000
+  message_queue_size: 10000 
