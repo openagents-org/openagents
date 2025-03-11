@@ -54,3 +54,7 @@ class ProtocolBase(ABC):
             str: The protocol type, to be implemented by subclasses
         """
         raise NotImplementedError("Subclasses must implement protocol_type") 
+
+    @abstractmethod
+    def some_method(self):
+        pass 

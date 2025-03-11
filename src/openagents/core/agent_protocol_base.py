@@ -1,5 +1,6 @@
 from typing import Dict, Any, Optional, List
 from openagents.core.protocol_base import ProtocolBase
+from abc import ABC, abstractmethod
 
 
 class AgentProtocolBase(ProtocolBase):
@@ -47,4 +48,8 @@ class AgentProtocolBase(ProtocolBase):
         Returns:
             Dict[str, Any]: Current agent protocol state
         """
+        pass
+
+    @abstractmethod
+    def some_method(self):
         pass 
