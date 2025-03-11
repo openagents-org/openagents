@@ -1,0 +1,40 @@
+{% set platform = config.repo_url.split("/")[2] %}
+
+<!-- Repository information -->
+<a
+  href="{{ config.repo_url }}"
+  title="Go to repository"
+  class="md-source"
+  data-md-component="source"
+>
+  <div class="md-source__icon md-icon">
+    {% if platform == "github.com" %}
+      {% include ".icons/fontawesome/brands/github.svg" %}
+    {% elif platform == "gitlab.com" %}
+      {% include ".icons/fontawesome/brands/gitlab.svg" %}
+    {% elif platform == "bitbucket.org" %}
+      {% include ".icons/fontawesome/brands/bitbucket.svg" %}
+    {% else %}
+      {% include ".icons/fontawesome/brands/git-alt.svg" %}
+    {% endif %}
+  </div>
+  <div class="md-source__repository">
+    Code
+  </div>
+</a>
+
+<!-- Website link -->
+<a
+  href="https://openagents.org"
+  title="OpenAgents Website"
+  class="md-source md-source--website"
+  target="_blank"
+  rel="noopener"
+>
+  <div class="md-source__icon md-icon">
+    {% include ".icons/material/web.svg" %}
+  </div>
+  <div class="md-source__repository">
+    Web
+  </div>
+</a> 

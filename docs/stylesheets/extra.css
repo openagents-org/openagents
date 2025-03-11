@@ -78,35 +78,27 @@
   background-color: var(--md-primary-fg-color--dark);
 }
 
-/* Website link in header */
-.md-header__website-link {
+/* Website link in source section */
+.md-source--website {
+  margin-left: 0.6rem;
+}
+
+.md-source--website .md-source__repository {
+  font-weight: 500;
+}
+
+.md-source__repository {
+  max-width: none;
+}
+
+/* Adjust source container to fit both links */
+.md-header__source {
   display: flex;
-  align-items: center;
-  margin-right: 1rem;
+  max-width: none;
 }
 
-.md-header__website-link a {
-  display: flex;
-  align-items: center;
-  color: var(--md-primary-bg-color);
-  font-size: 0.7rem;
-  padding: 0.4rem 0.8rem;
-  border-radius: 0.2rem;
-  background-color: rgba(255, 255, 255, 0.1);
-  transition: background-color 0.2s;
-}
-
-.md-header__website-link a:hover {
-  background-color: rgba(255, 255, 255, 0.2);
-}
-
-.md-header__website-text {
-  margin-left: 0.3rem;
-}
-
-/* Hide text on small screens */
 @media screen and (max-width: 76.1875em) {
-  .md-header__website-text {
+  .md-source--website {
     display: none;
   }
 } 
