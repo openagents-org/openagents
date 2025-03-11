@@ -9,4 +9,7 @@ class CopyExtraFilesPlugin(BasePlugin):
         dst = os.path.join(config['site_dir'], 'google9fcea83348cd9b56.html')
         if os.path.exists(src):
             shutil.copy2(src, dst)
+            print(f"Copied verification file from {src} to {dst}")
+        else:
+            print(f"Warning: Verification file not found at {src}")
         return config 

@@ -80,7 +80,6 @@ plugins:
             show_source: true
   - git-revision-date-localized:
       type: date
-  - plugins.copy_extra_files
 
 # Extra CSS
 extra_css:
@@ -142,4 +141,7 @@ nav:
 
 # Extra files
 extra_files:
-  - docs/google9fcea83348cd9b56.html 
+  - docs/google9fcea83348cd9b56.html
+
+# Add this to your existing configuration
+use_directory_urls: false  # This ensures files are copied as-is 
