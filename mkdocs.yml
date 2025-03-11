@@ -1,0 +1,129 @@
+# Project information
+site_name: OpenAgents
+site_description: An Open Framework for Connecting AI Agents at Scale
+site_author: OpenAgents
+site_url: https://openagents.org
+
+# Repository
+repo_name: bestagents/openagents
+repo_url: https://github.com/bestagents/openagents
+edit_uri: edit/main/docs/
+
+# Copyright
+copyright: Copyright &copy; 2023 OpenAgents Team
+
+# Configuration
+theme:
+  name: material
+  palette:
+    primary: indigo
+    accent: indigo
+  font:
+    text: Roboto
+    code: Roboto Mono
+  icon:
+    logo: material/robot
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.annotate
+
+# Extensions
+markdown_extensions:
+  - admonition
+  - attr_list
+  - codehilite:
+      guess_lang: false
+  - def_list
+  - footnotes
+  - meta
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.critic
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:materialx.emoji.twemoji
+      emoji_generator: !!python/name:materialx.emoji.to_svg
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# Plugins
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          selection:
+            docstring_style: google
+          rendering:
+            show_source: true
+  - git-revision-date-localized:
+      type: date
+
+# Extra CSS
+extra_css:
+  - stylesheets/extra.css
+
+# Navigation structure
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quick-start.md
+    - Basic Concepts: getting-started/basic-concepts.md
+  - User Guide:
+    - Creating Agents: user-guide/creating-agents.md
+    - Setting Up Networks: user-guide/setting-up-networks.md
+    - Using Protocols: user-guide/using-protocols.md
+    - Configuration Files: user-guide/configuration-files.md
+    - Command Line Interface: user-guide/command-line-interface.md
+  - Protocols:
+    - Overview: protocols/overview.md
+    - Discovery Protocol: protocols/discovery.md
+    - Communication Protocol: protocols/communication.md
+    - Heartbeat Protocol: protocols/heartbeat.md
+    - Identity Protocol: protocols/identity.md
+    - Coordination Protocol: protocols/coordination.md
+    - Resource Management Protocol: protocols/resource-management.md
+  - Advanced Topics:
+    - Custom Protocols: advanced/custom-protocols.md
+    - Agent Patterns: advanced/agent-patterns.md
+    - Network Topologies: advanced/network-topologies.md
+    - Security Considerations: advanced/security.md
+    - Performance Optimization: advanced/performance.md
+  - API Reference:
+    - Core: api/core.md
+    - Protocols: api/protocols.md
+    - Models: api/models.md
+    - CLI: api/cli.md
+  - Development:
+    - Contributing: development/contributing.md
+    - Development Setup: development/setup.md
+    - Testing: development/testing.md
+    - Documentation: development/documentation.md
+  - Examples:
+    - Basic Network: examples/basic-network.md
+    - Service Discovery: examples/service-discovery.md
+    - Pub-Sub Messaging: examples/pub-sub-messaging.md
+    - Request-Response: examples/request-response.md
+  - FAQ: faq.md
+  - Changelog: changelog.md 
