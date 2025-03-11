@@ -1,5 +1,6 @@
 from typing import Dict, Any, Optional, List, Set
 from openagents.core.protocol_base import ProtocolBase
+from abc import ABC, abstractmethod
 
 
 class NetworkProtocolBase(ProtocolBase):
@@ -59,4 +60,8 @@ class NetworkProtocolBase(ProtocolBase):
         Returns:
             Dict[str, Any]: Current network state
         """
+        pass
+
+    @abstractmethod
+    def some_method(self):
         pass 
