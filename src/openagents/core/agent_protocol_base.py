@@ -19,6 +19,7 @@ class AgentProtocolBase(ProtocolBase):
         """
         super().__init__(config)
         self.agent_id = agent_id
+        self.network = None  # Initialize network attribute to None
     
     @property
     def protocol_type(self) -> str:

@@ -68,26 +68,28 @@ class Agent:
         logger.info(f"Unregistered protocol {protocol_name} from agent {self.agent_id}")
         return True
     
-    def join_network(self, network) -> bool:
+    def join_network(self, network):
         """Join a network.
         
         Args:
-            network: The network to join
-            
-        Returns:
-            bool: True if joining was successful, False otherwise
+            network: Network to join
         """
-        if self.network:
-            logger.warning(f"Agent {self.agent_id} already part of a network")
+        if not self.is_running:
+            logger.error(f"Agent {self.agent_id} must be started before joining a network")
             return False
         
-        self.network = network
-        success = network.register_agent(self)
+        # Set the network reference for all protocols
+        for protocol in self.protocols.values():
+            protocol.network = network
+        
+        # Register with the network
+        success = network.register_agent(self.agent_id, self.get_metadata())
         if success:
+            self.network = network
+            network.connected_agents.append(self)  # Add to connected agents
             logger.info(f"Agent {self.agent_id} joined network {network.network_id}")
         else:
-            self.network = None
-            logger.error(f"Failed to join network {network.network_id}")
+            logger.error(f"Failed to register agent {self.agent_id} with network {network.network_id}")
         
         return success
     
@@ -95,18 +97,28 @@ class Agent:
         """Leave the current network.
         
         Returns:
-            bool: True if leaving was successful, False otherwise
+            bool: True if the agent successfully left the network, False otherwise
         """
         if not self.network:
-            logger.warning(f"Agent {self.agent_id} not part of any network")
-            return False
+            logger.warning(f"Agent {self.agent_id} not connected to a network")
+            return True
         
-        success = self.network.unregister_agent(self.agent_id)
-        if success:
-            logger.info(f"Agent {self.agent_id} left network {self.network.network_id}")
-            self.network = None
-        else:
-            logger.error(f"Failed to leave network {self.network.network_id}")
+        # Unregister from all network protocols
+        success = True
+        for protocol_name, protocol in list(self.protocols.items()):
+            try:
+                if hasattr(protocol, 'unregister') and callable(protocol.unregister):
+                    protocol.unregister()
+            except Exception as e:
+                logger.error(f"Failed to unregister agent {self.agent_id} from protocol {protocol_name}: {e}")
+                success = False
+        
+        # Remove from network's connected agents list
+        if self in self.network.connected_agents:
+            self.network.connected_agents.remove(self)
+        
+        # Clear network reference
+        self.network = None
         
         return success
     
@@ -200,4 +212,26 @@ class Agent:
         for protocol_name, protocol in self.protocols.items():
             state["protocols"][protocol_name] = protocol.get_agent_state()
         
-        return state 
+        return state
+    
+    def get_metadata(self) -> Dict[str, Any]:
+        """Get metadata about this agent.
+        
+        Returns:
+            Dict[str, Any]: Agent metadata including capabilities and services
+        """
+        metadata = {
+            "name": self.name,
+            "agent_id": self.agent_id,
+            "capabilities": list(self.get_capabilities()),
+            "protocols": list(self.protocols.keys()),
+            "is_running": self.is_running
+        }
+        
+        # Add services if using DiscoveryAgentProtocol
+        if "DiscoveryAgentProtocol" in self.protocols:
+            discovery_protocol = self.protocols["DiscoveryAgentProtocol"]
+            if hasattr(discovery_protocol, "services"):
+                metadata["services"] = list(discovery_protocol.services.keys())
+        
+        return metadata 

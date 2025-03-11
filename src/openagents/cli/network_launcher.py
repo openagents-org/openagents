@@ -76,7 +76,7 @@ def instantiate_protocol(protocol_config: ProtocolConfig, agent_id: Optional[str
 
 
 def create_network(network_config: NetworkConfig) -> Network:
-    """Create a network from its configuration.
+    """Create a network from a configuration.
     
     Args:
         network_config: Network configuration
@@ -86,63 +86,81 @@ def create_network(network_config: NetworkConfig) -> Network:
     """
     network = Network(name=network_config.name)
     
-    # Register protocols
-    for protocol_name, protocol_config in network_config.protocols.items():
+    # Register network protocols
+    for protocol_config in network_config.protocols:
         if not protocol_config.enabled:
             continue
-        
+            
         try:
-            protocol = instantiate_protocol(protocol_config)
-            network.register_protocol(protocol)
-            logging.info(f"Registered protocol {protocol_name} with network {network_config.name}")
+            protocol_instance = instantiate_protocol(protocol_config)
+            protocol_name = protocol_config.name or protocol_instance.__class__.__name__
+            
+            if network.register_protocol(protocol_instance):
+                logging.info(f"Registered protocol {protocol_name} with network {network.name}")
+            else:
+                logging.error(f"Failed to register protocol {protocol_name} with network {network.name}")
         except Exception as e:
-            logging.error(f"Failed to register protocol {protocol_name} with network {network_config.name}: {e}")
+            logging.error(f"Failed to register protocol {protocol_config.type} with network {network.name}: {e}")
     
     return network
 
 
-def create_agents(agents_config: List[AgentConfig], network: Network) -> List[Agent]:
-    """Create agents from their configuration and connect them to the network.
+def create_agents(agent_configs: List[AgentConfig], network: Network) -> List[Agent]:
+    """Create agents from configurations and join them to a network.
     
     Args:
-        agents_config: List of agent configurations
-        network: Network to connect agents to
+        agent_configs: List of agent configurations
+        network: Network to join
         
     Returns:
-        List[Agent]: List of configured agent instances
+        List[Agent]: List of configured and started agents
     """
     agents = []
     
-    for agent_config in agents_config:
+    for agent_config in agent_configs:
         agent = Agent(name=agent_config.name)
         
-        # Register protocols
-        for protocol_name, protocol_config in agent_config.protocols.items():
+        # Register agent protocols
+        for protocol_config in agent_config.protocols:
             if not protocol_config.enabled:
                 continue
-            
+                
             try:
-                protocol = instantiate_protocol(protocol_config, agent.agent_id)
-                agent.register_protocol(protocol)
-                logging.info(f"Registered protocol {protocol_name} with agent {agent_config.name}")
+                protocol_instance = instantiate_protocol(protocol_config, agent.agent_id)
+                protocol_name = protocol_config.name or protocol_instance.__class__.__name__
+                
+                if agent.register_protocol(protocol_instance):
+                    logging.info(f"Registered protocol {protocol_name} with agent {agent.name}")
+                else:
+                    logging.error(f"Failed to register protocol {protocol_name} with agent {agent.name}")
             except Exception as e:
-                logging.error(f"Failed to register protocol {protocol_name} with agent {agent_config.name}: {e}")
+                logging.error(f"Failed to register protocol {protocol_config.type} with agent {agent.name}: {e}")
         
-        # Start agent and join network
+        # Start agent
         agent.start()
+        
+        # Join network
         agent.join_network(network)
         
-        # Configure agent services and subscriptions
-        if hasattr(agent, "protocols") and "DiscoveryAgentProtocol" in agent.protocols:
-            discovery_protocol = agent.protocols["DiscoveryAgentProtocol"]
-            for service in agent_config.services:
-                service_name = service.pop("name")
-                discovery_protocol.advertise_service(service_name, service)
+        # Register services if using DiscoveryAgentProtocol
+        if hasattr(agent, "protocols"):
+            discovery_protocols = [p for p in agent.protocols.values() 
+                                  if p.__class__.__name__ == "DiscoveryAgentProtocol"]
+            
+            for discovery_protocol in discovery_protocols:
+                for service in agent_config.services:
+                    service_copy = service.copy()
+                    service_name = service_copy.pop("name")
+                    discovery_protocol.advertise_service(service_name, service_copy)
         
-        if hasattr(agent, "protocols") and "CommunicationAgentProtocol" in agent.protocols:
-            communication_protocol = agent.protocols["CommunicationAgentProtocol"]
-            for topic in agent_config.subscriptions:
-                communication_protocol.subscribe(topic)
+        # Subscribe to topics if using CommunicationAgentProtocol
+        if hasattr(agent, "protocols"):
+            communication_protocols = [p for p in agent.protocols.values() 
+                                      if p.__class__.__name__ == "CommunicationAgentProtocol"]
+            
+            for communication_protocol in communication_protocols:
+                for topic in agent_config.subscriptions:
+                    communication_protocol.subscribe(topic)
         
         agents.append(agent)
         logging.info(f"Agent {agent_config.name} started and joined network {network.name}")
@@ -166,7 +184,7 @@ def launch_network(config_path: str, runtime: Optional[int] = None) -> None:
     logging.info(f"Network {network.name} started")
     
     # Create and start agents
-    agents = create_agents(config.agents, network)
+    agents = create_agents(config.service_agents, network)
     logging.info(f"Started {len(agents)} agents")
     
     try:

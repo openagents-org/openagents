@@ -26,23 +26,31 @@ class Network:
         self.name = name or f"Network-{self.network_id[:8]}"
         self.protocols: Dict[str, NetworkProtocolBase] = {}
         self.agents: Dict[str, Dict[str, Any]] = {}  # agent_id -> metadata
+        self.connected_agents = []  # List of actual agent objects
         self.is_running = False
     
-    def register_protocol(self, protocol_instance: NetworkProtocolBase) -> bool:
+    def register_protocol(self, protocol) -> bool:
         """Register a protocol with this network.
         
         Args:
-            protocol_instance: An instance of a network protocol
+            protocol: Protocol to register
             
         Returns:
             bool: True if registration was successful, False otherwise
         """
-        protocol_name = protocol_instance.__class__.__name__
+        protocol_name = protocol.__class__.__name__
+        
         if protocol_name in self.protocols:
             logger.warning(f"Protocol {protocol_name} already registered with network {self.network_id}")
             return False
         
-        self.protocols[protocol_name] = protocol_instance
+        # Set the network reference in the protocol
+        if hasattr(protocol, 'register_with_network'):
+            protocol.register_with_network(self)
+        else:
+            protocol.network = self
+        
+        self.protocols[protocol_name] = protocol
         logger.info(f"Registered protocol {protocol_name} with network {self.network_id}")
         return True
     
@@ -63,32 +71,42 @@ class Network:
         logger.info(f"Unregistered protocol {protocol_name} from network {self.network_id}")
         return True
     
-    def register_agent(self, agent: Agent) -> bool:
+    def register_agent(self, agent_id: str, metadata: Dict[str, Any]) -> bool:
         """Register an agent with this network.
         
         Args:
-            agent: The agent to register
+            agent_id: Unique identifier for the agent
+            metadata: Agent metadata including capabilities
             
         Returns:
             bool: True if registration was successful, False otherwise
         """
-        if agent.agent_id in self.agents:
-            logger.warning(f"Agent {agent.agent_id} already registered with network {self.network_id}")
+        if agent_id in self.agents:
+            logger.warning(f"Agent {agent_id} already registered with network {self.network_id}")
             return False
         
-        # Register agent with all network protocols
-        for protocol_name, protocol in self.protocols.items():
-            if not protocol.register_agent(agent.agent_id, agent.metadata):
-                logger.error(f"Failed to register agent {agent.agent_id} with protocol {protocol_name}")
-                # Rollback registrations
-                for rollback_name, rollback_protocol in self.protocols.items():
-                    if rollback_name == protocol_name:
-                        break
-                    rollback_protocol.unregister_agent(agent.agent_id)
-                return False
+        agent_name = metadata.get("name", agent_id)
+        self.agents[agent_id] = metadata
         
-        self.agents[agent.agent_id] = agent.metadata
-        logger.info(f"Registered agent {agent.agent_id} with network {self.network_id}")
+        # Register agent with all protocols
+        for protocol_name, protocol in self.protocols.items():
+            try:
+                protocol.register_agent(agent_id, metadata)
+                logger.info(f"Registered agent {agent_name} ({agent_id}) with protocol {protocol_name}")
+            except Exception as e:
+                logger.error(f"Failed to register agent {agent_name} ({agent_id}) with protocol {protocol_name}: {e}")
+                # Continue with other protocols even if one fails
+        
+        # Log detailed agent information
+        protocols = metadata.get("protocols", [])
+        capabilities = metadata.get("capabilities", [])
+        services = metadata.get("services", [])
+        
+        logger.info(f"Agent {agent_name} ({agent_id}) joined network {self.name} ({self.network_id})")
+        logger.info(f"  - Protocols: {', '.join(protocols) if protocols else 'None'}")
+        logger.info(f"  - Capabilities: {', '.join(capabilities) if capabilities else 'None'}")
+        logger.info(f"  - Services: {', '.join(services) if services else 'None'}")
+        
         return True
     
     def unregister_agent(self, agent_id: str) -> bool:
@@ -104,14 +122,21 @@ class Network:
             logger.warning(f"Agent {agent_id} not registered with network {self.network_id}")
             return False
         
+        agent_metadata = self.agents.get(agent_id, {})
+        agent_name = agent_metadata.get("name", agent_id)
+        
         # Unregister agent from all network protocols
         for protocol_name, protocol in self.protocols.items():
-            if not protocol.unregister_agent(agent_id):
-                logger.error(f"Failed to unregister agent {agent_id} from protocol {protocol_name}")
+            try:
+                protocol.unregister_agent(agent_id)
+                logger.info(f"Unregistered agent {agent_name} ({agent_id}) from protocol {protocol_name}")
+            except Exception as e:
+                logger.error(f"Failed to unregister agent {agent_name} ({agent_id}) from protocol {protocol_name}: {e}")
                 return False
         
         self.agents.pop(agent_id)
-        logger.info(f"Unregistered agent {agent_id} from network {self.network_id}")
+        logger.info(f"Agent {agent_name} ({agent_id}) left network {self.name} ({self.network_id})")
+        
         return True
     
     def start(self) -> bool:
@@ -152,43 +177,50 @@ class Network:
         logger.info(f"Network {self.network_id} stopped successfully")
         return True
     
-    def route_message(self, from_agent_id: str, to_agent_id: str, message: Dict[str, Any]) -> bool:
+    def route_message(self, sender_id: str, recipient_id: str, message: Dict[str, Any]) -> bool:
         """Route a message from one agent to another.
         
         Args:
-            from_agent_id: ID of the sending agent
-            to_agent_id: ID of the receiving agent
-            message: The message to route
+            sender_id: ID of the sending agent
+            recipient_id: ID of the recipient agent
+            message: Message to route
             
         Returns:
-            bool: True if routing was successful, False otherwise
+            bool: True if message was routed successfully, False otherwise
         """
         if not self.is_running:
             logger.warning(f"Network {self.network_id} not running, cannot route message")
             return False
         
-        if from_agent_id not in self.agents:
-            logger.error(f"Sending agent {from_agent_id} not registered with network {self.network_id}")
+        if sender_id != "network" and sender_id not in self.agents:
+            logger.error(f"Sending agent {sender_id} not registered with network {self.network_id}")
             return False
         
-        if to_agent_id not in self.agents:
-            logger.error(f"Receiving agent {to_agent_id} not registered with network {self.network_id}")
+        if recipient_id not in self.agents:
+            logger.error(f"Recipient agent {recipient_id} not registered with network {self.network_id}")
             return False
         
+        # Get the protocol name from the message
         protocol_name = message.get("protocol")
+        
         if not protocol_name:
             logger.error(f"Message missing protocol field: {message}")
             return False
         
-        if protocol_name not in self.protocols:
-            logger.error(f"Protocol {protocol_name} not registered with network {self.network_id}")
-            return False
+        # Find the agent that should receive this message
+        for agent in self.connected_agents:
+            if agent.agent_id == recipient_id:
+                # Find the protocol in the agent
+                if protocol_name in agent.protocols:
+                    protocol = agent.protocols[protocol_name]
+                    protocol.handle_message(message)
+                    return True
+                else:
+                    logger.error(f"Agent {recipient_id} does not have protocol {protocol_name}")
+                    return False
         
-        # Let the protocol handle the message routing
-        # This is a simplified implementation - in a real system, this would involve
-        # actual message delivery to the target agent
-        logger.info(f"Routing message from {from_agent_id} to {to_agent_id} using protocol {protocol_name}")
-        return True
+        logger.error(f"Could not find agent {recipient_id} in connected agents")
+        return False
     
     def broadcast_message(self, from_agent_id: str, message: Dict[str, Any]) -> bool:
         """Broadcast a message from one agent to all other agents.
@@ -248,4 +280,27 @@ class Network:
         for protocol_name, protocol in self.protocols.items():
             state["protocols"][protocol_name] = protocol.get_network_state()
         
-        return state 
+        return state
+    
+    def send_message_to_agent(self, agent_id: str, message: Dict[str, Any]) -> bool:
+        """Send a message to an agent.
+        
+        Args:
+            agent_id: ID of the recipient agent
+            message: Message to send
+            
+        Returns:
+            bool: True if message was sent successfully, False otherwise
+        """
+        if not self.is_running:
+            logger.warning(f"Network {self.network_id} not running, cannot send message")
+            return False
+        
+        if agent_id not in self.agents:
+            logger.error(f"Agent {agent_id} not registered with network {self.network_id}")
+            return False
+        
+        # Use the route_message method to send the message
+        # For now, we'll use a placeholder sender_id
+        sender_id = message.get("sender_id", "network")
+        return self.route_message(sender_id, agent_id, message) 

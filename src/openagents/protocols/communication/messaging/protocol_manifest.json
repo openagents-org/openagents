@@ -1,0 +1,19 @@
+{
+    "protocol_name": "messaging",
+    "version": "1.0.0",
+    "description": "Enables direct messaging between agents",
+    "agent_protocol": true,
+    "network_protocol": true,
+    "dependencies": [],
+    "capabilities": [
+        "direct-messaging",
+        "request-response",
+        "reliable-delivery",
+        "message-history"
+    ],
+    "authors": [
+        "OpenAgents Team"
+    ],
+    "license": "MIT",
+    "documentation_url": "https://docs.openagents.org/protocols/communication/messaging"
+} 
