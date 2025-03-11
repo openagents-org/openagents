@@ -17,12 +17,5 @@ mkdocs:
 # Declare the Python requirements required to build your documentation
 python:
    install:
-   - method: pip
-     path: .
-   - method: pip
-     requirements: docs/requirements.txt
-   - method: setuptools
-     path: .
-     extra_requirements:
-       - docs
+   - requirements: docs/requirements.txt
         
