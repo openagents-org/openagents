@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Robot body -->
+  <rect x="156" y="156" width="200" height="240" rx="20" fill="#5046e5" />
+  
+  <!-- Robot head -->
+  <rect x="176" y="96" width="160" height="120" rx="15" fill="#7a74e5" />
+  
+  <!-- Robot eyes -->
+  <circle cx="216" cy="156" r="20" fill="#ffffff" />
+  <circle cx="296" cy="156" r="20" fill="#ffffff" />
+  <circle cx="216" cy="156" r="10" fill="#000000" />
+  <circle cx="296" cy="156" r="10" fill="#000000" />
+  
+  <!-- Robot mouth -->
+  <rect x="216" y="186" width="80" height="10" rx="5" fill="#ffffff" />
+  
+  <!-- Robot antenna -->
+  <rect x="246" y="76" width="20" height="30" fill="#7a74e5" />
+  <circle cx="256" cy="66" r="15" fill="#ff5252" />
+  
+  <!-- Robot arms -->
+  <rect x="116" y="196" width="40" height="120" rx="10" fill="#7a74e5" />
+  <rect x="356" y="196" width="40" height="120" rx="10" fill="#7a74e5" />
+  
+  <!-- Robot legs -->
+  <rect x="186" y="396" width="40" height="60" rx="10" fill="#7a74e5" />
+  <rect x="286" y="396" width="40" height="60" rx="10" fill="#7a74e5" />
+  
+  <!-- Question mark -->
+  <text x="256" y="276" font-family="Arial" font-size="100" text-anchor="middle" fill="#ffffff">?</text>
+</svg> 

@@ -19,4 +19,61 @@
 .md-typeset table:not([class]) td,
 .md-typeset table:not([class]) th {
   padding: 0.5em 1em;
+}
+
+/* 404 page styling */
+.md-404 {
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.md-404 h1 {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+  color: var(--md-primary-fg-color);
+}
+
+.md-404 img {
+  max-width: 300px;
+  margin: 2rem auto;
+  display: block;
+}
+
+.md-404 h2 {
+  font-size: 1.5rem;
+  margin-bottom: 2rem;
+  color: var(--md-default-fg-color--light);
+}
+
+.md-404 h3 {
+  font-size: 1.2rem;
+  margin: 2rem 0 1rem;
+}
+
+.md-404 ul {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1rem;
+  margin: 1rem 0 2rem;
+}
+
+.md-404 li {
+  margin: 0;
+}
+
+.md-404 a {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  background-color: var(--md-primary-fg-color);
+  color: var(--md-primary-bg-color);
+  border-radius: 4px;
+  text-decoration: none;
+  transition: background-color 0.2s;
+}
+
+.md-404 a:hover {
+  background-color: var(--md-primary-fg-color--dark);
 } 

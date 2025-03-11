@@ -127,4 +127,8 @@ nav:
     - Pub-Sub Messaging: examples/pub-sub-messaging.md
     - Request-Response: examples/request-response.md
   - FAQ: faq.md
-  - Changelog: changelog.md 
+  - Changelog: changelog.md
+
+# Extra
+extra:
+  404_page: 404.md 
