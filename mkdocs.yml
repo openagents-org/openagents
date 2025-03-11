@@ -80,6 +80,7 @@ plugins:
             show_source: true
   - git-revision-date-localized:
       type: date
+  - plugins.copy_extra_files
 
 # Extra CSS
 extra_css:
@@ -137,4 +138,8 @@ nav:
     - Pub-Sub Messaging: examples/pub-sub-messaging.md
     - Request-Response: examples/request-response.md
   - FAQ: faq.md
-  - Changelog: changelog.md 
+  - Changelog: changelog.md
+
+# Extra files
+extra_files:
+  - docs/google9fcea83348cd9b56.html 
