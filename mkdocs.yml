@@ -137,11 +137,4 @@ nav:
     - Pub-Sub Messaging: examples/pub-sub-messaging.md
     - Request-Response: examples/request-response.md
   - FAQ: faq.md
-  - Changelog: changelog.md
-
-# Extra files
-extra_files:
-  - docs/google9fcea83348cd9b56.html
-
-# Add this to your existing configuration
-use_directory_urls: false  # This ensures files are copied as-is 
+  - Changelog: changelog.md 
