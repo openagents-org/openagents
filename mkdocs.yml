@@ -69,11 +69,11 @@ markdown_extensions:
 plugins:
   - search
   - mkdocstrings:
+      default_handler: python
       handlers:
         python:
-          selection:
+          options:
             docstring_style: google
-          rendering:
             show_source: true
   - git-revision-date-localized:
       type: date
