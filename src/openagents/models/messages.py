@@ -119,4 +119,84 @@ class UnsubscribeAction(CommunicationMessage):
     
     action: str = Field("unsubscribe", const=True)
     agent_id: str = Field(..., description="Subscriber agent ID")
-    topic: str = Field(..., description="Topic to unsubscribe from") 
+    topic: str = Field(..., description="Topic to unsubscribe from")
+
+
+class NetworkMessage(BaseMessage):
+    """Message model for network communication between agents.
+    
+    This model represents the message data structure used in the Network.send_message method.
+    """
+    
+    protocol: str = Field("network", const=True, description="Protocol this message belongs to")
+    type: str = Field("message", const=True, description="Message type, always 'message' for direct messages")
+    source_agent_id: str = Field(..., description="ID of the sending agent")
+    target_agent_id: str = Field(..., description="ID of the target agent")
+    content: Dict[str, Any] = Field(default_factory=dict, description="Message content")
+    
+    @validator('source_agent_id', 'target_agent_id')
+    def validate_agent_id(cls, v):
+        if not v or not isinstance(v, str):
+            raise ValueError('Agent ID must be a non-empty string')
+        return v
+
+
+class RegistrationMessage(BaseMessage):
+    """Message model for agent registration with a network.
+    
+    This model represents the registration message sent by an agent to join a network.
+    """
+    
+    protocol: str = Field("network", const=True, description="Protocol this message belongs to")
+    type: str = Field("register", const=True, description="Message type, always 'register' for registration")
+    agent_id: str = Field(..., description="ID of the agent registering")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Agent metadata including capabilities")
+    
+    @validator('agent_id')
+    def validate_agent_id(cls, v):
+        if not v or not isinstance(v, str):
+            raise ValueError('Agent ID must be a non-empty string')
+        return v
+
+
+class RegistrationResponseMessage(BaseMessage):
+    """Message model for network response to agent registration.
+    
+    This model represents the response sent by the network after an agent attempts to register.
+    """
+    
+    protocol: str = Field("network", const=True, description="Protocol this message belongs to")
+    type: str = Field("register_response", const=True, description="Message type, always 'register_response'")
+    success: bool = Field(..., description="Whether registration was successful")
+    network_name: str = Field(..., description="Name of the network")
+    error: Optional[str] = Field(None, description="Error message if registration failed")
+
+
+class BroadcastMessage(BaseMessage):
+    """Message model for broadcasting to all agents in a network.
+    
+    This model represents a broadcast message sent to all agents in the network.
+    """
+    
+    protocol: str = Field("network", const=True, description="Protocol this message belongs to")
+    type: str = Field("broadcast", const=True, description="Message type, always 'broadcast'")
+    source_agent_id: str = Field(..., description="ID of the broadcasting agent")
+    message_type: str = Field(..., description="Type of the broadcast message")
+    content: Dict[str, Any] = Field(default_factory=dict, description="Message content")
+    
+    @validator('source_agent_id')
+    def validate_agent_id(cls, v):
+        if not v or not isinstance(v, str):
+            raise ValueError('Agent ID must be a non-empty string')
+        return v
+
+
+class SimpleMessage(BaseMessage):
+    """A simple message that can be sent between agents.
+    
+    This is a utility class for sending simple messages that don't need a specific protocol.
+    """
+    
+    protocol: str = Field("simple", const=True, description="Protocol this message belongs to")
+    message_type: str = Field(..., description="Type of the message")
+    content: Dict[str, Any] = Field(default_factory=dict, description="Message content") 
