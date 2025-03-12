@@ -3,6 +3,7 @@ import logging
 import json
 import asyncio
 import websockets
+from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 from openagents.utils.message_util import parse_message_dict
 from openagents.models.messages import BaseMessage, BroadcastMessage, DirectMessage, ProtocolMessage
@@ -44,7 +45,7 @@ class NetworkConnector:
             bool: True if connection successful
         """
         try:
-            self.connection = await websockets.connect(f"ws://{self.host}:{self.port}")
+            self.connection = await connect(f"ws://{self.host}:{self.port}")
             
             # Register with server
             await self.connection.send(json.dumps({

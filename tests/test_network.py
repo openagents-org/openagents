@@ -33,10 +33,10 @@ from openagents.models.messages import (
 )
 
 # Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# logging.basicConfig(
+#     level=logging.DEBUG,
+#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# )
 
 class MockWebSocket:
     """Mock WebSocket for testing."""
@@ -215,7 +215,7 @@ class TestNetwork(unittest.TestCase):
         
         # Handle connection
         connection_task = asyncio.create_task(
-            self.network.handle_connection(websocket, "/")
+            self.network.handle_connection(websocket)
         )
         
         # Wait a bit for processing
@@ -271,7 +271,7 @@ class TestNetwork(unittest.TestCase):
         
         # Handle second connection
         async def handle_second_connection():
-            await self.network.handle_connection(websocket2, "/")
+            await self.network.handle_connection(websocket2)
         
         try:
             await asyncio.wait_for(handle_second_connection(), timeout=0.5)

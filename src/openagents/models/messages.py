@@ -1,7 +1,7 @@
 """Message models for OpenAgents protocols."""
 
 from typing import Dict, List, Optional, Any, Union
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 import uuid
 import time
 
@@ -23,8 +23,7 @@ class BaseMessage(BaseModel):
             raise ValueError('Agent ID must be a non-empty string')
         return v
 
-    class Config:
-        extra = "allow"  # Allow extra fields
+    model_config = ConfigDict(extra="allow")  # Allow extra fields
 
 class DirectMessage(BaseMessage):
     """A direct message from one agent to another."""
