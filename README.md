@@ -1,7 +1,37 @@
 # OpenAgents Framework
 
-OpenAgents is a flexible and extensible Python framework for building multi-agent systems with customizable protocols. It allows developers to create networks of agents that can communicate and coordinate using various protocols.
+A network-based multi-agent framework where agents connect to a central server for communication and coordination.
 
+## Quick Start
+
+1. Start a network server:
+```python
+from openagents.core.network import Network
+
+# Create and start server
+network = Network(host="127.0.0.1", port=8765)
+network.run()
+```
+
+2. Connect agents to the server:
+```python
+from openagents.core.agent import Agent
+
+# Create and connect agent
+agent = Agent(name="MyAgent")
+await agent.connect_to_server("127.0.0.1", 8765)
+
+# Send messages to other agents
+await agent.send_message("other_agent_id", "Hello!")
+```
+
+## Architecture
+
+The framework uses a client-server architecture where:
+- A central server manages all agent connections
+- Agents connect to the server using WebSocket connections
+- All communication between agents goes through the server
+- Protocols define message handling behavior
 
 ## Project Website
 
@@ -35,141 +65,6 @@ OpenAgents includes several built-in protocols:
 | Identity & Authentication | Security and identity management | Agent identifiers, Authentication/authorization |
 | Coordination | Task distribution and negotiation | Task negotiation & delegation, Contract-net protocol |
 | Resource Management | Resource allocation and tracking | Resource allocation & accounting, Usage metering |
-
-## Quick Start
-
-### Installation
-
-```bash
-pip install openagents
-```
-
-### Creating a Simple Network
-
-Here's a basic example of creating a network with two agents:
-
-```python
-from openagents.core.agent import Agent
-from openagents.core.network import Network
-from openagents.protocols.discovery.agent_registration.agent_protocol import DiscoveryAgentProtocol
-from openagents.protocols.discovery.agent_registration.network_protocol import DiscoveryNetworkProtocol
-from openagents.protocols.communication.messaging.agent_protocol import CommunicationAgentProtocol
-from openagents.protocols.communication.messaging.network_protocol import CommunicationNetworkProtocol
-
-# Create network
-network = Network(name="MyNetwork")
-network.register_protocol(DiscoveryNetworkProtocol())
-network.register_protocol(CommunicationNetworkProtocol())
-network.start()
-
-# Create agents
-agent1 = Agent(name="Agent1")
-agent2 = Agent(name="Agent2")
-
-# Register protocols
-agent1.register_protocol(DiscoveryAgentProtocol(agent1.agent_id))
-agent1.register_protocol(CommunicationAgentProtocol(agent1.agent_id))
-
-agent2.register_protocol(DiscoveryAgentProtocol(agent2.agent_id))
-agent2.register_protocol(CommunicationAgentProtocol(agent2.agent_id))
-
-# Start agents and join network
-agent1.start()
-agent2.start()
-
-agent1.join_network(network)
-agent2.join_network(network)
-
-# Send a message
-agent1_comm = agent1.protocols["CommunicationAgentProtocol"]
-agent1_comm.send_message(agent2.agent_id, {"content": "Hello, Agent2!"})
-```
-
-## Creating Custom Protocols
-
-### Network Protocol
-
-```python
-from openagents.core.network_protocol_base import NetworkProtocolBase
-
-class MyCustomNetworkProtocol(NetworkProtocolBase):
-    def __init__(self, config=None):
-        super().__init__(config)
-        # Initialize protocol state
-    
-    def initialize(self) -> bool:
-        # Protocol initialization logic
-        return True
-    
-    def shutdown(self) -> bool:
-        # Protocol shutdown logic
-        return True
-    
-    @property
-    def capabilities(self):
-        return ["my-custom-capability"]
-    
-    def register_agent(self, agent_id, metadata):
-        # Agent registration logic
-        return True
-    
-    def unregister_agent(self, agent_id):
-        # Agent unregistration logic
-        return True
-    
-    def get_network_state(self):
-        # Return current protocol state
-        return {"status": "active"}
-```
-
-### Agent Protocol
-
-```python
-from openagents.core.agent_protocol_base import AgentProtocolBase
-
-class MyCustomAgentProtocol(AgentProtocolBase):
-    def __init__(self, agent_id, config=None):
-        super().__init__(agent_id, config)
-        # Initialize protocol state
-    
-    def initialize(self) -> bool:
-        # Protocol initialization logic
-        return True
-    
-    def shutdown(self) -> bool:
-        # Protocol shutdown logic
-        return True
-    
-    @property
-    def capabilities(self):
-        return ["my-custom-capability"]
-    
-    def handle_message(self, message):
-        # Message handling logic
-        return {"status": "received"}
-    
-    def get_agent_state(self):
-        # Return current protocol state
-        return {"status": "active"}
-```
-
-### Protocol Manifest
-
-Each protocol should include a manifest file (protocol_manifest.json):
-
-```json
-    {
-      "protocol_name": "my_custom_protocol",
-      "version": "1.0.0",
-      "description": "A custom protocol for specific functionality",
-      "agent_protocol": true,
-      "network_protocol": true,
-      "dependencies": ["discovery"],
-      "capabilities": ["my-custom-capability"],
-      "authors": ["Your Name"],
-      "license": "MIT"
-    }
-```
 
 ## Project Structure
 

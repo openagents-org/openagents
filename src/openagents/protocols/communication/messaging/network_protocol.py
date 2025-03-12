@@ -56,6 +56,9 @@ class MessagingNetworkProtocol(NetworkProtocolBase):
         # Configuration
         self.max_history_size = self.config["max_history_size"]
         
+        # Add a callback for message handling
+        self.on_message_received = None
+        
         logger.info("Initializing Messaging network protocol")
     
     @property
@@ -240,4 +243,73 @@ class MessagingNetworkProtocol(NetworkProtocolBase):
             return None
         
         # For other message types, delegate to parent class
-        return super().handle_message(message) 
+        return super().handle_message(message)
+    
+    async def handle_remote_message(self, message_data):
+        """Handle a message received from a remote agent.
+        
+        Args:
+            message_data (dict): The message data
+        """
+        # Call the message handler if registered
+        if self.on_message_received:
+            await self.on_message_received(message_data)
+        
+        if message_data.get("message_type") != "agent_message":
+            return
+            
+        target_id = message_data.get("target_agent_id")
+        source_id = message_data.get("source_agent_id")
+        content = message_data.get("content")
+        
+        # Find the target agent in the network
+        target_agent = self.network.agents.get(target_id)
+        if target_agent:
+            # Deliver the message to the local agent
+            await self.deliver_message(source_id, target_id, content)
+    
+    async def deliver_message(self, source_id, target_id, content):
+        """Deliver a message to a local agent.
+        
+        Args:
+            source_id (str): ID of the source agent
+            target_id (str): ID of the target agent
+            content (Any): Message content
+        """
+        # Find the target agent
+        target_agent = self.network.agents.get(target_id)
+        if not target_agent:
+            print(f"Target agent {target_id} not found in network")
+            return False
+        
+        # Create a message object
+        message = {
+            "type": "direct",
+            "from_agent": source_id,
+            "to_agent": target_id,
+            "content": content,
+            "timestamp": int(time.time() * 1000)
+        }
+        
+        # Deliver the message to the agent
+        if hasattr(target_agent, "handle_message"):
+            target_agent.handle_message(message)
+            return True
+        
+        return False
+    
+    async def send_message(self, source_id, target_id, content):
+        """Send a message from one agent to another.
+        
+        Args:
+            source_id (str): ID of the source agent
+            target_id (str): ID of the target agent
+            content (Any): Message content
+        """
+        # Check if target agent is in the local network
+        if target_id in self.network.agents:
+            # Use existing local delivery
+            await self.deliver_message(source_id, target_id, content)
+        else:
+            # Try to send to a remote agent
+            await self.send_remote_message(target_id, "agent_message", content) 

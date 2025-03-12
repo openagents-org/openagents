@@ -19,20 +19,4 @@ class ProtocolManifest(BaseModel):
     def name_must_be_valid(cls, v):
         if not v or not isinstance(v, str):
             raise ValueError('Protocol name must be a non-empty string')
-        return v
-
-
-class CapabilityDefinition(BaseModel):
-    """Definition of a capability."""
-    
-    name: str = Field(..., description="Name of the capability")
-    description: str = Field("", description="Description of the capability")
-    version: str = Field("1.0.0", description="Version of the capability")
-    protocol: str = Field(..., description="Protocol providing the capability")
-    parameters: Dict[str, Any] = Field(default_factory=dict, description="Parameters for the capability")
-    
-    @validator('name')
-    def name_must_be_valid(cls, v):
-        if not v or not isinstance(v, str):
-            raise ValueError('Capability name must be a non-empty string')
         return v 

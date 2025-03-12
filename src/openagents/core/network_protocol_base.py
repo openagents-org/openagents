@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional, List, Set
 from openagents.core.protocol_base import ProtocolBase
 from abc import ABC, abstractmethod
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -98,3 +99,42 @@ class NetworkProtocolBase(ProtocolBase):
         """
         logger.debug(f"Protocol {self.name} handling message: {message}")
         return None 
+
+    async def handle_remote_message(self, message_data):
+        """Handle a message received from a remote agent.
+        
+        Args:
+            message_data (dict): The message data
+            
+        Returns:
+            Any: Result of handling the message
+        """
+        # Default implementation does nothing
+        pass
+    
+    async def send_remote_message(self, target_agent_id, message_type, content):
+        """Send a message to a remote agent.
+        
+        Args:
+            target_agent_id (str): ID of the target agent
+            message_type (str): Type of message
+            content (Any): Message content
+            
+        Returns:
+            bool: True if message sent successfully, False otherwise
+        """
+        if not hasattr(self.network, 'server_connection'):
+            return False
+            
+        try:
+            await self.network.server_connection.send(json.dumps({
+                "type": "message",
+                "message_type": message_type,
+                "source_agent_id": self.agent.id if hasattr(self, 'agent') else None,
+                "target_agent_id": target_agent_id,
+                "content": content
+            }))
+            return True
+        except Exception as e:
+            print(f"Error sending remote message: {e}")
+            return False 
