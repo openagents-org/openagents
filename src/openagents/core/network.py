@@ -5,7 +5,7 @@ from .base_protocol import BaseProtocol
 import json
 import asyncio
 import websockets
-from websockets.server import WebSocketServerProtocol
+from websockets.asyncio.server import serve, ServerConnection
 from websockets.exceptions import ConnectionClosed
 from openagents.models.messages import (
     BaseMessage, 
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class AgentConnection(BaseModel):
     """Model representing an agent connection to the network."""
     agent_id: str
-    connection: Union[WebSocketServerProtocol, Any]
+    connection: Union[ServerConnection, Any]
     metadata: Dict[str, Any]
     last_activity: float = 0.0
     
@@ -75,7 +75,7 @@ class Network:
         logger.info(f"Registered protocol {protocol_name}")
         return True
     
-    async def handle_connection(self, websocket: WebSocketServerProtocol) -> None:
+    async def handle_connection(self, websocket: ServerConnection) -> None:
         """Handle a new WebSocket connection.
         
         Args:
@@ -240,7 +240,7 @@ class Network:
     
     async def _run_server(self) -> None:
         """Run the WebSocket server."""
-        self.server = await websockets.serve(self.handle_connection, self.host, self.port)
+        self.server = await serve(self.handle_connection, self.host, self.port)
         logger.info(f"Network server running on {self.host}:{self.port}")
         
         # Start inactive agent cleanup task
@@ -331,14 +331,8 @@ class Network:
                 # Continue with other protocols even if one fails
         
         # Log detailed agent information
-        protocols = metadata.get("protocols", [])
-        capabilities = metadata.get("capabilities", [])
-        services = metadata.get("services", [])
         
         logger.info(f"Agent {agent_name} ({agent_id}) joined network {self.network_name} ({self.network_id})")
-        logger.info(f"  - Protocols: {', '.join(protocols) if protocols else 'None'}")
-        logger.info(f"  - Capabilities: {', '.join(capabilities) if capabilities else 'None'}")
-        logger.info(f"  - Services: {', '.join(services) if services else 'None'}")
         
         return True
     

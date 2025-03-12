@@ -1,75 +1,34 @@
-# Example network configuration for OpenAgents
+# OpenAgents Network Configuration Example
 
+# Network configuration
 network:
-  name: "example-network"
+  name: "ExampleNetwork"
   protocols:
-    - type: "openagents.protocols.discovery.agent_registration.network_protocol.AgentRegistrationNetworkProtocol"
+    - type: "openagents.protocols.communication.simple_messaging.protocol.SimpleMessagingNetworkProtocol"
+      name: "SimpleMessaging"
       enabled: true
-      config:
-        cleanup_interval: 300.0
-        max_inactive_time: 600.0
-    
-    - type: "openagents.protocols.discovery.discoverability.network_protocol.DiscoverabilityNetworkProtocol"
-      enabled: true
-      config:
-        cleanup_interval: 300.0
-        max_inactive_time: 600.0
-    
-    - type: "openagents.protocols.communication.messaging.network_protocol.MessagingNetworkProtocol"
-      enabled: true
-      config:
-        max_message_size: 1048576  # 1MB
-        max_history_size: 1000
-    
-    - type: "openagents.protocols.communication.topic_subscription.network_protocol.TopicSubscriptionNetworkProtocol"
-      enabled: true
-      config:
-        max_topics: 1000
-        max_subscribers: 1000
+      config: {}
 
+# Service agents configuration
 service_agents:
-  - name: "service-provider"
+  - name: "Agent1"
     protocols:
-      - type: "openagents.protocols.discovery.agent_registration.agent_protocol.AgentRegistrationAgentProtocol"
+      - type: "openagents.protocols.communication.simple_messaging.adapter.SimpleMessagingAgentAdapter"
+        name: "SimpleMessaging"
         enabled: true
-        config:
-          heartbeat_interval: 60.0
-      
-      - type: "openagents.protocols.discovery.discoverability.agent_protocol.DiscoverabilityAgentProtocol"
-        enabled: true
-        config:
-          service_refresh_interval: 60.0
-      
-      - type: "openagents.protocols.communication.messaging.agent_protocol.MessagingAgentProtocol"
-        enabled: true
-        config:
-          message_timeout: 30.0
-      
-      - type: "openagents.protocols.communication.topic_subscription.agent_protocol.TopicSubscriptionAgentProtocol"
-        enabled: true
-    
+        config: {}
     services:
-      - name: "data-processing"
-        description: "Process data using advanced algorithms"
-        input_format: "JSON"
-        output_format: "JSON"
-    
+      - name: "echo"
+        description: "Echo service that returns the input"
     subscriptions:
-      - "requests"
-  
-  - name: "service-consumer"
+      - "general"
+
+  - name: "Agent2"
     protocols:
-      - type: "openagents.protocols.discovery.agent_registration.agent_protocol.AgentRegistrationAgentProtocol"
+      - type: "openagents.protocols.communication.simple_messaging.adapter.SimpleMessagingAgentAdapter"
+        name: "SimpleMessaging"
         enabled: true
-      
-      - type: "openagents.protocols.discovery.discoverability.agent_protocol.DiscoverabilityAgentProtocol"
-        enabled: true
-      
-      - type: "openagents.protocols.communication.messaging.agent_protocol.MessagingAgentProtocol"
-        enabled: true
-      
-      - type: "openagents.protocols.communication.topic_subscription.agent_protocol.TopicSubscriptionAgentProtocol"
-        enabled: true
-    
+        config: {}
+    services: []
     subscriptions:
-      - "responses" 
+      - "general" 
