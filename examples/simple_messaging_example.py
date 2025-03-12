@@ -13,7 +13,9 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-import inspect
+import signal
+import sys
+import time
 
 from openagents.core.agent_adapter import AgentAdapter
 from openagents.core.network import Network
@@ -37,14 +39,14 @@ def create_test_file():
 # Message handler for agents
 def message_handler(content, sender_id):
     if "text" in content:
-        print(f"Received message from {sender_id}: {content['text']}")
+        print(f"\n>>> Received message from {sender_id}: {content['text']}")
 
 # File handler for agents
 def file_handler(file_id, file_content, metadata, sender_id):
-    print(f"Received file from {sender_id}: {file_id}")
-    print(f"File content: {file_content[:50]}...")  # Show first 50 bytes
+    print(f"\n>>> Received file from {sender_id}: {file_id}")
+    print(f">>> File content: {file_content[:50]}...")  # Show first 50 bytes
 
-async def main():
+async def setup_network():
     # Create and start the network server
     network = Network(
         network_name="SimpleMessagingExample",
@@ -62,96 +64,128 @@ async def main():
     # Wait for the server to start
     await asyncio.sleep(1)
     
-    # Create the first agent
-    agent1 = AgentAdapter(agent_id="Agent1")
+    return network
+
+async def setup_agent(agent_id, name):
+    # Create the agent
+    agent = AgentAdapter(agent_id=agent_id)
     
     # Create and register the simple messaging protocol adapter with the agent
-    agent1_messaging = SimpleMessagingAgentAdapter()
-    agent1.register_protocol_adapter(agent1_messaging)
+    messaging = SimpleMessagingAgentAdapter()
+    agent.register_protocol_adapter(messaging)
     
     # Register message and file handlers
-    agent1_messaging.register_message_handler("default", message_handler)
-    agent1_messaging.register_file_handler("default", file_handler)
+    messaging.register_message_handler("default", message_handler)
+    messaging.register_file_handler("default", file_handler)
     
     # Connect the agent to the network
-    await agent1.connect_to_server(
+    success = await agent.connect_to_server(
         host="127.0.0.1",
         port=8765,
-        metadata={"name": "Agent 1"}
+        metadata={"name": name}
     )
-    print(f"Agent1 connected to network")
     
-    # Create the second agent
-    agent2 = AgentAdapter(agent_id="Agent2")
+    if success:
+        print(f"{agent_id} connected to network")
+    else:
+        print(f"Failed to connect {agent_id} to network")
+        return None, None
     
-    # Create and register the simple messaging protocol adapter with the agent
-    agent2_messaging = SimpleMessagingAgentAdapter()
-    agent2.register_protocol_adapter(agent2_messaging)
+    return agent, messaging
+
+async def run_example():
+    # Set up the network
+    network = await setup_network()
     
-    # Register message and file handlers
-    agent2_messaging.register_message_handler("default", message_handler)
-    agent2_messaging.register_file_handler("default", file_handler)
+    # Set up the agents
+    agent1, agent1_messaging = await setup_agent("Agent1", "Agent 1")
+    if not agent1:
+        network.stop()
+        return
     
-    # Connect the agent to the network
-    await agent2.connect_to_server(
-        host="127.0.0.1",
-        port=8765,
-        metadata={"name": "Agent 2"}
-    )
-    print(f"Agent2 connected to network")
+    agent2, agent2_messaging = await setup_agent("Agent2", "Agent 2")
+    if not agent2:
+        await agent1.disconnect()
+        network.stop()
+        return
     
     # Wait for connections to establish
-    await asyncio.sleep(1)
-    
-    # Send a direct text message from Agent1 to Agent2
-    print("Sending text message from Agent1 to Agent2...")
-    await agent1_messaging.send_text_message(
-        target_agent_id="Agent2",
-        text="Hello from Agent1!"
-    )
-    
-    # Wait for message to be processed
-    await asyncio.sleep(1)
-    
-    # Send a direct text message from Agent2 to Agent1
-    print("Sending text message from Agent2 to Agent1...")
-    await agent2_messaging.send_text_message(
-        target_agent_id="Agent1",
-        text="Hello back from Agent2!"
-    )
-    
-    # Wait for message to be processed
-    await asyncio.sleep(1)
-    
-    # Create a test file for file transfer
-    test_file_path = create_test_file()
-    print(f"Created test file at {test_file_path}")
-    
-    # Send a file from Agent1 to Agent2
-    print("Sending file from Agent1 to Agent2...")
-    await agent1_messaging.send_file(
-        target_agent_id="Agent2",
-        file_path=test_file_path,
-        message_text="Here's a test file from Agent1"
-    )
-    
-    # Wait for file to be processed
     await asyncio.sleep(2)
     
-    # Broadcast a message from Agent1 to all agents
-    print("Broadcasting message from Agent1...")
-    await agent1_messaging.broadcast_text_message(
-        text="Broadcast message from Agent1 to everyone!"
-    )
-    
-    # Wait for broadcast to be processed
-    await asyncio.sleep(1)
-    
-    # Clean up
-    await agent1.disconnect()
-    await agent2.disconnect()
-    network.stop()
-    print("Disconnected agents and stopped network")
+    try:
+        # Send a direct text message from Agent1 to Agent2
+        print("\nSending text message from Agent1 to Agent2...")
+        await agent1_messaging.send_text_message(
+            target_agent_id="Agent2",
+            text="Hello from Agent1!"
+        )
+        
+        # Wait for message to be processed
+        await asyncio.sleep(2)
+        
+        # Send a direct text message from Agent2 to Agent1
+        print("\nSending text message from Agent2 to Agent1...")
+        await agent2_messaging.send_text_message(
+            target_agent_id="Agent1",
+            text="Hello back from Agent2!"
+        )
+        
+        # Wait for message to be processed
+        await asyncio.sleep(2)
+        
+        # Create a test file for file transfer
+        test_file_path = create_test_file()
+        print(f"\nCreated test file at {test_file_path}")
+        
+        # Send a file from Agent1 to Agent2
+        print("\nSending file from Agent1 to Agent2...")
+        await agent1_messaging.send_file(
+            target_agent_id="Agent2",
+            file_path=test_file_path,
+            message_text="Here's a test file from Agent1"
+        )
+        
+        # Wait for file to be processed
+        await asyncio.sleep(3)
+        
+        # Broadcast a message from Agent1 to all agents
+        print("\nBroadcasting message from Agent1...")
+        await agent1_messaging.broadcast_text_message(
+            text="Broadcast message from Agent1 to everyone!"
+        )
+        
+        # Wait for broadcast to be processed
+        await asyncio.sleep(2)
+        
+        print("\nExample completed successfully! Press Ctrl+C to exit.")
+        
+        # Keep the connections open until user interrupts
+        while True:
+            await asyncio.sleep(1)
+            
+    except asyncio.CancelledError:
+        print("Example interrupted by user.")
+    finally:
+        # Clean up
+        print("\nCleaning up connections...")
+        if agent1:
+            await agent1.disconnect()
+        if agent2:
+            await agent2.disconnect()
+        network.stop()
+        print("Disconnected agents and stopped network")
+
+def handle_interrupt(sig, frame):
+    print("\nInterrupted by user. Shutting down...")
+    sys.exit(0)
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    # Register signal handler for clean shutdown
+    signal.signal(signal.SIGINT, handle_interrupt)
+    
+    try:
+        asyncio.run(run_example())
+    except KeyboardInterrupt:
+        print("\nExiting...")
+    except Exception as e:
+        print(f"Error: {e}") 

@@ -105,7 +105,7 @@ class NetworkConnector:
         try:
             while self.is_connected:
                 message = await self.connection.recv()
-                data = json.loads(message)
+                data = json.loads(message).get("data", {})
                 message_obj = parse_message_dict(data)
                 
                 logger.debug(f"Received message from {message_obj.sender_id} with ID {message_obj.message_id}")
@@ -168,3 +168,30 @@ class NetworkConnector:
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
             return False
+    
+    async def send_direct_message(self, message: DirectMessage) -> bool:
+        """Send a direct message to another agent.
+        
+        Args:
+            message: Direct message to send
+        """
+        return await self.send_message(message)
+    
+    async def send_broadcast_message(self, message: BroadcastMessage) -> bool:
+        """Send a broadcast message to all connected agents.
+        
+        Args:
+            message: Broadcast message to send
+
+        Returns:
+            bool: True if message sent successfully, False otherwise
+        """
+        return await self.send_message(message)
+    
+    async def send_protocol_message(self, message: ProtocolMessage) -> bool:
+        """Send a protocol message to another agent.
+        
+        Args:
+            message: Protocol message to send
+        """
+        return await self.send_message(message)
