@@ -1,7 +1,7 @@
 import time
 from openagents.core.network import AgentNetwork
 from openagents.core.agent import Agent
-from openagents.protocols.communication.messaging.network_protocol import MessagingProtocol
+from openagents.protocols.communication.messaging.network import MessagingProtocol
 
 def run_server():
     # Create a network with server mode enabled

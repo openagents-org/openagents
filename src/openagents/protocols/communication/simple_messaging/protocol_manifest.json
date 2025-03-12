@@ -1,0 +1,32 @@
+{
+    "protocol_name": "simple_messaging",
+    "version": "1.0.0",
+    "description": "A simple messaging protocol for OpenAgents that supports direct and broadcast messaging with text and file attachments",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_protocol_adapter": "SimpleMessagingAgentProtocol",
+    "network_protocol": "SimpleMessagingNetworkProtocol",
+    "capabilities": [
+        "direct_messaging",
+        "broadcast_messaging",
+        "file_transfer"
+    ],
+    "dependencies": [],
+    "configuration": {
+        "max_file_size": 10485760,
+        "supported_mime_types": [
+            "text/plain",
+            "text/html",
+            "application/json",
+            "application/xml",
+            "application/pdf",
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "audio/mpeg",
+            "video/mp4",
+            "application/zip",
+            "application/gzip"
+        ]
+    }
+} 
