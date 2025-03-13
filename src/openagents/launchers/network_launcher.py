@@ -197,7 +197,7 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
     
     try:
         if runtime is None:
-            # Run indefinitely until shutdown event is set
+            # Run indefinitely until shutdown event is set 
             logging.info("Network running indefinitely. Press Ctrl+C to stop.")
             await shutdown_event.wait()
         else:

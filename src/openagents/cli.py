@@ -10,7 +10,8 @@ import sys
 import logging
 from typing import List, Optional
 
-from openagents.cli.network_launcher import launch_network
+from openagents.launchers.network_launcher import launch_network
+from openagents.launchers.terminal_console import launch_console
 
 
 def setup_logging(level: str = "INFO") -> None:
@@ -33,17 +34,22 @@ def setup_logging(level: str = "INFO") -> None:
     )
 
 
-def network_command(args: argparse.Namespace) -> None:
-    """Handle network subcommand.
+def launch_network_command(args: argparse.Namespace) -> None:
+    """Handle launch-network command.
     
     Args:
         args: Command-line arguments
     """
-    if args.network_action == "launch":
-        launch_network(args.config, args.runtime)
-    else:
-        print(f"Unknown network action: {args.network_action}")
-        sys.exit(1)
+    launch_network(args.config, args.runtime)
+
+
+def connect_command(args: argparse.Namespace) -> None:
+    """Handle connect command.
+    
+    Args:
+        args: Command-line arguments
+    """
+    launch_console(args.ip, args.port, args.id)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -64,14 +70,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
-    # Network command
-    network_parser = subparsers.add_parser("network", help="Network management commands")
-    network_subparsers = network_parser.add_subparsers(dest="network_action", help="Network action")
+    # Launch network command
+    launch_network_parser = subparsers.add_parser("launch-network", help="Launch a network")
+    launch_network_parser.add_argument("config", help="Path to network configuration file")
+    launch_network_parser.add_argument("--runtime", type=int, help="Runtime in seconds (default: run indefinitely)")
     
-    # Network launch command
-    launch_parser = network_subparsers.add_parser("launch", help="Launch a network")
-    launch_parser.add_argument("config", help="Path to network configuration file")
-    launch_parser.add_argument("--runtime", type=int, help="Runtime in seconds (default: run indefinitely)")
+    # Connect command
+    connect_parser = subparsers.add_parser("connect", help="Connect to a network server")
+    connect_parser.add_argument("--ip", required=True, help="Server IP address")
+    connect_parser.add_argument("--port", type=int, default=8765, help="Server port (default: 8765)")
+    connect_parser.add_argument("--id", help="Agent ID (default: auto-generated)")
     
     # Parse arguments
     args = parser.parse_args(argv)
@@ -80,8 +88,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     setup_logging(args.log_level)
     
     try:
-        if args.command == "network":
-            network_command(args)
+        if args.command == "launch-network":
+            launch_network_command(args)
+        elif args.command == "connect":
+            connect_command(args)
         else:
             parser.print_help()
             return 1

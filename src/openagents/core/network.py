@@ -158,13 +158,7 @@ class Network:
                                 await self._handle_protocol_message(message_obj)
                             else:
                                 logger.warning(f"Received unknown message type from {agent_id}: {message_obj.message_type}")
-                        elif data.get("type") == "heartbeat":
-                            # Handle heartbeat message
-                            await websocket.send(json.dumps({
-                                "type": "heartbeat_response",
-                                "timestamp": asyncio.get_event_loop().time()
-                            }))
-                            logger.debug(f"Received heartbeat from {agent_id}")
+
                         
                 except ConnectionClosed:
                     logger.info(f"Connection closed for agent {agent_id}")
@@ -263,21 +257,21 @@ class Network:
                 current_time = asyncio.get_event_loop().time()
                 inactive_agents = []
                 
-                # Find inactive agents
-                for agent_id, connection in self.connections.items():
-                    if current_time - connection.last_activity > MAX_INACTIVE_TIME:
-                        inactive_agents.append(agent_id)
+                # # Find inactive agents
+                # for agent_id, connection in self.connections.items():
+                #     if current_time - connection.last_activity > MAX_INACTIVE_TIME:
+                #         inactive_agents.append(agent_id)
                 
-                # Remove inactive agents
-                for agent_id in inactive_agents:
-                    logger.info(f"Removing inactive agent {agent_id}")
-                    if agent_id in self.connections:
-                        try:
-                            await self.connections[agent_id].connection.close()
-                        except:
-                            pass
-                        del self.connections[agent_id]
-                        self.unregister_agent(agent_id)
+                # # Remove inactive agents
+                # for agent_id in inactive_agents:
+                #     logger.info(f"Removing inactive agent {agent_id}")
+                #     if agent_id in self.connections:
+                #         try:
+                #             await self.connections[agent_id].connection.close()
+                #         except:
+                #             pass
+                #         del self.connections[agent_id]
+                #         self.unregister_agent(agent_id)
                 
                 await asyncio.sleep(CLEANUP_INTERVAL)
             except Exception as e:
