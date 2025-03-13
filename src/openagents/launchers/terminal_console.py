@@ -8,10 +8,11 @@ A simple terminal console for interacting with an OpenAgents network.
 import asyncio
 import logging
 import uuid
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from openagents.core.agent_adapter import AgentAdapter
 from openagents.models.messages import DirectMessage, BroadcastMessage
+from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,10 @@ class ConsoleAgent:
             # Register message handlers
             self.agent.connector.register_message_handler("direct_message", self._handle_direct_message)
             self.agent.connector.register_message_handler("broadcast_message", self._handle_broadcast_message)
+            
+            # Register system response handlers
+            self.agent.register_agent_list_callback(self._handle_agent_list)
+            self.agent.register_protocol_list_callback(self._handle_protocol_list)
         
         return success
     
@@ -115,6 +120,46 @@ class ConsoleAgent:
         await self.agent.send_broadcast_message(message)
         return True
     
+    async def list_agents(self) -> bool:
+        """Request a list of agents from the network server.
+        
+        Returns:
+            bool: True if request was sent successfully
+        """
+        if not self.connected:
+            print("Not connected to a network server")
+            return False
+        
+        return await self.agent.send_system_request(LIST_AGENTS)
+    
+    async def list_protocols(self) -> bool:
+        """Request a list of protocols from the network server.
+        
+        Returns:
+            bool: True if request was sent successfully
+        """
+        if not self.connected:
+            print("Not connected to a network server")
+            return False
+        
+        return await self.agent.send_system_request(LIST_PROTOCOLS)
+    
+    async def send_system_request(self, command: str, **kwargs) -> bool:
+        """Send a system request to the network server.
+        
+        Args:
+            command: The system command to send
+            **kwargs: Additional parameters for the command
+            
+        Returns:
+            bool: True if request was sent successfully
+        """
+        if not self.connected:
+            print("Not connected to a network server")
+            return False
+        
+        return await self.agent.send_system_request(command, **kwargs)
+    
     async def _handle_direct_message(self, message: DirectMessage) -> None:
         """Handle a direct message from another agent.
         
@@ -148,6 +193,37 @@ class ConsoleAgent:
         # Display the message
         print(f"\n[Broadcast from {sender_id}]: {content}")
         print("> ", end="", flush=True)
+    
+    async def _handle_agent_list(self, agents: List[Dict[str, Any]]) -> None:
+        """Handle an agent list response.
+        
+        Args:
+            agents: List of agent information
+        """
+        print("\nConnected Agents:")
+        print("----------------")
+        for agent in agents:
+            agent_id = agent.get("agent_id", "Unknown")
+            name = agent.get("name", agent_id)
+            connected = agent.get("connected", False)
+            status = "Connected" if connected else "Disconnected"
+            print(f"- {name} ({agent_id}): {status}")
+        print("> ", end="", flush=True)
+    
+    async def _handle_protocol_list(self, protocols: List[Dict[str, Any]]) -> None:
+        """Handle a protocol list response.
+        
+        Args:
+            protocols: List of protocol information
+        """
+        print("\nAvailable Protocols:")
+        print("------------------")
+        for protocol in protocols:
+            name = protocol.get("name", "Unknown")
+            description = protocol.get("description", "No description available")
+            version = protocol.get("version", "1.0.0")
+            print(f"- {name} (v{version}): {description}")
+        print("> ", end="", flush=True)
 
 
 async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> None:
@@ -174,6 +250,8 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> N
     print("Commands:")
     print("  /quit - Exit the console")
     print("  /dm <agent_id> <message> - Send a direct message")
+    print("  /agents - List connected agents")
+    print("  /protocols - List available protocols")
     print("  /help - Show this help message")
     
     # Main console loop
@@ -194,6 +272,8 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> N
                 print("Commands:")
                 print("  /quit - Exit the console")
                 print("  /dm <agent_id> <message> - Send a direct message")
+                print("  /agents - List connected agents")
+                print("  /protocols - List available protocols")
                 print("  /help - Show this help message")
             
             elif user_input.startswith("/dm "):
@@ -206,6 +286,16 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> N
                 target_id, message = parts
                 await console_agent.send_direct_message(target_id, message)
                 print(f"[DM to {target_id}]: {message}")
+            
+            elif user_input.startswith("/agents"):
+                # List agents
+                await console_agent.list_agents()
+                print("Requesting agent list...")
+            
+            elif user_input.startswith("/protocols"):
+                # List protocols
+                await console_agent.list_protocols()
+                print("Requesting protocol list...")
             
             else:
                 # Send a broadcast message
