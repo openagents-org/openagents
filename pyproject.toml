@@ -36,7 +36,7 @@ Repository = "https://github.com/bestagents/openagents"
 Issues = "https://github.com/bestagents/openagents/issues"
 
 [project.scripts]
-openagents = "openagents.cli.main:main"
+openagents = "openagents.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
