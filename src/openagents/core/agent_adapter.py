@@ -5,7 +5,7 @@ from .connector import NetworkConnector
 from openagents.models.messages import BaseMessage
 from openagents.core.base_protocol_adapter import BaseProtocolAdapter
 from openagents.models.messages import DirectMessage, BroadcastMessage, ProtocolMessage
-from .system_commands import LIST_AGENTS, LIST_PROTOCOLS
+from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS
 
 logger = logging.getLogger(__name__)
 
