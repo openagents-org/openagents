@@ -1,10 +1,12 @@
-from typing import Dict, Any, List, Optional, Set, Type
+from typing import Dict, Any, List, Optional, Set, Type, Callable, Awaitable
 import uuid
 import logging
 from .connector import NetworkConnector
 from openagents.models.messages import BaseMessage
 from openagents.core.base_protocol_adapter import BaseProtocolAdapter
 from openagents.models.messages import DirectMessage, BroadcastMessage, ProtocolMessage
+from .system_commands import LIST_AGENTS, LIST_PROTOCOLS
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,6 +26,8 @@ class AgentAdapter:
         self.agent_id = agent_id or "Agent-" + str(uuid.uuid4())[:8]
         self.protocol_adapters: Dict[str, BaseProtocolAdapter] = {}
         self.connector: Optional[NetworkConnector] = None
+        self._agent_list_callbacks: List[Callable[[List[Dict[str, Any]]], Awaitable[None]]] = []
+        self._protocol_list_callbacks: List[Callable[[List[Dict[str, Any]]], Awaitable[None]]] = []
 
         # Register protocols if provided
         if protocol_adapters:
@@ -60,6 +64,10 @@ class AgentAdapter:
             self.connector.register_message_handler("direct_message", self._handle_direct_message)
             self.connector.register_message_handler("broadcast_message", self._handle_broadcast_message)
             self.connector.register_message_handler("protocol_message", self._handle_protocol_message)
+            
+            # Register system command handlers
+            self.connector.register_system_handler(LIST_AGENTS, self._handle_list_agents_response)
+            self.connector.register_system_handler(LIST_PROTOCOLS, self._handle_list_protocols_response)
         
         return success
     
@@ -151,6 +159,86 @@ class AgentAdapter:
                 break
         if processed_message is not None:
             await self.connector.send_message(processed_message)
+    
+    async def send_system_request(self, command: str, **kwargs) -> bool:
+        """Send a system request to the network server.
+        
+        Args:
+            command: The system command to send
+            **kwargs: Additional parameters for the command
+            
+        Returns:
+            bool: True if request was sent successfully
+        """
+        if self.connector is None:
+            logger.warning(f"Agent {self.agent_id} is not connected to a network")
+            return False
+        
+        return await self.connector.send_system_request(command, **kwargs)
+    
+    async def list_agents(self) -> bool:
+        """Request a list of agents from the network server.
+        
+        Returns:
+            bool: True if request was sent successfully
+        """
+        return await self.send_system_request(LIST_AGENTS)
+    
+    async def list_protocols(self) -> bool:
+        """Request a list of protocols from the network server.
+        
+        Returns:
+            bool: True if request was sent successfully
+        """
+        return await self.send_system_request(LIST_PROTOCOLS)
+    
+    def register_agent_list_callback(self, callback: Callable[[List[Dict[str, Any]]], Awaitable[None]]) -> None:
+        """Register a callback for agent list responses.
+        
+        Args:
+            callback: Async function to call when an agent list is received
+        """
+        self._agent_list_callbacks.append(callback)
+    
+    def register_protocol_list_callback(self, callback: Callable[[List[Dict[str, Any]]], Awaitable[None]]) -> None:
+        """Register a callback for protocol list responses.
+        
+        Args:
+            callback: Async function to call when a protocol list is received
+        """
+        self._protocol_list_callbacks.append(callback)
+    
+    async def _handle_list_agents_response(self, data: Dict[str, Any]) -> None:
+        """Handle a list_agents response from the network server.
+        
+        Args:
+            data: Response data
+        """
+        agents = data.get("agents", [])
+        logger.debug(f"Received list of {len(agents)} agents")
+        
+        # Call registered callbacks
+        for callback in self._agent_list_callbacks:
+            try:
+                await callback(agents)
+            except Exception as e:
+                logger.error(f"Error in agent list callback: {e}")
+    
+    async def _handle_list_protocols_response(self, data: Dict[str, Any]) -> None:
+        """Handle a list_protocols response from the network server.
+        
+        Args:
+            data: Response data
+        """
+        protocols = data.get("protocols", [])
+        logger.debug(f"Received list of {len(protocols)} protocols")
+        
+        # Call registered callbacks
+        for callback in self._protocol_list_callbacks:
+            try:
+                await callback(protocols)
+            except Exception as e:
+                logger.error(f"Error in protocol list callback: {e}")
     
     async def _handle_direct_message(self, message: DirectMessage) -> None:
         """Handle a direct message from another agent.

@@ -15,6 +15,15 @@ from openagents.models.messages import (
 )
 from openagents.utils.message_util import parse_message_dict
 from pydantic import BaseModel, ConfigDict
+from .system_commands import (
+    SystemCommandRegistry, 
+    handle_register_agent,
+    handle_list_agents,
+    handle_list_protocols,
+    REGISTER_AGENT,
+    LIST_AGENTS,
+    LIST_PROTOCOLS
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +63,27 @@ class Network:
         self.agents: Dict[str, Dict[str, Any]] = {}  # agent_id -> metadata
         self.is_running = False
         self.server = None
+        
+        # Initialize system command registry
+        self.system_command_registry = SystemCommandRegistry()
+        self._register_system_command_handlers()
+    
+    def _register_system_command_handlers(self) -> None:
+        """Register handlers for system commands."""
+        # Wrap handlers to include network instance
+        async def wrapped_register_agent(command: str, data: Dict[str, Any], connection: ServerConnection) -> None:
+            await handle_register_agent(command, data, connection, self)
+            
+        async def wrapped_list_agents(command: str, data: Dict[str, Any], connection: ServerConnection) -> None:
+            await handle_list_agents(command, data, connection, self)
+            
+        async def wrapped_list_protocols(command: str, data: Dict[str, Any], connection: ServerConnection) -> None:
+            await handle_list_protocols(command, data, connection, self)
+        
+        # Register handlers
+        self.system_command_registry.register_handler(REGISTER_AGENT, wrapped_register_agent)
+        self.system_command_registry.register_handler(LIST_AGENTS, wrapped_list_agents)
+        self.system_command_registry.register_handler(LIST_PROTOCOLS, wrapped_list_protocols)
     
     def register_protocol(self, protocol: BaseProtocol) -> bool:
         """Register a protocol with this network.
@@ -89,48 +119,13 @@ class Network:
             message = await websocket.recv()
             data = json.loads(message)
             
-            if data.get("type") == "openagents_register":
-                # Extract agent information
+            # Handle initial system request for registration
+            if data.get("type") == "system_request" and data.get("command") == REGISTER_AGENT:
+                # Extract agent ID for later use
                 agent_id = data.get("agent_id")
-                metadata = data.get("metadata", {})
                 
-                if not agent_id:
-                    logger.error("Registration message missing agent_id")
-                    await websocket.close(1008, "Missing agent_id")
-                    return
-                
-                # Check if agent is already registered
-                if agent_id in self.connections:
-                    logger.warning(f"Agent {agent_id} is already connected to the network")
-                    await websocket.send(json.dumps({
-                        "type": "openagents_register_response",
-                        "success": False,
-                        "error": "Agent with this ID is already connected to the network"
-                    }))
-                    await websocket.close(1008, "Duplicate agent ID")
-                    return
-                
-                logger.info(f"Received registration from agent {agent_id}")
-                
-                # Store connection
-                self.connections[agent_id] = AgentConnection(
-                    agent_id=agent_id,
-                    connection=websocket,
-                    metadata=metadata,
-                    last_activity=asyncio.get_event_loop().time()
-                )
-                
-                # Register agent metadata
-                self.register_agent(agent_id, metadata)
-                
-                # Send registration response
-                await websocket.send(json.dumps({
-                    "type": "openagents_register_response",
-                    "success": True,
-                    "network_name": self.network_name,
-                    "network_id": self.network_id,
-                    "metadata": self.metadata
-                }))
+                # Handle registration using the system command registry
+                await self.system_command_registry.handle_command(REGISTER_AGENT, data, websocket)
                 
                 # Handle messages from this connection
                 try:
@@ -158,7 +153,21 @@ class Network:
                                 await self._handle_protocol_message(message_obj)
                             else:
                                 logger.warning(f"Received unknown message type from {agent_id}: {message_obj.message_type}")
-
+                        
+                        elif data.get("type") == "system_request":
+                            # Add agent_id to the data for handlers
+                            data["agent_id"] = agent_id
+                            
+                            # Handle system requests using the registry
+                            command = data.get("command")
+                            if not await self.system_command_registry.handle_command(command, data, websocket):
+                                logger.warning(f"Received unknown system command from {agent_id}: {command}")
+                                await websocket.send(json.dumps({
+                                    "type": "system_response",
+                                    "command": command,
+                                    "success": False,
+                                    "error": f"Unknown command: {command}"
+                                }))
                         
                 except ConnectionClosed:
                     logger.info(f"Connection closed for agent {agent_id}")
