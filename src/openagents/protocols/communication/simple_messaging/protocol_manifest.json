@@ -4,15 +4,15 @@
     "description": "A simple messaging protocol for OpenAgents that supports direct and broadcast messaging with text and file attachments",
     "authors": ["OpenAgents Team"],
     "license": "MIT",
-    "agent_protocol_adapter": "SimpleMessagingAgentProtocol",
+    "agent_adapter": "SimpleMessagingAgentAdapter",
     "network_protocol": "SimpleMessagingNetworkProtocol",
     "capabilities": [
-        "direct_messaging",
-        "broadcast_messaging",
-        "file_transfer"
+        "simple_direct_messaging",
+        "simple_broadcast_messaging",
+        "simple_file_transfer"
     ],
     "dependencies": [],
-    "configuration": {
+    "metadata": {
         "max_file_size": 10485760,
         "supported_mime_types": [
             "text/plain",

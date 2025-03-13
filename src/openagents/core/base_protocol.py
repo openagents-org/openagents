@@ -63,16 +63,6 @@ class BaseProtocol(ABC):
         """
         return self._network
         
-    @property
-    def capabilities(self) -> List[str]:
-        """Get the capabilities provided by this protocol.
-        
-        Returns:
-            List[str]: List of capability identifiers
-        """
-        return []
-
-    
     def bind_network(self, network) -> bool:
         """Register this protocol with a network.
         
