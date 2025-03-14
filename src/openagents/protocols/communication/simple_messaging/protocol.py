@@ -345,7 +345,7 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
             await self.network.send_protocol_message(response)
             logger.error(f"Error deleting file {file_id} for agent {agent_id}: {e}")
     
-    def get_network_state(self) -> Dict[str, Any]:
+    def get_state(self) -> Dict[str, Any]:
         """Get the current state of the Simple Messaging protocol.
         
         Returns:

@@ -168,17 +168,52 @@ async def handle_list_protocols(command: str, data: Dict[str, Any], connection: 
     if requesting_agent_id not in network_instance.connections:
         logger.warning(f"Agent {requesting_agent_id} not connected")
         return
-        
+    
+    # Get all unique protocol names from both protocols and protocol_manifests
+    all_protocol_names = set(network_instance.protocols.keys())
+    
+    # Add protocol names from manifests if they exist
+    if hasattr(network_instance, "protocol_manifests"):
+        all_protocol_names.update(network_instance.protocol_manifests.keys())
+    
     # Prepare protocol list with relevant information
     protocol_list = []
-    for protocol_name, protocol in network_instance.protocols.items():
+    
+    for protocol_name in all_protocol_names:
         protocol_info = {
             "name": protocol_name,
-            "description": getattr(protocol, "description", "No description available"),
-            "version": getattr(protocol, "version", "1.0.0")
+            "description": "No description available",
+            "version": "1.0.0",
+            "requires_adapter": False,
+            "capabilities": []
         }
-        protocol_list.append(protocol_info)
         
+        # Add implementation-specific information if available
+        if protocol_name in network_instance.protocols:
+            protocol = network_instance.protocols[protocol_name]
+            protocol_info.update({
+                "description": getattr(protocol, "description", protocol_info["description"]),
+                "version": getattr(protocol, "version", protocol_info["version"]),
+                "requires_adapter": getattr(protocol, "requires_adapter", protocol_info["requires_adapter"]),
+                "capabilities": getattr(protocol, "capabilities", protocol_info["capabilities"]),
+                "implementation": protocol.__class__.__module__ + "." + protocol.__class__.__name__
+            })
+        
+        # Add manifest information if available (overriding implementation info)
+        if protocol_name in network_instance.protocol_manifests:
+            manifest = network_instance.protocol_manifests[protocol_name]
+            protocol_info.update({
+                "version": manifest.version,
+                "description": manifest.description,
+                "capabilities": manifest.capabilities,
+                "authors": manifest.authors,
+                "license": manifest.license,
+                "requires_adapter": manifest.requires_adapter,
+                "network_protocol_class": manifest.network_protocol_class
+            })
+        
+        protocol_list.append(protocol_info)
+    
     # Send response
     try:
         await connection.send(json.dumps({
@@ -190,6 +225,74 @@ async def handle_list_protocols(command: str, data: Dict[str, Any], connection: 
         logger.debug(f"Sent protocol list to {requesting_agent_id}")
     except Exception as e:
         logger.error(f"Failed to send protocol list to {requesting_agent_id}: {e}")
+
+
+async def handle_get_protocol_manifest(command: str, data: Dict[str, Any], connection: ServerConnection,
+                                     network_instance: Any) -> None:
+    """Handle the get_protocol_manifest command.
+    
+    Args:
+        command: The command name
+        data: The command data
+        connection: The WebSocket connection
+        network_instance: The network instance
+    """
+    requesting_agent_id = data.get("agent_id")
+    protocol_name = data.get("protocol_name")
+    
+    if requesting_agent_id not in network_instance.connections:
+        logger.warning(f"Agent {requesting_agent_id} not connected")
+        return
+    
+    if not protocol_name:
+        await connection.send(json.dumps({
+            "type": "system_response",
+            "command": "get_protocol_manifest",
+            "success": False,
+            "error": "Missing protocol_name parameter"
+        }))
+        return
+    
+    # Check if we have a manifest for this protocol
+    if protocol_name in network_instance.protocol_manifests:
+        manifest = network_instance.protocol_manifests[protocol_name]
+        
+        # Convert manifest to dict for JSON serialization
+        manifest_dict = manifest.model_dump()
+        
+        await connection.send(json.dumps({
+            "type": "system_response",
+            "command": "get_protocol_manifest",
+            "success": True,
+            "protocol_name": protocol_name,
+            "manifest": manifest_dict
+        }))
+        logger.debug(f"Sent protocol manifest for {protocol_name} to {requesting_agent_id}")
+    else:
+        # Try to load the manifest if it's not already loaded
+        manifest = network_instance.load_protocol_manifest(protocol_name)
+        
+        if manifest:
+            # Convert manifest to dict for JSON serialization
+            manifest_dict = manifest.model_dump()
+            
+            await connection.send(json.dumps({
+                "type": "system_response",
+                "command": "get_protocol_manifest",
+                "success": True,
+                "protocol_name": protocol_name,
+                "manifest": manifest_dict
+            }))
+            logger.debug(f"Loaded and sent protocol manifest for {protocol_name} to {requesting_agent_id}")
+        else:
+            await connection.send(json.dumps({
+                "type": "system_response",
+                "command": "get_protocol_manifest",
+                "success": False,
+                "protocol_name": protocol_name,
+                "error": f"No manifest found for protocol {protocol_name}"
+            }))
+            logger.warning(f"No manifest found for protocol {protocol_name}")
 
 
 # Client-side command handling
@@ -223,6 +326,7 @@ async def send_system_request(connection: ServerConnection, command: str, **kwar
 REGISTER_AGENT = "register_agent"
 LIST_AGENTS = "list_agents"
 LIST_PROTOCOLS = "list_protocols"
+GET_PROTOCOL_MANIFEST = "get_protocol_manifest"
 
 # Default system command registry
 default_registry = SystemCommandRegistry() 

@@ -20,7 +20,8 @@ from openagents.core.network import Network
 from openagents.core.agent_adapter import AgentAdapter
 from openagents.core.base_protocol import BaseProtocol
 from openagents.core.base_protocol_adapter import BaseProtocolAdapter
-from openagents.models.config import OpenAgentsConfig, NetworkConfig, AgentConfig, ProtocolConfig
+from openagents.models.manifest import ProtocolManifest
+from openagents.models.network_config import OpenAgentsConfig, NetworkConfig, AgentConfig, ProtocolConfig
 
 
 def load_config(config_path: str) -> OpenAgentsConfig:
@@ -47,36 +48,6 @@ def load_config(config_path: str) -> OpenAgentsConfig:
         raise ValueError(f"Invalid configuration: {e}")
 
 
-def instantiate_protocol(protocol_config: ProtocolConfig, agent_id: Optional[str] = None) -> Any:
-    """Instantiate a protocol from its configuration.
-    
-    Args:
-        protocol_config: Protocol configuration
-        agent_id: Optional agent ID for agent protocols
-        
-    Returns:
-        Protocol instance
-    """
-    protocol_type = protocol_config.type
-    
-    # Import the protocol class
-    try:
-        module_path, class_name = protocol_type.rsplit(".", 1)
-        module = importlib.import_module(module_path)
-        protocol_class = getattr(module, class_name)
-    except (ValueError, ImportError, AttributeError) as e:
-        raise ImportError(f"Failed to import protocol class {protocol_type}: {e}")
-    
-    # Instantiate the protocol
-    config = protocol_config.config
-    if agent_id is not None:
-        # Agent protocol adapter
-        return protocol_class()
-    else:
-        # Network protocol
-        return protocol_class()
-
-
 def create_network(network_config: NetworkConfig) -> Network:
     """Create a network from a configuration.
     
@@ -98,15 +69,19 @@ def create_network(network_config: NetworkConfig) -> Network:
             continue
             
         try:
-            protocol_instance = instantiate_protocol(protocol_config)
-            protocol_name = protocol_config.name or protocol_instance.__class__.__name__
-            
-            if network.register_protocol(protocol_instance):
+            protocol_name = protocol_config.name
+            if not protocol_name:
+                logging.error("Protocol configuration missing name")
+                continue
+                
+            # Register the protocol by name
+            if network.register_protocol(protocol_name):
                 logging.info(f"Registered protocol {protocol_name} with network {network.network_name}")
             else:
                 logging.error(f"Failed to register protocol {protocol_name} with network {network.network_name}")
+                
         except Exception as e:
-            logging.error(f"Failed to register protocol {protocol_config.type} with network {network.network_name}: {e}")
+            logging.error(f"Failed to register protocol {protocol_config.name} with network {network.network_name}: {e}")
     
     return network
 
@@ -124,7 +99,12 @@ async def create_agents(agent_configs: List[AgentConfig], network: Network) -> L
     agents = []
     
     for agent_config in agent_configs:
-        agent = AgentAdapter(agent_id=agent_config.name)
+        agent_name = agent_config.name
+        if not agent_name:
+            logging.error("Agent configuration missing name")
+            continue
+            
+        agent = AgentAdapter(agent_id=agent_name)
         
         # Register agent protocol adapters
         for protocol_config in agent_config.protocols:
@@ -132,32 +112,48 @@ async def create_agents(agent_configs: List[AgentConfig], network: Network) -> L
                 continue
                 
             try:
-                protocol_instance = instantiate_protocol(protocol_config, agent.agent_id)
-                protocol_name = protocol_config.name or protocol_instance.__class__.__name__
+                adapter_name = protocol_config.name
+                if not adapter_name:
+                    logging.error("Adapter configuration missing name")
+                    continue
                 
-                if agent.register_protocol_adapter(protocol_instance):
-                    logging.info(f"Registered protocol adapter {protocol_name} with agent {agent.agent_id}")
+                # Construct the adapter class path
+                adapter_class_path = f"openagents.protocols.{adapter_name}.adapter"
+                
+                # Import the adapter class
+                try:
+                    module = importlib.import_module(adapter_class_path)
+                    adapter_class = getattr(module, "Adapter")
+                except (ImportError, AttributeError) as e:
+                    logging.error(f"Failed to import adapter class from {adapter_class_path}: {e}")
+                    continue
+                
+                # Instantiate the adapter
+                adapter_instance = adapter_class()
+                
+                if agent.register_protocol_adapter(adapter_instance):
+                    logging.info(f"Registered protocol adapter {adapter_name} with agent {agent.agent_id}")
                 else:
-                    logging.error(f"Failed to register protocol adapter {protocol_name} with agent {agent.agent_id}")
+                    logging.error(f"Failed to register protocol adapter {adapter_name} with agent {agent.agent_id}")
             except Exception as e:
-                logging.error(f"Failed to register protocol adapter {protocol_config.type} with agent {agent.agent_id}: {e}")
+                logging.error(f"Failed to register protocol adapter {protocol_config.name} with agent {agent.agent_id}: {e}")
         
         # Connect to network
         success = await agent.connect_to_server(
             host=network.host,
             port=network.port,
             metadata={
-                "name": agent_config.name,
+                "name": agent_name,
                 "services": agent_config.services,
                 "subscriptions": agent_config.subscriptions
             }
         )
         
         if success:
-            logging.info(f"Agent {agent_config.name} connected to network {network.network_name}")
+            logging.info(f"Agent {agent_name} connected to network {network.network_name}")
             agents.append(agent)
         else:
-            logging.error(f"Failed to connect agent {agent_config.name} to network {network.network_name}")
+            logging.error(f"Failed to connect agent {agent_name} to network {network.network_name}")
     
     return agents
 

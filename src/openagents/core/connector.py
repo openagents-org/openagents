@@ -8,7 +8,7 @@ from websockets.exceptions import ConnectionClosed
 from openagents.utils.message_util import parse_message_dict
 from openagents.models.messages import BaseMessage, BroadcastMessage, DirectMessage, ProtocolMessage
 from .system_commands import send_system_request as send_system_request_impl
-from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_PROTOCOLS
+from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST
 
 logger = logging.getLogger(__name__)
 
@@ -254,3 +254,14 @@ class NetworkConnector:
             bool: True if request was sent successfully
         """
         return await self.send_system_request(LIST_PROTOCOLS)
+
+    async def get_protocol_manifest(self, protocol_name: str) -> bool:
+        """Request a protocol manifest from the network server.
+        
+        Args:
+            protocol_name: Name of the protocol to get the manifest for
+            
+        Returns:
+            bool: True if request was sent successfully
+        """
+        return await self.send_system_request(GET_PROTOCOL_MANIFEST, protocol_name=protocol_name)

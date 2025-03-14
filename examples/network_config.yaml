@@ -4,17 +4,15 @@
 network:
   name: "ExampleNetwork"
   protocols:
-    - type: "openagents.protocols.communication.simple_messaging.protocol.SimpleMessagingNetworkProtocol"
-      name: "SimpleMessaging"
+    - name: "openagents.protocols.communication.simple_messaging"
       enabled: true
       config: {}
 
 # Service agents configuration
 service_agents:
   - name: "Agent1"
-    protocols:
-      - type: "openagents.protocols.communication.simple_messaging.adapter.SimpleMessagingAgentAdapter"
-        name: "SimpleMessaging"
+    adapters:
+      - name: "openagents.protocols.communication.simple_messaging"
         enabled: true
         config: {}
     services:
@@ -24,11 +22,10 @@ service_agents:
       - "general"
 
   - name: "Agent2"
-    protocols:
-      - type: "openagents.protocols.communication.simple_messaging.adapter.SimpleMessagingAgentAdapter"
-        name: "SimpleMessaging"
+    adapters:
+      - name: "openagents.protocols.communication.simple_messaging"
         enabled: true
         config: {}
     services: []
     subscriptions:
-      - "general" 
+      - "general"   

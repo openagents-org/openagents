@@ -7,8 +7,7 @@ from pydantic import BaseModel, Field, validator
 class ProtocolConfig(BaseModel):
     """Base configuration for a protocol."""
     
-    type: str = Field(..., description="Fully qualified class name of the protocol")
-    name: Optional[str] = Field(None, description="Optional name for the protocol instance")
+    name: str = Field(..., description="Protocol name")
     enabled: bool = Field(True, description="Whether the protocol is enabled")
     config: Dict[str, Any] = Field(default_factory=dict, description="Protocol-specific configuration")
 
