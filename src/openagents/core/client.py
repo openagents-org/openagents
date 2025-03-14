@@ -10,7 +10,7 @@ from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS, GET_PRO
 logger = logging.getLogger(__name__)
 
 
-class OpenAgentsClient:
+class AgentClient:
     """Core client implementation for OpenAgents.
     
     A client that can connect to a network server and communicate with other agents.

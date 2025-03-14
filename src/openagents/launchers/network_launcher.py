@@ -16,8 +16,8 @@ import importlib
 import signal
 from typing import Dict, Any, List, Optional, Set
 
-from openagents.core.network import Network
-from openagents.core.client import AgentAdapter
+from openagents.core.network import AgentNetworkServer
+from openagents.core.client import AgentClient
 from openagents.core.base_protocol import BaseProtocol
 from openagents.core.base_protocol_adapter import BaseProtocolAdapter
 from openagents.models.manifest import ProtocolManifest
@@ -48,16 +48,16 @@ def load_config(config_path: str) -> OpenAgentsConfig:
         raise ValueError(f"Invalid configuration: {e}")
 
 
-def create_network(network_config: NetworkConfig) -> Network:
+def create_network(network_config: NetworkConfig) -> AgentNetworkServer:
     """Create a network from a configuration.
     
     Args:
         network_config: Network configuration
         
     Returns:
-        Network: Configured network instance
+        AgentNetworkServer: Configured network instance
     """
-    network = Network(
+    network = AgentNetworkServer(
         network_name=network_config.name,
         host="127.0.0.1",
         port=8765
@@ -86,7 +86,7 @@ def create_network(network_config: NetworkConfig) -> Network:
     return network
 
 
-async def create_agents(agent_configs: List[AgentConfig], network: Network) -> List[AgentAdapter]:
+async def create_agents(agent_configs: List[AgentConfig], network: AgentNetworkServer) -> List[AgentClient]:
     """Create agents from configurations and connect them to a network.
     
     Args:
@@ -94,7 +94,7 @@ async def create_agents(agent_configs: List[AgentConfig], network: Network) -> L
         network: Network to connect to
         
     Returns:
-        List[AgentAdapter]: List of configured and connected agents
+        List[AgentClient]: List of configured and connected agents
     """
     agents = []
     
@@ -104,7 +104,7 @@ async def create_agents(agent_configs: List[AgentConfig], network: Network) -> L
             logging.error("Agent configuration missing name")
             continue
             
-        agent = AgentAdapter(agent_id=agent_name)
+        agent = AgentClient(agent_id=agent_name)
         
         # Register agent protocol adapters
         for protocol_config in agent_config.protocols:

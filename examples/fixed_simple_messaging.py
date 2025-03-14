@@ -16,9 +16,9 @@ import signal
 import sys
 from pathlib import Path
 
-from openagents.core.client import AgentAdapter
-from openagents.core.network import Network
-from openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
+from openagents.core.client import AgentClient
+from openagents.core.network import AgentNetworkServer
+from openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentClient
 from openagents.protocols.communication.simple_messaging.protocol import SimpleMessagingNetworkProtocol
 
 # Configure logging
@@ -43,7 +43,7 @@ def file_handler(file_id, file_content, metadata, sender_id):
 async def setup_network():
     """Set up and start the network server."""
     # Create and start the network server
-    network = Network(
+    network = AgentNetworkServer(
         network_name="SimpleMessagingNetwork",
         host="127.0.0.1",
         port=8765
@@ -64,10 +64,10 @@ async def setup_network():
 async def setup_agent(agent_id, network_host, network_port):
     """Set up an agent with the simple messaging protocol."""
     # Create the agent
-    agent = AgentAdapter(agent_id=agent_id)
+    agent = AgentClient(agent_id=agent_id)
     
     # Create and register the simple messaging protocol adapter with the agent
-    messaging_adapter = SimpleMessagingAgentAdapter()
+    messaging_adapter = SimpleMessagingAgentClient()
     agent.register_protocol_adapter(messaging_adapter)
     
     # Register message and file handlers

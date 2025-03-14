@@ -18,9 +18,9 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-from openagents.core.client import AgentAdapter
-from openagents.core.network import Network
-from openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
+from openagents.core.client import AgentClient
+from openagents.core.network import AgentNetworkServer
+from openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentClient
 from openagents.protocols.communication.simple_messaging.protocol import SimpleMessagingNetworkProtocol
 
 # Configure logging
@@ -70,10 +70,10 @@ class ChatAgent:
     async def connect(self):
         """Connect to the network server."""
         # Create the agent
-        self.agent = AgentAdapter(agent_id=self.agent_id)
+        self.agent = AgentClient(agent_id=self.agent_id)
         
         # Create and register the simple messaging protocol adapter
-        self.messaging = SimpleMessagingAgentAdapter()
+        self.messaging = SimpleMessagingAgentClient()
         self.agent.register_protocol_adapter(self.messaging)
         
         # Register message and file handlers
@@ -281,7 +281,7 @@ class ChatServer:
     def start(self):
         """Start the chat server."""
         # Create the network
-        self.network = Network(
+        self.network = AgentNetworkServer(
             network_name="ChatNetwork",
             host=self.host,
             port=self.port

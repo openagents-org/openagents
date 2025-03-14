@@ -10,7 +10,7 @@ import logging
 import uuid
 from typing import Dict, Any, Optional, List
 
-from openagents.core.client import AgentAdapter
+from openagents.core.client import AgentClient
 from openagents.models.messages import DirectMessage, BroadcastMessage
 from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST
 
@@ -31,7 +31,7 @@ class ConsoleAgent:
         self.agent_id = agent_id
         self.host = host
         self.port = port
-        self.agent = AgentAdapter(agent_id=agent_id)
+        self.agent = AgentClient(agent_id=agent_id)
         self.connected = False
         self.users = {}  # agent_id -> name
         

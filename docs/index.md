@@ -41,12 +41,12 @@ pip install openagents
 
 ```python
 from openagents.core.agent import Agent
-from openagents.core.network import Network
+from openagents.core.network import AgentNetworkServer
 from openagents.protocols.discovery import DiscoveryNetworkProtocol, DiscoveryAgentProtocol
 from openagents.protocols.communication import CommunicationNetworkProtocol, CommunicationAgentProtocol
 
 # Create network
-network = Network(name="MyNetwork")
+network = AgentNetworkServer(name="MyNetwork")
 network.register_protocol(DiscoveryNetworkProtocol())
 network.register_protocol(CommunicationNetworkProtocol())
 network.start()

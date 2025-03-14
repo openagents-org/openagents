@@ -6,10 +6,10 @@ A network-based multi-agent framework where agents connect to a central server f
 
 1. Start a network server:
 ```python
-from openagents.core.network import Network
+from openagents.core.network import AgentNetworkServer
 
 # Create and start server
-network = Network(host="127.0.0.1", port=8765)
+network = AgentNetworkServer(host="127.0.0.1", port=8765)
 network.run()
 ```
 

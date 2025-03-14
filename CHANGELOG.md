@@ -11,7 +11,7 @@ All notable changes to the OpenAgents project will be documented in this file.
 
 ### Changed
 - Updated network_launcher.py to use modern websockets API
-- Replaced Agent with AgentAdapter in imports
+- Replaced Agent with AgentClient in imports
 - Updated protocol instantiation to use correct classes
 
 ### Fixed

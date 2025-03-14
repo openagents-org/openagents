@@ -1,10 +1,10 @@
 import asyncio
-from openagents.core.network import Network
+from openagents.core.network import AgentNetworkServer
 from openagents.core.agent import Agent
 
 async def run_example():
     # Start network server
-    network = Network(name="ExampleNetwork", host="127.0.0.1", port=8765)
+    network = AgentNetworkServer(name="ExampleNetwork", host="127.0.0.1", port=8765)
     
     # Start server in background
     server_task = asyncio.create_task(network.run())

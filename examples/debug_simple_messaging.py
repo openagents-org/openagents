@@ -16,9 +16,9 @@ import signal
 import sys
 import time
 
-from openagents.core.client import AgentAdapter
-from openagents.core.network import Network
-from openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
+from openagents.core.client import AgentClient
+from openagents.core.network import AgentNetworkServer
+from openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentClient
 from openagents.protocols.communication.simple_messaging.protocol import SimpleMessagingNetworkProtocol
 
 # Configure logging
@@ -35,7 +35,7 @@ async def debug_connector():
     print("Starting debug session...")
     
     # Create and start the network server
-    network = Network(
+    network = AgentNetworkServer(
         network_name="DebugNetwork",
         host="127.0.0.1",
         port=8765
@@ -52,10 +52,10 @@ async def debug_connector():
     await asyncio.sleep(1)
     
     # Create the first agent
-    agent1 = AgentAdapter(agent_id="Agent1")
+    agent1 = AgentClient(agent_id="Agent1")
     
     # Create and register the simple messaging protocol adapter with the agent
-    agent1_messaging = SimpleMessagingAgentAdapter()
+    agent1_messaging = SimpleMessagingAgentClient()
     agent1.register_protocol_adapter(agent1_messaging)
     
     # Register message handler
@@ -76,10 +76,10 @@ async def debug_connector():
         print(f"Agent1 messaging connector: {agent1_messaging.connector}")
         
         # Create the second agent
-        agent2 = AgentAdapter(agent_id="Agent2")
+        agent2 = AgentClient(agent_id="Agent2")
         
         # Create and register the simple messaging protocol adapter with the agent
-        agent2_messaging = SimpleMessagingAgentAdapter()
+        agent2_messaging = SimpleMessagingAgentClient()
         agent2.register_protocol_adapter(agent2_messaging)
         
         # Register message handler
