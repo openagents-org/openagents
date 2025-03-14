@@ -654,6 +654,14 @@ class AgentNetworkServer:
         """
         return self.agents
     
+    def get_connected_agents(self) -> Dict[str, Any]:
+        """Get all agents currently connected to this network.
+        
+        Returns:
+            Dict[str, Any]: Dictionary of agent IDs to connection objects
+        """
+        return self.connections
+    
     def get_state(self) -> Dict[str, Any]:
         """Get the current state of this network across all protocols.
         

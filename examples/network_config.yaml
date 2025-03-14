@@ -33,6 +33,7 @@ service_agents:
 network_profile:
   discoverable: true
   network_id: "network-12345678"
+  management_token: "12345678"
   name: "ExampleNetwork"
   description: "Example network for testing"
   icon: "https://example.com/icon.png"
