@@ -1,0 +1,25 @@
+{
+    "protocol_name": "agent_discovery",
+    "version": "1.0.0",
+    "description": "A protocol that allows agents to announce their capabilities and for other agents to discover agents with specific capabilities",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "AgentDiscoveryAdapter",
+    "network_protocol_class": "AgentDiscoveryProtocol",
+    "capabilities": [
+        "capability_announcement",
+        "capability_discovery",
+        "capability_matching"
+    ],
+    "requires_adapter": true,
+    "dependencies": [],
+    "metadata": {
+        "supported_capability_types": [
+            "service",
+            "skill",
+            "knowledge",
+            "resource",
+            "tool"
+        ]
+    }
+} 
