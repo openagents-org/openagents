@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, List
 
 from openagents.core.agent_adapter import AgentAdapter
 from openagents.models.messages import DirectMessage, BroadcastMessage
-from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS
+from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +59,7 @@ class ConsoleAgent:
             # Register system response handlers
             self.agent.register_agent_list_callback(self._handle_agent_list)
             self.agent.register_protocol_list_callback(self._handle_protocol_list)
+            self.agent.register_protocol_manifest_callback(self._handle_protocol_manifest)
         
         return success
     
@@ -144,6 +145,21 @@ class ConsoleAgent:
         
         return await self.agent.send_system_request(LIST_PROTOCOLS)
     
+    async def get_protocol_manifest(self, protocol_name: str) -> bool:
+        """Request a protocol manifest from the network server.
+        
+        Args:
+            protocol_name: Name of the protocol to get the manifest for
+            
+        Returns:
+            bool: True if request was sent successfully
+        """
+        if not self.connected:
+            print("Not connected to a network server")
+            return False
+        
+        return await self.agent.get_protocol_manifest(protocol_name)
+    
     async def send_system_request(self, command: str, **kwargs) -> bool:
         """Send a system request to the network server.
         
@@ -224,6 +240,81 @@ class ConsoleAgent:
             version = protocol.get("version", "1.0.0")
             print(f"- {name} (v{version}): {description}")
         print("> ", end="", flush=True)
+    
+    async def _handle_protocol_manifest(self, data: Dict[str, Any]) -> None:
+        """Handle a protocol manifest response.
+        
+        Args:
+            data: Protocol manifest data
+        """
+        success = data.get("success", False)
+        protocol_name = data.get("protocol_name", "unknown")
+        
+        if success:
+            manifest = data.get("manifest", {})
+            print(f"\nProtocol Manifest for {protocol_name}:")
+            print("-" * (len(protocol_name) + 22))
+            
+            # Display manifest information in a readable format
+            print(f"Version: {manifest.get('version', 'Not specified')}")
+            print(f"Description: {manifest.get('description', 'Not specified')}")
+            
+            if manifest.get('capabilities'):
+                print("\nCapabilities:")
+                for capability in manifest.get('capabilities', []):
+                    print(f"- {capability}")
+            
+            if manifest.get('dependencies'):
+                print("\nDependencies:")
+                for dependency in manifest.get('dependencies', []):
+                    print(f"- {dependency}")
+            
+            if manifest.get('authors'):
+                print("\nAuthors:")
+                for author in manifest.get('authors', []):
+                    print(f"- {author}")
+            
+            if manifest.get('license'):
+                print(f"\nLicense: {manifest.get('license')}")
+            
+            if manifest.get('network_protocol_class'):
+                print(f"\nNetwork Protocol Class: {manifest.get('network_protocol_class')}")
+            
+            if manifest.get('agent_protocol_class'):
+                print(f"\nAgent Protocol Class: {manifest.get('agent_protocol_class')}")
+            
+            if manifest.get('agent_adapter_class'):
+                print(f"\nAgent Adapter Class: {manifest.get('agent_adapter_class')}")
+            
+            if manifest.get('requires_adapter'):
+                print(f"\nRequires Adapter: {manifest.get('requires_adapter')}")
+            
+            if manifest.get('metadata'):
+                print("\nMetadata:")
+                for key, value in manifest.get('metadata', {}).items():
+                    print(f"- {key}: {value}")
+            
+            if manifest.get('default_config'):
+                print("\nDefault Configuration:")
+                for key, value in manifest.get('default_config', {}).items():
+                    print(f"- {key}: {value}")
+        else:
+            error = data.get("error", "Unknown error")
+            print(f"\nFailed to get manifest for protocol {protocol_name}: {error}")
+        
+        print("> ", end="", flush=True)
+
+
+def show_help_menu() -> None:
+    """Display the help menu with available commands."""
+    print("Commands:")
+    print("  /quit - Exit the console")
+    print("  /dm <agent_id> <message> - Send a direct message")
+    print("  /broadcast <message> - Send a broadcast message")
+    print("  /agents - List connected agents")
+    print("  /protocols - List available protocols")
+    print("  /manifest <protocol_name> - Get protocol manifest")
+    print("  /help - Show this help message")
 
 
 async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> None:
@@ -247,12 +338,7 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> N
     
     print(f"Connected to network server as {agent_id}")
     print("Type your messages and press Enter to send.")
-    print("Commands:")
-    print("  /quit - Exit the console")
-    print("  /dm <agent_id> <message> - Send a direct message")
-    print("  /agents - List connected agents")
-    print("  /protocols - List available protocols")
-    print("  /help - Show this help message")
+    show_help_menu()
     
     # Main console loop
     try:
@@ -269,12 +355,7 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> N
             
             elif user_input.startswith("/help"):
                 # Show help
-                print("Commands:")
-                print("  /quit - Exit the console")
-                print("  /dm <agent_id> <message> - Send a direct message")
-                print("  /agents - List connected agents")
-                print("  /protocols - List available protocols")
-                print("  /help - Show this help message")
+                show_help_menu()
             
             elif user_input.startswith("/dm "):
                 # Send a direct message
@@ -287,6 +368,16 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> N
                 await console_agent.send_direct_message(target_id, message)
                 print(f"[DM to {target_id}]: {message}")
             
+            elif user_input.startswith("/broadcast "):
+                # Send a broadcast message
+                message = user_input[11:].strip()
+                if not message:
+                    print("Usage: /broadcast <message>")
+                    continue
+                
+                await console_agent.send_broadcast_message(message)
+                print(f"[Broadcast]: {message}")
+            
             elif user_input.startswith("/agents"):
                 # List agents
                 await console_agent.list_agents()
@@ -297,10 +388,21 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> N
                 await console_agent.list_protocols()
                 print("Requesting protocol list...")
             
+            elif user_input.startswith("/manifest "):
+                # Get protocol manifest
+                protocol_name = user_input[10:].strip()
+                if not protocol_name:
+                    print("Usage: /manifest <protocol_name>")
+                    continue
+                
+                await console_agent.get_protocol_manifest(protocol_name)
+                print(f"Requesting manifest for protocol {protocol_name}...")
+            
             else:
-                # Send a broadcast message
-                await console_agent.send_broadcast_message(user_input)
-                print(f"[Broadcast]: {user_input}")
+                # Inform user about available commands
+                print("Unknown command. Available commands:")
+                show_help_menu()
+                print("To send a broadcast message, use /broadcast <message>")
     
     except KeyboardInterrupt:
         print("\nExiting...")

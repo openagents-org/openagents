@@ -4,6 +4,8 @@ import logging
 from .base_protocol import BaseProtocol
 import json
 import asyncio
+import os
+import importlib
 import websockets
 from websockets.asyncio.server import serve, ServerConnection
 from websockets.exceptions import ConnectionClosed
@@ -13,6 +15,7 @@ from openagents.models.messages import (
     BroadcastMessage,
     ProtocolMessage
 )
+from openagents.models.manifest import ProtocolManifest
 from openagents.utils.message_util import parse_message_dict
 from pydantic import BaseModel, ConfigDict
 from .system_commands import (
@@ -20,9 +23,11 @@ from .system_commands import (
     handle_register_agent,
     handle_list_agents,
     handle_list_protocols,
+    handle_get_protocol_manifest,
     REGISTER_AGENT,
     LIST_AGENTS,
-    LIST_PROTOCOLS
+    LIST_PROTOCOLS,
+    GET_PROTOCOL_MANIFEST
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +64,7 @@ class Network:
         self.port = port
         self.metadata = metadata or {}
         self.protocols: Dict[str, BaseProtocol] = {}
+        self.protocol_manifests: Dict[str, ProtocolManifest] = {}
         self.connections: Dict[str, AgentConnection] = {}  # agent_id -> connection
         self.agents: Dict[str, Dict[str, Any]] = {}  # agent_id -> metadata
         self.is_running = False
@@ -80,30 +86,146 @@ class Network:
         async def wrapped_list_protocols(command: str, data: Dict[str, Any], connection: ServerConnection) -> None:
             await handle_list_protocols(command, data, connection, self)
         
+        async def wrapped_get_protocol_manifest(command: str, data: Dict[str, Any], connection: ServerConnection) -> None:
+            await handle_get_protocol_manifest(command, data, connection, self)
+        
         # Register handlers
         self.system_command_registry.register_handler(REGISTER_AGENT, wrapped_register_agent)
         self.system_command_registry.register_handler(LIST_AGENTS, wrapped_list_agents)
         self.system_command_registry.register_handler(LIST_PROTOCOLS, wrapped_list_protocols)
+        self.system_command_registry.register_handler(GET_PROTOCOL_MANIFEST, wrapped_get_protocol_manifest)
     
-    def register_protocol(self, protocol: BaseProtocol) -> bool:
-        """Register a protocol with this network.
+    def load_protocol_manifest(self, protocol_name: str) -> Optional[ProtocolManifest]:
+        """Load a protocol manifest based on the protocol name.
         
         Args:
-            protocol: Protocol to register
+            protocol_name: Name of the protocol to load
+            
+        Returns:
+            Optional[ProtocolManifest]: Protocol manifest if found, None otherwise
+        """
+        # protocol_name will be something like openagents.protocols.communication.simple_messaging
+        logger.debug(f"Looking for manifest for protocol {protocol_name}")
+
+        # Try to find the module path
+        if protocol_name.startswith('openagents.'):
+            module_path = protocol_name
+        else:
+            module_path = f"openagents.protocols.{protocol_name}"
+        
+        # Try to import the module to get its file path
+        loaded_manifest = None
+        try:
+            module = importlib.import_module(module_path)
+            module_dir = os.path.dirname(os.path.abspath(module.__file__))
+            logger.debug(f"Found module directory for {protocol_name}: {module_dir}")
+            
+            # Look for protocol_manifest.json in the module directory
+            manifest_path = os.path.join(module_dir, "protocol_manifest.json")
+            logger.debug(f"Looking for manifest at {manifest_path}")
+            if os.path.exists(manifest_path):
+                logger.debug(f"Found manifest file at {manifest_path}")
+                try:
+                    with open(manifest_path, 'r') as f:
+                        manifest = ProtocolManifest.model_validate_json(f.read())
+                        logger.info(f"Loaded manifest for protocol {protocol_name}")
+                        loaded_manifest = manifest
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON in manifest for {protocol_name}: {e}")
+                except IOError as e:
+                    logger.error(f"IO error reading manifest for {protocol_name}: {e}")
+                except ValueError as e:
+                    logger.error(f"Value error parsing manifest for {protocol_name}: {e}")
+            else:
+                logger.debug(f"No manifest file found at {manifest_path}")
+        except ImportError as e:
+            logger.debug(f"Could not import module {module_path}: {e}")
+        except AttributeError as e:
+            logger.debug(f"Module {module_path} has no __file__ attribute: {e}")
+        
+        return loaded_manifest
+        
+    def register_protocol(self, protocol_name: str, config: Optional[Dict[str, Any]] = None) -> bool:
+        """Register a protocol with this network by name.
+        
+        Args:
+            protocol_name: Name of the protocol to register (can be in dot notation, e.g., 'communication.simple_messaging')
             
         Returns:
             bool: True if registration was successful
         """
-        protocol_name = protocol.__class__.__name__
-        
         if protocol_name in self.protocols:
             logger.warning(f"Protocol {protocol_name} already registered")
             return False
+
+        manifest = self.load_protocol_manifest(protocol_name)
+        if manifest is None:
+            logger.error(f"Failed to load manifest for protocol {protocol_name}")
+            return False
         
-        protocol.bind_network(self)
-        self.protocols[protocol_name] = protocol
+        protocol_class_name = manifest.network_protocol_class
+        if protocol_class_name is None:
+            logger.error(f"No protocol class found in manifest for protocol {protocol_name}")
+            return False
+        
+        # Import the protocol class
+        try:
+            # Extract the module path from the protocol name
+            module_path = f"{protocol_name}.protocol"
+            logger.debug(f"Attempting to import protocol class from {module_path}")
+            
+            # Import the module
+            module = importlib.import_module(module_path)
+            
+            # Get the protocol class from the module
+            class_name = protocol_class_name.split('.')[-1]
+            protocol_class = getattr(module, class_name)
+            logger.debug(f"Successfully imported protocol class: {class_name} from {module_path}")
+        except ImportError as e:
+            logger.error(f"Failed to import protocol module {module_path}: {e}")
+            return False
+        except AttributeError as e:
+            logger.error(f"Protocol class {class_name} not found in module {module_path}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error importing protocol class: {e}")
+            return False
+        
+        # Instantiate the protocol
+        try:
+            protocol_instance = protocol_class()
+            logger.debug(f"Successfully instantiated protocol: {protocol_name}")
+        except Exception as e:
+            logger.error(f"Error instantiating protocol class: {e}")
+            raise
+        
+        # Bind the protocol to this network
+        try:
+            protocol_instance.bind_network(self)
+            logger.debug(f"Successfully bound protocol to network: {protocol_name}")
+        except Exception as e:
+            logger.error(f"Error binding protocol to network: {e}")
+            raise
+        
+        # Update the protocol config with the default config
+        try:
+            protocol_instance.update_config(manifest.default_config)
+        except Exception as e:
+            logger.error(f"Error updating default protocol config: {e}")
+            raise
+        
+        if config is not None:
+            try:
+                protocol_instance.update_config(config)
+            except Exception as e:
+                logger.error(f"Error updating protocol config: {e}")
+                raise
+            
+        self.protocols[protocol_name] = protocol_instance
+        self.protocol_manifests[protocol_name] = manifest
         logger.info(f"Registered protocol {protocol_name}")
         return True
+      
     
     async def handle_connection(self, websocket: ServerConnection) -> None:
         """Handle a new WebSocket connection.
@@ -245,9 +367,14 @@ class Network:
         """Run the WebSocket server."""
         self.server = await serve(self.handle_connection, self.host, self.port)
         logger.info(f"Network server running on {self.host}:{self.port}")
+
+        # Initialize all protocols
+        for protocol in self.protocols.values():
+            protocol.initialize()
         
         # Start inactive agent cleanup task
-        asyncio.create_task(self._cleanup_inactive_agents())
+        # This functionality is disabled for now as it's not needed
+        # asyncio.create_task(self._cleanup_inactive_agents())
         
         try:
             await self.server.wait_closed()
@@ -294,6 +421,10 @@ class Network:
             return
             
         self.is_running = False
+
+        # Shutdown all protocols
+        for protocol in self.protocols.values():
+            protocol.shutdown()
         
         # Close all connections
         for connection_info in self.connections.values():
@@ -535,11 +666,36 @@ class Network:
             "is_running": self.is_running,
             "agent_count": len(self.agents),
             "connected_count": len(self.connections),
-            "protocols": {}
+            "protocols": {},
+            "protocol_manifests": {}
         }
         
+        # Add protocol states
         for protocol_name, protocol in self.protocols.items():
+            protocol_state = {}
             if hasattr(protocol, "get_network_state"):
-                state["protocols"][protocol_name] = protocol.get_network_state()
+                protocol_state = protocol.get_network_state()
+            
+            # Add implementation information
+            protocol_state.update({
+                "implementation": protocol.__class__.__module__ + "." + protocol.__class__.__name__,
+                "description": getattr(protocol, "description", "No description available"),
+                "version": getattr(protocol, "version", "1.0.0")
+            })
+            
+            state["protocols"][protocol_name] = protocol_state
+        
+        # Add protocol manifest information
+        for protocol_name, manifest in self.protocol_manifests.items():
+            state["protocol_manifests"][protocol_name] = {
+                "name": manifest.name,
+                "version": manifest.version,
+                "description": manifest.description,
+                "capabilities": manifest.capabilities,
+                "authors": manifest.authors,
+                "license": manifest.license,
+                "network_protocol_class": manifest.network_protocol_class,
+                "requires_adapter": manifest.requires_adapter
+            }
         
         return state

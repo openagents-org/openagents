@@ -22,11 +22,11 @@ class BaseProtocol(ABC):
         
         Args:
             name: Name for the protocol
-            config: Optional configuration dictionary
         """
         self._protocol_name = protocol_name
         self._network = None  # Will be set when registered with a network
-        
+        self._config = {}
+
         logger.info(f"Initializing network protocol {self.protocol_name}")
     
     def initialize(self) -> bool:
@@ -53,7 +53,16 @@ class BaseProtocol(ABC):
             str: The name of the protocol
         """
         return self._protocol_name
-    
+
+    @property
+    def config(self) -> Dict[str, Any]:
+        """Get the configuration for the protocol.
+        
+        Returns:
+            Dict[str, Any]: The configuration for the protocol
+        """
+        return self._config
+
     @property
     def network(self) -> Optional["Network"]:
         """Get the network this protocol is registered with.
@@ -99,13 +108,21 @@ class BaseProtocol(ABC):
         """
         return True
 
-    def get_network_state(self) -> Dict[str, Any]:
-        """Get the current state of the network for this protocol.
+    def get_state(self) -> Dict[str, Any]:
+        """Get the current state of the protocol.
         
         Returns:
             Dict[str, Any]: Current network state
         """
         return {}
+    
+    def update_config(self, config: Dict[str, Any]) -> None:
+        """Update the configuration for the protocol.
+        
+        Args:
+            config: The configuration to update
+        """
+        self._config.update(config)
 
     async def process_protocol_message(self, message: ProtocolMessage) -> None:
         """Process a message sent to this protocol.

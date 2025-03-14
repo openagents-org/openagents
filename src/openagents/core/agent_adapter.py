@@ -5,7 +5,7 @@ from .connector import NetworkConnector
 from openagents.models.messages import BaseMessage
 from openagents.core.base_protocol_adapter import BaseProtocolAdapter
 from openagents.models.messages import DirectMessage, BroadcastMessage, ProtocolMessage
-from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS
+from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ class AgentAdapter:
         self.connector: Optional[NetworkConnector] = None
         self._agent_list_callbacks: List[Callable[[List[Dict[str, Any]]], Awaitable[None]]] = []
         self._protocol_list_callbacks: List[Callable[[List[Dict[str, Any]]], Awaitable[None]]] = []
+        self._protocol_manifest_callbacks: List[Callable[[Dict[str, Any]], Awaitable[None]]] = []
 
         # Register protocols if provided
         if protocol_adapters:
@@ -68,6 +69,7 @@ class AgentAdapter:
             # Register system command handlers
             self.connector.register_system_handler(LIST_AGENTS, self._handle_list_agents_response)
             self.connector.register_system_handler(LIST_PROTOCOLS, self._handle_list_protocols_response)
+            self.connector.register_system_handler(GET_PROTOCOL_MANIFEST, self._handle_protocol_manifest_response)
         
         return success
     
@@ -192,6 +194,17 @@ class AgentAdapter:
         """
         return await self.send_system_request(LIST_PROTOCOLS)
     
+    async def get_protocol_manifest(self, protocol_name: str) -> bool:
+        """Request a protocol manifest from the network server.
+        
+        Args:
+            protocol_name: Name of the protocol to get the manifest for
+            
+        Returns:
+            bool: True if request was sent successfully
+        """
+        return await self.send_system_request(GET_PROTOCOL_MANIFEST, protocol_name=protocol_name)
+    
     def register_agent_list_callback(self, callback: Callable[[List[Dict[str, Any]]], Awaitable[None]]) -> None:
         """Register a callback for agent list responses.
         
@@ -207,6 +220,14 @@ class AgentAdapter:
             callback: Async function to call when a protocol list is received
         """
         self._protocol_list_callbacks.append(callback)
+    
+    def register_protocol_manifest_callback(self, callback: Callable[[Dict[str, Any]], Awaitable[None]]) -> None:
+        """Register a callback for protocol manifest responses.
+        
+        Args:
+            callback: Async function to call when a protocol manifest is received
+        """
+        self._protocol_manifest_callbacks.append(callback)
     
     async def _handle_list_agents_response(self, data: Dict[str, Any]) -> None:
         """Handle a list_agents response from the network server.
@@ -239,6 +260,30 @@ class AgentAdapter:
                 await callback(protocols)
             except Exception as e:
                 logger.error(f"Error in protocol list callback: {e}")
+    
+    async def _handle_protocol_manifest_response(self, data: Dict[str, Any]) -> None:
+        """Handle a get_protocol_manifest response from the network server.
+        
+        Args:
+            data: Response data
+        """
+        success = data.get("success", False)
+        protocol_name = data.get("protocol_name", "unknown")
+        
+        if success:
+            manifest = data.get("manifest", {})
+            logger.debug(f"Received manifest for protocol {protocol_name}")
+        else:
+            error = data.get("error", "Unknown error")
+            logger.warning(f"Failed to get manifest for protocol {protocol_name}: {error}")
+            manifest = {}
+        
+        # Call registered callbacks
+        for callback in self._protocol_manifest_callbacks:
+            try:
+                await callback(data)
+            except Exception as e:
+                logger.error(f"Error in protocol manifest callback: {e}")
     
     async def _handle_direct_message(self, message: DirectMessage) -> None:
         """Handle a direct message from another agent.
