@@ -16,7 +16,7 @@ import signal
 import sys
 from pathlib import Path
 
-from openagents.core.agent_adapter import AgentAdapter
+from openagents.core.client import AgentAdapter
 from openagents.core.network import Network
 from openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
 from openagents.protocols.communication.simple_messaging.protocol import SimpleMessagingNetworkProtocol

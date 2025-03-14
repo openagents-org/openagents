@@ -10,7 +10,7 @@ import logging
 import uuid
 from typing import Dict, Any, Optional, List
 
-from openagents.core.agent_adapter import AgentAdapter
+from openagents.core.client import AgentAdapter
 from openagents.models.messages import DirectMessage, BroadcastMessage
 from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST
 
