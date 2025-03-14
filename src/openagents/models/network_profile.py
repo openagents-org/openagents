@@ -6,7 +6,7 @@ the characteristics and capabilities of OpenAgents networks.
 
 from typing import List, Optional, Dict, Any, Literal
 import uuid
-from pydantic import BaseModel, Field, HttpUrl, constr, validator
+from pydantic import BaseModel, Field, validator
 from packaging import version
 
 class NetworkAuthentication(BaseModel):
@@ -64,12 +64,12 @@ class NetworkProfile(BaseModel):
         description="A description of the network's purpose and capabilities"
     )
     
-    icon: Optional[HttpUrl] = Field(
+    icon: Optional[str] = Field(
         None,
         description="URL to the network's icon image"
     )
     
-    website: Optional[HttpUrl] = Field(
+    website: Optional[str] = Field(
         None,
         description="URL to the network's website"
     )
