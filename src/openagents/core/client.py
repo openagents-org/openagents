@@ -10,10 +10,10 @@ from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS, GET_PRO
 logger = logging.getLogger(__name__)
 
 
-class AgentAdapter:
-    """Core agent implementation for OpenAgents.
+class OpenAgentsClient:
+    """Core client implementation for OpenAgents.
     
-    An agent that can connect to a network server and communicate with other agents.
+    A client that can connect to a network server and communicate with other agents.
     """
     
     def __init__(self, agent_id: Optional[str] = None, protocol_adapters: Optional[List[BaseProtocolAdapter]] = None):

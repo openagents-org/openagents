@@ -16,7 +16,7 @@ import signal
 import time
 import gc
 
-from src.openagents.core.agent_adapter import AgentAdapter
+from src.openagents.core.client import AgentAdapter
 from src.openagents.core.network import Network
 from src.openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
 from src.openagents.protocols.communication.simple_messaging.protocol import SimpleMessagingNetworkProtocol

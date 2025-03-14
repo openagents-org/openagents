@@ -17,7 +17,7 @@ import signal
 from typing import Dict, Any, List, Optional, Set
 
 from openagents.core.network import Network
-from openagents.core.agent_adapter import AgentAdapter
+from openagents.core.client import AgentAdapter
 from openagents.core.base_protocol import BaseProtocol
 from openagents.core.base_protocol_adapter import BaseProtocolAdapter
 from openagents.models.manifest import ProtocolManifest
