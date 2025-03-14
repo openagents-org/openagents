@@ -59,10 +59,13 @@ def create_network(network_config: NetworkConfig) -> AgentNetworkServer:
     Returns:
         AgentNetworkServer: Configured network instance
     """
+    port = 8765
+    if network_config.profile.port:
+        port = network_config.profile.port
     network = AgentNetworkServer(
         network_name=network_config.name,
-        host="127.0.0.1",
-        port=8765
+        host="0.0.0.0",
+        port=port
     )
     
     # Register network protocols
