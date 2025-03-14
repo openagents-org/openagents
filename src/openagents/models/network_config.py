@@ -2,7 +2,7 @@
 
 from typing import Dict, List, Optional, Any, Union
 from pydantic import BaseModel, Field, validator
-
+from openagents.models.network_profile import NetworkProfile
 
 class ProtocolConfig(BaseModel):
     """Base configuration for a protocol."""
@@ -57,3 +57,4 @@ class OpenAgentsConfig(BaseModel):
     
     network: NetworkConfig = Field(..., description="Network configuration")
     service_agents: List[AgentConfig] = Field(default_factory=list, description="Service agent configurations") 
+    network_profile: Optional[NetworkProfile] = Field(None, description="Network profile")
