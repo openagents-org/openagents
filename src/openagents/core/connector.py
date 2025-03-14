@@ -181,7 +181,6 @@ class NetworkConnector:
                 message.sender_id = self.agent_id
             
             if isinstance(message, ProtocolMessage):
-                message.direction = "outbound"
                 message.relevant_agent_id = self.agent_id
                 
             # Send the message
@@ -222,6 +221,71 @@ class NetworkConnector:
             message: Protocol message to send
         """
         return await self.send_message(message)
+    
+    async def wait_protocol_message(self, protocol_name: str, filter_dict: Optional[Dict[str, Any]] = None, timeout: float = 5.0) -> Optional[ProtocolMessage]:
+        """Wait for a protocol message from the specified protocol that matches the filter criteria.
+        
+        Args:
+            protocol_name: The protocol name to match
+            filter_dict: Optional dictionary of key-value pairs to match in the message content
+            timeout: Maximum time to wait for a response in seconds
+            
+        Returns:
+            Optional[ProtocolMessage]: The matching message, or None if no matching message received within timeout
+        """
+        if not self.is_connected:
+            logger.warning(f"Agent {self.agent_id} is not connected to a network")
+            return None
+            
+        # Create a future to store the response
+        response_future = asyncio.Future()
+        
+        # Store the original handler
+        original_handler = self.message_handlers.get("protocol_message")
+        
+        async def temp_protocol_handler(msg: ProtocolMessage) -> None:
+            # Check if this is the message we're waiting for
+            if (msg.protocol == protocol_name and 
+                msg.relevant_agent_id == self.agent_id):
+                
+                # If filter_dict is provided, check if all key-value pairs match in the content
+                if filter_dict:
+                    matches = True
+                    for key, value in filter_dict.items():
+                        if key not in msg.content or msg.content[key] != value:
+                            matches = False
+                            break
+                    
+                    if matches:
+                        response_future.set_result(msg)
+                    elif original_handler:
+                        await original_handler(msg)
+                else:
+                    # No filter, accept any message from this protocol
+                    response_future.set_result(msg)
+            # Otherwise, pass to the original handler if it exists
+            elif original_handler:
+                await original_handler(msg)
+        
+        # Register the temporary handler
+        self.message_handlers["protocol_message"] = temp_protocol_handler
+        
+        try:
+            # Wait for the response with timeout
+            try:
+                response = await asyncio.wait_for(response_future, timeout)
+                return response
+            except asyncio.TimeoutError:
+                filter_str = f" with filter {filter_dict}" if filter_dict else ""
+                logger.warning(f"Timeout waiting for protocol message: {protocol_name}{filter_str}")
+                return None
+                
+        finally:
+            # Restore the original handler
+            if original_handler:
+                self.message_handlers["protocol_message"] = original_handler
+            else:
+                self.message_handlers.pop("protocol_message", None)
     
     async def send_system_request(self, command: str, **kwargs) -> bool:
         """Send a system request to the network server.
