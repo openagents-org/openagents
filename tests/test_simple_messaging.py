@@ -162,7 +162,8 @@ class TestSimpleMessaging:
         
         # Register the simple messaging protocol with the network
         protocol = SimpleMessagingNetworkProtocol()
-        self.network.register_protocol(protocol)
+        # Register the protocol directly
+        self.network.protocols["simple_messaging"] = protocol
         
         # Store the protocol for direct access in tests
         self.network_protocol = protocol
