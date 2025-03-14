@@ -104,11 +104,14 @@ def create_network_profile(config: OpenAgentsConfig, network: AgentNetworkServer
         profile_dict = config.network_profile.dict()
         
         # Ensure the network name matches
-        profile_dict['name'] = network.network_name
+        if not profile_dict['name']:
+            profile_dict['name'] = network.network_name
         
         # Ensure host and port are set correctly
-        profile_dict['host'] = network.host
-        profile_dict['port'] = network.port
+        if not profile_dict['host']:
+            profile_dict['host'] = network.host
+        if not profile_dict['port']:
+            profile_dict['port'] = network.port
         
         # Create a NetworkProfile instance
         return NetworkProfile(**profile_dict)
