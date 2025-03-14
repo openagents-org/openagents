@@ -50,18 +50,18 @@ def load_config(config_path: str) -> OpenAgentsConfig:
         raise ValueError(f"Invalid configuration: {e}")
 
 
-def create_network(network_config: NetworkConfig) -> AgentNetworkServer:
+def create_network(network_config: NetworkConfig, network_profile: NetworkProfile) -> AgentNetworkServer:
     """Create a network from a configuration.
     
     Args:
         network_config: Network configuration
-        
+        network_profile: Network profile
     Returns:
         AgentNetworkServer: Configured network instance
     """
     port = 8765
-    if network_config.network_profile and network_config.network_profile.port:
-        port = network_config.network_profile.port
+    if network_profile and network_profile.port:
+        port = network_profile.port
     network = AgentNetworkServer(
         network_name=network_config.name,
         host="0.0.0.0",
@@ -245,7 +245,7 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
     config = load_config(config_path)
     
     # Create and start network
-    network = create_network(config.network)
+    network = create_network(config.network, config.network_profile)
     network.start()
     # Wait for the network server to initialize
     await asyncio.sleep(1)
