@@ -23,7 +23,7 @@ from typing import Dict, Any, List, Optional
 # Add the src directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
-from openagents.core.network import Network
+from openagents.core.network import AgentNetworkServer
 from openagents.core.base_protocol import BaseProtocol
 from openagents.models.messages import (
     BaseMessage,
@@ -130,7 +130,7 @@ class TestNetwork(unittest.TestCase):
         self.mock_agent_connection = self.agent_connection_patch.start()
         self.mock_agent_connection.side_effect = lambda **kwargs: MagicMock(**kwargs)
         
-        self.network = Network(
+        self.network = AgentNetworkServer(
             network_name="TestNetwork",
             network_id="test-network-id",
             host="localhost",

@@ -16,9 +16,9 @@ import signal
 import time
 import gc
 
-from src.openagents.core.client import AgentAdapter
-from src.openagents.core.network import Network
-from src.openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
+from src.openagents.core.client import AgentClient
+from src.openagents.core.network import AgentNetworkServer
+from src.openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentClient
 from src.openagents.protocols.communication.simple_messaging.protocol import SimpleMessagingNetworkProtocol
 from src.openagents.models.messages import ProtocolMessage
 
@@ -154,7 +154,7 @@ class TestSimpleMessaging:
     async def setup_network(self):
         """Set up and start the network server."""
         # Create and start the network server
-        self.network = Network(
+        self.network = AgentNetworkServer(
             network_name="TestNetwork",
             host=self.host,
             port=self.port
@@ -177,10 +177,10 @@ class TestSimpleMessaging:
     async def setup_agent(self, agent_id):
         """Set up an agent with the simple messaging protocol."""
         # Create the agent
-        agent = AgentAdapter(agent_id=agent_id)
+        agent = AgentClient(agent_id=agent_id)
         
         # Create and register the simple messaging protocol adapter with the agent
-        messaging_adapter = SimpleMessagingAgentAdapter()
+        messaging_adapter = SimpleMessagingAgentClient()
         agent.register_protocol_adapter(messaging_adapter)
         
         # Register message and file handlers

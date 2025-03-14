@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 MessageHandler = Callable[[Dict[str, Any], str], None]
 FileHandler = Callable[[str, bytes, Dict[str, Any], str], None]
 
-class SimpleMessagingAgentAdapter(BaseProtocolAdapter):
+class SimpleMessagingAgentClient(BaseProtocolAdapter):
     """Agent-level simple messaging protocol implementation.
     
     This protocol enables:

@@ -42,7 +42,7 @@ class AgentConnection(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class Network:
+class AgentNetworkServer:
     """Core network server implementation for OpenAgents.
     
     A network server that agents can connect to using WebSocket connections.
