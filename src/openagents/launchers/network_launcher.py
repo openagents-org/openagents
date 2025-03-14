@@ -22,6 +22,8 @@ from openagents.core.base_protocol import BaseProtocol
 from openagents.core.base_protocol_adapter import BaseProtocolAdapter
 from openagents.models.manifest import ProtocolManifest
 from openagents.models.network_config import OpenAgentsConfig, NetworkConfig, AgentConfig, ProtocolConfig
+from openagents.models.network_profile import NetworkProfile, NetworkAuthentication
+from openagents.launchers.discovery_connector import NetworkDiscoveryConnector
 
 
 def load_config(config_path: str) -> OpenAgentsConfig:
@@ -84,6 +86,62 @@ def create_network(network_config: NetworkConfig) -> AgentNetworkServer:
             logging.error(f"Failed to register protocol {protocol_config.name} with network {network.network_name}: {e}")
     
     return network
+
+
+def create_network_profile(config: OpenAgentsConfig, network: AgentNetworkServer) -> NetworkProfile:
+    """Create a network profile from the configuration.
+    
+    Args:
+        config: The full OpenAgents configuration
+        network: The network server instance
+        
+    Returns:
+        NetworkProfile: The network profile for discovery
+    """
+    # Extract network profile from config if it exists
+    if hasattr(config, 'network_profile') and config.network_profile:
+        # Use the existing network profile from config
+        profile_dict = config.network_profile.dict()
+        
+        # Ensure the network name matches
+        profile_dict['name'] = network.network_name
+        
+        # Ensure host and port are set correctly
+        profile_dict['host'] = network.host
+        profile_dict['port'] = network.port
+        
+        # Create a NetworkProfile instance
+        return NetworkProfile(**profile_dict)
+    
+    # Otherwise, create a basic profile
+    network_config = config.network
+    
+    # Get installed protocols
+    installed_protocols = [
+        protocol_config.name 
+        for protocol_config in network_config.protocols 
+        if protocol_config.enabled
+    ]
+    
+    # Get required adapters (same as installed protocols for basic setup)
+    required_adapters = installed_protocols.copy()
+    
+    # Create authentication config
+    auth_config = NetworkAuthentication(type="none")
+    
+    # Create the network profile
+    return NetworkProfile(
+        discoverable=True,
+        name=network.network_name,
+        description=f"OpenAgents network: {network.network_name}",
+        host=network.host,
+        port=network.port,
+        country="Worldwide",
+        required_openagents_version="0.3.0",
+        authentication=auth_config,
+        installed_protocols=installed_protocols,
+        required_adapters=required_adapters
+    )
 
 
 async def create_agents(agent_configs: List[AgentConfig], network: AgentNetworkServer) -> List[AgentClient]:
@@ -187,6 +245,23 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
     await asyncio.sleep(1)
     logging.info(f"Network {network.network_name} started")
     
+    # Create network profile for discovery
+    network_profile = create_network_profile(config, network)
+    
+    # Create discovery connector
+    discovery_connector = NetworkDiscoveryConnector(
+        network=network,
+        network_profile=network_profile,
+        heartbeat_interval=300  # 5 minutes
+    )
+    
+    # Start discovery connector
+    discovery_started = await discovery_connector.start()
+    if discovery_started:
+        logging.info(f"Network {network_profile.network_id} published to discovery service")
+    else:
+        logging.warning(f"Failed to publish network {network_profile.network_id} to discovery service")
+    
     # Create and connect agents
     agents = await create_agents(config.service_agents, network)
     logging.info(f"Connected {len(agents)} agents")
@@ -207,6 +282,10 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
         # Remove signal handlers
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.remove_signal_handler(sig)
+        
+        # Stop discovery connector
+        await discovery_connector.stop()
+        logging.info(f"Network {network_profile.network_id} unpublished from discovery service")
         
         # Shutdown agents and network
         logging.info("Shutting down agents and network...")
