@@ -6,7 +6,8 @@ network:
   protocols:
     - name: "openagents.protocols.communication.simple_messaging"
       enabled: true
-      config: {}
+    - name: "openagents.protocols.discovery.agent_discovery"
+      enabled: true
 
 # Service agents configuration
 service_agents:

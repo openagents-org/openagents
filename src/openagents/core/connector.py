@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional, Callable, Awaitable, List
+from typing import Dict, Any, Optional, Callable, Awaitable, List, Set
 import logging
 import json
 import asyncio
@@ -33,7 +33,7 @@ class NetworkConnector:
         self.metadata = metadata
         self.connection = None
         self.is_connected = False
-        self.message_handlers = {}
+        self.message_handlers: Dict[str, List[Callable[[Any], Awaitable[None]]]] = {}
         self.system_handlers = {}
     
     async def connect_to_server(self) -> bool:
@@ -102,8 +102,34 @@ class NetworkConnector:
             message_type: Type of message to handle
             handler: Async function to call when message is received
         """
-        self.message_handlers[message_type] = handler
-        logger.debug(f"Registered handler for message type: {message_type}")
+        if message_type not in self.message_handlers:
+            self.message_handlers[message_type] = []
+        
+        # Add handler to the list if it's not already there
+        if handler not in self.message_handlers[message_type]:
+            self.message_handlers[message_type].append(handler)
+            logger.debug(f"Registered handler for message type: {message_type}")
+    
+    def unregister_message_handler(self, message_type: str, handler: Callable[[Any], Awaitable[None]]) -> bool:
+        """Unregister a handler for a specific message type.
+        
+        Args:
+            message_type: Type of message to handle
+            handler: The handler function to remove
+            
+        Returns:
+            bool: True if handler was removed, False if not found
+        """
+        if message_type in self.message_handlers and handler in self.message_handlers[message_type]:
+            self.message_handlers[message_type].remove(handler)
+            logger.debug(f"Unregistered handler for message type: {message_type}")
+            
+            # Clean up empty lists
+            if not self.message_handlers[message_type]:
+                del self.message_handlers[message_type]
+                
+            return True
+        return False
     
     def register_system_handler(self, command: str, handler: Callable[[Dict[str, Any]], Awaitable[None]]) -> None:
         """Register a handler for a specific system command response.
@@ -155,12 +181,16 @@ class NetworkConnector:
             message: Message to consume
         """
         if isinstance(message, ProtocolMessage):
-            message.direction = "inbound"
             message.relevant_agent_id = self.agent_id
             
         message_type = message.message_type
         if message_type in self.message_handlers:
-            await self.message_handlers[message_type](message)
+            # Call all handlers for this message type
+            for handler in reversed(self.message_handlers[message_type]):
+                try:
+                    await handler(message)
+                except Exception as e:
+                    logger.error(f"Error in message handler for {message_type}: {e}")
     
     async def send_message(self, message: BaseMessage) -> bool:
         """Send a message to another agent.
@@ -240,9 +270,6 @@ class NetworkConnector:
         # Create a future to store the response
         response_future = asyncio.Future()
         
-        # Store the original handler
-        original_handler = self.message_handlers.get("protocol_message")
-        
         async def temp_protocol_handler(msg: ProtocolMessage) -> None:
             # Check if this is the message we're waiting for
             if (msg.protocol == protocol_name and 
@@ -258,17 +285,12 @@ class NetworkConnector:
                     
                     if matches:
                         response_future.set_result(msg)
-                    elif original_handler:
-                        await original_handler(msg)
                 else:
                     # No filter, accept any message from this protocol
                     response_future.set_result(msg)
-            # Otherwise, pass to the original handler if it exists
-            elif original_handler:
-                await original_handler(msg)
         
         # Register the temporary handler
-        self.message_handlers["protocol_message"] = temp_protocol_handler
+        self.register_message_handler("protocol_message", temp_protocol_handler)
         
         try:
             # Wait for the response with timeout
@@ -281,11 +303,43 @@ class NetworkConnector:
                 return None
                 
         finally:
-            # Restore the original handler
-            if original_handler:
-                self.message_handlers["protocol_message"] = original_handler
-            else:
-                self.message_handlers.pop("protocol_message", None)
+            # Unregister the temporary handler
+            self.unregister_message_handler("protocol_message", temp_protocol_handler)
+    
+    async def wait_direct_message(self, sender_id: str, timeout: float = 5.0) -> Optional[DirectMessage]:
+        """Wait for a direct message from the specified sender.
+        
+        Args:
+            sender_id: The ID of the sender to wait for
+            timeout: Maximum time to wait for a response in seconds
+            
+        Returns:
+            Optional[DirectMessage]: The received message or None if timeout occurs
+        """
+        # Create a future to be resolved when the message is received
+        response_future = asyncio.Future()
+        
+        # Create a temporary handler that will resolve the future when the message arrives
+        async def temp_direct_handler(msg: DirectMessage) -> None:
+            # Check if this is the message we're waiting for
+            if msg.sender_id == sender_id:
+                response_future.set_result(msg)
+        
+        # Register the temporary handler
+        self.register_message_handler("direct_message", temp_direct_handler)
+        
+        try:
+            # Wait for the response with timeout
+            try:
+                response = await asyncio.wait_for(response_future, timeout)
+                return response
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout waiting for direct message from: {sender_id}")
+                return None
+                
+        finally:
+            # Unregister the temporary handler
+            self.unregister_message_handler("direct_message", temp_direct_handler)
     
     async def send_system_request(self, command: str, **kwargs) -> bool:
         """Send a system request to the network server.

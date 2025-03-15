@@ -18,6 +18,7 @@ from openagents.models.messages import (
     BroadcastMessage,
     ProtocolMessage
 )
+from openagents.models.tool import AgentAdapterTool
 
 logger = logging.getLogger(__name__)
 
@@ -493,3 +494,137 @@ class SimpleMessagingAgentClient(BaseProtocolAdapter):
         }
         
         return mime_types.get(extension, "application/octet-stream") 
+    
+    def get_tools(self) -> List[AgentAdapterTool]:
+        """Get the tools for the protocol adapter.
+        
+        Returns:
+            List[AgentAdapterTool]: The tools for the protocol adapter
+        """
+        tools = []
+        
+        # Tool for sending a text message to a specific agent
+        send_text_tool = AgentAdapterTool(
+            name="send_text_message",
+            description="Send a text message to a specific agent",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "target_agent_id": {
+                        "type": "string",
+                        "description": "ID of the agent to send the message to"
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Text content of the message"
+                    }
+                },
+                "required": ["target_agent_id", "text"]
+            },
+            func=self.send_text_message
+        )
+        tools.append(send_text_tool)
+        
+        # Tool for broadcasting a text message to all agents
+        broadcast_text_tool = AgentAdapterTool(
+            name="broadcast_text_message",
+            description="Broadcast a text message to all agents",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "Text content of the message"
+                    }
+                },
+                "required": ["text"]
+            },
+            func=self.broadcast_text_message
+        )
+        tools.append(broadcast_text_tool)
+        
+        # Tool for sending a file to a specific agent
+        send_file_tool = AgentAdapterTool(
+            name="send_file",
+            description="Send a file to a specific agent",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "target_agent_id": {
+                        "type": "string",
+                        "description": "ID of the agent to send the file to"
+                    },
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to send"
+                    },
+                    "message_text": {
+                        "type": "string",
+                        "description": "Optional text message to include with the file"
+                    }
+                },
+                "required": ["target_agent_id", "file_path"]
+            },
+            func=self.send_file
+        )
+        tools.append(send_file_tool)
+        
+        # Tool for broadcasting a file to all agents
+        broadcast_file_tool = AgentAdapterTool(
+            name="broadcast_file",
+            description="Broadcast a file to all agents",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the file to broadcast"
+                    },
+                    "message_text": {
+                        "type": "string",
+                        "description": "Optional text message to include with the file"
+                    }
+                },
+                "required": ["file_path"]
+            },
+            func=self.broadcast_file
+        )
+        tools.append(broadcast_file_tool)
+        
+        # Tool for downloading a file
+        download_file_tool = AgentAdapterTool(
+            name="download_file",
+            description="Download a file from the network",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "file_id": {
+                        "type": "string",
+                        "description": "ID of the file to download"
+                    }
+                },
+                "required": ["file_id"]
+            },
+            func=self.download_file
+        )
+        tools.append(download_file_tool)
+        
+        # Tool for deleting a file
+        delete_file_tool = AgentAdapterTool(
+            name="delete_file",
+            description="Request deletion of a file from the network",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "file_id": {
+                        "type": "string",
+                        "description": "ID of the file to delete"
+                    }
+                },
+                "required": ["file_id"]
+            },
+            func=self.delete_file
+        )
+        tools.append(delete_file_tool)
+        
+        return tools

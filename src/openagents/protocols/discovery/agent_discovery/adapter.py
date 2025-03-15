@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional, List
 import logging
 from openagents.core.base_protocol_adapter import BaseProtocolAdapter
 from openagents.models.messages import ProtocolMessage
+from openagents.models.tool import AgentAdapterTool
 import copy
 
 logger = logging.getLogger(__name__)
@@ -185,3 +186,49 @@ class AgentDiscoveryAdapter(BaseProtocolAdapter):
         
         # Send the message
         await self.connector.send_protocol_message(message) 
+    
+    async def get_tools(self) -> List[AgentAdapterTool]:
+        """Get the tools for the protocol adapter.
+        
+        Returns:
+            List[AgentAdapterTool]: The tools for the protocol adapter
+        """
+        tools = []
+        
+        # Tool for discovering agents with specific capabilities
+        discover_agents_tool = AgentAdapterTool(
+            name="discover_agents",
+            description="Discover agents with specific capabilities",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "capability_filter": {
+                        "type": "object",
+                        "description": "Filter criteria for agent capabilities"
+                    }
+                },
+                "required": ["capability_filter"]
+            },
+            func=self.discover_agents
+        )
+        tools.append(discover_agents_tool)
+        
+        # Tool for setting this agent's capabilities
+        announce_capabilities_tool = AgentAdapterTool(
+            name="announce_capabilities",
+            description="Announce this agent's capabilities to the network",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "capabilities": {
+                        "type": "object",
+                        "description": "Capabilities to set for this agent"
+                    }
+                },
+                "required": ["capabilities"]
+            },
+            func=self.set_capabilities
+        )
+        tools.append(announce_capabilities_tool)
+        
+        return tools
