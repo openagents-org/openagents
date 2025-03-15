@@ -6,7 +6,7 @@ from openagents.models.messages import BaseMessage
 from openagents.core.base_protocol_adapter import BaseProtocolAdapter
 from openagents.models.messages import DirectMessage, BroadcastMessage, ProtocolMessage
 from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST
-
+from openagents.models.tool import AgentAdapterTool
 logger = logging.getLogger(__name__)
 
 
@@ -204,6 +204,26 @@ class AgentClient:
             bool: True if request was sent successfully
         """
         return await self.send_system_request(GET_PROTOCOL_MANIFEST, protocol_name=protocol_name)
+
+    def get_tools(self) -> List[AgentAdapterTool]:
+        """Get all tools from registered protocol adapters.
+        
+        Returns:
+            List[AgentAdapterTool]: Combined list of tools from all protocol adapters
+        """
+        tools = []
+        
+        # Collect tools from all registered protocol adapters
+        for protocol_name, adapter in self.protocol_adapters.items():
+            try:
+                adapter_tools = adapter.get_tools()
+                if adapter_tools:
+                    tools.extend(adapter_tools)
+                    logger.debug(f"Added {len(adapter_tools)} tools from {protocol_name}")
+            except Exception as e:
+                logger.error(f"Error getting tools from protocol adapter {protocol_name}: {e}")
+        
+        return tools
     
     def register_agent_list_callback(self, callback: Callable[[List[Dict[str, Any]]], Awaitable[None]]) -> None:
         """Register a callback for agent list responses.

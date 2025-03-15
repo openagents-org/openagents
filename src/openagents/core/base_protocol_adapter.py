@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional, List
 from abc import ABC, abstractmethod
 from openagents.models.messages import BaseMessage, DirectMessage, BroadcastMessage, ProtocolMessage
+from openagents.models.tool import AgentAdapterTool
 from openagents.core.connector import NetworkConnector
 
 class BaseProtocolAdapter(ABC):
@@ -153,3 +154,10 @@ class BaseProtocolAdapter(ABC):
         """
         return message
     
+    async def get_tools(self) -> List[AgentAdapterTool]:
+        """Get the tools for the protocol adapter.
+        
+        Returns:
+            List[AgentAdapterTool]: The tools for the protocol adapter
+        """
+        return []
