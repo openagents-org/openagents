@@ -19,6 +19,11 @@ from openagents.models.messages import (
     ProtocolMessage
 )
 from openagents.models.tool import AgentAdapterTool
+from openagents.utils.message_util import (
+    get_direct_message_thread_id,
+    get_broadcast_message_thread_id,
+    get_protocol_message_thread_id
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +95,10 @@ class SimpleMessagingAgentClient(BaseProtocolAdapter):
         """
         logger.debug(f"Received direct message from {message.sender_id}")
         
+        # Add message to the appropriate conversation thread
+        thread_id = get_direct_message_thread_id(message.sender_id)
+        self.add_message_to_thread(thread_id, message, text_representation=message.content.get("text", ""))
+        
         # Check if the message contains file references
         if "files" in message.content and message.content["files"]:
             # Process file references
@@ -109,6 +118,10 @@ class SimpleMessagingAgentClient(BaseProtocolAdapter):
             message: The broadcast message to process
         """
         logger.debug(f"Received broadcast message from {message.sender_id}")
+        
+        # Add message to the broadcast conversation thread
+        thread_id = get_broadcast_message_thread_id()
+        self.add_message_to_thread(thread_id, message, text_representation=message.content.get("text", ""))
         
         # Check if the message contains file references
         if "files" in message.content and message.content["files"]:
@@ -172,6 +185,10 @@ class SimpleMessagingAgentClient(BaseProtocolAdapter):
             direction="outbound"
         )
         
+        # Add message to the conversation thread
+        thread_id = get_direct_message_thread_id(target_agent_id)
+        self.add_message_to_thread(thread_id, message, requires_response=False, text_representation=message.content.get("text", ""))
+        
         await self.connector.send_direct_message(message)
         logger.debug(f"Sent direct message to {target_agent_id}")
     
@@ -187,6 +204,10 @@ class SimpleMessagingAgentClient(BaseProtocolAdapter):
             content=content,
             direction="outbound"
         )
+        
+        # Add message to the broadcast conversation thread
+        thread_id = get_broadcast_message_thread_id()
+        self.add_message_to_thread(thread_id, message, requires_response=False, text_representation=message.content.get("text", ""))
         
         await self.connector.send_broadcast_message(message)
         logger.debug("Sent broadcast message")

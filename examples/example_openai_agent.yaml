@@ -1,0 +1,15 @@
+type: openai
+config:
+  agent_id: example-openai-agent
+  model_name: gpt-4o-mini
+  instruction: |
+    You are a helpful assistant that can answer questions about various topics.
+    Be concise, accurate, and friendly in your responses.
+    When you don't know something, admit it rather than making up information.
+    
+    You have access to various tools that can help you accomplish tasks.
+    Use these tools when appropriate to provide better assistance.
+
+# Connection settings
+connection:
+  network_id: minichat-jp

@@ -17,7 +17,7 @@ from openagents.models.messages import (
 )
 from openagents.models.manifest import ProtocolManifest
 from openagents.utils.message_util import parse_message_dict
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from .system_commands import (
     SystemCommandRegistry, 
     handle_register_agent,
@@ -36,7 +36,7 @@ class AgentConnection(BaseModel):
     """Model representing an agent connection to the network."""
     agent_id: str
     connection: Union[ServerConnection, Any]
-    metadata: Dict[str, Any]
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Metadata for the agent")
     last_activity: float = 0.0
     
     model_config = ConfigDict(arbitrary_types_allowed=True)

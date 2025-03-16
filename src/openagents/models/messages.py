@@ -15,6 +15,8 @@ class BaseMessage(BaseModel):
     sender_id: str = Field(..., description="ID of the agent sending the message")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Metadata for the message")
     content: Dict[str, Any] = Field(default_factory=dict, description="Message content")
+    text_representation: Optional[str] = Field(None, description="Human-readable text representation of the message")
+    requires_response: bool = Field(False, description="Whether this message requires a response")
     
     @field_validator('sender_id')
     @classmethod

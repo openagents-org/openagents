@@ -20,3 +20,22 @@ def parse_message_dict(message_dict: Dict[str, Any]) -> BaseMessage:
         return ProtocolMessage.model_validate(message_dict)
     else:
         raise ValueError(f"Unknown message type: {message_type}")
+
+def get_direct_message_thread_id(opponent_id: str) -> str:
+    """
+    Get the thread ID for a direct message.
+    """
+    return f"direct_message:{opponent_id}"
+
+def get_broadcast_message_thread_id() -> str:
+    """
+    Get the thread ID for a broadcast message.
+    """
+    return "broadcast_message"
+
+def get_protocol_message_thread_id(protocol_name: str) -> str:
+    """
+    Get the thread ID for a protocol message.
+    """
+    return f"protocol_message:{protocol_name}"
+
