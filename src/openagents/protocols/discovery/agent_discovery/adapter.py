@@ -10,6 +10,7 @@ import logging
 from openagents.core.base_protocol_adapter import BaseProtocolAdapter
 from openagents.models.messages import ProtocolMessage
 from openagents.models.tool import AgentAdapterTool
+from openagents.utils.message_util import get_protocol_message_thread_id
 import copy
 
 logger = logging.getLogger(__name__)

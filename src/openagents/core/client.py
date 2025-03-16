@@ -1,12 +1,15 @@
 from typing import Dict, Any, List, Optional, Set, Type, Callable, Awaitable
 import uuid
 import logging
+
+from openagents.utils.network_discovey import retrieve_network_details
 from .connector import NetworkConnector
 from openagents.models.messages import BaseMessage
 from openagents.core.base_protocol_adapter import BaseProtocolAdapter
 from openagents.models.messages import DirectMessage, BroadcastMessage, ProtocolMessage
 from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST
 from openagents.models.tool import AgentAdapterTool
+from openagents.models.message_thread import MessageThread
 logger = logging.getLogger(__name__)
 
 
@@ -35,16 +38,33 @@ class AgentClient:
             for protocol in protocol_adapters:
                 self.register_protocol_adapter(protocol)
     
-    async def connect_to_server(self, host: str, port: int, metadata: Optional[Dict[str, Any]] = None) -> bool:
+    async def connect_to_server(self, host: Optional[str] = None, port: Optional[int] = None, network_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> bool:
         """Connect to a network server.
         
         Args:
             host: Server host address
             port: Server port
+            network_id: ID of the network to connect to
+            metadata: Metadata to send to the server
             
         Returns:
             bool: True if connection successful
         """
+        # Validate connection parameters
+        if network_id is None and (host is None or port is None):
+            logger.error("Either network_id or both host and port must be provided to connect to a server")
+            return False
+        
+        # If network_id is provided, retrieve network details to find out host and port
+        if network_id and (not host or not port):
+            network_details = retrieve_network_details(network_id)
+            if not network_details:
+                logger.error(f"Failed to retrieve network details for network_id: {network_id}")
+                return False
+            host = network_details.get("host", host)
+            port = network_details.get("port", port)
+            logger.info(f"Retrieved network details for network_id: {network_id}, host: {host}, port: {port}")
+
         if self.connector is not None:
             logger.info(f"Disconnecting from existing network connection for agent {self.agent_id}")
             await self.disconnect()
@@ -224,6 +244,41 @@ class AgentClient:
                 logger.error(f"Error getting tools from protocol adapter {protocol_name}: {e}")
         
         return tools
+    
+    def get_messsage_threads(self) -> Dict[str, MessageThread]:
+        """Get all message threads from registered protocol adapters.
+        
+        Returns:
+            Dict[str, ConversationThread]: Dictionary of conversation threads
+        """
+        threads = {}
+        
+        # Collect conversation threads from all registered protocol adapters
+        for protocol_name, adapter in self.protocol_adapters.items():
+            try:
+                adapter_threads = adapter.conversation_threads
+                if adapter_threads:
+                    # Merge the adapter's threads into our collection
+                    for thread_id, thread in adapter_threads.items():
+                        if thread_id in threads:
+                            # If thread already exists, merge messages and sort by timestamp
+                            existing_messages = threads[thread_id].messages
+                            new_messages = thread.messages
+                            # Combine messages from both threads
+                            combined_messages = existing_messages + new_messages
+                            # Create a new thread with the combined messages
+                            merged_thread = MessageThread()
+                            # Sort all messages by timestamp before adding them
+                            sorted_messages = list(sorted(combined_messages, key=lambda msg: msg.timestamp))
+                            merged_thread.messages = sorted_messages
+                            threads[thread_id] = merged_thread
+                        else:
+                            threads[thread_id] = thread
+                    logger.debug(f"Added {len(adapter_threads)} conversation threads from {protocol_name}")
+            except Exception as e:
+                logger.error(f"Error getting conversation threads from protocol adapter {protocol_name}: {e}")
+        
+        return threads
     
     def register_agent_list_callback(self, callback: Callable[[List[Dict[str, Any]]], Awaitable[None]]) -> None:
         """Register a callback for agent list responses.

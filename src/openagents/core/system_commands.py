@@ -66,6 +66,8 @@ async def handle_register_agent(command: str, data: Dict[str, Any], connection: 
     """
     agent_id = data.get("agent_id")
     metadata = data.get("metadata", {})
+    if metadata is None:
+        metadata = {}
     
     if not agent_id:
         logger.error("Registration message missing agent_id")

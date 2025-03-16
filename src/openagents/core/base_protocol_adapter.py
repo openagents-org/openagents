@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from openagents.models.messages import BaseMessage, DirectMessage, BroadcastMessage, ProtocolMessage
 from openagents.models.tool import AgentAdapterTool
 from openagents.core.connector import NetworkConnector
+from openagents.models.message_thread import MessageThread
 
 class BaseProtocolAdapter(ABC):
     """Base class for agent adapter level protocols in OpenAgents.
@@ -20,6 +21,7 @@ class BaseProtocolAdapter(ABC):
         self._protocol_name = protocol_name
         self._agent_id = None
         self._connector = None
+        self._message_threads: Dict[str, MessageThread] = {}
 
     def bind_agent(self, agent_id: str) -> None:
         """Bind this protocol adapter to an agent.
@@ -36,7 +38,16 @@ class BaseProtocolAdapter(ABC):
             connector: The connector to bind to
         """
         self._connector = connector
-
+    
+    @property
+    def message_threads(self) -> Dict[str, MessageThread]:
+        """Get the message threads for the protocol adapter.
+        
+        Returns:
+            Dict[str, MessageThread]: Dictionary of message threads
+        """
+        return self._message_threads
+        
     @property
     def connector(self) -> NetworkConnector:
         """Get the connector for the protocol adapter.
@@ -87,6 +98,25 @@ class BaseProtocolAdapter(ABC):
             bool: True if shutdown was successful, False otherwise
         """
         return True
+    
+    def add_message_to_thread(self, thread_id: str, message: BaseMessage, requires_response: bool = True, text_representation: str = None) -> None:
+        """Add a message to a conversation thread.
+        
+        Args:
+            thread_id: The ID of the thread to add the message to
+            message: The message to add to the thread
+            requires_response: Whether the message requires a response
+            text_representation: The text representation of the message
+        """
+        if thread_id not in self._message_threads:
+            self._message_threads[thread_id] = MessageThread()
+        
+        # Set the fields directly on the message
+        message.requires_response = requires_response
+        if text_representation:
+            message.text_representation = text_representation
+            
+        self._message_threads[thread_id].add_message(message)
     
     async def process_incoming_direct_message(self, message: DirectMessage) -> Optional[DirectMessage]:
         """Process an incoming message sent to this agent.
