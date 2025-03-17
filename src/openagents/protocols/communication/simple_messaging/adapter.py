@@ -177,6 +177,10 @@ class SimpleMessagingAgentClient(BaseProtocolAdapter):
             target_agent_id: ID of the target agent
             content: Message content
         """
+        if self.connector is None:
+            logger.error(f"Cannot send message: connector is None for agent {self.agent_id}")
+            return f"Error: Agent {self.agent_id} is not connected to a network"
+            
         # Create and send the message
         message = DirectMessage(
             sender_id=self.agent_id,
@@ -198,6 +202,10 @@ class SimpleMessagingAgentClient(BaseProtocolAdapter):
         Args:
             content: Message content
         """
+        if self.connector is None:
+            logger.error(f"Cannot send broadcast message: connector is None for agent {self.agent_id}")
+            return f"Error: Agent {self.agent_id} is not connected to a network"
+            
         # Create and send the message
         message = BroadcastMessage(
             sender_id=self.agent_id,
@@ -219,6 +227,10 @@ class SimpleMessagingAgentClient(BaseProtocolAdapter):
             target_agent_id: ID of the target agent
             text: Text content of the message
         """
+        if self.connector is None:
+            logger.error(f"Cannot send message: connector is None for agent {self.agent_id}")
+            return f"Error: Agent {self.agent_id} is not connected to a network"
+            
         content = {"text": text}
         await self.send_direct_message(target_agent_id, content)
     
@@ -228,6 +240,10 @@ class SimpleMessagingAgentClient(BaseProtocolAdapter):
         Args:
             text: Text content of the message
         """
+        if self.connector is None:
+            logger.error(f"Cannot broadcast message: connector is None for agent {self.agent_id}")
+            return f"Error: Agent {self.agent_id} is not connected to a network"
+            
         content = {"text": text}
         await self.send_broadcast_message(content)
     

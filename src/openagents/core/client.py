@@ -1,3 +1,4 @@
+import asyncio
 from typing import Dict, Any, List, Optional, Set, Type, Callable, Awaitable
 import uuid
 import logging
@@ -61,8 +62,9 @@ class AgentClient:
             if not network_details:
                 logger.error(f"Failed to retrieve network details for network_id: {network_id}")
                 return False
-            host = network_details.get("host", host)
-            port = network_details.get("port", port)
+            network_profile = network_details.get("network_profile", {})
+            host = network_profile.get("host", host)
+            port = network_profile.get("port", port)
             logger.info(f"Retrieved network details for network_id: {network_id}, host: {host}, port: {port}")
 
         if self.connector is not None:
@@ -119,6 +121,9 @@ class AgentClient:
         
         self.protocol_adapters[protocol_name] = protocol_adapter
         protocol_adapter.initialize()
+        if self.connector is not None:
+            protocol_adapter.bind_connector(self.connector)
+            protocol_adapter.on_connect()
         logger.info(f"Registered protocol adapter {protocol_name} with agent {self.agent_id}")
         return True
     
@@ -198,7 +203,7 @@ class AgentClient:
         
         return await self.connector.send_system_request(command, **kwargs)
     
-    async def list_agents(self) -> bool:
+    async def request_list_agents(self) -> bool:
         """Request a list of agents from the network server.
         
         Returns:
@@ -206,7 +211,7 @@ class AgentClient:
         """
         return await self.send_system_request(LIST_AGENTS)
     
-    async def list_protocols(self) -> bool:
+    async def request_list_protocols(self) -> bool:
         """Request a list of protocols from the network server.
         
         Returns:
@@ -214,7 +219,7 @@ class AgentClient:
         """
         return await self.send_system_request(LIST_PROTOCOLS)
     
-    async def get_protocol_manifest(self, protocol_name: str) -> bool:
+    async def request_get_protocol_manifest(self, protocol_name: str) -> bool:
         """Request a protocol manifest from the network server.
         
         Args:
@@ -224,6 +229,170 @@ class AgentClient:
             bool: True if request was sent successfully
         """
         return await self.send_system_request(GET_PROTOCOL_MANIFEST, protocol_name=protocol_name)
+    
+    async def list_protocols(self) -> List[Dict[str, Any]]:
+        """Get a list of available protocols from the network server.
+        
+        This method sends a request to the server to list all available protocols
+        and returns the protocol information.
+        
+        Returns:
+            List[Dict[str, Any]]: List of protocol information dictionaries
+        """
+        if self.connector is None:
+            logger.warning(f"Agent {self.agent_id} is not connected to a network")
+            return []
+        
+        # Create an event to signal when we have a response
+        response_event = asyncio.Event()
+        response_data = []
+        
+        # Define a handler for the LIST_PROTOCOLS response
+        async def handle_list_protocols_response(data: Dict[str, Any]) -> None:
+            if data.get("success"):
+                protocols = data.get("protocols", [])
+                response_data.clear()
+                response_data.extend(protocols)
+            else:
+                error = data.get("error", "Unknown error")
+                logger.error(f"Failed to list protocols: {error}")
+            response_event.set()
+        
+        # Save the original handler if it exists
+        original_handler = None
+        if LIST_PROTOCOLS in self.connector.system_handlers:
+            original_handler = self.connector.system_handlers[LIST_PROTOCOLS]
+        
+        # Register the handler
+        self.connector.register_system_handler(LIST_PROTOCOLS, handle_list_protocols_response)
+        
+        try:
+            # Send the request
+            success = await self.request_list_protocols()
+            if not success:
+                logger.error("Failed to send list_protocols request")
+                return []
+            
+            # Wait for the response with a timeout
+            try:
+                await asyncio.wait_for(response_event.wait(), timeout=10.0)
+                return response_data
+            except asyncio.TimeoutError:
+                logger.error("Timeout waiting for list_protocols response")
+                return []
+        finally:
+            # Restore the original handler if there was one
+            if original_handler:
+                self.connector.register_system_handler(LIST_PROTOCOLS, original_handler)
+    
+    
+    async def list_agents(self) -> List[Dict[str, Any]]:
+        """Get a list of agents connected to the network.
+        
+        Returns:
+            List[Dict[str, Any]]: List of agent information dictionaries
+        """
+        if self.connector is None:
+            logger.warning(f"Agent {self.agent_id} is not connected to a network")
+            return []
+        
+        # Create an event to signal when we have a response
+        response_event = asyncio.Event()
+        response_data = []
+        
+        # Define a handler for the LIST_AGENTS response
+        async def handle_list_agents_response(data: Dict[str, Any]) -> None:
+            if data.get("success"):
+                agents = data.get("agents", [])
+                response_data.clear()
+                response_data.extend(agents)
+            else:
+                error = data.get("error", "Unknown error")
+                logger.error(f"Failed to list agents: {error}")
+            response_event.set()
+        
+        # Save the original handler if it exists
+        original_handler = None
+        if LIST_AGENTS in self.connector.system_handlers:
+            original_handler = self.connector.system_handlers[LIST_AGENTS]
+        
+        # Register the handler
+        self.connector.register_system_handler(LIST_AGENTS, handle_list_agents_response)
+        
+        try:
+            # Send the request
+            success = await self.send_system_request(LIST_AGENTS)
+            if not success:
+                logger.error("Failed to send list_agents request")
+                return []
+            
+            # Wait for the response with a timeout
+            try:
+                await asyncio.wait_for(response_event.wait(), timeout=10.0)
+                return response_data
+            except asyncio.TimeoutError:
+                logger.error("Timeout waiting for list_agents response")
+                return []
+        finally:
+            # Restore the original handler if there was one
+            if original_handler:
+                self.connector.register_system_handler(LIST_AGENTS, original_handler)
+    
+    
+    async def get_protocol_manifest(self, protocol_name: str) -> Optional[Dict[str, Any]]:
+        """Get the manifest for a specific protocol from the network server.
+        
+        Args:
+            protocol_name: Name of the protocol to get the manifest for
+            
+        Returns:
+            Optional[Dict[str, Any]]: Protocol manifest or None if not found
+        """
+        if self.connector is None:
+            logger.warning(f"Agent {self.agent_id} is not connected to a network")
+            return None
+        
+        # Create an event to signal when we have a response
+        response_event = asyncio.Event()
+        response_data = {}
+        
+        # Define a handler for the GET_PROTOCOL_MANIFEST response
+        async def handle_protocol_manifest_response(data: Dict[str, Any]) -> None:
+            if data.get("success"):
+                manifest = data.get("manifest", {})
+                response_data.clear()
+                response_data.update(manifest)
+            else:
+                error = data.get("error", "Unknown error")
+                logger.error(f"Failed to get protocol manifest: {error}")
+            response_event.set()
+        
+        # Save the original handler if it exists
+        original_handler = None
+        if GET_PROTOCOL_MANIFEST in self.connector.system_handlers:
+            original_handler = self.connector.system_handlers[GET_PROTOCOL_MANIFEST]
+        
+        # Register the handler
+        self.connector.register_system_handler(GET_PROTOCOL_MANIFEST, handle_protocol_manifest_response)
+        
+        try:
+            # Send the request
+            success = await self.send_system_request(GET_PROTOCOL_MANIFEST, protocol_name=protocol_name)
+            if not success:
+                logger.error(f"Failed to send get_protocol_manifest request for {protocol_name}")
+                return None
+            
+            # Wait for the response with a timeout
+            try:
+                await asyncio.wait_for(response_event.wait(), timeout=10.0)
+                return response_data if response_data else None
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout waiting for get_protocol_manifest response for {protocol_name}")
+                return None
+        finally:
+            # Restore the original handler if there was one
+            if original_handler:
+                self.connector.register_system_handler(GET_PROTOCOL_MANIFEST, original_handler)
 
     def get_tools(self) -> List[AgentAdapterTool]:
         """Get all tools from registered protocol adapters.
@@ -256,7 +425,7 @@ class AgentClient:
         # Collect conversation threads from all registered protocol adapters
         for protocol_name, adapter in self.protocol_adapters.items():
             try:
-                adapter_threads = adapter.conversation_threads
+                adapter_threads = adapter.message_threads
                 if adapter_threads:
                     # Merge the adapter's threads into our collection
                     for thread_id, thread in adapter_threads.items():
@@ -276,7 +445,7 @@ class AgentClient:
                             threads[thread_id] = thread
                     logger.debug(f"Added {len(adapter_threads)} conversation threads from {protocol_name}")
             except Exception as e:
-                logger.error(f"Error getting conversation threads from protocol adapter {protocol_name}: {e}")
+                logger.error(f"Error getting message threads from protocol adapter {protocol_name}: {e}")
         
         return threads
     
