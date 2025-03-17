@@ -20,17 +20,19 @@ logger = logging.getLogger(__name__)
 class ConsoleAgent:
     """Simple console agent for interacting with an OpenAgents network."""
     
-    def __init__(self, agent_id: str, host: str, port: int):
+    def __init__(self, agent_id: str, host: str, port: int, network_id: Optional[str] = None):
         """Initialize a console agent.
         
         Args:
             agent_id: Agent ID
             host: Server host address
             port: Server port
+            network_id: Optional network ID to connect to
         """
         self.agent_id = agent_id
         self.host = host
         self.port = port
+        self.network_id = network_id
         self.agent = AgentClient(agent_id=agent_id)
         self.connected = False
         self.users = {}  # agent_id -> name
@@ -47,8 +49,8 @@ class ConsoleAgent:
             "name": self.agent_id,
             "type": "console_agent"
         }
-        
-        success = await self.agent.connect_to_server(self.host, self.port, metadata)
+
+        success = await self.agent.connect_to_server(host=self.host, port=self.port, metadata=metadata, network_id=self.network_id)
         self.connected = success
         
         if success and self.agent.connector:
@@ -317,21 +319,30 @@ def show_help_menu() -> None:
     print("  /help - Show this help message")
 
 
-async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> None:
+async def run_console(host: str, port: int, agent_id: Optional[str] = None, network_id: Optional[str] = None) -> None:
     """Run a console agent.
     
     Args:
         host: Server host address
         port: Server port
         agent_id: Optional agent ID (auto-generated if not provided)
+        network_id: Optional network ID to connect to
     """
     # Create agent
     agent_id = agent_id or f"ConsoleAgent-{str(uuid.uuid4())[:8]}"
+
+    if network_id:
+        host = None
+        port = None
     
-    console_agent = ConsoleAgent(agent_id, host, port)
+    console_agent = ConsoleAgent(agent_id, host, port, network_id)
     
     # Connect to network
-    print(f"Connecting to network server at {host}:{port}...")
+    if network_id:
+        print(f"Using network ID: {network_id}")
+    else:
+        print(f"Connecting to network server at {host}:{port}...")
+
     if not await console_agent.connect():
         print("Failed to connect to the network server. Exiting.")
         return
@@ -380,12 +391,12 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> N
             
             elif user_input.startswith("/agents"):
                 # List agents
-                await console_agent.request_list_agents()
+                await console_agent.list_agents()
                 print("Requesting agent list...")
             
             elif user_input.startswith("/protocols"):
                 # List protocols
-                await console_agent.request_list_protocols()
+                await console_agent.list_protocols()
                 print("Requesting protocol list...")
             
             elif user_input.startswith("/manifest "):
@@ -413,16 +424,17 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> N
         print("Disconnected from the network server")
 
 
-def launch_console(host: str, port: int, agent_id: Optional[str] = None) -> None:
+def launch_console(host: str, port: int, agent_id: Optional[str] = None, network_id: Optional[str] = None) -> None:
     """Launch a terminal console.
     
     Args:
         host: Server host address
         port: Server port
         agent_id: Optional agent ID (auto-generated if not provided)
+        network_id: Optional network ID to connect to
     """
     try:
-        asyncio.run(run_console(host, port, agent_id))
+        asyncio.run(run_console(host, port, agent_id, network_id))
     except Exception as e:
         logger.error(f"Error in console: {e}")
         import traceback
