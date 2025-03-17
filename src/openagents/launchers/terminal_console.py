@@ -158,7 +158,7 @@ class ConsoleAgent:
             print("Not connected to a network server")
             return False
         
-        return await self.agent.get_protocol_manifest(protocol_name)
+        return await self.agent.request_get_protocol_manifest(protocol_name)
     
     async def send_system_request(self, command: str, **kwargs) -> bool:
         """Send a system request to the network server.
@@ -380,12 +380,12 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None) -> N
             
             elif user_input.startswith("/agents"):
                 # List agents
-                await console_agent.list_agents()
+                await console_agent.request_list_agents()
                 print("Requesting agent list...")
             
             elif user_input.startswith("/protocols"):
                 # List protocols
-                await console_agent.list_protocols()
+                await console_agent.request_list_protocols()
                 print("Requesting protocol list...")
             
             elif user_input.startswith("/manifest "):

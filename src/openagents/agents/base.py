@@ -65,14 +65,14 @@ class BaseAgentRunner(ABC):
         return self._tools
 
     @abstractmethod
-    def react(self, conversation_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
+    def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
         """React to an incoming message.
         
         This method is called when a new message is received and should implement
         the agent's logic for responding to messages.
         
         Args:
-            conversation_threads: Dictionary of all conversation threads available to the agent.
+            message_threads: Dictionary of all message threads available to the agent.
             incoming_thread_id: ID of the thread containing the incoming message.
             incoming_message: The incoming message to react to.
         """

@@ -77,32 +77,68 @@ def launch_agent_command(args: argparse.Namespace) -> None:
         logging.error("Agent configuration must include a 'config' section")
         return
 
-    # Create and launch the appropriate agent based on type
-    if config['type'].lower() == 'openai':
-        # Get the agent configuration
-        agent_config = config['config']
-
+    # Get the agent type and configuration
+    agent_type = config['type']
+    agent_config = config['config']
+    
+    # Create and launch the agent based on type
+    try:
+        # Check if the agent type is a fully qualified class path
+        if '.' in agent_type:
+            # Import the module and get the class
+            module_path, class_name = agent_type.rsplit('.', 1)
+            try:
+                module = __import__(module_path, fromlist=[class_name])
+                agent_class = getattr(module, class_name)
+            except (ImportError, AttributeError) as e:
+                logging.error(f"Failed to import agent class '{agent_type}': {e}")
+                return
+        else:
+            # Handle predefined agent types
+            if agent_type.lower() == 'openai':
+                agent_class = SimpleOpenAIAgentRunner
+            else:
+                logging.error(f"Unsupported predefined agent type: {agent_type}")
+                logging.info("Use a fully qualified class path (e.g., 'openagents.agents.simple_openai_agent.SimpleOpenAIAgentRunner')")
+                return
+        
         # Create the agent using the config parameters directly as kwargs
         try:
-            agent = SimpleOpenAIAgentRunner(**agent_config)
+            agent = agent_class(**agent_config)
             
             # Start the agent
-            logging.info(f"Starting OpenAI agent '{agent_config['agent_id']}' with model '{agent_config['model_name']}'")
+            logging.info(f"Starting agent of type '{agent_type}' with ID '{agent_config.get('agent_id', 'unknown')}'")
             
-            # Connection settings
-            host = None
-            port = None
+            # Connection settings - prioritize command line arguments over config file
+            host = args.host
+            port = args.port
+            network_id = args.network_id
+            
+            # If not provided in command line, try to get from config file
             if 'connection' in config:
-                host = config['connection'].get('host')
-                port = config['connection'].get('port')
+                conn_config = config['connection']
+                
+                # Get host from config if not provided in command line
+                if host is None:
+                    host = conn_config.get('host')
+                
+                # Get port from config if not provided in command line
+                if port is None:
+                    port = conn_config.get('port')
+                
+                # Get network_id from config if not provided in command line
+                if network_id is None:
+                    # Support both network_id and network-id keys
+                    network_id = conn_config.get('network_id') or conn_config.get('network-id')
             
-            # Start the agent and connect to the network
+            # Start the agent and wait for it to stop
             try:
+                # Start the agent
                 agent.start(
                     host=host,
                     port=port,
-                    network_id=args.network_id,
-                    metadata={"agent_type": "openai"}
+                    network_id=network_id,
+                    metadata={"agent_type": agent_type}
                 )
                 
                 # Wait for the agent to stop
@@ -114,6 +150,7 @@ def launch_agent_command(args: argparse.Namespace) -> None:
             except Exception as e:
                 logging.error(f"Error running agent: {e}")
                 agent.stop()
+            
         except TypeError as e:
             logging.error(f"Error creating agent: {e}")
             logging.error("Check that your configuration parameters match the agent's constructor")
@@ -121,8 +158,9 @@ def launch_agent_command(args: argparse.Namespace) -> None:
         except Exception as e:
             logging.error(f"Unexpected error creating agent: {e}")
             return
-    else:
-        logging.error(f"Unsupported agent type: {config['type']}")
+    except Exception as e:
+        logging.error(f"Failed to create agent: {e}")
+        return
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -157,7 +195,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Launch agent command
     launch_agent_parser = subparsers.add_parser("launch-agent", help="Launch an agent from a configuration file")
     launch_agent_parser.add_argument("config", help="Path to agent configuration file")
-    launch_agent_parser.add_argument("--network-id", help="Network ID to connect to")
+    launch_agent_parser.add_argument("--network-id", help="Network ID to connect to (overrides config file)")
+    launch_agent_parser.add_argument("--host", help="Server host address (overrides config file)")
+    launch_agent_parser.add_argument("--port", type=int, help="Server port (overrides config file)")
     
     # Parse arguments
     args = parser.parse_args(argv)

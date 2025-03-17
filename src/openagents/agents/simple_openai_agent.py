@@ -1,11 +1,19 @@
+import os
 from openagents.agents.runner import BaseAgentRunner
 from openagents.models.message_thread import MessageThread
 from openagents.models.messages import BaseMessage
 from typing import Dict, List, Any, Optional
-from openai import OpenAI
 import json
 import asyncio
 from openagents.models.tool import AgentAdapterTool
+import logging
+logger = logging.getLogger(__name__)
+
+try:
+    from openai import AzureOpenAI, OpenAI
+except ImportError:
+    logger.warning("openai is not installed, please install it with `pip install openai`")
+
 
 from jinja2 import Template
 
@@ -14,7 +22,7 @@ user_prompt_template = Template("""
     <threads>
         {% for thread_id, thread in message_threads.items() %}
         <thread id="{{ thread_id }}">
-            {% for message in thread.messages %}
+            {% for message in thread.messages[-10:] %}
             <message sender="{{ message.sender_id }}">
                 {% if message.text_representation %}
                 <content>{{ message.text_representation }}</content>
@@ -55,9 +63,12 @@ class SimpleOpenAIAgentRunner(BaseAgentRunner):
         self.instruction = instruction
         # Initialize OpenAI client with custom API base URL if provided
         if api_base:
-            self.client = OpenAI(base_url=api_base)
+            if "azure.com" in api_base:
+                self.openai_client = AzureOpenAI(azure_endpoint=api_base, api_key=os.getenv("AZURE_OPENAI_API_KEY"), api_version=os.getenv("OPENAI_API_VERSION", "2024-07-01-preview"))
+            else:
+                self.openai_client = OpenAI(base_url=api_base, api_key=os.getenv("OPENAI_API_KEY"))
         else:
-            self.client = OpenAI()
+            self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     def _create_finish_tool(self):
         """Create a tool that allows the model to indicate it's finished with actions."""
@@ -77,7 +88,8 @@ class SimpleOpenAIAgentRunner(BaseAgentRunner):
             func=lambda reason: f"Action chain completed: {reason}"
         )
 
-    def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
+    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
+        print(f">>> Reacting to message: {incoming_message.text_representation} (thread:{incoming_thread_id})")
         # Generate the prompt using the template
         prompt_content = user_prompt_template.render(
             message_threads=message_threads,
@@ -107,7 +119,7 @@ class SimpleOpenAIAgentRunner(BaseAgentRunner):
             iteration += 1
             
             # Call the OpenAI API with function calling
-            response = self.client.chat.completions.create(
+            response = self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=messages,
                 tools=[{"type": "function", "function": func} for func in functions],
@@ -116,7 +128,6 @@ class SimpleOpenAIAgentRunner(BaseAgentRunner):
             
             # Get the response message
             response_message = response.choices[0].message
-            
             # Add the assistant's response to the conversation
             messages.append({
                 "role": "assistant",
@@ -127,6 +138,7 @@ class SimpleOpenAIAgentRunner(BaseAgentRunner):
             # Check if the model wants to call a function
             if hasattr(response_message, 'tool_calls') and response_message.tool_calls:
                 for tool_call in response_message.tool_calls:
+                    print(f">>> tool >>> {tool_call.function.name}({tool_call.function.arguments})")
                     # Get the tool name and arguments
                     tool_name = tool_call.function.name
                     
@@ -149,8 +161,8 @@ class SimpleOpenAIAgentRunner(BaseAgentRunner):
                             # Parse the function arguments
                             arguments = json.loads(tool_call.function.arguments)
                             
-                            # Execute the tool
-                            result = asyncio.run(tool.execute(**arguments))
+                            # Execute the tool (now we can use await directly since the method is async)
+                            result = await tool.execute(**arguments)
                             
                             # Add the tool result to the conversation
                             messages.append({
@@ -165,7 +177,10 @@ class SimpleOpenAIAgentRunner(BaseAgentRunner):
                                 "tool_call_id": tool_call.id,
                                 "content": f"Error: {str(e)}"
                             })
+                            logger.info(f"Error executing tool {tool_name}: {e}")
+                            logger.info(f"Tool call: {tool_call}")
             else:
+                print(f">>> response >>> {response_message.content}")
                 # If the model generates a response without calling a tool, finish
                 is_finished = True
                 break
