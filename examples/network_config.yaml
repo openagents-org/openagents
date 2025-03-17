@@ -47,7 +47,7 @@ network_profile:
     - "example"
     - "test"
   country: "Worldwide"
-  required_openagents_version: "0.4.0"
+  required_openagents_version: "0.4.1"
   capacity: 5000
   authentication:
     type: "none"
