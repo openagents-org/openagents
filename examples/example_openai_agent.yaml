@@ -1,7 +1,7 @@
-type: openai
+type: openagents.agents.simple_openai_agent.SimpleOpenAIAgentRunner
 config:
   agent_id: example-openai-agent
-  model_name: gpt-4o-mini
+  model_name: qwen-plus-latest
   instruction: |
     You are a helpful assistant that can answer questions about various topics.
     Be concise, accurate, and friendly in your responses.
@@ -9,7 +9,8 @@ config:
     
     You have access to various tools that can help you accomplish tasks.
     Use these tools when appropriate to provide better assistance.
+  api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
 
 # Connection settings
 connection:
-  network_id: minichat-jp
+  network_id: minichat-jp\

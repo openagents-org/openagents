@@ -20,7 +20,7 @@ class BaseAgentRunner(ABC):
     agent should respond to messages and interact with protocols.
     """
 
-    def __init__(self, agent_id: Optional[str] = None, protocol_names: Optional[List[str]] = None, client: Optional[AgentClient] = None, interval: Optional[int] = 1):
+    def __init__(self, agent_id: Optional[str] = None, protocol_names: Optional[List[str]] = None, client: Optional[AgentClient] = None, interval: Optional[int] = 1, ignored_sender_ids: Optional[List[str]] = None):
         """Initialize the agent runner.
         
         Args:
@@ -36,6 +36,7 @@ class BaseAgentRunner(ABC):
         self._running = False
         self._processed_message_ids = set()
         self._interval = interval
+        self._ignored_sender_ids = set(ignored_sender_ids) if ignored_sender_ids is not None else set()
         # Initialize the client if it is not provided
         if self._network_client is None:
             protocol_adapters = []
@@ -120,6 +121,10 @@ class BaseAgentRunner(ABC):
                 if unprocessed_message and unprocessed_thread_id:
                     # Mark the message as processed to avoid processing it again
                     self._processed_message_ids.add(str(unprocessed_message.message_id))
+
+                    # If the sender is in the ignored list, skip the message
+                    if unprocessed_message.sender_id in self._ignored_sender_ids:
+                        continue
                     
                     # Create a copy of conversation threads that doesn't include future messages
                     current_time = unprocessed_message.timestamp

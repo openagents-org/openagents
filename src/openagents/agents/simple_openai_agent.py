@@ -57,8 +57,8 @@ If you don't need to use any tools, use the finish tool directly.
 
 class SimpleOpenAIAgentRunner(BaseAgentRunner):
 
-    def __init__(self, agent_id: str, model_name: str, instruction: str, api_base: str = None, protocol_names: Optional[List[str]] = None):
-        super().__init__(agent_id=agent_id, protocol_names=protocol_names)
+    def __init__(self, agent_id: str, model_name: str, instruction: str, api_base: str = None, protocol_names: Optional[List[str]] = None, ignored_sender_ids: Optional[List[str]] = None):
+        super().__init__(agent_id=agent_id, protocol_names=protocol_names, ignored_sender_ids=ignored_sender_ids)
         self.model_name = model_name
         self.instruction = instruction
         # Initialize OpenAI client with custom API base URL if provided

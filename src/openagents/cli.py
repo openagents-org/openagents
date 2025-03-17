@@ -51,7 +51,16 @@ def connect_command(args: argparse.Namespace) -> None:
     Args:
         args: Command-line arguments
     """
-    launch_console(args.ip, args.port, args.id)
+    # Validate that either ip or network-id is provided
+    if not args.ip and not args.network_id:
+        logging.error("Either --ip or --network-id must be provided")
+        return
+        
+    # If network-id is provided but ip is not, use a default ip
+    if args.network_id and not args.ip:
+        args.ip = "localhost"  # Default to localhost when only network-id is provided
+        
+    launch_console(args.ip, args.port, args.id, args.network_id)
 
 
 def launch_agent_command(args: argparse.Namespace) -> None:
@@ -188,9 +197,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     
     # Connect command
     connect_parser = subparsers.add_parser("connect", help="Connect to a network server")
-    connect_parser.add_argument("--ip", required=True, help="Server IP address")
+    connect_parser.add_argument("--ip", help="Server IP address (required if --network-id is not provided)")
     connect_parser.add_argument("--port", type=int, default=8765, help="Server port (default: 8765)")
     connect_parser.add_argument("--id", help="Agent ID (default: auto-generated)")
+    connect_parser.add_argument("--network-id", help="Network ID to connect to (required if --ip is not provided)")
     
     # Launch agent command
     launch_agent_parser = subparsers.add_parser("launch-agent", help="Launch an agent from a configuration file")
