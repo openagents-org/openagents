@@ -4,7 +4,7 @@
     "description": "A simple messaging protocol for OpenAgents that supports direct and broadcast messaging with text and file attachments",
     "authors": ["OpenAgents Team"],
     "license": "MIT",
-    "agent_adapter_class": "SimpleMessagingAgentClient",
+    "agent_adapter_class": "SimpleMessagingAgentAdapterlient",
     "network_protocol_class": "SimpleMessagingNetworkProtocol",
     "capabilities": [
         "simple_direct_messaging",

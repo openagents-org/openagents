@@ -9,7 +9,7 @@ Key features:
 - Support for text and binary file attachments
 """
 
-from openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentClient
+from openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
 from openagents.protocols.communication.simple_messaging.protocol import SimpleMessagingNetworkProtocol
 
-__all__ = ["SimpleMessagingAgentClient", "SimpleMessagingNetworkProtocol"] 
+__all__ = ["SimpleMessagingAgentAdapter", "SimpleMessagingNetworkProtocol"] 

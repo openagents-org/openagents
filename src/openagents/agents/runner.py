@@ -31,6 +31,9 @@ class AgentRunner(ABC):
             client: Agent client to use for the agent. Optional, if provided, the runner will use the client to obtain required protocol adapters.
             interval: Interval in seconds between checking for new messages.
             ignored_sender_ids: List of sender IDs to ignore.
+            
+        Note:
+            Either protocol_names or protocol_adapters should be provided, not both.
         """
         self._agent_id = agent_id
         self._preset_protocol_names = protocol_names
@@ -41,14 +44,25 @@ class AgentRunner(ABC):
         self._processed_message_ids = set()
         self._interval = interval
         self._ignored_sender_ids = set(ignored_sender_ids) if ignored_sender_ids is not None else set()
+        
+        # Validate that protocol_names and protocol_adapters are not both provided
+        if protocol_names is not None and protocol_adapters is not None:
+            raise ValueError("Cannot provide both protocol_names and protocol_adapters. Choose one approach.")
+            
         # Initialize the client if it is not provided
         if self._network_client is None:
-            protocol_adapters = []
-            if self._preset_protocol_names is not None:
-                protocol_adapters = load_protocol_adapters(self._preset_protocol_names)
-            self._network_client = AgentClient(agent_id=self._agent_id, protocol_adapters=protocol_adapters)
-        if self._preset_protocol_names is not None:
-            self._supported_protocols = self._preset_protocol_names
+            if protocol_adapters is not None:
+                self._network_client = AgentClient(agent_id=self._agent_id, protocol_adapters=protocol_adapters)
+                self._supported_protocols = [adapter.protocol_name for adapter in protocol_adapters]
+            elif self._preset_protocol_names is not None:
+                loaded_adapters = load_protocol_adapters(self._preset_protocol_names)
+                self._network_client = AgentClient(agent_id=self._agent_id, protocol_adapters=loaded_adapters)
+                self._supported_protocols = self._preset_protocol_names
+            else:
+                self._network_client = AgentClient(agent_id=self._agent_id)
+                
+        # Update tools if we have protocol information
+        if self._supported_protocols is not None:
             self.update_tools()
     
     def update_tools(self):

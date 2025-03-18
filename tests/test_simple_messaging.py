@@ -18,7 +18,7 @@ import gc
 
 from src.openagents.core.client import AgentClient
 from src.openagents.core.network import AgentNetworkServer
-from src.openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentClient
+from src.openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
 from src.openagents.protocols.communication.simple_messaging.protocol import SimpleMessagingNetworkProtocol
 from src.openagents.models.messages import ProtocolMessage
 
@@ -181,7 +181,7 @@ class TestSimpleMessaging:
         agent = AgentClient(agent_id=agent_id)
         
         # Create and register the simple messaging protocol adapter with the agent
-        messaging_adapter = SimpleMessagingAgentClient()
+        messaging_adapter = SimpleMessagingAgentAdapterlient()
         agent.register_protocol_adapter(messaging_adapter)
         
         # Register message and file handlers

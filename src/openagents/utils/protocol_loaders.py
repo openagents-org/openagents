@@ -64,7 +64,7 @@ def load_protocol_adapters(protocol_names: List[str]) -> List[BaseProtocolAdapte
                 # If no manifest or class not found, try common naming patterns
                 protocol_short_name = components[-1]
                 class_name_candidates = [
-                    f"{protocol_short_name.title().replace('_', '')}AgentClient",  # e.g., SimpleMessagingAgentClient
+                    f"{protocol_short_name.title().replace('_', '')}AgentClient",  # e.g., SimpleMessagingAgentAdapterlient
                     "Adapter",  # Generic name
                     f"{protocol_short_name.title().replace('_', '')}Adapter"  # e.g., SimpleMessagingAdapter
                 ]
