@@ -21,13 +21,16 @@ class AgentRunner(ABC):
     agent should respond to messages and interact with protocols.
     """
 
-    def __init__(self, agent_id: Optional[str] = None, protocol_names: Optional[List[str]] = None, client: Optional[AgentClient] = None, interval: Optional[int] = 1, ignored_sender_ids: Optional[List[str]] = None):
+    def __init__(self, agent_id: Optional[str] = None, protocol_names: Optional[List[str]] = None, protocol_adapters: Optional[List[BaseProtocolAdapter]] = None, client: Optional[AgentClient] = None, interval: Optional[int] = 1, ignored_sender_ids: Optional[List[str]] = None):
         """Initialize the agent runner.
         
         Args:
             agent_id: ID of the agent. Optional, if provided, the runner will use the agent ID to identify the agent.   
             protocol_names: List of protocol names to use for the agent. Optional, if provided, the runner will try to obtain required protocol adapters from the server.
+            protocol_adapters: List of protocol adapters to use for the agent. Optional, if provided, the runner will use the provided protocol adapters instead of obtaining them from the server.
             client: Agent client to use for the agent. Optional, if provided, the runner will use the client to obtain required protocol adapters.
+            interval: Interval in seconds between checking for new messages.
+            ignored_sender_ids: List of sender IDs to ignore.
         """
         self._agent_id = agent_id
         self._preset_protocol_names = protocol_names
