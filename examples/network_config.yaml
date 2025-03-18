@@ -34,7 +34,13 @@ service_agents:
 network_profile:
   discoverable: true
   network_id: "network-12345678abc"
-  management_token: "12345678"
+  
+  # You can specify the management token directly
+  # management_token: "12345678"
+  
+  # Or load it from an environment variable
+  # management_token: "env:OPENAGENTS_MANAGEMENT_TOKEN"
+  
   name: "ExampleNetwork"
   description: "Example network for testing"
   icon: "https://example.com/icon.png"

@@ -115,6 +115,9 @@ def create_network_profile(config: OpenAgentsConfig, network: AgentNetworkServer
             profile_dict['host'] = network.host
         if not profile_dict['port']:
             profile_dict['port'] = network.port
+            
+        # If a management_token is provided in the config, use it
+        # It will be validated by the NetworkProfile model (including env var lookup if needed)
         
         # Create a NetworkProfile instance
         return NetworkProfile(**profile_dict)
