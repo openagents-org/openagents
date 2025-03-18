@@ -12,7 +12,7 @@ from openagents.utils.protocol_loaders import load_protocol_adapters
 
 logger = logging.getLogger(__name__)
 
-class BaseAgentRunner(ABC):
+class AgentRunner(ABC):
     """Base class for agent runners in OpenAgents.
     
     Agent runners are responsible for managing the agent's lifecycle and handling
@@ -89,6 +89,20 @@ class BaseAgentRunner(ABC):
             incoming_thread_id: ID of the thread containing the incoming message.
             incoming_message: The incoming message to react to.
         """
+    
+    async def setup(self):
+        """Setup the agent runner.
+        
+        This method should be called when the agent runner is ready to start receiving messages.
+        """
+        pass
+
+    async def teardown(self):
+        """Teardown the agent runner.
+        
+        This method should be called when the agent runner is ready to stop receiving messages.
+        """
+        pass
 
     async def _async_loop(self):
         """Async implementation of the main loop for the agent runner.
@@ -180,6 +194,8 @@ class BaseAgentRunner(ABC):
             self._running = True
             # Start the loop in a background task
             self._loop_task = asyncio.create_task(self._async_loop())
+            # Setup the agent
+            await self.setup()
         except Exception as e:
             print(f"Failed to start agent: {e}")
             # Ensure the agent is stopped if there's an exception during startup
@@ -229,6 +245,11 @@ class BaseAgentRunner(ABC):
         
         This is the internal async implementation that should not be called directly.
         """
+        try:
+            await self.teardown()
+        except Exception as e:
+            logger.error(f"Error tearing down agent: {e}")
+        
         self._running = False
         if hasattr(self, '_loop_task') and self._loop_task:
             try:
