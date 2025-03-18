@@ -6,6 +6,7 @@ the characteristics and capabilities of OpenAgents networks.
 
 from typing import List, Optional, Dict, Any, Literal
 import uuid
+import os
 from pydantic import BaseModel, Field, validator
 from packaging import version
 
@@ -48,6 +49,11 @@ class NetworkProfile(BaseModel):
     management_code: Optional[str] = Field(
         default=None,
         description="Optional management code for re-publishing a network with the same ID"
+    )
+    
+    management_token: Optional[str] = Field(
+        default=None,
+        description="Management token for network operations. Can be loaded from an environment variable by prefixing with 'env:'"
     )
     
     name: str = Field(
@@ -116,6 +122,18 @@ class NetworkProfile(BaseModel):
         description="The port number of the network"
     )
     
+    @validator('management_token')
+    def validate_management_token(cls, v):
+        """Load management token from environment variable if it starts with 'env:'."""
+        if v and v.startswith('env:'):
+            env_var = v[4:]  # Remove the 'env:' prefix
+            token = os.environ.get(env_var)
+            if token:
+                return token
+            else:
+                raise ValueError(f"Environment variable '{env_var}' not found for management_token")
+        return v
+
     @validator('required_openagents_version')
     def validate_version(cls, v):
         """Validate that the version string is in the correct format."""

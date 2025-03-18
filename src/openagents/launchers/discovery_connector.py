@@ -61,7 +61,10 @@ class NetworkDiscoveryConnector:
         self._heartbeat_task = None
         self._stop_event = asyncio.Event()
         self._published = False
-        self._management_token = None  # Store the management token
+        
+        # Initialize management token from network profile if it exists
+        self._management_token = network_profile.management_token if hasattr(network_profile, 'management_token') and network_profile.management_token else None
+        
         self._logger = logging.getLogger(__name__)
     
     async def publish(self) -> bool:
