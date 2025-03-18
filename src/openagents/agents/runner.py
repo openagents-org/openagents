@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from openagents.core.base_protocol_adapter import BaseProtocolAdapter
 from openagents.models.message_thread import MessageThread
 from openagents.models.messages import BaseMessage
 from openagents.models.tool import AgentAdapterTool
@@ -76,6 +77,14 @@ class AgentRunner(ABC):
             List[AgentAdapterTool]: The list of tools available to the agent.
         """
         return self._tools
+    
+    def get_protocol_adapter(self, protocol_name: str) -> Optional[BaseProtocolAdapter]:
+        """Get the protocol adapter for the given protocol name.
+        
+        Returns:
+            Optional[BaseProtocolAdapter]: The protocol adapter for the given protocol name.
+        """
+        return self.client.protocol_adapters.get(protocol_name)
 
     @abstractmethod
     async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
