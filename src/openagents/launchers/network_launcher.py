@@ -146,7 +146,7 @@ def create_network_profile(config: OpenAgentsConfig, network: AgentNetworkServer
         host=network.host,
         port=network.port,
         country="Worldwide",
-        required_openagents_version="0.4.1",
+        required_openagents_version="0.4.2",
         authentication=auth_config,
         installed_protocols=installed_protocols,
         required_adapters=required_adapters
