@@ -1,0 +1,105 @@
+# Enhanced OpenAgents Network Configuration Example
+# Milestone 1: Foundation Infrastructure (MVP)
+
+# Core network configuration
+network:
+  name: "EnhancedOpenAgentsNetwork"
+  mode: "decentralized"  # or "centralized"
+  node_id: "agent-alpha"
+  
+  # Network topology configuration
+  host: "0.0.0.0"
+  port: 4001
+  server_mode: false  # Set to true for centralized coordinator
+  coordinator_url: "ws://localhost:8765"  # Used only in centralized mode
+  bootstrap_nodes:
+    - "/ip4/127.0.0.1/tcp/4001/p2p/QmNodeID1"
+    - "/ip4/192.168.1.5/tcp/4001/p2p/QmNodeID2"
+  
+  # Transport configuration
+  transport: "websocket"  # libp2p, grpc, webrtc (websocket for now)
+  transport_config:
+    buffer_size: 8192
+    compression: true
+  
+  # Security configuration
+  encryption_enabled: true
+  encryption_type: "noise"  # or "tls"
+  
+  # Discovery configuration
+  discovery_interval: 5  # in seconds
+  discovery_enabled: true
+  
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 30
+  
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  
+  # Protocols
+  protocols:
+    - name: "openagents.protocols.communication.simple_messaging"
+      enabled: true
+      config: {}
+    - name: "openagents.protocols.discovery.agent_discovery"
+      enabled: true
+      config:
+        announce_interval: 30
+
+# Service agents configuration (optional)
+service_agents:
+  - name: "DiscoveryAgent"
+    protocols:
+      - name: "openagents.protocols.discovery.agent_discovery"
+        enabled: true
+        config: {}
+    services:
+      - name: "peer_discovery"
+        description: "Discover peers in the network"
+    subscriptions:
+      - "discovery"
+
+  - name: "MessageBroker"
+    protocols:
+      - name: "openagents.protocols.communication.simple_messaging"
+        enabled: true
+        config: {}
+    services:
+      - name: "message_relay"
+        description: "Relay messages between agents"
+    subscriptions:
+      - "messages"
+
+# Network profile for discovery (optional)
+network_profile:
+  discoverable: true
+  name: "EnhancedOpenAgentsNetwork"
+  description: "Enhanced network with milestone 1 features"
+  icon: "https://openagents.io/icon.png"
+  website: "https://openagents.io"
+  tags:
+    - "enhanced"
+    - "milestone1"
+    - "p2p"
+  categories:
+    - "research"
+    - "development"
+  country: "Worldwide"
+  required_openagents_version: "0.5.0"
+  capacity: 1000
+  authentication:
+    type: "none"
+  host: "0.0.0.0"
+  port: 4001
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data"
+
+# Runtime configuration
+runtime_limit: null  # null for unlimited
+shutdown_timeout: 30 

@@ -7,7 +7,7 @@ the characteristics and capabilities of OpenAgents networks.
 from typing import List, Optional, Dict, Any, Literal
 import uuid
 import os
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from packaging import version
 
 class NetworkAuthentication(BaseModel):
@@ -122,7 +122,8 @@ class NetworkProfile(BaseModel):
         description="The port number of the network"
     )
     
-    @validator('management_token')
+    @field_validator('management_token')
+    @classmethod
     def validate_management_token(cls, v):
         """Load management token from environment variable if it starts with 'env:'."""
         if v and v.startswith('env:'):
@@ -134,7 +135,8 @@ class NetworkProfile(BaseModel):
                 raise ValueError(f"Environment variable '{env_var}' not found for management_token")
         return v
 
-    @validator('required_openagents_version')
+    @field_validator('required_openagents_version')
+    @classmethod
     def validate_version(cls, v):
         """Validate that the version string is in the correct format."""
         try:

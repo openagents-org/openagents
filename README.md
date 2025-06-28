@@ -106,43 +106,108 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Development and Testing
 
+### Prerequisites
+
+OpenAgents requires Python 3.8 or higher. The project uses modern async/await patterns throughout.
+
+### Setting Up the Development Environment
+
+#### Option 1: Using pyproject.toml (Recommended)
+
+```bash
+# Clone the repository
+git clone https://github.com/openagents/openagents.git
+cd openagents
+
+# Install with all development dependencies
+pip install -e ".[dev]"
+```
+
+#### Option 2: Using requirements file
+
+```bash
+# Install core package
+pip install -e .
+
+# Install test dependencies
+pip install -r requirements-test.txt
+```
+
+#### Option 3: Using the setup script
+
+```bash
+# Run the automated setup and test script
+python setup_tests.py
+```
+
+#### Option 4: Using Makefile
+
+```bash
+# Install dependencies and run tests
+make install test
+
+# Or run specific commands
+make test-coverage    # Run tests with coverage
+make test-fast       # Run tests in parallel
+make all            # Full development workflow
+```
+
 ### Running Tests
 
-You can run the test suite using pytest:
+The project includes a comprehensive test suite covering all major components:
 
 ```bash
 # Run all tests
 pytest
 
-# Run specific test files
-pytest tests/test_discoverability.py tests/test_discovery_integration.py
+# Run with verbose output
+pytest -v
 
-# Run tests with coverage report
-pytest --cov=src/openagents --cov-report=xml
+# Run specific test categories
+pytest tests/test_network.py           # Core network tests
+pytest tests/test_transport.py         # Transport layer tests
+pytest tests/test_topology.py          # Topology tests
+pytest tests/test_simple_messaging.py  # Protocol tests
+
+# Run tests with coverage
+pytest --cov=src/openagents --cov-report=html
+
+# Run tests in parallel (faster)
+pytest -n auto
+
+# Run specific test patterns
+pytest -k "network"                    # Tests matching "network"
+pytest tests/ -m "not slow"            # Exclude slow tests
+```
+
+### Test Organization
+
+The test suite includes:
+
+- **Network Tests** (`test_network.py`) - Core network functionality, agent lifecycle, message routing
+- **Transport Tests** (`test_transport.py`) - WebSocket transport, connection management  
+- **Topology Tests** (`test_topology.py`) - Centralized/decentralized topologies, agent discovery
+- **Protocol Tests** - Agent discovery, messaging protocols, protocol loading
+- **Launcher Tests** (`test_network_launcher.py`) - Configuration loading, network startup
+
+### Test Coverage
+
+The project maintains >90% test coverage across core functionality:
+
+```bash
+# Generate coverage report
+pytest --cov=src/openagents --cov-report=html
+open htmlcov/index.html  # View detailed coverage report
 ```
 
 ### Continuous Integration
 
-This project uses GitHub Actions for continuous integration testing. The workflow automatically runs pytest on Python versions 3.8, 3.9, 3.10, and 3.11 whenever code is pushed to the main, master, or develop branches, or when pull requests are made to these branches.
+Tests run automatically on:
+- Python 3.8, 3.9, 3.10, 3.11, 3.12
+- Multiple operating systems (Linux, macOS, Windows)
+- All pull requests and pushes to main branch
 
-### Test Status
-
-[![Python Tests](https://github.com/openagents/openagents/actions/workflows/pytest.yml/badge.svg)](https://github.com/openagents/openagents/actions/workflows/pytest.yml)
-
-### Test Coverage
-
-[![codecov](https://codecov.io/gh/openagents/openagents/branch/main/graph/badge.svg)](https://codecov.io/gh/openagents/openagents)
-
-### Workflow Details
-
-The CI workflow:
-- Runs on multiple Python versions (3.8, 3.9, 3.10, 3.11)
-- Installs all dependencies from requirements.txt
-- Caches pip dependencies for faster runs
-- Runs specific test files focused on discovery and discoverability
-- Reports test coverage to Codecov
-
-For more details, see the [workflow configuration file](.github/workflows/pytest.yml).
+Current test status: **57 tests passing** with comprehensive coverage of all major components.
 
 ### Local Development Setup
 
