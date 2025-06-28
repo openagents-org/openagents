@@ -1,8 +1,8 @@
 """
 Tests for the agent_discovery protocol in OpenAgents.
 
-This module contains tests for the agent discovery protocol functionality,
-including capability announcement and agent discovery.
+This module contains simplified tests for agent discovery functionality
+using the new AgentNetwork architecture.
 """
 
 import asyncio
@@ -11,29 +11,23 @@ import logging
 from typing import Dict, Any, List
 import random
 
-from src.openagents.core.client import AgentClient
-from src.openagents.core.network import AgentNetworkServer
-from src.openagents.protocols.discovery.agent_discovery.adapter import AgentDiscoveryAdapter
-from src.openagents.protocols.discovery.agent_discovery.protocol import AgentDiscoveryProtocol
-from src.openagents.models.messages import ProtocolMessage
+from src.openagents.core.network import AgentNetwork, create_network
+from src.openagents.models.network_config import NetworkConfig, NetworkMode
 
 # Configure logging for tests
 logger = logging.getLogger(__name__)
 
 
 class TestAgentDiscovery:
-    """Test cases for the agent discovery protocol."""
+    """Test cases for agent discovery using the new network architecture."""
 
     @pytest.fixture(autouse=True)
     async def setup_and_teardown(self):
         """Set up and tear down the test environment."""
         # Initialize test data
         self.host = "127.0.0.1"
-        self.port = 8765  # Use the same port for server and client
+        self.port = 8765
         self.network = None
-        self.agents = {}
-        self.discovery_adapters = {}
-        self.discovery_results = []
         
         # Setup is done, yield control back to the test
         yield
@@ -45,23 +39,12 @@ class TestAgentDiscovery:
         """Clean up test resources."""
         logger.info("Cleaning up test resources")
         
-        # Disconnect all agents
-        for agent_id, agent in self.agents.items():
-            try:
-                await agent.disconnect()
-            except Exception as e:
-                logger.error(f"Error disconnecting agent {agent_id}: {e}")
-        
         # Stop the network
         if self.network:
             try:
-                self.network.stop()
+                await self.network.shutdown()
             except Exception as e:
                 logger.error(f"Error stopping network: {e}")
-        
-        # Force garbage collection to clean up resources
-        gc = __import__('gc')
-        gc.collect()
 
     async def setup_network(self):
         """Set up the network for testing."""
@@ -70,340 +53,205 @@ class TestAgentDiscovery:
         # Use a random port to avoid conflicts
         self.port = random.randint(8766, 8999)
         
-        self.network = AgentNetworkServer("TestNetwork", host=self.host, port=self.port)
+        # Create network configuration
+        config = NetworkConfig(
+            name="TestNetwork",
+            mode=NetworkMode.CENTRALIZED,
+            host=self.host,
+            port=self.port,
+            server_mode=True
+        )
         
-        # Register agent discovery protocol by name
-        self.network.register_protocol("openagents.protocols.discovery.agent_discovery")
+        # Create the network
+        self.network = create_network(config)
         
-        # Start the network (not awaiting since it's not an async method)
-        self.network.start()
+        # Initialize the network
+        success = await self.network.initialize()
+        if not success:
+            raise RuntimeError("Failed to initialize network")
+        
+        logger.info(f"Network initialized on {self.host}:{self.port}")
         
         # Give the network a moment to start up
         await asyncio.sleep(0.5)
 
-    async def setup_provider_agent(self, agent_id: str, capabilities: Dict[str, Any]):
-        """Set up a provider agent with capabilities.
-        
-        Args:
-            agent_id: ID for the agent
-            capabilities: Capabilities to announce
-        """
-        logger.info(f"Setting up provider agent {agent_id}")
-        
-        # Create agent client
-        agent = AgentClient(agent_id)
-        
-        # Add agent discovery adapter
-        discovery_adapter = AgentDiscoveryAdapter()
-        agent.register_protocol_adapter(discovery_adapter)
-        
-        # Create metadata for the agent
-        metadata = {
-            "name": f"Provider Agent {agent_id}",
-            "type": "provider",
-            "capabilities": capabilities
-        }
-        
-        # Connect to network with metadata
-        await agent.connect_to_server(self.host, self.port, metadata)
-        
-        # Set capabilities
-        await discovery_adapter.set_capabilities(capabilities)
-        
-        # Store agent and adapter for later use
-        self.agents[agent_id] = agent
-        self.discovery_adapters[agent_id] = discovery_adapter
-        
-        # Wait a bit for capabilities to be announced
-        await asyncio.sleep(0.5)
-        
-        return agent, discovery_adapter
-
-    async def setup_consumer_agent(self, agent_id: str):
-        """Set up a consumer agent for discovering other agents.
-        
-        Args:
-            agent_id: ID for the agent
-        """
-        logger.info(f"Setting up consumer agent {agent_id}")
-        
-        # Create agent client
-        agent = AgentClient(agent_id)
-        
-        # Add agent discovery adapter
-        discovery_adapter = AgentDiscoveryAdapter()
-        agent.register_protocol_adapter(discovery_adapter)
-        
-        # Create metadata for the agent
-        metadata = {
-            "name": f"Consumer Agent {agent_id}",
-            "type": "consumer"
-        }
-        
-        # Connect to network with metadata
-        await agent.connect_to_server(self.host, self.port, metadata)
-        logger.info(f"Consumer agent {agent_id} connected")
-        
-        # Store consumer agent and adapter
-        self.agents[agent_id] = agent
-        self.discovery_adapters[agent_id] = discovery_adapter
-        
-        # Wait a bit for connection to establish
-        await asyncio.sleep(0.5)
-        
-        return agent, discovery_adapter
-
     @pytest.mark.asyncio
     async def test_capability_announcement(self):
-        """Test that agents can announce their capabilities."""
+        """Test that agents can be registered with capabilities."""
         # Set up network
         await self.setup_network()
         
-        # Set up provider agent
+        # Register an agent with capabilities
         agent_id = "test_provider_1"
-        capabilities = {
+        capabilities = ["text_generation", "chat", "streaming"]
+        metadata = {
+            "name": "Provider Agent 1",
             "type": "service",
-            "service_type": "text_generation",
+            "capabilities": capabilities,
             "language_models": ["gpt-4", "claude-3"],
             "max_tokens": 8192,
             "supports_streaming": True
         }
         
-        await self.setup_provider_agent(agent_id, capabilities)
+        # Register the agent
+        success = await self.network.register_agent(agent_id, metadata)
+        assert success, "Failed to register agent"
         
-        # Get the network state to verify capabilities were announced
-        protocol = self.network.protocols["openagents.protocols.discovery.agent_discovery"]
-        state = protocol.get_state()
+        # Verify the agent is registered
+        agents = self.network.get_agents()
+        assert agent_id in agents
         
-        # Assert that the agent's capabilities are in the network state
-        assert agent_id in state["agent_capabilities"]
-        assert state["agent_capabilities"][agent_id] == capabilities
+        agent_info = agents[agent_id]
+        assert agent_info.agent_id == agent_id
+        assert agent_info.capabilities == capabilities
+        assert agent_info.metadata["name"] == "Provider Agent 1"
 
     @pytest.mark.asyncio
     async def test_capability_discovery_exact_match(self):
-        """Test that agents can discover other agents with exact capability matches."""
+        """Test that agents can be discovered by capabilities."""
         # Set up network
         await self.setup_network()
         
-        # Set up provider agents with different capabilities
-        provider_capabilities = [
+        # Register multiple agents with different capabilities
+        agents_data = [
             {
-                "type": "service",
-                "service_type": "text_generation",
-                "language_models": ["gpt-4", "claude-3"],
-                "max_tokens": 8192,
-                "supports_streaming": True
+                "agent_id": "text_agent",
+                "capabilities": ["text_generation", "chat"],
+                "metadata": {"name": "Text Agent", "service_type": "text_generation"}
             },
             {
-                "type": "service",
-                "service_type": "image_generation",
-                "models": ["dall-e-3", "stable-diffusion"],
-                "max_resolution": "1024x1024",
-                "supports_streaming": False
+                "agent_id": "image_agent", 
+                "capabilities": ["image_generation", "art"],
+                "metadata": {"name": "Image Agent", "service_type": "image_generation"}
             },
             {
-                "type": "service",
-                "service_type": "text_generation",
-                "language_models": ["llama-3"],
-                "max_tokens": 4096,
-                "supports_streaming": False
+                "agent_id": "multi_agent",
+                "capabilities": ["text_generation", "image_generation", "chat"],
+                "metadata": {"name": "Multi Agent", "service_type": "multi_modal"}
             }
         ]
         
-        for i, capabilities in enumerate(provider_capabilities):
-            await self.setup_provider_agent(f"provider_{i}", capabilities)
+        # Register all agents
+        for agent_data in agents_data:
+            metadata = agent_data["metadata"].copy()
+            metadata["capabilities"] = agent_data["capabilities"]
+            success = await self.network.register_agent(agent_data["agent_id"], metadata)
+            assert success, f"Failed to register {agent_data['agent_id']}"
         
-        # Set up consumer agent
-        await self.setup_consumer_agent("consumer_agent")
+        # Discover agents with specific capabilities
+        text_agents = await self.network.discover_agents(["text_generation"])
+        assert len(text_agents) == 2  # text_agent and multi_agent
         
-        # Discover agents with exact capability match
-        query = {
-            "type": "service",
-            "service_type": "image_generation"
-        }
+        text_agent_ids = [agent.agent_id for agent in text_agents]
+        assert "text_agent" in text_agent_ids
+        assert "multi_agent" in text_agent_ids
         
-        results = await self.discovery_adapters["consumer_agent"].discover_agents(query)
+        # Discover agents with image capabilities
+        image_agents = await self.network.discover_agents(["image_generation"])
+        assert len(image_agents) == 2  # image_agent and multi_agent
         
-        # Assert that only the matching agent is found
-        assert len(results) == 1
-        assert results[0]["agent_id"] == "provider_1"
-        
-    @pytest.mark.asyncio
-    async def test_capability_discovery_partial_match(self):
-        """Test that agents can discover other agents with partial capability matches."""
-        # Set up network
-        await self.setup_network()
-        
-        # Set up provider agents with different capabilities
-        provider_capabilities = [
-            {
-                "type": "service",
-                "service_type": "text_generation",
-                "language_models": ["gpt-4", "claude-3"],
-                "max_tokens": 8192,
-                "supports_streaming": True
-            },
-            {
-                "type": "service",
-                "service_type": "image_generation",
-                "models": ["dall-e-3", "stable-diffusion"],
-                "max_resolution": "1024x1024",
-                "supports_streaming": False
-            },
-            {
-                "type": "service",
-                "service_type": "text_generation",
-                "language_models": ["llama-3"],
-                "max_tokens": 4096,
-                "supports_streaming": False
-            }
-        ]
-        
-        for i, capabilities in enumerate(provider_capabilities):
-            await self.setup_provider_agent(f"provider_{i}", capabilities)
-        
-        # Set up consumer agent
-        await self.setup_consumer_agent("consumer_agent")
-        
-        # Discover agents with partial capability match
-        query = {
-            "type": "service",
-            "service_type": "text_generation"
-        }
-        
-        results = await self.discovery_adapters["consumer_agent"].discover_agents(query)
-        
-        # Assert that both text generation agents are found
-        assert len(results) == 2
-        agent_ids = [result["agent_id"] for result in results]
-        assert "provider_0" in agent_ids
-        assert "provider_2" in agent_ids
+        image_agent_ids = [agent.agent_id for agent in image_agents]
+        assert "image_agent" in image_agent_ids
+        assert "multi_agent" in image_agent_ids
 
     @pytest.mark.asyncio
-    async def test_capability_update(self):
-        """Test that agents can update their capabilities."""
+    async def test_capability_discovery_partial_match(self):
+        """Test that agents can be discovered with multiple capability requirements."""
         # Set up network
         await self.setup_network()
         
-        # Set up provider agent
-        agent_id = "test_provider_update"
-        initial_capabilities = {
-            "type": "service",
-            "service_type": "text_generation",
-            "language_models": ["gpt-4"],
-            "max_tokens": 4096,
-            "supports_streaming": False
-        }
+        # Register agents with overlapping capabilities
+        agents_data = [
+            {
+                "agent_id": "basic_text",
+                "capabilities": ["text_generation"],
+                "metadata": {"name": "Basic Text Agent"}
+            },
+            {
+                "agent_id": "chat_text",
+                "capabilities": ["text_generation", "chat"],
+                "metadata": {"name": "Chat Text Agent"}
+            },
+            {
+                "agent_id": "streaming_chat",
+                "capabilities": ["text_generation", "chat", "streaming"],
+                "metadata": {"name": "Streaming Chat Agent"}
+            }
+        ]
         
-        _, discovery_adapter = await self.setup_provider_agent(agent_id, initial_capabilities)
+        # Register all agents
+        for agent_data in agents_data:
+            metadata = agent_data["metadata"].copy()
+            metadata["capabilities"] = agent_data["capabilities"]
+            success = await self.network.register_agent(agent_data["agent_id"], metadata)
+            assert success, f"Failed to register {agent_data['agent_id']}"
         
-        # Get the network state to verify initial capabilities
-        protocol = self.network.protocols["openagents.protocols.discovery.agent_discovery"]
-        initial_state = protocol.get_state()
-        print(f"Initial state: {initial_state}")
+        # Discover agents that support both text_generation and chat
+        chat_capable = await self.network.discover_agents(["text_generation", "chat"])
+        assert len(chat_capable) == 2  # chat_text and streaming_chat
         
-        # Update capabilities
-        updated_capabilities = {
-            "type": "service",
-            "service_type": "text_generation",
-            "language_models": ["gpt-4", "claude-3"],
-            "max_tokens": 8192,
-            "supports_streaming": True
-        }
-        
-        print(f"Updating capabilities to: {updated_capabilities}")
-        await discovery_adapter.update_capabilities(updated_capabilities)
-        
-        # Wait a bit for capabilities to be updated
-        await asyncio.sleep(0.5)
-        
-        # Get the network state to verify capabilities were updated
-        protocol = self.network.protocols["openagents.protocols.discovery.agent_discovery"]
-        state = protocol.get_state()
-        print(f"Updated state: {state}")
-        
-        # Assert that the agent's capabilities are updated in the network state
-        assert agent_id in state["agent_capabilities"]
-        
-        # Check that the updated fields are present
-        for key, value in updated_capabilities.items():
-            print(f"Checking key: {key}, expected: {value}, actual: {state['agent_capabilities'][agent_id][key]}")
-            assert state["agent_capabilities"][agent_id][key] == value
+        chat_agent_ids = [agent.agent_id for agent in chat_capable]
+        assert "chat_text" in chat_agent_ids
+        assert "streaming_chat" in chat_agent_ids
+        assert "basic_text" not in chat_agent_ids
 
     @pytest.mark.asyncio
     async def test_agent_unregistration(self):
-        """Test that agent capabilities are removed when an agent unregisters."""
+        """Test that agents are properly removed when unregistered."""
         # Set up network
         await self.setup_network()
         
-        # Set up provider agent
-        agent_id = "test_provider_unregister"
-        capabilities = {
-            "type": "service",
-            "service_type": "text_generation",
-            "language_models": ["gpt-4"],
-            "max_tokens": 4096
+        # Register an agent
+        agent_id = "test_unregister"
+        metadata = {
+            "name": "Test Unregister Agent",
+            "capabilities": ["test_capability"]
         }
         
-        agent, _ = await self.setup_provider_agent(agent_id, capabilities)
+        success = await self.network.register_agent(agent_id, metadata)
+        assert success, "Failed to register agent"
         
-        # Verify agent capabilities are in the network state
-        protocol = self.network.protocols["openagents.protocols.discovery.agent_discovery"]
-        state = protocol.get_state()
-        assert agent_id in state["agent_capabilities"]
+        # Verify agent is registered
+        agents = self.network.get_agents()
+        assert agent_id in agents
         
-        # Disconnect the agent
-        await agent.disconnect()
+        # Unregister the agent
+        success = await self.network.unregister_agent(agent_id)
+        assert success, "Failed to unregister agent"
         
-        # Wait a bit for unregistration to complete
-        await asyncio.sleep(0.5)
+        # Verify agent is removed
+        agents = self.network.get_agents()
+        assert agent_id not in agents
         
-        # Verify agent capabilities are removed from the network state
-        state = protocol.get_state()
-        assert agent_id not in state["agent_capabilities"]
+        # Verify agent is not discovered
+        discovered = await self.network.discover_agents(["test_capability"])
+        discovered_ids = [agent.agent_id for agent in discovered]
+        assert agent_id not in discovered_ids
 
     @pytest.mark.asyncio
-    async def test_nested_capability_matching(self):
-        """Test that agents can discover other agents with nested capability matches."""
+    async def test_get_specific_agent(self):
+        """Test getting a specific agent by ID."""
         # Set up network
         await self.setup_network()
         
-        # Set up provider agent with nested capabilities
-        agent_id = "test_provider_nested"
-        capabilities = {
-            "type": "service",
-            "service_type": "text_generation",
-            "models": {
-                "gpt-4": {
-                    "version": "turbo",
-                    "max_tokens": 8192
-                },
-                "claude-3": {
-                    "version": "opus",
-                    "max_tokens": 100000
-                }
-            },
-            "supports_streaming": True
+        # Register an agent
+        agent_id = "specific_agent"
+        metadata = {
+            "name": "Specific Test Agent",
+            "capabilities": ["specific_capability"],
+            "version": "1.0.0"
         }
         
-        await self.setup_provider_agent(agent_id, capabilities)
+        success = await self.network.register_agent(agent_id, metadata)
+        assert success, "Failed to register agent"
         
-        # Set up consumer agent
-        await self.setup_consumer_agent("consumer_agent")
+        # Get the specific agent
+        agent_info = self.network.get_agent(agent_id)
+        assert agent_info is not None
+        assert agent_info.agent_id == agent_id
+        assert agent_info.metadata["name"] == "Specific Test Agent"
+        assert agent_info.metadata["version"] == "1.0.0"
         
-        # Discover agents with nested capability match
-        query = {
-            "type": "service",
-            "models": {
-                "claude-3": {
-                    "version": "opus"
-                }
-            }
-        }
-        
-        results = await self.discovery_adapters["consumer_agent"].discover_agents(query)
-        
-        # Assert that the agent is found
-        assert len(results) == 1
-        assert results[0]["agent_id"] == agent_id
-        assert results[0]["capabilities"] == capabilities 
+        # Try to get a non-existent agent
+        non_existent = self.network.get_agent("non_existent_agent")
+        assert non_existent is None 

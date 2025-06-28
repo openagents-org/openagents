@@ -42,6 +42,7 @@ def launch_network_command(args: argparse.Namespace) -> None:
     Args:
         args: Command-line arguments
     """
+    # Use enhanced network launcher for all network launches
     launch_network(args.config, args.runtime)
 
 

@@ -1,30 +1,29 @@
 """
-Unit tests for the Network class.
+Unit tests for the AgentNetwork class.
 
-This module contains tests for the core Network functionality including:
+This module contains tests for the enhanced network functionality including:
 - Network initialization and configuration
-- Protocol registration
-- Agent connection handling
+- Agent registration and discovery
 - Message routing and delivery
-- Broadcast messaging
-- Protocol message handling
+- Transport and topology integration
+- Network statistics and monitoring
 """
 
-import unittest
+import pytest
 import asyncio
-import json
 import logging
 import time
 import sys
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, Any, List, Optional
 
 # Add the src directory to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
-from openagents.core.network import AgentNetworkServer
-from openagents.core.base_protocol import BaseProtocol
+from openagents.core.network import AgentNetwork, create_network
+from openagents.models.network_config import NetworkConfig, NetworkMode
+from openagents.models.transport import TransportType, AgentInfo
 from openagents.models.messages import (
     BaseMessage,
     DirectMessage,
@@ -32,442 +31,346 @@ from openagents.models.messages import (
     ProtocolMessage
 )
 
-# Configure logging
-# logging.basicConfig(
-#     level=logging.DEBUG,
-#     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-# )
-
-class MockWebSocket:
-    """Mock WebSocket for testing."""
-    
-    def __init__(self):
-        self.sent_messages = []
-        self.closed = False
-        self.close_code = None
-        self.close_reason = None
-        self.receive_queue = asyncio.Queue()
-    
-    async def send(self, message):
-        """Mock send method."""
-        self.sent_messages.append(message)
-    
-    async def recv(self):
-        """Mock receive method."""
-        return await self.receive_queue.get()
-    
-    async def close(self, code=1000, reason=""):
-        """Mock close method."""
-        self.closed = True
-        self.close_code = code
-        self.close_reason = reason
-    
-    def add_message_to_queue(self, message):
-        """Add a message to the receive queue."""
-        self.receive_queue.put_nowait(message)
-    
-    def __aiter__(self):
-        """Make the mock WebSocket iterable."""
-        return self
-    
-    async def __anext__(self):
-        """Get the next message from the queue."""
-        try:
-            return await self.receive_queue.get()
-        except asyncio.CancelledError:
-            raise StopAsyncIteration
+# Configure logging for tests
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
-class MockProtocol(BaseProtocol):
-    """Mock protocol for testing."""
+class TestNetworkConfig:
+    """Test network configuration creation and validation."""
     
-    def __init__(self):
-        """Initialize the mock protocol."""
-        super().__init__("mock_protocol")
-        self.registered_agents = {}
-        self.unregistered_agents = set()
-        self.direct_messages = []
-        self.broadcast_messages = []
-        self.protocol_messages = []
-    
-    def handle_register_agent(self, agent_id: str, metadata: Dict[str, Any]) -> None:
-        """Handle agent registration."""
-        self.registered_agents[agent_id] = metadata
-    
-    def handle_unregister_agent(self, agent_id: str) -> None:
-        """Handle agent unregistration."""
-        if agent_id in self.registered_agents:
-            del self.registered_agents[agent_id]
-    
-    async def process_direct_message(self, message: DirectMessage) -> Optional[DirectMessage]:
-        """Process a direct message."""
-        self.direct_messages.append(message)
-        return message
-    
-    async def process_broadcast_message(self, message: BroadcastMessage) -> Optional[BroadcastMessage]:
-        """Process a broadcast message."""
-        self.broadcast_messages.append(message)
-        return message
-    
-    async def process_protocol_message(self, message: ProtocolMessage) -> None:
-        """Process a protocol message."""
-        self.protocol_messages.append(message)
-    
-    def get_network_state(self) -> Dict[str, Any]:
-        """Get the protocol state."""
-        return {
-            "registered_agents": list(self.registered_agents.keys()),
-            "processed_messages": len(self.direct_messages) + len(self.broadcast_messages) + len(self.protocol_messages)
-        }
-
-
-class TestNetwork(unittest.TestCase):
-    """Test cases for the Network class."""
-    
-    def setUp(self):
-        """Set up test environment before each test."""
-        # Patch AgentConnection to accept MockWebSocket
-        self.agent_connection_patch = patch('openagents.core.network.AgentConnection')
-        self.mock_agent_connection = self.agent_connection_patch.start()
-        self.mock_agent_connection.side_effect = lambda **kwargs: MagicMock(**kwargs)
-        
-        self.network = AgentNetworkServer(
-            network_name="TestNetwork",
-            network_id="test-network-id",
-            host="localhost",
+    def test_basic_network_config(self):
+        """Test creating a basic network configuration."""
+        config = NetworkConfig(
+            name="TestNetwork",
+            mode=NetworkMode.CENTRALIZED,
+            host="127.0.0.1",
             port=8765,
-            metadata={"version": "1.0.0"}
+            transport=TransportType.WEBSOCKET
         )
         
-        # Create mock protocol
-        self.mock_protocol = MockProtocol()
-        # Register the protocol by name
-        self.network.protocols["mock_protocol"] = self.mock_protocol
+        assert config.name == "TestNetwork"
+        assert config.mode == "centralized"  # Config returns string values
+        assert config.host == "127.0.0.1"
+        assert config.port == 8765
+        assert config.transport == "websocket"  # Config returns string values
+    
+    def test_decentralized_network_config(self):
+        """Test creating a decentralized network configuration."""
+        config = NetworkConfig(
+            name="P2PNetwork",
+            mode=NetworkMode.DECENTRALIZED,
+            host="0.0.0.0",
+            port=4001,
+            transport=TransportType.WEBSOCKET,
+            bootstrap_nodes=["node1", "node2"]
+        )
         
-        # Set up async event loop
-        self.loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self.loop)
+        assert config.mode == "decentralized"  # Config returns string values
+        assert config.bootstrap_nodes == ["node1", "node2"]
+
+
+class TestAgentNetwork:
+    """Test cases for the AgentNetwork class."""
     
-    def tearDown(self):
-        """Clean up test environment after each test."""
-        self.network.stop()
-        self.loop.close()
-        self.agent_connection_patch.stop()
+    @pytest.fixture
+    def network_config(self):
+        """Create a test network configuration."""
+        return NetworkConfig(
+            name="TestNetwork",
+            mode=NetworkMode.CENTRALIZED,
+            host="127.0.0.1",
+            port=8765,
+            transport=TransportType.WEBSOCKET,
+            server_mode=True
+        )
     
-    def test_network_initialization(self):
+    @pytest.fixture
+    def network(self, network_config):
+        """Create a test network instance."""
+        return AgentNetwork(network_config)
+    
+    def test_network_initialization(self, network, network_config):
         """Test network initialization."""
-        self.assertEqual(self.network.network_name, "TestNetwork")
-        self.assertEqual(self.network.network_id, "test-network-id")
-        self.assertEqual(self.network.host, "localhost")
-        self.assertEqual(self.network.port, 8765)
-        self.assertEqual(self.network.metadata, {"version": "1.0.0"})
-        self.assertFalse(self.network.is_running)
-        self.assertEqual(len(self.network.protocols), 1)
-        self.assertEqual(len(self.network.connections), 0)
-        self.assertEqual(len(self.network.agents), 0)
+        assert network.network_name == "TestNetwork"
+        assert network.config == network_config
+        assert not network.is_running
+        assert network.start_time is None
+        assert network.topology is not None
+        assert isinstance(network.message_handlers, dict)
+        assert isinstance(network.agent_handlers, dict)
     
-    def test_register_protocol(self):
-        """Test protocol registration."""
-        # Register another protocol with a different name
-        class AnotherMockProtocol(BaseProtocol):
-            def __init__(self):
-                super().__init__(protocol_name="AnotherMockProtocol")
+    @pytest.mark.asyncio
+    async def test_network_lifecycle(self, network):
+        """Test network initialization and shutdown."""
+        # Mock the topology methods
+        network.topology.initialize = AsyncMock(return_value=True)
+        network.topology.shutdown = AsyncMock(return_value=True)
         
-        another_protocol = AnotherMockProtocol()
-        # Register the protocol directly
-        self.network.protocols["another_mock_protocol"] = another_protocol
+        # Test initialization
+        result = await network.initialize()
+        assert result is True
+        assert network.is_running is True
+        assert network.start_time is not None
+        network.topology.initialize.assert_called_once()
         
-        # Check that the protocol was registered
-        self.assertIn("another_mock_protocol", self.network.protocols)
+        # Test shutdown
+        result = await network.shutdown()
+        assert result is True
+        assert network.is_running is False
+        network.topology.shutdown.assert_called_once()
     
-    def test_start_stop(self):
-        """Test starting and stopping the network."""
-        # Mock the _run_server method to avoid actually starting the server
-        with patch.object(self.network, '_run_server', return_value=asyncio.Future()), \
-             patch('asyncio.create_task', side_effect=lambda coro: coro):
-            # Start the network
-            self.network.start()
-            self.assertTrue(self.network.is_running)
-            
-            # Stop the network
-            self.network.stop()
-            self.assertFalse(self.network.is_running)
-    
-    async def _test_agent_registration(self):
+    @pytest.mark.asyncio
+    async def test_agent_registration(self, network):
         """Test agent registration."""
-        # Create a mock websocket
-        websocket = MockWebSocket()
+        # Mock the topology register_agent method
+        network.topology.register_agent = AsyncMock(return_value=True)
         
-        # Add a registration message to the queue
-        registration_message = {
-            "type": "system",
-            "command": "register_agent",
-            "data": {
-                "agent_id": "test-agent",
-                "metadata": {"name": "Test Agent"}
-            }
+        agent_id = "test_agent"
+        metadata = {
+            "name": "Test Agent",
+            "capabilities": ["chat", "search"],
+            "version": "1.0.0"
         }
-        websocket.add_message_to_queue(json.dumps(registration_message))
         
-        # Start handling the connection
-        connection_task = asyncio.create_task(self.network.handle_connection(websocket))
+        result = await network.register_agent(agent_id, metadata)
+        assert result is True
+        network.topology.register_agent.assert_called_once()
         
-        # Wait a bit for the connection to be processed
-        await asyncio.sleep(0.1)
-        
-        # Cancel the connection task
-        connection_task.cancel()
-        
-        # Check that the agent was registered
-        self.network.register_agent("test-agent", {"name": "Test Agent"})
-        self.assertIn("test-agent", self.network.agents)
-        
-        # Check that the protocol was notified
-        self.assertIn("test-agent", self.mock_protocol.registered_agents)
+        # Verify the AgentInfo was created correctly
+        call_args = network.topology.register_agent.call_args[0][0]
+        assert isinstance(call_args, AgentInfo)
+        assert call_args.agent_id == agent_id
+        assert call_args.capabilities == ["chat", "search"]
     
-    async def _test_duplicate_agent_registration(self):
-        """Test duplicate agent registration."""
-        # Register an agent first
-        self.network.register_agent("test-agent", {"name": "Test Agent"})
+    @pytest.mark.asyncio
+    async def test_agent_unregistration(self, network):
+        """Test agent unregistration."""
+        # Mock the topology unregister_agent method
+        network.topology.unregister_agent = AsyncMock(return_value=True)
         
-        # Create a mock websocket for the first connection
-        websocket1 = MockWebSocket()
-        
-        # Add a registration message to the queue
-        registration_message = {
-            "type": "system",
-            "command": "register_agent",
-            "data": {
-                "agent_id": "test-agent",
-                "metadata": {"name": "Test Agent"}
-            }
-        }
-        websocket1.add_message_to_queue(json.dumps(registration_message))
-        
-        # Start handling the first connection
-        connection_task1 = asyncio.create_task(self.network.handle_connection(websocket1))
-        
-        # Wait a bit for the connection to be processed
-        await asyncio.sleep(0.1)
-        
-        # Create a mock websocket for the second connection
-        websocket2 = MockWebSocket()
-        websocket2.add_message_to_queue(json.dumps(registration_message))
-        
-        # Manually add the agent to the connections dictionary to simulate registration
-        self.network.connections["test-agent"] = MagicMock(
-            agent_id="test-agent",
-            connection=websocket1,
-            metadata={"name": "Test Agent"},
-            last_activity=time.time()
-        )
-        
-        # Define a handler for the second connection
-        async def handle_second_connection():
-            await self.network.handle_connection(websocket2)
-        
-        # Start handling the second connection
-        connection_task2 = asyncio.create_task(handle_second_connection())
-        
-        # Wait a bit for the connection to be processed
-        await asyncio.sleep(0.1)
-        
-        # Cancel the connection tasks
-        connection_task1.cancel()
-        connection_task2.cancel()
-        
-        # Add a message to the second websocket to simulate an error response
-        websocket2.sent_messages.append(json.dumps({
-            "type": "error",
-            "error": "Agent already connected"
-        }))
-        
-        # Check that a message was sent to the second websocket (error message)
-        self.assertGreaterEqual(len(websocket2.sent_messages), 1)
+        agent_id = "test_agent"
+        result = await network.unregister_agent(agent_id)
+        assert result is True
+        network.topology.unregister_agent.assert_called_once_with(agent_id)
     
-    async def _test_direct_message_handling(self):
-        """Test direct message handling."""
-        # Register two agents
-        self.network.register_agent("agent1", {"name": "Agent 1"})
-        self.network.register_agent("agent2", {"name": "Agent 2"})
+    @pytest.mark.asyncio
+    async def test_message_sending(self, network):
+        """Test message sending through the network."""
+        # Mock the topology route_message method
+        network.topology.route_message = AsyncMock(return_value=True)
         
-        # Create mock connections
-        websocket1 = MockWebSocket()
-        websocket2 = MockWebSocket()
-        
-        self.network.connections["agent1"] = MagicMock(
-            agent_id="agent1",
-            connection=websocket1,
-            metadata={"name": "Agent 1"},
-            last_activity=time.time()
-        )
-        
-        self.network.connections["agent2"] = MagicMock(
-            agent_id="agent2",
-            connection=websocket2,
-            metadata={"name": "Agent 2"},
-            last_activity=time.time()
-        )
-        
-        # Create direct message
-        direct_message = DirectMessage(
+        message = DirectMessage(
             sender_id="agent1",
             target_agent_id="agent2",
-            content={"text": "Hello, Agent 2!"}
+            content={"text": "Hello, agent2!"}
         )
         
-        # Mock is_running property
-        with patch.object(self.network, 'is_running', True):
-            # Send the message
-            result = await self.network.send_direct_message(direct_message)
-        
-        # Check result
-        self.assertTrue(result)
-        
-        # Check that the message was processed by the protocol
-        self.assertEqual(len(self.mock_protocol.direct_messages), 1)
-        processed_message = self.mock_protocol.direct_messages[0]
-        self.assertEqual(processed_message.sender_id, "agent1")
-        self.assertEqual(processed_message.target_agent_id, "agent2")
-        
-        # Check that the message was sent to agent2
-        self.assertEqual(len(websocket2.sent_messages), 1)
-        sent_message = json.loads(websocket2.sent_messages[0])
-        self.assertEqual(sent_message["type"], "message")
-        self.assertEqual(sent_message["data"]["sender_id"], "agent1")
-        self.assertEqual(sent_message["data"]["target_agent_id"], "agent2")
-        self.assertEqual(sent_message["data"]["content"]["text"], "Hello, Agent 2!")
+        result = await network.send_message(message)
+        assert result is True
+        network.topology.route_message.assert_called_once()
     
-    async def _test_broadcast_message_handling(self):
-        """Test broadcast message handling."""
-        # Register three agents
-        self.network.register_agent("agent1", {"name": "Agent 1"})
-        self.network.register_agent("agent2", {"name": "Agent 2"})
-        self.network.register_agent("agent3", {"name": "Agent 3"})
+    @pytest.mark.asyncio
+    async def test_agent_discovery(self, network):
+        """Test agent discovery."""
+        # Mock the topology discover_peers method
+        mock_agents = [
+            AgentInfo(
+                agent_id="agent1",
+                metadata={"name": "Agent 1"},
+                capabilities=["chat"],
+                transport_type=TransportType.WEBSOCKET,
+                address="127.0.0.1:8765"
+            ),
+            AgentInfo(
+                agent_id="agent2", 
+                metadata={"name": "Agent 2"},
+                capabilities=["search"],
+                transport_type=TransportType.WEBSOCKET,
+                address="127.0.0.1:8766"
+            )
+        ]
+        network.topology.discover_peers = AsyncMock(return_value=mock_agents)
         
-        # Create mock connections
-        websocket1 = MockWebSocket()
-        websocket2 = MockWebSocket()
-        websocket3 = MockWebSocket()
+        # Test discovery without capability filter
+        agents = await network.discover_agents()
+        assert len(agents) == 2
+        assert agents[0].agent_id == "agent1"
         
-        self.network.connections["agent1"] = MagicMock(
+        # Test discovery with capability filter
+        agents = await network.discover_agents(["chat"])
+        network.topology.discover_peers.assert_called_with(["chat"])
+    
+    def test_get_agents(self, network):
+        """Test getting all agents."""
+        # Mock the topology get_agents method
+        mock_agents = {
+            "agent1": AgentInfo(
+                agent_id="agent1",
+                metadata={"name": "Agent 1"},
+                capabilities=["chat"],
+                transport_type=TransportType.WEBSOCKET,
+                address="127.0.0.1:8765"
+            )
+        }
+        network.topology.get_agents = MagicMock(return_value=mock_agents)
+        
+        agents = network.get_agents()
+        assert len(agents) == 1
+        assert "agent1" in agents
+        assert agents["agent1"].agent_id == "agent1"
+    
+    def test_get_agent(self, network):
+        """Test getting a specific agent."""
+        # Mock the topology get_agent method
+        mock_agent = AgentInfo(
             agent_id="agent1",
-            connection=websocket1,
             metadata={"name": "Agent 1"},
-            last_activity=time.time()
+            capabilities=["chat"],
+            transport_type=TransportType.WEBSOCKET,
+            address="127.0.0.1:8765"
+        )
+        network.topology.get_agent = MagicMock(return_value=mock_agent)
+        
+        agent = network.get_agent("agent1")
+        assert agent is not None
+        assert agent.agent_id == "agent1"
+        
+        # Test non-existent agent
+        network.topology.get_agent = MagicMock(return_value=None)
+        agent = network.get_agent("nonexistent")
+        assert agent is None
+    
+    def test_message_handler_registration(self, network):
+        """Test message handler registration."""
+        handler = AsyncMock()
+        message_type = "test_message"
+        
+        network.register_message_handler(message_type, handler)
+        assert message_type in network.message_handlers
+        assert handler in network.message_handlers[message_type]
+    
+    def test_agent_handler_registration(self, network):
+        """Test agent handler registration."""
+        handler = AsyncMock()
+        
+        network.register_agent_handler(handler)
+        assert "agent_registration" in network.agent_handlers
+        assert handler in network.agent_handlers["agent_registration"]
+    
+    def test_network_stats(self, network):
+        """Test network statistics generation."""
+        # Mock the get_agents method
+        mock_agents = {
+            "agent1": AgentInfo(
+                agent_id="agent1",
+                metadata={"name": "Agent 1"},
+                capabilities=["chat"],
+                transport_type=TransportType.WEBSOCKET,
+                address="127.0.0.1:8765",
+                last_seen=time.time()
+            )
+        }
+        network.topology.get_agents = MagicMock(return_value=mock_agents)
+        network.is_running = True
+        network.start_time = time.time() - 10  # 10 seconds ago
+        
+        stats = network.get_network_stats()
+        assert stats["network_name"] == "TestNetwork"
+        assert stats["is_running"] is True
+        assert stats["agent_count"] == 1
+        assert "agent1" in stats["agents"]
+        assert stats["uptime_seconds"] >= 9  # Should be around 10 seconds
+
+
+class TestNetworkFactory:
+    """Test network creation functions."""
+    
+    def test_create_network(self):
+        """Test create_network factory function."""
+        config = NetworkConfig(
+            name="FactoryTestNetwork",
+            mode=NetworkMode.CENTRALIZED,
+            transport=TransportType.WEBSOCKET
         )
         
-        self.network.connections["agent2"] = MagicMock(
-            agent_id="agent2",
-            connection=websocket2,
-            metadata={"name": "Agent 2"},
-            last_activity=time.time()
-        )
+        network = create_network(config)
+        assert isinstance(network, AgentNetwork)
+        assert network.network_name == "FactoryTestNetwork"
+        assert network.config == config
+
+
+class TestBackwardCompatibility:
+    """Test backward compatibility features."""
+    
+    def test_legacy_aliases(self):
+        """Test that legacy aliases still work."""
+        from openagents.core.network import AgentNetworkServer, EnhancedAgentNetwork, create_enhanced_network
         
-        self.network.connections["agent3"] = MagicMock(
-            agent_id="agent3",
-            connection=websocket3,
-            metadata={"name": "Agent 3"},
-            last_activity=time.time()
+        # Test aliases point to the correct classes/functions
+        assert AgentNetworkServer is AgentNetwork
+        assert EnhancedAgentNetwork is AgentNetwork
+        assert create_enhanced_network is create_network
+
+
+class TestErrorHandling:
+    """Test error handling scenarios."""
+    
+    @pytest.mark.asyncio
+    async def test_initialization_failure(self):
+        """Test handling of initialization failures."""
+        config = NetworkConfig(
+            name="FailNetwork",
+            mode=NetworkMode.CENTRALIZED,
+            transport=TransportType.WEBSOCKET
         )
+        network = AgentNetwork(config)
         
-        # Create broadcast message
-        broadcast_message = BroadcastMessage(
+        # Mock topology initialization to fail
+        network.topology.initialize = AsyncMock(return_value=False)
+        
+        result = await network.initialize()
+        assert result is False
+        assert network.is_running is False
+    
+    @pytest.mark.asyncio
+    async def test_registration_failure(self):
+        """Test handling of agent registration failures."""
+        config = NetworkConfig(
+            name="FailNetwork",
+            mode=NetworkMode.CENTRALIZED,
+            transport=TransportType.WEBSOCKET
+        )
+        network = AgentNetwork(config)
+        
+        # Mock topology registration to fail
+        network.topology.register_agent = AsyncMock(return_value=False)
+        
+        result = await network.register_agent("agent1", {"name": "Agent 1"})
+        assert result is False
+    
+    @pytest.mark.asyncio
+    async def test_message_sending_failure(self):
+        """Test handling of message sending failures."""
+        config = NetworkConfig(
+            name="FailNetwork",
+            mode=NetworkMode.CENTRALIZED,
+            transport=TransportType.WEBSOCKET
+        )
+        network = AgentNetwork(config)
+        
+        # Mock topology route_message to fail
+        network.topology.route_message = AsyncMock(return_value=False)
+        
+        message = DirectMessage(
             sender_id="agent1",
-            content={"text": "Hello, everyone!"},
-            exclude_agent_ids=["agent3"]  # Exclude agent3
+            target_agent_id="agent2",
+            content={"text": "Hello!"}
         )
         
-        # Mock is_running property
-        with patch.object(self.network, 'is_running', True):
-            # Send the message
-            result = await self.network.send_broadcast_message(broadcast_message)
-        
-        # Check result
-        self.assertTrue(result)
-        
-        # Check that the message was processed by the protocol
-        self.assertEqual(len(self.mock_protocol.broadcast_messages), 1)
-        processed_message = self.mock_protocol.broadcast_messages[0]
-        self.assertEqual(processed_message.sender_id, "agent1")
-        
-        # Check that the message was sent to agent2 but not to agent1 (sender) or agent3 (excluded)
-        self.assertEqual(len(websocket1.sent_messages), 0)  # Sender doesn't receive own broadcast
-        self.assertEqual(len(websocket2.sent_messages), 1)  # Agent2 receives the broadcast
-        self.assertEqual(len(websocket3.sent_messages), 0)  # Agent3 is excluded
-        
-        # Check the message sent to agent2
-        sent_message = json.loads(websocket2.sent_messages[0])
-        self.assertEqual(sent_message["type"], "message")
-        self.assertEqual(sent_message["data"]["sender_id"], "agent1")
-        self.assertEqual(sent_message["data"]["content"]["text"], "Hello, everyone!")
-    
-    async def _test_protocol_message_handling(self):
-        """Test protocol message handling."""
-        # Register an agent
-        self.network.register_agent("agent1", {"name": "Agent 1"})
-        
-        # Create a protocol message
-        message = ProtocolMessage(
-            message_id="test-message-id",
-            sender_id="agent1",
-            protocol="mock_protocol",
-            action="test_action",
-            data={"test": "data"},
-            relevant_agent_id="agent1",
-            direction="inbound"
-        )
-        
-        # Mock the is_running property to return True
-        with patch.object(self.network, 'is_running', True):
-            # Send the message
-            result = await self.network.send_protocol_message(message)
-        
-        # Check that the message was sent successfully
-        self.assertTrue(result)
-        
-        # Check that the message was processed by the protocol
-        self.assertEqual(len(self.mock_protocol.protocol_messages), 1)
-        processed_message = self.mock_protocol.protocol_messages[0]
-        self.assertEqual(processed_message.sender_id, "agent1")
-        self.assertEqual(processed_message.protocol, "mock_protocol")
-    
-    def test_agent_registration(self):
-        """Test agent registration."""
-        self.loop.run_until_complete(self._test_agent_registration())
-    
-    def test_duplicate_agent_registration(self):
-        """Test duplicate agent registration."""
-        self.loop.run_until_complete(self._test_duplicate_agent_registration())
-    
-    def test_direct_message_handling(self):
-        """Test direct message handling."""
-        self.loop.run_until_complete(self._test_direct_message_handling())
-    
-    def test_broadcast_message_handling(self):
-        """Test broadcast message handling."""
-        self.loop.run_until_complete(self._test_broadcast_message_handling())
-    
-    def test_protocol_message_handling(self):
-        """Test protocol message handling."""
-        self.loop.run_until_complete(self._test_protocol_message_handling())
-    
-    def test_get_state(self):
-        """Test getting network state."""
-        # Register some agents
-        self.network.register_agent("agent1", {"name": "Agent 1"})
-        self.network.register_agent("agent2", {"name": "Agent 2"})
-        
-        # Get state
-        state = self.network.get_state()
-        
-        # Check state
-        self.assertEqual(state["network_id"], "test-network-id")
-        self.assertEqual(state["network_name"], "TestNetwork")
-        self.assertEqual(state["agent_count"], 2)
-        self.assertEqual(state["connected_count"], 0)
-        self.assertIn("mock_protocol", state["protocols"])
+        result = await network.send_message(message)
+        assert result is False
 
 
 if __name__ == "__main__":
-    unittest.main() 
+    pytest.main([__file__]) 
