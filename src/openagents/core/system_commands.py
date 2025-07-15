@@ -102,7 +102,7 @@ async def handle_register_agent(command: str, data: Dict[str, Any], connection: 
     )
     
     # Register agent metadata
-    network_instance.register_agent(agent_id, metadata)
+    await network_instance.register_agent(agent_id, metadata)
     
     # Send registration response
     await connection.send(json.dumps({

@@ -20,6 +20,16 @@ from ..models.network_config import NetworkConfig, NetworkMode as ConfigNetworkM
 logger = logging.getLogger(__name__)
 
 
+class AgentConnection:
+    """Represents a connection to an agent."""
+    
+    def __init__(self, agent_id: str, connection: Any, metadata: Dict[str, Any], last_activity: float):
+        self.agent_id = agent_id
+        self.connection = connection
+        self.metadata = metadata
+        self.last_activity = last_activity
+
+
 class AgentNetwork:
     """Agent network implementation using transport and topology abstractions."""
     
@@ -48,6 +58,15 @@ class AgentNetwork:
         # Network state
         self.is_running = False
         self.start_time: Optional[float] = None
+        
+        # Connection management
+        self.connections: Dict[str, AgentConnection] = {}
+        self.metadata: Dict[str, Any] = {}
+        
+        # Agent and protocol tracking (for compatibility with system commands)
+        self.agents: Dict[str, Dict[str, Any]] = {}  # agent_id -> metadata
+        self.protocols: Dict[str, Any] = {}
+        self.protocol_manifests: Dict[str, Any] = {}
         
         # Message handling
         self.message_handlers: Dict[str, List[Callable[[Message], Awaitable[None]]]] = {}
@@ -82,6 +101,7 @@ class AgentNetwork:
             transport = self.topology.transport_manager.get_active_transport()
             if transport:
                 transport.register_message_handler(self._handle_transport_message)
+                transport.register_system_message_handler(self._handle_system_message)
     
     async def initialize(self) -> bool:
         """Initialize the network.
@@ -140,6 +160,9 @@ class AgentNetwork:
             bool: True if registration successful
         """
         try:
+            # Store agent metadata for system commands
+            self.agents[agent_id] = metadata
+            
             # Create agent info
             agent_info = AgentInfo(
                 agent_id=agent_id,
@@ -336,6 +359,33 @@ class AgentNetwork:
                     await handler(message)
         except Exception as e:
             logger.error(f"Error handling transport message: {e}")
+    
+    async def _handle_system_message(self, peer_id: str, message: Dict[str, Any], connection: Any) -> None:
+        """Handle incoming system messages.
+        
+        Args:
+            peer_id: ID of the peer sending the message
+            message: System message data
+            connection: WebSocket connection
+        """
+        try:
+            from .system_commands import (
+                handle_register_agent, handle_list_agents, handle_list_protocols,
+                REGISTER_AGENT, LIST_AGENTS, LIST_PROTOCOLS
+            )
+            
+            command = message.get("command")
+            
+            if command == REGISTER_AGENT:
+                await handle_register_agent(command, message, connection, self)
+            elif command == LIST_AGENTS:
+                await handle_list_agents(command, message, connection, self)
+            elif command == LIST_PROTOCOLS:
+                await handle_list_protocols(command, message, connection, self)
+            else:
+                logger.warning(f"Unhandled system command: {command}")
+        except Exception as e:
+            logger.error(f"Error handling system message: {e}")
     
     async def _notify_agent_handlers(self, agent_info: AgentInfo) -> None:
         """Notify agent handlers of agent registration.
