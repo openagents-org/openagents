@@ -1,0 +1,144 @@
+# OpenAgents Centralized Network Configuration Example
+# This configuration demonstrates a centralized network topology where all agents
+# connect to a central coordinator/server for message routing and discovery.
+
+# ===== SERVER/COORDINATOR CONFIGURATION =====
+# Use this configuration for the central coordinator node
+# Run with: openagents launch-network centralized_network_config.yaml
+
+# Core network configuration
+network:
+  name: "OpenAgentsCentralizedNetwork"
+  mode: "centralized"  # Centralized network topology
+  node_id: "coordinator-1"  # Unique identifier for this coordinator
+  
+  # Server/Coordinator settings
+  host: "0.0.0.0"  # Bind to all interfaces
+  port: 8765  # Port for incoming connections
+  server_mode: true  # This node acts as the coordinator/server
+  
+  # Transport configuration
+  transport: "websocket"  # WebSocket transport (primary implementation)
+  transport_config:
+    buffer_size: 8192  # Buffer size for WebSocket connections
+    compression: true  # Enable compression for better performance
+    ping_interval: 30  # WebSocket ping interval in seconds
+    ping_timeout: 10  # WebSocket ping timeout in seconds
+    max_message_size: 1048576  # Maximum message size (1MB)
+  
+  # Security configuration
+  encryption_enabled: true  # Enable encryption for secure communication
+  encryption_type: "tls"  # TLS encryption for WebSocket
+  
+  # Discovery configuration
+  discovery_interval: 5  # Discovery broadcast interval in seconds
+  discovery_enabled: true  # Enable agent discovery
+  
+  # Connection management
+  max_connections: 500  # Maximum simultaneous connections
+  connection_timeout: 30.0  # Connection timeout in seconds
+  retry_attempts: 3  # Number of retry attempts for failed connections
+  heartbeat_interval: 30  # Heartbeat interval in seconds
+  
+  # Messaging configuration
+  message_queue_size: 2000  # Maximum message queue size per connection
+  message_timeout: 30.0  # Message timeout in seconds
+  message_routing_enabled: true  # Enable message routing between agents
+  
+  # Protocol configuration
+  protocols:
+    - name: "openagents.protocols.communication.simple_messaging"
+      enabled: true
+      config:
+        max_message_size: 1048576  # 1MB
+        message_retention_time: 300  # 5 minutes
+        enable_message_history: true
+    - name: "openagents.protocols.discovery.agent_discovery"
+      enabled: true
+      config:
+        announce_interval: 30  # Announce new agents every 30 seconds
+        cleanup_interval: 60  # Clean up stale agents every 60 seconds
+        agent_timeout: 120  # Remove agents after 2 minutes of inactivity
+
+# Service agents configuration
+service_agents:
+  # Central message broker service
+  - name: "MessageBroker"
+    protocols:
+      - name: "openagents.protocols.communication.simple_messaging"
+        enabled: true
+        config:
+          routing_enabled: true
+          store_and_forward: true
+    services:
+      - name: "message_routing"
+        description: "Route messages between agents in the network"
+      - name: "message_persistence"
+        description: "Store messages for offline agents"
+    subscriptions:
+      - "messages"
+      - "routing"
+
+  # Agent discovery service
+  - name: "DiscoveryService"
+    protocols:
+      - name: "openagents.protocols.discovery.agent_discovery"
+        enabled: true
+        config:
+          registry_enabled: true
+          capability_matching: true
+    services:
+      - name: "agent_registry"
+        description: "Maintain registry of active agents"
+      - name: "capability_discovery"
+        description: "Help agents discover services and capabilities"
+    subscriptions:
+      - "discovery"
+      - "registry"
+
+  # Network monitoring service
+  - name: "NetworkMonitor"
+    protocols:
+      - name: "openagents.protocols.communication.simple_messaging"
+        enabled: true
+        config: {}
+    services:
+      - name: "network_stats"
+        description: "Monitor network performance and statistics"
+      - name: "health_check"
+        description: "Monitor agent health and connectivity"
+    subscriptions:
+      - "monitoring"
+      - "health"
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "OpenAgents Centralized Network"
+  description: "A centralized OpenAgents network for coordinated multi-agent communication"
+  icon: "https://openagents.io/icons/centralized-network.png"
+  website: "https://openagents.io"
+  tags:
+    - "centralized"
+    - "production"
+    - "coordinated"
+    - "reliable"
+  categories:
+    - "enterprise"
+    - "research"
+    - "collaboration"
+  country: "Worldwide"
+  required_openagents_version: "0.5.0"
+  capacity: 500  # Maximum 500 connected agents
+  authentication:
+    type: "none"  # No authentication required (can be changed to "basic", "oauth2", etc.)
+  host: "0.0.0.0"
+  port: 8765
+
+# Global settings
+log_level: "INFO"  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+data_dir: "./data/coordinator"  # Data directory for persistent storage
+
+# Runtime configuration
+runtime_limit: null  # No runtime limit
+shutdown_timeout: 30  # Graceful shutdown timeout
