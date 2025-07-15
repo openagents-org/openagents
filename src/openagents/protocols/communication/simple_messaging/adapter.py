@@ -93,11 +93,18 @@ class SimpleMessagingAgentAdapter(BaseProtocolAdapter):
         Args:
             message: The direct message to process
         """
+        print(f"🔧 SimpleMessagingAdapter.process_incoming_direct_message called!")
+        print(f"   From: {message.sender_id}")
+        print(f"   To: {message.target_agent_id}")
+        print(f"   Content: {message.content}")
+        print(f"   Agent ID: {self.agent_id}")
         logger.debug(f"Received direct message from {message.sender_id}")
         
         # Add message to the appropriate conversation thread
         thread_id = get_direct_message_thread_id(message.sender_id)
+        print(f"   Thread ID: {thread_id}")
         self.add_message_to_thread(thread_id, message, text_representation=message.content.get("text", ""))
+        print(f"   ✅ Message added to thread {thread_id}")
         
         # Check if the message contains file references
         if "files" in message.content and message.content["files"]:

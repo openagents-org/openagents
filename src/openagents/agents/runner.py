@@ -135,35 +135,48 @@ class AgentRunner(ABC):
         
         This is the internal async implementation that should not be called directly.
         """
+        print(f"🔄 Agent loop starting for {self._agent_id}...")
         try:    
             while self._running:
                 # Get all message threads from the client
                 message_threads = self.client.get_messsage_threads()
+                print(f"🔍 Checking for messages... Found {len(message_threads)} threads")
                 
                 # Find the first unprocessed message across all threads
                 unprocessed_message = None
                 unprocessed_thread_id = None
                 earliest_timestamp = float('inf')
                 
+                total_messages = 0
+                unprocessed_count = 0
+                
                 for thread_id, thread in message_threads.items():
+                    print(f"   Thread {thread_id}: {len(thread.messages)} messages")
                     for message in thread.messages:
+                        total_messages += 1
                         # Check if message requires response and hasn't been processed
                         message_id = str(message.message_id)
+                        print(f"     Message {message_id[:8]}... from {message.sender_id}, requires_response={message.requires_response}, processed={message_id in self._processed_message_ids}")
                         if (message.requires_response and 
                             message_id not in self._processed_message_ids):
+                            unprocessed_count += 1
                             # Find the earliest unprocessed message by timestamp
                             if message.timestamp < earliest_timestamp:
                                 earliest_timestamp = message.timestamp
                                 unprocessed_message = message
                                 unprocessed_thread_id = thread_id
                 
+                print(f"📊 Total messages: {total_messages}, Unprocessed requiring response: {unprocessed_count}")
+                
                 # If we found an unprocessed message, process it
                 if unprocessed_message and unprocessed_thread_id:
+                    print(f"🎯 Processing message {unprocessed_message.message_id[:8]}... from {unprocessed_message.sender_id}")
                     # Mark the message as processed to avoid processing it again
                     self._processed_message_ids.add(str(unprocessed_message.message_id))
 
                     # If the sender is in the ignored list, skip the message
                     if unprocessed_message.sender_id in self._ignored_sender_ids:
+                        print(f"⏭️  Skipping message from ignored sender {unprocessed_message.sender_id}")
                         continue
                     
                     # Create a copy of conversation threads that doesn't include future messages
@@ -181,10 +194,15 @@ class AgentRunner(ABC):
                     
                     # Call react with the filtered threads and the unprocessed message
                     await self.react(filtered_threads, unprocessed_thread_id, unprocessed_message)
+                else:
+                    print("😴 No unprocessed messages found, sleeping...")
                 
-                await asyncio.sleep(self._interval)
+                await asyncio.sleep(self._interval or 1)
         except Exception as e:
-            print(f"Agent loop interrupted by exception: {e}")
+            print(f"💥 Agent loop interrupted by exception: {e}")
+            print(f"Exception type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
             # Ensure the agent is stopped when the loop is interrupted
             await self._async_stop()
             # Re-raise the exception after cleanup
@@ -200,22 +218,54 @@ class AgentRunner(ABC):
             if not connected:
                 raise Exception("Failed to connect to server")
             
+            print("🔍 AgentRunner getting supported protocols from server...")
             server_supported_protocols = await self.client.list_protocols()
+            print(f"   Server returned {len(server_supported_protocols)} protocols")
+            
             protocol_names_requiring_adapters = []
             # Log all supported protocols with their details as JSON
             for protocol_details in server_supported_protocols:
                 protocol_name = protocol_details["name"]
                 protocol_version = protocol_details["version"]
-                if protocol_details.get("requires_adapter", True):
+                requires_adapter = protocol_details.get("requires_adapter", True)
+                print(f"   Protocol: {protocol_name} v{protocol_version}, requires_adapter={requires_adapter}")
+                if requires_adapter:
                     protocol_names_requiring_adapters.append(protocol_name)
                 logger.info(f"Supported protocol: {protocol_name} (v{protocol_version})")
             
+            print(f"📦 Protocols requiring adapters: {protocol_names_requiring_adapters}")
+            
             if self._supported_protocols is None:
+                print("🔧 Loading protocol adapters...")
                 self._supported_protocols = protocol_names_requiring_adapters
-                adapters = load_protocol_adapters(protocol_names_requiring_adapters) 
-                for adapter in adapters:
-                    self.client.register_protocol_adapter(adapter)
-                self.update_tools()
+                try:
+                    adapters = load_protocol_adapters(protocol_names_requiring_adapters) 
+                    print(f"   Loaded {len(adapters)} adapters")
+                    for adapter in adapters:
+                        self.client.register_protocol_adapter(adapter)
+                        print(f"   ✅ Registered adapter: {adapter.protocol_name}")
+                    self.update_tools()
+                except Exception as e:
+                    print(f"   ❌ Failed to load protocol adapters: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    
+                # If no protocols were loaded from server, try loading essential protocols manually
+                if len(self.client.protocol_adapters) == 0:
+                    print("🔧 Server provided no protocols, loading essential protocols manually...")
+                    try:
+                        manual_adapters = load_protocol_adapters(["openagents.protocols.communication.simple_messaging"])
+                        print(f"   Manually loaded {len(manual_adapters)} adapters")
+                        for adapter in manual_adapters:
+                            self.client.register_protocol_adapter(adapter)
+                            print(f"   ✅ Manually registered adapter: {adapter.protocol_name}")
+                        self.update_tools()
+                    except Exception as e:
+                        print(f"   ❌ Failed to manually load protocol adapters: {e}")
+                        import traceback
+                        traceback.print_exc()
+            else:
+                print(f"🔄 Using existing protocols: {self._supported_protocols}")
             
             self._running = True
             # Start the loop in a background task
