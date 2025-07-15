@@ -1,0 +1,98 @@
+# OpenAgents Centralized Network Client Configuration
+# This configuration is for agents connecting to a centralized OpenAgents network
+# Make sure to update the coordinator_url to match your server's address
+# Run with: openagents launch-network centralized_client_config.yaml
+
+# Core network configuration for client
+network:
+  name: "OpenAgentsCentralizedNetwork"
+  mode: "centralized"  # Centralized network topology
+  node_id: "client-agent-1"  # Unique identifier for this client (change for each client)
+  
+  # Client settings
+  server_mode: false  # This is a client, not the coordinator
+  coordinator_url: "ws://localhost:8765"  # URL of the coordinator server
+  
+  # Transport configuration
+  transport: "websocket"
+  transport_config:
+    buffer_size: 8192
+    compression: true
+    ping_interval: 30
+    ping_timeout: 10
+    max_message_size: 1048576
+    auto_reconnect: true  # Automatically reconnect if connection is lost
+    reconnect_delay: 5  # Delay between reconnection attempts
+  
+  # Security configuration
+  encryption_enabled: true
+  encryption_type: "tls"
+  
+  # Discovery configuration
+  discovery_interval: 10  # Check for new agents every 10 seconds
+  discovery_enabled: true
+  
+  # Connection management
+  max_connections: 1  # Clients typically have 1 connection to coordinator
+  connection_timeout: 30.0
+  retry_attempts: 5  # More retries for client connections
+  heartbeat_interval: 30
+  
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  
+  # Protocol configuration
+  protocols:
+    - name: "openagents.protocols.communication.simple_messaging"
+      enabled: true
+      config:
+        max_message_size: 1048576
+        enable_direct_messaging: true
+        enable_broadcast_messaging: true
+    - name: "openagents.protocols.discovery.agent_discovery"
+      enabled: true
+      config:
+        announce_interval: 60  # Announce presence every minute
+        query_interval: 30  # Query for other agents every 30 seconds
+
+# Client service agents (optional)
+service_agents:
+  # Example application agent
+  - name: "ApplicationAgent"
+    protocols:
+      - name: "openagents.protocols.communication.simple_messaging"
+        enabled: true
+        config: {}
+    services:
+      - name: "task_processing"
+        description: "Process tasks assigned by other agents"
+    subscriptions:
+      - "tasks"
+      - "application"
+
+# Network profile for client
+network_profile:
+  discoverable: true
+  name: "OpenAgents Client Node"
+  description: "Client node in the centralized OpenAgents network"
+  tags:
+    - "client"
+    - "worker"
+  categories:
+    - "application"
+  country: "Worldwide"
+  required_openagents_version: "0.5.0"
+  capacity: 1
+  authentication:
+    type: "none"
+  host: "localhost"  # Client's local address
+  port: 0  # Use random port for client
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/client"
+
+# Runtime configuration
+runtime_limit: null
+shutdown_timeout: 30 
