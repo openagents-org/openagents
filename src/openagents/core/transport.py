@@ -50,6 +50,7 @@ class Transport(ABC):
         self.connections: Dict[str, ConnectionInfo] = {}
         self.message_handlers: List[Callable[[Message], Awaitable[None]]] = []
         self.connection_handlers: List[Callable[[str, ConnectionState], Awaitable[None]]] = []
+        self.system_message_handlers: List[Callable[[str, Dict[str, Any], Any], Awaitable[None]]] = []
     
     @abstractmethod
     async def initialize(self) -> bool:
@@ -134,6 +135,14 @@ class Transport(ABC):
         """
         self.connection_handlers.append(handler)
     
+    def register_system_message_handler(self, handler: Callable[[str, Dict[str, Any], Any], Awaitable[None]]) -> None:
+        """Register a system message handler.
+        
+        Args:
+            handler: Handler function for incoming system messages
+        """
+        self.system_message_handlers.append(handler)
+    
     async def _notify_message_handlers(self, message: Message) -> None:
         """Notify all message handlers of a new message."""
         for handler in self.message_handlers:
@@ -149,6 +158,14 @@ class Transport(ABC):
                 await handler(peer_id, state)
             except Exception as e:
                 logger.error(f"Error in connection handler: {e}")
+    
+    async def _notify_system_message_handlers(self, peer_id: str, message: Dict[str, Any], connection: Any) -> None:
+        """Notify all system message handlers of a new system message."""
+        for handler in self.system_message_handlers:
+            try:
+                await handler(peer_id, message, connection)
+            except Exception as e:
+                logger.error(f"Error in system message handler: {e}")
 
 
 class WebSocketTransport(Transport):
@@ -272,7 +289,7 @@ class WebSocketTransport(Transport):
             logger.error(f"Failed to send message: {e}")
             return False
     
-    async def _handle_connection(self, websocket, path):
+    async def _handle_connection(self, websocket):
         """Handle incoming WebSocket connection."""
         peer_id = f"peer-{uuid.uuid4().hex[:8]}"
         self.client_connections[peer_id] = websocket
@@ -291,8 +308,24 @@ class WebSocketTransport(Transport):
             async for message_data in websocket:
                 try:
                     data = json.loads(message_data)
-                    message = Message(**data)
-                    await self._notify_message_handlers(message)
+                    
+                    # Check if this is a system message (should be handled by network layer)
+                    if data.get("type") == "system_request":
+                        # Forward system messages to system message handlers
+                        await self._notify_system_message_handlers(peer_id, data, websocket)
+                        continue
+                    
+                    # Check if this is a regular message with data wrapper
+                    if data.get("type") == "message":
+                        # Extract the actual message data from the wrapper
+                        message_payload = data.get("data", {})
+                        # Parse the inner message data as TransportMessage
+                        message = Message(**message_payload)
+                        await self._notify_message_handlers(message)
+                    else:
+                        # Try to parse as TransportMessage directly (for backward compatibility)
+                        message = Message(**data)
+                        await self._notify_message_handlers(message)
                     
                     # Update last activity
                     if peer_id in self.connections:

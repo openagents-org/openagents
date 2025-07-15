@@ -355,6 +355,8 @@ class NetworkConnector:
             logger.warning(f"Agent {self.agent_id} is not connected to a network")
             return False
             
+        # Automatically include the agent_id in system requests
+        kwargs['agent_id'] = self.agent_id
         return await send_system_request_impl(self.connection, command, **kwargs)
     
     async def list_agents(self) -> bool:
