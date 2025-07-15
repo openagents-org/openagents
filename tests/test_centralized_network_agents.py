@@ -13,12 +13,17 @@ import pytest
 import logging
 import time
 import random
+import sys
+import os
 from typing import Dict, Any, List
 
-from src.openagents.core.network import AgentNetwork, create_network
-from src.openagents.models.network_config import NetworkConfig, NetworkMode
-from src.openagents.models.transport import TransportType
-from src.openagents.models.messages import DirectMessage, BroadcastMessage
+# Add the src directory to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+
+from openagents.core.network import AgentNetwork, create_network
+from openagents.models.network_config import NetworkConfig, NetworkMode
+from openagents.models.transport import TransportType
+from openagents.models.messages import DirectMessage, BroadcastMessage
 
 # Configure logging for tests
 logger = logging.getLogger(__name__)
@@ -57,7 +62,7 @@ class TestCentralizedNetworkAgents:
         for network in networks:
             if network and network.is_running:
                 try:
-                    await network.stop()
+                    await network.shutdown()
                     logger.info(f"Stopped network: {network.network_id}")
                 except Exception as e:
                     logger.warning(f"Error stopping network: {e}")
@@ -75,7 +80,7 @@ class TestCentralizedNetworkAgents:
         )
         
         network = create_network(config)
-        await network.start()
+        await network.initialize()
         logger.info(f"Started centralized server on {self.host}:{self.port}")
         return network
 
@@ -96,13 +101,13 @@ class TestCentralizedNetworkAgents:
         
         # Set up message handler for this agent
         if agent_id == "agent-1":
-            network.add_message_handler("direct", self._agent1_message_handler)
-            network.add_message_handler("broadcast", self._agent1_message_handler)
+            network.register_message_handler("direct_message", self._agent1_message_handler)
+            network.register_message_handler("broadcast_message", self._agent1_message_handler)
         else:
-            network.add_message_handler("direct", self._agent2_message_handler)
-            network.add_message_handler("broadcast", self._agent2_message_handler)
+            network.register_message_handler("direct_message", self._agent2_message_handler)
+            network.register_message_handler("broadcast_message", self._agent2_message_handler)
         
-        await network.start()
+        await network.initialize()
         logger.info(f"Started agent client: {agent_name} ({agent_id})")
         return network
 
@@ -158,8 +163,8 @@ class TestCentralizedNetworkAgents:
         message_content = "Hello Agent 2, this is Agent 1!"
         direct_message = DirectMessage(
             sender_id="agent-1",
-            recipient_id="agent-2",
-            content=message_content,
+            target_agent_id="agent-2",
+            content={"text": message_content},
             message_id=f"msg-{int(time.time())}"
         )
         
@@ -172,9 +177,9 @@ class TestCentralizedNetworkAgents:
         # Verify Agent 2 received the message
         assert len(self.agent2_received_messages) == 1
         received_msg = self.agent2_received_messages[0]
-        assert received_msg['content'] == message_content
+        assert received_msg['content'] == {"text": message_content}
         assert received_msg['sender'] == "agent-1"
-        assert received_msg['type'] == "direct"
+        assert received_msg['type'] == "direct_message"
         
         # Verify Agent 1 did not receive its own message
         assert len(self.agent1_received_messages) == 0
@@ -191,8 +196,8 @@ class TestCentralizedNetworkAgents:
         msg1_content = "Hello from Agent 1!"
         direct_message1 = DirectMessage(
             sender_id="agent-1",
-            recipient_id="agent-2",
-            content=msg1_content,
+            target_agent_id="agent-2",
+            content={"text": msg1_content},
             message_id=f"msg1-{int(time.time())}"
         )
         
@@ -203,8 +208,8 @@ class TestCentralizedNetworkAgents:
         msg2_content = "Hello back from Agent 2!"
         direct_message2 = DirectMessage(
             sender_id="agent-2",
-            recipient_id="agent-1",
-            content=msg2_content,
+            target_agent_id="agent-1",
+            content={"text": msg2_content},
             message_id=f"msg2-{int(time.time())}"
         )
         
@@ -213,11 +218,11 @@ class TestCentralizedNetworkAgents:
         
         # Verify both agents received their respective messages
         assert len(self.agent2_received_messages) == 1
-        assert self.agent2_received_messages[0]['content'] == msg1_content
+        assert self.agent2_received_messages[0]['content'] == {"text": msg1_content}
         assert self.agent2_received_messages[0]['sender'] == "agent-1"
         
         assert len(self.agent1_received_messages) == 1
-        assert self.agent1_received_messages[0]['content'] == msg2_content
+        assert self.agent1_received_messages[0]['content'] == {"text": msg2_content}
         assert self.agent1_received_messages[0]['sender'] == "agent-2"
         
         logger.info("Bidirectional messaging test passed!")
@@ -232,7 +237,7 @@ class TestCentralizedNetworkAgents:
         broadcast_content = "Hello everyone, this is a broadcast from Agent 1!"
         broadcast_message = BroadcastMessage(
             sender_id="agent-1",
-            content=broadcast_content,
+            content={"text": broadcast_content},
             message_id=f"broadcast-{int(time.time())}"
         )
         
@@ -245,9 +250,9 @@ class TestCentralizedNetworkAgents:
         # Verify Agent 2 received the broadcast message
         assert len(self.agent2_received_messages) == 1
         received_msg = self.agent2_received_messages[0]
-        assert received_msg['content'] == broadcast_content
+        assert received_msg['content'] == {"text": broadcast_content}
         assert received_msg['sender'] == "agent-1"
-        assert received_msg['type'] == "broadcast"
+        assert received_msg['type'] == "broadcast_message"
         
         # Note: Agent 1 might or might not receive its own broadcast depending on implementation
         # This is typically configurable behavior
@@ -271,8 +276,8 @@ class TestCentralizedNetworkAgents:
         for sender, recipient, content in messages:
             message = DirectMessage(
                 sender_id=sender,
-                recipient_id=recipient,
-                content=content,
+                target_agent_id=recipient,
+                content={"text": content},
                 message_id=f"msg-{sender}-{int(time.time())}-{random.randint(1000, 9999)}"
             )
             
@@ -311,8 +316,8 @@ class TestCentralizedNetworkAgents:
         # Send initial message to verify connectivity
         test_message = DirectMessage(
             sender_id="agent-1",
-            recipient_id="agent-2",
-            content="Initial connectivity test",
+            target_agent_id="agent-2",
+            content={"text": "Initial connectivity test"},
             message_id=f"initial-{int(time.time())}"
         )
         await self.agent1_network.send_message(test_message)
@@ -322,14 +327,14 @@ class TestCentralizedNetworkAgents:
         
         # Simulate agent 2 disconnect
         logger.info("Simulating agent 2 disconnect")
-        await self.agent2_network.stop()
+        await self.agent2_network.shutdown()
         await asyncio.sleep(1.0)
         
         # Agent 1 tries to send message while Agent 2 is disconnected
         disconnected_message = DirectMessage(
             sender_id="agent-1",
-            recipient_id="agent-2",
-            content="Message while disconnected",
+            target_agent_id="agent-2",
+            content={"text": "Message while disconnected"},
             message_id=f"disconnected-{int(time.time())}"
         )
         await self.agent1_network.send_message(disconnected_message)
@@ -344,8 +349,8 @@ class TestCentralizedNetworkAgents:
         # Send message after reconnection
         reconnected_message = DirectMessage(
             sender_id="agent-1",
-            recipient_id="agent-2",
-            content="Message after reconnection",
+            target_agent_id="agent-2",
+            content={"text": "Message after reconnection"},
             message_id=f"reconnected-{int(time.time())}"
         )
         await self.agent1_network.send_message(reconnected_message)
@@ -354,7 +359,7 @@ class TestCentralizedNetworkAgents:
         # Verify the reconnected agent can receive new messages
         assert len(self.agent2_received_messages) >= 1
         latest_msg = self.agent2_received_messages[-1]
-        assert latest_msg['content'] == "Message after reconnection"
+        assert latest_msg['content'] == {"text": "Message after reconnection"}
         
         logger.info("Network resilience test passed!")
 
