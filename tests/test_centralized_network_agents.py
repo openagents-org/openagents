@@ -108,6 +108,27 @@ class TestCentralizedNetworkAgents:
             network.register_message_handler("broadcast_message", self._agent2_message_handler)
         
         await network.initialize()
+        
+        # For client agents, establish transport connection to coordinator
+        if not config.server_mode:
+            transport = network.topology.transport_manager.get_active_transport()
+            if transport:
+                # Connect to the coordinator
+                coordinator_host = self.host
+                coordinator_port = self.port
+                connect_success = await transport.connect(agent_id, f"{coordinator_host}:{coordinator_port}")
+                logger.info(f"Transport connection result for {agent_id}: {connect_success}")
+        
+        # Register the agent with the network
+        agent_metadata = {
+            "name": agent_name,
+            "capabilities": ["messaging", "communication"],
+            "version": "1.0.0",
+            "type": "test_agent"
+        }
+        registration_success = await network.register_agent(agent_id, agent_metadata)
+        logger.info(f"Agent registration result for {agent_id}: {registration_success}")
+        
         logger.info(f"Started agent client: {agent_name} ({agent_id})")
         return network
 
