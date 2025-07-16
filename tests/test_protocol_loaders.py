@@ -24,6 +24,27 @@ class MockProtocolAdapter(BaseProtocolAdapter):
     
     def __init__(self):
         super().__init__(protocol_name="mock_protocol")
+    
+    async def process_incoming_direct_message(self, message):
+        return message
+    
+    async def process_incoming_broadcast_message(self, message):
+        return message
+    
+    async def process_incoming_protocol_message(self, message):
+        return message
+    
+    async def process_outgoing_direct_message(self, message):
+        return message
+    
+    async def process_outgoing_broadcast_message(self, message):
+        return message
+    
+    async def process_outgoing_protocol_message(self, message):
+        return message
+    
+    async def get_tools(self):
+        return []
 
 
 class TestProtocolLoaders(unittest.TestCase):
@@ -117,8 +138,12 @@ class TestProtocolLoaders(unittest.TestCase):
         manifest_content = '{}'
         self.mock_open.return_value.__enter__.return_value.read.return_value = manifest_content
         
-        # Create a mock adapter instance
-        mock_adapter = MockProtocolAdapter()
+        # Create a simple object to serve as the adapter - avoid MagicMock to prevent async artifacts
+        class SimpleAdapter:
+            def __init__(self):
+                self.protocol_name = "mock_protocol"
+        
+        mock_adapter = SimpleAdapter()
         
         # Setup a more complete mock for the module
         with patch('openagents.utils.protocol_loaders.issubclass') as mock_issubclass, \
@@ -130,12 +155,17 @@ class TestProtocolLoaders(unittest.TestCase):
             # Configure dir() to return a class name
             mock_dir.return_value = ['CustomAdapter']
             
+            # Create a simple class constructor function to avoid MagicMock issues
+            def create_adapter():
+                return mock_adapter
+            
             # Setup mock for import_module
             mock_module = MagicMock()
-            mock_module.CustomAdapter.return_value = mock_adapter
+            mock_module.CustomAdapter = create_adapter
             
             # Configure isinstance to return True for our adapter
             with patch('builtins.isinstance', return_value=True):
+                # Ensure the mock_import_module returns our controlled mock_module
                 self.mock_import_module.return_value = mock_module
                 
                 # Call the function with a test protocol name
@@ -156,7 +186,11 @@ class TestProtocolLoaders(unittest.TestCase):
         def import_side_effect(name):
             if name == 'openagents.protocols.nonexistent.protocol.adapter':
                 raise ImportError("Module not found")
-            return MagicMock()
+            # Return a safe mock module that won't create async artifacts
+            safe_mock = MagicMock()
+            # Explicitly prevent any accidental async method creation
+            safe_mock._spec_class = object  # Prevent spec from creating unwanted methods
+            return safe_mock
         
         self.mock_import_module.side_effect = import_side_effect
         

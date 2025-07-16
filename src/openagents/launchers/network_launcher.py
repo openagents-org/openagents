@@ -73,7 +73,7 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
         # Create enhanced network
         network = create_network(config.network)
         logger.info(f"Created network: {network.network_name}")
-        
+    
         # Initialize network
         if not await network.initialize():
             logger.error("Failed to initialize network")
@@ -197,4 +197,4 @@ if __name__ == "__main__":
         create_example_configs()
         sys.exit(0)
     
-    launch_network(args.config, args.runtime) 
+    launch_network(args.config, args.runtime)
