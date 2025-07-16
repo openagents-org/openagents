@@ -102,6 +102,9 @@ class AgentNetwork:
             if transport:
                 transport.register_message_handler(self._handle_transport_message)
                 transport.register_system_message_handler(self._handle_system_message)
+                # Register agent connection resolver for routing messages by agent_id
+                if hasattr(transport, 'register_agent_connection_resolver'):
+                    transport.register_agent_connection_resolver(self._resolve_agent_connection)
     
     async def initialize(self) -> bool:
         """Initialize the network.
@@ -353,10 +356,19 @@ class AgentNetwork:
             message: Transport message to handle
         """
         try:
-            # Notify message handlers
-            if message.message_type in self.message_handlers:
-                for handler in self.message_handlers[message.message_type]:
-                    await handler(message)
+            # Check if this message needs to be routed to a specific target
+            target = message.target_id or getattr(message, 'target_agent_id', None)
+            if target and target != message.sender_id:
+                # Route to target agent
+                logger.debug(f"Routing message {message.message_id} to target agent {target}")
+                success = await self.topology.route_message(message)
+                if not success:
+                    logger.warning(f"Failed to route message {message.message_id} to {target}")
+            else:
+                # Notify local message handlers (for broadcast messages or local handling)
+                if message.message_type in self.message_handlers:
+                    for handler in self.message_handlers[message.message_type]:
+                        await handler(message)
         except Exception as e:
             logger.error(f"Error handling transport message: {e}")
     
@@ -386,6 +398,24 @@ class AgentNetwork:
                 logger.warning(f"Unhandled system command: {command}")
         except Exception as e:
             logger.error(f"Error handling system message: {e}")
+    
+    def _resolve_agent_connection(self, agent_id: str) -> Any:
+        """Resolve agent_id to WebSocket connection.
+        
+        Args:
+            agent_id: ID of the agent to find connection for
+            
+        Returns:
+            WebSocket connection or None if not found
+        """
+        print(f"🔍 Resolving connection for agent_id: {agent_id}")
+        print(f"   Available connections: {list(self.connections.keys())}")
+        if agent_id in self.connections:
+            connection = self.connections[agent_id].connection
+            print(f"   ✅ Found connection for {agent_id}: {type(connection).__name__}")
+            return connection
+        print(f"   ❌ No connection found for {agent_id}")
+        return None
     
     async def _notify_agent_handlers(self, agent_info: AgentInfo) -> None:
         """Notify agent handlers of agent registration.

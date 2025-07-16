@@ -86,11 +86,11 @@ class TestNetworkLauncher:
             
             # Mock network
             mock_network = AsyncMock()
-            mock_network.initialize = AsyncMock(return_value=True)
-            mock_network.shutdown = AsyncMock(return_value=True)
+            mock_network.initialize.return_value = True
+            mock_network.shutdown.return_value = True
             mock_network.is_running = True
             mock_network.network_name = "TestNetwork"
-            mock_network.get_network_stats = MagicMock(return_value={"status": "running"})
+            mock_network.get_network_stats.return_value = {"status": "running"}
             mock_create.return_value = mock_network
             
             # Test with runtime limit
@@ -103,10 +103,13 @@ class TestNetworkLauncher:
     
     def test_launch_network_sync(self, valid_config_file):
         """Test synchronous network launch wrapper."""
-        with patch('openagents.launchers.network_launcher.asyncio.run') as mock_run:
+        with patch('openagents.launchers.network_launcher.asyncio.run') as mock_run, \
+             patch('openagents.launchers.network_launcher.async_launch_network') as mock_async:
             launch_network(valid_config_file, runtime=1)
             mock_run.assert_called_once()
+            mock_async.assert_called_once_with(valid_config_file, 1)
 
 
 if __name__ == "__main__":
     pytest.main([__file__])
+ 

@@ -143,6 +143,14 @@ class Transport(ABC):
         """
         self.system_message_handlers.append(handler)
     
+    def register_agent_connection_resolver(self, resolver: Callable[[str], Any]) -> None:
+        """Register a callback to resolve agent_id to WebSocket connection.
+        
+        Args:
+            resolver: Function that takes agent_id and returns WebSocket connection or None
+        """
+        self.agent_connection_resolver = resolver
+    
     async def _notify_message_handlers(self, message: Message) -> None:
         """Notify all message handlers of a new message."""
         for handler in self.message_handlers:
@@ -175,6 +183,7 @@ class WebSocketTransport(Transport):
         super().__init__(TransportType.WEBSOCKET, config)
         self.server = None
         self.client_connections: Dict[str, Any] = {}  # websocket connections
+        self.agent_connection_resolver = None  # callback to resolve agent_id to websocket
         
     async def initialize(self) -> bool:
         """Initialize WebSocket transport."""
@@ -270,22 +279,38 @@ class WebSocketTransport(Transport):
             print(f"   Message sender_id: {message.sender_id}")
             print(f"   Connected clients: {list(self.client_connections.keys())}")
             
-            message_data = json.dumps(message.model_dump())
+            # Wrap message in the format expected by client connectors
+            message_payload = {"type": "message", "data": message.model_dump()}
+            message_data = json.dumps(message_payload)
             
             # Check for target - could be target_id (generic) or target_agent_id (DirectMessage)
             target = message.target_id or getattr(message, 'target_agent_id', None)
             if target:
-                # Direct message
+                # Direct message - try agent connection resolver first
                 print(f"   📨 Direct message routing to {target}")
-                if target in self.client_connections:
-                    print(f"   ✅ Target found in connections, sending...")
-                    await self.client_connections[target].send(message_data)
+                
+                # Try agent connection resolver (for agent_id → websocket mapping)
+                websocket_connection = None
+                if self.agent_connection_resolver:
+                    print(f"   🔍 Using agent connection resolver to find {target}")
+                    websocket_connection = self.agent_connection_resolver(target)
+                    if websocket_connection:
+                        print(f"   ✅ Found agent connection via resolver")
+                
+                # Fallback to peer_id mapping (for backward compatibility)
+                if not websocket_connection and target in self.client_connections:
+                    print(f"   🔄 Fallback to peer_id mapping")
+                    websocket_connection = self.client_connections[target]
+                
+                if websocket_connection:
+                    print(f"   ✅ Target connection found, sending...")
+                    await websocket_connection.send(message_data)
                     print(f"   ✅ Message sent successfully to {target}")
                     return True
                 else:
                     print(f"   ❌ Target {target} NOT found in connections!")
-                    print(f"   Available connections: {list(self.client_connections.keys())}")
-                    logger.warning(f"Peer {target} not connected")
+                    print(f"   Available peer connections: {list(self.client_connections.keys())}")
+                    logger.warning(f"Target {target} not connected")
                     return False
             else:
                 # Broadcast message
