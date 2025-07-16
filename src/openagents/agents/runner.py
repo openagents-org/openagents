@@ -135,12 +135,12 @@ class AgentRunner(ABC):
         
         This is the internal async implementation that should not be called directly.
         """
-        print(f"🔄 Agent loop starting for {self._agent_id}...")
+        # print(f"🔄 Agent loop starting for {self._agent_id}...")
         try:    
             while self._running:
                 # Get all message threads from the client
                 message_threads = self.client.get_messsage_threads()
-                print(f"🔍 Checking for messages... Found {len(message_threads)} threads")
+                # print(f"🔍 Checking for messages... Found {len(message_threads)} threads")
                 
                 # Find the first unprocessed message across all threads
                 unprocessed_message = None
@@ -151,12 +151,12 @@ class AgentRunner(ABC):
                 unprocessed_count = 0
                 
                 for thread_id, thread in message_threads.items():
-                    print(f"   Thread {thread_id}: {len(thread.messages)} messages")
+                    # print(f"   Thread {thread_id}: {len(thread.messages)} messages")
                     for message in thread.messages:
                         total_messages += 1
                         # Check if message hasn't been processed (regardless of requires_response)
                         message_id = str(message.message_id)
-                        print(f"     Message {message_id[:8]}... from {message.sender_id}, requires_response={message.requires_response}, processed={message_id in self._processed_message_ids}")
+                        # print(f"     Message {message_id[:8]}... from {message.sender_id}, requires_response={message.requires_response}, processed={message_id in self._processed_message_ids}")
                         if message_id not in self._processed_message_ids:
                             unprocessed_count += 1
                             # Find the earliest unprocessed message by timestamp
@@ -165,17 +165,17 @@ class AgentRunner(ABC):
                                 unprocessed_message = message
                                 unprocessed_thread_id = thread_id
                 
-                print(f"📊 Total messages: {total_messages}, Unprocessed: {unprocessed_count}")
+                # print(f"📊 Total messages: {total_messages}, Unprocessed: {unprocessed_count}")
                 
                 # If we found an unprocessed message, process it
                 if unprocessed_message and unprocessed_thread_id:
-                    print(f"🎯 Processing message {unprocessed_message.message_id[:8]}... from {unprocessed_message.sender_id}")
+                    # print(f"🎯 Processing message {unprocessed_message.message_id[:8]}... from {unprocessed_message.sender_id}")
                     # Mark the message as processed to avoid processing it again
                     self._processed_message_ids.add(str(unprocessed_message.message_id))
 
                     # If the sender is in the ignored list, skip the message
                     if unprocessed_message.sender_id in self._ignored_sender_ids:
-                        print(f"⏭️  Skipping message from ignored sender {unprocessed_message.sender_id}")
+                        # print(f"⏭️  Skipping message from ignored sender {unprocessed_message.sender_id}")
                         continue
                     
                     # Create a copy of conversation threads that doesn't include future messages
@@ -194,9 +194,9 @@ class AgentRunner(ABC):
                     # Call react with the filtered threads and the unprocessed message
                     await self.react(filtered_threads, unprocessed_thread_id, unprocessed_message)
                 else:
-                    print("😴 No unprocessed messages found, sleeping...")
+                    await asyncio.sleep(self._interval or 1)
+                    # print("😴 No unprocessed messages found, sleeping...")
                 
-                await asyncio.sleep(self._interval or 1)
         except Exception as e:
             print(f"💥 Agent loop interrupted by exception: {e}")
             print(f"Exception type: {type(e).__name__}")
