@@ -93,18 +93,15 @@ class SimpleMessagingAgentAdapter(BaseProtocolAdapter):
         Args:
             message: The direct message to process
         """
-        print(f"🔧 SimpleMessagingAdapter.process_incoming_direct_message called!")
-        print(f"   From: {message.sender_id}")
-        print(f"   To: {message.target_agent_id}")
-        print(f"   Content: {message.content}")
-        print(f"   Agent ID: {self.agent_id}")
+        # Only process messages targeted to this agent
+        if message.target_agent_id != self.agent_id:
+            return
+            
         logger.debug(f"Received direct message from {message.sender_id}")
         
         # Add message to the appropriate conversation thread
         thread_id = get_direct_message_thread_id(message.sender_id)
-        print(f"   Thread ID: {thread_id}")
         self.add_message_to_thread(thread_id, message, text_representation=message.content.get("text", ""))
-        print(f"   ✅ Message added to thread {thread_id}")
         
         # Check if the message contains file references
         if "files" in message.content and message.content["files"]:
@@ -193,12 +190,12 @@ class SimpleMessagingAgentAdapter(BaseProtocolAdapter):
             sender_id=self.agent_id,
             target_agent_id=target_agent_id,
             content=content,
-            direction="outbound"
+            direction="outbound",
+            protocol="openagents.protocols.communication.simple_messaging"
         )
         
-        # Add message to the conversation thread
-        thread_id = get_direct_message_thread_id(target_agent_id)
-        self.add_message_to_thread(thread_id, message, requires_response=False, text_representation=message.content.get("text", ""))
+        # DO NOT add outbound messages to sender's threads - only recipients should process incoming messages
+        # The message will be added to the recipient's thread when they receive it via process_incoming_direct_message
         
         await self.connector.send_direct_message(message)
         logger.debug(f"Sent direct message to {target_agent_id}")

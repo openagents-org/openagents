@@ -552,23 +552,13 @@ class AgentClient:
         Args:
             message: The message to handle
         """
-        print(f"📥 AgentClient._handle_direct_message called!")
-        print(f"   From: {message.sender_id}")
-        print(f"   To: {message.target_agent_id}")
-        print(f"   Content: {message.content}")
-        print(f"   Message ID: {message.message_id}")
-        print(f"   Available protocol adapters: {list(self.protocol_adapters.keys())}")
-        
         # Route message to appropriate protocol if available
         for protocol_name, protocol_adapter in self.protocol_adapters.items():
             try:
-                print(f"   🔄 Processing through {protocol_name}...")
                 processed_message = await protocol_adapter.process_incoming_direct_message(message)
-                print(f"   Result from {protocol_name}: {'✅ processed' if processed_message is None else '➡️ passed through'}")
                 if processed_message is None:
                     break
             except Exception as e:
-                print(f"   ❌ Error in {protocol_name}: {e}")
                 logger.error(f"Error handling message in protocol {protocol_adapter.__class__.__name__}: {e}")
                 import traceback
                 traceback.print_exc()

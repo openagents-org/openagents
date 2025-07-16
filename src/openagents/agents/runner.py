@@ -154,11 +154,10 @@ class AgentRunner(ABC):
                     print(f"   Thread {thread_id}: {len(thread.messages)} messages")
                     for message in thread.messages:
                         total_messages += 1
-                        # Check if message requires response and hasn't been processed
+                        # Check if message hasn't been processed (regardless of requires_response)
                         message_id = str(message.message_id)
                         print(f"     Message {message_id[:8]}... from {message.sender_id}, requires_response={message.requires_response}, processed={message_id in self._processed_message_ids}")
-                        if (message.requires_response and 
-                            message_id not in self._processed_message_ids):
+                        if message_id not in self._processed_message_ids:
                             unprocessed_count += 1
                             # Find the earliest unprocessed message by timestamp
                             if message.timestamp < earliest_timestamp:
@@ -166,7 +165,7 @@ class AgentRunner(ABC):
                                 unprocessed_message = message
                                 unprocessed_thread_id = thread_id
                 
-                print(f"📊 Total messages: {total_messages}, Unprocessed requiring response: {unprocessed_count}")
+                print(f"📊 Total messages: {total_messages}, Unprocessed: {unprocessed_count}")
                 
                 # If we found an unprocessed message, process it
                 if unprocessed_message and unprocessed_thread_id:

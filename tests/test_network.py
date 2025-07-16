@@ -263,13 +263,13 @@ class TestAgentNetwork:
         # Mock the get_agents method
         mock_agents = {
             "agent1": AgentInfo(
-                agent_id="agent1",
-                metadata={"name": "Agent 1"},
+            agent_id="agent1",
+            metadata={"name": "Agent 1"},
                 capabilities=["chat"],
                 transport_type=TransportType.WEBSOCKET,
                 address="127.0.0.1:8765",
                 last_seen=time.time()
-            )
+        )
         }
         network.topology.get_agents = MagicMock(return_value=mock_agents)
         network.is_running = True
