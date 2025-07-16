@@ -43,24 +43,24 @@ class TestSimpleMessaging:
         self.temp_file.close()
         self.temp_file_path = self.temp_file.name
         logger.info(f"Created test file at {self.temp_file_path}")
-
+        
         # Setup is done, yield control back to the test
         yield
-
+        
         # Clean up after the test
         await self.cleanup()
 
     async def cleanup(self):
         """Clean up test resources."""
         logger.info("Cleaning up test resources")
-
+        
         # Stop the network
         if self.network:
             try:
                 await self.network.shutdown()
             except Exception as e:
                 logger.error(f"Error stopping network: {e}")
-
+        
         # Remove the test file
         try:
             if os.path.exists(self.temp_file_path):
@@ -107,7 +107,7 @@ class TestSimpleMessaging:
             raise RuntimeError("Failed to initialize network")
 
         logger.info(f"Network initialized on {self.host}:{self.port}")
-
+        
         # Wait for the server to start
         await asyncio.sleep(1)
 
@@ -134,13 +134,13 @@ class TestSimpleMessaging:
         await self.setup_network()
         agent1_id = await self.setup_agent("TestAgent1")
         agent2_id = await self.setup_agent("TestAgent2")
-
+        
         # Wait for connections to establish
         await asyncio.sleep(1)
-
+        
         # Clear any initial messages
         self.received_messages.clear()
-
+        
         # Create a test message
         test_message = DirectMessage(
             sender_id=agent1_id,
@@ -148,7 +148,7 @@ class TestSimpleMessaging:
             content={"text": "Hello from TestAgent1!"},
             message_type="direct"
         )
-
+        
         # Test that we can create the message and convert it to transport format
         # (This tests the message creation and conversion logic)
         transport_message = self.network._convert_to_transport_message(test_message)
@@ -170,13 +170,13 @@ class TestSimpleMessaging:
         await self.setup_network()
         agent1_id = await self.setup_agent("TestAgent1")
         agent2_id = await self.setup_agent("TestAgent2")
-
+        
         # Wait for connections to establish
         await asyncio.sleep(1)
-
+        
         # Clear any initial messages
         self.received_messages.clear()
-
+        
         # Create a broadcast message
         broadcast_message = BroadcastMessage(
             sender_id=agent1_id,
@@ -187,10 +187,10 @@ class TestSimpleMessaging:
         # Send the broadcast message
         success = await self.network.send_message(broadcast_message)
         assert success, "Failed to send broadcast message"
-
+        
         # Wait for message to be processed
         await asyncio.sleep(1)
-
+        
         # Verify that both agents are still registered
         agents = self.network.get_agents()
         assert agent1_id in agents
@@ -205,23 +205,23 @@ class TestSimpleMessaging:
         await self.setup_network()
         agent1_id = await self.setup_agent("TestAgent1")
         agent2_id = await self.setup_agent("TestAgent2")
-
+        
         # Wait for connections to establish
         await asyncio.sleep(2)
-
+        
         # Clear any initial messages and files
         self.received_messages.clear()
         self.received_files.clear()
-
+        
         # Verify the file exists
         assert os.path.exists(self.temp_file_path), f"Test file does not exist at {self.temp_file_path}"
         file_size = os.path.getsize(self.temp_file_path)
         logger.info(f"Test file size: {file_size} bytes")
-
+        
         # Read the file content
         with open(self.temp_file_path, "rb") as f:
             original_content = f.read()
-
+        
         # Create a file transfer message
         file_message = DirectMessage(
             sender_id=agent1_id,
@@ -233,7 +233,7 @@ class TestSimpleMessaging:
             },
             message_type="file_transfer"
         )
-
+        
         # Test message creation and conversion
         transport_message = self.network._convert_to_transport_message(file_message)
         assert transport_message.sender_id == agent1_id
@@ -252,16 +252,16 @@ class TestSimpleMessaging:
         """Test simplified file transfer message handling."""
         # Set a timeout for this test
         start_time = time.time()
-
+        
         try:
             # Set up the network and agents
             await self.setup_network()
             agent1_id = await self.setup_agent("TestAgent1")
             agent2_id = await self.setup_agent("TestAgent2")
-
+            
             # Wait for connections to establish
             await asyncio.sleep(2)
-
+            
             # Create a simple file transfer message
             test_content = "This is a test file content"
             file_message = DirectMessage(
@@ -274,7 +274,7 @@ class TestSimpleMessaging:
                 },
                 message_type="file_transfer"
             )
-
+            
             # Test message creation
             assert file_message.sender_id == agent1_id
             assert file_message.target_agent_id == agent2_id
@@ -299,7 +299,7 @@ class TestSimpleMessaging:
         # Set up the network and agents
         await self.setup_network()
         agent1_id = await self.setup_agent("TestAgent1")
-
+        
         # Wait for connections to establish
         await asyncio.sleep(1)
 

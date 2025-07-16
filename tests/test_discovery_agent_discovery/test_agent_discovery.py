@@ -153,7 +153,7 @@ class TestAgentDiscovery:
         image_agent_ids = [agent.agent_id for agent in image_agents]
         assert "image_agent" in image_agent_ids
         assert "multi_agent" in image_agent_ids
-
+        
     @pytest.mark.asyncio
     async def test_capability_discovery_partial_match(self):
         """Test that agents can be discovered with multiple capability requirements."""

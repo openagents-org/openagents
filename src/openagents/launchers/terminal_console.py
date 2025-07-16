@@ -54,6 +54,18 @@ class ConsoleAgent:
         self.connected = success
         
         if success and self.agent.connector:
+            # Load protocol adapters after successful connection
+            print("🔌 Loading protocol adapters for console...")
+            try:
+                from openagents.utils.protocol_loaders import load_protocol_adapters
+                protocol_adapters = load_protocol_adapters(["openagents.protocols.communication.simple_messaging"])
+                for adapter in protocol_adapters:
+                    self.agent.register_protocol_adapter(adapter)
+                    print(f"   ✅ Loaded protocol adapter: {adapter.protocol_name}")
+            except Exception as e:
+                print(f"   ❌ Failed to load protocol adapters: {e}")
+                import traceback
+                traceback.print_exc()
             # Register message handlers
             self.agent.connector.register_message_handler("direct_message", self._handle_direct_message)
             self.agent.connector.register_message_handler("broadcast_message", self._handle_broadcast_message)
@@ -95,10 +107,25 @@ class ConsoleAgent:
             sender_id=self.agent_id,
             target_agent_id=target_id,
             content={"text": content},
-            metadata={"type": "text"}
+            metadata={"type": "text"},
+            requires_response=True,
+            text_representation=content,
+            protocol="openagents.protocols.communication.simple_messaging",
+            message_type="direct_message"
         )
         
-        await self.agent.send_direct_message(message)
+        print(f"📤 Console sending direct message to {target_id}: {content}")
+        print(f"   Message ID: {message.message_id}")
+        print(f"   Requires response: {message.requires_response}")
+        try:
+            await self.agent.send_direct_message(message)
+            print(f"✅ Message sent successfully to {target_id}")
+        except Exception as e:
+            print(f"❌ Failed to send message to {target_id}: {e}")
+            print(f"Exception type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
+            return False
         return True
     
     async def send_broadcast_message(self, content: str) -> bool:
@@ -117,7 +144,11 @@ class ConsoleAgent:
         message = BroadcastMessage(
             sender_id=self.agent_id,
             content={"text": content},
-            metadata={"type": "text"}
+            metadata={"type": "text"},
+            protocol="openagents.protocols.communication.simple_messaging",
+            message_type="broadcast_message",
+            text_representation=content,
+            requires_response=False
         )
         
         await self.agent.send_broadcast_message(message)
@@ -332,8 +363,8 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None, netw
     agent_id = agent_id or f"ConsoleAgent-{str(uuid.uuid4())[:8]}"
 
     if network_id:
-        host = None
-        port = None
+        host = ""
+        port = 0
     
     console_agent = ConsoleAgent(agent_id, host, port, network_id)
     

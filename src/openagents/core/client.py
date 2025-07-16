@@ -151,13 +151,30 @@ class AgentClient:
         Args:
             message: The message to send
         """
+        print(f"🔄 AgentClient.send_direct_message called for message to {message.target_agent_id}")
+        print(f"   Available protocol adapters: {list(self.protocol_adapters.keys())}")
+        
         processed_message = message
-        for protocol_adapter in self.protocol_adapters.values():
+        for protocol_name, protocol_adapter in self.protocol_adapters.items():
+            print(f"   Processing through {protocol_name} adapter...")
             processed_message = await protocol_adapter.process_outgoing_direct_message(message)
+            print(f"   Result from {protocol_name}: {'✅ message' if processed_message else '❌ None'}")
             if processed_message is None:
                 break
+        
         if processed_message is not None:
-            await self.connector.send_message(processed_message)
+            print(f"🚀 Sending message via connector...")
+            try:
+                await self.connector.send_message(processed_message)
+                print(f"✅ Message sent via connector successfully")
+            except Exception as e:
+                print(f"❌ Connector failed to send message: {e}")
+                print(f"Exception type: {type(e).__name__}")
+                import traceback
+                traceback.print_exc()
+                raise
+        else:
+            print(f"❌ Message was filtered out by protocol adapters - not sending")
     
     async def send_broadcast_message(self, message: BroadcastMessage) -> None:
         """Send a broadcast message to all agents.
@@ -536,13 +553,15 @@ class AgentClient:
             message: The message to handle
         """
         # Route message to appropriate protocol if available
-        for protocol_adapter in self.protocol_adapters.values():
+        for protocol_name, protocol_adapter in self.protocol_adapters.items():
             try:
                 processed_message = await protocol_adapter.process_incoming_direct_message(message)
                 if processed_message is None:
                     break
             except Exception as e:
                 logger.error(f"Error handling message in protocol {protocol_adapter.__class__.__name__}: {e}")
+                import traceback
+                traceback.print_exc()
     
     async def _handle_broadcast_message(self, message: BroadcastMessage) -> None:
         """Handle a broadcast message from another agent.
