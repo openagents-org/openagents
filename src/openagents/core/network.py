@@ -108,7 +108,7 @@ class AgentNetwork:
     
     async def initialize(self) -> bool:
         """Initialize the network.
-        
+            
         Returns:
             bool: True if initialization successful
         """
@@ -117,7 +117,7 @@ class AgentNetwork:
             if not await self.topology.initialize():
                 logger.error("Failed to initialize network topology")
                 return False
-            
+        
             # Re-register message handlers after topology initialization
             self._register_internal_handlers()
             
@@ -129,7 +129,7 @@ class AgentNetwork:
         except Exception as e:
             logger.error(f"Failed to initialize agent network: {e}")
             return False
-    
+        
     async def shutdown(self) -> bool:
         """Shutdown the network.
         
@@ -141,7 +141,7 @@ class AgentNetwork:
             
             # Shutdown topology
             await self.topology.shutdown()
-            
+                
             # Clear handlers
             self.message_handlers.clear()
             self.agent_handlers.clear()
@@ -165,7 +165,7 @@ class AgentNetwork:
         try:
             # Store agent metadata for system commands
             self.agents[agent_id] = metadata
-            
+        
             # Create agent info
             agent_info = AgentInfo(
                 agent_id=agent_id,
@@ -208,7 +208,7 @@ class AgentNetwork:
         except Exception as e:
             logger.error(f"Failed to unregister agent {agent_id}: {e}")
             return False
-    
+        
     async def send_message(self, message: BaseMessage) -> bool:
         """Send a message through the network.
         
@@ -359,13 +359,21 @@ class AgentNetwork:
             # Check if this message needs to be routed to a specific target
             target = message.target_id or getattr(message, 'target_agent_id', None)
             if target and target != message.sender_id:
-                # Route to target agent
+                # Route to target agent (direct messages)
                 logger.debug(f"Routing message {message.message_id} to target agent {target}")
                 success = await self.topology.route_message(message)
                 if not success:
                     logger.warning(f"Failed to route message {message.message_id} to {target}")
             else:
-                # Notify local message handlers (for broadcast messages or local handling)
+                # Handle broadcast messages or local messages
+                if message.message_type == "broadcast_message":
+                    # Route broadcast message to all connected agents
+                    logger.debug(f"Routing broadcast message {message.message_id} to all agents")
+                    success = await self.topology.route_message(message)
+                    if not success:
+                        logger.warning(f"Failed to route broadcast message {message.message_id}")
+                
+                # Also notify local message handlers (for broadcast messages or local handling)
                 if message.message_type in self.message_handlers:
                     for handler in self.message_handlers[message.message_type]:
                         await handler(message)
