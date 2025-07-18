@@ -172,3 +172,5 @@ cython_debug/
 *.code-workspace
 
 .DS_Store
+
+.cursor/

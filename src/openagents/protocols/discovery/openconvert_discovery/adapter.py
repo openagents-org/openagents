@@ -301,6 +301,14 @@ class OpenConvertDiscoveryAdapter(BaseProtocolAdapter):
         if not from_mime or not to_mime:
             logger.warning(f"Agent {self.agent_id} received invalid discovery request: missing from_mime or to_mime")
             return
+            
+        # Check description filter if provided
+        description_contains = query.get("description_contains")
+        if description_contains:
+            agent_description = self._conversion_capabilities.get("description", "")
+            if description_contains.lower() not in agent_description.lower():
+                logger.debug(f"Agent {self.agent_id} description '{agent_description}' does not contain '{description_contains}', skipping response")
+                return
         
         # Check if this agent can handle the requested conversion
         conversion_pairs = self._conversion_capabilities.get("conversion_pairs", [])
