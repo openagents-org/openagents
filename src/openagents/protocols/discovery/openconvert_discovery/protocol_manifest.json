@@ -1,0 +1,35 @@
+{
+    "protocol_name": "openconvert_discovery",
+    "version": "1.0.0",
+    "description": "A protocol that allows agents to announce their MIME file format conversion capabilities and for other agents to discover agents that can perform specific MIME format conversions",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "OpenConvertDiscoveryAdapter",
+    "network_protocol_class": "OpenConvertDiscoveryProtocol",
+    "capabilities": [
+        "conversion_capability_announcement",
+        "conversion_capability_discovery",
+        "mime_format_matching"
+    ],
+    "requires_adapter": true,
+    "dependencies": [],
+    "metadata": {
+        "supported_mime_types": [
+            "application/pdf",
+            "text/plain",
+            "text/html",
+            "image/jpeg",
+            "image/png",
+            "image/gif",
+            "application/json",
+            "text/csv",
+            "application/xml",
+            "audio/mpeg",
+            "video/mp4"
+        ],
+        "conversion_pair_formats": [
+            {"format": "object", "schema": {"from": "string", "to": "string"}},
+            {"format": "tuple", "schema": ["string", "string"]}
+        ]
+    }
+} 

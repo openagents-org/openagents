@@ -24,7 +24,7 @@ class MockProtocolAdapter(BaseProtocolAdapter):
     
     def __init__(self):
         super().__init__(protocol_name="mock_protocol")
-    
+
     async def process_incoming_direct_message(self, message):
         return message
     

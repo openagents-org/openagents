@@ -73,6 +73,26 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
         # Create enhanced network
         network = create_network(config.network)
         logger.info(f"Created network: {network.network_name}")
+        
+        # Load and register network protocols
+        if hasattr(config.network, 'protocols') and config.network.protocols:
+            logger.info(f"Loading {len(config.network.protocols)} network protocols...")
+            from openagents.utils.protocol_loaders import load_network_protocols
+            try:
+                # Convert ProtocolConfig objects to dictionaries
+                protocol_configs = [{"name": p.name, "enabled": p.enabled, "config": p.config} for p in config.network.protocols]
+                protocols = load_network_protocols(protocol_configs)
+                
+                # Register protocols with the network
+                for protocol_name, protocol_instance in protocols.items():
+                    protocol_instance.bind_network(network)
+                    network.protocols[protocol_name] = protocol_instance
+                    logger.info(f"Registered network protocol: {protocol_name}")
+                    
+                logger.info(f"Successfully loaded {len(protocols)} network protocols")
+            except Exception as e:
+                logger.error(f"Failed to load network protocols: {e}")
+                # Continue without protocols - this shouldn't be fatal
     
         # Initialize network
         if not await network.initialize():
