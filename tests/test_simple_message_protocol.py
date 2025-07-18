@@ -124,12 +124,12 @@ class TestSimpleMessageProtocol:
         # Cleanup
         if self.agent1 and self.agent1._running:
             try:
-            await self.agent1._async_stop()
+                await self.agent1._async_stop()
             except Exception as e:
                 logger.error(f"Error stopping agent1: {e}")
         if self.agent2 and self.agent2._running:
             try:
-            await self.agent2._async_stop()
+                await self.agent2._async_stop()
             except Exception as e:
                 logger.error(f"Error stopping agent2: {e}")
         if self.agent3 and self.agent3._running:
@@ -139,7 +139,7 @@ class TestSimpleMessageProtocol:
                 logger.error(f"Error stopping agent3: {e}")
         if self.server_network and self.server_network.is_running:
             try:
-            await self.server_network.shutdown()
+                await self.server_network.shutdown()
             except Exception as e:
                 logger.error(f"Error stopping server: {e}")
             
