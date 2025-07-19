@@ -31,9 +31,9 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
     - File transfer between agents
     """
     
-    def __init__(self):
+    def __init__(self, protocol_name: str = "simple_messaging"):
         """Initialize the simple messaging protocol for a network."""
-        super().__init__(protocol_name="simple_messaging")
+        super().__init__(protocol_name=protocol_name)
         
         # Initialize protocol state
         self.active_agents: Set[str] = set()

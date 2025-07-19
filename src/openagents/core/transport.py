@@ -190,6 +190,8 @@ class WebSocketTransport(Transport):
         try:
             import websockets
             self.websockets = websockets
+            # Extract websocket configuration options
+            max_size = self.config.get("max_message_size", 104857600)  # Default 100MB
             logger.info("WebSocket transport initialized")
             return True
         except ImportError:
@@ -217,11 +219,14 @@ class WebSocketTransport(Transport):
             host, port = address.split(":")
             port = int(port)
             
+            # Extract websocket configuration options
+            max_size = self.config.get("max_message_size", 104857600)  # Default 100MB
+            
             self.server = await self.websockets.serve(
-                self._handle_connection, host, port
+                self._handle_connection, host, port, max_size=max_size
             )
             self.is_running = True
-            logger.info(f"WebSocket transport listening on {address}")
+            logger.info(f"WebSocket transport listening on {address} with max_size={max_size}")
             return True
         except Exception as e:
             logger.error(f"Failed to start WebSocket server: {e}")
@@ -230,7 +235,10 @@ class WebSocketTransport(Transport):
     async def connect(self, peer_id: str, address: str) -> bool:
         """Connect to WebSocket peer."""
         try:
-            websocket = await self.websockets.connect(f"ws://{address}")
+            # Extract websocket configuration options
+            max_size = self.config.get("max_message_size", 104857600)  # Default 100MB
+            
+            websocket = await self.websockets.connect(f"ws://{address}", max_size=max_size)
             self.client_connections[peer_id] = websocket
             
             # Update connection info

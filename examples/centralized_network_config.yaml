@@ -24,7 +24,7 @@ network:
     compression: true  # Enable compression for better performance
     ping_interval: 30  # WebSocket ping interval in seconds
     ping_timeout: 10  # WebSocket ping timeout in seconds
-    max_message_size: 1048576  # Maximum message size (1MB)
+    max_message_size: 104857600  # Maximum message size (100MB)
   
   # Security configuration
   encryption_enabled: true  # Enable encryption for secure communication
@@ -50,7 +50,7 @@ network:
     - name: "openagents.protocols.communication.simple_messaging"
       enabled: true
       config:
-        max_message_size: 1048576  # 1MB
+        max_message_size: 104857600  # 100MB
         message_retention_time: 300  # 5 minutes
         enable_message_history: true
     - name: "openagents.protocols.discovery.agent_discovery"

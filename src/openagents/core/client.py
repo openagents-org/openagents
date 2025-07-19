@@ -39,7 +39,7 @@ class AgentClient:
             for protocol in protocol_adapters:
                 self.register_protocol_adapter(protocol)
     
-    async def connect_to_server(self, host: Optional[str] = None, port: Optional[int] = None, network_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> bool:
+    async def connect_to_server(self, host: Optional[str] = None, port: Optional[int] = None, network_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None, max_message_size: int = 104857600) -> bool:
         """Connect to a network server.
         
         Args:
@@ -47,6 +47,7 @@ class AgentClient:
             port: Server port
             network_id: ID of the network to connect to
             metadata: Metadata to send to the server
+            max_message_size: Maximum WebSocket message size in bytes (default 10MB)
             
         Returns:
             bool: True if connection successful
@@ -72,7 +73,7 @@ class AgentClient:
             await self.disconnect()
             self.connector = None
         
-        self.connector = NetworkConnector(host, port, self.agent_id, metadata)
+        self.connector = NetworkConnector(host, port, self.agent_id, metadata, max_message_size)
 
         # Connect using the connector
         success = await self.connector.connect_to_server()
