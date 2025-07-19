@@ -19,18 +19,21 @@ class NetworkConnector:
     handling message sending/receiving.
     """
     
-    def __init__(self, host: str, port: int, agent_id: str, metadata: Optional[Dict[str, Any]] = None):
+    def __init__(self, host: str, port: int, agent_id: str, metadata: Optional[Dict[str, Any]] = None, max_message_size: int = 104857600):
         """Initialize a network connector.
         
         Args:
             host: Server host address
             port: Server port
+            agent_id: Agent identifier
             metadata: Agent metadata to send during registration
+            max_message_size: Maximum WebSocket message size in bytes (default 10MB)
         """
         self.host = host
         self.port = port
         self.agent_id = agent_id
         self.metadata = metadata
+        self.max_message_size = max_message_size
         self.connection = None
         self.is_connected = False
         self.message_handlers: Dict[str, List[Callable[[Any], Awaitable[None]]]] = {}
@@ -48,7 +51,7 @@ class NetworkConnector:
             bool: True if connection successful
         """
         try:
-            self.connection = await connect(f"ws://{self.host}:{self.port}")
+            self.connection = await connect(f"ws://{self.host}:{self.port}", max_size=self.max_message_size)
             
             # Register with server using system_request
             await send_system_request_impl(

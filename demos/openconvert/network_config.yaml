@@ -19,7 +19,7 @@ network:
     compression: true
     ping_interval: 30
     ping_timeout: 10
-    max_message_size: 10485760  # 10MB for file transfers
+    max_message_size: 104857600  # 100MB for file transfers
   
   # Security configuration
   encryption_enabled: false  # Disabled for demo simplicity
@@ -44,7 +44,7 @@ network:
     - name: "openagents.protocols.communication.simple_messaging"
       enabled: true
       config:
-        max_message_size: 10485760  # 10MB
+        max_message_size: 104857600  # 100MB
         message_retention_time: 300
         enable_message_history: true
     - name: "openagents.protocols.discovery.agent_discovery"
