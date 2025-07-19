@@ -89,7 +89,7 @@ network_profile:
     - "research"
     - "development"
   country: "Worldwide"
-  required_openagents_version: "0.5.0"
+  required_openagents_version: "0.5.1"
   capacity: 1000
   authentication:
     type: "none"

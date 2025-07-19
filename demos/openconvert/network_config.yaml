@@ -81,7 +81,7 @@ network_profile:
     - "demo"
     - "file-services"
   country: "Worldwide"
-  required_openagents_version: "0.5.0"
+  required_openagents_version: "0.5.1"
   capacity: 50
   authentication:
     type: "none"

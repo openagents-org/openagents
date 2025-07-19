@@ -128,7 +128,7 @@ network_profile:
     - "research"
     - "collaboration"
   country: "Worldwide"
-  required_openagents_version: "0.5.0"
+  required_openagents_version: "0.5.1"
   capacity: 500  # Maximum 500 connected agents
   authentication:
     type: "none"  # No authentication required (can be changed to "basic", "oauth2", etc.)
