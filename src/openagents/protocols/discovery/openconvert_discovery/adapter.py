@@ -346,7 +346,7 @@ class OpenConvertDiscoveryAdapter(BaseProtocolAdapter):
         else:
             logger.debug(f"Agent {self.agent_id} has no matching conversion capabilities for {from_mime} -> {to_mime}")
     
-    async def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentAdapterTool]:
         """Get the tools for the protocol adapter.
         
         Returns:
