@@ -31,11 +31,13 @@ dependencies = [
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
     "typing-extensions>=4.4.0",
+    "packaging>=21.0",
     
     # Async and networking
     "aiohttp>=3.9.0",
     "websockets>=11.0",
     "asyncio-throttle>=1.0.0",
+    "requests>=2.25.0",
     
     # Transport layer dependencies
     "grpcio>=1.50.0",          # gRPC transport support
@@ -57,6 +59,9 @@ dependencies = [
     # Monitoring and observability
     "prometheus-client>=0.16.0",  # Metrics collection
     "structlog>=23.0.0",          # Structured logging
+
+    # Others
+    "openai>=1.98" # For CLI
 ]
 
 [project.optional-dependencies]

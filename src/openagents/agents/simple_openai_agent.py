@@ -6,6 +6,7 @@ from typing import Dict, List, Any, Optional
 import json
 import asyncio
 from openagents.models.tool import AgentAdapterTool
+from openagents.utils.verbose import verbose_print
 import logging
 logger = logging.getLogger(__name__)
 
@@ -61,12 +62,16 @@ class SimpleOpenAIAgentRunner(AgentRunner):
         super().__init__(agent_id=agent_id, protocol_names=protocol_names, ignored_sender_ids=ignored_sender_ids)
         self.model_name = model_name
         self.instruction = instruction
+        
+        # Determine API base URL: config parameter takes precedence, then environment variable
+        effective_api_base = api_base or os.getenv("OPENAI_BASE_URL")
+        
         # Initialize OpenAI client with custom API base URL if provided
-        if api_base:
-            if "azure.com" in api_base:
-                self.openai_client = AzureOpenAI(azure_endpoint=api_base, api_key=os.getenv("AZURE_OPENAI_API_KEY"), api_version=os.getenv("OPENAI_API_VERSION", "2024-07-01-preview"))
+        if effective_api_base:
+            if "azure.com" in effective_api_base:
+                self.openai_client = AzureOpenAI(azure_endpoint=effective_api_base, api_key=os.getenv("AZURE_OPENAI_API_KEY"), api_version=os.getenv("OPENAI_API_VERSION", "2024-07-01-preview"))
             else:
-                self.openai_client = OpenAI(base_url=api_base, api_key=os.getenv("OPENAI_API_KEY"))
+                self.openai_client = OpenAI(base_url=effective_api_base, api_key=os.getenv("OPENAI_API_KEY"))
         else:
             self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -89,7 +94,7 @@ class SimpleOpenAIAgentRunner(AgentRunner):
         )
 
     async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
-        print(f">>> Reacting to message: {incoming_message.text_representation} (thread:{incoming_thread_id})")
+        verbose_print(f">>> Reacting to message: {incoming_message.text_representation} (thread:{incoming_thread_id})")
         # Generate the prompt using the template
         prompt_content = user_prompt_template.render(
             message_threads=message_threads,
@@ -138,7 +143,7 @@ class SimpleOpenAIAgentRunner(AgentRunner):
             # Check if the model wants to call a function
             if hasattr(response_message, 'tool_calls') and response_message.tool_calls:
                 for tool_call in response_message.tool_calls:
-                    print(f">>> tool >>> {tool_call.function.name}({tool_call.function.arguments})")
+                    verbose_print(f">>> tool >>> {tool_call.function.name}({tool_call.function.arguments})")
                     # Get the tool name and arguments
                     tool_name = tool_call.function.name
                     
@@ -180,7 +185,7 @@ class SimpleOpenAIAgentRunner(AgentRunner):
                             logger.info(f"Error executing tool {tool_name}: {e}")
                             logger.info(f"Tool call: {tool_call}")
             else:
-                print(f">>> response >>> {response_message.content}")
+                verbose_print(f">>> response >>> {response_message.content}")
                 # If the model generates a response without calling a tool, finish
                 is_finished = True
                 break

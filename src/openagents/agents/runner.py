@@ -10,6 +10,7 @@ from openagents.models.messages import BaseMessage
 from openagents.models.tool import AgentAdapterTool
 from openagents.core.client import AgentClient
 from openagents.utils.protocol_loaders import load_protocol_adapters
+from openagents.utils.verbose import verbose_print
 
 logger = logging.getLogger(__name__)
 
@@ -198,8 +199,8 @@ class AgentRunner(ABC):
                     # print("😴 No unprocessed messages found, sleeping...")
                 
         except Exception as e:
-            print(f"💥 Agent loop interrupted by exception: {e}")
-            print(f"Exception type: {type(e).__name__}")
+            verbose_print(f"💥 Agent loop interrupted by exception: {e}")
+            verbose_print(f"Exception type: {type(e).__name__}")
             import traceback
             traceback.print_exc()
             # Ensure the agent is stopped when the loop is interrupted
@@ -217,9 +218,9 @@ class AgentRunner(ABC):
             if not connected:
                 raise Exception("Failed to connect to server")
             
-            print("🔍 AgentRunner getting supported protocols from server...")
+            verbose_print("🔍 AgentRunner getting supported protocols from server...")
             server_supported_protocols = await self.client.list_protocols()
-            print(f"   Server returned {len(server_supported_protocols)} protocols")
+            verbose_print(f"   Server returned {len(server_supported_protocols)} protocols")
             
             protocol_names_requiring_adapters = []
             # Log all supported protocols with their details as JSON
@@ -227,44 +228,44 @@ class AgentRunner(ABC):
                 protocol_name = protocol_details["name"]
                 protocol_version = protocol_details["version"]
                 requires_adapter = protocol_details.get("requires_adapter", True)
-                print(f"   Protocol: {protocol_name} v{protocol_version}, requires_adapter={requires_adapter}")
+                verbose_print(f"   Protocol: {protocol_name} v{protocol_version}, requires_adapter={requires_adapter}")
                 if requires_adapter:
                     protocol_names_requiring_adapters.append(protocol_name)
                 logger.info(f"Supported protocol: {protocol_name} (v{protocol_version})")
             
-            print(f"📦 Protocols requiring adapters: {protocol_names_requiring_adapters}")
+            verbose_print(f"📦 Protocols requiring adapters: {protocol_names_requiring_adapters}")
             
             if self._supported_protocols is None:
-                print("🔧 Loading protocol adapters...")
+                verbose_print("🔧 Loading protocol adapters...")
                 self._supported_protocols = protocol_names_requiring_adapters
                 try:
                     adapters = load_protocol_adapters(protocol_names_requiring_adapters) 
-                    print(f"   Loaded {len(adapters)} adapters")
+                    verbose_print(f"   Loaded {len(adapters)} adapters")
                     for adapter in adapters:
                         self.client.register_protocol_adapter(adapter)
-                        print(f"   ✅ Registered adapter: {adapter.protocol_name}")
+                        verbose_print(f"   ✅ Registered adapter: {adapter.protocol_name}")
                     self.update_tools()
                 except Exception as e:
-                    print(f"   ❌ Failed to load protocol adapters: {e}")
+                    verbose_print(f"   ❌ Failed to load protocol adapters: {e}")
                     import traceback
                     traceback.print_exc()
                     
                 # If no protocols were loaded from server, try loading essential protocols manually
                 if len(self.client.protocol_adapters) == 0:
-                    print("🔧 Server provided no protocols, loading essential protocols manually...")
+                    verbose_print("🔧 Server provided no protocols, loading essential protocols manually...")
                     try:
                         manual_adapters = load_protocol_adapters(["openagents.protocols.communication.simple_messaging"])
-                        print(f"   Manually loaded {len(manual_adapters)} adapters")
+                        verbose_print(f"   Manually loaded {len(manual_adapters)} adapters")
                         for adapter in manual_adapters:
                             self.client.register_protocol_adapter(adapter)
-                            print(f"   ✅ Manually registered adapter: {adapter.protocol_name}")
+                            verbose_print(f"   ✅ Manually registered adapter: {adapter.protocol_name}")
                         self.update_tools()
                     except Exception as e:
-                        print(f"   ❌ Failed to manually load protocol adapters: {e}")
+                        verbose_print(f"   ❌ Failed to manually load protocol adapters: {e}")
                         import traceback
                         traceback.print_exc()
             else:
-                print(f"🔄 Using existing protocols: {self._supported_protocols}")
+                verbose_print(f"🔄 Using existing protocols: {self._supported_protocols}")
             
             self._running = True
             # Start the loop in a background task
@@ -272,7 +273,7 @@ class AgentRunner(ABC):
             # Setup the agent
             await self.setup()
         except Exception as e:
-            print(f"Failed to start agent: {e}")
+            verbose_print(f"Failed to start agent: {e}")
             # Ensure the agent is stopped if there's an exception during startup
             await self._async_stop()
             # Re-raise the exception after cleanup
@@ -308,7 +309,7 @@ class AgentRunner(ABC):
             await asyncio.sleep(0.5)
         except Exception as e:
             # Handle any other exception by stopping the agent
-            print(f"Loop interrupted by exception: {e}")
+            verbose_print(f"Loop interrupted by exception: {e}")
             await self._async_stop()
             # Wait a moment for cleanup
             await asyncio.sleep(0.5)

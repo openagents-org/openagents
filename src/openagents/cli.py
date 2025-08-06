@@ -15,13 +15,20 @@ from openagents.launchers.network_launcher import launch_network
 from openagents.launchers.terminal_console import launch_console
 from openagents.agents.simple_openai_agent import SimpleOpenAIAgentRunner
 
+# Global verbose flag that can be imported by other modules
+VERBOSE_MODE = False
 
-def setup_logging(level: str = "INFO") -> None:
+
+def setup_logging(level: str = "INFO", verbose: bool = False) -> None:
     """Set up logging configuration.
     
     Args:
         level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        verbose: Whether to enable verbose mode
     """
+    global VERBOSE_MODE
+    VERBOSE_MODE = verbose
+    
     numeric_level = getattr(logging, level.upper(), None)
     if not isinstance(numeric_level, int):
         raise ValueError(f"Invalid log level: {level}")
@@ -188,6 +195,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--log-level", default="INFO", 
                         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
                         help="Logging level")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="Enable verbose debugging output")
     
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
@@ -198,7 +207,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     
     # Connect command
     connect_parser = subparsers.add_parser("connect", help="Connect to a network server")
-    connect_parser.add_argument("--ip", help="Server IP address (required if --network-id is not provided)")
+    connect_parser.add_argument("--ip", default="localhost", help="Server IP address (required if --network-id is not provided)")
     connect_parser.add_argument("--port", type=int, default=8765, help="Server port (default: 8765)")
     connect_parser.add_argument("--id", help="Agent ID (default: auto-generated)")
     connect_parser.add_argument("--network-id", help="Network ID to connect to (required if --ip is not provided)")
@@ -214,7 +223,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
     
     # Set up logging
-    setup_logging(args.log_level)
+    setup_logging(args.log_level, args.verbose)
     
     try:
         if args.command == "launch-network":

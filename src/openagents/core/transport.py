@@ -16,6 +16,7 @@ from openagents.models.transport import (
     TransportType, ConnectionState, PeerMetadata, 
     ConnectionInfo, TransportMessage, AgentInfo
 )
+from openagents.utils.verbose import verbose_print
 
 logger = logging.getLogger(__name__)
 
@@ -281,11 +282,11 @@ class WebSocketTransport(Transport):
     async def send(self, message: Message) -> bool:
         """Send message via WebSocket."""
         try:
-            print(f"🚀 WebSocketTransport.send() called")
-            print(f"   Message type: {type(message).__name__}")
-            print(f"   Message target_id: {message.target_id}")
-            print(f"   Message sender_id: {message.sender_id}")
-            print(f"   Connected clients: {list(self.client_connections.keys())}")
+            verbose_print(f"🚀 WebSocketTransport.send() called")
+            verbose_print(f"   Message type: {type(message).__name__}")
+            verbose_print(f"   Message target_id: {message.target_id}")
+            verbose_print(f"   Message sender_id: {message.sender_id}")
+            verbose_print(f"   Connected clients: {list(self.client_connections.keys())}")
             
             # Wrap message in the format expected by client connectors
             message_payload = {"type": "message", "data": message.model_dump()}
@@ -295,29 +296,29 @@ class WebSocketTransport(Transport):
             target = message.target_id or getattr(message, 'target_agent_id', None)
             if target:
                 # Direct message - try agent connection resolver first
-                print(f"   📨 Direct message routing to {target}")
+                verbose_print(f"   📨 Direct message routing to {target}")
                 
                 # Try agent connection resolver (for agent_id → websocket mapping)
                 websocket_connection = None
                 if self.agent_connection_resolver:
-                    print(f"   🔍 Using agent connection resolver to find {target}")
+                    verbose_print(f"   🔍 Using agent connection resolver to find {target}")
                     websocket_connection = self.agent_connection_resolver(target)
                     if websocket_connection:
-                        print(f"   ✅ Found agent connection via resolver")
+                        verbose_print(f"   ✅ Found agent connection via resolver")
                 
                 # Fallback to peer_id mapping (for backward compatibility)
                 if not websocket_connection and target in self.client_connections:
-                    print(f"   🔄 Fallback to peer_id mapping")
+                    verbose_print(f"   🔄 Fallback to peer_id mapping")
                     websocket_connection = self.client_connections[target]
                 
                 if websocket_connection:
-                    print(f"   ✅ Target connection found, sending...")
+                    verbose_print(f"   ✅ Target connection found, sending...")
                     await websocket_connection.send(message_data)
-                    print(f"   ✅ Message sent successfully to {target}")
+                    verbose_print(f"   ✅ Message sent successfully to {target}")
                     return True
                 else:
-                    print(f"   ❌ Target {target} NOT found in connections!")
-                    print(f"   Available peer connections: {list(self.client_connections.keys())}")
+                    verbose_print(f"   ❌ Target {target} NOT found in connections!")
+                    verbose_print(f"   Available peer connections: {list(self.client_connections.keys())}")
                     logger.warning(f"Target {target} not connected")
                     return False
             else:
@@ -353,36 +354,36 @@ class WebSocketTransport(Transport):
         try:
             async for message_data in websocket:
                 try:
-                    print(f"📨 WebSocket received message from {peer_id}: {message_data[:200]}...")
+                    verbose_print(f"📨 WebSocket received message from {peer_id}: {message_data[:200]}...")
                     data = json.loads(message_data)
-                    print(f"📦 Parsed data: {data}")
+                    verbose_print(f"📦 Parsed data: {data}")
                     
                     # Check if this is a system message (should be handled by network layer)
                     if data.get("type") == "system_request":
-                        print("🔧 Processing system_request message")
+                        verbose_print("🔧 Processing system_request message")
                         # Forward system messages to system message handlers
                         await self._notify_system_message_handlers(peer_id, data, websocket)
                         continue
                     
                     # Check if this is a regular message with data wrapper
                     if data.get("type") == "message":
-                        print("📬 Processing regular message with data wrapper")
+                        verbose_print("📬 Processing regular message with data wrapper")
                         # Extract the actual message data from the wrapper
                         message_payload = data.get("data", {})
-                        print(f"   Message payload: {message_payload}")
+                        verbose_print(f"   Message payload: {message_payload}")
                         # Parse the inner message data as TransportMessage
                         message = Message(**message_payload)
-                        print(f"✅ Parsed as Message: {message}")
-                        print(f"🔔 Notifying message handlers... ({len(self.message_handlers)} handlers)")
+                        verbose_print(f"✅ Parsed as Message: {message}")
+                        verbose_print(f"🔔 Notifying message handlers... ({len(self.message_handlers)} handlers)")
                         for i, handler in enumerate(self.message_handlers):
-                            print(f"   Handler {i}: {handler}")
+                            verbose_print(f"   Handler {i}: {handler}")
                         await self._notify_message_handlers(message)
-                        print(f"✅ Message handlers notified")
+                        verbose_print(f"✅ Message handlers notified")
                     else:
-                        print(f"🔄 Trying to parse as TransportMessage directly (type: {data.get('type')})")
+                        verbose_print(f"🔄 Trying to parse as TransportMessage directly (type: {data.get('type')})")
                         # Try to parse as TransportMessage directly (for backward compatibility)
                         message = Message(**data)
-                        print(f"✅ Parsed as Message: {message}")
+                        verbose_print(f"✅ Parsed as Message: {message}")
                         await self._notify_message_handlers(message)
                     
                     # Update last activity
@@ -390,12 +391,12 @@ class WebSocketTransport(Transport):
                         self.connections[peer_id].last_activity = asyncio.get_event_loop().time()
                         
                 except Exception as e:
-                    print(f"❌ Error processing message from {peer_id}: {e}")
+                    verbose_print(f"❌ Error processing message from {peer_id}: {e}")
                     import traceback
                     traceback.print_exc()
                     logger.error(f"Error processing message from {peer_id}: {e}")
         except Exception as e:
-            print(f"❌ Error listening to messages from {peer_id}: {e}")
+            verbose_print(f"❌ Error listening to messages from {peer_id}: {e}")
             logger.error(f"Error listening to messages from {peer_id}: {e}")
 
 

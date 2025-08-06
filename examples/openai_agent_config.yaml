@@ -1,0 +1,44 @@
+# OpenAI Agent Configuration Example
+# This demonstrates a simple OpenAI-based conversational agent
+
+# Agent type - can be either a predefined type or fully qualified class path
+type: "openai"  # Predefined type for SimpleOpenAIAgentRunner
+# Alternative: type: "openagents.agents.simple_openai_agent.SimpleOpenAIAgentRunner"
+
+# Agent configuration parameters (passed to constructor)
+config:
+  # Required: Unique identifier for this agent
+  
+  agent_id: "openai-assistant-001"
+  
+  # Required: OpenAI model to use
+  model_name: "gpt-4o-mini"
+  
+  # Required: System instruction/prompt for the agent
+  instruction: |
+    You are a helpful AI assistant in an OpenAgents network. 
+    You can communicate with other agents and help users with various tasks.
+    Be friendly, concise, and helpful in your responses.
+    
+  # Optional: Custom API base URL (for Azure OpenAI or other providers)
+  # api_base: "https://your-resource.openai.azure.com/"
+  
+  # Optional: List of protocol names to register with
+  protocol_names:
+    - "openagents.protocols.communication.simple_messaging"
+  
+  # Optional: List of sender IDs to ignore
+  # ignored_sender_ids: 
+  #   - "spam-agent"
+
+# Connection configuration (optional - can be overridden by command line)
+connection:
+  host: "localhost"
+  port: 8765
+  network_id: "openagents-network"
+
+# Environment variables needed:
+# - OPENAI_API_KEY: Your OpenAI API key
+# - OPENAI_BASE_URL: Custom OpenAI base URL (optional, overridden by api_base config)
+# - AZURE_OPENAI_API_KEY: Your Azure OpenAI API key (if using Azure)
+# - OPENAI_API_VERSION: API version (if using Azure, default: "2024-07-01-preview")

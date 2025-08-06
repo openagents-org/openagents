@@ -1,0 +1,35 @@
+# Custom Agent Configuration Example
+# This demonstrates how to use a custom agent class
+
+# Use fully qualified class path for custom agents
+type: "my_package.agents.custom_agent.MyCustomAgent"
+
+# Agent configuration parameters
+config:
+  agent_id: "custom-agent-001"
+  
+  # Custom parameters specific to your agent
+  custom_parameter_1: "value1"
+  custom_parameter_2: 42
+  custom_config:
+    nested_option: true
+    list_option: ["item1", "item2", "item3"]
+  
+  # Standard AgentRunner parameters
+  protocol_names:
+    - "openagents.protocols.communication.simple_messaging"
+    - "openagents.protocols.discovery.agent_discovery"
+  
+  # Optional interval for message checking (seconds)
+  interval: 1
+  
+  # Agents to ignore messages from
+  ignored_sender_ids:
+    - "noisy-agent"
+    - "spam-bot"
+
+# Connection settings
+connection:
+  host: "192.168.1.100"
+  port: 9000
+  network_id: "production-network"

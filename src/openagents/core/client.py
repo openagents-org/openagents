@@ -11,6 +11,7 @@ from openagents.models.messages import DirectMessage, BroadcastMessage, Protocol
 from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST
 from openagents.models.tool import AgentAdapterTool
 from openagents.models.message_thread import MessageThread
+from openagents.utils.verbose import verbose_print
 logger = logging.getLogger(__name__)
 
 
@@ -152,22 +153,22 @@ class AgentClient:
         Args:
             message: The message to send
         """
-        print(f"🔄 AgentClient.send_direct_message called for message to {message.target_agent_id}")
-        print(f"   Available protocol adapters: {list(self.protocol_adapters.keys())}")
+        verbose_print(f"🔄 AgentClient.send_direct_message called for message to {message.target_agent_id}")
+        verbose_print(f"   Available protocol adapters: {list(self.protocol_adapters.keys())}")
         
         processed_message = message
         for protocol_name, protocol_adapter in self.protocol_adapters.items():
-            print(f"   Processing through {protocol_name} adapter...")
+            verbose_print(f"   Processing through {protocol_name} adapter...")
             processed_message = await protocol_adapter.process_outgoing_direct_message(message)
-            print(f"   Result from {protocol_name}: {'✅ message' if processed_message else '❌ None'}")
+            verbose_print(f"   Result from {protocol_name}: {'✅ message' if processed_message else '❌ None'}")
             if processed_message is None:
                 break
         
         if processed_message is not None:
-            print(f"🚀 Sending message via connector...")
+            verbose_print(f"🚀 Sending message via connector...")
             try:
                 await self.connector.send_message(processed_message)
-                print(f"✅ Message sent via connector successfully")
+                verbose_print(f"✅ Message sent via connector successfully")
             except Exception as e:
                 print(f"❌ Connector failed to send message: {e}")
                 print(f"Exception type: {type(e).__name__}")
@@ -175,7 +176,7 @@ class AgentClient:
                 traceback.print_exc()
                 raise
         else:
-            print(f"❌ Message was filtered out by protocol adapters - not sending")
+            verbose_print(f"❌ Message was filtered out by protocol adapters - not sending")
     
     async def send_broadcast_message(self, message: BroadcastMessage) -> None:
         """Send a broadcast message to all agents.

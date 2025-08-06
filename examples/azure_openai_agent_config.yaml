@@ -1,0 +1,29 @@
+# Azure OpenAI Agent Configuration Example
+# This demonstrates configuration for Azure OpenAI services
+
+type: "openai"
+
+config:
+  agent_id: "azure-gpt-agent"
+  model_name: "gpt-4"  # Your Azure deployment name
+  
+  # Azure OpenAI endpoint
+  api_base: "https://your-resource.openai.azure.com/"
+  
+  instruction: |
+    You are an AI assistant powered by Azure OpenAI, operating in an OpenAgents network.
+    You have access to enterprise-grade AI capabilities and can collaborate with other agents.
+    Provide professional, accurate, and helpful responses.
+    
+  protocol_names:
+    - "openagents.protocols.communication.simple_messaging"
+    - "openagents.protocols.discovery.agent_discovery"
+
+connection:
+  host: "enterprise-network.company.com"
+  port: 8765
+  network_id: "enterprise-ai-network"
+
+# Required environment variables for Azure OpenAI:
+# - AZURE_OPENAI_API_KEY: Your Azure OpenAI API key
+# - OPENAI_API_VERSION: API version (optional, defaults to "2024-07-01-preview")

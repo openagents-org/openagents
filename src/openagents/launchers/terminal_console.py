@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional, List
 from openagents.core.client import AgentClient
 from openagents.models.messages import DirectMessage, BroadcastMessage
 from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST
+from openagents.utils.verbose import verbose_print
 
 logger = logging.getLogger(__name__)
 
@@ -55,15 +56,15 @@ class ConsoleAgent:
         
         if success and self.agent.connector:
             # Load protocol adapters after successful connection
-            print("🔌 Loading protocol adapters for console...")
+            verbose_print("🔌 Loading protocol adapters for console...")
             try:
                 from openagents.utils.protocol_loaders import load_protocol_adapters
                 protocol_adapters = load_protocol_adapters(["openagents.protocols.communication.simple_messaging"])
                 for adapter in protocol_adapters:
                     self.agent.register_protocol_adapter(adapter)
-                    print(f"   ✅ Loaded protocol adapter: {adapter.protocol_name}")
+                    verbose_print(f"   ✅ Loaded protocol adapter: {adapter.protocol_name}")
             except Exception as e:
-                print(f"   ❌ Failed to load protocol adapters: {e}")
+                verbose_print(f"   ❌ Failed to load protocol adapters: {e}")
                 import traceback
                 traceback.print_exc()
             # Register message handlers
@@ -114,12 +115,12 @@ class ConsoleAgent:
             message_type="direct_message"
         )
         
-        print(f"📤 Console sending direct message to {target_id}: {content}")
-        print(f"   Message ID: {message.message_id}")
-        print(f"   Requires response: {message.requires_response}")
+        verbose_print(f"📤 Console sending direct message to {target_id}: {content}")
+        verbose_print(f"   Message ID: {message.message_id}")
+        verbose_print(f"   Requires response: {message.requires_response}")
         try:
             await self.agent.send_direct_message(message)
-            print(f"✅ Message sent successfully to {target_id}")
+            verbose_print(f"✅ Message sent successfully to {target_id}")
         except Exception as e:
             print(f"❌ Failed to send message to {target_id}: {e}")
             print(f"Exception type: {type(e).__name__}")

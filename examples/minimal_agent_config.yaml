@@ -1,0 +1,13 @@
+# Minimal Agent Configuration Example
+# This shows the bare minimum required configuration
+
+type: "openai"
+
+config:
+  agent_id: "minimal-agent"
+  model_name: "gpt-3.5-turbo"
+  instruction: "You are a helpful AI assistant."
+
+# Environment variables:
+# - OPENAI_API_KEY: Your OpenAI API key (required)
+# - OPENAI_BASE_URL: Custom OpenAI base URL (optional)
