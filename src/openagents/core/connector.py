@@ -2,13 +2,14 @@ from typing import Dict, Any, Optional, Callable, Awaitable, List, Set
 import logging
 import json
 import asyncio
+import time
 import websockets
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 from openagents.utils.message_util import parse_message_dict
 from openagents.models.messages import BaseMessage, BroadcastMessage, DirectMessage, ProtocolMessage
 from .system_commands import send_system_request as send_system_request_impl
-from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST
+from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST, PING_AGENT, CLAIM_AGENT_ID, VALIDATE_CERTIFICATE
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class NetworkConnector:
         self.is_connected = False
         self.message_handlers: Dict[str, List[Callable[[Any], Awaitable[None]]]] = {}
         self.system_handlers = {}
+        self.message_listener_task = None
     
     async def connect_to_server(self) -> bool:
         """Connect to a network server.
@@ -69,8 +71,9 @@ class NetworkConnector:
                 self.is_connected = True
                 logger.info(f"Connected to network: {data.get('network_name')}")
                 
-                # Start message listener
-                asyncio.create_task(self._listen_for_messages())
+                # Start message listener and track the task
+                self.message_listener_task = asyncio.create_task(self._listen_for_messages())
+                logger.debug("Started message listener task for heartbeat handling")
                 return True
             
             await self.connection.close()
@@ -88,9 +91,18 @@ class NetworkConnector:
         """
         if self.connection:
             try:
+                # Cancel message listener task first
+                if self.message_listener_task and not self.message_listener_task.done():
+                    self.message_listener_task.cancel()
+                    try:
+                        await self.message_listener_task
+                    except asyncio.CancelledError:
+                        pass
+                
                 await self.connection.close()
                 self.connection = None
                 self.is_connected = False
+                self.message_listener_task = None
                 logger.info(f"Agent {self.agent_id} disconnected from network")
                 return True
             except Exception as e:
@@ -168,6 +180,23 @@ class NetworkConnector:
                         await self.system_handlers[command](data)
                     else:
                         logger.debug(f"Received system response for command {command}")
+                
+                # Handle system requests (like ping)
+                elif data.get("type") == "system_request":
+                    command = data.get("command")
+                    if command == PING_AGENT:
+                        # Respond to ping with pong
+                        pong_response = {
+                            "type": "system_response",
+                            "command": "ping_agent",
+                            "success": True,
+                            "timestamp": data.get("timestamp", time.time()),
+                            "agent_id": self.agent_id  # Include agent_id for tracking
+                        }
+                        await self.connection.send(json.dumps(pong_response))
+                        logger.debug(f"Agent {self.agent_id} responded to heartbeat ping from server")
+                    else:
+                        logger.debug(f"Received unhandled system request: {command}")
             
 
         except ConnectionClosed:
@@ -388,3 +417,26 @@ class NetworkConnector:
             bool: True if request was sent successfully
         """
         return await self.send_system_request(GET_PROTOCOL_MANIFEST, protocol_name=protocol_name)
+    
+    async def claim_agent_id(self, agent_id: str, force: bool = False) -> bool:
+        """Claim an agent ID and receive a certificate.
+        
+        Args:
+            agent_id: The agent ID to claim
+            force: If True, forcefully reclaim even if already claimed
+            
+        Returns:
+            bool: True if request was sent successfully
+        """
+        return await self.send_system_request(CLAIM_AGENT_ID, agent_id=agent_id, force=force)
+    
+    async def validate_certificate(self, certificate_data: dict) -> bool:
+        """Validate an agent certificate.
+        
+        Args:
+            certificate_data: Certificate data to validate
+            
+        Returns:
+            bool: True if request was sent successfully
+        """
+        return await self.send_system_request(VALIDATE_CERTIFICATE, certificate=certificate_data)

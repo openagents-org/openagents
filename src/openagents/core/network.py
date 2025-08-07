@@ -6,6 +6,7 @@ abstractions for milestone 1.
 """
 
 import asyncio
+import json
 import logging
 import uuid
 import time
@@ -16,6 +17,7 @@ from openagents.models.transport import TransportType
 from .topology import NetworkTopology, NetworkMode, AgentInfo, create_topology
 from ..models.messages import BaseMessage, DirectMessage, BroadcastMessage, ProtocolMessage
 from ..models.network_config import NetworkConfig, NetworkMode as ConfigNetworkMode
+from .agent_identity import AgentIdentityManager
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,18 @@ class AgentNetwork:
         self.message_handlers: Dict[str, List[Callable[[Message], Awaitable[None]]]] = {}
         self.agent_handlers: Dict[str, List[Callable[[AgentInfo], Awaitable[None]]]] = {}
         
+        # Heartbeat and connection monitoring
+        self.heartbeat_interval = config.heartbeat_interval if hasattr(config, 'heartbeat_interval') else 30  # seconds
+        self.agent_timeout = config.agent_timeout if hasattr(config, 'agent_timeout') else 90  # seconds
+        self.heartbeat_task: Optional[asyncio.Task] = None
+        
+        # Agent identity management
+        self.identity_manager = AgentIdentityManager()
+        
+        # Ping response tracking
+        self.pending_pings: Dict[str, asyncio.Event] = {}
+        self.ping_responses: Dict[str, bool] = {}
+        
         # Register internal message handlers
         self._register_internal_handlers()
     
@@ -124,6 +138,9 @@ class AgentNetwork:
             self.is_running = True
             self.start_time = time.time()
             
+            # Start heartbeat monitoring
+            self.heartbeat_task = asyncio.create_task(self._heartbeat_monitor())
+            
             logger.info(f"Agent network '{self.network_name}' initialized successfully")
             return True
         except Exception as e:
@@ -138,6 +155,14 @@ class AgentNetwork:
         """
         try:
             self.is_running = False
+            
+            # Stop heartbeat monitoring
+            if self.heartbeat_task:
+                self.heartbeat_task.cancel()
+                try:
+                    await self.heartbeat_task
+                except asyncio.CancelledError:
+                    pass
             
             # Shutdown topology
             await self.topology.shutdown()
@@ -391,17 +416,40 @@ class AgentNetwork:
         try:
             from .system_commands import (
                 handle_register_agent, handle_list_agents, handle_list_protocols,
-                REGISTER_AGENT, LIST_AGENTS, LIST_PROTOCOLS
+                handle_ping_agent, handle_claim_agent_id, handle_validate_certificate,
+                REGISTER_AGENT, LIST_AGENTS, LIST_PROTOCOLS, PING_AGENT, 
+                CLAIM_AGENT_ID, VALIDATE_CERTIFICATE
             )
             
             command = message.get("command")
+            message_type = message.get("type")
             
+            # Handle system responses
+            if message_type == "system_response":
+                if command == PING_AGENT:
+                    # Handle ping response
+                    agent_id = message.get("agent_id")
+                    success = message.get("success", False)
+                    
+                    if agent_id and agent_id in self.pending_pings:
+                        self.ping_responses[agent_id] = success
+                        self.pending_pings[agent_id].set()
+                        logger.debug(f"Received ping response from {agent_id}: {success}")
+                return
+            
+            # Handle system requests
             if command == REGISTER_AGENT:
                 await handle_register_agent(command, message, connection, self)
             elif command == LIST_AGENTS:
                 await handle_list_agents(command, message, connection, self)
             elif command == LIST_PROTOCOLS:
                 await handle_list_protocols(command, message, connection, self)
+            elif command == PING_AGENT:
+                await handle_ping_agent(command, message, connection, self)
+            elif command == CLAIM_AGENT_ID:
+                await handle_claim_agent_id(command, message, connection, self)
+            elif command == VALIDATE_CERTIFICATE:
+                await handle_validate_certificate(command, message, connection, self)
             else:
                 logger.warning(f"Unhandled system command: {command}")
         except Exception as e:
@@ -437,6 +485,127 @@ class AgentNetwork:
                     await handler(agent_info)
         except Exception as e:
             logger.error(f"Error notifying agent handlers: {e}")
+    
+    async def _heartbeat_monitor(self) -> None:
+        """Monitor agent connections and clean up stale ones."""
+        logger.info(f"Starting heartbeat monitor (interval: {self.heartbeat_interval}s, timeout: {self.agent_timeout}s)")
+        
+        while self.is_running:
+            try:
+                current_time = asyncio.get_event_loop().time()
+                stale_agents = []
+                
+                # Check all connected agents for activity
+                for agent_id, connection in self.connections.items():
+                    time_since_activity = current_time - connection.last_activity
+                    
+                    if time_since_activity > self.agent_timeout:
+                        # Try to ping the agent
+                        if not await self._ping_agent(agent_id, connection):
+                            stale_agents.append(agent_id)
+                            logger.warning(f"Agent {agent_id} failed ping check (inactive for {time_since_activity:.1f}s)")
+                        else:
+                            # Agent responded, update activity time
+                            connection.last_activity = current_time
+                            logger.debug(f"Agent {agent_id} responded to ping")
+                
+                # Clean up stale agents
+                for agent_id in stale_agents:
+                    logger.info(f"Cleaning up stale agent {agent_id}")
+                    await self.cleanup_agent(agent_id)
+                
+                # Wait for next heartbeat interval
+                await asyncio.sleep(self.heartbeat_interval)
+                
+            except asyncio.CancelledError:
+                logger.info("Heartbeat monitor cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in heartbeat monitor: {e}")
+                await asyncio.sleep(self.heartbeat_interval)
+    
+    async def _ping_agent(self, agent_id: str, connection: 'AgentConnection') -> bool:
+        """Ping an agent to check if it's still alive.
+        
+        Args:
+            agent_id: ID of the agent to ping
+            connection: Agent connection object
+            
+        Returns:
+            bool: True if agent responded, False otherwise
+        """
+        try:
+            # Create event to wait for response
+            ping_event = asyncio.Event()
+            self.pending_pings[agent_id] = ping_event
+            self.ping_responses[agent_id] = False
+            
+            # Send ping command
+            ping_message = {
+                "type": "system_request",
+                "command": "ping_agent",
+                "timestamp": time.time(),
+                "agent_id": agent_id  # Add agent_id for tracking
+            }
+            
+            await connection.connection.send(json.dumps(ping_message))
+            
+            # Wait for pong response (with timeout)
+            try:
+                await asyncio.wait_for(ping_event.wait(), timeout=5.0)
+                response = self.ping_responses.get(agent_id, False)
+                logger.debug(f"Agent {agent_id} ping response: {response}")
+                return response
+                    
+            except asyncio.TimeoutError:
+                logger.debug(f"Ping timeout for agent {agent_id}")
+                return False
+                
+        except Exception as e:
+            logger.debug(f"Error pinging agent {agent_id}: {e}")
+            return False
+        finally:
+            # Clean up tracking
+            self.pending_pings.pop(agent_id, None)
+            self.ping_responses.pop(agent_id, None)
+        
+        return False
+    
+    async def cleanup_agent(self, agent_id: str) -> bool:
+        """Clean up an agent's registration and connections.
+        
+        Args:
+            agent_id: ID of the agent to clean up
+            
+        Returns:
+            bool: True if cleanup successful
+        """
+        try:
+            # Remove from connections
+            if agent_id in self.connections:
+                connection = self.connections[agent_id]
+                try:
+                    # Try to close the WebSocket connection gracefully
+                    await connection.connection.close()
+                except:
+                    pass  # Connection might already be closed
+                del self.connections[agent_id]
+                logger.debug(f"Removed connection for agent {agent_id}")
+            
+            # Remove from agents registry
+            if agent_id in self.agents:
+                del self.agents[agent_id]
+                logger.debug(f"Removed registration for agent {agent_id}")
+            
+            # Unregister from topology
+            await self.unregister_agent(agent_id)
+            
+            logger.info(f"Successfully cleaned up agent {agent_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error cleaning up agent {agent_id}: {e}")
+            return False
 
 
 def create_network(config: NetworkConfig) -> AgentNetwork:

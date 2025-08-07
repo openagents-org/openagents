@@ -7,6 +7,7 @@ System commands are used for network operations like registration, listing agent
 
 import logging
 import json
+import time
 from typing import Dict, Any, List, Optional, Callable, Awaitable, Union
 import asyncio
 from websockets.asyncio.server import ServerConnection
@@ -66,6 +67,9 @@ async def handle_register_agent(command: str, data: Dict[str, Any], connection: 
     """
     agent_id = data.get("agent_id")
     metadata = data.get("metadata", {})
+    certificate_data = data.get("certificate")
+    force_reconnect = data.get("force_reconnect", False)
+    
     if metadata is None:
         metadata = {}
     
@@ -81,14 +85,41 @@ async def handle_register_agent(command: str, data: Dict[str, Any], connection: 
     
     # Check if agent is already registered
     if agent_id in network_instance.connections:
-        logger.warning(f"Agent {agent_id} is already connected to the network")
-        await connection.send(json.dumps({
-            "type": "system_response",
-            "command": "register_agent",
-            "success": False,
-            "error": "Agent with this ID is already connected to the network"
-        }))
-        return
+        # Check if we can override the connection
+        can_override = False
+        
+        if certificate_data:
+            # Validate certificate for override
+            if network_instance.identity_manager.validate_certificate(certificate_data):
+                can_override = True
+                logger.info(f"Agent {agent_id} provided valid certificate for override")
+            else:
+                logger.warning(f"Agent {agent_id} provided invalid certificate")
+        elif force_reconnect:
+            # Allow force reconnect without certificate (less secure)
+            can_override = True
+            logger.info(f"Agent {agent_id} using force_reconnect override")
+        
+        if can_override:
+            # Clean up existing connection
+            logger.info(f"Overriding existing connection for agent {agent_id}")
+            await network_instance.cleanup_agent(agent_id)
+        else:
+            # Reject registration
+            error_msg = "Agent with this ID is already connected to the network"
+            if certificate_data:
+                error_msg += ". Certificate validation failed."
+            else:
+                error_msg += ". Use force_reconnect=true or provide valid certificate to override."
+            
+            logger.warning(f"Agent {agent_id} registration rejected: {error_msg}")
+            await connection.send(json.dumps({
+                "type": "system_response",
+                "command": "register_agent",
+                "success": False,
+                "error": error_msg
+            }))
+            return
     
     logger.info(f"Received registration from agent {agent_id}")
     
@@ -297,6 +328,128 @@ async def handle_get_protocol_manifest(command: str, data: Dict[str, Any], conne
             logger.warning(f"No manifest found for protocol {protocol_name}")
 
 
+async def handle_ping_agent(command: str, data: Dict[str, Any], connection: ServerConnection,
+                           network_instance: Any) -> None:
+    """Handle the ping_agent command.
+    
+    Args:
+        command: The command name
+        data: The command data
+        connection: The WebSocket connection
+        network_instance: The network instance
+    """
+    try:
+        # Send pong response
+        await connection.send(json.dumps({
+            "type": "system_response",
+            "command": "ping_agent",
+            "success": True,
+            "timestamp": data.get("timestamp", time.time())
+        }))
+        logger.debug("Responded to ping")
+    except Exception as e:
+        logger.error(f"Error handling ping: {e}")
+
+
+async def handle_claim_agent_id(command: str, data: Dict[str, Any], connection: ServerConnection,
+                              network_instance: Any) -> None:
+    """Handle the claim_agent_id command.
+    
+    Args:
+        command: The command name
+        data: The command data
+        connection: The WebSocket connection
+        network_instance: The network instance
+    """
+    agent_id = data.get("agent_id")
+    force = data.get("force", False)
+    
+    if not agent_id:
+        await connection.send(json.dumps({
+            "type": "system_response",
+            "command": "claim_agent_id",
+            "success": False,
+            "error": "Missing agent_id"
+        }))
+        return
+    
+    try:
+        # Try to claim the agent ID
+        certificate = network_instance.identity_manager.claim_agent_id(agent_id, force=force)
+        
+        if certificate:
+            await connection.send(json.dumps({
+                "type": "system_response",
+                "command": "claim_agent_id",
+                "success": True,
+                "agent_id": agent_id,
+                "certificate": certificate.to_dict()
+            }))
+            logger.info(f"Issued certificate for agent ID {agent_id}")
+        else:
+            await connection.send(json.dumps({
+                "type": "system_response",
+                "command": "claim_agent_id",
+                "success": False,
+                "error": f"Agent ID {agent_id} is already claimed"
+            }))
+            logger.warning(f"Failed to claim agent ID {agent_id} - already claimed")
+    
+    except Exception as e:
+        logger.error(f"Error claiming agent ID {agent_id}: {e}")
+        await connection.send(json.dumps({
+            "type": "system_response",
+            "command": "claim_agent_id",
+            "success": False,
+            "error": f"Internal error: {str(e)}"
+        }))
+
+
+async def handle_validate_certificate(command: str, data: Dict[str, Any], connection: ServerConnection,
+                                    network_instance: Any) -> None:
+    """Handle the validate_certificate command.
+    
+    Args:
+        command: The command name
+        data: The command data
+        connection: The WebSocket connection
+        network_instance: The network instance
+    """
+    certificate_data = data.get("certificate")
+    
+    if not certificate_data:
+        await connection.send(json.dumps({
+            "type": "system_response",
+            "command": "validate_certificate",
+            "success": False,
+            "error": "Missing certificate data"
+        }))
+        return
+    
+    try:
+        # Validate the certificate
+        is_valid = network_instance.identity_manager.validate_certificate(certificate_data)
+        
+        await connection.send(json.dumps({
+            "type": "system_response",
+            "command": "validate_certificate",
+            "success": True,
+            "valid": is_valid,
+            "agent_id": certificate_data.get("agent_id")
+        }))
+        
+        logger.debug(f"Certificate validation result for {certificate_data.get('agent_id')}: {is_valid}")
+    
+    except Exception as e:
+        logger.error(f"Error validating certificate: {e}")
+        await connection.send(json.dumps({
+            "type": "system_response",
+            "command": "validate_certificate",
+            "success": False,
+            "error": f"Internal error: {str(e)}"
+        }))
+
+
 # Client-side command handling
 
 async def send_system_request(connection: ServerConnection, command: str, **kwargs) -> bool:
@@ -329,6 +482,9 @@ REGISTER_AGENT = "register_agent"
 LIST_AGENTS = "list_agents"
 LIST_PROTOCOLS = "list_protocols"
 GET_PROTOCOL_MANIFEST = "get_protocol_manifest"
+PING_AGENT = "ping_agent"
+CLAIM_AGENT_ID = "claim_agent_id"
+VALIDATE_CERTIFICATE = "validate_certificate"
 
 # Default system command registry
 default_registry = SystemCommandRegistry() 

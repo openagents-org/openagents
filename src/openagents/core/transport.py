@@ -365,6 +365,13 @@ class WebSocketTransport(Transport):
                         await self._notify_system_message_handlers(peer_id, data, websocket)
                         continue
                     
+                    # Check if this is a system response (should be handled by network layer)
+                    if data.get("type") == "system_response":
+                        verbose_print("🔧 Processing system_response message")
+                        # Forward system responses to system message handlers
+                        await self._notify_system_message_handlers(peer_id, data, websocket)
+                        continue
+                    
                     # Check if this is a regular message with data wrapper
                     if data.get("type") == "message":
                         verbose_print("📬 Processing regular message with data wrapper")

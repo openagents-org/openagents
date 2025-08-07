@@ -90,6 +90,31 @@ class ConsoleAgent:
             return success
         return True
     
+    async def _monitor_connection(self) -> None:
+        """Monitor connection health and handle reconnection if needed."""
+        while self.connected:
+            try:
+                # Check if connector is still connected
+                if self.agent.connector and not self.agent.connector.is_connected:
+                    print("⚠️  Connection lost, attempting to reconnect...")
+                    self.connected = False
+                    
+                    # Try to reconnect
+                    if await self.connect():
+                        print("✅ Reconnected successfully")
+                    else:
+                        print("❌ Reconnection failed")
+                        break
+                
+                # Wait before next check
+                await asyncio.sleep(5)
+                
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"Connection monitor error: {e}")
+                await asyncio.sleep(5)
+    
     async def send_direct_message(self, target_id: str, content: str) -> bool:
         """Send a direct message to another agent.
         
@@ -343,6 +368,7 @@ def show_help_menu() -> None:
     """Display the help menu with available commands."""
     print("Commands:")
     print("  /quit - Exit the console")
+    print("  /status - Show connection status")
     print("  /dm <agent_id> <message> - Send a direct message")
     print("  /broadcast <message> - Send a broadcast message")
     print("  /agents - List connected agents")
@@ -379,6 +405,9 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None, netw
         print("Failed to connect to the network server. Exiting.")
         return
     
+    # Start connection monitoring task to ensure heartbeat responses
+    monitor_task = asyncio.create_task(console_agent._monitor_connection())
+    
     print(f"Connected to network server as {agent_id}")
     print("Type your messages and press Enter to send.")
     show_help_menu()
@@ -386,6 +415,11 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None, netw
     # Main console loop
     try:
         while True:
+            # Check connection status before waiting for input
+            if not console_agent.connected or (console_agent.agent.connector and not console_agent.agent.connector.is_connected):
+                print("⚠️  Connection lost. Exiting.")
+                break
+            
             # Get user input
             user_input = await asyncio.get_event_loop().run_in_executor(None, input, "> ")
             
@@ -399,6 +433,15 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None, netw
             elif user_input.startswith("/help"):
                 # Show help
                 show_help_menu()
+            
+            elif user_input.startswith("/status"):
+                # Show connection status
+                if console_agent.connected and console_agent.agent.connector and console_agent.agent.connector.is_connected:
+                    print("✅ Connection status: Connected")
+                    print(f"   Agent ID: {console_agent.agent_id}")
+                    print(f"   Server: {console_agent.host}:{console_agent.port}")
+                else:
+                    print("❌ Connection status: Disconnected")
             
             elif user_input.startswith("/dm "):
                 # Send a direct message
@@ -451,6 +494,14 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None, netw
         print("\nExiting...")
     
     finally:
+        # Cancel monitoring task
+        if 'monitor_task' in locals():
+            monitor_task.cancel()
+            try:
+                await monitor_task
+            except asyncio.CancelledError:
+                pass
+        
         # Disconnect from the network
         await console_agent.disconnect()
         print("Disconnected from the network server")
