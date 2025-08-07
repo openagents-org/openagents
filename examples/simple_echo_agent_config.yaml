@@ -1,0 +1,50 @@
+# Simple Echo Agent Configuration Example
+# This demonstrates a basic echo agent that requires no AI model or API keys
+
+# Agent type - use the predefined "echo" type for SimpleEchoAgentRunner
+type: "echo"  # Predefined type for SimpleEchoAgentRunner
+# Alternative: type: "openagents.agents.simple_echo_agent.SimpleEchoAgentRunner"
+
+# Agent configuration parameters (passed to constructor)
+config:
+  # Required: Unique identifier for this agent
+  agent_id: "simple-echo-agent"
+  
+  # Optional: Custom prefix for echoed messages (default: "Echo")
+  echo_prefix: "Echo"
+  
+  # Optional: List of protocol names to register with
+  protocol_names:
+    - "openagents.protocols.communication.simple_messaging"
+  
+  # Optional: List of sender IDs to ignore
+  # ignored_sender_ids: 
+  #   - "spam-agent"
+  #   - "noisy-bot"
+
+# Connection configuration (optional - can be overridden by command line)
+connection:
+  host: "localhost"
+  port: 8765
+  network_id: "openagents-network"
+
+# No environment variables required!
+# This agent works without any external dependencies or API keys.
+# 
+# Usage:
+# 1. Launch a network server (if one isn't running):
+#    openagents launch-network
+# 
+# 2. Start the echo agent:
+#    openagents launch-agent examples/simple_echo_agent_config.yaml
+# 
+# 3. Connect with another agent or console and send a direct message to "simple-echo-agent"
+#    The agent will echo back your message with the configured prefix.
+#
+# Features:
+# - Echoes back all direct messages with a configurable prefix
+# - Responds to "hello" in broadcast messages with a friendly greeting
+# - Announces its presence when joining the network
+# - Sends a goodbye message when shutting down
+# - No AI model or API keys required
+# - Lightweight and fast

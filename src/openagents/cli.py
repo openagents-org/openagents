@@ -14,6 +14,7 @@ from typing import List, Optional, Dict, Any
 from openagents.launchers.network_launcher import launch_network
 from openagents.launchers.terminal_console import launch_console
 from openagents.agents.simple_openai_agent import SimpleOpenAIAgentRunner
+from openagents.agents.simple_echo_agent import SimpleEchoAgentRunner
 
 # Global verbose flag that can be imported by other modules
 VERBOSE_MODE = False
@@ -59,16 +60,16 @@ def connect_command(args: argparse.Namespace) -> None:
     Args:
         args: Command-line arguments
     """
-    # Validate that either ip or network-id is provided
-    if not args.ip and not args.network_id:
-        logging.error("Either --ip or --network-id must be provided")
+    # Validate that either host or network-id is provided
+    if not args.host and not args.network_id:
+        logging.error("Either --host or --network-id must be provided")
         return
         
-    # If network-id is provided but ip is not, use a default ip
-    if args.network_id and not args.ip:
-        args.ip = "localhost"  # Default to localhost when only network-id is provided
+    # If network-id is provided but host is not, use a default host
+    if args.network_id and not args.host:
+        args.host = "localhost"  # Default to localhost when only network-id is provided
         
-    launch_console(args.ip, args.port, args.id, args.network_id)
+    launch_console(args.host, args.port, args.id, args.network_id)
 
 
 def launch_agent_command(args: argparse.Namespace) -> None:
@@ -114,9 +115,12 @@ def launch_agent_command(args: argparse.Namespace) -> None:
             # Handle predefined agent types
             if agent_type.lower() == 'openai':
                 agent_class = SimpleOpenAIAgentRunner
+            elif agent_type.lower() == 'echo':
+                agent_class = SimpleEchoAgentRunner
             else:
                 logging.error(f"Unsupported predefined agent type: {agent_type}")
-                logging.info("Use a fully qualified class path (e.g., 'openagents.agents.simple_openai_agent.SimpleOpenAIAgentRunner')")
+                logging.info("Supported predefined types: 'openai', 'echo'")
+                logging.info("Or use a fully qualified class path (e.g., 'openagents.agents.simple_openai_agent.SimpleOpenAIAgentRunner')")
                 return
         
         # Create the agent using the config parameters directly as kwargs
@@ -207,10 +211,10 @@ def main(argv: Optional[List[str]] = None) -> int:
     
     # Connect command
     connect_parser = subparsers.add_parser("connect", help="Connect to a network server")
-    connect_parser.add_argument("--ip", default="localhost", help="Server IP address (required if --network-id is not provided)")
+    connect_parser.add_argument("--host", default="localhost", help="Server host address (required if --network-id is not provided)"}
     connect_parser.add_argument("--port", type=int, default=8765, help="Server port (default: 8765)")
     connect_parser.add_argument("--id", help="Agent ID (default: auto-generated)")
-    connect_parser.add_argument("--network-id", help="Network ID to connect to (required if --ip is not provided)")
+    connect_parser.add_argument("--network-id", help="Network ID to connect to (required if --host is not provided)")
     
     # Launch agent command
     launch_agent_parser = subparsers.add_parser("launch-agent", help="Launch an agent from a configuration file")

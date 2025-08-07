@@ -4,19 +4,25 @@ This directory contains example configuration files for different OpenAgents net
 
 ## Available Examples
 
-### Centralized Network
+### Network Configuration Examples
 
 - **`centralized_network_config.yaml`** - Complete centralized network configuration with both server and client examples
 - **`centralized_client_config.yaml`** - Standalone client configuration for connecting to a centralized network
-
-### Decentralized Network
-
 - **`decentralized_network_config.yaml`** - Decentralized P2P network configuration
+
+### Agent Configuration Examples
+
+- **`simple_echo_agent_config.yaml`** - Simple echo agent that requires no AI model or API keys
+- **`openai_agent_config.yaml`** - OpenAI-powered conversational agent configuration
+- **`azure_openai_agent_config.yaml`** - Azure OpenAI service configuration example
+- **`minimal_agent_config.yaml`** - Minimal OpenAI agent configuration
+- **`custom_agent_config.yaml`** - Example of custom agent class configuration
 
 ### Agent Connection Examples
 
-- **`connect_agent.py`** - Python script showing how to programmatically connect an agent to the network
-- **`simple_agent.py`** - Example of a simple agent implementation (work in progress)
+- **`agent_runner_example.py`** - Complete example of an echo agent using AgentRunner
+- **`agent_client_example.py`** - Basic agent client connection example
+- **`agent_claiming_example.py`** - Advanced agent with secure claiming capabilities
 
 ## Usage
 
@@ -55,6 +61,32 @@ This directory contains example configuration files for different OpenAgents net
    ```bash
    # Edit the configuration to add bootstrap nodes
    openagents launch-network examples/decentralized_network_config.yaml
+   ```
+
+### Launching Agents
+
+Once you have a network running, you can launch agents using the configuration files:
+
+1. **Simple Echo Agent (No API keys required):**
+   ```bash
+   openagents launch-agent examples/simple_echo_agent_config.yaml
+   ```
+
+2. **OpenAI Agent (Requires OPENAI_API_KEY):**
+   ```bash
+   export OPENAI_API_KEY="your-api-key-here"
+   openagents launch-agent examples/openai_agent_config.yaml
+   ```
+
+3. **Azure OpenAI Agent (Requires AZURE_OPENAI_API_KEY):**
+   ```bash
+   export AZURE_OPENAI_API_KEY="your-azure-key-here"
+   openagents launch-agent examples/azure_openai_agent_config.yaml
+   ```
+
+4. **Custom Agent:**
+   ```bash
+   openagents launch-agent examples/custom_agent_config.yaml
    ```
 
 ## Key Configuration Options
