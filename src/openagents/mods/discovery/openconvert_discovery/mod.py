@@ -127,16 +127,16 @@ class OpenConvertDiscoveryMod(BaseMod):
             logger.info(f"Agent {agent_id} unregistered, conversion capabilities removed")
         return True
     
-    async def process_protocol_message(self, message: ModMessage) -> Optional[ModMessage]:
-        """Process a protocol message.
+    async def process_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
+        """Process a mod message.
         
         Args:
-            message: The protocol message to process
+            message: The mod message to process
             
         Returns:
             Optional response message
         """
-        logger.debug(f"process_protocol_message called with message: {message}")
+        logger.debug(f"process_mod_message called with message: {message}")
         
         if not message or not message.content:
             logger.warning("Received empty protocol message")

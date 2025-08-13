@@ -119,6 +119,9 @@ class AgentNetwork:
                 # Register agent connection resolver for routing messages by agent_id
                 if hasattr(transport, 'register_agent_connection_resolver'):
                     transport.register_agent_connection_resolver(self._resolve_agent_connection)
+        
+        # Register network-level message handlers
+        self.message_handlers["mod_message"] = [self._handle_mod_message]
     
     async def initialize(self) -> bool:
         """Initialize the network.
@@ -381,6 +384,7 @@ class AgentNetwork:
             message: Transport message to handle
         """
         try:
+            logger.debug(f"_handle_transport_message called: id={message.message_id}, type={message.message_type}, available_handlers={list(self.message_handlers.keys())}")
             # Check if this message needs to be routed to a specific target
             target = message.target_id or getattr(message, 'target_agent_id', None)
             if target and target != message.sender_id:
@@ -400,10 +404,39 @@ class AgentNetwork:
                 
                 # Also notify local message handlers (for broadcast messages or local handling)
                 if message.message_type in self.message_handlers:
+                    logger.debug(f"Found {len(self.message_handlers[message.message_type])} handlers for {message.message_type}")
                     for handler in self.message_handlers[message.message_type]:
                         await handler(message)
+                else:
+                    logger.debug(f"No handlers found for message type {message.message_type}")
         except Exception as e:
             logger.error(f"Error handling transport message: {e}")
+    
+    async def _handle_mod_message(self, message: Message) -> None:
+        """Handle mod messages by routing them to the appropriate network mods.
+        
+        Args:
+            message: Transport message to route to network mods
+        """
+        try:
+            logger.debug(f"_handle_mod_message called with message: {message.message_id}, type: {message.message_type}")
+            logger.debug(f"Message attributes: content={hasattr(message, 'content')}, payload={hasattr(message, 'payload')}")
+            
+            # The TransportMessage is already a ModMessage - we just need to extract the target mod name
+            target_mod_name = message.mod
+            logger.debug(f"Target mod name: {target_mod_name}")
+            
+            if target_mod_name and target_mod_name in self.mods:
+                network_mod = self.mods[target_mod_name]
+                logger.debug(f"Routing mod message {message.message_id} to network mod {target_mod_name}")
+                await network_mod.process_mod_message(message)
+            else:
+                logger.warning(f"No network mod found for {target_mod_name}, available mods: {list(self.mods.keys())}")
+                    
+        except Exception as e:
+            logger.error(f"Error handling mod message: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def _handle_system_message(self, peer_id: str, message: Dict[str, Any], connection: Any) -> None:
         """Handle incoming system messages.
