@@ -143,10 +143,18 @@ class TestProtocolLoaders(unittest.TestCase):
             def __init__(self):
                 self.protocol_name = "mock_protocol"
         
-        # Create a simple non-MagicMock module object
+        # Create a simple non-MagicMock module object with proper getattr behavior
         class SimpleModule:
             def __init__(self):
                 self.CustomAdapter = SimpleAdapter
+            
+            def __getattr__(self, name):
+                if name == 'CustomAdapter':
+                    return SimpleAdapter
+                raise AttributeError(f"module has no attribute '{name}'")
+            
+            def __dir__(self):
+                return ['CustomAdapter']
         
         mock_module = SimpleModule()
         
@@ -156,11 +164,15 @@ class TestProtocolLoaders(unittest.TestCase):
                 return True
             return False
         
+        # Create a custom isinstance function 
+        def custom_isinstance(obj, cls):
+            if obj == SimpleAdapter and cls == type:
+                return True
+            return isinstance(obj, cls)
+        
         # Setup patches with specific return values
         with patch('openagents.utils.protocol_loaders.issubclass', side_effect=custom_issubclass), \
-             patch('builtins.dir', return_value=['CustomAdapter']), \
-             patch('builtins.isinstance', return_value=True), \
-             patch('builtins.getattr', return_value=SimpleAdapter):
+             patch('openagents.utils.protocol_loaders.isinstance', side_effect=custom_isinstance):
             
             # Set the import_module return value to our simple module
             self.mock_import_module.return_value = mock_module
