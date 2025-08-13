@@ -150,10 +150,17 @@ class TestProtocolLoaders(unittest.TestCase):
         
         mock_module = SimpleModule()
         
-        # Setup patches with simple return values to avoid recursion
-        with patch('openagents.utils.protocol_loaders.issubclass', return_value=True), \
+        # Create a custom issubclass function that returns True for our SimpleAdapter class
+        def custom_issubclass(cls, base):
+            if cls == SimpleAdapter:
+                return True
+            return False
+        
+        # Setup patches with specific return values
+        with patch('openagents.utils.protocol_loaders.issubclass', side_effect=custom_issubclass), \
              patch('builtins.dir', return_value=['CustomAdapter']), \
-             patch('builtins.isinstance', return_value=True):
+             patch('builtins.isinstance', return_value=True), \
+             patch('builtins.getattr', return_value=SimpleAdapter):
             
             # Set the import_module return value to our simple module
             self.mock_import_module.return_value = mock_module
