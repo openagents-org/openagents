@@ -14,6 +14,7 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock, mock_open
 from pathlib import Path
+import importlib
 import importlib.util
 
 from openagents.utils.mod_loaders import load_mod_adapters
@@ -59,6 +60,7 @@ class TestProtocolLoaders(unittest.TestCase):
         
         self.import_module_patcher = patch('importlib.import_module')
         self.mock_import_module = self.import_module_patcher.start()
+        self.original_import_module = importlib.import_module
         
         # Patch open() to mock reading manifest files
         self.open_patcher = patch('builtins.open', new_callable=mock_open)
@@ -139,39 +141,62 @@ class TestProtocolLoaders(unittest.TestCase):
         manifest_content = '{}'
         self.mock_open.return_value.__enter__.return_value.read.return_value = manifest_content
         
-        # Create a simple adapter class that doesn't inherit from MagicMock
-        class SimpleAdapter:
+        # Create a mock adapter class that can be instantiated
+        class MockAdapter:
             def __init__(self):
                 self.protocol_name = "mock_mod"
         
-        mock_adapter = SimpleAdapter()
+        # Create a simple mock module object that doesn't cause recursion
+        class MockModule:
+            def __init__(self):
+                # Use the standard "Adapter" name that the loader looks for
+                self.Adapter = MockAdapter
+                
+            def __getattr__(self, name):
+                if name == 'Adapter':
+                    return MockAdapter
+                raise AttributeError(f"module has no attribute '{name}'")
+        
+        mock_module = MockModule()
         
         # Setup a more complete mock for the module
         with patch('openagents.utils.mod_loaders.issubclass') as mock_issubclass, \
-             patch('builtins.dir') as mock_dir:
+             patch('builtins.dir') as mock_dir, \
+             patch('builtins.isinstance') as mock_isinstance:
             
-            # Configure issubclass to return True for our test
-            mock_issubclass.return_value = True
+            # Configure isinstance to handle type checks properly
+            def isinstance_side_effect(obj, cls):
+                if cls == type:
+                    return obj == MockAdapter
+                return True
+            mock_isinstance.side_effect = isinstance_side_effect
+            
+            # Configure issubclass to return True for our MockAdapter when checking BaseModAdapter
+            def issubclass_side_effect(cls, base):
+                # Return True if MockAdapter is being checked against BaseModAdapter
+                if cls == MockAdapter and base == BaseModAdapter:
+                    return True
+                # Return False for BaseModAdapter itself to avoid it being selected
+                if cls == BaseModAdapter:
+                    return False
+                return False
+            mock_issubclass.side_effect = issubclass_side_effect
             
             # Configure dir() to return a class name
-            mock_dir.return_value = ['CustomAdapter']
+            def dir_side_effect(obj):
+                return ['Adapter']
+            mock_dir.side_effect = dir_side_effect
             
-            # Create a simple class constructor function to avoid MagicMock issues
-            def create_adapter():
-                return mock_adapter
+            # Ensure the mock_import_module returns our controlled mock_module
+            def import_module_side_effect(module_name):
+                if module_name == 'openagents.mods.test.test_mod.adapter':
+                    return mock_module
+                return self.original_import_module(module_name)
+            self.mock_import_module.side_effect = import_module_side_effect
             
-            # Setup mock for import_module
-            mock_module = MagicMock()
-            mock_module.CustomAdapter = create_adapter
-            
-            # Configure isinstance to return True for our adapter
-            with patch('builtins.isinstance', return_value=True):
-                # Ensure the mock_import_module returns our controlled mock_module
-                self.mock_import_module.return_value = mock_module
-                
-                # Call the function with a test mod name
-                mod_names = ['openagents.mods.test.test_mod']
-                adapters = load_mod_adapters(mod_names)
+            # Call the function with a test mod name
+            mod_names = ['openagents.mods.test.test_mod']
+            adapters = load_mod_adapters(mod_names)
         
         # Assertions
         self.assertEqual(len(adapters), 1)
