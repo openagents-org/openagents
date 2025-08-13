@@ -211,7 +211,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     
     # Connect command
     connect_parser = subparsers.add_parser("connect", help="Connect to a network server")
-    connect_parser.add_argument("--host", default="localhost", help="Server host address (required if --network-id is not provided)"}
+    connect_parser.add_argument("--host", default="localhost", help="Server host address (required if --network-id is not provided)")
     connect_parser.add_argument("--port", type=int, default=8765, help="Server port (default: 8765)")
     connect_parser.add_argument("--id", help="Agent ID (default: auto-generated)")
     connect_parser.add_argument("--network-id", help="Network ID to connect to (required if --host is not provided)")
