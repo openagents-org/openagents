@@ -59,7 +59,7 @@ class SimpleEchoAgentRunner(AgentRunner):
             echo_message = DirectMessage(
                 sender_id=self.client.agent_id,
                 target_agent_id=sender_id,
-                protocol="openagents.protocols.communication.simple_messaging",
+                mod="openagents.mods.communication.simple_messaging",
                 message_type="direct_message",
                 content={"text": echo_text},
                 text_representation=echo_text,
@@ -79,7 +79,7 @@ class SimpleEchoAgentRunner(AgentRunner):
                 greeting_message = DirectMessage(
                     sender_id=self.client.agent_id,
                     target_agent_id=sender_id,
-                    protocol="openagents.protocols.communication.simple_messaging",
+                    mod="openagents.mods.communication.simple_messaging",
                     message_type="direct_message",
                     content={"text": greeting_text},
                     text_representation=greeting_text,
@@ -102,7 +102,7 @@ class SimpleEchoAgentRunner(AgentRunner):
         announcement_text = f"Echo agent {self.client.agent_id} is online! Send me a direct message and I'll echo it back."
         greeting = BroadcastMessage(
             sender_id=self.client.agent_id,
-            protocol="openagents.protocols.communication.simple_messaging",
+            mod="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message", 
             content={"text": announcement_text},
             text_representation=announcement_text,
@@ -122,7 +122,7 @@ class SimpleEchoAgentRunner(AgentRunner):
         goodbye_text = f"Echo agent {self.client.agent_id} is going offline. Processed {self.message_count} messages total."
         goodbye = BroadcastMessage(
             sender_id=self.client.agent_id,
-            protocol="openagents.protocols.communication.simple_messaging",
+            mod="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",
             content={"text": goodbye_text},
             text_representation=goodbye_text,

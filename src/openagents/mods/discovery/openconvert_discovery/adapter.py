@@ -8,21 +8,21 @@ MIME format conversions.
 
 from typing import Dict, Any, Optional, List
 import logging
-from openagents.core.base_protocol_adapter import BaseProtocolAdapter
-from openagents.models.messages import ProtocolMessage, BroadcastMessage
+from openagents.core.base_mod_adapter import BaseModAdapter
+from openagents.models.messages import ModMessage, BroadcastMessage
 from openagents.models.tool import AgentAdapterTool
-from openagents.utils.message_util import get_protocol_message_thread_id
+from openagents.utils.message_util import get_mod_message_thread_id
 import copy
 
 logger = logging.getLogger(__name__)
 
 # Protocol constants
-PROTOCOL_NAME = "openagents.protocols.discovery.openconvert_discovery"
+PROTOCOL_NAME = "openagents.mods.discovery.openconvert_discovery"
 ANNOUNCE_CONVERSION_CAPABILITIES = "announce_conversion_capabilities"
 DISCOVER_CONVERSION_AGENTS = "discover_conversion_agents"
 
 
-class OpenConvertDiscoveryAdapter(BaseProtocolAdapter):
+class OpenConvertDiscoveryAdapter(BaseModAdapter):
     """Agent adapter for the OpenConvert discovery protocol.
     
     This adapter allows agents to announce their MIME file format conversion 
@@ -36,25 +36,25 @@ class OpenConvertDiscoveryAdapter(BaseProtocolAdapter):
         self._pending_discovery_results: List[Dict[str, Any]] = []
     
     def initialize(self) -> bool:
-        """Initialize the protocol adapter.
+        """Initialize the mod adapter.
         
         Returns:
             bool: True if initialization was successful
         """
-        logger.info(f"Initializing {self.protocol_name} adapter for agent {self.agent_id}")
+        logger.info(f"Initializing {self.mod_name} adapter for agent {self.agent_id}")
         return True
     
     def shutdown(self) -> bool:
-        """Shutdown the protocol adapter gracefully.
+        """Shutdown the mod adapter gracefully.
         
         Returns:
             bool: True if shutdown was successful
         """
-        logger.info(f"Shutting down {self.protocol_name} adapter for agent {self.agent_id}")
+        logger.info(f"Shutting down {self.mod_name} adapter for agent {self.agent_id}")
         return True
     
     def on_connect(self) -> None:
-        """Called when the protocol adapter is connected to the network.
+        """Called when the mod adapter is connected to the network.
         
         Announces the agent's conversion capabilities when connecting to the network.
         """
@@ -159,7 +159,7 @@ class OpenConvertDiscoveryAdapter(BaseProtocolAdapter):
         from openagents.models.messages import BroadcastMessage
         message = BroadcastMessage(
             sender_id=self.agent_id,
-            protocol=self.protocol_name,
+            mod=self.mod_name,
             message_type="broadcast_message",
             content={
                 "action": DISCOVER_CONVERSION_AGENTS,
@@ -184,16 +184,16 @@ class OpenConvertDiscoveryAdapter(BaseProtocolAdapter):
         logger.info(f"Agent {self.agent_id} received {len(results)} conversion discovery results")
         return results
     
-    async def process_incoming_protocol_message(self, message: ProtocolMessage) -> Optional[ProtocolMessage]:
+    async def process_incoming_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
         """Process an incoming protocol message.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[ProtocolMessage]: The processed message, or None for stopping the message from being processed further by other adapters
+            Optional[ModMessage]: The processed message, or None for stopping the message from being processed further by other adapters
         """
-        if message.protocol != self.protocol_name:
+        if message.mod != self.mod_name:
             return message
         
         # Handle conversion discovery requests
@@ -219,7 +219,7 @@ class OpenConvertDiscoveryAdapter(BaseProtocolAdapter):
         Returns:
             Optional[BroadcastMessage]: The processed message, or None for stopping the message from being processed further by other adapters
         """
-        if message.protocol != self.protocol_name:
+        if message.mod != self.mod_name:
             return message
         
         # Handle conversion discovery requests
@@ -260,11 +260,11 @@ class OpenConvertDiscoveryAdapter(BaseProtocolAdapter):
             return
             
         # Create announcement message with explicit direction=inbound
-        message = ProtocolMessage(
+        message = ModMessage(
             direction="inbound",
             sender_id=self.agent_id,
-            protocol=self.protocol_name,
-            message_type="protocol_message",
+            mod=self.mod_name,
+            message_type="mod_message",
             relevant_agent_id=self.agent_id,
             content={
                 "action": ANNOUNCE_CONVERSION_CAPABILITIES,
@@ -277,7 +277,7 @@ class OpenConvertDiscoveryAdapter(BaseProtocolAdapter):
         logger.debug(f"Sending conversion capabilities message: {message.content}")
         
         # Send the message
-        await self.connector.send_protocol_message(message)
+        await self.connector.send_mod_message(message)
     
     async def _handle_discovery_request(self, message) -> None:
         """Handle a discovery request from another agent.
@@ -331,7 +331,7 @@ class OpenConvertDiscoveryAdapter(BaseProtocolAdapter):
             # Send response as broadcast so it reaches all agents including the requester
             response_message = BroadcastMessage(
                 sender_id=self.agent_id,
-                protocol=self.protocol_name,
+                mod=self.mod_name,
                 message_type="broadcast_message",
                 content={
                     "action": "conversion_discovery_results",
@@ -347,10 +347,10 @@ class OpenConvertDiscoveryAdapter(BaseProtocolAdapter):
             logger.debug(f"Agent {self.agent_id} has no matching conversion capabilities for {from_mime} -> {to_mime}")
     
     async def get_tools(self) -> List[AgentAdapterTool]:
-        """Get the tools for the protocol adapter.
+        """Get the tools for the mod adapter.
         
         Returns:
-            List[AgentAdapterTool]: The tools for the protocol adapter
+            List[AgentAdapterTool]: The tools for the mod adapter
         """
         tools = []
         

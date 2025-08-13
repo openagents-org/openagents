@@ -8,18 +8,18 @@ and for other agents to discover agents with specific capabilities.
 from typing import Dict, Any, Optional, List, Set
 import logging
 import copy
-from openagents.core.base_protocol import BaseProtocol
-from openagents.models.messages import ProtocolMessage
+from openagents.core.base_mod import BaseMod
+from openagents.models.messages import ModMessage
 
 logger = logging.getLogger(__name__)
 
 # Protocol constants
-PROTOCOL_NAME = "openagents.protocols.discovery.agent_discovery"
+PROTOCOL_NAME = "openagents.mods.discovery.agent_discovery"
 ANNOUNCE_CAPABILITIES = "announce_capabilities"
 DISCOVER_AGENTS = "discover_agents"
 
 
-class AgentDiscoveryProtocol(BaseProtocol):
+class AgentDiscoveryMod(BaseMod):
     """Network protocol for agent capability discovery.
     
     This protocol allows agents to announce their capabilities to the network
@@ -44,7 +44,7 @@ class AgentDiscoveryProtocol(BaseProtocol):
         Returns:
             bool: True if initialization was successful
         """
-        logger.info(f"Initializing {self.protocol_name} protocol")
+        logger.info(f"Initializing {self.mod_name} protocol")
         return True
     
     def shutdown(self) -> bool:
@@ -53,7 +53,7 @@ class AgentDiscoveryProtocol(BaseProtocol):
         Returns:
             bool: True if shutdown was successful
         """
-        logger.info(f"Shutting down {self.protocol_name} protocol")
+        logger.info(f"Shutting down {self.mod_name} protocol")
         return True
     
     def register_agent(self, agent_id: str, capabilities: Dict[str, Any] = None) -> None:
@@ -125,7 +125,7 @@ class AgentDiscoveryProtocol(BaseProtocol):
             logger.info(f"Agent {agent_id} unregistered, capabilities removed")
         return True
     
-    async def process_protocol_message(self, message: ProtocolMessage) -> Optional[ProtocolMessage]:
+    async def process_protocol_message(self, message: ModMessage) -> Optional[ModMessage]:
         """Process a protocol message.
         
         Args:
@@ -145,7 +145,7 @@ class AgentDiscoveryProtocol(BaseProtocol):
         
         print(f"PROTOCOL MESSAGE RECEIVED - From {sender_id}: {message.content}")
         logger.debug(f"PROTOCOL MESSAGE - Processing protocol message from {sender_id}: {message.content}")
-        logger.debug(f"PROTOCOL MESSAGE - Message ID: {message.message_id}, Protocol: {message.protocol}, Sender: {sender_id}")
+        logger.debug(f"PROTOCOL MESSAGE - Message ID: {message.message_id}, Protocol: {message.mod}, Sender: {sender_id}")
         
         if action == ANNOUNCE_CAPABILITIES:
             # Agent is announcing its capabilities
@@ -211,10 +211,10 @@ class AgentDiscoveryProtocol(BaseProtocol):
             results = self._discover_agents(query)
             
             # Send response back to the requesting agent
-            response = ProtocolMessage(
+            response = ModMessage(
                 direction="outbound",
                 sender_id=self.network.network_id,
-                protocol=self.protocol_name,
+                mod=self.mod_name,
                 relevant_agent_id=sender_id,
                 content={
                     "action": "discovery_results",
@@ -223,7 +223,7 @@ class AgentDiscoveryProtocol(BaseProtocol):
                 }
             )
             
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             logger.info(f"Sent discovery results to agent {sender_id} for query: {query}")
     
     def _update_agent_capabilities(self, agent_id: str, capabilities: Dict[str, Any]) -> None:

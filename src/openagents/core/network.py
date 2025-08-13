@@ -15,7 +15,7 @@ from typing import Dict, Any, List, Optional, Callable, Awaitable
 from .transport import Transport, TransportManager, Message
 from openagents.models.transport import TransportType
 from .topology import NetworkTopology, NetworkMode, AgentInfo, create_topology
-from ..models.messages import BaseMessage, DirectMessage, BroadcastMessage, ProtocolMessage
+from ..models.messages import BaseMessage, DirectMessage, BroadcastMessage, ModMessage
 from ..models.network_config import NetworkConfig, NetworkMode as ConfigNetworkMode
 from .agent_identity import AgentIdentityManager
 
@@ -350,7 +350,7 @@ class AgentNetwork:
         target_id = None
         if isinstance(message, DirectMessage):
             target_id = message.target_agent_id
-        elif isinstance(message, ProtocolMessage):
+        elif isinstance(message, ModMessage):
             target_id = message.relevant_agent_id
         # BroadcastMessage has target_id = None (broadcast)
         
@@ -417,7 +417,7 @@ class AgentNetwork:
             from .system_commands import (
                 handle_register_agent, handle_list_agents, handle_list_mods,
                 handle_ping_agent, handle_claim_agent_id, handle_validate_certificate,
-                REGISTER_AGENT, LIST_AGENTS, LIST_PROTOCOLS, PING_AGENT, 
+                REGISTER_AGENT, LIST_AGENTS, LIST_MODS, PING_AGENT, 
                 CLAIM_AGENT_ID, VALIDATE_CERTIFICATE
             )
             
@@ -442,7 +442,7 @@ class AgentNetwork:
                 await handle_register_agent(command, message, connection, self)
             elif command == LIST_AGENTS:
                 await handle_list_agents(command, message, connection, self)
-            elif command == LIST_PROTOCOLS:
+            elif command == LIST_MODS:
                 await handle_list_mods(command, message, connection, self)
             elif command == PING_AGENT:
                 await handle_ping_agent(command, message, connection, self)

@@ -13,8 +13,8 @@ from typing import Dict, Any, List
 
 from src.openagents.core.network import AgentNetwork, create_network
 from src.openagents.models.network_config import NetworkConfig, NetworkMode
-from src.openagents.protocols.discovery.openconvert_discovery.protocol import OpenConvertDiscoveryProtocol
-from src.openagents.protocols.discovery.openconvert_discovery.adapter import OpenConvertDiscoveryAdapter
+from src.openagents.mods.discovery.openconvert_discovery.mod import OpenConvertDiscoveryMod
+from src.openagents.mods.discovery.openconvert_discovery.adapter import OpenConvertDiscoveryAdapter
 from src.openagents.core.client import AgentClient
 
 # Configure logging for tests
@@ -80,16 +80,16 @@ class TestOpenConvertDiscovery:
             raise RuntimeError("Failed to initialize network")
         
         # Register the OpenConvert discovery protocol with the network
-        openconvert_protocol = OpenConvertDiscoveryProtocol(network=self.network)
-        self.network.protocols["openagents.protocols.discovery.openconvert_discovery"] = openconvert_protocol
+        openconvert_protocol = OpenConvertDiscoveryMod(network=self.network)
+        self.network.mods["openagents.mods.discovery.openconvert_discovery"] = openconvert_protocol
         openconvert_protocol.bind_network(self.network)
         openconvert_protocol.initialize()
         
         # Register a message handler to route protocol messages to the appropriate protocol
         async def route_protocol_message(message) -> None:
             """Route protocol messages to the appropriate protocol."""
-            if hasattr(message, 'protocol') and message.protocol in self.network.protocols:
-                protocol = self.network.protocols[message.protocol]
+            if hasattr(message, 'protocol') and message.protocol in self.network.mods:
+                protocol = self.network.mods[message.protocol]
                 if hasattr(protocol, 'process_protocol_message'):
                     try:
                         await protocol.process_protocol_message(message)
@@ -125,7 +125,7 @@ class TestOpenConvertDiscovery:
         
         # Register OpenConvert discovery protocol
         discovery_adapter = OpenConvertDiscoveryAdapter()
-        client.register_protocol_adapter(discovery_adapter)
+        client.register_mod_adapter(discovery_adapter)
         
         # Set conversion capabilities
         await discovery_adapter.set_conversion_capabilities(conversion_capabilities)
@@ -161,9 +161,9 @@ class TestOpenConvertDiscovery:
         
         # Check that the network protocol has registered the capabilities
         openconvert_protocol = None
-        if hasattr(self.network, 'protocols') and self.network.protocols:
-            for protocol in self.network.protocols.values():
-                if isinstance(protocol, OpenConvertDiscoveryProtocol):
+        if hasattr(self.network, 'mods') and self.network.mods:
+            for protocol in self.network.mods.values():
+                if isinstance(protocol, OpenConvertDiscoveryMod):
                     openconvert_protocol = protocol
                     break
         

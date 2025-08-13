@@ -224,7 +224,7 @@ class OpenConvertServiceAgent(AgentRunner):
         # Initialize AgentRunner with the protocol adapters
         super().__init__(
             agent_id=agent_id,
-            protocol_adapters=[self.discovery_adapter, self.messaging_adapter]
+            mod_adapters=[self.discovery_adapter, self.messaging_adapter]
         )
         
         logger.info(f"Initialized {agent_id} for {category} conversions")

@@ -47,7 +47,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             agent_id: Unique identifier for the agent
         """
         super().__init__(
-            protocol_name="simple_messaging"
+            mod_name="simple_messaging"
         )
         
         # Initialize protocol state
@@ -191,7 +191,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             target_agent_id=target_agent_id,
             content=content,
             direction="outbound",
-            protocol="openagents.protocols.communication.simple_messaging"
+            mod="openagents.mods.communication.simple_messaging"
         )
         
         # DO NOT add outbound messages to sender's threads - only recipients should process incoming messages
@@ -350,7 +350,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         # Create and send the protocol message
         message = ModMessage(
             sender_id=self.agent_id,
-            protocol="simple_messaging",
+            mod="simple_messaging",
             content={
                 "action": "get_file",
                 "file_id": file_id
@@ -365,7 +365,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             "timestamp": message.timestamp
         }
         
-        await self.connector.send_protocol_message(message)
+        await self.connector.send_mod_message(message)
         logger.debug(f"Requested file download for file ID {file_id}")
     
     async def delete_file(self, file_id: str) -> None:
@@ -377,7 +377,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         # Create and send the protocol message
         message = ModMessage(
             sender_id=self.agent_id,
-            protocol="simple_messaging",
+            mod="simple_messaging",
             content={
                 "action": "delete_file",
                 "file_id": file_id
@@ -386,7 +386,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             relevant_agent_id=self.agent_id
         )
         
-        await self.connector.send_protocol_message(message)
+        await self.connector.send_mod_message(message)
         logger.debug(f"Requested file deletion for file ID {file_id}")
     
     def register_message_handler(self, handler_id: str, handler: MessageHandler) -> None:
@@ -537,10 +537,10 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         return mime_types.get(extension, "application/octet-stream") 
     
     def get_tools(self) -> List[AgentAdapterTool]:
-        """Get the tools for the protocol adapter.
+        """Get the tools for the mod adapter.
         
         Returns:
-            List[AgentAdapterTool]: The tools for the protocol adapter
+            List[AgentAdapterTool]: The tools for the mod adapter
         """
         tools = []
         

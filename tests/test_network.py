@@ -28,7 +28,7 @@ from openagents.models.messages import (
     BaseMessage,
     DirectMessage,
     BroadcastMessage,
-    ProtocolMessage
+    ModMessage
 )
 
 # Configure logging for tests

@@ -226,7 +226,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             # File not found
             response = ModMessage(
                 sender_id=self.network.network_id,
-                protocol="simple_messaging",
+                mod="simple_messaging",
                 content={
                     "action": "file_download_response",
                     "success": False,
@@ -236,7 +236,7 @@ class SimpleMessagingNetworkMod(BaseMod):
                 direction="outbound",
                 relevant_agent_id=agent_id
             )
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             return
         
         try:
@@ -250,7 +250,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             # Send response
             response = ModMessage(
                 sender_id=self.network.network_id,
-                protocol="simple_messaging",
+                mod="simple_messaging",
                 content={
                     "action": "file_download_response",
                     "success": True,
@@ -261,14 +261,14 @@ class SimpleMessagingNetworkMod(BaseMod):
                 direction="outbound",
                 relevant_agent_id=agent_id
             )
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             
             logger.debug(f"Sent file {file_id} to agent {agent_id}")
         except Exception as e:
             # Error reading file
             response = ModMessage(
                 sender_id=self.network.network_id,
-                protocol="simple_messaging",
+                mod="simple_messaging",
                 content={
                     "action": "file_download_response",
                     "success": False,
@@ -278,7 +278,7 @@ class SimpleMessagingNetworkMod(BaseMod):
                 direction="outbound",
                 relevant_agent_id=agent_id
             )
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             logger.error(f"Error sending file {file_id} to agent {agent_id}: {e}")
     
     async def _handle_file_deletion(self, agent_id: str, file_id: str, request_message: ModMessage) -> None:
@@ -295,7 +295,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             # File not found
             response = ModMessage(
                 sender_id=self.network.network_id,
-                protocol="simple_messaging",
+                mod="simple_messaging",
                 content={
                     "action": "file_deletion_response",
                     "success": False,
@@ -305,7 +305,7 @@ class SimpleMessagingNetworkMod(BaseMod):
                 direction="outbound",
                 relevant_agent_id=agent_id
             )
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             return
         
         try:
@@ -315,7 +315,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             # Send response
             response = ModMessage(
                 sender_id=self.network.network_id,
-                protocol="simple_messaging",
+                mod="simple_messaging",
                 content={
                     "action": "file_deletion_response",
                     "success": True,
@@ -325,14 +325,14 @@ class SimpleMessagingNetworkMod(BaseMod):
                 direction="outbound",
                 relevant_agent_id=agent_id
             )
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             
             logger.debug(f"Deleted file {file_id} for agent {agent_id}")
         except Exception as e:
             # Error deleting file
             response = ModMessage(
                 sender_id=self.network.network_id,
-                protocol="simple_messaging",
+                mod="simple_messaging",
                 content={
                     "action": "file_deletion_response",
                     "success": False,
@@ -342,7 +342,7 @@ class SimpleMessagingNetworkMod(BaseMod):
                 direction="outbound",
                 relevant_agent_id=agent_id
             )
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             logger.error(f"Error deleting file {file_id} for agent {agent_id}: {e}")
     
     def get_state(self) -> Dict[str, Any]:

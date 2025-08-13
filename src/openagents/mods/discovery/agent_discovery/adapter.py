@@ -7,21 +7,21 @@ and for other agents to discover agents with specific capabilities.
 
 from typing import Dict, Any, Optional, List
 import logging
-from openagents.core.base_protocol_adapter import BaseProtocolAdapter
-from openagents.models.messages import ProtocolMessage
+from openagents.core.base_mod_adapter import BaseModAdapter
+from openagents.models.messages import ModMessage
 from openagents.models.tool import AgentAdapterTool
-from openagents.utils.message_util import get_protocol_message_thread_id
+from openagents.utils.message_util import get_mod_message_thread_id
 import copy
 
 logger = logging.getLogger(__name__)
 
 # Protocol constants
-PROTOCOL_NAME = "openagents.protocols.discovery.agent_discovery"
+PROTOCOL_NAME = "openagents.mods.discovery.agent_discovery"
 ANNOUNCE_CAPABILITIES = "announce_capabilities"
 DISCOVER_AGENTS = "discover_agents"
 
 
-class AgentDiscoveryAdapter(BaseProtocolAdapter):
+class AgentDiscoveryAdapter(BaseModAdapter):
     """Agent adapter for the agent discovery protocol.
     
     This adapter allows agents to announce their capabilities and
@@ -34,25 +34,25 @@ class AgentDiscoveryAdapter(BaseProtocolAdapter):
         self._capabilities = {}
     
     def initialize(self) -> bool:
-        """Initialize the protocol adapter.
+        """Initialize the mod adapter.
         
         Returns:
             bool: True if initialization was successful
         """
-        logger.info(f"Initializing {self.protocol_name} adapter for agent {self.agent_id}")
+        logger.info(f"Initializing {self.mod_name} adapter for agent {self.agent_id}")
         return True
     
     def shutdown(self) -> bool:
-        """Shutdown the protocol adapter gracefully.
+        """Shutdown the mod adapter gracefully.
         
         Returns:
             bool: True if shutdown was successful
         """
-        logger.info(f"Shutting down {self.protocol_name} adapter for agent {self.agent_id}")
+        logger.info(f"Shutting down {self.mod_name} adapter for agent {self.agent_id}")
         return True
     
     async def on_connect(self) -> None:
-        """Called when the protocol adapter is connected to the network.
+        """Called when the mod adapter is connected to the network.
         
         Announces the agent's capabilities when connecting to the network.
         """
@@ -109,10 +109,10 @@ class AgentDiscoveryAdapter(BaseProtocolAdapter):
         logger.info(f"Agent {self.agent_id} discovering agents with query: {query}")
         
         # Create discovery request message
-        message = ProtocolMessage(
+        message = ModMessage(
             direction="inbound",
             sender_id=self.agent_id,
-            protocol=self.protocol_name,
+            mod=self.mod_name,
             relevant_agent_id=self.agent_id,
             content={
                 "action": DISCOVER_AGENTS,
@@ -121,11 +121,11 @@ class AgentDiscoveryAdapter(BaseProtocolAdapter):
         )
         
         # Send the message and wait for response
-        await self.connector.send_protocol_message(message)
+        await self.connector.send_mod_message(message)
         
         # Wait for the discovery_results response with a filter for the action
-        response = await self.connector.wait_protocol_message(
-            self.protocol_name,
+        response = await self.connector.wait_mod_message(
+            self.mod_name,
             filter_dict={"action": "discovery_results"}
         )
         
@@ -137,16 +137,16 @@ class AgentDiscoveryAdapter(BaseProtocolAdapter):
         logger.warning(f"Agent {self.agent_id} received no discovery results")
         return []
     
-    async def process_incoming_protocol_message(self, message: ProtocolMessage) -> Optional[ProtocolMessage]:
+    async def process_incoming_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
         """Process an incoming protocol message.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[ProtocolMessage]: The processed message, or None for stopping the message from being processed further by other adapters
+            Optional[ModMessage]: The processed message, or None for stopping the message from being processed further by other adapters
         """
-        if message.protocol != self.protocol_name:
+        if message.mod != self.mod_name:
             return message
         
         # Handle discovery results
@@ -172,10 +172,10 @@ class AgentDiscoveryAdapter(BaseProtocolAdapter):
         capabilities_copy = copy.deepcopy(self._capabilities)
         
         # Create announcement message with explicit direction=inbound
-        message = ProtocolMessage(
+        message = ModMessage(
             direction="inbound",
             sender_id=self.agent_id,
-            protocol=self.protocol_name,
+            mod=self.mod_name,
             relevant_agent_id=self.agent_id,
             content={
                 "action": ANNOUNCE_CAPABILITIES,
@@ -186,13 +186,13 @@ class AgentDiscoveryAdapter(BaseProtocolAdapter):
         logger.debug(f"Sending capabilities message: {message.content}")
         
         # Send the message
-        await self.connector.send_protocol_message(message) 
+        await self.connector.send_mod_message(message) 
     
     async def get_tools(self) -> List[AgentAdapterTool]:
-        """Get the tools for the protocol adapter.
+        """Get the tools for the mod adapter.
         
         Returns:
-            List[AgentAdapterTool]: The tools for the protocol adapter
+            List[AgentAdapterTool]: The tools for the mod adapter
         """
         tools = []
         

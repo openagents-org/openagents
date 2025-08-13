@@ -77,8 +77,8 @@ class SimpleAgent(AgentRunner):
         """Setup the agent after connection."""
         print(f"🚀 Agent {self.client.agent_id} connected and ready!")
         logger.info(f"Agent {self.client.agent_id} connected and ready!")
-        logger.info(f"Agent protocols: {[name for name in self.client.protocol_adapters.keys()]}")
-        print(f"📋 Loaded protocols: {list(self.client.protocol_adapters.keys())}")
+        logger.info(f"Agent protocols: {[name for name in self.client.mod_adapters.keys()]}")
+        print(f"📋 Loaded protocols: {list(self.client.mod_adapters.keys())}")
         
         # Send a greeting broadcast message
         greeting_message = BroadcastMessage(

@@ -34,7 +34,7 @@ __all__ = [
     "BaseMessage",
     "DirectMessage",
     "BroadcastMessage", 
-    "ProtocolMessage",
+    "ModMessage",
     # Config models
     "NetworkConfig",
     "OpenAgentsConfig",

@@ -1,5 +1,5 @@
 """
-Tests for the simple_messaging protocol in OpenAgents.
+Tests for the simple_messaging mod in OpenAgents.
 
 This module contains simplified tests for messaging functionality
 using the new AgentNetwork architecture.
@@ -117,7 +117,7 @@ class TestSimpleMessaging:
         metadata = {
             "name": agent_id,
             "capabilities": ["messaging", "file_transfer"],
-            "protocols": ["simple_messaging"]
+            "mods": ["simple_messaging"]
         }
 
         success = await self.network.register_agent(agent_id, metadata)

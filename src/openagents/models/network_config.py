@@ -151,8 +151,8 @@ def create_centralized_server_config(
     """Create a configuration for a centralized server."""
     if protocols is None:
         protocols = [
-            "openagents.protocols.communication.simple_messaging",
-            "openagents.protocols.discovery.agent_discovery"
+            "openagents.mods.communication.simple_messaging",
+            "openagents.mods.discovery.agent_discovery"
         ]
     
     return OpenAgentsConfig(
@@ -175,8 +175,8 @@ def create_centralized_client_config(
     """Create a configuration for a centralized client."""
     if protocols is None:
         protocols = [
-            "openagents.protocols.communication.simple_messaging",
-            "openagents.protocols.discovery.agent_discovery"
+            "openagents.mods.communication.simple_messaging",
+            "openagents.mods.discovery.agent_discovery"
         ]
     
     return OpenAgentsConfig(
@@ -201,8 +201,8 @@ def create_decentralized_config(
     """Create a configuration for a decentralized network."""
     if protocols is None:
         protocols = [
-            "openagents.protocols.communication.simple_messaging",
-            "openagents.protocols.discovery.agent_discovery"
+            "openagents.mods.communication.simple_messaging",
+            "openagents.mods.discovery.agent_discovery"
         ]
     
     if bootstrap_nodes is None:

@@ -207,9 +207,9 @@ class DiscoveryTestClient:
         
         # Add some debug logging
         from openagents.mods.discovery.openconvert_discovery.adapter import OpenConvertDiscoveryAdapter
-        print(f"📋 Available protocol adapters: {list(self.client.protocol_adapters.keys())}")
+        print(f"📋 Available protocol adapters: {list(self.client.mod_adapters.keys())}")
         
-        adapter = self.client.protocol_adapters.get("OpenConvertDiscoveryAdapter")
+        adapter = self.client.mod_adapters.get("OpenConvertDiscoveryAdapter")
         print(f"📋 Retrieved adapter: {adapter}")
         print(f"📋 Adapter type: {type(adapter)}")
         print(f"📋 Is OpenConvertDiscoveryAdapter: {isinstance(adapter, OpenConvertDiscoveryAdapter) if adapter else False}")
