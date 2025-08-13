@@ -11,6 +11,7 @@ import unittest
 import sys
 import os
 import json
+import pytest
 from unittest.mock import patch, MagicMock, mock_open
 from pathlib import Path
 import importlib.util
@@ -127,6 +128,7 @@ class TestProtocolLoaders(unittest.TestCase):
         self.mock_find_spec.assert_called_with('openagents.protocols.test.test_protocol')
         self.mock_import_module.assert_any_call('openagents.protocols.test.test_protocol.adapter')
     
+    @pytest.mark.integration
     def test_load_protocol_adapters_with_inheritance(self):
         """Test loading protocol adapters by finding classes that inherit from BaseProtocolAdapter."""
         # Setup mock for find_spec
@@ -138,39 +140,48 @@ class TestProtocolLoaders(unittest.TestCase):
         manifest_content = '{}'
         self.mock_open.return_value.__enter__.return_value.read.return_value = manifest_content
         
-        # Create a simple object to serve as the adapter - avoid MagicMock to prevent async artifacts
+        # Create a simple adapter class that doesn't inherit from MagicMock
         class SimpleAdapter:
             def __init__(self):
                 self.protocol_name = "mock_protocol"
         
-        mock_adapter = SimpleAdapter()
+        # Create a simple non-MagicMock module object with proper getattr behavior
+        class SimpleModule:
+            def __init__(self):
+                self.CustomAdapter = SimpleAdapter
+            
+            def __getattr__(self, name):
+                if name == 'CustomAdapter':
+                    return SimpleAdapter
+                raise AttributeError(f"module has no attribute '{name}'")
+            
+            def __dir__(self):
+                return ['CustomAdapter']
         
-        # Setup a more complete mock for the module
-        with patch('openagents.utils.protocol_loaders.issubclass') as mock_issubclass, \
-             patch('builtins.dir') as mock_dir:
+        mock_module = SimpleModule()
+        
+        # Create a custom issubclass function that returns True for our SimpleAdapter class
+        def custom_issubclass(cls, base):
+            if cls == SimpleAdapter:
+                return True
+            return False
+        
+        # Create a custom isinstance function 
+        def custom_isinstance(obj, cls):
+            if obj == SimpleAdapter and cls == type:
+                return True
+            return isinstance(obj, cls)
+        
+        # Setup patches with specific return values
+        with patch('openagents.utils.protocol_loaders.issubclass', side_effect=custom_issubclass), \
+             patch('openagents.utils.protocol_loaders.isinstance', side_effect=custom_isinstance):
             
-            # Configure issubclass to return True for our test
-            mock_issubclass.return_value = True
+            # Set the import_module return value to our simple module
+            self.mock_import_module.return_value = mock_module
             
-            # Configure dir() to return a class name
-            mock_dir.return_value = ['CustomAdapter']
-            
-            # Create a simple class constructor function to avoid MagicMock issues
-            def create_adapter():
-                return mock_adapter
-            
-            # Setup mock for import_module
-            mock_module = MagicMock()
-            mock_module.CustomAdapter = create_adapter
-            
-            # Configure isinstance to return True for our adapter
-            with patch('builtins.isinstance', return_value=True):
-                # Ensure the mock_import_module returns our controlled mock_module
-                self.mock_import_module.return_value = mock_module
-                
-                # Call the function with a test protocol name
-                protocol_names = ['openagents.protocols.test.test_protocol']
-                adapters = load_protocol_adapters(protocol_names)
+            # Call the function with a test protocol name
+            protocol_names = ['openagents.protocols.test.test_protocol']
+            adapters = load_protocol_adapters(protocol_names)
         
         # Assertions
         self.assertEqual(len(adapters), 1)
