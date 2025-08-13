@@ -4,8 +4,9 @@ Test cases for SimpleAgentRunner to ensure it works correctly with different pro
 
 import pytest
 import os
+import sys
 import asyncio
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch, AsyncMock, MagicMock
 from typing import Dict, Any
 
 from openagents.agents.simple_agent import (
@@ -23,61 +24,142 @@ from openagents.models.messages import DirectMessage
 class TestSimpleAgentRunner:
     """Test cases for SimpleAgentRunner."""
     
+    def test_provider_detection_logic_only(self):
+        """Test provider detection logic without creating actual providers."""
+        # Test the _determine_provider method directly
+        agent = SimpleAgentRunner.__new__(SimpleAgentRunner)  # Create instance without calling __init__
+        
+        # Test model name based detection
+        assert agent._determine_provider(None, "gpt-4o-mini", None) == "openai"
+        assert agent._determine_provider(None, "claude-3-5-sonnet-20241022", None) == "claude"
+        assert agent._determine_provider(None, "gemini-1.5-pro", None) == "gemini"
+        assert agent._determine_provider(None, "deepseek-chat", None) == "deepseek"
+        assert agent._determine_provider(None, "qwen-turbo", None) == "qwen"
+        assert agent._determine_provider(None, "grok-beta", None) == "grok"
+        assert agent._determine_provider(None, "mistral-large-latest", None) == "mistral"
+        
+        # Test API base based detection
+        assert agent._determine_provider(None, "custom-model", "https://test.azure.com/") == "azure"
+        assert agent._determine_provider(None, "custom-model", "https://api.deepseek.com/v1") == "deepseek"
+        assert agent._determine_provider(None, "custom-model", "https://dashscope.aliyuncs.com/v1") == "qwen"
+        
+        # Test explicit provider override
+        assert agent._determine_provider("azure", "gpt-4", None) == "azure"
+        assert agent._determine_provider("claude", "gpt-4", None) == "claude"
+    
+    def test_configuration_validation_without_clients(self):
+        """Test configuration validation without creating API clients."""
+        # Test missing required parameters
+        with pytest.raises(TypeError):
+            SimpleAgentRunner()  # Missing all required parameters
+            
+        with pytest.raises(TypeError):
+            SimpleAgentRunner(agent_id="test")  # Missing model_name and instruction
+            
+        with pytest.raises(TypeError):
+            SimpleAgentRunner(agent_id="test", model_name="test")  # Missing instruction
+    
+    def test_invalid_provider_validation(self):
+        """Test invalid provider handling."""
+        # This will fail at the provider creation stage, which is expected
+        agent = SimpleAgentRunner.__new__(SimpleAgentRunner)
+        agent.provider = "invalid-provider"
+        
+        with pytest.raises(ValueError, match="Unsupported provider"):
+            agent._create_model_provider(None, None, {})
+    
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
     def test_provider_detection_openai(self):
         """Test that OpenAI models are correctly detected."""
-        agent = SimpleAgentRunner(
-            agent_id="test-agent",
-            model_name="gpt-4o-mini",
-            instruction="Test instruction"
-        )
-        assert agent.provider == "openai"
+        # Mock the imports inside the OpenAI provider
+        with patch('openai.OpenAI') as mock_openai, \
+             patch('openai.AzureOpenAI') as mock_azure:
+            mock_openai.return_value = Mock()
+            mock_azure.return_value = Mock()
+            
+            agent = SimpleAgentRunner(
+                agent_id="test-agent",
+                model_name="gpt-4o-mini",
+                instruction="Test instruction"
+            )
+            assert agent.provider == "openai"
     
+    @patch.dict(os.environ, {'ANTHROPIC_API_KEY': 'test-key'})
     def test_provider_detection_claude(self):
         """Test that Claude models are correctly detected."""
-        agent = SimpleAgentRunner(
-            agent_id="test-agent",
-            model_name="claude-3-5-sonnet-20241022",
-            instruction="Test instruction"
-        )
-        assert agent.provider == "claude"
+        # Mock the entire anthropic module since it's not installed
+        mock_anthropic_module = Mock()
+        mock_anthropic_client = Mock()
+        mock_anthropic_module.Anthropic.return_value = mock_anthropic_client
+        
+        with patch.dict('sys.modules', {'anthropic': mock_anthropic_module}):
+            agent = SimpleAgentRunner(
+                agent_id="test-agent",
+                model_name="claude-3-5-sonnet-20241022",
+                instruction="Test instruction"
+            )
+            assert agent.provider == "claude"
     
+    @patch.dict(os.environ, {'GOOGLE_API_KEY': 'test-key'})
     def test_provider_detection_gemini(self):
         """Test that Gemini models are correctly detected."""
-        agent = SimpleAgentRunner(
-            agent_id="test-agent",
-            model_name="gemini-1.5-pro",
-            instruction="Test instruction"
-        )
-        assert agent.provider == "gemini"
+        # Mock the entire google.generativeai module since it's not installed
+        mock_genai_module = Mock()
+        mock_genai_module.configure = Mock()
+        mock_genai_module.GenerativeModel.return_value = Mock()
+        
+        with patch.dict('sys.modules', {'google.generativeai': mock_genai_module}):
+            agent = SimpleAgentRunner(
+                agent_id="test-agent",
+                model_name="gemini-1.5-pro",
+                instruction="Test instruction"
+            )
+            assert agent.provider == "gemini"
     
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
     def test_provider_detection_deepseek(self):
         """Test that DeepSeek models are correctly detected."""
-        agent = SimpleAgentRunner(
-            agent_id="test-agent",
-            model_name="deepseek-chat",
-            instruction="Test instruction"
-        )
-        assert agent.provider == "deepseek"
+        # Mock OpenAI import for DeepSeek (uses OpenAI-compatible API)
+        with patch('openai.OpenAI') as mock_openai:
+            mock_openai.return_value = Mock()
+            
+            agent = SimpleAgentRunner(
+                agent_id="test-agent",
+                model_name="deepseek-chat",
+                instruction="Test instruction"
+            )
+            assert agent.provider == "deepseek"
     
+    @patch.dict(os.environ, {'AZURE_OPENAI_API_KEY': 'test-key'})
     def test_explicit_provider_override(self):
         """Test that explicitly setting provider overrides auto-detection."""
-        agent = SimpleAgentRunner(
-            agent_id="test-agent",
-            model_name="gpt-4",
-            provider="azure",
-            instruction="Test instruction"
-        )
-        assert agent.provider == "azure"
+        # Mock Azure OpenAI imports
+        with patch('openai.AzureOpenAI') as mock_azure:
+            mock_azure.return_value = Mock()
+            
+            agent = SimpleAgentRunner(
+                agent_id="test-agent",
+                model_name="gpt-4",
+                provider="azure",
+                api_base="https://test.azure.com/",
+                instruction="Test instruction"
+            )
+            assert agent.provider == "azure"
     
+    @patch.dict(os.environ, {'AZURE_OPENAI_API_KEY': 'test-key'})
     def test_api_base_detection(self):
         """Test provider detection based on API base URL."""
-        agent = SimpleAgentRunner(
-            agent_id="test-agent",
-            model_name="custom-model",
-            api_base="https://example.azure.com/",
-            instruction="Test instruction"
-        )
-        assert agent.provider == "azure"
+        # Mock Azure OpenAI imports
+        with patch('openai.AzureOpenAI') as mock_azure:
+            mock_azure.return_value = Mock()
+            
+            agent = SimpleAgentRunner(
+                agent_id="test-agent",
+                model_name="custom-model",
+                api_base="https://example.azure.com/",
+                instruction="Test instruction"
+            )
+            assert agent.provider == "azure"
     
     @patch('openagents.agents.simple_agent.OpenAI')
     @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
