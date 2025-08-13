@@ -159,44 +159,16 @@ class TestProtocolLoaders(unittest.TestCase):
         
         mock_module = MockModule()
         
-        # Setup a more complete mock for the module
-        with patch('openagents.utils.mod_loaders.issubclass') as mock_issubclass, \
-             patch('builtins.dir') as mock_dir, \
-             patch('builtins.isinstance') as mock_isinstance:
-            
-            # Configure isinstance to handle type checks properly
-            def isinstance_side_effect(obj, cls):
-                if cls == type:
-                    return obj == MockAdapter
-                return True
-            mock_isinstance.side_effect = isinstance_side_effect
-            
-            # Configure issubclass to return True for our MockAdapter when checking BaseModAdapter
-            def issubclass_side_effect(cls, base):
-                # Return True if MockAdapter is being checked against BaseModAdapter
-                if cls == MockAdapter and base == BaseModAdapter:
-                    return True
-                # Return False for BaseModAdapter itself to avoid it being selected
-                if cls == BaseModAdapter:
-                    return False
-                return False
-            mock_issubclass.side_effect = issubclass_side_effect
-            
-            # Configure dir() to return a class name
-            def dir_side_effect(obj):
-                return ['Adapter']
-            mock_dir.side_effect = dir_side_effect
-            
-            # Ensure the mock_import_module returns our controlled mock_module
-            def import_module_side_effect(module_name):
-                if module_name == 'openagents.mods.test.test_mod.adapter':
-                    return mock_module
-                return self.original_import_module(module_name)
-            self.mock_import_module.side_effect = import_module_side_effect
-            
-            # Call the function with a test mod name
-            mod_names = ['openagents.mods.test.test_mod']
-            adapters = load_mod_adapters(mod_names)
+        # Ensure the mock_import_module returns our controlled mock_module
+        def import_module_side_effect(module_name):
+            if module_name == 'openagents.mods.test.test_mod.adapter':
+                return mock_module
+            return self.original_import_module(module_name)
+        self.mock_import_module.side_effect = import_module_side_effect
+        
+        # Call the function with a test mod name
+        mod_names = ['openagents.mods.test.test_mod']
+        adapters = load_mod_adapters(mod_names)
         
         # Assertions
         self.assertEqual(len(adapters), 1)
