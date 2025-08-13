@@ -127,6 +127,7 @@ class TestProtocolLoaders(unittest.TestCase):
         self.mock_find_spec.assert_called_with('openagents.protocols.test.test_protocol')
         self.mock_import_module.assert_any_call('openagents.protocols.test.test_protocol.adapter')
     
+    @pytest.mark.integration
     def test_load_protocol_adapters_with_inheritance(self):
         """Test loading protocol adapters by finding classes that inherit from BaseProtocolAdapter."""
         # Setup mock for find_spec
