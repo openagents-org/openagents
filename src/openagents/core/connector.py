@@ -7,9 +7,9 @@ import websockets
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 from openagents.utils.message_util import parse_message_dict
-from openagents.models.messages import BaseMessage, BroadcastMessage, DirectMessage, ProtocolMessage
+from openagents.models.messages import BaseMessage, BroadcastMessage, DirectMessage, ModMessage
 from .system_commands import send_system_request as send_system_request_impl
-from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST, PING_AGENT, CLAIM_AGENT_ID, VALIDATE_CERTIFICATE
+from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST, PING_AGENT, CLAIM_AGENT_ID, VALIDATE_CERTIFICATE
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +212,7 @@ class NetworkConnector:
         Args:
             message: Message to consume
         """
-        if isinstance(message, ProtocolMessage):
+        if isinstance(message, ModMessage):
             message.relevant_agent_id = self.agent_id
             
         message_type = message.message_type
@@ -242,7 +242,7 @@ class NetworkConnector:
             if not message.sender_id:
                 message.sender_id = self.agent_id
             
-            if isinstance(message, ProtocolMessage):
+            if isinstance(message, ModMessage):
                 message.relevant_agent_id = self.agent_id
                 
             # Send the message
@@ -276,7 +276,7 @@ class NetworkConnector:
         """
         return await self.send_message(message)
     
-    async def send_protocol_message(self, message: ProtocolMessage) -> bool:
+    async def send_mod_message(self, message: ModMessage) -> bool:
         """Send a protocol message to another agent.
         
         Args:
@@ -284,7 +284,7 @@ class NetworkConnector:
         """
         return await self.send_message(message)
     
-    async def wait_protocol_message(self, protocol_name: str, filter_dict: Optional[Dict[str, Any]] = None, timeout: float = 5.0) -> Optional[ProtocolMessage]:
+    async def wait_protocol_message(self, protocol_name: str, filter_dict: Optional[Dict[str, Any]] = None, timeout: float = 5.0) -> Optional[ModMessage]:
         """Wait for a protocol message from the specified protocol that matches the filter criteria.
         
         Args:
@@ -293,7 +293,7 @@ class NetworkConnector:
             timeout: Maximum time to wait for a response in seconds
             
         Returns:
-            Optional[ProtocolMessage]: The matching message, or None if no matching message received within timeout
+            Optional[ModMessage]: The matching message, or None if no matching message received within timeout
         """
         if not self.is_connected:
             logger.warning(f"Agent {self.agent_id} is not connected to a network")
@@ -302,7 +302,7 @@ class NetworkConnector:
         # Create a future to store the response
         response_future = asyncio.Future()
         
-        async def temp_protocol_handler(msg: ProtocolMessage) -> None:
+        async def temp_protocol_handler(msg: ModMessage) -> None:
             # Check if this is the message we're waiting for
             if (msg.protocol == protocol_name and 
                 msg.relevant_agent_id == self.agent_id):

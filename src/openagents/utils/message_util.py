@@ -1,5 +1,5 @@
 from typing import Any, Dict
-from openagents.models.messages import BaseMessage, DirectMessage, BroadcastMessage, ProtocolMessage
+from openagents.models.messages import BaseMessage, DirectMessage, BroadcastMessage, ModMessage
 
 def parse_message_dict(message_dict: Dict[str, Any]) -> BaseMessage:
     """
@@ -16,8 +16,8 @@ def parse_message_dict(message_dict: Dict[str, Any]) -> BaseMessage:
         return DirectMessage.model_validate(message_dict)
     elif message_type == "broadcast_message":
         return BroadcastMessage.model_validate(message_dict)
-    elif message_type == "protocol_message":
-        return ProtocolMessage.model_validate(message_dict)
+    elif message_type == "mod_message":
+        return ModMessage.model_validate(message_dict)
     else:
         raise ValueError(f"Unknown message type: {message_type}")
 
@@ -33,9 +33,9 @@ def get_broadcast_message_thread_id() -> str:
     """
     return "broadcast_message"
 
-def get_protocol_message_thread_id(protocol_name: str) -> str:
+def get_mod_message_thread_id(mod_name: str) -> str:
     """
-    Get the thread ID for a protocol message.
+    Get the thread ID for a mod message.
     """
-    return f"protocol_message:{protocol_name}"
+    return f"mod_message:{mod_name}"
 

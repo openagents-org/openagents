@@ -15,7 +15,7 @@ openagents_root = Path(__file__).parent / ".." / ".."
 sys.path.insert(0, str(openagents_root / "src"))
 
 from openagents.core.client import AgentClient
-from openagents.protocols.discovery.openconvert_discovery.adapter import OpenConvertDiscoveryAdapter
+from openagents.mods.discovery.openconvert_discovery.adapter import OpenConvertDiscoveryAdapter
 
 # Set up logging
 logging.basicConfig(

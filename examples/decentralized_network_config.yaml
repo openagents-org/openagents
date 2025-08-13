@@ -41,11 +41,11 @@ network:
   message_timeout: 30.0
   
   # Protocols
-  protocols:
-    - name: "openagents.protocols.communication.simple_messaging"
+  mods:
+    - name: "openagents.mods.communication.simple_messaging"
       enabled: true
       config: {}
-    - name: "openagents.protocols.discovery.agent_discovery"
+    - name: "openagents.mods.discovery.agent_discovery"
       enabled: true
       config:
         announce_interval: 30
@@ -53,8 +53,8 @@ network:
 # Service agents configuration (optional)
 service_agents:
   - name: "DiscoveryAgent"
-    protocols:
-      - name: "openagents.protocols.discovery.agent_discovery"
+    mods:
+      - name: "openagents.mods.discovery.agent_discovery"
         enabled: true
         config: {}
     services:
@@ -64,8 +64,8 @@ service_agents:
       - "discovery"
 
   - name: "MessageBroker"
-    protocols:
-      - name: "openagents.protocols.communication.simple_messaging"
+    mods:
+      - name: "openagents.mods.communication.simple_messaging"
         enabled: true
         config: {}
     services:

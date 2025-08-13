@@ -1,30 +1,30 @@
 from typing import Dict, Any, Optional, List
 from abc import ABC, abstractmethod
-from openagents.models.messages import BaseMessage, DirectMessage, BroadcastMessage, ProtocolMessage
+from openagents.models.messages import BaseMessage, DirectMessage, BroadcastMessage, ModMessage
 from openagents.models.tool import AgentAdapterTool
 from openagents.core.connector import NetworkConnector
 from openagents.models.message_thread import MessageThread
 
-class BaseProtocolAdapter(ABC):
-    """Base class for agent adapter level protocols in OpenAgents.
+class BaseModAdapter(ABC):
+    """Base class for agent adapter level mods in OpenAgents.
     
-    Agent adapter protocols define behaviors and capabilities for individual agents
+    Agent adapter mods define behaviors and capabilities for individual agents
     within the network.
     """
 
-    def __init__(self, protocol_name: str):
-        """Initialize the protocol adapter.
+    def __init__(self, mod_name: str):
+        """Initialize the mod adapter.
         
         Args:
-            name: The name of the protocol adapter
+            name: The name of the mod adapter
         """
-        self._protocol_name = protocol_name
+        self._mod_name = mod_name
         self._agent_id = None
         self._connector = None
         self._message_threads: Dict[str, MessageThread] = {}
 
     def bind_agent(self, agent_id: str) -> None:
-        """Bind this protocol adapter to an agent.
+        """Bind this mod adapter to an agent.
         
         Args:
             agent_id: Unique identifier for the agent to bind to
@@ -32,7 +32,7 @@ class BaseProtocolAdapter(ABC):
         self._agent_id = agent_id
     
     def bind_connector(self, connector: NetworkConnector) -> None:
-        """Bind this protocol adapter to a connector.
+        """Bind this mod adapter to a connector.
         
         Args:
             connector: The connector to bind to
@@ -41,7 +41,7 @@ class BaseProtocolAdapter(ABC):
     
     @property
     def message_threads(self) -> Dict[str, MessageThread]:
-        """Get the message threads for the protocol adapter.
+        """Get the message threads for the mod adapter.
         
         Returns:
             Dict[str, MessageThread]: Dictionary of message threads
@@ -50,41 +50,41 @@ class BaseProtocolAdapter(ABC):
         
     @property
     def connector(self) -> NetworkConnector:
-        """Get the connector for the protocol adapter.
+        """Get the connector for the mod adapter.
         
         Returns:
-            NetworkConnector: The connector for the protocol adapter
+            NetworkConnector: The connector for the mod adapter
         """
         return self._connector
     
     @property
-    def protocol_name(self) -> str:
-        """Get the name of the protocol adapter.
+    def mod_name(self) -> str:
+        """Get the name of the mod adapter.
         
         Returns:
-            str: The name of the protocol adapter
+            str: The name of the mod adapter
         """
-        return self._protocol_name
+        return self._mod_name
     
     @property
     def agent_id(self) -> Optional[str]:
-        """Get the agent ID of the protocol adapter.
+        """Get the agent ID of the mod adapter.
         
         Returns:
-            Optional[str]: The agent ID of the protocol adapter
+            Optional[str]: The agent ID of the mod adapter
         """
         return self._agent_id
     
     def on_connect(self) -> None:
-        """Called when the protocol adapter is connected to the network.
+        """Called when the mod adapter is connected to the network.
         """
     
     def on_disconnect(self) -> None:
-        """Called when the protocol adapter is disconnected from the network.
+        """Called when the mod adapter is disconnected from the network.
         """
     
     def initialize(self) -> bool:
-        """Initialize the protocol.
+        """Initialize the mod.
         
         Returns:
             bool: True if initialization was successful, False otherwise
@@ -92,7 +92,7 @@ class BaseProtocolAdapter(ABC):
         return True
     
     def shutdown(self) -> bool:
-        """Shutdown the protocol gracefully.
+        """Shutdown the mod gracefully.
         
         Returns:
             bool: True if shutdown was successful, False otherwise
@@ -140,14 +140,14 @@ class BaseProtocolAdapter(ABC):
         """
         return message
     
-    async def process_incoming_protocol_message(self, message: ProtocolMessage) -> Optional[ProtocolMessage]:
-        """Process an incoming protocol message.
+    async def process_incoming_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
+        """Process an incoming mod message.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[ProtocolMessage]: The processed message, or None for stopping the message from being processed further by other adapters
+            Optional[ModMessage]: The processed message, or None for stopping the message from being processed further by other adapters
         """
         return message
     
@@ -173,21 +173,21 @@ class BaseProtocolAdapter(ABC):
         """
         return message
 
-    async def process_outgoing_protocol_message(self, message: ProtocolMessage) -> Optional[ProtocolMessage]:
-        """Process an outgoing protocol message.
+    async def process_outgoing_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
+        """Process an outgoing mod message.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[ProtocolMessage]: The processed message, or None for stopping the message from being processed further by other adapters
+            Optional[ModMessage]: The processed message, or None for stopping the message from being processed further by other adapters
         """
         return message
     
     async def get_tools(self) -> List[AgentAdapterTool]:
-        """Get the tools for the protocol adapter.
+        """Get the tools for the mod adapter.
         
         Returns:
-            List[AgentAdapterTool]: The tools for the protocol adapter
+            List[AgentAdapterTool]: The tools for the mod adapter
         """
         return []

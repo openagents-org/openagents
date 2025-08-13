@@ -22,8 +22,8 @@ openagents_root = Path(__file__).parent / ".." / ".."
 sys.path.insert(0, str(openagents_root / "src"))
 
 from openagents.core.client import AgentClient
-from openagents.protocols.discovery.openconvert_discovery.adapter import OpenConvertDiscoveryAdapter
-from openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
+from openagents.mods.discovery.openconvert_discovery.adapter import OpenConvertDiscoveryAdapter
+from openagents.mods.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
 
 # Set up logging
 logging.basicConfig(
@@ -206,7 +206,7 @@ class DiscoveryTestClient:
         print("🔍 Testing agent discovery...")
         
         # Add some debug logging
-        from openagents.protocols.discovery.openconvert_discovery.adapter import OpenConvertDiscoveryAdapter
+        from openagents.mods.discovery.openconvert_discovery.adapter import OpenConvertDiscoveryAdapter
         print(f"📋 Available protocol adapters: {list(self.client.protocol_adapters.keys())}")
         
         adapter = self.client.protocol_adapters.get("OpenConvertDiscoveryAdapter")
@@ -321,7 +321,7 @@ async def run_end_to_end_test():
     
     try:
         # Import and initialize the network protocol
-        from openagents.protocols.discovery.openconvert_discovery.protocol import OpenConvertDiscoveryProtocol
+        from openagents.mods.discovery.openconvert_discovery.protocol import OpenConvertDiscoveryProtocol
         
         # Create unique agent IDs to avoid conflicts
         import uuid

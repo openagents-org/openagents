@@ -68,17 +68,17 @@ Certificate-based identity verification and agent ID claiming system with crypto
 ### [System Commands](system-commands.md)
 **Status:** ✅ Available | **Version:** 1.0.0
 
-Standardized protocol for agent-network communication enabling system-level operations.
+Standardized mod for agent-network communication enabling system-level operations.
 
 **Key Features:**
-- Standardized command protocol
+- Standardized command mod
 - Agent registration and discovery
 - Health monitoring commands
-- Protocol discovery and manifests
+- Mod discovery and manifests
 
 **Use Cases:**
 - All OpenAgents deployments
-- Custom protocol development
+- Custom mod development
 - Network monitoring and management
 - Agent discovery and coordination
 
@@ -148,8 +148,8 @@ print(f"Network uptime: {health_stats['uptime']}")
 # List connected agents
 await client.connector.list_agents()
 
-# Check available protocols
-await client.connector.list_protocols()
+# Check available mods
+await client.connector.list_mods()
 ```
 
 ## Feature Dependencies

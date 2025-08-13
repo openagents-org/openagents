@@ -179,7 +179,7 @@ async def main():
         # Send a broadcast message
         message = BroadcastMessage(
             sender_id=client.agent_id,
-            protocol="openagents.protocols.communication.simple_messaging",
+            protocol="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",
             content={"text": "Hello from Python!"},
             text_representation="Hello from Python!",
@@ -221,7 +221,7 @@ class EchoAgent(AgentRunner):
             response = DirectMessage(
                 sender_id=self.client.agent_id,
                 target_agent_id=incoming_message.sender_id,
-                protocol="openagents.protocols.communication.simple_messaging",
+                protocol="openagents.mods.communication.simple_messaging",
                 message_type="direct_message",
                 content={"text": f"Echo: {incoming_message.content.get('text', '')}"},
                 text_representation=f"Echo: {incoming_message.content.get('text', '')}",
@@ -236,7 +236,7 @@ class EchoAgent(AgentRunner):
         # Announce presence
         greeting = BroadcastMessage(
             sender_id=self.client.agent_id,
-            protocol="openagents.protocols.communication.simple_messaging",
+            protocol="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message", 
             content={"text": "Echo agent online! Send me a DM and I'll echo it back."},
             text_representation="Echo agent online!",
@@ -321,13 +321,13 @@ network:
   connection_timeout: 30.0
   heartbeat_interval: 30
   
-  # Protocols
-  protocols:
-    - name: "openagents.protocols.communication.simple_messaging"
+  # Mods
+  mods:
+    - name: "openagents.mods.communication.simple_messaging"
       enabled: true
       config:
         max_message_size: 104857600
-    - name: "openagents.protocols.discovery.agent_discovery"
+    - name: "openagents.mods.discovery.agent_discovery"
       enabled: true
       config:
         announce_interval: 30
@@ -386,10 +386,10 @@ metadata:
   capabilities: ["data_processing", "file_management"]
   version: "1.0.0"
   
-protocols:
-  - name: "openagents.protocols.communication.simple_messaging"
+mods:
+  - name: "openagents.mods.communication.simple_messaging"
     enabled: true
-  - name: "openagents.protocols.discovery.agent_discovery"
+  - name: "openagents.mods.discovery.agent_discovery"
     enabled: true
 ```
 
@@ -449,13 +449,13 @@ OpenAgents uses a modular architecture built around several key components:
 
 - **Transport Layer**: WebSocket, gRPC, and future libp2p support
 - **Network Topologies**: Centralized (coordinator-based) and decentralized (P2P)
-- **Protocol System**: Pluggable protocols for different interaction patterns
+- **Mod System**: Pluggable mods for different interaction patterns
 - **Agent Framework**: Base classes and utilities for building agents
 - **Discovery System**: Automatic agent discovery and capability matching
 
-### Built-in Protocols
+### Built-in Mods
 
-| Protocol | Description | Key Features |
+| Mod | Description | Key Features |
 |----------|-------------|--------------|
 | **Simple Messaging** | Direct and broadcast communication | Direct messages, broadcasts, file attachments |
 | **Agent Discovery** | Service discovery and registration | Agent registry, capability matching, health checks |
@@ -540,7 +540,7 @@ We welcome contributions! Here's how to get started:
 ### Contribution Areas
 
 - 🐛 **Bug Fixes** - Help us fix issues and improve stability
-- ✨ **New Features** - Add new capabilities and protocols
+- ✨ **New Features** - Add new capabilities and mods
 - 📚 **Documentation** - Improve docs, examples, and tutorials
 - 🧪 **Testing** - Add tests and improve coverage
 - 🎨 **UI/UX** - Improve CLI interface and user experience
@@ -564,7 +564,7 @@ We welcome contributions! Here's how to get started:
 - **[Getting Started Guide](https://openagents.readthedocs.io/en/latest/getting-started/quick-start/)** - Step-by-step tutorials
 - **[CLI Reference](https://openagents.org/cli)** - Complete command-line documentation
 - **[Python API Reference](https://openagents.org/python)** - Full API documentation
-- **[Mod Development](https://openagents.org/protocols)** - Guide for creating custom protocols
+- **[Mod Development](https://openagents.org/mods)** - Guide for creating custom mods
 
 ## 📄 License
 

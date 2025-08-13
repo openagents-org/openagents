@@ -1,11 +1,11 @@
 {
-    "protocol_name": "simple_messaging",
+    "mod_name": "simple_messaging",
     "version": "1.0.0",
-    "description": "A simple messaging protocol for OpenAgents that supports direct and broadcast messaging with text and file attachments",
+    "description": "A simple messaging mod for OpenAgents that supports direct and broadcast messaging with text and file attachments",
     "authors": ["OpenAgents Team"],
     "license": "MIT",
     "agent_adapter_class": "SimpleMessagingAgentAdapterlient",
-    "network_protocol_class": "SimpleMessagingNetworkProtocol",
+    "network_mod_class": "SimpleMessagingNetworkMod",
     "capabilities": [
         "simple_direct_messaging",
         "simple_broadcast_messaging",

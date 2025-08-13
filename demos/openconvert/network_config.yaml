@@ -40,20 +40,20 @@ network:
   message_routing_enabled: true
   
   # Protocol configuration
-  protocols:
-    - name: "openagents.protocols.communication.simple_messaging"
+  mods:
+    - name: "openagents.mods.communication.simple_messaging"
       enabled: true
       config:
         max_message_size: 104857600  # 100MB
         message_retention_time: 300
         enable_message_history: true
-    - name: "openagents.protocols.discovery.agent_discovery"
+    - name: "openagents.mods.discovery.agent_discovery"
       enabled: true
       config:
         announce_interval: 30
         cleanup_interval: 60
         agent_timeout: 120
-    - name: "openagents.protocols.discovery.openconvert_discovery"
+    - name: "openagents.mods.discovery.openconvert_discovery"
       enabled: true
       config:
         announce_interval: 30
@@ -63,8 +63,8 @@ network:
 # service_agents:
 #   - name: "OpenConvert-ImageAgent"
 #     protocol_names:
-#       - "openagents.protocols.communication.simple_messaging"
-#       - "openagents.protocols.discovery.openconvert_discovery"
+#       - "openagents.mods.communication.simple_messaging"
+#       - "openagents.mods.discovery.openconvert_discovery"
 #     agent_script: "demos/openconvert/run_agent.py"
 #     agent_args: ["image"]
 

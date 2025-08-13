@@ -65,10 +65,10 @@ class AgentNetwork:
         self.connections: Dict[str, AgentConnection] = {}
         self.metadata: Dict[str, Any] = {}
         
-        # Agent and protocol tracking (for compatibility with system commands)
+        # Agent and mod tracking (for compatibility with system commands)
         self.agents: Dict[str, Dict[str, Any]] = {}  # agent_id -> metadata
-        self.protocols: Dict[str, Any] = {}
-        self.protocol_manifests: Dict[str, Any] = {}
+        self.mods: Dict[str, Any] = {}
+        self.mod_manifests: Dict[str, Any] = {}
         
         # Message handling
         self.message_handlers: Dict[str, List[Callable[[Message], Awaitable[None]]]] = {}
@@ -365,7 +365,7 @@ class AgentNetwork:
                 "metadata": message.metadata,
                 "text_representation": message.text_representation,
                 "requires_response": message.requires_response,
-                "protocol": getattr(message, 'protocol', None),
+                "mod": getattr(message, 'mod', None),
                 "direction": getattr(message, 'direction', None),
                 "exclude_agent_ids": getattr(message, 'exclude_agent_ids', [])
             },
@@ -415,7 +415,7 @@ class AgentNetwork:
         """
         try:
             from .system_commands import (
-                handle_register_agent, handle_list_agents, handle_list_protocols,
+                handle_register_agent, handle_list_agents, handle_list_mods,
                 handle_ping_agent, handle_claim_agent_id, handle_validate_certificate,
                 REGISTER_AGENT, LIST_AGENTS, LIST_PROTOCOLS, PING_AGENT, 
                 CLAIM_AGENT_ID, VALIDATE_CERTIFICATE
@@ -443,7 +443,7 @@ class AgentNetwork:
             elif command == LIST_AGENTS:
                 await handle_list_agents(command, message, connection, self)
             elif command == LIST_PROTOCOLS:
-                await handle_list_protocols(command, message, connection, self)
+                await handle_list_mods(command, message, connection, self)
             elif command == PING_AGENT:
                 await handle_ping_agent(command, message, connection, self)
             elif command == CLAIM_AGENT_ID:

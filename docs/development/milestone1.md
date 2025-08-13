@@ -1,16 +1,16 @@
 # Milestone 1: Foundation Infrastructure (MVP)
 
-This document describes the implementation of Milestone 1 for OpenAgents, which creates a minimal, protocol-agnostic framework to build and connect agent networks.
+This document describes the implementation of Milestone 1 for OpenAgents, which creates a minimal, mod-agnostic framework to build and connect agent networks.
 
 ## Overview
 
-Milestone 1 introduces a modular, extensible architecture that supports both centralized and decentralized network topologies with pluggable transport protocols.
+Milestone 1 introduces a modular, extensible architecture that supports both centralized and decentralized network topologies with pluggable transport mods.
 
 ## Key Features
 
-### 🌐 Agent Networking Layer (Protocol Agnostic)
+### 🌐 Agent Networking Layer (Mod Agnostic)
 
-The new networking layer provides modular support for multiple transport protocols:
+The new networking layer provides modular support for multiple transport mods:
 
 - **WebSocket** - Default transport for centralized networks
 - **libp2p** - P2P transport for decentralized networks (placeholder)
@@ -105,7 +105,7 @@ agents = await topology.discover_peers(capabilities=["text-processing"])
 
 ### 🔐 Security Features
 
-- **Encryption Support**: Noise protocol and TLS encryption
+- **Encryption Support**: Noise mod and TLS encryption
 - **Transport Security**: End-to-end encryption for all messages
 - **Authentication**: Configurable authentication mechanisms
 
@@ -114,7 +114,7 @@ agents = await topology.discover_peers(capabilities=["text-processing"])
 The messaging system supports:
 - **Direct Messages**: Point-to-point communication
 - **Broadcast Messages**: One-to-many communication  
-- **Protocol Messages**: Protocol-specific messaging
+- **Mod Messages**: Mod-specific messaging
 - **Asynchronous Queuing**: Non-blocking message handling
 
 ## Configuration
@@ -235,14 +235,14 @@ config = create_decentralized_config(
 1. **Update Configuration**: Convert old config format to new enhanced format
 2. **Use New CLI**: Use `--network-config` instead of `--config` 
 3. **Update Imports**: Import from enhanced modules
-4. **Protocol Updates**: Update protocol adapters for new message format
+4. **Mod Updates**: Update mod adapters for new message format
 
 ### Backward Compatibility
 
 The system maintains backward compatibility with existing networks:
 - Legacy configurations still work with `--config`
 - Old network launcher remains functional
-- Existing protocols continue to work
+- Existing mods continue to work
 
 ## Examples
 

@@ -45,7 +45,7 @@ class SimpleAgent(AgentRunner):
             echo_message = DirectMessage(
                 sender_id=self.client.agent_id,
                 target_agent_id=sender_id,
-                protocol="openagents.protocols.communication.simple_messaging",
+                protocol="openagents.mods.communication.simple_messaging",
                 message_type="direct_message",
                 content={"text": f"Echo: {text}"},
                 text_representation=f"Echo: {text}",
@@ -62,7 +62,7 @@ class SimpleAgent(AgentRunner):
                 greeting_message = DirectMessage(
                     sender_id=self.client.agent_id,
                     target_agent_id=sender_id,
-                    protocol="openagents.protocols.communication.simple_messaging",
+                    protocol="openagents.mods.communication.simple_messaging",
                     message_type="direct_message",
                     content={"text": f"Hello {sender_id}! Nice to meet you!"},
                     text_representation=f"Hello {sender_id}! Nice to meet you!",
@@ -83,7 +83,7 @@ class SimpleAgent(AgentRunner):
         # Send a greeting broadcast message
         greeting_message = BroadcastMessage(
             sender_id=self.client.agent_id,
-            protocol="openagents.protocols.communication.simple_messaging",
+            protocol="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",
             content={"text": f"Hello! I'm {self.client.agent_id}, ready to help!"},
             text_representation=f"Hello! I'm {self.client.agent_id}, ready to help!",
@@ -98,7 +98,7 @@ class SimpleAgent(AgentRunner):
         # Send goodbye message
         goodbye_message = BroadcastMessage(
             sender_id=self.client.agent_id,
-            protocol="openagents.protocols.communication.simple_messaging",
+            protocol="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",
             content={"text": f"Goodbye from {self.client.agent_id}!"},
             text_representation=f"Goodbye from {self.client.agent_id}!",

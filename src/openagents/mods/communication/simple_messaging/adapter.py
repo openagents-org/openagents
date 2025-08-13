@@ -1,7 +1,7 @@
 """
-Agent-level simple messaging protocol for OpenAgents.
+Agent-level simple messaging mod for OpenAgents.
 
-This protocol enables direct and broadcast messaging between agents with support for text and file attachments.
+This mod enables direct and broadcast messaging between agents with support for text and file attachments.
 """
 
 import logging
@@ -12,17 +12,17 @@ import tempfile
 from typing import Dict, Any, List, Optional, Callable, Union
 from pathlib import Path
 
-from openagents.core.base_protocol_adapter import BaseProtocolAdapter
+from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import (
     DirectMessage,
     BroadcastMessage,
-    ProtocolMessage
+    ModMessage
 )
 from openagents.models.tool import AgentAdapterTool
 from openagents.utils.message_util import (
     get_direct_message_thread_id,
     get_broadcast_message_thread_id,
-    get_protocol_message_thread_id
+    get_mod_message_thread_id
 )
 
 logger = logging.getLogger(__name__)
@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 MessageHandler = Callable[[Dict[str, Any], str], None]
 FileHandler = Callable[[str, bytes, Dict[str, Any], str], None]
 
-class SimpleMessagingAgentAdapter(BaseProtocolAdapter):
-    """Agent-level simple messaging protocol implementation.
+class SimpleMessagingAgentAdapter(BaseModAdapter):
+    """Agent-level simple messaging mod implementation.
     
-    This protocol enables:
+    This mod enables:
     - Direct messaging between agents with text and file attachments
     - Broadcast messaging to all agents with text and file attachments
     - File transfer between agents
@@ -139,15 +139,15 @@ class SimpleMessagingAgentAdapter(BaseProtocolAdapter):
             except Exception as e:
                 logger.error(f"Error in message handler: {e}")
     
-    async def process_incoming_protocol_message(self, message: ProtocolMessage) -> None:
-        """Process an incoming protocol message.
+    async def process_incoming_mod_message(self, message: ModMessage) -> None:
+        """Process an incoming mod message.
         
         Args:
-            message: The protocol message to process
+            message: The mod message to process
         """
         logger.debug(f"Received protocol message from {message.sender_id}")
         
-        # Handle protocol-specific messages
+        # Handle mod-specific messages
         action = message.content.get("action", "")
         
         if action == "file_download_response":
@@ -348,7 +348,7 @@ class SimpleMessagingAgentAdapter(BaseProtocolAdapter):
         request_id = str(uuid.uuid4())
         
         # Create and send the protocol message
-        message = ProtocolMessage(
+        message = ModMessage(
             sender_id=self.agent_id,
             protocol="simple_messaging",
             content={
@@ -375,7 +375,7 @@ class SimpleMessagingAgentAdapter(BaseProtocolAdapter):
             file_id: ID of the file to delete
         """
         # Create and send the protocol message
-        message = ProtocolMessage(
+        message = ModMessage(
             sender_id=self.agent_id,
             protocol="simple_messaging",
             content={
@@ -443,7 +443,7 @@ class SimpleMessagingAgentAdapter(BaseProtocolAdapter):
                 file_id = file_data["file_id"]
                 await self.download_file(file_id)
     
-    async def _handle_file_download_response(self, message: ProtocolMessage) -> None:
+    async def _handle_file_download_response(self, message: ModMessage) -> None:
         """Handle a file download response.
         
         Args:

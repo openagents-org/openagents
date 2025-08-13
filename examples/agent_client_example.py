@@ -66,7 +66,7 @@ async def main():
         print("Sending broadcast message...")
         broadcast_msg = BroadcastMessage(
             sender_id=agent_id,
-            protocol="openagents.protocols.communication.simple_messaging",
+            protocol="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",
             content={"text": "Hello from programmatically connected agent!"},
             text_representation="Hello from programmatically connected agent!",

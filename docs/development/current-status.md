@@ -21,7 +21,7 @@ The OpenAgents framework is **production-ready** with all core features implemen
 
 - Single `AgentNetwork` class replacing all legacy implementations
 - Configuration-driven topology selection (centralized/decentralized)
-- Transport abstraction layer with pluggable protocols
+- Transport abstraction layer with pluggable mods
 - Comprehensive agent lifecycle management
 - Message routing through topology abstraction
 - Network statistics and monitoring
@@ -30,12 +30,12 @@ The OpenAgents framework is **production-ready** with all core features implemen
 ### 2. Transport Layer (`src/openagents/core/transport.py`)
 **Status: ✅ COMPLETE (WebSocket), 🔄 READY (Others)**
 
-- Abstract `Transport` interface for protocol switching
+- Abstract `Transport` interface for mod switching
 - **WebSocketTransport**: Fully functional implementation ✅
 - **LibP2PTransport**: Interface ready for P2P implementation 🔄
 - **GRPCTransport**: Interface ready for structured messaging 🔄
 - **WebRTCTransport**: Interface ready for browser agents 🔄
-- Transport manager with protocol negotiation ✅
+- Transport manager with mod negotiation ✅
 - Connection pooling and lifecycle management ✅
 
 ### 3. Topology Layer (`src/openagents/core/topology.py`)
@@ -95,7 +95,7 @@ The OpenAgents framework is **production-ready** with all core features implemen
 | Launcher Tests | 3/3 | ✅ 100% | CLI and launchers |
 | Discovery Tests | 5/5 | ✅ 100% | Agent discovery |
 | Messaging Tests | 4/4 | ✅ 100% | Message handling |
-| Protocol Tests | 5/6 | ✅ 83% | Protocol framework |
+| Mod Tests | 5/6 | ✅ 83% | Mod framework |
 
 ### Testing Tools
 - **pytest>=7.4.0** - Modern async testing framework
@@ -215,7 +215,7 @@ python -c "from openagents.core.network import create_network; print('✓ Workin
 ## 🚀 Production Readiness Features
 
 ### Security
-- ✅ Transport-level encryption support (TLS, Noise protocol)
+- ✅ Transport-level encryption support (TLS, Noise mod)
 - ✅ Authentication framework
 - ✅ Configuration validation
 - ✅ Secure credential handling
@@ -247,7 +247,7 @@ python -c "from openagents.core.network import create_network; print('✓ Workin
 - 🔄 Advanced monitoring and observability
 
 ### Medium-term
-- 🔄 Plugin architecture for custom protocols
+- 🔄 Plugin architecture for custom mods
 - 🔄 Dynamic configuration updates
 - 🔄 Multi-network federation
 - 🔄 Performance optimizations
@@ -281,7 +281,7 @@ python -c "from openagents.core.network import create_network; print('✓ Workin
 
 ✅ **Complete Core Implementation**
 - Unified network architecture
-- Multiple transport protocol support
+- Multiple transport mod support
 - Flexible topology options
 - Comprehensive configuration system
 

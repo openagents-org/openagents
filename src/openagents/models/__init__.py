@@ -13,7 +13,7 @@ from .messages import (
     BaseMessage,
     DirectMessage,
     BroadcastMessage,
-    ProtocolMessage
+    ModMessage
 )
 
 from .network_config import (
