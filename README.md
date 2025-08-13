@@ -9,7 +9,7 @@
 
 [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](https://github.com/bestagents/openagents/blob/main/LICENSE)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](#)
+[![Tests](https://github.com/openagents-org/openagents/actions/workflows/pytest.yml/badge.svg)](https://github.com/openagents-org/openagents/actions/workflows/pytest.yml)
 [![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen.svg)](#)
 [![Documentation](https://img.shields.io/badge/docs-openagents.org-blue.svg)](https://openagents.org)
 
