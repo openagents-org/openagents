@@ -1,0 +1,397 @@
+"""
+Test cases for SimpleAgentRunner to ensure it works correctly with different providers.
+"""
+
+import pytest
+import os
+import asyncio
+from unittest.mock import Mock, patch, AsyncMock
+from typing import Dict, Any
+
+from openagents.agents.simple_agent import (
+    SimpleAgentRunner, 
+    OpenAIProvider, 
+    AnthropicProvider,
+    BedrockProvider,
+    GeminiProvider,
+    SimpleGenericProvider
+)
+from openagents.models.message_thread import MessageThread
+from openagents.models.messages import DirectMessage
+
+
+class TestSimpleAgentRunner:
+    """Test cases for SimpleAgentRunner."""
+    
+    def test_provider_detection_openai(self):
+        """Test that OpenAI models are correctly detected."""
+        agent = SimpleAgentRunner(
+            agent_id="test-agent",
+            model_name="gpt-4o-mini",
+            instruction="Test instruction"
+        )
+        assert agent.provider == "openai"
+    
+    def test_provider_detection_claude(self):
+        """Test that Claude models are correctly detected."""
+        agent = SimpleAgentRunner(
+            agent_id="test-agent",
+            model_name="claude-3-5-sonnet-20241022",
+            instruction="Test instruction"
+        )
+        assert agent.provider == "claude"
+    
+    def test_provider_detection_gemini(self):
+        """Test that Gemini models are correctly detected."""
+        agent = SimpleAgentRunner(
+            agent_id="test-agent",
+            model_name="gemini-1.5-pro",
+            instruction="Test instruction"
+        )
+        assert agent.provider == "gemini"
+    
+    def test_provider_detection_deepseek(self):
+        """Test that DeepSeek models are correctly detected."""
+        agent = SimpleAgentRunner(
+            agent_id="test-agent",
+            model_name="deepseek-chat",
+            instruction="Test instruction"
+        )
+        assert agent.provider == "deepseek"
+    
+    def test_explicit_provider_override(self):
+        """Test that explicitly setting provider overrides auto-detection."""
+        agent = SimpleAgentRunner(
+            agent_id="test-agent",
+            model_name="gpt-4",
+            provider="azure",
+            instruction="Test instruction"
+        )
+        assert agent.provider == "azure"
+    
+    def test_api_base_detection(self):
+        """Test provider detection based on API base URL."""
+        agent = SimpleAgentRunner(
+            agent_id="test-agent",
+            model_name="custom-model",
+            api_base="https://example.azure.com/",
+            instruction="Test instruction"
+        )
+        assert agent.provider == "azure"
+    
+    @patch('openagents.agents.simple_agent.OpenAI')
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
+    def test_openai_provider_creation(self, mock_openai):
+        """Test OpenAI provider is created correctly."""
+        mock_client = Mock()
+        mock_openai.return_value = mock_client
+        
+        agent = SimpleAgentRunner(
+            agent_id="test-agent",
+            model_name="gpt-4o-mini",
+            provider="openai",
+            instruction="Test instruction"
+        )
+        
+        assert isinstance(agent.model_provider, OpenAIProvider)
+        mock_openai.assert_called_once_with(api_key='test-key')
+    
+    @patch('openagents.agents.simple_agent.AzureOpenAI')
+    @patch.dict(os.environ, {'AZURE_OPENAI_API_KEY': 'test-azure-key'})
+    def test_azure_provider_creation(self, mock_azure_openai):
+        """Test Azure OpenAI provider is created correctly."""
+        mock_client = Mock()
+        mock_azure_openai.return_value = mock_client
+        
+        agent = SimpleAgentRunner(
+            agent_id="test-agent",
+            model_name="gpt-4",
+            provider="azure",
+            api_base="https://test.openai.azure.com/",
+            instruction="Test instruction"
+        )
+        
+        assert isinstance(agent.model_provider, OpenAIProvider)
+        mock_azure_openai.assert_called_once()
+    
+    def test_missing_api_key_error(self):
+        """Test that missing API key raises appropriate error."""
+        with patch.dict(os.environ, {}, clear=True):
+            with pytest.raises(Exception):  # Should fail due to missing API key
+                SimpleAgentRunner(
+                    agent_id="test-agent",
+                    model_name="gpt-4o-mini",
+                    provider="openai",
+                    instruction="Test instruction"
+                )._create_model_provider(None, None, {})
+
+
+class TestSimpleAgentRunnerWithMockedAPI:
+    """Test SimpleAgentRunner with mocked API calls to avoid requiring real API keys."""
+    
+    @pytest.fixture
+    def mock_openai_response(self):
+        """Mock OpenAI API response."""
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].message = Mock()
+        mock_response.choices[0].message.content = "Hello! This is a test response."
+        mock_response.choices[0].message.tool_calls = None
+        return mock_response
+    
+    @pytest.fixture
+    def test_message(self):
+        """Create a test message."""
+        return DirectMessage(
+            sender_id="test-user",
+            target_agent_id="test-agent",
+            content={"text": "Hello, test agent!"},
+            text_representation="Hello, test agent!"
+        )
+    
+    @patch('openagents.agents.simple_agent.OpenAI')
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
+    async def test_agent_reaction_openai(self, mock_openai_class, mock_openai_response, test_message):
+        """Test agent reaction with mocked OpenAI API."""
+        # Setup mock client
+        mock_client = Mock()
+        mock_client.chat.completions.create = Mock(return_value=mock_openai_response)
+        mock_openai_class.return_value = mock_client
+        
+        # Create agent
+        agent = SimpleAgentRunner(
+            agent_id="test-agent",
+            model_name="gpt-4o-mini",
+            provider="openai",
+            instruction="You are a helpful test assistant."
+        )
+        
+        # Test reaction
+        message_threads = {}
+        thread_id = "test-thread"
+        
+        await agent.react(
+            message_threads=message_threads,
+            incoming_thread_id=thread_id,
+            incoming_message=test_message
+        )
+        
+        # Verify OpenAI API was called
+        mock_client.chat.completions.create.assert_called()
+        call_args = mock_client.chat.completions.create.call_args
+        assert call_args[1]['model'] == 'gpt-4o-mini'
+        assert len(call_args[1]['messages']) >= 2  # System + user message
+    
+    @patch('openagents.agents.simple_agent.OpenAI')
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
+    async def test_agent_reaction_with_tools(self, mock_openai_class, test_message):
+        """Test agent reaction with tool calling."""
+        # Setup mock client with tool call response
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].message = Mock()
+        mock_response.choices[0].message.content = None
+        
+        # Mock tool call
+        mock_tool_call = Mock()
+        mock_tool_call.id = "test-call-id"
+        mock_tool_call.function.name = "finish"
+        mock_tool_call.function.arguments = '{"reason": "Test completed"}'
+        mock_response.choices[0].message.tool_calls = [mock_tool_call]
+        
+        mock_client = Mock()
+        mock_client.chat.completions.create = Mock(return_value=mock_response)
+        mock_openai_class.return_value = mock_client
+        
+        # Create agent
+        agent = SimpleAgentRunner(
+            agent_id="test-agent",
+            model_name="gpt-4o-mini",
+            provider="openai",
+            instruction="You are a helpful test assistant."
+        )
+        
+        # Test reaction
+        message_threads = {}
+        thread_id = "test-thread"
+        
+        await agent.react(
+            message_threads=message_threads,
+            incoming_thread_id=thread_id,
+            incoming_message=test_message
+        )
+        
+        # Verify the finish tool was called
+        mock_client.chat.completions.create.assert_called()
+    
+    @patch('openagents.agents.simple_agent.OpenAI')
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
+    def test_finish_tool_creation(self, mock_openai_class):
+        """Test that the finish tool is created correctly."""
+        mock_openai_class.return_value = Mock()
+        
+        agent = SimpleAgentRunner(
+            agent_id="test-agent",
+            model_name="gpt-4o-mini",
+            provider="openai",
+            instruction="Test instruction"
+        )
+        
+        finish_tool = agent._create_finish_tool()
+        
+        assert finish_tool.name == "finish"
+        assert "completed" in finish_tool.description.lower()
+        assert "reason" in finish_tool.input_schema["properties"]
+
+
+class TestProviderClasses:
+    """Test individual provider classes."""
+    
+    @patch('openagents.agents.simple_agent.OpenAI')
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'})
+    def test_openai_provider_init(self, mock_openai):
+        """Test OpenAI provider initialization."""
+        mock_openai.return_value = Mock()
+        
+        provider = OpenAIProvider(model_name="gpt-4o-mini")
+        
+        assert provider.model_name == "gpt-4o-mini"
+        mock_openai.assert_called_once_with(api_key='test-key')
+    
+    def test_openai_provider_tool_formatting(self):
+        """Test OpenAI provider tool formatting."""
+        with patch('openagents.agents.simple_agent.OpenAI'):
+            with patch.dict(os.environ, {'OPENAI_API_KEY': 'test-key'}):
+                provider = OpenAIProvider(model_name="gpt-4o-mini")
+                
+                # Mock tool
+                mock_tool = Mock()
+                mock_tool.to_openai_function.return_value = {
+                    "name": "test_tool",
+                    "description": "A test tool",
+                    "parameters": {"type": "object", "properties": {}}
+                }
+                
+                formatted = provider.format_tools([mock_tool])
+                
+                assert len(formatted) == 1
+                assert formatted[0]["name"] == "test_tool"
+    
+    def test_generic_provider_init(self):
+        """Test generic provider initialization."""
+        with patch('openagents.agents.simple_agent.OpenAI') as mock_openai:
+            mock_openai.return_value = Mock()
+            
+            provider = SimpleGenericProvider(
+                model_name="deepseek-chat",
+                api_base="https://api.deepseek.com/v1",
+                api_key="test-key"
+            )
+            
+            assert provider.model_name == "deepseek-chat"
+            assert provider.api_base == "https://api.deepseek.com/v1"
+            mock_openai.assert_called_once_with(
+                base_url="https://api.deepseek.com/v1",
+                api_key="test-key"
+            )
+
+
+class TestConfigurationValidation:
+    """Test configuration validation and error handling."""
+    
+    def test_missing_required_params(self):
+        """Test that missing required parameters raise errors."""
+        with pytest.raises(TypeError):
+            SimpleAgentRunner()  # Missing required parameters
+    
+    def test_invalid_provider(self):
+        """Test handling of invalid provider."""
+        with pytest.raises(ValueError, match="Unsupported provider"):
+            SimpleAgentRunner(
+                agent_id="test-agent",
+                model_name="test-model",
+                provider="invalid-provider",
+                instruction="Test instruction"
+            )
+    
+    def test_missing_api_base_for_generic_provider(self):
+        """Test that generic providers require API base."""
+        with pytest.raises(ValueError, match="API base URL required"):
+            agent = SimpleAgentRunner(
+                agent_id="test-agent",
+                model_name="custom-model",
+                provider="deepseek",
+                instruction="Test instruction"
+            )
+            # This should fail when trying to create the provider without api_base
+            agent._create_model_provider(None, None, {})
+
+
+class TestIntegrationWithoutAPIKey:
+    """Integration tests that don't require real API keys."""
+    
+    @patch('openagents.agents.simple_agent.OpenAI')
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'fake-key-for-testing'})
+    def test_agent_initialization_flow(self, mock_openai):
+        """Test the complete agent initialization flow."""
+        mock_openai.return_value = Mock()
+        
+        # Test agent creation
+        agent = SimpleAgentRunner(
+            agent_id="integration-test-agent",
+            model_name="gpt-4o-mini",
+            provider="openai",
+            instruction="You are a helpful assistant for integration testing.",
+            protocol_names=["openagents.mods.communication.simple_messaging"]
+        )
+        
+        # Verify agent properties
+        assert agent._agent_id == "integration-test-agent"
+        assert agent.model_name == "gpt-4o-mini"
+        assert agent.provider == "openai"
+        assert agent.instruction == "You are a helpful assistant for integration testing."
+        
+        # Verify provider was created
+        assert agent.model_provider is not None
+        assert isinstance(agent.model_provider, OpenAIProvider)
+    
+    @patch('openagents.agents.simple_agent.OpenAI')
+    @patch.dict(os.environ, {'OPENAI_API_KEY': 'fake-key-for-testing'})
+    def test_multiple_providers_coexist(self, mock_openai):
+        """Test that multiple agent instances with different providers can coexist."""
+        mock_openai.return_value = Mock()
+        
+        # Create multiple agents
+        openai_agent = SimpleAgentRunner(
+            agent_id="openai-agent",
+            model_name="gpt-4o-mini",
+            provider="openai",
+            instruction="OpenAI assistant"
+        )
+        
+        deepseek_agent = SimpleAgentRunner(
+            agent_id="deepseek-agent",
+            model_name="deepseek-chat",
+            provider="deepseek",
+            api_base="https://api.deepseek.com/v1",
+            instruction="DeepSeek assistant"
+        )
+        
+        # Verify they have different providers
+        assert openai_agent.provider == "openai"
+        assert deepseek_agent.provider == "deepseek"
+        assert openai_agent.model_provider != deepseek_agent.model_provider
+
+
+# Pytest configuration for async tests
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an instance of the default event loop for the test session."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+if __name__ == "__main__":
+    # Run tests when script is executed directly
+    pytest.main([__file__, "-v"])

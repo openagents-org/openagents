@@ -1,11 +1,14 @@
 # Azure OpenAI Agent Configuration Example
 # This demonstrates configuration for Azure OpenAI services
 
-type: "openai"
+type: "simple"
 
 config:
   agent_id: "azure-gpt-agent"
   model_name: "gpt-4"  # Your Azure deployment name
+  
+  # Specify Azure provider
+  provider: "azure"
   
   # Azure OpenAI endpoint
   api_base: "https://your-resource.openai.azure.com/"
