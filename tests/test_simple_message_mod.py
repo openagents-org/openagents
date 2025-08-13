@@ -201,6 +201,7 @@ class TestSimpleMessageProtocol:
         logger.info("✅ Both simple message agents connected and ready")
 
     @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_simple_message_protocol_exchange(self):
         """Test message exchange using simple message protocol."""
         # Set up server and agents
@@ -255,6 +256,7 @@ class TestSimpleMessageProtocol:
         logger.info("🎉 Simple message protocol exchange test PASSED!")
 
     @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_bidirectional_simple_messages(self):
         """Test bidirectional messaging using simple message protocol."""
         # Set up server and agents
@@ -297,6 +299,7 @@ class TestSimpleMessageProtocol:
         logger.info("🎉 Bidirectional simple message test PASSED!")
 
     @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_protocol_tool_availability(self):
         """Test that simple message protocol tools are available."""
         # Set up server and agents
@@ -375,6 +378,7 @@ class TestSimpleMessageProtocol:
         logger.info("✅ All three broadcast agents connected and ready")
 
     @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_broadcast_message_protocol(self):
         """Test broadcasting messages to multiple agents using simple message protocol."""
         # Set up server and agents

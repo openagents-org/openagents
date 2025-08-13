@@ -138,6 +138,7 @@ class TestOpenConvertDiscovery:
         return client, discovery_adapter
 
     @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_capability_announcement(self):
         """Test that agents can announce their conversion capabilities."""
         # Set up network
@@ -184,6 +185,7 @@ class TestOpenConvertDiscovery:
         assert registered_caps["description"] == "Test document conversion agent", "Description not registered correctly"
 
     @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_agent_discovery_single_agent(self):
         """Test discovering a single agent with specific conversion capabilities."""
         # Set up network
@@ -230,6 +232,7 @@ class TestOpenConvertDiscovery:
         assert len(agent_caps["conversion_pairs"]) == 3, "Incorrect number of conversion pairs in result"
 
     @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_agent_discovery_multiple_agents(self):
         """Test discovering multiple agents with overlapping capabilities."""
         # Set up network
@@ -325,6 +328,7 @@ class TestOpenConvertDiscovery:
         assert len(no_agents) == 0, f"Expected 0 agents for unknown conversion, found {len(no_agents)}"
 
     @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_agent_discovery_with_description_filter(self):
         """Test discovering agents with description filtering."""
         # Set up network
@@ -380,7 +384,8 @@ class TestOpenConvertDiscovery:
         assert len(ocr_agents) == 1, f"Expected 1 agent with OCR description, found {len(ocr_agents)}"
         assert ocr_agents[0]["agent_id"] == "specialist-agent", "Wrong agent found with description filter"
 
-    @pytest.mark.asyncio 
+    @pytest.mark.asyncio
+    @pytest.mark.integration
     async def test_discovery_timeout_handling(self):
         """Test that discovery handles timeouts gracefully."""
         # Set up network

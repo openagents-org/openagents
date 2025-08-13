@@ -11,6 +11,7 @@ import unittest
 import sys
 import os
 import json
+import pytest
 from unittest.mock import patch, MagicMock, mock_open
 from pathlib import Path
 import importlib.util
@@ -138,7 +139,7 @@ class TestProtocolLoaders(unittest.TestCase):
         manifest_content = '{}'
         self.mock_open.return_value.__enter__.return_value.read.return_value = manifest_content
         
-        # Create a simple object to serve as the adapter - avoid MagicMock to prevent async artifacts
+        # Create a simple adapter class that doesn't inherit from MagicMock
         class SimpleAdapter:
             def __init__(self):
                 self.protocol_name = "mock_mod"
