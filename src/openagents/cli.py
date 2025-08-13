@@ -152,6 +152,12 @@ def launch_agent_command(args: argparse.Namespace) -> None:
                     # Support both network_id and network-id keys
                     network_id = conn_config.get('network_id') or conn_config.get('network-id')
             
+            # Apply default values as last resort if still None
+            if host is None:
+                host = "localhost"
+            if port is None:
+                port = 8570
+            
             # Start the agent and wait for it to stop
             try:
                 # Start the agent
