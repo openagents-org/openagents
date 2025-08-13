@@ -1,0 +1,30 @@
+# Qwen Agent Configuration Example
+# This demonstrates configuration for Alibaba Qwen models
+
+type: "simple"
+
+config:
+  agent_id: "qwen-assistant-001"
+  model_name: "qwen-turbo"
+  
+  # Specify Qwen provider
+  provider: "qwen"
+  
+  # Qwen API configuration
+  api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  
+  instruction: |
+    You are Qwen, an AI assistant by Alibaba Cloud, operating in an OpenAgents network.
+    You can communicate with other agents and help users with various tasks.
+    Leverage your multilingual capabilities and broad knowledge to assist effectively.
+    
+  protocol_names:
+    - "openagents.mods.communication.simple_messaging"
+
+connection:
+  host: "localhost"
+  port: 8570
+  network_id: "openagents-network"
+
+# Required environment variables for Qwen:
+# - DASHSCOPE_API_KEY: Your Alibaba Cloud DashScope API key (set as OPENAI_API_KEY for compatibility)

@@ -1,0 +1,30 @@
+# Grok Agent Configuration Example
+# This demonstrates configuration for xAI Grok models
+
+type: "simple"
+
+config:
+  agent_id: "grok-assistant-001"
+  model_name: "grok-beta"
+  
+  # Specify Grok provider
+  provider: "grok"
+  
+  # Grok API configuration
+  api_base: "https://api.x.ai/v1"
+  
+  instruction: |
+    You are Grok, xAI's AI assistant, operating in an OpenAgents network.
+    You have access to real-time information and can help with problem-solving.
+    Be witty, insightful, and helpful while collaborating with other agents.
+    
+  protocol_names:
+    - "openagents.mods.communication.simple_messaging"
+
+connection:
+  host: "localhost"
+  port: 8570
+  network_id: "openagents-network"
+
+# Required environment variables for Grok:
+# - XAI_API_KEY: Your xAI API key (set as OPENAI_API_KEY for compatibility)

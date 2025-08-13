@@ -2,8 +2,8 @@
 # This demonstrates a simple OpenAI-based conversational agent
 
 # Agent type - can be either a predefined type or fully qualified class path
-type: "openai"  # Predefined type for SimpleOpenAIAgentRunner
-# Alternative: type: "openagents.agents.simple_openai_agent.SimpleOpenAIAgentRunner"
+type: "simple"  # Unified agent type that supports multiple model providers
+# Alternative: type: "openagents.agents.simple_agent.SimpleAgentRunner"
 
 # Agent configuration parameters (passed to constructor)
 config:
@@ -11,8 +11,12 @@ config:
   
   agent_id: "openai-assistant-001"
   
-  # Required: OpenAI model to use
+  # Required: Model to use
   model_name: "gpt-4o-mini"
+  
+  # Optional: Model provider (auto-detected if not specified)
+  # Supported: openai, azure, claude, bedrock, gemini, deepseek, qwen, grok
+  provider: "openai"
   
   # Required: System instruction/prompt for the agent
   instruction: |
@@ -22,6 +26,9 @@ config:
     
   # Optional: Custom API base URL (for Azure OpenAI or other providers)
   # api_base: "https://your-resource.openai.azure.com/"
+  
+  # Optional: Custom API key (if not provided, will use environment variables)
+  # api_key: "your-api-key-here"
   
   # Optional: List of protocol names to register with
   protocol_names:

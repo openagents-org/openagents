@@ -115,12 +115,15 @@ def launch_agent_command(args: argparse.Namespace) -> None:
             # Handle predefined agent types
             if agent_type.lower() == 'openai':
                 agent_class = SimpleOpenAIAgentRunner
+            elif agent_type.lower() == 'simple':
+                from openagents.agents.simple_agent import SimpleAgentRunner
+                agent_class = SimpleAgentRunner
             elif agent_type.lower() == 'echo':
                 agent_class = SimpleEchoAgentRunner
             else:
                 logging.error(f"Unsupported predefined agent type: {agent_type}")
-                logging.info("Supported predefined types: 'openai', 'echo'")
-                logging.info("Or use a fully qualified class path (e.g., 'openagents.agents.simple_openai_agent.SimpleOpenAIAgentRunner')")
+                logging.info("Supported predefined types: 'openai', 'simple', 'echo'")
+                logging.info("Or use a fully qualified class path (e.g., 'openagents.agents.simple_agent.SimpleAgentRunner')")
                 return
         
         # Create the agent using the config parameters directly as kwargs

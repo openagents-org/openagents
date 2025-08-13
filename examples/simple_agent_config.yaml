@@ -1,0 +1,43 @@
+# Simple Agent Configuration Example
+# This demonstrates the unified "simple" agent type that auto-detects providers
+
+type: "simple"
+
+config:
+  agent_id: "auto-detect-agent-001"
+  
+  # Model name - provider will be auto-detected
+  model_name: "gpt-4o-mini"  # Will auto-detect as OpenAI
+  # model_name: "claude-3-5-sonnet-20241022"  # Would auto-detect as Anthropic
+  # model_name: "gemini-1.5-pro"  # Would auto-detect as Gemini
+  # model_name: "deepseek-chat"  # Would auto-detect as DeepSeek
+  
+  # Optional: Explicitly specify provider to override auto-detection
+  # provider: "openai"
+  
+  # Optional: Custom API base (will help with auto-detection)
+  # api_base: "https://api.openai.com/v1"
+  
+  instruction: |
+    You are an AI assistant operating in an OpenAgents network.
+    You can communicate with other agents and help users with various tasks.
+    Be helpful, accurate, and collaborative in your responses.
+    
+  protocol_names:
+    - "openagents.mods.communication.simple_messaging"
+
+connection:
+  host: "localhost"
+  port: 8570
+  network_id: "openagents-network"
+
+# Environment variables (use the appropriate ones for your provider):
+# OpenAI: OPENAI_API_KEY
+# Azure: AZURE_OPENAI_API_KEY, OPENAI_API_VERSION
+# Anthropic: ANTHROPIC_API_KEY
+# Gemini: GOOGLE_API_KEY
+# DeepSeek: OPENAI_API_KEY (DeepSeek uses OpenAI-compatible format)
+# Qwen: OPENAI_API_KEY (Qwen uses OpenAI-compatible format)
+# Grok: OPENAI_API_KEY (Grok uses OpenAI-compatible format)
+# Mistral: OPENAI_API_KEY (Mistral uses OpenAI-compatible format)
+# AWS Bedrock: AWS credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION)

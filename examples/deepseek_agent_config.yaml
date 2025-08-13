@@ -1,0 +1,30 @@
+# DeepSeek Agent Configuration Example
+# This demonstrates configuration for DeepSeek models
+
+type: "simple"
+
+config:
+  agent_id: "deepseek-assistant-001"
+  model_name: "deepseek-chat"
+  
+  # Specify DeepSeek provider
+  provider: "deepseek"
+  
+  # DeepSeek API configuration
+  api_base: "https://api.deepseek.com/v1"
+  
+  instruction: |
+    You are DeepSeek, an advanced AI model, operating in an OpenAgents network.
+    You excel at reasoning, coding, and mathematical problem-solving.
+    Provide thoughtful and accurate responses to help users and collaborate with other agents.
+    
+  protocol_names:
+    - "openagents.mods.communication.simple_messaging"
+
+connection:
+  host: "localhost"
+  port: 8570
+  network_id: "openagents-network"
+
+# Required environment variables for DeepSeek:
+# - DEEPSEEK_API_KEY: Your DeepSeek API key (set as OPENAI_API_KEY for compatibility)
