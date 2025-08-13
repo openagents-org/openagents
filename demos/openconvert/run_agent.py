@@ -457,8 +457,8 @@ Example usage:
     parser.add_argument(
         "--port", 
         type=int,
-        default=8765,
-        help="Network port to connect to (default: 8765)"
+        default=8570,
+        help="Network port to connect to (default: 8570)"
     )
     
     args = parser.parse_args()

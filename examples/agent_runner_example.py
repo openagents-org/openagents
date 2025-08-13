@@ -114,7 +114,7 @@ def main():
     
     # Connection parameters (change these to match your network)
     host = "localhost"
-    port = 8765
+    port = 8570
     
     # Agent metadata
     metadata = {

@@ -147,7 +147,7 @@ The included test script verifies:
 - Check installation instructions with your administrator
 
 ### Connection errors
-- Ensure network server is running on correct port (8765)
+- Ensure network server is running on correct port (8570)
 - Check firewall settings
 - Verify all components use same network configuration
 
@@ -156,7 +156,7 @@ The included test script verifies:
 The system uses a centralized network topology with:
 - **Message Size Limit**: 10MB (for file transfers)
 - **Timeout**: 30 seconds for conversions
-- **Transport**: WebSocket on port 8765
+- **Transport**: WebSocket on port 8570
 - **Protocols**: Discovery + Simple Messaging
 
 See `network_config.yaml` for detailed configuration. 

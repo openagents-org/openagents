@@ -169,7 +169,7 @@ def create_example_configs() -> None:
     server_config = create_centralized_server_config(
         network_name="CentralizedServer",
         host="0.0.0.0",
-        port=8765
+        port=8570
     )
     
     with open("centralized_server.yaml", "w") as f:
@@ -179,7 +179,7 @@ def create_example_configs() -> None:
     # Centralized client config
     client_config = create_centralized_client_config(
         network_name="CentralizedClient",
-        coordinator_url="ws://localhost:8765"
+        coordinator_url="ws://localhost:8570"
     )
     
     with open("centralized_client.yaml", "w") as f:

@@ -34,7 +34,7 @@ config:
 # Connection configuration (optional - can be overridden by command line)
 connection:
   host: "localhost"
-  port: 8765
+  port: 8570
   network_id: "openagents-network"
 
 # Environment variables needed:

@@ -24,7 +24,7 @@ from openagents.core.network import AgentNetworkServer
 from openagents.protocols.discovery.agent_discovery import AgentDiscoveryProtocol
 
 # Create network server
-network = AgentNetworkServer("localhost:8765")
+network = AgentNetworkServer("localhost:8570")
 
 # Register agent discovery protocol
 network.register_protocol(AgentDiscoveryProtocol())
@@ -58,7 +58,7 @@ discovery_adapter.set_capabilities({
 })
 
 # Connect to network
-await client.connect("localhost:8765")
+await client.connect("localhost:8570")
 ```
 
 ### Discovering Agents

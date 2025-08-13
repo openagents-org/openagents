@@ -21,7 +21,7 @@ config:
 
 connection:
   host: "enterprise-network.company.com"
-  port: 8765
+  port: 8570
   network_id: "enterprise-ai-network"
 
 # Required environment variables for Azure OpenAI:

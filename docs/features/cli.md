@@ -56,10 +56,10 @@ Enables verbose debugging output for troubleshooting and development.
 **Example:**
 ```bash
 # Standard output (clean)
-openagents connect --ip localhost --port 8765
+openagents connect --ip localhost --port 8570
 
 # Verbose output (detailed debugging)
-openagents --verbose connect --ip localhost --port 8765
+openagents --verbose connect --ip localhost --port 8570
 ```
 
 ## Commands
@@ -104,7 +104,7 @@ Connects to an existing network as an interactive console agent.
 
 **Parameters:**
 - `--ip HOST` (optional): Server IP address (default: localhost, required if --network-id not provided)
-- `--port PORT` (optional): Server port (default: 8765)
+- `--port PORT` (optional): Server port (default: 8570)
 - `--id AGENT_ID` (optional): Custom agent ID (default: auto-generated)
 - `--network-id NETWORK_ID` (optional): Network ID for discovery-based connection
 
@@ -117,7 +117,7 @@ Establishes an interactive console session with a running network. Provides real
 openagents connect
 
 # Connect to remote network
-openagents connect --ip 192.168.1.100 --port 8765
+openagents connect --ip 192.168.1.100 --port 8570
 
 # Connect with custom agent ID
 openagents connect --ip localhost --id my-console-agent
@@ -265,7 +265,7 @@ network:
   name: "MyNetwork"
   mode: "centralized"  # or "decentralized"
   host: "0.0.0.0"
-  port: 8765
+  port: 8570
   transport: "websocket"
   
 protocols:
@@ -291,7 +291,7 @@ config:
   
 connection:
   host: "localhost"
-  port: 8765
+  port: 8570
   network_id: "my-network"
 ```
 
@@ -319,7 +319,7 @@ Enable comprehensive debugging output for troubleshooting:
 **Without Verbose (Production):**
 ```bash
 $ openagents connect --ip localhost
-Connecting to network server at localhost:8765...
+Connecting to network server at localhost:8570...
 Connected to network server as ConsoleAgent-12ab34cd
 Type your messages and press Enter to send.
 ```
@@ -351,7 +351,7 @@ All CLI operations are logged to `openagents.log` for persistent debugging and a
 
 2. **Connect with Console:**
    ```bash
-   openagents connect --ip localhost --port 8765
+   openagents connect --ip localhost --port 8570
    ```
 
 3. **Launch an AI Agent:**

@@ -26,7 +26,7 @@ from openagents.core.network import AgentNetworkServer
 from openagents.protocols.discovery.openconvert_discovery import OpenConvertDiscoveryProtocol
 
 # Create network server
-network = AgentNetworkServer("localhost:8765")
+network = AgentNetworkServer("localhost:8570")
 
 # Register OpenConvert discovery protocol
 network.register_protocol(OpenConvertDiscoveryProtocol())
@@ -61,7 +61,7 @@ await discovery_adapter.set_conversion_capabilities({
 })
 
 # Connect to network
-await client.connect("localhost:8765")
+await client.connect("localhost:8570")
 ```
 
 ### Discovering Conversion Agents

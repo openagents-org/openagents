@@ -129,7 +129,7 @@ class NetworkConfig(BaseModel):
     mode: Union[NetworkMode, str] = NetworkMode.CENTRALIZED
     transport: Union[TransportType, str] = TransportType.WEBSOCKET
     host: str = "localhost"
-    port: int = 8765
+    port: int = 8570
     encryption_enabled: bool = False
     discovery_enabled: bool = True
     # ... additional configuration options
@@ -197,7 +197,7 @@ network:
   mode: "centralized"
   transport: "websocket"
   host: "0.0.0.0"
-  port: 8765
+  port: 8570
   encryption_enabled: true
   encryption_type: "tls"
   discovery_enabled: true

@@ -115,7 +115,7 @@ openagents launch-network network_config.yaml
 openagents launch-network config.yaml --runtime 3600
 
 # Connect to network interactively
-openagents connect --ip localhost --port 8765 --id my-agent
+openagents connect --ip localhost --port 8570 --id my-agent
 ```
 
 ### Programming API
@@ -129,7 +129,7 @@ config = NetworkConfig(
     mode="centralized",
     transport="websocket",
     host="localhost",
-    port=8765
+    port=8570
 )
 
 network = create_network(config)
@@ -159,7 +159,7 @@ network:
   mode: "centralized"
   transport: "websocket"
   host: "0.0.0.0"
-  port: 8765
+  port: 8570
   encryption_enabled: true
   discovery_enabled: true
   max_connections: 100

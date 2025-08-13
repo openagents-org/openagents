@@ -116,7 +116,7 @@ class NetworkProfile(BaseModel):
     )
     
     port: int = Field(
-        default=8765,
+        default=8570,
         ge=1,
         le=65535,
         description="The port number of the network"

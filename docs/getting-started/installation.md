@@ -104,7 +104,7 @@ network:
   mode: "centralized"
   transport: "websocket"
   host: "localhost"
-  port: 8765
+  port: 8570
   discovery_enabled: true
 EOF
 
@@ -116,7 +116,7 @@ In another terminal, connect to the network:
 
 ```bash
 # Connect with interactive console
-openagents connect --ip localhost --port 8765
+openagents connect --ip localhost --port 8570
 ```
 
 ## Troubleshooting
@@ -138,7 +138,7 @@ openagents connect --ip localhost --port 8765
    pip install -e ".[dev]"
    ```
 
-4. **Port Conflicts**: Change the port in your configuration if 8765 is in use
+4. **Port Conflicts**: Change the port in your configuration if 8570 is in use
 
 ### Getting Help
 

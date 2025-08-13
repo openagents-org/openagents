@@ -31,7 +31,7 @@ class TestTopologyCreation:
         config = {
             "transport": TransportType.WEBSOCKET,
             "host": "127.0.0.1",
-            "port": 8765,
+            "port": 8570,
             "server_mode": True
         }
         
@@ -68,7 +68,7 @@ class TestCentralizedTopology:
         config = {
             "transport": TransportType.WEBSOCKET,
             "host": "127.0.0.1",
-            "port": 8765,
+            "port": 8570,
             "server_mode": True
         }
         return CentralizedTopology("test-network", config)
@@ -81,7 +81,7 @@ class TestCentralizedTopology:
             metadata={"name": "Agent 1"},
             capabilities=["chat"],
             transport_type=TransportType.WEBSOCKET,
-            address="127.0.0.1:8765"
+            address="127.0.0.1:8570"
         )
         
         result = await topology.register_agent(agent)
@@ -96,7 +96,7 @@ class TestCentralizedTopology:
             metadata={"name": "Agent 1"},
             capabilities=["chat"],
             transport_type=TransportType.WEBSOCKET,
-            address="127.0.0.1:8765"
+            address="127.0.0.1:8570"
         )
         
         await topology.register_agent(agent1)
@@ -115,7 +115,7 @@ class TestCentralizedTopology:
             metadata={"name": "Agent 1"},
             capabilities=["chat"],
             transport_type=TransportType.WEBSOCKET,
-            address="127.0.0.1:8765"
+            address="127.0.0.1:8570"
         )
         topology.agents["agent1"] = agent
         

@@ -30,7 +30,7 @@ network:
   mode: "centralized"
   transport: "websocket"
   host: "localhost"
-  port: 8765
+  port: 8570
   discovery_enabled: true
   encryption_enabled: false
   max_connections: 50
@@ -48,7 +48,7 @@ You should see output like:
 2024-01-01 10:00:00,000 - openagents.launchers.network_launcher - INFO - Network 'MyFirstNetwork' started successfully
 2024-01-01 10:00:00,001 - openagents.launchers.network_launcher - INFO - Network mode: centralized
 2024-01-01 10:00:00,002 - openagents.launchers.network_launcher - INFO - Transport: websocket
-2024-01-01 10:00:00,003 - openagents.launchers.network_launcher - INFO - Host: localhost, Port: 8765
+2024-01-01 10:00:00,003 - openagents.launchers.network_launcher - INFO - Host: localhost, Port: 8570
 ```
 
 ## Step 3: Connect with Terminal Console
@@ -56,12 +56,12 @@ You should see output like:
 Open a new terminal and connect to your network:
 
 ```bash
-openagents connect --ip localhost --port 8765 --id my-agent
+openagents connect --ip localhost --port 8570 --id my-agent
 ```
 
 You should see:
 ```
-Connecting to network server at localhost:8765...
+Connecting to network server at localhost:8570...
 Connected to network server as my-agent
 Type your messages and press Enter to send.
 Commands:
@@ -94,7 +94,7 @@ In the console, try these commands:
 Open another terminal and connect a second agent:
 
 ```bash
-openagents connect --ip localhost --port 8765 --id second-agent
+openagents connect --ip localhost --port 8570 --id second-agent
 ```
 
 Now you can:
@@ -214,7 +214,7 @@ network:
   mode: "centralized"
   transport: "websocket"
   host: "0.0.0.0"
-  port: 8765
+  port: 8570
   encryption_enabled: true
   encryption_type: "tls"
   discovery_enabled: true

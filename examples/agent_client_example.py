@@ -24,7 +24,7 @@ async def main():
     
     # Connection parameters
     host = "localhost"  # Change to your server's IP
-    port = 8765         # Change to your server's port
+    port = 8570         # Change to your server's port
     
     # Agent metadata
     metadata = {

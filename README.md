@@ -129,10 +129,10 @@ Note: Please check the documentation for details on how to publish your network 
 
 ```bash
 # Connect to a network (interactive console)
-openagents connect --host localhost --port 8765
+openagents connect --host localhost --port 8570
 
 # Connect with custom agent ID
-openagents connect --host 192.168.1.100 --port 8765 --id my-custom-agent
+openagents connect --host 192.168.1.100 --port 8570 --id my-custom-agent
 
 # Connect using network discovery
 openagents connect --network-id "MyNetwork"
@@ -166,7 +166,7 @@ async def main():
     
     success = await client.connect_to_server(
         host="localhost",
-        port=8765,
+        port=8570,
         metadata={
             "name": "Python Agent",
             "capabilities": ["text_processing", "data_analysis"]
@@ -248,7 +248,7 @@ class EchoAgent(AgentRunner):
 agent = EchoAgent()
 agent.start(
     host="localhost", 
-    port=8765,
+    port=8570,
     metadata={
         "name": "Echo Agent",
         "type": "utility_agent",
@@ -271,7 +271,7 @@ async def create_my_network():
         name="MyPythonNetwork",
         mode="centralized",
         host="0.0.0.0",
-        port=8765,
+        port=8570,
         transport="websocket",
         discovery_enabled=True,
         encryption_enabled=True,
@@ -306,7 +306,7 @@ network:
   mode: "centralized"
   transport: "websocket"
   host: "0.0.0.0"
-  port: 8765
+  port: 8570
   
   # Security
   encryption_enabled: true
@@ -377,7 +377,7 @@ agent:
   
 connection:
   host: "localhost"
-  port: 8765
+  port: 8570
   # or use network discovery:
   # network_id: "MyNetwork"
   
@@ -404,7 +404,7 @@ network:
   mode: "centralized"
   transport: "websocket"
   host: "0.0.0.0"
-  port: 8765
+  port: 8570
   
   # Enable network publishing
   discovery_enabled: true

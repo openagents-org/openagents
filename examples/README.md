@@ -41,7 +41,7 @@ This directory contains example configuration files for different OpenAgents net
 
 3. **Connect with terminal console:**
    ```bash
-   openagents connect --ip localhost --port 8765
+   openagents connect --ip localhost --port 8570
    ```
 
 4. **Connect programmatically:**
@@ -153,7 +153,7 @@ openagents launch-network examples/centralized_client_config.yaml
 ### 2. Terminal Console Method
 Interactive connection for testing and manual control:
 ```bash
-openagents connect --ip localhost --port 8765
+openagents connect --ip localhost --port 8570
 ```
 
 ### 3. Programmatic Method
@@ -164,7 +164,7 @@ from openagents.core.client import AgentClient
 client = AgentClient(agent_id="my-agent")
 success = await client.connect_to_server(
     host="localhost",
-    port=8765,
+    port=8570,
     metadata={"type": "demo_agent"}
 )
 ```
@@ -180,7 +180,7 @@ class MyAgent(AgentRunner):
         pass
 
 agent = MyAgent("my-agent")
-agent.start(host="localhost", port=8765)
+agent.start(host="localhost", port=8570)
 ```
 
 ## Troubleshooting

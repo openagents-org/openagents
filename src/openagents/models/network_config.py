@@ -57,7 +57,7 @@ class NetworkConfig(BaseModel):
     
     # Network topology configuration
     host: str = Field("127.0.0.1", description="Host address to bind to")
-    port: int = Field(8765, description="Port to listen on")
+    port: int = Field(8570, description="Port to listen on")
     server_mode: bool = Field(False, description="Whether this node acts as a server/coordinator")
     coordinator_url: Optional[str] = Field(None, description="URL of the coordinator (for centralized mode)")
     bootstrap_nodes: List[str] = Field(default_factory=list, description="Bootstrap nodes for decentralized mode")
@@ -145,7 +145,7 @@ class OpenAgentsConfig(BaseModel):
 def create_centralized_server_config(
     network_name: str = "OpenAgentsNetwork",
     host: str = "0.0.0.0",
-    port: int = 8765,
+    port: int = 8570,
     protocols: Optional[List[str]] = None
 ) -> OpenAgentsConfig:
     """Create a configuration for a centralized server."""
@@ -169,7 +169,7 @@ def create_centralized_server_config(
 
 def create_centralized_client_config(
     network_name: str = "OpenAgentsNetwork",
-    coordinator_url: str = "ws://localhost:8765",
+    coordinator_url: str = "ws://localhost:8570",
     protocols: Optional[List[str]] = None
 ) -> OpenAgentsConfig:
     """Create a configuration for a centralized client."""

@@ -25,7 +25,7 @@ from openagents.core.transport import Transport, TransportType, Message
 # Create a WebSocket transport
 transport = WebSocketTransport()
 await transport.initialize()
-await transport.listen("localhost:8765")
+await transport.listen("localhost:8570")
 
 # Send a message
 message = Message(
@@ -64,7 +64,7 @@ topology = create_topology(
     config={
         "server_mode": True,
         "host": "0.0.0.0",
-        "port": 8765
+        "port": 8570
     }
 )
 
@@ -94,7 +94,7 @@ agent_info = AgentInfo(
     capabilities=["text-processing", "data-analysis"],
     last_seen=time.time(),
     transport_type=TransportType.WEBSOCKET,
-    address="localhost:8765"
+    address="localhost:8570"
 )
 
 await topology.register_agent(agent_info)
@@ -185,7 +185,7 @@ from openagents.models.network_config import create_centralized_server_config
 config = create_centralized_server_config(
     network_name="CentralServer",
     host="0.0.0.0", 
-    port=8765
+    port=8570
 )
 ```
 
@@ -193,7 +193,7 @@ config = create_centralized_server_config(
 ```python
 config = create_centralized_client_config(
     network_name="CentralClient",
-    coordinator_url="ws://localhost:8765"
+    coordinator_url="ws://localhost:8570"
 )
 ```
 

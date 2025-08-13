@@ -11,7 +11,7 @@ network:
   host: "0.0.0.0"
   port: 4001
   server_mode: false  # Set to true for centralized coordinator
-  coordinator_url: "ws://localhost:8765"  # Used only in centralized mode
+  coordinator_url: "ws://localhost:8570"  # Used only in centralized mode
   bootstrap_nodes:
     - "/ip4/127.0.0.1/tcp/4001/p2p/QmNodeID1"
     - "/ip4/192.168.1.5/tcp/4001/p2p/QmNodeID2"

@@ -67,7 +67,7 @@ network:
   mode: "centralized"
   transport: "websocket"
   host: "localhost"
-  port: 8765
+  port: 8570
   discovery_enabled: true
 EOF
 
@@ -79,7 +79,7 @@ openagents launch-network network_config.yaml
 
 ```bash
 # Connect to the network
-openagents connect --ip localhost --port 8765 --id my-console
+openagents connect --ip localhost --port 8570 --id my-console
 ```
 
 ### Network Configuration Examples
@@ -91,7 +91,7 @@ network:
   mode: "centralized"
   transport: "websocket"
   host: "0.0.0.0"
-  port: 8765
+  port: 8570
   encryption_enabled: true
   discovery_enabled: true
   max_connections: 100
@@ -138,7 +138,7 @@ config = NetworkConfig(
     mode="centralized",
     transport="websocket",
     host="localhost",
-    port=8765
+    port=8570
 )
 
 network = create_network(config)

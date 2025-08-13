@@ -26,7 +26,7 @@ class TestAgentDiscovery:
         """Set up and tear down the test environment."""
         # Initialize test data
         self.host = "127.0.0.1"
-        self.port = 8765
+        self.port = 8570
         self.network = None
         
         # Setup is done, yield control back to the test

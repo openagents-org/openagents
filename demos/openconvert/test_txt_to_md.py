@@ -32,7 +32,7 @@ async def test_discovery():
     
     # Test configuration
     server_host = "localhost"
-    server_port = 8765
+    server_port = 8570
     agent_id = "openconvert-tester"
     
     # Create agent client

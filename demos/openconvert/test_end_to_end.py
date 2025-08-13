@@ -55,7 +55,7 @@ class MockOpenConvertServiceAgent:
             "description": "Document conversion service - Mock mode for testing"
         }
     
-    async def start(self, host: str = "localhost", port: int = 8765):
+    async def start(self, host: str = "localhost", port: int = 8570):
         """Start the service agent."""
         logger.info(f"🤖 Starting service agent: {self.agent_id}")
         
@@ -163,7 +163,7 @@ class DiscoveryTestClient:
         self.messaging_adapter = SimpleMessagingAgentAdapter()
         self.conversion_responses = {}
     
-    async def start(self, host: str = "localhost", port: int = 8765):
+    async def start(self, host: str = "localhost", port: int = 8570):
         """Start the test client."""
         logger.info(f"🧪 Starting test client: {self.agent_id}")
         

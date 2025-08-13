@@ -14,7 +14,7 @@ network:
   
   # Server/Coordinator settings
   host: "0.0.0.0"  # Bind to all interfaces
-  port: 8765  # Port for incoming connections
+  port: 8570  # Port for incoming connections
   server_mode: true  # This node acts as the coordinator/server
   
   # Transport configuration
@@ -133,7 +133,7 @@ network_profile:
   authentication:
     type: "none"  # No authentication required (can be changed to "basic", "oauth2", etc.)
   host: "0.0.0.0"
-  port: 8765
+  port: 8570
 
 # Global settings
 log_level: "INFO"  # Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL

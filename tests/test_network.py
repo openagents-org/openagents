@@ -45,14 +45,14 @@ class TestNetworkConfig:
             name="TestNetwork",
             mode=NetworkMode.CENTRALIZED,
             host="127.0.0.1",
-            port=8765,
+            port=8570,
             transport=TransportType.WEBSOCKET
         )
         
         assert config.name == "TestNetwork"
         assert config.mode == "centralized"  # Config returns string values
         assert config.host == "127.0.0.1"
-        assert config.port == 8765
+        assert config.port == 8570
         assert config.transport == "websocket"  # Config returns string values
     
     def test_decentralized_network_config(self):
@@ -80,7 +80,7 @@ class TestAgentNetwork:
             name="TestNetwork",
             mode=NetworkMode.CENTRALIZED,
             host="127.0.0.1",
-            port=8765,
+            port=8570,
             transport=TransportType.WEBSOCKET,
             server_mode=True
         )
@@ -180,7 +180,7 @@ class TestAgentNetwork:
                 metadata={"name": "Agent 1"},
                 capabilities=["chat"],
                 transport_type=TransportType.WEBSOCKET,
-                address="127.0.0.1:8765"
+                address="127.0.0.1:8570"
             ),
             AgentInfo(
                 agent_id="agent2", 
@@ -210,7 +210,7 @@ class TestAgentNetwork:
                 metadata={"name": "Agent 1"},
                 capabilities=["chat"],
                 transport_type=TransportType.WEBSOCKET,
-                address="127.0.0.1:8765"
+                address="127.0.0.1:8570"
             )
         }
         network.topology.get_agents = MagicMock(return_value=mock_agents)
@@ -228,7 +228,7 @@ class TestAgentNetwork:
             metadata={"name": "Agent 1"},
             capabilities=["chat"],
             transport_type=TransportType.WEBSOCKET,
-            address="127.0.0.1:8765"
+            address="127.0.0.1:8570"
         )
         network.topology.get_agent = MagicMock(return_value=mock_agent)
         
@@ -267,7 +267,7 @@ class TestAgentNetwork:
             metadata={"name": "Agent 1"},
                 capabilities=["chat"],
                 transport_type=TransportType.WEBSOCKET,
-                address="127.0.0.1:8765",
+                address="127.0.0.1:8570",
                 last_seen=time.time()
         )
         }
