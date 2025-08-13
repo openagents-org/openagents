@@ -2,7 +2,7 @@
 OpenAgents System Commands
 
 This module provides centralized handling for system-level commands in the OpenAgents framework.
-System commands are used for network operations like registration, listing agents, and listing protocols.
+System commands are used for network operations like registration, listing agents, and listing mods.
 """
 
 import logging
@@ -186,9 +186,9 @@ async def handle_list_agents(command: str, data: Dict[str, Any], connection: Ser
         logger.error(f"Failed to send agent list to {requesting_agent_id}: {e}")
 
 
-async def handle_list_protocols(command: str, data: Dict[str, Any], connection: ServerConnection,
+async def handle_list_mods(command: str, data: Dict[str, Any], connection: ServerConnection,
                                network_instance: Any) -> None:
-    """Handle the list_protocols command.
+    """Handle the list_mods command.
     
     Args:
         command: The command name
@@ -202,19 +202,19 @@ async def handle_list_protocols(command: str, data: Dict[str, Any], connection: 
         logger.warning(f"Agent {requesting_agent_id} not connected")
         return
     
-    # Get all unique protocol names from both protocols and protocol_manifests
-    all_protocol_names = set(network_instance.protocols.keys())
+    # Get all unique mod names from both mods and mod_manifests
+    all_mod_names = set(network_instance.mods.keys())
     
-    # Add protocol names from manifests if they exist
-    if hasattr(network_instance, "protocol_manifests"):
-        all_protocol_names.update(network_instance.protocol_manifests.keys())
+    # Add mod names from manifests if they exist
+    if hasattr(network_instance, "mod_manifests"):
+        all_mod_names.update(network_instance.mod_manifests.keys())
     
-    # Prepare protocol list with relevant information
-    protocol_list = []
+    # Prepare mod list with relevant information
+    mod_list = []
     
-    for protocol_name in all_protocol_names:
-        protocol_info = {
-            "name": protocol_name,
+    for mod_name in all_mod_names:
+        mod_info = {
+            "name": mod_name,
             "description": "No description available",
             "version": "1.0.0",
             "requires_adapter": False,
@@ -222,47 +222,47 @@ async def handle_list_protocols(command: str, data: Dict[str, Any], connection: 
         }
         
         # Add implementation-specific information if available
-        if protocol_name in network_instance.protocols:
-            protocol = network_instance.protocols[protocol_name]
-            protocol_info.update({
-                "description": getattr(protocol, "description", protocol_info["description"]),
-                "version": getattr(protocol, "version", protocol_info["version"]),
-                "requires_adapter": getattr(protocol, "requires_adapter", protocol_info["requires_adapter"]),
-                "capabilities": getattr(protocol, "capabilities", protocol_info["capabilities"]),
-                "implementation": protocol.__class__.__module__ + "." + protocol.__class__.__name__
+        if mod_name in network_instance.mods:
+            mod = network_instance.mods[mod_name]
+            mod_info.update({
+                "description": getattr(mod, "description", mod_info["description"]),
+                "version": getattr(mod, "version", mod_info["version"]),
+                "requires_adapter": getattr(mod, "requires_adapter", mod_info["requires_adapter"]),
+                "capabilities": getattr(mod, "capabilities", mod_info["capabilities"]),
+                "implementation": mod.__class__.__module__ + "." + mod.__class__.__name__
             })
         
         # Add manifest information if available (overriding implementation info)
-        if protocol_name in network_instance.protocol_manifests:
-            manifest = network_instance.protocol_manifests[protocol_name]
-            protocol_info.update({
+        if mod_name in network_instance.mod_manifests:
+            manifest = network_instance.mod_manifests[mod_name]
+            mod_info.update({
                 "version": manifest.version,
                 "description": manifest.description,
                 "capabilities": manifest.capabilities,
                 "authors": manifest.authors,
                 "license": manifest.license,
                 "requires_adapter": manifest.requires_adapter,
-                "network_protocol_class": manifest.network_protocol_class
+                "network_mod_class": manifest.network_mod_class
             })
         
-        protocol_list.append(protocol_info)
+        mod_list.append(mod_info)
     
     # Send response
     try:
         await connection.send(json.dumps({
             "type": "system_response",
-            "command": "list_protocols",
+            "command": "list_mods",
             "success": True,
-            "protocols": protocol_list
+            "mods": mod_list
         }))
-        logger.debug(f"Sent protocol list to {requesting_agent_id}")
+        logger.debug(f"Sent mod list to {requesting_agent_id}")
     except Exception as e:
-        logger.error(f"Failed to send protocol list to {requesting_agent_id}: {e}")
+        logger.error(f"Failed to send mod list to {requesting_agent_id}: {e}")
 
 
-async def handle_get_protocol_manifest(command: str, data: Dict[str, Any], connection: ServerConnection,
+async def handle_get_mod_manifest(command: str, data: Dict[str, Any], connection: ServerConnection,
                                      network_instance: Any) -> None:
-    """Handle the get_protocol_manifest command.
+    """Handle the get_mod_manifest command.
     
     Args:
         command: The command name
@@ -271,39 +271,39 @@ async def handle_get_protocol_manifest(command: str, data: Dict[str, Any], conne
         network_instance: The network instance
     """
     requesting_agent_id = data.get("agent_id")
-    protocol_name = data.get("protocol_name")
+    mod_name = data.get("mod_name")
     
     if requesting_agent_id not in network_instance.connections:
         logger.warning(f"Agent {requesting_agent_id} not connected")
         return
     
-    if not protocol_name:
+    if not mod_name:
         await connection.send(json.dumps({
             "type": "system_response",
-            "command": "get_protocol_manifest",
+            "command": "get_mod_manifest",
             "success": False,
-            "error": "Missing protocol_name parameter"
+            "error": "Missing mod_name parameter"
         }))
         return
     
-    # Check if we have a manifest for this protocol
-    if protocol_name in network_instance.protocol_manifests:
-        manifest = network_instance.protocol_manifests[protocol_name]
+    # Check if we have a manifest for this mod
+    if mod_name in network_instance.mod_manifests:
+        manifest = network_instance.mod_manifests[mod_name]
         
         # Convert manifest to dict for JSON serialization
         manifest_dict = manifest.model_dump()
         
         await connection.send(json.dumps({
             "type": "system_response",
-            "command": "get_protocol_manifest",
+            "command": "get_mod_manifest",
             "success": True,
-            "protocol_name": protocol_name,
+            "mod_name": mod_name,
             "manifest": manifest_dict
         }))
-        logger.debug(f"Sent protocol manifest for {protocol_name} to {requesting_agent_id}")
+        logger.debug(f"Sent mod manifest for {mod_name} to {requesting_agent_id}")
     else:
         # Try to load the manifest if it's not already loaded
-        manifest = network_instance.load_protocol_manifest(protocol_name)
+        manifest = network_instance.load_mod_manifest(mod_name)
         
         if manifest:
             # Convert manifest to dict for JSON serialization
@@ -311,21 +311,21 @@ async def handle_get_protocol_manifest(command: str, data: Dict[str, Any], conne
             
             await connection.send(json.dumps({
                 "type": "system_response",
-                "command": "get_protocol_manifest",
+                "command": "get_mod_manifest",
                 "success": True,
-                "protocol_name": protocol_name,
+                "mod_name": mod_name,
                 "manifest": manifest_dict
             }))
-            logger.debug(f"Loaded and sent protocol manifest for {protocol_name} to {requesting_agent_id}")
+            logger.debug(f"Loaded and sent mod manifest for {mod_name} to {requesting_agent_id}")
         else:
             await connection.send(json.dumps({
                 "type": "system_response",
-                "command": "get_protocol_manifest",
+                "command": "get_mod_manifest",
                 "success": False,
-                "protocol_name": protocol_name,
-                "error": f"No manifest found for protocol {protocol_name}"
+                "mod_name": mod_name,
+                "error": f"No manifest found for mod {mod_name}"
             }))
-            logger.warning(f"No manifest found for protocol {protocol_name}")
+            logger.warning(f"No manifest found for mod {mod_name}")
 
 
 async def handle_ping_agent(command: str, data: Dict[str, Any], connection: ServerConnection,
@@ -480,8 +480,8 @@ async def send_system_request(connection: ServerConnection, command: str, **kwar
 # Command constants
 REGISTER_AGENT = "register_agent"
 LIST_AGENTS = "list_agents"
-LIST_PROTOCOLS = "list_protocols"
-GET_PROTOCOL_MANIFEST = "get_protocol_manifest"
+LIST_MODS = "list_mods"
+GET_MOD_MANIFEST = "get_mod_manifest"
 PING_AGENT = "ping_agent"
 CLAIM_AGENT_ID = "claim_agent_id"
 VALIDATE_CERTIFICATE = "validate_certificate"

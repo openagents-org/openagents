@@ -47,7 +47,7 @@ Enables verbose debugging output for troubleshooting and development.
 **Default:** Disabled
 
 **Description:** When enabled, shows detailed debugging information including:
-- Protocol adapter loading details
+- Mod adapter loading details
 - Message routing information
 - WebSocket connection details
 - Agent reaction processing
@@ -75,7 +75,7 @@ Launches a network coordinator or node based on a configuration file.
 - `--runtime SECONDS` (optional): Runtime duration in seconds (default: run indefinitely)
 
 **Description:**
-Starts a network coordinator that manages agent connections, message routing, and protocol discovery. Supports both centralized and decentralized network topologies.
+Starts a network coordinator that manages agent connections, message routing, and mod discovery. Supports both centralized and decentralized network topologies.
 
 **Examples:**
 ```bash
@@ -92,7 +92,7 @@ openagents launch-network examples/decentralized_network_config.yaml
 **Configuration File Support:**
 - Centralized networks with WebSocket transport
 - Decentralized P2P networks
-- Custom protocol configurations
+- Custom mod configurations
 - Security and encryption settings
 - Network discovery mechanisms
 
@@ -205,33 +205,33 @@ Connected Agents:
 - File Processor (file-processor-002): Connected
 ```
 
-#### List Available Protocols
-View all protocols supported by the network.
+#### List Available Mods
+View all mods supported by the network.
 
-**Syntax:** `/protocols`
+**Syntax:** `/mods`
 
 **Example:**
 ```
-> /protocols
-Available Protocols:
+> /mods
+Available Mods:
 ------------------
-- openagents.protocols.communication.simple_messaging (v1.0.0): Basic messaging protocol
-- openagents.protocols.discovery.agent_discovery (v1.0.0): Agent discovery and registration
+- openagents.mods.communication.simple_messaging (v1.0.0): Basic messaging mod
+- openagents.mods.discovery.agent_discovery (v1.0.0): Agent discovery and registration
 ```
 
-#### Get Protocol Manifest
-Retrieve detailed information about a specific protocol.
+#### Get Mod Manifest
+Retrieve detailed information about a specific mod.
 
-**Syntax:** `/manifest <protocol_name>`
+**Syntax:** `/manifest <mod_name>`
 
 **Example:**
 ```
-> /manifest openagents.protocols.communication.simple_messaging
+> /manifest openagents.mods.communication.simple_messaging
 
-Protocol Manifest for openagents.protocols.communication.simple_messaging:
+Mod Manifest for openagents.mods.communication.simple_messaging:
 ------------------------------------------------------------------------
 Version: 1.0.0
-Description: Simple messaging protocol for direct and broadcast communication
+Description: Simple messaging mod for direct and broadcast communication
 
 Capabilities:
 - Direct messaging between agents
@@ -257,7 +257,7 @@ Gracefully disconnect from the network and exit the console.
 The OpenAgents CLI supports various configuration file formats and management features:
 
 ### Network Configuration Files
-Define network topology, transport settings, and protocol configurations.
+Define network topology, transport settings, and mod configurations.
 
 **Example Structure:**
 ```yaml
@@ -268,11 +268,11 @@ network:
   port: 8570
   transport: "websocket"
   
-protocols:
-  - name: "openagents.protocols.communication.simple_messaging"
+mods:
+  - name: "openagents.mods.communication.simple_messaging"
     version: "1.0.0"
     enabled: true
-  - name: "openagents.protocols.discovery.agent_discovery"
+  - name: "openagents.mods.discovery.agent_discovery"
     version: "1.0.0"
     enabled: true
 ```
@@ -299,7 +299,7 @@ connection:
 The CLI automatically validates configuration files and provides detailed error messages for:
 - Missing required fields
 - Invalid parameter types
-- Unsupported protocol versions
+- Unsupported mod versions
 - Network connectivity issues
 
 ## Logging and Debugging
@@ -327,10 +327,10 @@ Type your messages and press Enter to send.
 **With Verbose (Development/Debugging):**
 ```bash
 $ openagents --verbose connect --ip localhost
-🔌 Loading protocol adapters for console...
-   ✅ Loaded protocol adapter: SimpleMessagingAgentAdapter
+🔌 Loading mod adapters for console...
+   ✅ Loaded mod adapter: SimpleMessagingAgentAdapter
 🔄 AgentClient.send_direct_message called for message to target-agent
-   Available protocol adapters: ['SimpleMessagingAgentAdapter']
+   Available mod adapters: ['SimpleMessagingAgentAdapter']
    Processing through SimpleMessagingAgentAdapter adapter...
    Result from SimpleMessagingAgentAdapter: ✅ message
 🚀 Sending message via connector...
@@ -413,12 +413,12 @@ All CLI operations are logged to `openagents.log` for persistent debugging and a
 2. **Agent Launch Failures:**
    - Validate configuration syntax
    - Check required environment variables
-   - Verify protocol compatibility
+   - Verify mod compatibility
 
-3. **Protocol Loading Issues:**
+3. **Mod Loading Issues:**
    - Enable verbose mode for detailed error information
-   - Check protocol dependencies
-   - Verify protocol manifest files
+   - Check mod dependencies
+   - Verify mod manifest files
 
 ### Debugging Commands
 
@@ -429,7 +429,7 @@ openagents --verbose connect --ip <host> --port <port>
 # Validate configuration
 openagents --log-level DEBUG launch-agent <config> --runtime 5
 
-# Monitor protocol activity
+# Monitor mod activity
 openagents --verbose launch-network <config> --runtime 10
 ```
 

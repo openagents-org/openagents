@@ -74,25 +74,25 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
         network = create_network(config.network)
         logger.info(f"Created network: {network.network_name}")
         
-        # Load and register network protocols
-        if hasattr(config.network, 'protocols') and config.network.protocols:
-            logger.info(f"Loading {len(config.network.protocols)} network protocols...")
-            from openagents.utils.protocol_loaders import load_network_protocols
+        # Load and register network mods
+        if hasattr(config.network, 'mods') and config.network.mods:
+            logger.info(f"Loading {len(config.network.mods)} network mods...")
+            from openagents.utils.mod_loaders import load_network_mods
             try:
-                # Convert ProtocolConfig objects to dictionaries
-                protocol_configs = [{"name": p.name, "enabled": p.enabled, "config": p.config} for p in config.network.protocols]
-                protocols = load_network_protocols(protocol_configs)
+                # Convert ModConfig objects to dictionaries
+                mod_configs = [{"name": p.name, "enabled": p.enabled, "config": p.config} for p in config.network.mods]
+                mods = load_network_mods(mod_configs)
                 
-                # Register protocols with the network
-                for protocol_name, protocol_instance in protocols.items():
-                    protocol_instance.bind_network(network)
-                    network.protocols[protocol_name] = protocol_instance
-                    logger.info(f"Registered network protocol: {protocol_name}")
+                # Register mods with the network
+                for mod_name, mod_instance in mods.items():
+                    mod_instance.bind_network(network)
+                    network.mods[mod_name] = mod_instance
+                    logger.info(f"Registered network mod: {mod_name}")
                     
-                logger.info(f"Successfully loaded {len(protocols)} network protocols")
+                logger.info(f"Successfully loaded {len(mods)} network mods")
             except Exception as e:
-                logger.error(f"Failed to load network protocols: {e}")
-                # Continue without protocols - this shouldn't be fatal
+                logger.error(f"Failed to load network mods: {e}")
+                # Continue without mods - this shouldn't be fatal
     
         # Initialize network
         if not await network.initialize():

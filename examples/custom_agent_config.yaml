@@ -17,8 +17,8 @@ config:
   
   # Standard AgentRunner parameters
   protocol_names:
-    - "openagents.protocols.communication.simple_messaging"
-    - "openagents.protocols.discovery.agent_discovery"
+    - "openagents.mods.communication.simple_messaging"
+    - "openagents.mods.discovery.agent_discovery"
   
   # Optional interval for message checking (seconds)
   interval: 1

@@ -1,7 +1,7 @@
 """
-OpenConvert Discovery Protocol for OpenAgents.
+OpenConvert Discovery Mod for OpenAgents.
 
-This protocol allows agents to announce their MIME file format conversion capabilities 
+This mod allows agents to announce their MIME file format conversion capabilities 
 to the network and for other agents to discover agents that can perform specific 
 MIME format conversions.
 
@@ -13,6 +13,6 @@ Key features:
 """
 
 from .adapter import OpenConvertDiscoveryAdapter
-from .protocol import OpenConvertDiscoveryProtocol
+from .mod import OpenConvertDiscoveryMod
 
-__all__ = ["OpenConvertDiscoveryAdapter", "OpenConvertDiscoveryProtocol"] 
+__all__ = ["OpenConvertDiscoveryAdapter", "OpenConvertDiscoveryMod"] 

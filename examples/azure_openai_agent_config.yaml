@@ -16,8 +16,8 @@ config:
     Provide professional, accurate, and helpful responses.
     
   protocol_names:
-    - "openagents.protocols.communication.simple_messaging"
-    - "openagents.protocols.discovery.agent_discovery"
+    - "openagents.mods.communication.simple_messaging"
+    - "openagents.mods.discovery.agent_discovery"
 
 connection:
   host: "enterprise-network.company.com"

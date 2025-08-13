@@ -1,5 +1,5 @@
 """
-Tests for the agent_discovery protocol in OpenAgents.
+Tests for the agent_discovery mod in OpenAgents.
 
 This module contains simplified tests for agent discovery functionality
 using the new AgentNetwork architecture.

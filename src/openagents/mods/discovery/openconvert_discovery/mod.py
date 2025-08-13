@@ -9,18 +9,18 @@ MIME format conversions.
 from typing import Dict, Any, Optional, List, Set, Tuple
 import logging
 import copy
-from openagents.core.base_protocol import BaseProtocol
-from openagents.models.messages import ProtocolMessage
+from openagents.core.base_mod import BaseMod
+from openagents.models.messages import ModMessage
 
 logger = logging.getLogger(__name__)
 
 # Protocol constants
-PROTOCOL_NAME = "openagents.protocols.discovery.openconvert_discovery"
+PROTOCOL_NAME = "openagents.mods.discovery.openconvert_discovery"
 ANNOUNCE_CONVERSION_CAPABILITIES = "announce_conversion_capabilities"
 DISCOVER_CONVERSION_AGENTS = "discover_conversion_agents"
 
 
-class OpenConvertDiscoveryProtocol(BaseProtocol):
+class OpenConvertDiscoveryMod(BaseMod):
     """Network protocol for OpenConvert agent capability discovery.
     
     This protocol allows agents to announce their MIME file format conversion 
@@ -46,7 +46,7 @@ class OpenConvertDiscoveryProtocol(BaseProtocol):
         Returns:
             bool: True if initialization was successful
         """
-        logger.info(f"Initializing {self.protocol_name} protocol")
+        logger.info(f"Initializing {self.mod_name} protocol")
         return True
     
     def shutdown(self) -> bool:
@@ -55,7 +55,7 @@ class OpenConvertDiscoveryProtocol(BaseProtocol):
         Returns:
             bool: True if shutdown was successful
         """
-        logger.info(f"Shutting down {self.protocol_name} protocol")
+        logger.info(f"Shutting down {self.mod_name} protocol")
         return True
     
     def register_agent(self, agent_id: str, capabilities: Optional[Dict[str, Any]] = None) -> None:
@@ -127,16 +127,16 @@ class OpenConvertDiscoveryProtocol(BaseProtocol):
             logger.info(f"Agent {agent_id} unregistered, conversion capabilities removed")
         return True
     
-    async def process_protocol_message(self, message: ProtocolMessage) -> Optional[ProtocolMessage]:
-        """Process a protocol message.
+    async def process_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
+        """Process a mod message.
         
         Args:
-            message: The protocol message to process
+            message: The mod message to process
             
         Returns:
             Optional response message
         """
-        logger.debug(f"process_protocol_message called with message: {message}")
+        logger.debug(f"process_mod_message called with message: {message}")
         
         if not message or not message.content:
             logger.warning("Received empty protocol message")
@@ -146,7 +146,7 @@ class OpenConvertDiscoveryProtocol(BaseProtocol):
         sender_id = message.sender_id
         
         logger.debug(f"Processing protocol message from {sender_id}: {message.content}")
-        logger.debug(f"Message ID: {message.message_id}, Protocol: {message.protocol}, Sender: {sender_id}")
+        logger.debug(f"Message ID: {message.message_id}, Protocol: {message.mod}, Sender: {sender_id}")
         
         if action == ANNOUNCE_CONVERSION_CAPABILITIES:
             # Agent is announcing its conversion capabilities
@@ -177,11 +177,11 @@ class OpenConvertDiscoveryProtocol(BaseProtocol):
             
             # Send response back to the requesting agent
             if self.network:
-                response = ProtocolMessage(
-                    message_type="protocol_message",
+                response = ModMessage(
+                    message_type="mod_message",
                     direction="outbound",
                     sender_id=self.network.network_id,
-                    protocol=self.protocol_name,
+                    mod=self.mod_name,
                     relevant_agent_id=sender_id,
                     text_representation=None,
                     requires_response=False,

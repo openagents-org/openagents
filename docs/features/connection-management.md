@@ -190,19 +190,19 @@ async def cleanup_agent(self, agent_id: str) -> bool:
         except Exception as e:
             logger.warning(f"Topology unregister failed for {agent_id}: {e}")
         
-        # 4. Notify protocol adapters
+        # 4. Notify mod adapters
         try:
             await self._notify_agent_disconnection(agent_id)
-            cleanup_tasks.append("protocol_notification")
+            cleanup_tasks.append("mod_notification")
         except Exception as e:
-            logger.warning(f"Protocol notification failed for {agent_id}: {e}")
+            logger.warning(f"Mod notification failed for {agent_id}: {e}")
         
-        # 5. Clean up protocol-specific state
+        # 5. Clean up mod-specific state
         try:
-            await self._cleanup_protocol_state(agent_id)
-            cleanup_tasks.append("protocol_cleanup")
+            await self._cleanup_mod_state(agent_id)
+            cleanup_tasks.append("mod_cleanup")
         except Exception as e:
-            logger.warning(f"Protocol cleanup failed for {agent_id}: {e}")
+            logger.warning(f"Mod cleanup failed for {agent_id}: {e}")
         
         logger.info(f"Cleanup completed for {agent_id}: {cleanup_tasks}")
         return True

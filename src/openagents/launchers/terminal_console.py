@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, List
 
 from openagents.core.client import AgentClient
 from openagents.models.messages import DirectMessage, BroadcastMessage
-from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST
+from openagents.core.system_commands import LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST
 from openagents.utils.verbose import verbose_print
 
 logger = logging.getLogger(__name__)
@@ -55,16 +55,16 @@ class ConsoleAgent:
         self.connected = success
         
         if success and self.agent.connector:
-            # Load protocol adapters after successful connection
-            verbose_print("🔌 Loading protocol adapters for console...")
+            # Load mod adapters after successful connection
+            verbose_print("🔌 Loading mod adapters for console...")
             try:
-                from openagents.utils.protocol_loaders import load_protocol_adapters
-                protocol_adapters = load_protocol_adapters(["openagents.protocols.communication.simple_messaging"])
-                for adapter in protocol_adapters:
-                    self.agent.register_protocol_adapter(adapter)
-                    verbose_print(f"   ✅ Loaded protocol adapter: {adapter.protocol_name}")
+                from openagents.utils.mod_loaders import load_mod_adapters
+                mod_adapters = load_mod_adapters(["openagents.mods.communication.simple_messaging"])
+                for adapter in mod_adapters:
+                    self.agent.register_mod_adapter(adapter)
+                    verbose_print(f"   ✅ Loaded mod adapter: {adapter.protocol_name}")
             except Exception as e:
-                verbose_print(f"   ❌ Failed to load protocol adapters: {e}")
+                verbose_print(f"   ❌ Failed to load mod adapters: {e}")
                 import traceback
                 traceback.print_exc()
             # Register message handlers
@@ -73,8 +73,8 @@ class ConsoleAgent:
             
             # Register system response handlers
             self.agent.register_agent_list_callback(self._handle_agent_list)
-            self.agent.register_protocol_list_callback(self._handle_protocol_list)
-            self.agent.register_protocol_manifest_callback(self._handle_protocol_manifest)
+            self.agent.register_mod_list_callback(self._handle_mod_list)
+            self.agent.register_mod_manifest_callback(self._handle_mod_manifest)
         
         return success
     
@@ -136,7 +136,7 @@ class ConsoleAgent:
             metadata={"type": "text"},
             requires_response=True,
             text_representation=content,
-            protocol="openagents.protocols.communication.simple_messaging",
+            mod="openagents.mods.communication.simple_messaging",
             message_type="direct_message"
         )
         
@@ -171,7 +171,7 @@ class ConsoleAgent:
             sender_id=self.agent_id,
             content={"text": content},
             metadata={"type": "text"},
-            protocol="openagents.protocols.communication.simple_messaging",
+            mod="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",
             text_representation=content,
             requires_response=False
@@ -192,8 +192,8 @@ class ConsoleAgent:
         
         return await self.agent.send_system_request(LIST_AGENTS)
     
-    async def list_protocols(self) -> bool:
-        """Request a list of protocols from the network server.
+    async def list_mods(self) -> bool:
+        """Request a list of mods from the network server.
         
         Returns:
             bool: True if request was sent successfully
@@ -202,13 +202,13 @@ class ConsoleAgent:
             print("Not connected to a network server")
             return False
         
-        return await self.agent.send_system_request(LIST_PROTOCOLS)
+        return await self.agent.send_system_request(LIST_MODS)
     
-    async def get_protocol_manifest(self, protocol_name: str) -> bool:
-        """Request a protocol manifest from the network server.
+    async def get_mod_manifest(self, protocol_name: str) -> bool:
+        """Request a mod manifest from the network server.
         
         Args:
-            protocol_name: Name of the protocol to get the manifest for
+            protocol_name: Name of the mod to get the manifest for
             
         Returns:
             bool: True if request was sent successfully
@@ -217,7 +217,7 @@ class ConsoleAgent:
             print("Not connected to a network server")
             return False
         
-        return await self.agent.request_get_protocol_manifest(protocol_name)
+        return await self.agent.request_get_mod_manifest(protocol_name)
     
     async def send_system_request(self, command: str, **kwargs) -> bool:
         """Send a system request to the network server.
@@ -285,11 +285,11 @@ class ConsoleAgent:
             print(f"- {name} ({agent_id}): {status}")
         print("> ", end="", flush=True)
     
-    async def _handle_protocol_list(self, protocols: List[Dict[str, Any]]) -> None:
+    async def _handle_mod_list(self, protocols: List[Dict[str, Any]]) -> None:
         """Handle a protocol list response.
         
         Args:
-            protocols: List of protocol information
+            protocols: List of mod information
         """
         print("\nAvailable Protocols:")
         print("------------------")
@@ -300,7 +300,7 @@ class ConsoleAgent:
             print(f"- {name} (v{version}): {description}")
         print("> ", end="", flush=True)
     
-    async def _handle_protocol_manifest(self, data: Dict[str, Any]) -> None:
+    async def _handle_mod_manifest(self, data: Dict[str, Any]) -> None:
         """Handle a protocol manifest response.
         
         Args:
@@ -372,7 +372,7 @@ def show_help_menu() -> None:
     print("  /dm <agent_id> <message> - Send a direct message")
     print("  /broadcast <message> - Send a broadcast message")
     print("  /agents - List connected agents")
-    print("  /protocols - List available protocols")
+    print("  /protocols - List available mods")
     print("  /manifest <protocol_name> - Get protocol manifest")
     print("  /help - Show this help message")
 
@@ -471,7 +471,7 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None, netw
             
             elif user_input.startswith("/protocols"):
                 # List protocols
-                await console_agent.list_protocols()
+                await console_agent.list_mods()
                 print("Requesting protocol list...")
             
             elif user_input.startswith("/manifest "):
@@ -481,7 +481,7 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None, netw
                     print("Usage: /manifest <protocol_name>")
                     continue
                 
-                await console_agent.get_protocol_manifest(protocol_name)
+                await console_agent.get_mod_manifest(protocol_name)
                 print(f"Requesting manifest for protocol {protocol_name}...")
             
             else:

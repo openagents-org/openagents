@@ -55,7 +55,7 @@ graph TD
 6. **Cleanup Decision**: Removes agents that fail to respond
 7. **Registry Update**: Cleans up all references and connections
 
-### Ping/Pong Protocol
+### Ping/Pong Mod
 
 **Ping Request (Server → Agent):**
 ```json
@@ -387,10 +387,10 @@ for agent_id, conn in network.connections.items():
 - Claimed agents are cleaned up normally when unresponsive
 - Certificates allow immediate reconnection after cleanup
 
-### Protocol Systems
-- Protocol adapters receive disconnect notifications
-- Custom protocols can implement their own cleanup logic
-- Heartbeat events can trigger protocol-specific actions
+### Mod Systems
+- Mod adapters receive disconnect notifications
+- Custom mods can implement their own cleanup logic
+- Heartbeat events can trigger mod-specific actions
 
 ### Load Balancing
 - Health information enables intelligent load distribution

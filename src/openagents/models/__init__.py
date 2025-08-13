@@ -13,7 +13,7 @@ from .messages import (
     BaseMessage,
     DirectMessage,
     BroadcastMessage,
-    ProtocolMessage
+    ModMessage
 )
 
 from .network_config import (
@@ -34,7 +34,7 @@ __all__ = [
     "BaseMessage",
     "DirectMessage",
     "BroadcastMessage", 
-    "ProtocolMessage",
+    "ModMessage",
     # Config models
     "NetworkConfig",
     "OpenAgentsConfig",

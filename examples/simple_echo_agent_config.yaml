@@ -15,7 +15,7 @@ config:
   
   # Optional: List of protocol names to register with
   protocol_names:
-    - "openagents.protocols.communication.simple_messaging"
+    - "openagents.mods.communication.simple_messaging"
   
   # Optional: List of sender IDs to ignore
   # ignored_sender_ids: 

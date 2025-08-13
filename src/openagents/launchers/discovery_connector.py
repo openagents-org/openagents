@@ -82,7 +82,7 @@ class NetworkDiscoveryConnector:
             
             # Get installed protocols from the network
             installed_protocols = []
-            for protocol_name, protocol in self.network.protocols.items():
+            for protocol_name, protocol in self.network.mods.items():
                 installed_protocols.append(protocol_name)
             
             # For required adapters, we'll use the same list as installed protocols

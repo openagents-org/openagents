@@ -39,8 +39,8 @@ logger = logging.getLogger(__name__)
 from openagents.agents.runner import AgentRunner
 from openagents.models.messages import DirectMessage, BroadcastMessage, BaseMessage
 from openagents.models.message_thread import MessageThread
-from openagents.protocols.discovery.openconvert_discovery import OpenConvertDiscoveryAdapter
-from openagents.protocols.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
+from openagents.mods.discovery.openconvert_discovery import OpenConvertDiscoveryAdapter
+from openagents.mods.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
 
 # Import agconvert for file conversion
 AGCONVERT_AVAILABLE = True
@@ -224,7 +224,7 @@ class OpenConvertServiceAgent(AgentRunner):
         # Initialize AgentRunner with the protocol adapters
         super().__init__(
             agent_id=agent_id,
-            protocol_adapters=[self.discovery_adapter, self.messaging_adapter]
+            mod_adapters=[self.discovery_adapter, self.messaging_adapter]
         )
         
         logger.info(f"Initialized {agent_id} for {category} conversions")
@@ -477,7 +477,7 @@ Example usage:
         "category": args.category,
         "capabilities": ["file_conversion", args.category],
         "version": "1.0.0",
-        "protocols": ["openagents.protocols.discovery.openconvert_discovery", "openagents.protocols.communication.simple_messaging"]
+        "protocols": ["openagents.mods.discovery.openconvert_discovery", "openagents.mods.communication.simple_messaging"]
     }
     
     try:

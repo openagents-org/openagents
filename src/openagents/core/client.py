@@ -6,9 +6,9 @@ import logging
 from openagents.utils.network_discovey import retrieve_network_details
 from .connector import NetworkConnector
 from openagents.models.messages import BaseMessage
-from openagents.core.base_protocol_adapter import BaseProtocolAdapter
-from openagents.models.messages import DirectMessage, BroadcastMessage, ProtocolMessage
-from openagents.core.system_commands import LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST
+from openagents.core.base_mod_adapter import BaseModAdapter
+from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.core.system_commands import LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST
 from openagents.models.tool import AgentAdapterTool
 from openagents.models.message_thread import MessageThread
 from openagents.utils.verbose import verbose_print
@@ -21,24 +21,24 @@ class AgentClient:
     A client that can connect to a network server and communicate with other agents.
     """
     
-    def __init__(self, agent_id: Optional[str] = None, protocol_adapters: Optional[List[BaseProtocolAdapter]] = None):
+    def __init__(self, agent_id: Optional[str] = None, mod_adapters: Optional[List[BaseModAdapter]] = None):
         """Initialize an agent.
         
         Args:
             name: Optional human-readable name for the agent
-            protocols: Optional list of protocol instances to register with the agent
+            mod_adapters: Optional list of mod instances to register with the agent
         """
         self.agent_id = agent_id or "Agent-" + str(uuid.uuid4())[:8]
-        self.protocol_adapters: Dict[str, BaseProtocolAdapter] = {}
+        self.mod_adapters: Dict[str, BaseModAdapter] = {}
         self.connector: Optional[NetworkConnector] = None
         self._agent_list_callbacks: List[Callable[[List[Dict[str, Any]]], Awaitable[None]]] = []
-        self._protocol_list_callbacks: List[Callable[[List[Dict[str, Any]]], Awaitable[None]]] = []
-        self._protocol_manifest_callbacks: List[Callable[[Dict[str, Any]], Awaitable[None]]] = []
+        self._mod_list_callbacks: List[Callable[[List[Dict[str, Any]]], Awaitable[None]]] = []
+        self._mod_manifest_callbacks: List[Callable[[Dict[str, Any]], Awaitable[None]]] = []
 
-        # Register protocols if provided
-        if protocol_adapters:
-            for protocol in protocol_adapters:
-                self.register_protocol_adapter(protocol)
+        # Register mod adapters if provided
+        if mod_adapters:
+            for mod_adapter in mod_adapters:
+                self.register_mod_adapter(mod_adapter)
     
     async def connect_to_server(self, host: Optional[str] = None, port: Optional[int] = None, network_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None, max_message_size: int = 104857600) -> bool:
         """Connect to a network server.
@@ -80,71 +80,71 @@ class AgentClient:
         success = await self.connector.connect_to_server()
         
         if success:
-            # Call on_connect for each protocol adapter
-            for protocol in self.protocol_adapters.values():
-                protocol.bind_connector(self.connector)
-                protocol.on_connect()
+            # Call on_connect for each mod adapter
+            for mod_adapter in self.mod_adapters.values():
+                mod_adapter.bind_connector(self.connector)
+                mod_adapter.on_connect()
             
             # Register message handlers
             self.connector.register_message_handler("direct_message", self._handle_direct_message)
             self.connector.register_message_handler("broadcast_message", self._handle_broadcast_message)
-            self.connector.register_message_handler("protocol_message", self._handle_protocol_message)
+            self.connector.register_message_handler("mod_message", self._handle_mod_message)
             
             # Register system command handlers
             self.connector.register_system_handler(LIST_AGENTS, self._handle_list_agents_response)
-            self.connector.register_system_handler(LIST_PROTOCOLS, self._handle_list_protocols_response)
-            self.connector.register_system_handler(GET_PROTOCOL_MANIFEST, self._handle_protocol_manifest_response)
+            self.connector.register_system_handler(LIST_MODS, self._handle_list_mods_response)
+            self.connector.register_system_handler(GET_MOD_MANIFEST, self._handle_mod_manifest_response)
         
         return success
     
     async def disconnect(self) -> bool:
         """Disconnect from the network server."""
-        for protocol_adapter in self.protocol_adapters.values():
-            protocol_adapter.on_disconnect()
+        for mod_adapter in self.mod_adapters.values():
+            mod_adapter.on_disconnect()
         return await self.connector.disconnect()
     
     
-    def register_protocol_adapter(self, protocol_adapter: BaseProtocolAdapter) -> bool:
-        """Register a protocol with this agent.
+    def register_mod_adapter(self, mod_adapter: BaseModAdapter) -> bool:
+        """Register a mod with this agent.
         
         Args:
-            protocol_adapter: An instance of an agent protocol adapter
+            mod_adapter: An instance of an agent mod adapter
             
         Returns:
             bool: True if registration was successful, False otherwise
         """
-        protocol_name = protocol_adapter.__class__.__name__
-        if protocol_name in self.protocol_adapters:
-            logger.warning(f"Protocol {protocol_name} already registered with agent {self.agent_id}")
+        mod_name = mod_adapter.__class__.__name__
+        if mod_name in self.mod_adapters:
+            logger.warning(f"Protocol {mod_name} already registered with agent {self.agent_id}")
             return False
         
-        # Bind the agent to the protocol
-        protocol_adapter.bind_agent(self.agent_id)
+        # Bind the agent to the mod
+        mod_adapter.bind_agent(self.agent_id)
         
-        self.protocol_adapters[protocol_name] = protocol_adapter
-        protocol_adapter.initialize()
+        self.mod_adapters[mod_name] = mod_adapter
+        mod_adapter.initialize()
         if self.connector is not None:
-            protocol_adapter.bind_connector(self.connector)
-            protocol_adapter.on_connect()
-        logger.info(f"Registered protocol adapter {protocol_name} with agent {self.agent_id}")
+            mod_adapter.bind_connector(self.connector)
+            mod_adapter.on_connect()
+        logger.info(f"Registered mod adapter {mod_name} with agent {self.agent_id}")
         return True
     
-    def unregister_protocol_adapter(self, protocol_name: str) -> bool:
-        """Unregister a protocol adapter from this agent.
+    def unregister_mod_adapter(self, mod_name: str) -> bool:
+        """Unregister a mod adapter from this agent.
         
         Args:
-            protocol_name: Name of the protocol to unregister
+            mod_name: Name of the mod to unregister
             
         Returns:
             bool: True if unregistration was successful, False otherwise
         """
-        if protocol_name not in self.protocol_adapters:
-            logger.warning(f"Protocol adapter {protocol_name} not registered with agent {self.agent_id}")
+        if mod_name not in self.mod_adapters:
+            logger.warning(f"Protocol adapter {mod_name} not registered with agent {self.agent_id}")
             return False
         
-        protocol_adapter = self.protocol_adapters.pop(protocol_name)
-        protocol_adapter.shutdown()
-        logger.info(f"Unregistered protocol adapter {protocol_name} from agent {self.agent_id}")
+        mod_adapter = self.mod_adapters.pop(mod_name)
+        mod_adapter.shutdown()
+        logger.info(f"Unregistered mod adapter {mod_name} from agent {self.agent_id}")
         return True
     
     async def send_direct_message(self, message: DirectMessage) -> None:
@@ -154,13 +154,13 @@ class AgentClient:
             message: The message to send
         """
         verbose_print(f"🔄 AgentClient.send_direct_message called for message to {message.target_agent_id}")
-        verbose_print(f"   Available protocol adapters: {list(self.protocol_adapters.keys())}")
+        verbose_print(f"   Available mod adapters: {list(self.mod_adapters.keys())}")
         
         processed_message = message
-        for protocol_name, protocol_adapter in self.protocol_adapters.items():
-            verbose_print(f"   Processing through {protocol_name} adapter...")
-            processed_message = await protocol_adapter.process_outgoing_direct_message(message)
-            verbose_print(f"   Result from {protocol_name}: {'✅ message' if processed_message else '❌ None'}")
+        for mod_name, mod_adapter in self.mod_adapters.items():
+            verbose_print(f"   Processing through {mod_name} adapter...")
+            processed_message = await mod_adapter.process_outgoing_direct_message(message)
+            verbose_print(f"   Result from {mod_name}: {'✅ message' if processed_message else '❌ None'}")
             if processed_message is None:
                 break
         
@@ -176,7 +176,7 @@ class AgentClient:
                 traceback.print_exc()
                 raise
         else:
-            verbose_print(f"❌ Message was filtered out by protocol adapters - not sending")
+            verbose_print(f"❌ Message was filtered out by mod adapters - not sending")
     
     async def send_broadcast_message(self, message: BroadcastMessage) -> None:
         """Send a broadcast message to all agents.
@@ -185,22 +185,22 @@ class AgentClient:
             message: The message to send
         """
         processed_message = message
-        for protocol_adapter in self.protocol_adapters.values():
-            processed_message = await protocol_adapter.process_outgoing_broadcast_message(message)
+        for mod_adapter in self.mod_adapters.values():
+            processed_message = await mod_adapter.process_outgoing_broadcast_message(message)
             if processed_message is None:
                 break
         if processed_message is not None:
             await self.connector.send_message(processed_message)
     
-    async def send_protocol_message(self, message: ProtocolMessage) -> None:
-        """Send a protocol message to another agent.
+    async def send_mod_message(self, message: ModMessage) -> None:
+        """Send a mod message to another agent.
         
         Args:
             message: The message to send
         """
         processed_message = message
-        for protocol_adapter in self.protocol_adapters.values():
-            processed_message = await protocol_adapter.process_outgoing_protocol_message(message)
+        for mod_adapter in self.mod_adapters.values():
+            processed_message = await mod_adapter.process_outgoing_mod_message(message)
             if processed_message is None:
                 break
         if processed_message is not None:
@@ -230,33 +230,33 @@ class AgentClient:
         """
         return await self.send_system_request(LIST_AGENTS)
     
-    async def request_list_protocols(self) -> bool:
-        """Request a list of protocols from the network server.
+    async def request_list_mods(self) -> bool:
+        """Request a list of mods from the network server.
         
         Returns:
             bool: True if request was sent successfully
         """
-        return await self.send_system_request(LIST_PROTOCOLS)
+        return await self.send_system_request(LIST_MODS)
     
-    async def request_get_protocol_manifest(self, protocol_name: str) -> bool:
-        """Request a protocol manifest from the network server.
+    async def request_get_mod_manifest(self, mod_name: str) -> bool:
+        """Request a mod manifest from the network server.
         
         Args:
-            protocol_name: Name of the protocol to get the manifest for
+            mod_name: Name of the mod to get the manifest for
             
         Returns:
             bool: True if request was sent successfully
         """
-        return await self.send_system_request(GET_PROTOCOL_MANIFEST, protocol_name=protocol_name)
+        return await self.send_system_request(GET_MOD_MANIFEST, mod_name=mod_name)
     
-    async def list_protocols(self) -> List[Dict[str, Any]]:
-        """Get a list of available protocols from the network server.
+    async def list_mods(self) -> List[Dict[str, Any]]:
+        """Get a list of available mods from the network server.
         
-        This method sends a request to the server to list all available protocols
-        and returns the protocol information.
+        This method sends a request to the server to list all available mods
+        and returns the mod information.
         
         Returns:
-            List[Dict[str, Any]]: List of protocol information dictionaries
+            List[Dict[str, Any]]: List of mod information dictionaries
         """
         if self.connector is None:
             logger.warning(f"Agent {self.agent_id} is not connected to a network")
@@ -266,30 +266,30 @@ class AgentClient:
         response_event = asyncio.Event()
         response_data = []
         
-        # Define a handler for the LIST_PROTOCOLS response
-        async def handle_list_protocols_response(data: Dict[str, Any]) -> None:
+        # Define a handler for the LIST_MODS response
+        async def handle_list_mods_response(data: Dict[str, Any]) -> None:
             if data.get("success"):
-                protocols = data.get("protocols", [])
+                mods = data.get("mods", [])
                 response_data.clear()
-                response_data.extend(protocols)
+                response_data.extend(mods)
             else:
                 error = data.get("error", "Unknown error")
-                logger.error(f"Failed to list protocols: {error}")
+                logger.error(f"Failed to list mods: {error}")
             response_event.set()
         
         # Save the original handler if it exists
         original_handler = None
-        if LIST_PROTOCOLS in self.connector.system_handlers:
-            original_handler = self.connector.system_handlers[LIST_PROTOCOLS]
+        if LIST_MODS in self.connector.system_handlers:
+            original_handler = self.connector.system_handlers[LIST_MODS]
         
         # Register the handler
-        self.connector.register_system_handler(LIST_PROTOCOLS, handle_list_protocols_response)
+        self.connector.register_system_handler(LIST_MODS, handle_list_mods_response)
         
         try:
             # Send the request
-            success = await self.request_list_protocols()
+            success = await self.request_list_mods()
             if not success:
-                logger.error("Failed to send list_protocols request")
+                logger.error("Failed to send list_mods request")
                 return []
             
             # Wait for the response with a timeout
@@ -297,12 +297,12 @@ class AgentClient:
                 await asyncio.wait_for(response_event.wait(), timeout=10.0)
                 return response_data
             except asyncio.TimeoutError:
-                logger.error("Timeout waiting for list_protocols response")
+                logger.error("Timeout waiting for list_mods response")
                 return []
         finally:
             # Restore the original handler if there was one
             if original_handler:
-                self.connector.register_system_handler(LIST_PROTOCOLS, original_handler)
+                self.connector.register_system_handler(LIST_MODS, original_handler)
     
     
     async def list_agents(self) -> List[Dict[str, Any]]:
@@ -358,11 +358,11 @@ class AgentClient:
                 self.connector.register_system_handler(LIST_AGENTS, original_handler)
     
     
-    async def get_protocol_manifest(self, protocol_name: str) -> Optional[Dict[str, Any]]:
-        """Get the manifest for a specific protocol from the network server.
+    async def get_mod_manifest(self, mod_name: str) -> Optional[Dict[str, Any]]:
+        """Get the manifest for a specific mod from the network server.
         
         Args:
-            protocol_name: Name of the protocol to get the manifest for
+            mod_name: Name of the mod to get the manifest for
             
         Returns:
             Optional[Dict[str, Any]]: Protocol manifest or None if not found
@@ -375,30 +375,30 @@ class AgentClient:
         response_event = asyncio.Event()
         response_data = {}
         
-        # Define a handler for the GET_PROTOCOL_MANIFEST response
-        async def handle_protocol_manifest_response(data: Dict[str, Any]) -> None:
+        # Define a handler for the GET_MOD_MANIFEST response
+        async def handle_mod_manifest_response(data: Dict[str, Any]) -> None:
             if data.get("success"):
                 manifest = data.get("manifest", {})
                 response_data.clear()
                 response_data.update(manifest)
             else:
                 error = data.get("error", "Unknown error")
-                logger.error(f"Failed to get protocol manifest: {error}")
+                logger.error(f"Failed to get mod manifest: {error}")
             response_event.set()
         
         # Save the original handler if it exists
         original_handler = None
-        if GET_PROTOCOL_MANIFEST in self.connector.system_handlers:
-            original_handler = self.connector.system_handlers[GET_PROTOCOL_MANIFEST]
+        if GET_MOD_MANIFEST in self.connector.system_handlers:
+            original_handler = self.connector.system_handlers[GET_MOD_MANIFEST]
         
         # Register the handler
-        self.connector.register_system_handler(GET_PROTOCOL_MANIFEST, handle_protocol_manifest_response)
+        self.connector.register_system_handler(GET_MOD_MANIFEST, handle_mod_manifest_response)
         
         try:
             # Send the request
-            success = await self.send_system_request(GET_PROTOCOL_MANIFEST, protocol_name=protocol_name)
+            success = await self.send_system_request(GET_MOD_MANIFEST, mod_name=mod_name)
             if not success:
-                logger.error(f"Failed to send get_protocol_manifest request for {protocol_name}")
+                logger.error(f"Failed to send get_mod_manifest request for {mod_name}")
                 return None
             
             # Wait for the response with a timeout
@@ -406,43 +406,43 @@ class AgentClient:
                 await asyncio.wait_for(response_event.wait(), timeout=10.0)
                 return response_data if response_data else None
             except asyncio.TimeoutError:
-                logger.error(f"Timeout waiting for get_protocol_manifest response for {protocol_name}")
+                logger.error(f"Timeout waiting for get_mod_manifest response for {mod_name}")
                 return None
         finally:
             # Restore the original handler if there was one
             if original_handler:
-                self.connector.register_system_handler(GET_PROTOCOL_MANIFEST, original_handler)
+                self.connector.register_system_handler(GET_MOD_MANIFEST, original_handler)
 
     def get_tools(self) -> List[AgentAdapterTool]:
-        """Get all tools from registered protocol adapters.
+        """Get all tools from registered mod adapters.
         
         Returns:
-            List[AgentAdapterTool]: Combined list of tools from all protocol adapters
+            List[AgentAdapterTool]: Combined list of tools from all mod adapters
         """
         tools = []
         
-        # Collect tools from all registered protocol adapters
-        for protocol_name, adapter in self.protocol_adapters.items():
+        # Collect tools from all registered mod adapters
+        for mod_name, adapter in self.mod_adapters.items():
             try:
                 adapter_tools = adapter.get_tools()
                 if adapter_tools:
                     tools.extend(adapter_tools)
-                    logger.debug(f"Added {len(adapter_tools)} tools from {protocol_name}")
+                    logger.debug(f"Added {len(adapter_tools)} tools from {mod_name}")
             except Exception as e:
-                logger.error(f"Error getting tools from protocol adapter {protocol_name}: {e}")
+                logger.error(f"Error getting tools from mod adapter {mod_name}: {e}")
         
         return tools
     
     def get_messsage_threads(self) -> Dict[str, MessageThread]:
-        """Get all message threads from registered protocol adapters.
+        """Get all message threads from registered mod adapters.
         
         Returns:
             Dict[str, ConversationThread]: Dictionary of conversation threads
         """
         threads = {}
         
-        # Collect conversation threads from all registered protocol adapters
-        for protocol_name, adapter in self.protocol_adapters.items():
+        # Collect conversation threads from all registered mod adapters
+        for mod_name, adapter in self.mod_adapters.items():
             try:
                 adapter_threads = adapter.message_threads
                 if adapter_threads:
@@ -462,9 +462,9 @@ class AgentClient:
                             threads[thread_id] = merged_thread
                         else:
                             threads[thread_id] = thread
-                    logger.debug(f"Added {len(adapter_threads)} conversation threads from {protocol_name}")
+                    logger.debug(f"Added {len(adapter_threads)} conversation threads from {mod_name}")
             except Exception as e:
-                logger.error(f"Error getting message threads from protocol adapter {protocol_name}: {e}")
+                logger.error(f"Error getting message threads from mod adapter {mod_name}: {e}")
         
         return threads
     
@@ -476,21 +476,21 @@ class AgentClient:
         """
         self._agent_list_callbacks.append(callback)
     
-    def register_protocol_list_callback(self, callback: Callable[[List[Dict[str, Any]]], Awaitable[None]]) -> None:
-        """Register a callback for protocol list responses.
+    def register_mod_list_callback(self, callback: Callable[[List[Dict[str, Any]]], Awaitable[None]]) -> None:
+        """Register a callback for mod list responses.
         
         Args:
-            callback: Async function to call when a protocol list is received
+            callback: Async function to call when a mod list is received
         """
-        self._protocol_list_callbacks.append(callback)
+        self._mod_list_callbacks.append(callback)
     
-    def register_protocol_manifest_callback(self, callback: Callable[[Dict[str, Any]], Awaitable[None]]) -> None:
-        """Register a callback for protocol manifest responses.
+    def register_mod_manifest_callback(self, callback: Callable[[Dict[str, Any]], Awaitable[None]]) -> None:
+        """Register a callback for mod manifest responses.
         
         Args:
-            callback: Async function to call when a protocol manifest is received
+            callback: Async function to call when a mod manifest is received
         """
-        self._protocol_manifest_callbacks.append(callback)
+        self._mod_manifest_callbacks.append(callback)
     
     async def _handle_list_agents_response(self, data: Dict[str, Any]) -> None:
         """Handle a list_agents response from the network server.
@@ -508,41 +508,41 @@ class AgentClient:
             except Exception as e:
                 logger.error(f"Error in agent list callback: {e}")
     
-    async def _handle_list_protocols_response(self, data: Dict[str, Any]) -> None:
-        """Handle a list_protocols response from the network server.
+    async def _handle_list_mods_response(self, data: Dict[str, Any]) -> None:
+        """Handle a list_mods response from the network server.
         
         Args:
             data: Response data
         """
-        protocols = data.get("protocols", [])
-        logger.debug(f"Received list of {len(protocols)} protocols")
+        mods = data.get("mods", [])
+        logger.debug(f"Received list of mods")
         
         # Call registered callbacks
-        for callback in self._protocol_list_callbacks:
+        for callback in self._mod_list_callbacks:
             try:
                 await callback(protocols)
             except Exception as e:
                 logger.error(f"Error in protocol list callback: {e}")
     
-    async def _handle_protocol_manifest_response(self, data: Dict[str, Any]) -> None:
-        """Handle a get_protocol_manifest response from the network server.
+    async def _handle_mod_manifest_response(self, data: Dict[str, Any]) -> None:
+        """Handle a get_mod_manifest response from the network server.
         
         Args:
             data: Response data
         """
         success = data.get("success", False)
-        protocol_name = data.get("protocol_name", "unknown")
+        mod_name = data.get("mod_name", "unknown")
         
         if success:
             manifest = data.get("manifest", {})
-            logger.debug(f"Received manifest for protocol {protocol_name}")
+            logger.debug(f"Received manifest for protocol {mod_name}")
         else:
             error = data.get("error", "Unknown error")
-            logger.warning(f"Failed to get manifest for protocol {protocol_name}: {error}")
+            logger.warning(f"Failed to get manifest for protocol {mod_name}: {error}")
             manifest = {}
         
         # Call registered callbacks
-        for callback in self._protocol_manifest_callbacks:
+        for callback in self._mod_manifest_callbacks:
             try:
                 await callback(data)
             except Exception as e:
@@ -555,13 +555,13 @@ class AgentClient:
             message: The message to handle
         """
         # Route message to appropriate protocol if available
-        for protocol_name, protocol_adapter in self.protocol_adapters.items():
+        for mod_name, mod_adapter in self.mod_adapters.items():
             try:
-                processed_message = await protocol_adapter.process_incoming_direct_message(message)
+                processed_message = await mod_adapter.process_incoming_direct_message(message)
                 if processed_message is None:
                     break
             except Exception as e:
-                logger.error(f"Error handling message in protocol {protocol_adapter.__class__.__name__}: {e}")
+                logger.error(f"Error handling message in protocol {mod_adapter.__class__.__name__}: {e}")
                 import traceback
                 traceback.print_exc()
     
@@ -571,25 +571,25 @@ class AgentClient:
         Args:
             message: The message to handle
         """
-        for protocol_adapter in self.protocol_adapters.values():
+        for mod_adapter in self.mod_adapters.values():
             try:
-                processed_message = await protocol_adapter.process_incoming_broadcast_message(message)
+                processed_message = await mod_adapter.process_incoming_broadcast_message(message)
                 if processed_message is None:
                     break
             except Exception as e:
-                logger.error(f"Error handling message in protocol {protocol_adapter.__class__.__name__}: {e}")
+                logger.error(f"Error handling message in protocol {mod_adapter.__class__.__name__}: {e}")
     
-    async def _handle_protocol_message(self, message: ProtocolMessage) -> None:
+    async def _handle_mod_message(self, message: ModMessage) -> None:
         """Handle a protocol message from another agent.
         
         Args:
             message: The message to handle
         """
-        for protocol_adapter in self.protocol_adapters.values():
+        for mod_adapter in self.mod_adapters.values():
             try:
-                processed_message = await protocol_adapter.process_incoming_protocol_message(message)
+                processed_message = await mod_adapter.process_incoming_mod_message(message)
                 if processed_message is None:
                     break
             except Exception as e:
-                logger.error(f"Error handling message in protocol {protocol_adapter.__class__.__name__}: {e}")
+                logger.error(f"Error handling message in protocol {mod_adapter.__class__.__name__}: {e}")
     

@@ -69,7 +69,7 @@ Commands:
   /dm <agent_id> <message> - Send a direct message
   /broadcast <message> - Send a broadcast message
   /agents - List connected agents
-  /protocols - List available protocols
+  /mods - List available mods
   /help - Show this help message
 >
 ```
@@ -185,7 +185,7 @@ Learn about all the configuration options available:
 Create agents that can:
 - Join networks automatically
 - Handle different message types
-- Implement custom protocols
+- Implement custom mods
 - Provide specific capabilities
 
 ### 3. Set Up Production Networks
@@ -199,7 +199,7 @@ Configure networks for production use:
 ### 4. Advanced Features
 
 Explore advanced OpenAgents features:
-- Protocol development
+- Mod development
 - Custom transport implementations
 - Agent discovery and capabilities
 - Network topology optimization

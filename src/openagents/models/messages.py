@@ -1,4 +1,4 @@
-"""Message models for OpenAgents protocols."""
+"""Message models for OpenAgents mods."""
 
 from typing import Dict, List, Optional, Any, Union
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -6,12 +6,12 @@ import uuid
 import time
 
 class BaseMessage(BaseModel):
-    """Base class for all protocol messages."""
+    """Base class for all mod messages."""
     
     message_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique message identifier")
     timestamp: int = Field(default_factory=lambda: int(time.time() * 1000), description="Message timestamp (ms)")
-    protocol: Optional[str] = Field(None, description="Protocol this message belongs to")
-    message_type: str = Field("base", description="Type of message for protocol routing and handling")
+    mod: Optional[str] = Field(None, description="Mod this message belongs to")
+    message_type: str = Field("base", description="Type of message for mod routing and handling")
     sender_id: str = Field(..., description="ID of the agent sending the message")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Metadata for the message")
     content: Dict[str, Any] = Field(default_factory=dict, description="Message content")
@@ -44,20 +44,20 @@ class BroadcastMessage(BaseMessage):
     exclude_agent_ids: List[str] = Field(default_factory=list, description="List of agent IDs to exclude from broadcast")
 
 
-class ProtocolMessage(BaseMessage):
-    """A message for network protocols to consume.
+class ModMessage(BaseMessage):
+    """A message for network mods to consume.
     
-    This model represents a message that is sent to a specific protocol handler.
+    This model represents a message that is sent to a specific mod handler.
     """
 
-    message_type: str = Field("protocol_message", description="Protocol message type")
-    protocol: str = Field(..., description="Protocol this message belongs to")
+    message_type: str = Field("mod_message", description="Mod message type")
+    mod: str = Field(..., description="Mod this message belongs to")
     direction: str = Field("inbound", description="Direction of the message")
     relevant_agent_id: str = Field(..., description="Agent ID this message is relevant to")
 
-    @field_validator('protocol')
+    @field_validator('mod')
     @classmethod
-    def validate_protocol(cls, v):
+    def validate_mod(cls, v):
         if not v or not isinstance(v, str):
-            raise ValueError('Protocol must be a non-empty string')
+            raise ValueError('Mod must be a non-empty string')
         return v

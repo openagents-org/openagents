@@ -4,11 +4,11 @@ This document describes the architecture of the OpenAgents framework, including 
 
 ## Overview
 
-OpenAgents is built on a modular, layered architecture that separates concerns and provides flexibility for different deployment scenarios. The framework supports both centralized and decentralized network topologies with pluggable transport protocols.
+OpenAgents is built on a modular, layered architecture that separates concerns and provides flexibility for different deployment scenarios. The framework supports both centralized and decentralized network topologies with pluggable transport mods.
 
 ## Core Architectural Principles
 
-1. **Protocol Agnostic**: Transport layer abstraction allows easy switching between WebSocket, libp2p, gRPC, and WebRTC
+1. **Mod Agnostic**: Transport layer abstraction allows easy switching between WebSocket, libp2p, gRPC, and WebRTC
 2. **Topology Flexible**: Support for both centralized and decentralized network architectures
 3. **Configuration Driven**: YAML-based configuration for easy deployment and management
 4. **Async First**: Built with asyncio for high-performance concurrent operations
@@ -19,7 +19,7 @@ OpenAgents is built on a modular, layered architecture that separates concerns a
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    Application Layer                        │
-│                (Agents, Protocols, CLI)                     │
+│                (Agents, Mods, CLI)                     │
 ├─────────────────────────────────────────────────────────────┤
 │                    Network Layer                           │
 │              (AgentNetwork, Configuration)                  │
@@ -39,7 +39,7 @@ OpenAgents is built on a modular, layered architecture that separates concerns a
 
 ### 1. Transport Layer (`src/openagents/core/transport.py`)
 
-The transport layer provides protocol-agnostic networking:
+The transport layer provides mod-agnostic networking:
 
 ```python
 class Transport(ABC):
@@ -172,7 +172,7 @@ Agent → Network.register_agent() → Topology.register_agent() → Transport.s
 Sender Agent → Network.send_message() → Topology.route_message() → Transport.send_message()
                                                     ↓
                                          Message Delivery Logic
-                                         (Direct/Broadcast/Protocol)
+                                         (Direct/Broadcast/Mod)
                                                     ↓
                                            Target Agent(s)
 ```
@@ -228,7 +228,7 @@ network:
 
 ### Transport Security
 - TLS/SSL encryption for WebSocket transport
-- Noise protocol support for libp2p transport
+- Noise mod support for libp2p transport
 - Certificate-based authentication
 - Configurable encryption algorithms
 
@@ -273,10 +273,10 @@ class CustomTopology(NetworkTopology):
         pass
 ```
 
-### Protocol Extensions
+### Mod Extensions
 ```python
-class CustomProtocol(BaseProtocolAdapter):
-    """Custom protocol implementation."""
+class CustomMod(BaseModAdapter):
+    """Custom mod implementation."""
     
     async def handle_message(self, message: Any) -> Any:
         # Custom message handling
@@ -328,7 +328,7 @@ class CustomProtocol(BaseProtocolAdapter):
 
 ### Extensibility Roadmap
 - Plugin architecture for custom components
-- Dynamic protocol loading
+- Dynamic mod loading
 - Runtime configuration updates
 - Advanced routing algorithms
 - Multi-network federation

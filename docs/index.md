@@ -1,23 +1,23 @@
 # OpenAgents Framework
 
-OpenAgents is a flexible and extensible Python framework for building multi-agent systems with customizable protocols and network topologies. It provides a modern, async-first architecture that supports both centralized and decentralized agent networks.
+OpenAgents is a flexible and extensible Python framework for building multi-agent systems with customizable mods and network topologies. It provides a modern, async-first architecture that supports both centralized and decentralized agent networks.
 
 ## Overview
 
 OpenAgents enables developers to create sophisticated multi-agent systems with:
 
 1. **Flexible Network Topologies**: Support for both centralized and decentralized network architectures
-2. **Protocol-Agnostic Transport**: Pluggable transport layer supporting WebSocket, libp2p, gRPC, and WebRTC
+2. **Mod-Agnostic Transport**: Pluggable transport layer supporting WebSocket, libp2p, gRPC, and WebRTC
 3. **Configuration-Driven Deployment**: YAML-based configuration for easy network setup and management
 4. **Modern Async Architecture**: Built with asyncio for high-performance concurrent operations
 5. **Comprehensive Testing**: Well-tested framework with >90% test coverage
 
 ## Key Features
 
-- **Multi-Transport Support**: WebSocket (implemented), libp2p, gRPC, and WebRTC transport protocols
+- **Multi-Transport Support**: WebSocket (implemented), libp2p, gRPC, and WebRTC transport mods
 - **Network Topologies**: Centralized coordinator/registry and decentralized P2P topologies
 - **Agent Discovery**: Capability-based agent discovery and service announcement
-- **Message Routing**: Direct messaging, broadcast messaging, and protocol-specific routing
+- **Message Routing**: Direct messaging, broadcast messaging, and mod-specific routing
 - **Security Foundation**: Encryption support, authentication framework, and secure communications
 - **Developer Tools**: CLI interface, terminal console, and comprehensive configuration system
 
@@ -27,7 +27,7 @@ OpenAgents enables developers to create sophisticated multi-agent systems with:
 
 | Component | Description |
 |-----------|-------------|
-| **Transport Layer** | Protocol-agnostic networking with WebSocket, libp2p, gRPC, WebRTC support |
+| **Transport Layer** | Mod-agnostic networking with WebSocket, libp2p, gRPC, WebRTC support |
 | **Network Topology** | Centralized and decentralized network management |
 | **Agent Network** | Main network implementation with configuration-driven topology selection |
 | **Configuration System** | YAML-based configuration with validation and templates |
@@ -201,7 +201,7 @@ openagents/
 │   ├── launchers/            # Network and agent launchers
 │   │   ├── network_launcher.py
 │   │   └── terminal_console.py
-│   ├── protocols/            # Protocol implementations
+│   ├── mods/            # Mod implementations
 │   └── utils/                # Utility functions
 ├── tests/                    # Comprehensive test suite
 ├── examples/                 # Example configurations

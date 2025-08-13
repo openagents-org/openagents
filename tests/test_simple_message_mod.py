@@ -38,7 +38,7 @@ class SimpleMessageAgent(AgentRunner):
         # Use the simple messaging protocol specifically
         super().__init__(
             agent_id=agent_id,
-            protocol_names=["openagents.protocols.communication.simple_messaging"]
+            mod_names=["openagents.mods.communication.simple_messaging"]
         )
         self.received_messages = []
         self.is_ready = False
@@ -49,14 +49,14 @@ class SimpleMessageAgent(AgentRunner):
         logger.info(f"   From: {incoming_message.sender_id}")
         logger.info(f"   Type: {type(incoming_message).__name__}")
         logger.info(f"   Content: {incoming_message.content}")
-        logger.info(f"   Protocol: {incoming_message.protocol}")
+        logger.info(f"   Mod: {incoming_message.mod}")
         
         # Store the received message for verification
         self.received_messages.append({
             'sender_id': incoming_message.sender_id,
             'content': incoming_message.content,
             'message_type': type(incoming_message).__name__,
-            'protocol': incoming_message.protocol,
+            'mod': incoming_message.mod,
             'timestamp': time.time(),
             'thread_id': incoming_thread_id
         })
@@ -238,7 +238,7 @@ class TestSimpleMessageProtocol:
         
         received_msg = self.agent2.received_messages[0]
         assert received_msg['sender_id'] == self.agent1.client.agent_id
-        assert received_msg['protocol'] == "openagents.protocols.communication.simple_messaging"
+        assert received_msg['mod'] == "openagents.mods.communication.simple_messaging"
         
         # The content might be in different formats depending on the protocol
         content = received_msg['content']
@@ -321,8 +321,8 @@ class TestSimpleMessageProtocol:
         assert "send_text_message" in agent2_tool_names, "Agent 2 should have send_text_message tool"
         
         # Check that they have the simple messaging protocol loaded
-        assert "SimpleMessagingAgentAdapter" in [type(adapter).__name__ for adapter in self.agent1.client.protocol_adapters.values()]
-        assert "SimpleMessagingAgentAdapter" in [type(adapter).__name__ for adapter in self.agent2.client.protocol_adapters.values()]
+        assert "SimpleMessagingAgentAdapter" in [type(adapter).__name__ for adapter in self.agent1.client.mod_adapters.values()]
+        assert "SimpleMessagingAgentAdapter" in [type(adapter).__name__ for adapter in self.agent2.client.mod_adapters.values()]
         
         logger.info("🎉 Protocol tool availability test PASSED!")
 
@@ -428,7 +428,7 @@ class TestSimpleMessageProtocol:
         agent2_msg = self.agent2.received_messages[0]
         assert agent2_msg['sender_id'] == self.agent1.client.agent_id
         # Protocol field may be None, but the broadcast functionality is working correctly
-        # assert agent2_msg['protocol'] == "openagents.protocols.communication.simple_messaging"
+        # assert agent2_msg['protocol'] == "openagents.mods.communication.simple_messaging"
         assert agent2_msg['content']['text'] == broadcast_text
         
         # Verify message content for Agent 3

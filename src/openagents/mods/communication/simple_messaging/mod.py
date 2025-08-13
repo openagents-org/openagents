@@ -1,7 +1,7 @@
 """
-Network-level simple messaging protocol for OpenAgents.
+Network-level simple messaging mod for OpenAgents.
 
-This protocol enables direct and broadcast messaging between agents with support for text and file attachments.
+This mod enables direct and broadcast messaging between agents with support for text and file attachments.
 """
 
 import logging
@@ -12,30 +12,30 @@ import tempfile
 from typing import Dict, Any, List, Optional, Set, BinaryIO
 from pathlib import Path
 
-from openagents.core.base_protocol import BaseProtocol
+from openagents.core.base_mod import BaseMod
 from openagents.models.messages import (
     BaseMessage, 
     DirectMessage,
     BroadcastMessage,
-    ProtocolMessage
+    ModMessage
 )
 
 logger = logging.getLogger(__name__)
 
-class SimpleMessagingNetworkProtocol(BaseProtocol):
-    """Network-level simple messaging protocol implementation.
+class SimpleMessagingNetworkMod(BaseMod):
+    """Network-level simple messaging mod implementation.
     
-    This protocol enables:
+    This mod enables:
     - Direct messaging between agents with text and file attachments
     - Broadcast messaging to all agents with text and file attachments
     - File transfer between agents
     """
     
-    def __init__(self, protocol_name: str = "simple_messaging"):
-        """Initialize the simple messaging protocol for a network."""
-        super().__init__(protocol_name=protocol_name)
+    def __init__(self, mod_name: str = "simple_messaging"):
+        """Initialize the simple messaging mod for a network."""
+        super().__init__(mod_name=mod_name)
         
-        # Initialize protocol state
+        # Initialize mod state
         self.active_agents: Set[str] = set()
         self.message_history: Dict[str, BaseMessage] = {}  # message_id -> message
         self.max_history_size = 1000  # Number of messages to keep in history
@@ -44,10 +44,10 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
         self.temp_dir = tempfile.TemporaryDirectory(prefix="openagents_files_")
         self.file_storage_path = Path(self.temp_dir.name)
         
-        logger.info(f"Initializing Simple Messaging network protocol with file storage at {self.file_storage_path}")
+        logger.info(f"Initializing Simple Messaging network mod with file storage at {self.file_storage_path}")
     
     def initialize(self) -> bool:
-        """Initialize the protocol.
+        """Initialize the mod.
         
         Returns:
             bool: True if initialization was successful, False otherwise
@@ -55,7 +55,7 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
         return True
     
     def shutdown(self) -> bool:
-        """Shutdown the protocol gracefully.
+        """Shutdown the mod gracefully.
         
         Returns:
             bool: True if shutdown was successful, False otherwise
@@ -144,11 +144,11 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
         # Continue processing the message
         return message
     
-    async def process_protocol_message(self, message: ProtocolMessage) -> None:
-        """Process a protocol message.
+    async def process_mod_message(self, message: ModMessage) -> None:
+        """Process a mod message.
         
         Args:
-            message: The protocol message to process
+            message: The mod message to process
         """
         # Add the message to history
         self._add_to_history(message)
@@ -212,7 +212,7 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
         if processed_files:
             message.content["files"] = processed_files
     
-    async def _handle_file_download(self, agent_id: str, file_id: str, request_message: ProtocolMessage) -> None:
+    async def _handle_file_download(self, agent_id: str, file_id: str, request_message: ModMessage) -> None:
         """Handle a file download request.
         
         Args:
@@ -224,9 +224,9 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
         
         if not file_path.exists():
             # File not found
-            response = ProtocolMessage(
+            response = ModMessage(
                 sender_id=self.network.network_id,
-                protocol="simple_messaging",
+                mod="simple_messaging",
                 content={
                     "action": "file_download_response",
                     "success": False,
@@ -236,7 +236,7 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
                 direction="outbound",
                 relevant_agent_id=agent_id
             )
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             return
         
         try:
@@ -248,9 +248,9 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
             encoded_content = base64.b64encode(file_content).decode("utf-8")
             
             # Send response
-            response = ProtocolMessage(
+            response = ModMessage(
                 sender_id=self.network.network_id,
-                protocol="simple_messaging",
+                mod="simple_messaging",
                 content={
                     "action": "file_download_response",
                     "success": True,
@@ -261,14 +261,14 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
                 direction="outbound",
                 relevant_agent_id=agent_id
             )
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             
             logger.debug(f"Sent file {file_id} to agent {agent_id}")
         except Exception as e:
             # Error reading file
-            response = ProtocolMessage(
+            response = ModMessage(
                 sender_id=self.network.network_id,
-                protocol="simple_messaging",
+                mod="simple_messaging",
                 content={
                     "action": "file_download_response",
                     "success": False,
@@ -278,10 +278,10 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
                 direction="outbound",
                 relevant_agent_id=agent_id
             )
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             logger.error(f"Error sending file {file_id} to agent {agent_id}: {e}")
     
-    async def _handle_file_deletion(self, agent_id: str, file_id: str, request_message: ProtocolMessage) -> None:
+    async def _handle_file_deletion(self, agent_id: str, file_id: str, request_message: ModMessage) -> None:
         """Handle a file deletion request.
         
         Args:
@@ -293,9 +293,9 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
         
         if not file_path.exists():
             # File not found
-            response = ProtocolMessage(
+            response = ModMessage(
                 sender_id=self.network.network_id,
-                protocol="simple_messaging",
+                mod="simple_messaging",
                 content={
                     "action": "file_deletion_response",
                     "success": False,
@@ -305,7 +305,7 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
                 direction="outbound",
                 relevant_agent_id=agent_id
             )
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             return
         
         try:
@@ -313,9 +313,9 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
             os.remove(file_path)
             
             # Send response
-            response = ProtocolMessage(
+            response = ModMessage(
                 sender_id=self.network.network_id,
-                protocol="simple_messaging",
+                mod="simple_messaging",
                 content={
                     "action": "file_deletion_response",
                     "success": True,
@@ -325,14 +325,14 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
                 direction="outbound",
                 relevant_agent_id=agent_id
             )
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             
             logger.debug(f"Deleted file {file_id} for agent {agent_id}")
         except Exception as e:
             # Error deleting file
-            response = ProtocolMessage(
+            response = ModMessage(
                 sender_id=self.network.network_id,
-                protocol="simple_messaging",
+                mod="simple_messaging",
                 content={
                     "action": "file_deletion_response",
                     "success": False,
@@ -342,7 +342,7 @@ class SimpleMessagingNetworkProtocol(BaseProtocol):
                 direction="outbound",
                 relevant_agent_id=agent_id
             )
-            await self.network.send_protocol_message(response)
+            await self.network.send_mod_message(response)
             logger.error(f"Error deleting file {file_id} for agent {agent_id}: {e}")
     
     def get_state(self) -> Dict[str, Any]:

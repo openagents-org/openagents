@@ -7,9 +7,9 @@ import websockets
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 from openagents.utils.message_util import parse_message_dict
-from openagents.models.messages import BaseMessage, BroadcastMessage, DirectMessage, ProtocolMessage
+from openagents.models.messages import BaseMessage, BroadcastMessage, DirectMessage, ModMessage
 from .system_commands import send_system_request as send_system_request_impl
-from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_PROTOCOLS, GET_PROTOCOL_MANIFEST, PING_AGENT, CLAIM_AGENT_ID, VALIDATE_CERTIFICATE
+from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST, PING_AGENT, CLAIM_AGENT_ID, VALIDATE_CERTIFICATE
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +212,7 @@ class NetworkConnector:
         Args:
             message: Message to consume
         """
-        if isinstance(message, ProtocolMessage):
+        if isinstance(message, ModMessage):
             message.relevant_agent_id = self.agent_id
             
         message_type = message.message_type
@@ -242,7 +242,7 @@ class NetworkConnector:
             if not message.sender_id:
                 message.sender_id = self.agent_id
             
-            if isinstance(message, ProtocolMessage):
+            if isinstance(message, ModMessage):
                 message.relevant_agent_id = self.agent_id
                 
             # Send the message
@@ -276,24 +276,24 @@ class NetworkConnector:
         """
         return await self.send_message(message)
     
-    async def send_protocol_message(self, message: ProtocolMessage) -> bool:
-        """Send a protocol message to another agent.
+    async def send_mod_message(self, message: ModMessage) -> bool:
+        """Send a mod message to another agent.
         
         Args:
             message: Protocol message to send
         """
         return await self.send_message(message)
     
-    async def wait_protocol_message(self, protocol_name: str, filter_dict: Optional[Dict[str, Any]] = None, timeout: float = 5.0) -> Optional[ProtocolMessage]:
-        """Wait for a protocol message from the specified protocol that matches the filter criteria.
+    async def wait_mod_message(self, mod_name: str, filter_dict: Optional[Dict[str, Any]] = None, timeout: float = 5.0) -> Optional[ModMessage]:
+        """Wait for a mod message from the specified mod that matches the filter criteria.
         
         Args:
-            protocol_name: The protocol name to match
+            mod_name: The mod name to match
             filter_dict: Optional dictionary of key-value pairs to match in the message content
             timeout: Maximum time to wait for a response in seconds
             
         Returns:
-            Optional[ProtocolMessage]: The matching message, or None if no matching message received within timeout
+            Optional[ModMessage]: The matching message, or None if no matching message received within timeout
         """
         if not self.is_connected:
             logger.warning(f"Agent {self.agent_id} is not connected to a network")
@@ -302,9 +302,9 @@ class NetworkConnector:
         # Create a future to store the response
         response_future = asyncio.Future()
         
-        async def temp_protocol_handler(msg: ProtocolMessage) -> None:
+        async def temp_protocol_handler(msg: ModMessage) -> None:
             # Check if this is the message we're waiting for
-            if (msg.protocol == protocol_name and 
+            if (msg.mod == mod_name and 
                 msg.relevant_agent_id == self.agent_id):
                 
                 # If filter_dict is provided, check if all key-value pairs match in the content
@@ -322,7 +322,7 @@ class NetworkConnector:
                     response_future.set_result(msg)
         
         # Register the temporary handler
-        self.register_message_handler("protocol_message", temp_protocol_handler)
+        self.register_message_handler("mod_message", temp_protocol_handler)
         
         try:
             # Wait for the response with timeout
@@ -331,12 +331,12 @@ class NetworkConnector:
                 return response
             except asyncio.TimeoutError:
                 filter_str = f" with filter {filter_dict}" if filter_dict else ""
-                logger.warning(f"Timeout waiting for protocol message: {protocol_name}{filter_str}")
+                logger.warning(f"Timeout waiting for mod message: {mod_name}{filter_str}")
                 return None
                 
         finally:
             # Unregister the temporary handler
-            self.unregister_message_handler("protocol_message", temp_protocol_handler)
+            self.unregister_message_handler("mod_message", temp_protocol_handler)
     
     async def wait_direct_message(self, sender_id: str, timeout: float = 5.0) -> Optional[DirectMessage]:
         """Wait for a direct message from the specified sender.
@@ -399,24 +399,24 @@ class NetworkConnector:
         """
         return await self.send_system_request(LIST_AGENTS)
     
-    async def list_protocols(self) -> bool:
-        """Request a list of protocols from the network server.
+    async def list_mods(self) -> bool:
+        """Request a list of mods from the network server.
         
         Returns:
             bool: True if request was sent successfully
         """
-        return await self.send_system_request(LIST_PROTOCOLS)
+        return await self.send_system_request(LIST_MODS)
 
-    async def get_protocol_manifest(self, protocol_name: str) -> bool:
-        """Request a protocol manifest from the network server.
+    async def get_mod_manifest(self, mod_name: str) -> bool:
+        """Request a mod manifest from the network server.
         
         Args:
-            protocol_name: Name of the protocol to get the manifest for
+            mod_name: Name of the mod to get the manifest for
             
         Returns:
             bool: True if request was sent successfully
         """
-        return await self.send_system_request(GET_PROTOCOL_MANIFEST, protocol_name=protocol_name)
+        return await self.send_system_request(GET_MOD_MANIFEST, mod_name=mod_name)
     
     async def claim_agent_id(self, agent_id: str, force: bool = False) -> bool:
         """Claim an agent ID and receive a certificate.

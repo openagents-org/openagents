@@ -4,12 +4,12 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from openagents.core.base_protocol_adapter import BaseProtocolAdapter
+from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.message_thread import MessageThread
 from openagents.models.messages import BaseMessage
 from openagents.models.tool import AgentAdapterTool
 from openagents.core.client import AgentClient
-from openagents.utils.protocol_loaders import load_protocol_adapters
+from openagents.utils.mod_loaders import load_mod_adapters
 from openagents.utils.verbose import verbose_print
 
 logger = logging.getLogger(__name__)
@@ -22,55 +22,55 @@ class AgentRunner(ABC):
     agent should respond to messages and interact with protocols.
     """
 
-    def __init__(self, agent_id: Optional[str] = None, protocol_names: Optional[List[str]] = None, protocol_adapters: Optional[List[BaseProtocolAdapter]] = None, client: Optional[AgentClient] = None, interval: Optional[int] = 1, ignored_sender_ids: Optional[List[str]] = None):
+    def __init__(self, agent_id: Optional[str] = None, mod_names: Optional[List[str]] = None, mod_adapters: Optional[List[BaseModAdapter]] = None, client: Optional[AgentClient] = None, interval: Optional[int] = 1, ignored_sender_ids: Optional[List[str]] = None):
         """Initialize the agent runner.
         
         Args:
             agent_id: ID of the agent. Optional, if provided, the runner will use the agent ID to identify the agent.   
-            protocol_names: List of protocol names to use for the agent. Optional, if provided, the runner will try to obtain required protocol adapters from the server.
-            protocol_adapters: List of protocol adapters to use for the agent. Optional, if provided, the runner will use the provided protocol adapters instead of obtaining them from the server.
-            client: Agent client to use for the agent. Optional, if provided, the runner will use the client to obtain required protocol adapters.
+            mod_names: List of mod names to use for the agent. Optional, if provided, the runner will try to obtain required mod adapters from the server.
+            mod_adapters: List of mod adapters to use for the agent. Optional, if provided, the runner will use the provided mod adapters instead of obtaining them from the server.
+            client: Agent client to use for the agent. Optional, if provided, the runner will use the client to obtain required mod adapters.
             interval: Interval in seconds between checking for new messages.
             ignored_sender_ids: List of sender IDs to ignore.
             
         Note:
-            Either protocol_names or protocol_adapters should be provided, not both.
+            Either mod_names or mod_adapters should be provided, not both.
         """
         self._agent_id = agent_id
-        self._preset_protocol_names = protocol_names
+        self._preset_mod_names = mod_names
         self._network_client = client
         self._tools = []
-        self._supported_protocols = None
+        self._supported_mods = None
         self._running = False
         self._processed_message_ids = set()
         self._interval = interval
         self._ignored_sender_ids = set(ignored_sender_ids) if ignored_sender_ids is not None else set()
         
-        # Validate that protocol_names and protocol_adapters are not both provided
-        if protocol_names is not None and protocol_adapters is not None:
-            raise ValueError("Cannot provide both protocol_names and protocol_adapters. Choose one approach.")
+        # Validate that mod_names and mod_adapters are not both provided
+        if mod_names is not None and mod_adapters is not None:
+            raise ValueError("Cannot provide both mod_names and mod_adapters. Choose one approach.")
             
         # Initialize the client if it is not provided
         if self._network_client is None:
-            if protocol_adapters is not None:
-                self._network_client = AgentClient(agent_id=self._agent_id, protocol_adapters=protocol_adapters)
-                self._supported_protocols = [adapter.protocol_name for adapter in protocol_adapters]
-            elif self._preset_protocol_names is not None:
-                loaded_adapters = load_protocol_adapters(self._preset_protocol_names)
-                self._network_client = AgentClient(agent_id=self._agent_id, protocol_adapters=loaded_adapters)
-                self._supported_protocols = self._preset_protocol_names
+            if mod_adapters is not None:
+                self._network_client = AgentClient(agent_id=self._agent_id, mod_adapters=mod_adapters)
+                self._supported_mods = [adapter.mod_name for adapter in mod_adapters]
+            elif self._preset_mod_names is not None:
+                loaded_adapters = load_mod_adapters(self._preset_mod_names)
+                self._network_client = AgentClient(agent_id=self._agent_id, mod_adapters=loaded_adapters)
+                self._supported_mods = self._preset_mod_names
             else:
                 self._network_client = AgentClient(agent_id=self._agent_id)
                 
-        # Update tools if we have protocol information
-        if self._supported_protocols is not None:
+        # Update tools if we have mod information
+        if self._supported_mods is not None:
             self.update_tools()
     
     def update_tools(self):
         """Update the tools available to the agent.
         
         This method should be called when the available tools might have changed,
-        such as after connecting to a server or registering new protocol adapters.
+        such as after connecting to a server or registering new mod adapters.
         """
         tools = self.client.get_tools()
         # Log info about all available tools
@@ -96,13 +96,13 @@ class AgentRunner(ABC):
         """
         return self._tools
     
-    def get_protocol_adapter(self, protocol_name: str) -> Optional[BaseProtocolAdapter]:
-        """Get the protocol adapter for the given protocol name.
+    def get_mod_adapter(self, mod_name: str) -> Optional[BaseModAdapter]:
+        """Get the mod adapter for the given mod name.
         
         Returns:
-            Optional[BaseProtocolAdapter]: The protocol adapter for the given protocol name.
+            Optional[BaseModAdapter]: The mod adapter for the given mod name.
         """
-        return self.client.protocol_adapters.get(protocol_name)
+        return self.client.mod_adapters.get(mod_name)
 
     @abstractmethod
     async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
@@ -219,53 +219,53 @@ class AgentRunner(ABC):
                 raise Exception("Failed to connect to server")
             
             verbose_print("🔍 AgentRunner getting supported protocols from server...")
-            server_supported_protocols = await self.client.list_protocols()
-            verbose_print(f"   Server returned {len(server_supported_protocols)} protocols")
+            server_supported_mods = await self.client.list_mods()
+            verbose_print(f"   Server returned {len(server_supported_mods)} protocols")
             
-            protocol_names_requiring_adapters = []
+            mod_names_requiring_adapters = []
             # Log all supported protocols with their details as JSON
-            for protocol_details in server_supported_protocols:
-                protocol_name = protocol_details["name"]
+            for protocol_details in server_supported_mods:
+                mod_name = protocol_details["name"]
                 protocol_version = protocol_details["version"]
                 requires_adapter = protocol_details.get("requires_adapter", True)
-                verbose_print(f"   Protocol: {protocol_name} v{protocol_version}, requires_adapter={requires_adapter}")
+                verbose_print(f"   Mod: {mod_name} v{protocol_version}, requires_adapter={requires_adapter}")
                 if requires_adapter:
-                    protocol_names_requiring_adapters.append(protocol_name)
-                logger.info(f"Supported protocol: {protocol_name} (v{protocol_version})")
+                    mod_names_requiring_adapters.append(mod_name)
+                logger.info(f"Supported mod: {mod_name} (v{protocol_version})")
             
-            verbose_print(f"📦 Protocols requiring adapters: {protocol_names_requiring_adapters}")
+            verbose_print(f"📦 Mods requiring adapters: {mod_names_requiring_adapters}")
             
-            if self._supported_protocols is None:
-                verbose_print("🔧 Loading protocol adapters...")
-                self._supported_protocols = protocol_names_requiring_adapters
+            if self._supported_mods is None:
+                verbose_print("🔧 Loading mod adapters...")
+                self._supported_mods = mod_names_requiring_adapters
                 try:
-                    adapters = load_protocol_adapters(protocol_names_requiring_adapters) 
+                    adapters = load_mod_adapters(mod_names_requiring_adapters) 
                     verbose_print(f"   Loaded {len(adapters)} adapters")
                     for adapter in adapters:
-                        self.client.register_protocol_adapter(adapter)
-                        verbose_print(f"   ✅ Registered adapter: {adapter.protocol_name}")
+                        self.client.register_mod_adapter(adapter)
+                        verbose_print(f"   ✅ Registered adapter: {adapter.mod_name}")
                     self.update_tools()
                 except Exception as e:
-                    verbose_print(f"   ❌ Failed to load protocol adapters: {e}")
+                    verbose_print(f"   ❌ Failed to load mod adapters: {e}")
                     import traceback
                     traceback.print_exc()
                     
                 # If no protocols were loaded from server, try loading essential protocols manually
-                if len(self.client.protocol_adapters) == 0:
+                if len(self.client.mod_adapters) == 0:
                     verbose_print("🔧 Server provided no protocols, loading essential protocols manually...")
                     try:
-                        manual_adapters = load_protocol_adapters(["openagents.protocols.communication.simple_messaging"])
+                        manual_adapters = load_mod_adapters(["openagents.mods.communication.simple_messaging"])
                         verbose_print(f"   Manually loaded {len(manual_adapters)} adapters")
                         for adapter in manual_adapters:
-                            self.client.register_protocol_adapter(adapter)
-                            verbose_print(f"   ✅ Manually registered adapter: {adapter.protocol_name}")
+                            self.client.register_mod_adapter(adapter)
+                            verbose_print(f"   ✅ Manually registered adapter: {adapter.mod_name}")
                         self.update_tools()
                     except Exception as e:
-                        verbose_print(f"   ❌ Failed to manually load protocol adapters: {e}")
+                        verbose_print(f"   ❌ Failed to manually load mod adapters: {e}")
                         import traceback
                         traceback.print_exc()
             else:
-                verbose_print(f"🔄 Using existing protocols: {self._supported_protocols}")
+                verbose_print(f"🔄 Using existing protocols: {self._supported_mods}")
             
             self._running = True
             # Start the loop in a background task

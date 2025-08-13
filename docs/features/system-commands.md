@@ -6,7 +6,7 @@
 
 ## Overview
 
-The System Commands feature provides a standardized protocol for agent-network communication in OpenAgents. It enables agents to perform system-level operations like registration, discovery, identity management, and health monitoring through a well-defined command interface.
+The System Commands feature provides a standardized mod for agent-network communication in OpenAgents. It enables agents to perform system-level operations like registration, discovery, identity management, and health monitoring through a well-defined command interface.
 
 ## Architecture
 
@@ -83,7 +83,7 @@ Register an agent with the network and establish connection.
     "network_id": "network-12345",
     "metadata": {
         "server_version": "1.0.0",
-        "supported_protocols": ["simple_messaging"]
+        "supported_mods": ["simple_messaging"]
     }
 }
 ```
@@ -147,15 +147,15 @@ Retrieve list of connected agents in the network.
 }
 ```
 
-#### `list_protocols`
+#### `list_mods`
 
-Get available protocol adapters and their capabilities.
+Get available mod adapters and their capabilities.
 
 **Request:**
 ```json
 {
     "type": "system_request",
-    "command": "list_protocols",
+    "command": "list_mods",
     "agent_id": "requesting-agent"
 }
 ```
@@ -164,14 +164,14 @@ Get available protocol adapters and their capabilities.
 ```json
 {
     "type": "system_response",
-    "command": "list_protocols",
+    "command": "list_mods",
     "success": true,
-    "protocols": [
+    "mods": [
         {
-            "name": "SimpleMessagingNetworkProtocol",
+            "name": "SimpleMessagingNetworkMod",
             "version": "1.0.0",
             "capabilities": ["direct_message", "broadcast_message"],
-            "description": "Basic messaging protocol for agent communication"
+            "description": "Basic messaging mod for agent communication"
         }
     ]
 }
@@ -281,19 +281,19 @@ Health check ping to verify agent responsiveness.
 - **Activity Tracking**: Updates agent activity timestamps
 - **Cleanup Trigger**: Failed pings trigger connection cleanup
 
-### Protocol Discovery Commands
+### Mod Discovery Commands
 
-#### `get_protocol_manifest`
+#### `get_mod_manifest`
 
-Retrieve detailed manifest for a specific protocol.
+Retrieve detailed manifest for a specific mod.
 
 **Request:**
 ```json
 {
     "type": "system_request",
-    "command": "get_protocol_manifest",
+    "command": "get_mod_manifest",
     "agent_id": "requesting-agent",
-    "protocol_name": "SimpleMessagingNetworkProtocol"
+    "mod_name": "SimpleMessagingNetworkMod"
 }
 ```
 
@@ -301,13 +301,13 @@ Retrieve detailed manifest for a specific protocol.
 ```json
 {
     "type": "system_response",
-    "command": "get_protocol_manifest",
+    "command": "get_mod_manifest",
     "success": true,
-    "protocol_name": "SimpleMessagingNetworkProtocol",
+    "mod_name": "SimpleMessagingNetworkMod",
     "manifest": {
-        "name": "SimpleMessagingNetworkProtocol",
+        "name": "SimpleMessagingNetworkMod",
         "version": "1.0.0",
-        "description": "Basic messaging protocol",
+        "description": "Basic messaging mod",
         "message_types": ["direct_message", "broadcast_message"],
         "capabilities": ["file_transfer", "encryption"],
         "configuration": {
@@ -325,7 +325,7 @@ Retrieve detailed manifest for a specific protocol.
 #### Handler Registration
 ```python
 from openagents.core.system_commands import (
-    handle_register_agent, handle_list_agents, handle_list_protocols,
+    handle_register_agent, handle_list_agents, handle_list_mods,
     handle_ping_agent, handle_claim_agent_id, handle_validate_certificate,
     REGISTER_AGENT, LIST_AGENTS, LIST_PROTOCOLS, PING_AGENT,
     CLAIM_AGENT_ID, VALIDATE_CERTIFICATE
@@ -339,7 +339,7 @@ if command == REGISTER_AGENT:
 elif command == LIST_AGENTS:
     await handle_list_agents(command, message, connection, self)
 elif command == LIST_PROTOCOLS:
-    await handle_list_protocols(command, message, connection, self)
+    await handle_list_mods(command, message, connection, self)
 elif command == PING_AGENT:
     await handle_ping_agent(command, message, connection, self)
 elif command == CLAIM_AGENT_ID:
@@ -419,8 +419,8 @@ async def send_system_request(self, command: str, **kwargs) -> bool:
 async def list_agents(self) -> bool:
     return await self.send_system_request("list_agents")
 
-async def list_protocols(self) -> bool:
-    return await self.send_system_request("list_protocols")
+async def list_mods(self) -> bool:
+    return await self.send_system_request("list_mods")
 
 async def claim_agent_id(self, agent_id: str, force: bool = False) -> bool:
     return await self.send_system_request("claim_agent_id", agent_id=agent_id, force=force)
@@ -545,7 +545,7 @@ class NetworkMonitor:
     def __init__(self, agent_id: str):
         self.client = AgentClient(agent_id=agent_id)
         self.agents = []
-        self.protocols = []
+        self.mods = []
     
     async def connect_and_discover(self):
         """Connect and discover network resources"""
@@ -560,12 +560,12 @@ class NetworkMonitor:
             "list_agents", self._handle_agent_list
         )
         self.client.connector.register_system_handler(
-            "list_protocols", self._handle_protocol_list
+            "list_mods", self._handle_mod_list
         )
         
-        # Discover agents and protocols
+        # Discover agents and mods
         await self.client.connector.list_agents()
-        await self.client.connector.list_protocols()
+        await self.client.connector.list_mods()
         
         # Wait for responses
         await asyncio.sleep(3)
@@ -578,10 +578,10 @@ class NetworkMonitor:
         if data.get("success"):
             self.agents = data.get("agents", [])
     
-    async def _handle_protocol_list(self, data: Dict[str, Any]):
-        """Handle protocol list response"""
+    async def _handle_mod_list(self, data: Dict[str, Any]):
+        """Handle mod list response"""
         if data.get("success"):
-            self.protocols = data.get("protocols", [])
+            self.mods = data.get("mods", [])
     
     def _display_discovery_results(self):
         """Display discovery results"""
@@ -594,10 +594,10 @@ class NetworkMonitor:
             print(f"  • {agent['agent_id']}: {agent.get('name', 'Unknown')}")
             print(f"    Capabilities: {capabilities}")
         
-        print(f"\n🔌 Available Protocols ({len(self.protocols)}):")
-        for protocol in self.protocols:
-            print(f"  • {protocol['name']} v{protocol['version']}")
-            print(f"    Description: {protocol.get('description', 'No description')}")
+        print(f"\n🔌 Available Mods ({len(self.mods)}):")
+        for mod in self.mods:
+            print(f"  • {mod['name']} v{mod['version']}")
+            print(f"    Description: {mod.get('description', 'No description')}")
     
     async def monitor_network(self, interval: int = 30):
         """Continuously monitor network changes"""
@@ -896,7 +896,7 @@ class CachedSystemClient:
         self.cache = {}
         self.cache_ttl = {
             "list_agents": 30,      # 30 seconds
-            "list_protocols": 300,  # 5 minutes
+            "list_mods": 300,  # 5 minutes
         }
     
     async def cached_request(self, command: str, **kwargs) -> Dict[str, Any]:
@@ -1026,7 +1026,7 @@ class SystemCommandTester:
         
         # Test basic commands
         await self.test_command("list_agents")
-        await self.test_command("list_protocols")
+        await self.test_command("list_mods")
         
         # Test identity management
         test_agent_id = f"test-agent-{uuid.uuid4().hex[:8]}"
@@ -1064,4 +1064,4 @@ async def run_system_command_tests():
 asyncio.run(run_system_command_tests())
 ```
 
-This comprehensive System Commands documentation covers the complete command protocol, implementation details, usage examples, and testing framework for OpenAgents' system-level communication infrastructure.
+This comprehensive System Commands documentation covers the complete command mod, implementation details, usage examples, and testing framework for OpenAgents' system-level communication infrastructure.
