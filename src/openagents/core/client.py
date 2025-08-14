@@ -96,6 +96,23 @@ class AgentClient:
             self.connector.register_system_handler(GET_MOD_MANIFEST, self._handle_mod_manifest_response)
         
         return success
+
+    async def connect(self, host: Optional[str] = None, port: Optional[int] = None, network_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None, max_message_size: int = 104857600) -> bool:
+        """Connect to a network server (alias for connect_to_server).
+        
+        This is a cleaner alias for the connect_to_server method.
+        
+        Args:
+            host: Server host address
+            port: Server port  
+            network_id: ID of the network to connect to
+            metadata: Metadata to send to the server
+            max_message_size: Maximum WebSocket message size in bytes (default 10MB)
+            
+        Returns:
+            bool: True if connection successful
+        """
+        return await self.connect_to_server(host, port, network_id, metadata, max_message_size)
     
     async def disconnect(self) -> bool:
         """Disconnect from the network server."""

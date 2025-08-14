@@ -316,6 +316,22 @@ class AgentRunner(ABC):
             # Re-raise the exception after cleanup
             raise
 
+    async def async_start(self, host: Optional[str] = None, port: Optional[int] = None, network_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None):
+        """Public async method for starting the agent runner.
+        
+        This is the public async API that should be used when starting agents in async contexts.
+        
+        Args:
+            host: Server host to connect to
+            port: Server port to connect to  
+            network_id: Network ID to join
+            metadata: Additional metadata for the agent
+            
+        Raises:
+            Exception: If the agent fails to start or connect
+        """
+        await self._async_start(host, port, network_id, metadata)
+
     async def _async_stop(self):
         """Async implementation of stopping the agent runner.
         
@@ -334,6 +350,13 @@ class AgentRunner(ABC):
             except:
                 pass
         await self.client.disconnect()
+
+    async def async_stop(self):
+        """Public async method for stopping the agent runner.
+        
+        This is the public async API that should be used when stopping agents in async contexts.
+        """
+        await self._async_stop()
     
     def start(self, host: Optional[str] = None, port: Optional[int] = None, network_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None):
         """Start the agent runner.

@@ -10,7 +10,9 @@ import json
 import logging
 import uuid
 import time
-from typing import Dict, Any, List, Optional, Callable, Awaitable
+import yaml
+from typing import Dict, Any, List, Optional, Callable, Awaitable, Union
+from pathlib import Path
 
 from .transport import Transport, TransportManager, Message
 from openagents.models.transport import TransportType
@@ -88,6 +90,81 @@ class AgentNetwork:
         
         # Register internal message handlers
         self._register_internal_handlers()
+    
+    @staticmethod
+    def load(config: Union[NetworkConfig, str, Path]) -> "AgentNetwork":
+        """Load an AgentNetwork from a NetworkConfig object or YAML file path.
+        
+        Args:
+            config: Either a NetworkConfig object, or a string/Path to a YAML config file
+            
+        Returns:
+            AgentNetwork: Initialized network instance
+            
+        Raises:
+            FileNotFoundError: If config file path doesn't exist
+            ValueError: If config file is invalid or missing required fields
+            
+        Examples:
+            # Load from NetworkConfig object
+            network_config = NetworkConfig(name="MyNetwork", mode="centralized")
+            network = AgentNetwork.load(network_config)
+            
+            # Load from YAML file path
+            network = AgentNetwork.load("examples/centralized_network_config.yaml")
+            network = AgentNetwork.load(Path("config/network.yaml"))
+        """
+        if isinstance(config, NetworkConfig):
+            # Direct NetworkConfig object
+            return AgentNetwork(config)
+        
+        elif isinstance(config, (str, Path)):
+            # Load from YAML file path
+            config_path = Path(config)
+            
+            if not config_path.exists():
+                raise FileNotFoundError(f"Network configuration file not found: {config_path}")
+            
+            try:
+                with open(config_path, 'r') as f:
+                    config_dict = yaml.safe_load(f)
+                
+                # Extract network configuration from YAML
+                if 'network' not in config_dict:
+                    raise ValueError(f"Configuration file {config_path} must contain a 'network' section")
+                
+                network_config = NetworkConfig(**config_dict['network'])
+                logger.info(f"Loaded network configuration from {config_path}")
+                
+                # Create the network instance
+                network = AgentNetwork(network_config)
+                
+                # Load network mods if specified in config
+                if 'mods' in config_dict['network'] and config_dict['network']['mods']:
+                    logger.info(f"Loading {len(config_dict['network']['mods'])} network mods...")
+                    try:
+                        from openagents.utils.mod_loaders import load_network_mods
+                        mods = load_network_mods(config_dict['network']['mods'])
+                        
+                        for mod_name, mod_instance in mods.items():
+                            mod_instance.bind_network(network)
+                            network.mods[mod_name] = mod_instance
+                            logger.info(f"Registered network mod: {mod_name}")
+                            
+                        logger.info(f"Successfully loaded {len(mods)} network mods")
+                    except Exception as e:
+                        logger.warning(f"Failed to load network mods: {e}")
+                        # Continue without mods - this shouldn't be fatal
+                
+                return network
+                
+            except yaml.YAMLError as e:
+                raise ValueError(f"Invalid YAML in configuration file {config_path}: {e}")
+            except Exception as e:
+                raise ValueError(f"Error loading network configuration from {config_path}: {e}")
+        
+        else:
+            raise TypeError(f"config must be NetworkConfig, str, or Path, got {type(config)}")
     
     def _create_topology_config(self) -> Dict[str, Any]:
         """Create topology configuration from network config."""
@@ -641,16 +718,24 @@ class AgentNetwork:
             return False
 
 
-def create_network(config: NetworkConfig) -> AgentNetwork:
+def create_network(config: Union[NetworkConfig, str, Path]) -> AgentNetwork:
     """Create an agent network from configuration.
     
     Args:
-        config: Network configuration
+        config: Network configuration (NetworkConfig object, file path string, or Path object)
         
     Returns:
         AgentNetwork: Configured network instance
+        
+    Examples:
+        # From NetworkConfig object
+        network = create_network(NetworkConfig(name="MyNetwork"))
+        
+        # From YAML file path
+        network = create_network("examples/centralized_network_config.yaml")
+        network = create_network(Path("config/network.yaml"))
     """
-    return AgentNetwork(config)
+    return AgentNetwork.load(config)
 
 
 # Backward compatibility aliases
