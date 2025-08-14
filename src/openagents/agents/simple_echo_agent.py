@@ -24,7 +24,7 @@ class SimpleEchoAgentRunner(AgentRunner):
             ignored_sender_ids: List of sender IDs to ignore messages from
             echo_prefix: Prefix to add to echoed messages (default: "Echo")
         """
-        super().__init__(agent_id=agent_id, protocol_names=protocol_names, ignored_sender_ids=ignored_sender_ids)
+        super().__init__(agent_id=agent_id, ignored_sender_ids=ignored_sender_ids)
         self.echo_prefix = echo_prefix or "Echo"
         self.message_count = 0
 
@@ -59,7 +59,7 @@ class SimpleEchoAgentRunner(AgentRunner):
             echo_message = DirectMessage(
                 sender_id=self.client.agent_id,
                 target_agent_id=sender_id,
-                mod="openagents.mods.communication.simple_messaging",
+                protocol="openagents.mods.communication.simple_messaging",
                 message_type="direct_message",
                 content={"text": echo_text},
                 text_representation=echo_text,
@@ -79,7 +79,7 @@ class SimpleEchoAgentRunner(AgentRunner):
                 greeting_message = DirectMessage(
                     sender_id=self.client.agent_id,
                     target_agent_id=sender_id,
-                    mod="openagents.mods.communication.simple_messaging",
+                    protocol="openagents.mods.communication.simple_messaging",
                     message_type="direct_message",
                     content={"text": greeting_text},
                     text_representation=greeting_text,

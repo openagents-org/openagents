@@ -1,6 +1,23 @@
 # OpenAgents Network Configuration Examples
 
-This directory contains example configuration files for different OpenAgents network topologies.
+This directory contains example configuration files and scripts for different OpenAgents network topologies.
+
+## 🚀 Quick Start - Full Example
+
+**For the fastest way to see OpenAgents in action, run the complete demonstration:**
+
+```bash
+python examples/full_example.py
+```
+
+This self-contained script will:
+- ✅ Launch a network server
+- ✅ Start an echo agent  
+- ✅ Connect a demo client
+- ✅ Show live agent interactions
+- ✅ Clean up everything automatically
+
+Perfect for understanding OpenAgents basics and testing your environment!
 
 ## Available Examples
 
@@ -20,6 +37,7 @@ This directory contains example configuration files for different OpenAgents net
 
 ### Agent Connection Examples
 
+- **`full_example.py`** - 🌟 **Complete self-contained demonstration** - Network + Agent + Client all in one!
 - **`agent_runner_example.py`** - Complete example of an echo agent using AgentRunner
 - **`agent_client_example.py`** - Basic agent client connection example
 - **`agent_claiming_example.py`** - Advanced agent with secure claiming capabilities
