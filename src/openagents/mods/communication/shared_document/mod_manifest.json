@@ -1,0 +1,86 @@
+{
+    "mod_name": "shared_document",
+    "version": "1.0.0",
+    "description": "A collaborative document editing mod for OpenAgents allowing multiple agents to simultaneously edit shared documents with real-time synchronization, line-specific operations, and commenting",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "SharedDocumentAgentAdapter",
+    "network_mod_class": "SharedDocumentNetworkMod",
+    "capabilities": [
+        "collaborative_document_editing",
+        "real_time_synchronization",
+        "line_based_operations",
+        "document_commenting",
+        "agent_presence_tracking",
+        "conflict_resolution",
+        "document_versioning",
+        "operation_history"
+    ],
+    "requires_adapter": true,
+    "dependencies": [],
+    "metadata": {
+        "max_document_size": 1048576,
+        "max_line_length": 10000,
+        "max_comment_length": 2000,
+        "operation_types": [
+            "insert_line",
+            "remove_lines",
+            "replace_lines",
+            "add_comment",
+            "remove_comment",
+            "update_cursor_position"
+        ],
+        "conflict_resolution_strategy": "last_write_wins_with_notification",
+        "core_features": [
+            "real_time_collaborative_editing",
+            "line_based_insert_remove_replace",
+            "line_specific_commenting",
+            "agent_cursor_position_tracking",
+            "operation_conflict_detection",
+            "document_history_with_rollback",
+            "multiple_document_support",
+            "document_access_control"
+        ],
+        "tools": [
+            "create_document",
+            "open_document",
+            "close_document",
+            "insert_lines",
+            "remove_lines", 
+            "replace_lines",
+            "add_comment",
+            "remove_comment",
+            "update_cursor_position",
+            "get_document_content",
+            "get_document_history",
+            "list_documents",
+            "get_agent_presence"
+        ],
+        "document_operations": {
+            "insert_lines": {
+                "description": "Insert new lines at a specific position",
+                "parameters": ["document_id", "line_number", "content"]
+            },
+            "remove_lines": {
+                "description": "Remove lines in a specified range",
+                "parameters": ["document_id", "start_line", "end_line"]
+            },
+            "replace_lines": {
+                "description": "Replace lines in a specified range with new content",
+                "parameters": ["document_id", "start_line", "end_line", "content"]
+            },
+            "add_comment": {
+                "description": "Add a comment to a specific line",
+                "parameters": ["document_id", "line_number", "comment_text"]
+            },
+            "remove_comment": {
+                "description": "Remove a comment from a line",
+                "parameters": ["document_id", "comment_id"]
+            },
+            "update_cursor_position": {
+                "description": "Update agent's cursor position in the document",
+                "parameters": ["document_id", "line_number", "column_number"]
+            }
+        }
+    }
+}
