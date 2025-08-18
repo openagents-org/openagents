@@ -1,0 +1,59 @@
+# Thread Messaging Agent Configuration for OpenAgents
+# This configuration enables Discord/Slack-like threading and reactions
+
+agent:
+  agent_id: "ThreadAgent"
+  
+network:
+  name: "ThreadMessagingNetwork"
+  host: "localhost"
+  port: 8000
+  network_id: "thread_messaging_network"
+
+mod_adapters:
+  - mod_name: "thread_messaging"
+    mod_adapter_class: "ThreadMessagingAgentAdapter"
+    config:
+      # Maximum file size for attachments (10MB)
+      max_file_size: 10485760
+      
+      # Available channels (configured at network level)
+      channels:
+        - "general"
+        - "dev"
+        - "support"
+        - "random"
+      
+      # Enable all supported reactions
+      enabled_reactions:
+        - "+1"
+        - "like" 
+        - "smile"
+        - "ok"
+        - "done"
+        - "heart"
+        - "thumbs_up"
+        - "thumbs_down"
+      
+      # Message handling preferences
+      auto_download_files: true
+      track_thread_history: true
+      
+      # Handler configuration
+      handlers:
+        message_handler_timeout: 30
+        file_handler_timeout: 60
+        reaction_handler_timeout: 10
+
+# Optional: Include simple messaging for backwards compatibility
+  # - mod_name: "simple_messaging"
+  #   mod_adapter_class: "SimpleMessagingAgentAdapter"
+  #   config:
+  #     max_file_size: 10485760
+
+# Logging configuration
+logging:
+  level: "INFO"
+  handlers:
+    - console
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
