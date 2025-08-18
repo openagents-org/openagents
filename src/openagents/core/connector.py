@@ -234,7 +234,7 @@ class NetworkConnector:
             bool: True if message sent successfully, False otherwise
         """
         if not self.is_connected:
-            logger.warning(f"Agent {self.agent_id} is not connected to a network")
+            logger.debug(f"Agent {self.agent_id} is not connected to a network")
             return False
             
         try:
@@ -296,7 +296,7 @@ class NetworkConnector:
             Optional[ModMessage]: The matching message, or None if no matching message received within timeout
         """
         if not self.is_connected:
-            logger.warning(f"Agent {self.agent_id} is not connected to a network")
+            logger.debug(f"Agent {self.agent_id} is not connected to a network")
             return None
             
         # Create a future to store the response
@@ -384,7 +384,7 @@ class NetworkConnector:
             bool: True if request was sent successfully
         """
         if not self.is_connected:
-            logger.warning(f"Agent {self.agent_id} is not connected to a network")
+            logger.debug(f"Agent {self.agent_id} is not connected to a network")
             return False
             
         # Automatically include the agent_id in system requests

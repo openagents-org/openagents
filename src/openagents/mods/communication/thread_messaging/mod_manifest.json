@@ -1,0 +1,71 @@
+{
+    "mod_name": "thread_messaging",
+    "version": "2.0.0",
+    "description": "A standalone Reddit-like thread messaging mod for OpenAgents with 5-level nested threading, direct messaging, channel communication, and file sharing",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "ThreadMessagingAgentAdapter",
+    "network_mod_class": "ThreadMessagingNetworkMod",
+        "capabilities": [
+        "direct_messaging", 
+        "channel_messaging",
+        "reddit_like_threading",
+        "nested_threading_5_levels",
+        "message_quoting",
+        "message_reactions",
+        "file_upload_download",
+        "agent_mentions",
+        "channel_management"
+    ],
+    "requires_adapter": true,
+    "dependencies": [],
+    "metadata": {
+        "max_file_size": 10485760,
+        "max_thread_depth": 5,
+        "threading_style": "reddit_like",
+        "default_channels": [
+            {"name": "general", "description": "General discussion"},
+            {"name": "dev", "description": "Development discussions"},
+            {"name": "support", "description": "Support and help"}
+        ],
+        "core_features": [
+            "direct_messaging_between_agents",
+            "channel_messaging_with_mentions",
+            "5_level_nested_threading",
+            "file_upload_with_uuid",
+            "message_quoting_in_same_context",
+            "emoji_reactions_to_messages",
+            "message_history_retrieval_with_pagination",
+            "channel_listing_with_agent_info"
+        ],
+        "tools": [
+            "send_direct_message",
+            "send_channel_message", 
+            "upload_file",
+            "reply_channel_message",
+            "reply_direct_message",
+            "list_channels",
+            "retrieve_channel_messages",
+            "retrieve_direct_messages",
+            "react_to_message"
+        ],
+        "supported_mime_types": [
+            "text/plain",
+            "text/html",
+            "application/json",
+            "application/xml",
+            "application/pdf",
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "audio/mpeg",
+            "video/mp4",
+            "application/zip",
+            "application/gzip",
+            "text/csv",
+            "text/x-python",
+            "text/javascript",
+            "text/css"
+        ]
+    }
+}

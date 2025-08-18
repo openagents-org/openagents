@@ -1,0 +1,49 @@
+network:
+  name: "ThreadMessagingNetwork"
+  mode: "centralized"
+  transport: "websocket"
+  host: "localhost"
+  port: 8571
+  server_mode: true  # This node acts as the server/coordinator
+  discovery_enabled: true
+  encryption_enabled: false
+  max_connections: 20
+  heartbeat_interval: 30
+  
+  # Network-level mod configuration
+  mods:
+    - name: "openagents.mods.communication.thread_messaging"
+      enabled: true
+      config:
+        # Configure default channels
+        default_channels:
+          - name: "general"
+            description: "General discussion for all team members"
+          - name: "development" 
+            description: "Development discussions and code reviews"
+          - name: "support"
+            description: "Customer support and issue tracking"
+          - name: "random"
+            description: "Random conversations and off-topic discussions"
+          - name: "announcements"
+            description: "Important team announcements"
+        
+        # File upload settings
+        max_file_size: 10485760  # 10MB
+        allowed_file_types: ["txt", "md", "py", "json", "yaml", "pdf", "jpg", "png"]
+        file_storage_path: "./network_files"
+        file_retention_days: 30
+        
+        # Message history settings
+        max_message_history: 5000
+        message_retention_days: 90
+        
+        # Threading settings
+        max_thread_depth: 5
+        thread_collapse_threshold: 50  # Collapse threads with more than 50 messages
+
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "thread_messaging_network.log"

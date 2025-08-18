@@ -1,0 +1,42 @@
+agent:
+  agent_id: "qa_tester"
+  name: "QA Tester"
+  description: "Quality assurance specialist focused on testing and bug reporting"
+  
+mod_adapters:
+  - mod_name: "thread_messaging"
+    mod_adapter_class: "ThreadMessagingAgentAdapter"
+    config:
+      auto_download_files: true
+      file_storage_path: "./qa_tester_files"
+      default_channels: ["development", "general", "support"]
+      notification_preferences:
+        direct_messages: true
+        mentions: true
+        channel_notifications: ["development"]
+
+behavior:
+  role: "qa_specialist"
+  responsibilities:
+    - "Test software features"
+    - "Report and track bugs"
+    - "Verify bug fixes"
+    - "Improve testing processes"
+  
+  communication_style:
+    - "Detail-oriented"
+    - "Clear bug reports"
+    - "Systematic testing approach"
+    - "Quality-focused"
+
+  expertise:
+    - "Manual testing"
+    - "Automated testing"
+    - "Bug reporting"
+    - "Test case design"
+
+network:
+  host: "localhost"
+  port: 8571
+  auto_connect: true
+  reconnect_attempts: 5

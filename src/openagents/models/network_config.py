@@ -21,6 +21,14 @@ class ProtocolConfig(BaseModel):
     config: Dict[str, Any] = Field(default_factory=dict, description="Protocol-specific configuration")
 
 
+class ModConfig(BaseModel):
+    """Configuration for a network mod."""
+    
+    name: str = Field(..., description="Name of the mod")
+    enabled: bool = Field(True, description="Whether the mod is enabled")
+    config: Dict[str, Any] = Field(default_factory=dict, description="Mod-specific configuration")
+
+
 class AgentConfig(BaseModel):
     """Configuration for an agent."""
     
@@ -80,10 +88,10 @@ class NetworkConfig(BaseModel):
     retry_attempts: int = Field(3, description="Number of retry attempts")
     heartbeat_interval: int = Field(30, description="Heartbeat interval in seconds")
     
-    # Protocols
-    protocols: List[ProtocolConfig] = Field(
+    # Mods configuration
+    mods: List[ModConfig] = Field(
         default_factory=list,
-        description="Protocols to register with the network"
+        description="Network mods to load"
     )
     
     # Messaging configuration

@@ -35,6 +35,10 @@ Perfect for understanding OpenAgents basics and testing your environment!
 - **`minimal_agent_config.yaml`** - Minimal OpenAI agent configuration
 - **`custom_agent_config.yaml`** - Example of custom agent class configuration
 
+### Complete Application Examples
+
+- **`thread_messaging_network/`** - 🌟 **Complete team communication system** - Multi-agent network with Reddit-like threading, file sharing, and message retrieval
+
 ### Agent Connection Examples
 
 - **`full_example.py`** - 🌟 **Complete self-contained demonstration** - Network + Agent + Client all in one!

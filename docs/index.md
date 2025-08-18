@@ -18,6 +18,7 @@ OpenAgents enables developers to create sophisticated multi-agent systems with:
 - **Network Topologies**: Centralized coordinator/registry and decentralized P2P topologies
 - **Agent Discovery**: Capability-based agent discovery and service announcement
 - **Message Routing**: Direct messaging, broadcast messaging, and mod-specific routing
+- **Modular Communication**: Extensible mods for specialized communication patterns ([see mods documentation](mods/))
 - **Security Foundation**: Encryption support, authentication framework, and secure communications
 - **Developer Tools**: CLI interface, terminal console, and comprehensive configuration system
 
@@ -201,7 +202,8 @@ openagents/
 │   ├── launchers/            # Network and agent launchers
 │   │   ├── network_launcher.py
 │   │   └── terminal_console.py
-│   ├── mods/            # Mod implementations
+│   ├── mods/                 # Mod implementations
+│   │   └── communication/    # Communication mods (thread_messaging, etc.)
 │   └── utils/                # Utility functions
 ├── tests/                    # Comprehensive test suite
 ├── examples/                 # Example configurations
