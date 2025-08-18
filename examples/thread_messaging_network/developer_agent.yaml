@@ -1,0 +1,42 @@
+agent:
+  agent_id: "developer_alice"
+  name: "Developer Alice"
+  description: "Senior software developer specializing in backend systems"
+  
+mod_adapters:
+  - mod_name: "thread_messaging"
+    mod_adapter_class: "ThreadMessagingAgentAdapter"
+    config:
+      auto_download_files: true
+      file_storage_path: "./developer_alice_files"
+      default_channels: ["development", "general", "support"]
+      notification_preferences:
+        direct_messages: true
+        mentions: true
+        channel_notifications: ["development"]
+
+behavior:
+  role: "senior_developer"
+  responsibilities:
+    - "Write and review code"
+    - "Mentor junior developers"
+    - "Architect system solutions"
+    - "Debug complex issues"
+  
+  communication_style:
+    - "Technical and precise"
+    - "Helpful code examples"
+    - "Constructive code reviews"
+    - "Problem-solving focused"
+
+  expertise:
+    - "Python, JavaScript, Go"
+    - "Microservices architecture"
+    - "Database optimization"
+    - "API design"
+
+network:
+  host: "localhost"
+  port: 8571
+  auto_connect: true
+  reconnect_attempts: 5

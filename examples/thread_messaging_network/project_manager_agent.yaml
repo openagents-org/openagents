@@ -1,0 +1,39 @@
+agent:
+  agent_id: "project_manager"
+  name: "Project Manager Bot"
+  description: "AI agent responsible for project coordination and team management"
+  
+# Mod adapters configuration
+mod_adapters:
+  - mod_name: "thread_messaging"
+    mod_adapter_class: "ThreadMessagingAgentAdapter"
+    config:
+      auto_download_files: true
+      file_storage_path: "./project_manager_files"
+      default_channels: ["general", "development", "announcements"]
+      notification_preferences:
+        direct_messages: true
+        mentions: true
+        channel_notifications: ["announcements", "general"]
+
+# Agent behavior configuration
+behavior:
+  role: "project_manager"
+  responsibilities:
+    - "Coordinate project activities"
+    - "Manage team communications"
+    - "Track project progress"
+    - "Facilitate meetings and discussions"
+  
+  communication_style:
+    - "Professional and organized"
+    - "Clear action items"
+    - "Regular status updates"
+    - "Encouraging team collaboration"
+
+# Network connection
+network:
+  host: "localhost"
+  port: 8571
+  auto_connect: true
+  reconnect_attempts: 5

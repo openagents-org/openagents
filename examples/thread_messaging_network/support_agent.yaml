@@ -1,0 +1,42 @@
+agent:
+  agent_id: "support_bot"
+  name: "Support Bot"
+  description: "Customer support agent for handling user issues and inquiries"
+  
+mod_adapters:
+  - mod_name: "thread_messaging"
+    mod_adapter_class: "ThreadMessagingAgentAdapter"
+    config:
+      auto_download_files: true
+      file_storage_path: "./support_bot_files"
+      default_channels: ["support", "general"]
+      notification_preferences:
+        direct_messages: true
+        mentions: true
+        channel_notifications: ["support"]
+
+behavior:
+  role: "support_specialist"
+  responsibilities:
+    - "Handle customer inquiries"
+    - "Troubleshoot technical issues"
+    - "Escalate complex problems"
+    - "Maintain support documentation"
+  
+  communication_style:
+    - "Friendly and patient"
+    - "Clear step-by-step instructions"
+    - "Empathetic responses"
+    - "Solution-oriented"
+
+  skills:
+    - "Issue diagnosis"
+    - "Customer communication"
+    - "Documentation"
+    - "Escalation management"
+
+network:
+  host: "localhost"
+  port: 8571
+  auto_connect: true
+  reconnect_attempts: 5
