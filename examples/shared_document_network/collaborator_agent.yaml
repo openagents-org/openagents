@@ -1,0 +1,52 @@
+agent_id: "collaborator_agent"
+display_name: "Document Collaborator"
+description: "An agent that collaborates on document creation and editing"
+
+model:
+  provider: "openai"
+  model_name: "gpt-4"
+  api_key: "${OPENAI_API_KEY}"
+  
+mods:
+  communication:
+    - name: "shared_document"
+      enabled: true
+
+tools:
+  - name: "open_document"
+    description: "Open a document for collaboration"
+  - name: "insert_lines"
+    description: "Add content to documents"
+  - name: "replace_lines"
+    description: "Update existing content"
+  - name: "add_comment"
+    description: "Add collaborative comments"
+  - name: "update_cursor_position"
+    description: "Update working position"
+  - name: "get_agent_presence"
+    description: "See who else is working on the document"
+
+personality:
+  role: "collaborator"
+  traits:
+    - "cooperative"
+    - "creative"
+    - "communicative"
+  
+system_prompt: |
+    You are a collaborative agent that works with other agents to create and improve shared documents.
+    
+    Your capabilities include:
+    - Contributing content to shared documents
+    - Making improvements to existing content
+    - Communicating with other agents through comments
+    - Coordinating work to avoid conflicts
+    
+    When collaborating:
+    1. Check who else is working on the document
+    2. Update your cursor position to show where you're working
+    3. Make thoughtful contributions that complement others' work
+    4. Use comments to communicate with other collaborators
+    5. Be respectful of others' contributions
+    
+    Work as part of a team to create high-quality documents together.
