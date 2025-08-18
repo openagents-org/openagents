@@ -1,0 +1,115 @@
+/* Tool Panel Styles */
+.tool-panel-enter {
+  transform: translateX(100%);
+}
+
+.tool-panel-enter-active {
+  transform: translateX(0);
+  transition: transform 300ms ease-in-out;
+}
+
+.tool-panel-exit {
+  transform: translateX(0);
+}
+
+.tool-panel-exit-active {
+  transform: translateX(100%);
+  transition: transform 300ms ease-in-out;
+}
+
+/* Fix for button focus outline */
+.tool-button:focus {
+  outline: 2px solid rgba(99, 102, 241, 0.5);
+  outline-offset: 2px;
+}
+
+.dark .tool-button:focus {
+  outline-color: rgba(129, 140, 248, 0.5);
+}
+
+/* Tool panel shadow */
+.tool-panel {
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.1);
+}
+
+.dark .tool-panel {
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+}
+
+/* Tool Button Styles */
+.tool-button {
+  transition: all 0.2s ease;
+}
+
+.tool-button:hover {
+  transform: translateY(-1px);
+}
+
+.tool-button:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+}
+
+.dark .tool-button:focus {
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.5);
+}
+
+/* Enhanced Global styles for tool panel content */
+.tool-panel-content,
+.tool-panel-content *,
+.tool-panel pre,
+.tool-panel code,
+.tool-panel .prose,
+.tool-panel .prose * {
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  word-break: break-word !important;
+  max-width: 100% !important;
+}
+
+.tool-panel-json,
+.tool-panel pre,
+.tool-panel pre code {
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  font-family: monospace;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
+}
+
+/* Better handling for code elements */
+.tool-panel pre code {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  vertical-align: top;
+}
+
+/* Force all elements to respect container width */
+.tool-panel * {
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* Add custom scrollbar styles */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.3);
+  border-radius: 20px;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.2);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(156, 163, 175, 0.5);
+} 

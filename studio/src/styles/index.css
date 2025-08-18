@@ -1,0 +1,201 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply h-full;
+  }
+  body {
+    @apply h-full text-gray-900 bg-white;
+  }
+  .dark body {
+    @apply bg-gray-900 text-gray-100;
+  }
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", 
+    Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", 
+    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+}
+
+/* Custom scrollbar styles */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(156, 163, 175, 0.5);
+  border-radius: 3px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background-color: rgba(75, 85, 99, 0.5);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(107, 114, 128, 0.7);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(55, 65, 81, 0.7);
+}
+
+/* Main layout */
+.main-container {
+  @apply flex h-screen overflow-hidden;
+}
+
+/* Code block styling */
+.prose pre {
+  background-color: #f3f4f6;
+  border-radius: 0.375rem;
+  margin: 1em 0;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+}
+
+.dark .prose pre {
+  background-color: #1f2937;
+}
+
+.prose code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.875em;
+  padding: 0.2em 0.4em;
+  border-radius: 0.25em;
+  background-color: rgba(229, 231, 235, 0.5);
+}
+
+.dark .prose code {
+  background-color: rgba(31, 41, 55, 0.5);
+}
+
+.prose pre code {
+  padding: 0;
+  background-color: transparent;
+}
+
+/* Table styling */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5em 0;
+}
+
+.prose th {
+  background-color: #f3f4f6;
+  font-weight: 600;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #e5e7eb;
+}
+
+.dark .prose th {
+  background-color: #374151;
+  border-color: #4b5563;
+}
+
+.prose td {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #e5e7eb;
+}
+
+.dark .prose td {
+  border-color: #4b5563;
+}
+
+/* List styling */
+.prose ul, .prose ol {
+  margin: 1.25em 0;
+  padding-left: 1.625em;
+}
+
+.prose li {
+  margin: 0.5em 0;
+}
+
+.prose blockquote {
+  font-style: italic;
+  border-left: 4px solid #e5e7eb;
+  padding-left: 1em;
+  margin-left: 0;
+}
+
+.dark .prose blockquote {
+  border-left-color: #4b5563;
+}
+
+/* Image styling for markdown */
+.prose img {
+  border-radius: 0.375rem;
+  max-width: 100%;
+  height: auto;
+}
+
+/* Link styling */
+.prose a {
+  color: #4f46e5;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.dark .prose a {
+  color: #818cf8;
+}
+
+.prose a:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* Highlight styling */
+.prose mark {
+  background-color: #fef3c7;
+  padding: 0.125em 0;
+}
+
+.dark .prose mark {
+  background-color: #78350f;
+}
+
+/* 添加在文件顶部，预先设置深色模式样式，预防主题闪烁 */
+:root {
+  color-scheme: light dark;
+}
+
+/* 默认颜色变量 - 亮色模式 */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f3f4f6;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --border-color: #e5e7eb;
+}
+
+/* 深色模式颜色变量 */
+.dark {
+  --bg-primary: #1f2937;
+  --bg-secondary: #111827;
+  --text-primary: #f9fafb;
+  --text-secondary: #d1d5db;
+  --border-color: #374151;
+}
+
+/* 设置初始的背景色和文本色以避免闪烁 */
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+} 
