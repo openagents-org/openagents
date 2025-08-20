@@ -276,6 +276,9 @@ class ThreadMessagingNetworkMod(BaseMod):
             message_type = content.get("message_type")
             
             if message_type == "reply_message":
+                # Populate quoted_text if quoted_message_id is provided
+                if 'quoted_message_id' in content and content['quoted_message_id']:
+                    content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
                 inner_message = ReplyMessage(**content)
                 await self._process_reply_message(inner_message)
             elif message_type == "file_upload":
@@ -284,7 +287,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             elif message_type == "file_operation":
                 inner_message = FileOperationMessage(**content)
                 await self._process_file_operation(inner_message)
-            elif message_type == "channel_info":
+            elif message_type == "channel_info" or message_type == "channel_info_message":
                 inner_message = ChannelInfoMessage(**content)
                 await self._process_channel_info_request(inner_message)
             elif message_type == "message_retrieval":
@@ -294,9 +297,15 @@ class ThreadMessagingNetworkMod(BaseMod):
                 inner_message = ReactionMessage(**content)
                 await self._process_reaction_message(inner_message)
             elif message_type == "direct_message":
+                # Populate quoted_text if quoted_message_id is provided
+                if 'quoted_message_id' in content and content['quoted_message_id']:
+                    content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
                 inner_message = DirectMessage(**content)
                 await self._process_direct_message(inner_message)
             elif message_type == "channel_message":
+                # Populate quoted_text if quoted_message_id is provided
+                if 'quoted_message_id' in content and content['quoted_message_id']:
+                    content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
                 inner_message = ChannelMessage(**content)
                 await self._process_channel_message(inner_message)
             else:
@@ -649,6 +658,15 @@ class ThreadMessagingNetworkMod(BaseMod):
                         'thread_structure': thread.get_thread_structure() if include_threads else None
                     }
                 
+                # Add reactions to the message
+                if msg_id in self.reactions:
+                    msg_data['reactions'] = {}
+                    for reaction_type, agents in self.reactions[msg_id].items():
+                        if agents:  # Only include reactions with at least one agent
+                            msg_data['reactions'][reaction_type] = len(agents)
+                else:
+                    msg_data['reactions'] = {}
+                
                 channel_messages.append(msg_data)
             
             # Also include replies if they're in this channel
@@ -663,6 +681,15 @@ class ThreadMessagingNetworkMod(BaseMod):
                         'is_root': False,
                         'thread_level': msg.thread_level
                     }
+                
+                # Add reactions to the reply message
+                if msg_id in self.reactions:
+                    msg_data['reactions'] = {}
+                    for reaction_type, agents in self.reactions[msg_id].items():
+                        if agents:  # Only include reactions with at least one agent
+                            msg_data['reactions'][reaction_type] = len(agents)
+                else:
+                    msg_data['reactions'] = {}
                 
                 channel_messages.append(msg_data)
         
@@ -747,6 +774,15 @@ class ThreadMessagingNetworkMod(BaseMod):
                         'thread_structure': thread.get_thread_structure() if include_threads else None
                     }
                 
+                # Add reactions to the direct message
+                if msg_id in self.reactions:
+                    msg_data['reactions'] = {}
+                    for reaction_type, agents in self.reactions[msg_id].items():
+                        if agents:  # Only include reactions with at least one agent
+                            msg_data['reactions'][reaction_type] = len(agents)
+                else:
+                    msg_data['reactions'] = {}
+                
                 direct_messages.append(msg_data)
             
             # Also include replies if they're between these agents
@@ -767,6 +803,15 @@ class ThreadMessagingNetworkMod(BaseMod):
                             'is_root': False,
                             'thread_level': msg.thread_level
                         }
+                    
+                    # Add reactions to the reply message
+                    if msg_id in self.reactions:
+                        msg_data['reactions'] = {}
+                        for reaction_type, agents in self.reactions[msg_id].items():
+                            if agents:  # Only include reactions with at least one agent
+                                msg_data['reactions'][reaction_type] = len(agents)
+                    else:
+                        msg_data['reactions'] = {}
                     
                     direct_messages.append(msg_data)
         
@@ -963,3 +1008,29 @@ class ThreadMessagingNetworkMod(BaseMod):
             )[:200]
             for old_id in oldest_ids:
                 del self.message_history[old_id]
+    
+    def _get_quoted_text(self, quoted_message_id: str) -> str:
+        """Get the text content of a quoted message with author information.
+        
+        Args:
+            quoted_message_id: The ID of the message being quoted
+            
+        Returns:
+            The text content of the quoted message with author, or a fallback string if not found
+        """
+        if quoted_message_id in self.message_history:
+            quoted_message = self.message_history[quoted_message_id]
+            if hasattr(quoted_message, 'content') and isinstance(quoted_message.content, dict):
+                text = quoted_message.content.get('text', '')
+                author = getattr(quoted_message, 'sender_id', 'Unknown')
+                
+                # Truncate long quotes
+                if len(text) > 100:
+                    text = f"{text[:100]}..."
+                
+                # Format: "Author: quoted text"
+                return f"{author}: {text}"
+            else:
+                return "[Quoted message content unavailable]"
+        else:
+            return f"[Quoted message {quoted_message_id} not found]"

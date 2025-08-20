@@ -527,8 +527,9 @@ class AgentNetwork:
             from .system_commands import (
                 handle_register_agent, handle_list_agents, handle_list_mods,
                 handle_ping_agent, handle_claim_agent_id, handle_validate_certificate,
+                handle_get_network_info,
                 REGISTER_AGENT, LIST_AGENTS, LIST_MODS, PING_AGENT, 
-                CLAIM_AGENT_ID, VALIDATE_CERTIFICATE
+                CLAIM_AGENT_ID, VALIDATE_CERTIFICATE, GET_NETWORK_INFO
             )
             
             command = message.get("command")
@@ -554,6 +555,8 @@ class AgentNetwork:
                 await handle_list_agents(command, message, connection, self)
             elif command == LIST_MODS:
                 await handle_list_mods(command, message, connection, self)
+            elif command == GET_NETWORK_INFO:
+                await handle_get_network_info(command, message, connection, self)
             elif command == PING_AGENT:
                 await handle_ping_agent(command, message, connection, self)
             elif command == CLAIM_AGENT_ID:

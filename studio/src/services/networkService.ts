@@ -35,24 +35,37 @@ export interface NetworkListResponse {
 // Check if a local OpenAgents network is running on localhost:8571
 export const detectLocalNetwork = async (): Promise<NetworkConnection | null> => {
   try {
-    const response = await fetch('http://localhost:8571/health', {
-      method: 'GET',
-      signal: AbortSignal.timeout(3000), // 3 second timeout
-    });
+    // Try to establish a WebSocket connection to test the OpenAgents network
+    const ws = new WebSocket('ws://localhost:8571');
     
-    if (response.ok) {
-      return {
-        host: 'localhost',
-        port: 8571,
-        status: 'connected',
-        latency: 0, // Would calculate actual latency in real implementation
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        ws.close();
+        console.log('No local OpenAgents network detected on port 8571');
+        resolve(null);
+      }, 3000);
+
+      ws.onopen = () => {
+        clearTimeout(timeout);
+        ws.close();
+        resolve({
+          host: 'localhost',
+          port: 8571,
+          status: 'connected',
+          latency: 0,
+        });
       };
-    }
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        console.log('No local OpenAgents network detected on port 8571');
+        resolve(null);
+      };
+    });
   } catch (error) {
     console.log('No local OpenAgents network detected on port 8571');
+    return null;
   }
-  
-  return null;
 };
 
 // Test connection to a specific network
@@ -60,28 +73,42 @@ export const testNetworkConnection = async (host: string, port: number): Promise
   const startTime = Date.now();
   
   try {
-    const response = await fetch(`http://${host}:${port}/health`, {
-      method: 'GET',
-      signal: AbortSignal.timeout(5000), // 5 second timeout
+    // Try to establish a WebSocket connection to test the OpenAgents network
+    const ws = new WebSocket(`ws://${host}:${port}`);
+    
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        ws.close();
+        resolve({
+          host,
+          port,
+          status: 'error',
+          latency: Date.now() - startTime,
+        });
+      }, 5000);
+
+      ws.onopen = () => {
+        clearTimeout(timeout);
+        const latency = Date.now() - startTime;
+        ws.close();
+        resolve({
+          host,
+          port,
+          status: 'connected',
+          latency,
+        });
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        resolve({
+          host,
+          port,
+          status: 'error',
+          latency: Date.now() - startTime,
+        });
+      };
     });
-    
-    const latency = Date.now() - startTime;
-    
-    if (response.ok) {
-      return {
-        host,
-        port,
-        status: 'connected',
-        latency,
-      };
-    } else {
-      return {
-        host,
-        port,
-        status: 'error',
-        latency,
-      };
-    }
   } catch (error) {
     return {
       host,
