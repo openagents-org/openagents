@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      name="description"
+      content="OpenAgents Studio - Web interface for OpenAgents networks"
+    />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <!--
+      manifest.json provides metadata used when your web app is installed on a
+      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
+    -->
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    
+    <!-- 添加主题初始化脚本，避免主题闪烁 -->
+    <script>
+      (function() {
+        // 尝试从localStorage读取主题设置
+        var savedTheme = localStorage.getItem('openagents_theme');
+        
+        // 如果localStorage中没有保存的主题，则使用系统偏好
+        if (!savedTheme) {
+          savedTheme = window.matchMedia('(prefers-color-scheme: dark)').matches 
+            ? 'dark' 
+            : 'light';
+        }
+        
+        // 立即应用主题类到HTML元素
+        document.documentElement.classList.add(savedTheme);
+      })();
+    </script>
+    
+    <title>OpenAgents Studio</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    <!--
+      This HTML file is a template.
+      If you open it directly in the browser, you will see an empty page.
+
+      To begin the development process, run `npm start` or `yarn start`.
+      To create a production bundle, use `npm run build` or `yarn build`.
+    -->
+  </body>
+</html> 

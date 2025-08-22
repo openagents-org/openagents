@@ -249,12 +249,18 @@ async def handle_list_mods(command: str, data: Dict[str, Any], connection: Serve
     
     # Send response
     try:
-        await connection.send(json.dumps({
+        response = {
             "type": "system_response",
             "command": "list_mods",
             "success": True,
             "mods": mod_list
-        }))
+        }
+        
+        # Include request_id if it was provided in the original request
+        if "request_id" in data:
+            response["request_id"] = data["request_id"]
+            
+        await connection.send(json.dumps(response))
         logger.debug(f"Sent mod list to {requesting_agent_id}")
     except Exception as e:
         logger.error(f"Failed to send mod list to {requesting_agent_id}: {e}")
@@ -326,6 +332,50 @@ async def handle_get_mod_manifest(command: str, data: Dict[str, Any], connection
                 "error": f"No manifest found for mod {mod_name}"
             }))
             logger.warning(f"No manifest found for mod {mod_name}")
+
+
+async def handle_get_network_info(command: str, data: Dict[str, Any], connection: ServerConnection,
+                                 network_instance: Any) -> None:
+    """Handle the get_network_info command.
+    
+    Args:
+        command: The command name
+        data: The command data
+        connection: The WebSocket connection
+        network_instance: The network instance
+    """
+    requesting_agent_id = data.get("agent_id")
+    
+    if requesting_agent_id not in network_instance.connections:
+        logger.warning(f"Agent {requesting_agent_id} not connected")
+        return
+    
+    # Prepare network info
+    network_info = {
+        "name": network_instance.network_name,
+        "node_id": network_instance.network_id,
+        "mode": "centralized" if hasattr(network_instance.topology, 'server_mode') else "decentralized",
+        "mods": list(network_instance.mods.keys()),
+        "agent_count": len(network_instance.connections)
+    }
+    
+    # Send response
+    try:
+        response = {
+            "type": "system_response",
+            "command": "get_network_info",
+            "success": True,
+            "network_info": network_info
+        }
+        
+        # Include request_id if it was provided in the original request
+        if "request_id" in data:
+            response["request_id"] = data["request_id"]
+            
+        await connection.send(json.dumps(response))
+        logger.debug(f"Sent network info to {requesting_agent_id}")
+    except Exception as e:
+        logger.error(f"Failed to send network info to {requesting_agent_id}: {e}")
 
 
 async def handle_ping_agent(command: str, data: Dict[str, Any], connection: ServerConnection,
@@ -485,6 +535,7 @@ GET_MOD_MANIFEST = "get_mod_manifest"
 PING_AGENT = "ping_agent"
 CLAIM_AGENT_ID = "claim_agent_id"
 VALIDATE_CERTIFICATE = "validate_certificate"
+GET_NETWORK_INFO = "get_network_info"
 
 # Default system command registry
 default_registry = SystemCommandRegistry() 

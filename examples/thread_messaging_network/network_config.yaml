@@ -2,7 +2,7 @@ network:
   name: "ThreadMessagingNetwork"
   mode: "centralized"
   transport: "websocket"
-  host: "localhost"
+  host: "0.0.0.0"
   port: 8571
   server_mode: true  # This node acts as the server/coordinator
   discovery_enabled: true

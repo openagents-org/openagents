@@ -210,12 +210,15 @@ class ThreadMessagingNetworkMod(BaseMod):
         for channel_name in self.channels.keys():
             self.channel_agents[channel_name].add(agent_id)
             self.agent_channels[agent_id].add(channel_name)
+            logger.info(f"Added agent {agent_id} to channel {channel_name}")
         
         # Create agent-specific file storage directory
         agent_storage_path = self.file_storage_path / agent_id
         os.makedirs(agent_storage_path, exist_ok=True)
         
         logger.info(f"Registered agent {agent_id} with Thread Messaging protocol")
+        logger.info(f"Current active agents: {self.active_agents}")
+        logger.info(f"Channel agents mapping: {dict(self.channel_agents)}")
     
     def handle_unregister_agent(self, agent_id: str) -> None:
         """Unregister an agent from the thread messaging protocol.
@@ -276,6 +279,9 @@ class ThreadMessagingNetworkMod(BaseMod):
             message_type = content.get("message_type")
             
             if message_type == "reply_message":
+                # Populate quoted_text if quoted_message_id is provided
+                if 'quoted_message_id' in content and content['quoted_message_id']:
+                    content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
                 inner_message = ReplyMessage(**content)
                 await self._process_reply_message(inner_message)
             elif message_type == "file_upload":
@@ -284,7 +290,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             elif message_type == "file_operation":
                 inner_message = FileOperationMessage(**content)
                 await self._process_file_operation(inner_message)
-            elif message_type == "channel_info":
+            elif message_type == "channel_info" or message_type == "channel_info_message":
                 inner_message = ChannelInfoMessage(**content)
                 await self._process_channel_info_request(inner_message)
             elif message_type == "message_retrieval":
@@ -294,9 +300,15 @@ class ThreadMessagingNetworkMod(BaseMod):
                 inner_message = ReactionMessage(**content)
                 await self._process_reaction_message(inner_message)
             elif message_type == "direct_message":
+                # Populate quoted_text if quoted_message_id is provided
+                if 'quoted_message_id' in content and content['quoted_message_id']:
+                    content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
                 inner_message = DirectMessage(**content)
                 await self._process_direct_message(inner_message)
             elif message_type == "channel_message":
+                # Populate quoted_text if quoted_message_id is provided
+                if 'quoted_message_id' in content and content['quoted_message_id']:
+                    content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
                 inner_message = ChannelMessage(**content)
                 await self._process_channel_message(inner_message)
             else:
@@ -322,6 +334,55 @@ class ThreadMessagingNetworkMod(BaseMod):
             logger.warning(f"Message sent to unknown channel: {channel}")
         
         logger.debug(f"Processing channel message from {message.sender_id} in {channel}")
+        
+        # Broadcast the message to all other agents in the channel
+        await self._broadcast_channel_message(message)
+    
+    async def _broadcast_channel_message(self, message: ChannelMessage) -> None:
+        """Broadcast a channel message to all other agents in the channel.
+        
+        Args:
+            message: The channel message to broadcast
+        """
+        channel = message.channel
+        
+        # Get all agents in the channel
+        channel_agents = self.channel_agents.get(channel, set())
+        
+        # Remove the sender from the notification list (they already know about their message)
+        notify_agents = channel_agents - {message.sender_id}
+        
+        logger.info(f"Channel {channel} has agents: {channel_agents}")
+        logger.info(f"Message sender: {message.sender_id}")
+        logger.info(f"Agents to notify: {notify_agents}")
+        
+        if not notify_agents:
+            logger.warning(f"No other agents to notify in channel {channel} - only sender {message.sender_id} present")
+            return
+        
+        logger.info(f"Broadcasting channel message to {len(notify_agents)} agents in {channel}: {notify_agents}")
+        
+        # Create a mod message to notify other agents about the new channel message
+        for agent_id in notify_agents:
+            logger.info(f"Creating notification for agent: {agent_id}")
+            notification = ModMessage(
+                sender_id=self.network.network_id,
+                mod="openagents.mods.communication.thread_messaging",
+                content={
+                    "action": "channel_message_notification",
+                    "message": message.model_dump(),
+                    "channel": channel
+                },
+                direction="inbound",
+                relevant_agent_id=agent_id
+            )
+            logger.info(f"Notification target_id will be: {notification.relevant_agent_id}")
+            
+            try:
+                await self.network.send_message(notification)
+                logger.debug(f"Sent channel message notification to agent {agent_id}")
+            except Exception as e:
+                logger.error(f"Failed to send channel message notification to {agent_id}: {e}")
     
     async def _process_direct_message(self, message: DirectMessage) -> None:
         """Process a direct message.
@@ -649,6 +710,15 @@ class ThreadMessagingNetworkMod(BaseMod):
                         'thread_structure': thread.get_thread_structure() if include_threads else None
                     }
                 
+                # Add reactions to the message
+                if msg_id in self.reactions:
+                    msg_data['reactions'] = {}
+                    for reaction_type, agents in self.reactions[msg_id].items():
+                        if agents:  # Only include reactions with at least one agent
+                            msg_data['reactions'][reaction_type] = len(agents)
+                else:
+                    msg_data['reactions'] = {}
+                
                 channel_messages.append(msg_data)
             
             # Also include replies if they're in this channel
@@ -663,6 +733,15 @@ class ThreadMessagingNetworkMod(BaseMod):
                         'is_root': False,
                         'thread_level': msg.thread_level
                     }
+                
+                # Add reactions to the reply message
+                if msg_id in self.reactions:
+                    msg_data['reactions'] = {}
+                    for reaction_type, agents in self.reactions[msg_id].items():
+                        if agents:  # Only include reactions with at least one agent
+                            msg_data['reactions'][reaction_type] = len(agents)
+                else:
+                    msg_data['reactions'] = {}
                 
                 channel_messages.append(msg_data)
         
@@ -747,6 +826,15 @@ class ThreadMessagingNetworkMod(BaseMod):
                         'thread_structure': thread.get_thread_structure() if include_threads else None
                     }
                 
+                # Add reactions to the direct message
+                if msg_id in self.reactions:
+                    msg_data['reactions'] = {}
+                    for reaction_type, agents in self.reactions[msg_id].items():
+                        if agents:  # Only include reactions with at least one agent
+                            msg_data['reactions'][reaction_type] = len(agents)
+                else:
+                    msg_data['reactions'] = {}
+                
                 direct_messages.append(msg_data)
             
             # Also include replies if they're between these agents
@@ -767,6 +855,15 @@ class ThreadMessagingNetworkMod(BaseMod):
                             'is_root': False,
                             'thread_level': msg.thread_level
                         }
+                    
+                    # Add reactions to the reply message
+                    if msg_id in self.reactions:
+                        msg_data['reactions'] = {}
+                        for reaction_type, agents in self.reactions[msg_id].items():
+                            if agents:  # Only include reactions with at least one agent
+                                msg_data['reactions'][reaction_type] = len(agents)
+                    else:
+                        msg_data['reactions'] = {}
                     
                     direct_messages.append(msg_data)
         
@@ -963,3 +1060,29 @@ class ThreadMessagingNetworkMod(BaseMod):
             )[:200]
             for old_id in oldest_ids:
                 del self.message_history[old_id]
+    
+    def _get_quoted_text(self, quoted_message_id: str) -> str:
+        """Get the text content of a quoted message with author information.
+        
+        Args:
+            quoted_message_id: The ID of the message being quoted
+            
+        Returns:
+            The text content of the quoted message with author, or a fallback string if not found
+        """
+        if quoted_message_id in self.message_history:
+            quoted_message = self.message_history[quoted_message_id]
+            if hasattr(quoted_message, 'content') and isinstance(quoted_message.content, dict):
+                text = quoted_message.content.get('text', '')
+                author = getattr(quoted_message, 'sender_id', 'Unknown')
+                
+                # Truncate long quotes
+                if len(text) > 100:
+                    text = f"{text[:100]}..."
+                
+                # Format: "Author: quoted text"
+                return f"{author}: {text}"
+            else:
+                return "[Quoted message content unavailable]"
+        else:
+            return f"[Quoted message {quoted_message_id} not found]"
