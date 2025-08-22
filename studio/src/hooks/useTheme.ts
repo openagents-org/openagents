@@ -2,14 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 
 type ThemeType = 'light' | 'dark';
 
-// 获取保存的主题或系统偏好
+// 获取保存的主题或默认为 light 模式
 const getInitialTheme = (): ThemeType => {
     const savedTheme = localStorage.getItem('openagents_theme');
     if (savedTheme === 'light' || savedTheme === 'dark') {
         return savedTheme;
     }
-    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    return prefersDark ? 'dark' : 'light';
+    // 默认使用 light 模式，不再检查系统偏好
+    return 'light';
 };
 
 export default function useTheme() {

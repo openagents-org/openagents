@@ -152,6 +152,8 @@ const AppContent: React.FC = () => {
             networkConnection={currentNetwork!}
             agentName={agentName!}
             currentTheme={theme}
+            onProfileClick={() => setActiveView('profile')}
+            toggleTheme={toggleTheme}
           />
         </ConfirmProvider>
       </ToastProvider>

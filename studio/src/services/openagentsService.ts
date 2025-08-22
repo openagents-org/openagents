@@ -196,12 +196,8 @@ export class OpenAgentsConnection {
             return;
           }
           
-          // In development mode, don't auto-reconnect to prevent infinite loops
-          if (process.env.NODE_ENV === 'development') {
-            console.log('🔄 Development mode: skipping auto-reconnect to prevent loops');
-          } else {
-            this.handleReconnect();
-          }
+          // Auto-reconnect with proper safeguards
+          this.handleReconnect();
         };
 
         this.websocket.onerror = (error) => {
@@ -410,14 +406,51 @@ export class OpenAgentsConnection {
   }
 
   private handleReconnect(): void {
+    // Don't reconnect if connection was manually aborted
+    if (this.connectionAborted) {
+      console.log('🔄 Connection was manually aborted, skipping reconnect');
+      return;
+    }
+
+    // Don't reconnect if already connecting
+    if (this.isConnecting) {
+      console.log('🔄 Already attempting to reconnect, skipping');
+      return;
+    }
+
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-      console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`);
+      console.log(`🔄 Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
       
-      setTimeout(() => {
-        this.connect().catch(console.error);
+      // Emit reconnecting event
+      this.emit('reconnecting', { attempt: this.reconnectAttempts, maxAttempts: this.maxReconnectAttempts, delay });
+      
+      setTimeout(async () => {
+        // Check again if we should still reconnect
+        if (this.connectionAborted || this.connected) {
+          return;
+        }
+
+        try {
+          console.log(`🔄 Reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+          const success = await this.connect();
+          
+          if (success) {
+            console.log('🔄 ✅ Reconnection successful!');
+            this.emit('reconnected', { attempts: this.reconnectAttempts });
+          } else {
+            console.log('🔄 ❌ Reconnection failed, will retry...');
+            this.handleReconnect(); // Try again
+          }
+        } catch (error) {
+          console.log(`🔄 ❌ Reconnection attempt ${this.reconnectAttempts} failed:`, error);
+          this.handleReconnect(); // Try again
+        }
       }, delay);
+    } else {
+      console.log(`🔄 Max reconnection attempts (${this.maxReconnectAttempts}) reached. Giving up.`);
+      this.emit('connectionLost', { reason: 'Max reconnection attempts reached' });
     }
   }
 

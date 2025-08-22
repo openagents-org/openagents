@@ -4,11 +4,15 @@ import { NetworkConnection } from '../../services/networkService';
 import ChannelSidebar from './ChannelSidebar';
 import MessageDisplay from './MessageDisplay';
 import MessageInput from './ThreadMessageInput';
+import { ReadMessageStore } from '../../utils/readMessageStore';
+import { mentionNotifier } from '../../utils/mentionNotifier';
 
 interface ThreadMessagingViewProps {
   networkConnection: NetworkConnection;
   agentName: string;
   currentTheme: 'light' | 'dark';
+  onProfileClick?: () => void;
+  toggleTheme?: () => void;
 }
 
 export interface ThreadState {
@@ -152,7 +156,9 @@ const styles = `
 const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
   networkConnection,
   agentName,
-  currentTheme
+  currentTheme,
+  onProfileClick,
+  toggleTheme
 }) => {
   const [connection, setConnection] = useState<OpenAgentsConnection | null>(null);
   const [state, setState] = useState<ThreadState>({
@@ -179,8 +185,30 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
   } | null>(null);
   
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  
+  // Add unread message tracking
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  
+  // Add read message store
+  const readMessageStoreRef = useRef<ReadMessageStore | null>(null);
+  
+  // Add periodic message checking
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const connectionRef = useRef<OpenAgentsConnection | null>(null);
   const [currentAgentId, setCurrentAgentId] = useState(agentName);
+
+  // Initialize mention notifier with current agent ID
+  useEffect(() => {
+    mentionNotifier.setCurrentUserAgent(agentName);
+  }, [agentName]);
+
+  // Initialize read message store
+  useEffect(() => {
+    const networkHost = networkConnection.host || 'localhost';
+    const networkPort = networkConnection.port || 8000;
+    readMessageStoreRef.current = new ReadMessageStore(networkHost, networkPort, agentName);
+    console.log(`📖 Initialized read message store for ${agentName}@${networkHost}:${networkPort}`);
+  }, [networkConnection, agentName]);
 
   // Initialize connection
   useEffect(() => {
@@ -205,6 +233,12 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
         conn.on('direct_messages', handleDirectMessages);
         conn.on('agents', handleAgentsList);
         conn.on('reaction', handleReaction);
+        
+        // Add reconnection event handlers
+        conn.on('reconnecting', handleReconnecting);
+        conn.on('reconnected', handleReconnected);
+        conn.on('connectionLost', handleConnectionLost);
+        // Note: Removed real-time notifications, using periodic polling instead
 
         // Connect to network
         const connected = await conn.connect();
@@ -230,23 +264,25 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
           setCurrentAgentId(newId);
         }
 
-        // Load initial data
-        console.log('📤 Requesting initial channels list...');
-        conn.listChannels();
-        
-        console.log('📤 Requesting agents list...');
-        conn.listAgents().then((agents) => {
-          console.log('👥 Network agents received:', agents);
-          handleAgentsList(agents);
-        }).catch((error) => {
-          console.error('❌ Failed to get agents:', error);
-        });
-        
-        // Also try sending a test message to trigger channel creation
-        console.log('📤 Sending test message to general channel...');
+        // Load initial data with a small delay to ensure agent registration is complete
         setTimeout(() => {
-          conn.sendChannelMessage('general', 'Hello from OpenAgents Studio!');
-        }, 2000);
+          console.log('📤 Requesting initial channels list...');
+          conn.listChannels();
+          
+          console.log('📤 Requesting agents list...');
+          conn.listAgents().then((agents) => {
+            console.log('👥 Network agents received:', agents);
+            handleAgentsList(agents);
+          }).catch((error) => {
+            console.error('❌ Failed to get agents:', error);
+          });
+          
+          // Also try sending a test message to trigger channel creation
+          console.log('📤 Sending test message to general channel...');
+          setTimeout(() => {
+            conn.sendChannelMessage('general', 'Hello from OpenAgents Studio!');
+          }, 1000);
+        }, 500); // Wait 500ms for agent registration to complete
         
 
         
@@ -304,6 +340,14 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
 
     return () => {
       isSubscribed = false; // Mark as unsubscribed
+      
+      // Clear periodic message checking interval
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+        console.log('🔄 [PERIODIC] Cleared message checking interval on unmount');
+      }
+      
       if (connectionRef.current) {
         console.log('🔌 Cleaning up connection on unmount');
         connectionRef.current.disconnect();
@@ -371,39 +415,83 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
     console.log('📥 Handling channel messages for:', channel);
     console.log('📥 Messages received:', messages?.length || 0);
     
-    // Debug: Check for reactions in messages
     if (messages && messages.length > 0) {
-      const messagesWithReactions = messages.filter((msg: any) => msg.reactions && Object.keys(msg.reactions).length > 0);
-      if (messagesWithReactions.length > 0) {
-        console.log('🎭 Found messages with reactions:', messagesWithReactions.length);
-        messagesWithReactions.forEach((msg: any) => {
-          console.log(`🎭 Message ${msg.message_id} reactions:`, msg.reactions);
-        });
-      }
+      const sortedMessages = messages.sort((a: ThreadMessage, b: ThreadMessage) => 
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+
+      // Check for mentions in new messages (only notify for unread messages)
+      sortedMessages.forEach((message: ThreadMessage) => {
+        if (mentionNotifier.isUserMentioned(message) && readMessageStoreRef.current) {
+          // Only notify if the message is not already read
+          if (!readMessageStoreRef.current.isRead(message.message_id)) {
+            mentionNotifier.showMentionNotification(message, channel);
+          }
+        }
+      });
+
+      // Update message state
+      setState(prev => {
+        const newState = {
+          ...prev,
+          messages: {
+            ...prev.messages,
+            [`channel_${channel}`]: sortedMessages
+          }
+        };
+
+        // If this is the current channel, mark all messages as read
+        if (prev.currentChannel === channel && readMessageStoreRef.current) {
+          const messageIds = sortedMessages.map((msg: ThreadMessage) => msg.message_id);
+          readMessageStoreRef.current.markMultipleAsRead(messageIds);
+          console.log(`📖 Marked ${messageIds.length} messages as read in current channel: ${channel}`);
+        }
+
+        return newState;
+      });
     }
-    
-    setState(prev => ({
-      ...prev,
-      messages: {
-        ...prev.messages,
-        [`channel_${channel}`]: (messages || []).sort((a: ThreadMessage, b: ThreadMessage) => 
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-        )
-      }
-    }));
   }, []);
 
   const handleDirectMessages = useCallback((data: any) => {
     const { target_agent_id, messages } = data;
-    setState(prev => ({
-      ...prev,
-      messages: {
-        ...prev.messages,
-        [`dm_${target_agent_id}`]: (messages || []).sort((a: ThreadMessage, b: ThreadMessage) => 
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-        )
-      }
-    }));
+    console.log('📥 Handling direct messages for:', target_agent_id);
+    console.log('📥 Messages received:', messages?.length || 0);
+    
+    if (messages && messages.length > 0) {
+      const sortedMessages = messages.sort((a: ThreadMessage, b: ThreadMessage) => 
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+
+      // Check for mentions in new messages (only notify for unread messages)
+      sortedMessages.forEach((message: ThreadMessage) => {
+        if (mentionNotifier.isUserMentioned(message) && readMessageStoreRef.current) {
+          // Only notify if the message is not already read
+          if (!readMessageStoreRef.current.isRead(message.message_id)) {
+            mentionNotifier.showMentionNotification(message, `DM with ${target_agent_id}`);
+          }
+        }
+      });
+
+      // Update message state
+      setState(prev => {
+        const newState = {
+          ...prev,
+          messages: {
+            ...prev.messages,
+            [`dm_${target_agent_id}`]: sortedMessages
+          }
+        };
+
+        // If this is the current DM conversation, mark all messages as read
+        if (prev.currentDirectMessage === target_agent_id && readMessageStoreRef.current) {
+          const messageIds = sortedMessages.map((msg: ThreadMessage) => msg.message_id);
+          readMessageStoreRef.current.markMultipleAsRead(messageIds);
+          console.log(`📖 Marked ${messageIds.length} messages as read in current DM with: ${target_agent_id}`);
+        }
+
+        return newState;
+      });
+    }
   }, []);
 
   const handleReaction = useCallback((reactionData: any) => {
@@ -440,12 +528,176 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
     });
   }, []);
 
+  const handleNewChannelMessage = useCallback((data: any) => {
+    const { channel, message } = data;
+    console.log('📨 Received new channel message for channel:', channel, 'Message:', message);
+    console.log('📨 Current agent ID:', agentName);
+    console.log('📨 Message sender ID:', message.sender_id);
+    
+    // Add the new message to the appropriate channel
+    setState(prev => {
+      const channelKey = `channel_${channel}`;
+      const existingMessages = prev.messages[channelKey] || [];
+      
+      // Check if message already exists (to prevent duplicates)
+      const messageExists = existingMessages.some(m => m.message_id === message.message_id);
+      if (messageExists) {
+        console.log('📨 Message already exists, skipping duplicate');
+        return prev;
+      }
+      
+      // Add reactions field if not present
+      const messageWithReactions = {
+        ...message,
+        reactions: message.reactions || {}
+      };
+      
+      // Add the new message and sort by timestamp
+      const updatedMessages = [...existingMessages, messageWithReactions].sort((a: ThreadMessage, b: ThreadMessage) => 
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+      
+      return {
+        ...prev,
+        messages: {
+          ...prev.messages,
+          [channelKey]: updatedMessages
+        }
+      };
+    });
+  }, []);
+
+  // Reconnection event handlers
+  const handleReconnecting = useCallback((data: { attempt: number; maxAttempts: number; delay: number }) => {
+    console.log(`🔄 Reconnecting... attempt ${data.attempt}/${data.maxAttempts} (waiting ${data.delay}ms)`);
+    setConnectionStatus('connecting');
+  }, []);
+
+  const handleReconnected = useCallback((data: { attempts: number }) => {
+    console.log(`🔄 ✅ Reconnected successfully after ${data.attempts} attempts!`);
+    setConnectionStatus('connected');
+    
+    // Refresh channels and current data after reconnection
+    const connection = connectionRef.current;
+    if (connection && connection.isConnected()) {
+      console.log('🔄 Refreshing data after reconnection...');
+      
+      // Re-fetch channels
+      connection.listChannels();
+      
+      // Re-fetch agents
+      connection.listAgents().catch(console.warn);
+      
+      // Refresh current channel/DM messages
+      if (state.currentChannel) {
+        connection.retrieveChannelMessages(state.currentChannel, 50, 0, true);
+      }
+      if (state.currentDirectMessage) {
+        connection.retrieveDirectMessages(state.currentDirectMessage, 50, 0, true);
+      }
+    }
+  }, [state.currentChannel, state.currentDirectMessage]);
+
+  const handleConnectionLost = useCallback((data: { reason: string; error?: any }) => {
+    console.log(`🔄 ❌ Connection lost: ${data.reason}`);
+    setConnectionStatus('disconnected');
+    
+    // Optionally show user notification about lost connection
+    console.warn('⚠️ Connection to OpenAgents network lost. Please check your internet connection.');
+  }, []);
+
+  // Periodic message checking function
+  const checkForNewMessages = useCallback(() => {
+    const connection = connectionRef.current;
+    if (!connection || !connection.isConnected()) {
+      return;
+    }
+
+    // Check current channel for new messages
+    if (state.currentChannel) {
+      console.log('🔄 [PERIODIC] Checking for new messages in channel:', state.currentChannel);
+      connection.retrieveChannelMessages(state.currentChannel, 50, 0, true);
+    }
+
+    // Check current direct message for new messages  
+    if (state.currentDirectMessage) {
+      console.log('🔄 [PERIODIC] Checking for new messages with agent:', state.currentDirectMessage);
+      connection.retrieveDirectMessages(state.currentDirectMessage, 50, 0, true);
+    }
+  }, [state.currentChannel, state.currentDirectMessage]);
+
+  // Function to update unread counts for all channels (using new ReadMessageStore)
+  const updateUnreadCounts = useCallback(() => {
+    if (!readMessageStoreRef.current) return;
+    
+    const newUnreadCounts: Record<string, number> = {};
+    
+    // Calculate unread count for each channel
+    state.channels.forEach(channel => {
+      const channelMessages = state.messages[`channel_${channel.name}`] || [];
+      const messageIds = channelMessages.map(msg => msg.message_id);
+      const unreadCount = readMessageStoreRef.current!.getUnreadCount(messageIds);
+      newUnreadCounts[channel.name] = unreadCount;
+    });
+
+    // Calculate unread count for each direct message conversation
+    state.agents.forEach(agent => {
+      const dmMessages = state.messages[`dm_${agent.agent_id}`] || [];
+      const messageIds = dmMessages.map(msg => msg.message_id);
+      const unreadCount = readMessageStoreRef.current!.getUnreadCount(messageIds);
+      newUnreadCounts[agent.agent_id] = unreadCount;
+    });
+
+    setUnreadCounts(newUnreadCounts);
+    console.log('🔢 Updated unread counts:', newUnreadCounts);
+  }, [state.channels, state.agents, state.messages]);
+
+  // Update unread counts whenever messages change
+  useEffect(() => {
+    updateUnreadCounts();
+  }, [state.messages, updateUnreadCounts]);
+
+  // Start/stop periodic message checking
+  useEffect(() => {
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    // Start periodic checking if we have a connection and an active channel/DM
+    const connection = connectionRef.current;
+    if (connection && connection.isConnected() && (state.currentChannel || state.currentDirectMessage)) {
+      console.log('🔄 [PERIODIC] Starting periodic message checking every 3 seconds');
+      intervalRef.current = setInterval(checkForNewMessages, 3000); // Check every 3 seconds
+    }
+
+    // Cleanup function
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [state.currentChannel, state.currentDirectMessage, checkForNewMessages, connectionStatus]);
+
   const selectChannel = useCallback((channelName: string) => {
+    console.log(`📂 Selecting channel: ${channelName}`);
+    
     setState(prev => ({
       ...prev,
       currentChannel: channelName,
       currentDirectMessage: null
     }));
+    
+    // Mark all existing messages in the channel as read
+    const channelKey = `channel_${channelName}`;
+    const channelMessages = state.messages[channelKey] || [];
+    if (channelMessages.length > 0 && readMessageStoreRef.current) {
+      const messageIds = channelMessages.map(msg => msg.message_id);
+      readMessageStoreRef.current.markMultipleAsRead(messageIds);
+      console.log(`📖 Marked ${messageIds.length} existing messages as read when entering channel: ${channelName}`);
+    }
     
     if (connection && connection.isConnected()) {
       // Add a small delay to prevent rapid-fire requests during channel switching
@@ -459,14 +711,25 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
     } else {
       console.warn('⚠️ Cannot retrieve messages - no connection');
     }
-  }, [connection]);
+  }, [connection, state.messages]);
 
   const selectDirectMessage = useCallback((agentId: string) => {
+    console.log(`📱 Selecting direct message with: ${agentId}`);
+    
     setState(prev => ({
       ...prev,
       currentChannel: null,
       currentDirectMessage: agentId
     }));
+    
+    // Mark all existing direct messages with this agent as read
+    const dmKey = `dm_${agentId}`;
+    const dmMessages = state.messages[dmKey] || [];
+    if (dmMessages.length > 0 && readMessageStoreRef.current) {
+      const messageIds = dmMessages.map(msg => msg.message_id);
+      readMessageStoreRef.current.markMultipleAsRead(messageIds);
+      console.log(`📖 Marked ${messageIds.length} existing DM messages as read when entering conversation with: ${agentId}`);
+    }
     
     if (connection && connection.isConnected()) {
       // Add a small delay to prevent rapid-fire requests during agent switching
@@ -480,7 +743,7 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
     } else {
       console.warn('⚠️ Cannot retrieve direct messages - no connection');
     }
-  }, [connection]);
+  }, [connection, state.messages]);
 
   const sendMessage = useCallback((text: string, replyTo?: string, quotedMessageId?: string) => {
     if (!connection || !text.trim()) return;
@@ -662,6 +925,10 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
         onSelectChannel={selectChannel}
         onSelectDirectMessage={selectDirectMessage}
         currentTheme={currentTheme}
+        currentNetwork={networkConnection ? { host: networkConnection.host, port: networkConnection.port } : undefined}
+        onProfileClick={onProfileClick}
+        toggleTheme={toggleTheme}
+        unreadCounts={unreadCounts}
       />
       
       <div className="thread-messaging-main">
@@ -704,6 +971,7 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
             'Select a channel or agent to start messaging'
           }
           disabled={!state.currentChannel && !state.currentDirectMessage}
+          agents={state.agents}
           replyingTo={replyingTo}
           quotingMessage={quotingMessage}
           onCancelReply={cancelReply}

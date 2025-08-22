@@ -1,10 +1,17 @@
 import React, { useState, useRef } from 'react';
 
+interface AgentInfo {
+  agent_id: string;
+  display_name?: string;
+  status?: string;
+}
+
 interface ThreadMessageInputProps {
   onSendMessage: (text: string, replyTo?: string, quotedMessageId?: string) => void;
   currentTheme: 'light' | 'dark';
   placeholder?: string;
   disabled?: boolean;
+  agents?: AgentInfo[];
   replyingTo?: {
     messageId: string;
     text: string;
@@ -386,6 +393,7 @@ const ThreadMessageInput: React.FC<ThreadMessageInputProps> = ({
   currentTheme,
   placeholder = 'Type a message...',
   disabled = false,
+  agents = [],
   replyingTo,
   quotingMessage,
   onCancelReply,
@@ -393,6 +401,8 @@ const ThreadMessageInput: React.FC<ThreadMessageInputProps> = ({
 }) => {
   const [message, setMessage] = useState('');
   const [showMentions, setShowMentions] = useState(false);
+  const [mentionFilter, setMentionFilter] = useState('');
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -410,6 +420,34 @@ const ThreadMessageInput: React.FC<ThreadMessageInputProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Handle mention navigation
+    if (showMentions && filteredAgents.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedMentionIndex(prev => 
+          prev < filteredAgents.length - 1 ? prev + 1 : 0
+        );
+        return;
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedMentionIndex(prev => 
+          prev > 0 ? prev - 1 : filteredAgents.length - 1
+        );
+        return;
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        if (filteredAgents[selectedMentionIndex]) {
+          insertMention(filteredAgents[selectedMentionIndex]);
+        }
+        return;
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowMentions(false);
+        setMentionFilter('');
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e);
@@ -438,16 +476,47 @@ const ThreadMessageInput: React.FC<ThreadMessageInputProps> = ({
       
       // Check for mentions
       const lastWord = newValue.split(' ').pop() || '';
-      if (lastWord.startsWith('@') && lastWord.length > 1) {
+      if (lastWord.startsWith('@')) {
+        const filter = lastWord.substring(1); // Remove the @ symbol
+        setMentionFilter(filter);
         setShowMentions(true);
+        setSelectedMentionIndex(0);
       } else {
         setShowMentions(false);
+        setMentionFilter('');
       }
     }
   };
 
+  // Filter agents based on mention input
+  const filteredAgents = agents.filter(agent => {
+    if (!mentionFilter) return true;
+    const displayName = agent.display_name || agent.agent_id;
+    return displayName.toLowerCase().includes(mentionFilter.toLowerCase()) ||
+           agent.agent_id.toLowerCase().includes(mentionFilter.toLowerCase());
+  });
+
   const handleFileUpload = () => {
     fileInputRef.current?.click();
+  };
+
+  const insertMention = (agent: AgentInfo) => {
+    const displayName = agent.display_name || agent.agent_id;
+    const words = message.split(' ');
+    words[words.length - 1] = `@${displayName} `;
+    const newMessage = words.join(' ');
+    setMessage(newMessage);
+    setShowMentions(false);
+    setMentionFilter('');
+    
+    // Focus back on textarea
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 0);
+  };
+
+  const handleMentionClick = (agent: AgentInfo) => {
+    insertMention(agent);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -523,17 +592,24 @@ const ThreadMessageInput: React.FC<ThreadMessageInputProps> = ({
       
       <form onSubmit={handleSubmit}>
         <div className="input-area">
-          {showMentions && (
+          {showMentions && filteredAgents.length > 0 && (
             <div className={`mention-suggestions ${currentTheme}`}>
-              {/* Mock mention suggestions - would be populated with actual agents */}
-              <div className={`mention-item ${currentTheme}`}>
-                <div className={`mention-avatar ${currentTheme}`}>A</div>
-                <div className={`mention-name ${currentTheme}`}>agent_alice</div>
-              </div>
-              <div className={`mention-item ${currentTheme}`}>
-                <div className={`mention-avatar ${currentTheme}`}>B</div>
-                <div className={`mention-name ${currentTheme}`}>agent_bob</div>
-              </div>
+              {filteredAgents.map((agent, index) => {
+                const displayName = agent.display_name || agent.agent_id;
+                const avatar = displayName.charAt(0).toUpperCase();
+                const isSelected = index === selectedMentionIndex;
+                
+                return (
+                  <div 
+                    key={agent.agent_id}
+                    className={`mention-item ${currentTheme} ${isSelected ? 'selected' : ''}`}
+                    onClick={() => handleMentionClick(agent)}
+                  >
+                    <div className={`mention-avatar ${currentTheme}`}>{avatar}</div>
+                    <div className={`mention-name ${currentTheme}`}>{displayName}</div>
+                  </div>
+                );
+              })}
             </div>
           )}
           

@@ -210,12 +210,15 @@ class ThreadMessagingNetworkMod(BaseMod):
         for channel_name in self.channels.keys():
             self.channel_agents[channel_name].add(agent_id)
             self.agent_channels[agent_id].add(channel_name)
+            logger.info(f"Added agent {agent_id} to channel {channel_name}")
         
         # Create agent-specific file storage directory
         agent_storage_path = self.file_storage_path / agent_id
         os.makedirs(agent_storage_path, exist_ok=True)
         
         logger.info(f"Registered agent {agent_id} with Thread Messaging protocol")
+        logger.info(f"Current active agents: {self.active_agents}")
+        logger.info(f"Channel agents mapping: {dict(self.channel_agents)}")
     
     def handle_unregister_agent(self, agent_id: str) -> None:
         """Unregister an agent from the thread messaging protocol.
@@ -331,6 +334,55 @@ class ThreadMessagingNetworkMod(BaseMod):
             logger.warning(f"Message sent to unknown channel: {channel}")
         
         logger.debug(f"Processing channel message from {message.sender_id} in {channel}")
+        
+        # Broadcast the message to all other agents in the channel
+        await self._broadcast_channel_message(message)
+    
+    async def _broadcast_channel_message(self, message: ChannelMessage) -> None:
+        """Broadcast a channel message to all other agents in the channel.
+        
+        Args:
+            message: The channel message to broadcast
+        """
+        channel = message.channel
+        
+        # Get all agents in the channel
+        channel_agents = self.channel_agents.get(channel, set())
+        
+        # Remove the sender from the notification list (they already know about their message)
+        notify_agents = channel_agents - {message.sender_id}
+        
+        logger.info(f"Channel {channel} has agents: {channel_agents}")
+        logger.info(f"Message sender: {message.sender_id}")
+        logger.info(f"Agents to notify: {notify_agents}")
+        
+        if not notify_agents:
+            logger.warning(f"No other agents to notify in channel {channel} - only sender {message.sender_id} present")
+            return
+        
+        logger.info(f"Broadcasting channel message to {len(notify_agents)} agents in {channel}: {notify_agents}")
+        
+        # Create a mod message to notify other agents about the new channel message
+        for agent_id in notify_agents:
+            logger.info(f"Creating notification for agent: {agent_id}")
+            notification = ModMessage(
+                sender_id=self.network.network_id,
+                mod="openagents.mods.communication.thread_messaging",
+                content={
+                    "action": "channel_message_notification",
+                    "message": message.model_dump(),
+                    "channel": channel
+                },
+                direction="inbound",
+                relevant_agent_id=agent_id
+            )
+            logger.info(f"Notification target_id will be: {notification.relevant_agent_id}")
+            
+            try:
+                await self.network.send_message(notification)
+                logger.debug(f"Sent channel message notification to agent {agent_id}")
+            except Exception as e:
+                logger.error(f"Failed to send channel message notification to {agent_id}: {e}")
     
     async def _process_direct_message(self, message: DirectMessage) -> None:
         """Process a direct message.
