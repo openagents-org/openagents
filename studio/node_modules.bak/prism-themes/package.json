@@ -1,0 +1,34 @@
+{
+  "name": "prism-themes",
+  "version": "1.9.0",
+  "description": "Additional themes for the Prism syntax highlighting library.",
+  "main": "index.js",
+  "scripts": {
+    "build": "gulp minify",
+    "lint": "stylelint \"themes/*.css\"",
+    "lint-fix": "stylelint \"themes/*.css\" --fix",
+    "test": "npm run lint && gulp check",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/prismjs/prism-themes.git"
+  },
+  "author": "Lea Verou",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/prismjs/prism-themes/issues"
+  },
+  "homepage": "https://github.com/prismjs/prism-themes#readme",
+  "devDependencies": {
+    "capture-website": "^0.4.0",
+    "gulp": "^4.0.2",
+    "gulp-clean-css": "^4.3.0",
+    "gulp-rename": "^2.0.0",
+    "stylelint": "^12.0.0",
+    "stylelint-config-standard": "^19.0.0"
+  },
+  "files": [
+    "themes/*.css"
+  ]
+}
