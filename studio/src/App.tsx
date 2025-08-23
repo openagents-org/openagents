@@ -203,6 +203,7 @@ const AppContent: React.FC = () => {
             toggleTheme={toggleTheme}
             hasSharedDocuments={hasSharedDocuments || false}
             hasThreadMessaging={hasThreadMessaging || false}
+            agentName={agentName}
           >
             {activeView === 'chat' ? (
               <ThreadMessagingView
@@ -254,6 +255,7 @@ const AppContent: React.FC = () => {
           toggleTheme={toggleTheme}
           hasSharedDocuments={hasSharedDocuments || false}
           hasThreadMessaging={hasThreadMessaging || false}
+          agentName={agentName}
         >
           {/* 新的布局：HTML结果在中间，聊天在右边 */}
           <div className="flex h-full">

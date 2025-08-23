@@ -2,6 +2,7 @@ import React, { ReactNode, useEffect, useState } from 'react';
 import Sidebar from '../Sidebar';
 import ModSidebar from './ModSidebar';
 import { NetworkConnection } from '../../services/networkService';
+import { useThreadMessaging } from '../../hooks/useThreadMessaging';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -20,6 +21,7 @@ interface MainLayoutProps {
   toggleTheme: () => void;
   hasSharedDocuments?: boolean;
   hasThreadMessaging?: boolean;
+  agentName?: string | null;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({
@@ -34,10 +36,16 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   currentTheme,
   toggleTheme,
   hasSharedDocuments = false,
-  hasThreadMessaging = false
+  hasThreadMessaging = false,
+  agentName = null
 }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
+  // Use thread messaging hook when available
+  const threadMessaging = useThreadMessaging(
+    hasThreadMessaging ? currentNetwork : null, 
+    hasThreadMessaging ? agentName : null
+  );
 
   const toggleSidebar = (): void => {
     setIsSidebarCollapsed(!isSidebarCollapsed);
@@ -58,26 +66,34 @@ const MainLayout: React.FC<MainLayoutProps> = ({
         hasThreadMessaging={hasThreadMessaging}
       />
 
-      {/* Main sidebar (only show for chat view) */}
-      {activeView === 'chat' && hasThreadMessaging && (
-        <Sidebar
-          // isCollapsed={isSidebarCollapsed} 
-          // toggleSidebar={toggleSidebar} 
-          onSettingsClick={() => setActiveView('settings')}
-          onProfileClick={() => setActiveView('profile')}
-          onMcpClick={() => setActiveView('mcp')}
-          onDocumentsClick={() => setActiveView('documents')}
-          activeView={activeView}
-          hasSharedDocuments={hasSharedDocuments}
-          onConversationChange={onConversationChange}
-          activeConversationId={activeConversationId}
-          conversations={conversations}
-          createNewConversation={createNewConversation}
-          toggleTheme={toggleTheme}
-          currentTheme={currentTheme}
-          currentNetwork={currentNetwork}
-        />
-      )}
+      {/* Main sidebar - always show, with thread messaging data when available */}
+      <Sidebar
+        // isCollapsed={isSidebarCollapsed} 
+        // toggleSidebar={toggleSidebar} 
+        onSettingsClick={() => setActiveView('settings')}
+        onProfileClick={() => setActiveView('profile')}
+        onMcpClick={() => setActiveView('mcp')}
+        onDocumentsClick={() => setActiveView('documents')}
+        activeView={activeView}
+        hasSharedDocuments={hasSharedDocuments}
+        onConversationChange={onConversationChange}
+        activeConversationId={activeConversationId}
+        conversations={conversations}
+        createNewConversation={createNewConversation}
+        toggleTheme={toggleTheme}
+        currentTheme={currentTheme}
+        currentNetwork={currentNetwork}
+        // Thread messaging props
+        showThreadMessaging={hasThreadMessaging && activeView === 'chat'}
+        channels={threadMessaging.state.channels}
+        agents={threadMessaging.state.agents}
+        currentChannel={threadMessaging.state.currentChannel}
+        currentDirectMessage={threadMessaging.state.currentDirectMessage}
+        unreadCounts={threadMessaging.state.unreadCounts}
+        onChannelSelect={threadMessaging.setCurrentChannel}
+        onDirectMessageSelect={threadMessaging.setCurrentDirectMessage}
+        agentName={agentName}
+      />
 
       <main className={`flex-1 flex flex-col overflow-hidden m-1 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 dark:bg-gray-800 ${currentTheme === 'light' ? 'bg-gradient-to-br from-white via-blue-50 to-purple-50' : ''
         }`}>
