@@ -27,7 +27,11 @@ const AppContent: React.FC = () => {
   const [agentName, setAgentName] = useState<string | null>(null);
   const [threadState, setThreadState] = useState<ThreadState | null>(null);
   const [forceUpdate, setForceUpdate] = useState(0);
-  const threadMessagingRef = useRef<{ getState: () => ThreadState } | null>(null);
+  const threadMessagingRef = useRef<{ 
+    getState: () => ThreadState;
+    selectChannel: (channel: string) => void;
+    selectDirectMessage: (agentId: string) => void;
+  } | null>(null);
   
   // Debug thread state changes
   useEffect(() => {
@@ -95,12 +99,16 @@ const AppContent: React.FC = () => {
   // Thread messaging handlers
   const handleChannelSelect = (channel: string) => {
     console.log('📂 Channel selected:', channel);
-    // TODO: Implement channel selection logic
+    if (threadMessagingRef.current) {
+      threadMessagingRef.current.selectChannel(channel);
+    }
   };
 
   const handleDirectMessageSelect = (agentId: string) => {
     console.log('💬 DM selected:', agentId);
-    // TODO: Implement DM selection logic
+    if (threadMessagingRef.current) {
+      threadMessagingRef.current.selectDirectMessage(agentId);
+    }
   };
 
   const handleNetworkSelected = (network: NetworkConnection) => {

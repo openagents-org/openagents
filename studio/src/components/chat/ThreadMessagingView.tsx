@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { OpenAgentsConnection, ThreadMessage, ThreadMessagingChannel, AgentInfo } from '../../services/openagentsService';
 import { NetworkConnection } from '../../services/networkService';
-import ChannelSidebar from './ChannelSidebar';
+
 import MessageDisplay from './MessageDisplay';
 import MessageInput from './ThreadMessageInput';
 import DocumentsView from '../documents/DocumentsView';
@@ -212,10 +212,7 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
     mentionNotifier.setCurrentUserAgent(agentName);
   }, [agentName]);
 
-  // Expose state via ref
-  React.useImperativeHandle(ref, () => ({
-    getState: () => state
-  }), [state]);
+
 
   // Notify parent of state changes
   useEffect(() => {
@@ -801,15 +798,12 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
     }
   }, [connection, state.messages]);
 
-  const handleDocumentsClick = useCallback(() => {
-    console.log('📄 Switching to documents view');
-    setState(prev => ({
-      ...prev,
-      currentChannel: null,
-      currentDirectMessage: null,
-      showDocuments: true
-    }));
-  }, []);
+  // Expose state and functions via ref
+  React.useImperativeHandle(ref, () => ({
+    getState: () => state,
+    selectChannel: selectChannel,
+    selectDirectMessage: selectDirectMessage
+  }), [state, selectChannel, selectDirectMessage]);
 
   const sendMessage = useCallback((text: string, replyTo?: string, quotedMessageId?: string) => {
     if (!connection || !text.trim()) return;
@@ -985,21 +979,7 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
     <div className={`thread-messaging-container ${currentTheme}`}>
       <style>{styles}</style>
       
-      <ChannelSidebar
-        channels={state.channels}
-        agents={state.agents}
-        currentChannel={state.currentChannel}
-        currentDirectMessage={state.currentDirectMessage}
-        onSelectChannel={selectChannel}
-        onSelectDirectMessage={selectDirectMessage}
-        currentTheme={currentTheme}
-        currentNetwork={networkConnection ? { host: networkConnection.host, port: networkConnection.port } : undefined}
-        onProfileClick={onProfileClick}
-        toggleTheme={toggleTheme}
-        unreadCounts={unreadCounts}
-        hasSharedDocuments={hasSharedDocuments}
-        onDocumentsClick={handleDocumentsClick}
-      />
+
       
       <div className="thread-messaging-main">
         <div className={`thread-messaging-header ${currentTheme}`}>
