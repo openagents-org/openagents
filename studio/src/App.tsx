@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import MainLayout from './components/layout/MainLayout';
 import ChatView from './components/chat/ChatView';
-import ThreadMessagingView from './components/chat/ThreadMessagingView';
+import ThreadMessagingView, { ThreadState } from './components/chat/ThreadMessagingView';
 import NetworkSelectionView from './components/network/NetworkSelectionView';
 import AgentNamePicker from './components/network/AgentNamePicker';
 import McpView from './components/mcp/McpView';
@@ -25,6 +25,35 @@ const AppContent: React.FC = () => {
   const [isCheckingMods, setIsCheckingMods] = useState(false);
   const [selectedNetwork, setSelectedNetwork] = useState<NetworkConnection | null>(null);
   const [agentName, setAgentName] = useState<string | null>(null);
+  const [threadState, setThreadState] = useState<ThreadState | null>(null);
+  const [forceUpdate, setForceUpdate] = useState(0);
+  const threadMessagingRef = useRef<{ getState: () => ThreadState } | null>(null);
+  
+  // Debug thread state changes
+  useEffect(() => {
+    console.log('🔍 App Debug - threadState changed:', threadState);
+    if (threadState) {
+      console.log('🔍 App Debug - agents count:', threadState.agents?.length);
+      console.log('🔍 App Debug - channels count:', threadState.channels?.length);
+      threadState.agents?.forEach(agent => {
+        console.log('🔍 App Debug - agent:', agent.agent_id, agent.metadata?.display_name);
+      });
+    } else {
+      console.log('🔍 App Debug - threadState is null/undefined');
+    }
+  }, [threadState]);
+
+  // Create a debug version of setThreadState
+  const debugSetThreadState = useCallback((newState: ThreadState) => {
+    console.log('🔍 App Debug - setThreadState called with:', newState);
+    console.log('🔍 App Debug - new agents count:', newState.agents?.length);
+    newState.agents?.forEach(agent => {
+      console.log('🔍 App Debug - received agent:', agent.agent_id, agent.metadata?.display_name);
+    });
+    setThreadState(newState);
+    // Force a re-render to update the MainLayout with new data
+    setForceUpdate(prev => prev + 1);
+  }, []);
   
   // Temporary override for testing - can be controlled via URL param or localStorage
   const forceThreadMessaging = new URLSearchParams(window.location.search).get('thread') === 'true' ||
@@ -51,6 +80,27 @@ const AppContent: React.FC = () => {
   const handleConversationChangeAndShowChat = (id: string) => {
     handleConversationChange(id);
     setActiveView('chat');
+  };
+
+  // Get current thread state from ref
+  const getCurrentThreadState = useCallback((): ThreadState | null => {
+    if (threadMessagingRef.current) {
+      const state = threadMessagingRef.current.getState();
+      console.log('🔍 App - getCurrentThreadState:', state.agents?.length, 'agents');
+      return state;
+    }
+    return null;
+  }, []);
+
+  // Thread messaging handlers
+  const handleChannelSelect = (channel: string) => {
+    console.log('📂 Channel selected:', channel);
+    // TODO: Implement channel selection logic
+  };
+
+  const handleDirectMessageSelect = (agentId: string) => {
+    console.log('💬 DM selected:', agentId);
+    // TODO: Implement DM selection logic
   };
 
   const handleNetworkSelected = (network: NetworkConnection) => {
@@ -204,9 +254,13 @@ const AppContent: React.FC = () => {
             hasSharedDocuments={hasSharedDocuments || false}
             hasThreadMessaging={hasThreadMessaging || false}
             agentName={agentName}
+            threadState={getCurrentThreadState()}
+            onChannelSelect={handleChannelSelect}
+            onDirectMessageSelect={handleDirectMessageSelect}
           >
             {activeView === 'chat' ? (
               <ThreadMessagingView
+                ref={threadMessagingRef}
                 networkConnection={currentNetwork!}
                 agentName={agentName!}
                 currentTheme={theme}
@@ -214,6 +268,7 @@ const AppContent: React.FC = () => {
                 toggleTheme={toggleTheme}
                 hasSharedDocuments={hasSharedDocuments || false}
                 onDocumentsClick={() => setActiveView('documents')}
+                onThreadStateChange={debugSetThreadState}
               />
             ) : activeView === 'documents' ? (
               <DocumentsView 
@@ -256,6 +311,9 @@ const AppContent: React.FC = () => {
           hasSharedDocuments={hasSharedDocuments || false}
           hasThreadMessaging={hasThreadMessaging || false}
           agentName={agentName}
+          threadState={getCurrentThreadState()}
+          onChannelSelect={handleChannelSelect}
+          onDirectMessageSelect={handleDirectMessageSelect}
         >
           {/* 新的布局：HTML结果在中间，聊天在右边 */}
           <div className="flex h-full">

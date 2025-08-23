@@ -51,22 +51,15 @@ const Sidebar: React.FC<ExtendedSidebarProps> = ({
           <span className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent dark:bg-none dark:text-white">OpenAgents Studio</span>
         </div>
 
-        {/* Start New Chat Button */}
-        <button
-          onClick={createNewConversation}
-          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-sm font-semibold shadow-md hover:from-indigo-600 hover:to-purple-600 transition-all"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-          </svg>
-          New chat
-        </button>
+
       </div>
 
       {/* Thread Messaging or Chat History */}
       <div className="flex-1 flex flex-col mt-4 overflow-hidden">
         {showThreadMessaging ? (
           <>
+            {/* Debug info - console.log moved inside IIFE to avoid JSX children issues */}
+            
             {/* Channels Section */}
             <div className="px-5">
               <div className="flex items-center mb-2">
@@ -115,7 +108,7 @@ const Sidebar: React.FC<ExtendedSidebarProps> = ({
             
             <div className="flex-1 overflow-y-auto px-3 custom-scrollbar">
               <ul className="flex flex-col gap-1">
-                {agents.filter(agent => agent.agent_id !== agentName).map(agent => (
+                {agents.map(agent => (
                   <li key={agent.agent_id}>
                     <button
                       onClick={() => onDirectMessageSelect?.(agent.agent_id)}

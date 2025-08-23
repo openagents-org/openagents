@@ -2,7 +2,7 @@ import React, { ReactNode, useEffect, useState } from 'react';
 import Sidebar from '../Sidebar';
 import ModSidebar from './ModSidebar';
 import { NetworkConnection } from '../../services/networkService';
-import { useThreadMessaging } from '../../hooks/useThreadMessaging';
+import { ThreadState } from '../chat/ThreadMessagingView';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -22,6 +22,9 @@ interface MainLayoutProps {
   hasSharedDocuments?: boolean;
   hasThreadMessaging?: boolean;
   agentName?: string | null;
+  threadState?: ThreadState | null;
+  onChannelSelect?: (channel: string) => void;
+  onDirectMessageSelect?: (agentId: string) => void;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({
@@ -37,15 +40,22 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   toggleTheme,
   hasSharedDocuments = false,
   hasThreadMessaging = false,
-  agentName = null
+  agentName = null,
+  threadState = null,
+  onChannelSelect,
+  onDirectMessageSelect
 }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
-  // Use thread messaging hook when available
-  const threadMessaging = useThreadMessaging(
-    hasThreadMessaging ? currentNetwork : null, 
-    hasThreadMessaging ? agentName : null
-  );
+  // Use passed thread state instead of hook
+  useEffect(() => {
+    console.log('🔍 MainLayout - threadState received:', threadState);
+    console.log('🔍 MainLayout - hasThreadMessaging:', hasThreadMessaging);
+    console.log('🔍 MainLayout - activeView:', activeView);
+    if (threadState) {
+      console.log('🔍 MainLayout - agents in threadState:', threadState.agents?.length);
+    }
+  }, [threadState, hasThreadMessaging, activeView]);
 
   const toggleSidebar = (): void => {
     setIsSidebarCollapsed(!isSidebarCollapsed);
@@ -85,13 +95,14 @@ const MainLayout: React.FC<MainLayoutProps> = ({
         currentNetwork={currentNetwork}
         // Thread messaging props
         showThreadMessaging={hasThreadMessaging && activeView === 'chat'}
-        channels={threadMessaging.state.channels}
-        agents={threadMessaging.state.agents}
-        currentChannel={threadMessaging.state.currentChannel}
-        currentDirectMessage={threadMessaging.state.currentDirectMessage}
-        unreadCounts={threadMessaging.state.unreadCounts}
-        onChannelSelect={threadMessaging.setCurrentChannel}
-        onDirectMessageSelect={threadMessaging.setCurrentDirectMessage}
+
+        channels={threadState?.channels || []}
+        agents={threadState?.agents || []}
+        currentChannel={threadState?.currentChannel || null}
+        currentDirectMessage={threadState?.currentDirectMessage || null}
+        unreadCounts={{}} // TODO: implement unread counts
+        onChannelSelect={onChannelSelect}
+        onDirectMessageSelect={onDirectMessageSelect}
         agentName={agentName}
       />
 

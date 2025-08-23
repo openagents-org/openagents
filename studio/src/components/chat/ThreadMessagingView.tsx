@@ -16,6 +16,7 @@ interface ThreadMessagingViewProps {
   toggleTheme?: () => void;
   hasSharedDocuments?: boolean;
   onDocumentsClick?: () => void;
+  onThreadStateChange?: (state: ThreadState) => void;
 }
 
 export interface ThreadState {
@@ -157,15 +158,16 @@ const styles = `
   }
 `;
 
-const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
+const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, ThreadMessagingViewProps>(({
   networkConnection,
   agentName,
   currentTheme,
   onProfileClick,
   toggleTheme,
   hasSharedDocuments = false,
-  onDocumentsClick
-}) => {
+  onDocumentsClick,
+  onThreadStateChange
+}, ref) => {
   const [connection, setConnection] = useState<OpenAgentsConnection | null>(null);
   const [state, setState] = useState<ThreadState>({
     currentChannel: null,
@@ -209,6 +211,32 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
   useEffect(() => {
     mentionNotifier.setCurrentUserAgent(agentName);
   }, [agentName]);
+
+  // Expose state via ref
+  React.useImperativeHandle(ref, () => ({
+    getState: () => state
+  }), [state]);
+
+  // Notify parent of state changes
+  useEffect(() => {
+    console.log('🔍 ThreadMessagingView - state changed:', state);
+    console.log('🔍 ThreadMessagingView - agents count:', state.agents?.length);
+    console.log('🔍 ThreadMessagingView - onThreadStateChange exists:', !!onThreadStateChange);
+    if (onThreadStateChange) {
+      console.log('🔍 ThreadMessagingView - calling onThreadStateChange with state:', state);
+      // Always call, even if agents is empty, to ensure the parent gets updates
+      onThreadStateChange(state);
+    }
+  }, [state, onThreadStateChange]);
+
+  // Also notify parent when agents specifically change
+  useEffect(() => {
+    console.log('🔍 ThreadMessagingView - agents array changed:', state.agents?.length);
+    if (onThreadStateChange && state.agents?.length > 0) {
+      console.log('🔍 ThreadMessagingView - calling onThreadStateChange due to agents change');
+      onThreadStateChange(state);
+    }
+  }, [state.agents, onThreadStateChange, state]);
 
   // Initialize read message store
   useEffect(() => {
@@ -415,7 +443,15 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
   const handleAgentsList = useCallback((agents: AgentInfo[]) => {
     console.log('👥 Received agents list:', agents);
     console.log('✅ Setting agents count:', agents?.length || 0);
-    setState(prev => ({ ...prev, agents: agents || [] }));
+    agents?.forEach(agent => {
+      console.log('👤 Agent details:', agent.agent_id, agent.metadata?.display_name);
+    });
+    setState(prev => {
+      console.log('🔄 Updating state with agents, previous count:', prev.agents?.length);
+      const newState = { ...prev, agents: agents || [] };
+      console.log('🔄 New state agents count:', newState.agents?.length);
+      return newState;
+    });
   }, []);
 
   const handleChannelMessages = useCallback((data: any) => {
@@ -1023,6 +1059,8 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
       </div>
     </div>
   );
-};
+});
+
+ThreadMessagingView.displayName = 'ThreadMessagingView';
 
 export default ThreadMessagingView;
