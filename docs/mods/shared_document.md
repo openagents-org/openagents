@@ -23,7 +23,7 @@ Add the mod to your agent configuration:
 
 ```yaml
 mods:
-  communication:
+  work:
     - name: shared_document
       enabled: true
 ```
@@ -32,7 +32,7 @@ mods:
 
 ```python
 from openagents.core.client import AgentClient
-from openagents.mods.communication.shared_document import SharedDocumentAgentAdapter
+from openagents.mods.work.shared_document import SharedDocumentAgentAdapter
 
 # Create agent with shared document capabilities
 agent = AgentClient(agent_id="my_agent")

@@ -8,7 +8,7 @@ model:
   api_key: "${OPENAI_API_KEY}"
   
 mods:
-  communication:
+  work:
     - name: "shared_document"
       enabled: true
 

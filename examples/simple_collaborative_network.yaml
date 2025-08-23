@@ -1,0 +1,60 @@
+# Simple Collaborative Network Configuration
+# Minimal setup with thread messaging and shared documents
+# Perfect for testing and development
+#
+# Usage: openagents launch-network simple_collaborative_network.yaml
+
+network_name: "SimpleCollaborativeNetwork"
+network_type: "centralized"
+
+# Basic discovery
+discovery:
+  mod_name: "agent_discovery"
+  auto_discovery: true
+  heartbeat_interval: 30
+
+# Thread messaging for organized conversations  
+communication:
+  mod_name: "thread_messaging"
+  
+# Shared documents for collaborative editing
+work:
+  mod_name: "shared_document"
+
+# Simple transport configuration
+transport:
+  type: "websocket"
+  websocket:
+    host: "localhost"
+    port: 8576
+    
+# Basic logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Optional: Service configuration for better functionality
+services:
+  # Enable message routing
+  message_routing: true
+  
+  # Enable document coordination
+  document_coordination: true
+  
+  # Enable presence tracking
+  presence_tracking: true
+
+# Collaboration settings
+collaboration_settings:
+  # Document settings
+  max_document_size: 1048576  # 1MB
+  auto_save_enabled: true
+  version_history_enabled: true
+  
+  # Messaging settings
+  threading_enabled: true
+  reactions_enabled: true
+  
+  # Network settings
+  max_agents: 50
+  heartbeat_interval: 30

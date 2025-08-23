@@ -6,6 +6,7 @@ const Sidebar: React.FC<Omit<SidebarProps, 'isCollapsed' | 'toggleSidebar'>> = (
   onSettingsClick,
   onProfileClick,
   onMcpClick,
+  onDocumentsClick,
   activeView,
   onConversationChange,
   activeConversationId,
@@ -13,7 +14,8 @@ const Sidebar: React.FC<Omit<SidebarProps, 'isCollapsed' | 'toggleSidebar'>> = (
   createNewConversation,
   toggleTheme,
   currentTheme,
-  currentNetwork
+  currentNetwork,
+  hasSharedDocuments = false
 }) => {
   return (
     <div className="sidebar h-full flex flex-col transition-all duration-200 bg-slate-100 dark:bg-gray-900" style={{ width: '19rem' }}>
@@ -75,8 +77,53 @@ const Sidebar: React.FC<Omit<SidebarProps, 'isCollapsed' | 'toggleSidebar'>> = (
         </div>
       </div>
 
+      {/* Documents Button - Show if shared document mod is available */}
+      {hasSharedDocuments && onDocumentsClick && (
+        <div className="px-4 pt-2">
+          <button
+            onClick={onDocumentsClick}
+            className={`relative group flex items-center w-full rounded-lg px-4 py-3.5 text-sm transition-all
+              ${activeView === 'documents'
+                ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white font-medium shadow-md'
+                : 'bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 text-green-700 dark:text-green-300 font-medium border border-green-100 dark:border-green-800/50 hover:shadow-md hover:from-green-100 hover:to-emerald-100 dark:hover:from-green-800/30 dark:hover:to-emerald-800/30'}
+            `}
+          >
+            {/* Background decoration */}
+            <div className="absolute inset-0 overflow-hidden rounded-lg pointer-events-none">
+              <div className="absolute -right-6 -top-6 w-12 h-12 rounded-full bg-green-500/20 dark:bg-green-400/10"></div>
+              <div className="absolute -right-4 bottom-0 w-8 h-8 rounded-full bg-emerald-400/20 dark:bg-emerald-400/10"></div>
+            </div>
+            
+            {/* Icon container */}
+            <div className="flex-shrink-0 mr-3 relative z-10">
+              <div className={`p-1.5 rounded-lg ${activeView === 'documents' ? 'bg-white/20' : 'bg-green-200/50 dark:bg-green-800/30 group-hover:bg-green-300/50 dark:group-hover:bg-green-700/30'} transition-all`}>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                  <path d="M5.625 1.5c-1.036 0-1.875.84-1.875 1.875v17.25c0 1.035.84 1.875 1.875 1.875h12.75c1.035 0 1.875-.84 1.875-1.875V12.75A3.75 3.75 0 0016.5 9h-1.875a1.875 1.875 0 01-1.875-1.875V5.25A3.75 3.75 0 009 1.5H5.625z" />
+                  <path d="M12.971 1.816A5.23 5.23 0 0114.25 5.25v1.875c0 .207.168.375.375.375H16.5a5.23 5.23 0 013.434 1.279 9.768 9.768 0 00-6.963-6.963z" />
+                </svg>
+              </div>
+            </div>
+            
+            {/* Text content */}
+            <div className="flex-1 flex flex-col items-start z-10">
+              <span className="font-semibold tracking-wide">Documents</span>
+              <span className={`text-xs ${activeView === 'documents' ? 'text-green-100' : 'text-green-500 dark:text-green-400'}`}>
+                Collaborative editing
+              </span>
+            </div>
+            
+            {/* Arrow icon */}
+            <span className="ml-2 opacity-70">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" className="w-4 h-4">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </span>
+          </button>
+        </div>
+      )}
+
       {/* MCP Button */}
-      <div className="mt-auto px-4 pt-2 pb-2">
+      <div className={`px-4 pt-2 ${hasSharedDocuments ? 'pb-0' : 'pb-2'} ${hasSharedDocuments ? 'mt-0' : 'mt-auto'}`}>
         <button
           onClick={onMcpClick}
           className={`relative group flex items-center w-full rounded-lg px-4 py-3.5 text-sm transition-all

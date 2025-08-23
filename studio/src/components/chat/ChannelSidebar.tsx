@@ -14,6 +14,8 @@ interface ChannelSidebarProps {
   onProfileClick?: () => void;
   toggleTheme?: () => void;
   unreadCounts?: Record<string, number>;
+  hasSharedDocuments?: boolean;
+  onDocumentsClick?: () => void;
 }
 
 const styles = `
@@ -434,10 +436,13 @@ const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
   currentNetwork,
   onProfileClick,
   toggleTheme,
-  unreadCounts = {}
+  unreadCounts = {},
+  hasSharedDocuments = false,
+  onDocumentsClick
 }) => {
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
   const [agentsCollapsed, setAgentsCollapsed] = useState(false);
+  const [documentsCollapsed, setDocumentsCollapsed] = useState(false);
 
   const getStatusIndicator = (agent: AgentInfo) => {
     const status = agent.metadata?.status || 'offline';
@@ -519,6 +524,51 @@ const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
             )}
           </div>
         </div>
+
+        {/* Documents Section */}
+        {hasSharedDocuments && (
+          <div className={`section collapsible-section ${documentsCollapsed ? 'collapsed' : ''}`}>
+            <div className={`section-header ${currentTheme}`}>
+              <span>📄 Documents</span>
+              <button
+                className="section-toggle"
+                onClick={() => setDocumentsCollapsed(!documentsCollapsed)}
+              >
+                {documentsCollapsed ? '▶' : '▼'}
+              </button>
+            </div>
+            
+            <div className={`section-content ${documentsCollapsed ? 'collapsed' : 'expanded'}`}>
+              <div 
+                className={`channel-item documents-button ${currentTheme}`}
+                onClick={onDocumentsClick}
+                style={{ 
+                  cursor: 'pointer',
+                  padding: '8px 12px',
+                  margin: '2px 0',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  backgroundColor: currentTheme === 'dark' ? '#374151' : '#f3f4f6',
+                  border: `1px solid ${currentTheme === 'dark' ? '#4b5563' : '#d1d5db'}`,
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = currentTheme === 'dark' ? '#4b5563' : '#e5e7eb';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = currentTheme === 'dark' ? '#374151' : '#f3f4f6';
+                }}
+              >
+                <span style={{ fontSize: '16px' }}>📄</span>
+                <span style={{ color: currentTheme === 'dark' ? '#f1f5f9' : '#1f2937' }}>
+                  Shared Documents
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Direct Messages Section */}
         <div className={`section collapsible-section ${agentsCollapsed ? 'collapsed' : ''}`}>

@@ -1,0 +1,19 @@
+# Debug Network - Minimal configuration for testing both mods
+network:
+  name: "DebugNetwork"
+  mode: "centralized"
+  transport: "websocket"
+  host: "0.0.0.0"
+  port: 8576  # Different port to avoid conflicts
+  server_mode: true
+  
+  # Simple mod configuration
+  mods:
+    - name: "openagents.mods.communication.thread_messaging"
+      enabled: true
+    - name: "openagents.mods.work.shared_document"
+      enabled: true
+
+logging:
+  level: "DEBUG"  # More verbose logging
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"

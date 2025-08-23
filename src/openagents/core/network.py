@@ -550,19 +550,19 @@ class AgentNetwork:
             
             # Handle system requests
             if command == REGISTER_AGENT:
-                await handle_register_agent(command, message, connection, self)
+                await handle_register_agent(command, message.get("data", {}), connection, self)
             elif command == LIST_AGENTS:
-                await handle_list_agents(command, message, connection, self)
+                await handle_list_agents(command, message.get("data", {}), connection, self)
             elif command == LIST_MODS:
-                await handle_list_mods(command, message, connection, self)
+                await handle_list_mods(command, message.get("data", {}), connection, self)
             elif command == GET_NETWORK_INFO:
-                await handle_get_network_info(command, message, connection, self)
+                await handle_get_network_info(command, message.get("data", {}), connection, self)
             elif command == PING_AGENT:
-                await handle_ping_agent(command, message, connection, self)
+                await handle_ping_agent(command, message.get("data", {}), connection, self)
             elif command == CLAIM_AGENT_ID:
-                await handle_claim_agent_id(command, message, connection, self)
+                await handle_claim_agent_id(command, message.get("data", {}), connection, self)
             elif command == VALIDATE_CERTIFICATE:
-                await handle_validate_certificate(command, message, connection, self)
+                await handle_validate_certificate(command, message.get("data", {}), connection, self)
             else:
                 logger.warning(f"Unhandled system command: {command}")
         except Exception as e:

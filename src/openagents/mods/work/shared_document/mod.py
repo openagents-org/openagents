@@ -366,9 +366,9 @@ class SharedDocumentNetworkMod(BaseMod):
     - Agent presence tracking
     """
     
-    def __init__(self):
+    def __init__(self, mod_name: str = "shared_document"):
         """Initialize the shared document mod."""
-        super().__init__(mod_name="shared_document")
+        super().__init__(mod_name=mod_name)
         
         # Document storage
         self.documents: Dict[str, SharedDocument] = {}
@@ -393,37 +393,101 @@ class SharedDocumentNetworkMod(BaseMod):
         logger.info("Shutting down SharedDocument network mod")
         return True
     
-    async def process_message(self, message: BaseMessage, source_agent_id: str) -> None:
-        """Process incoming messages."""
+    async def process_mod_message(self, message: ModMessage) -> None:
+        """Process incoming mod messages."""
         try:
-            if isinstance(message, CreateDocumentMessage):
-                await self._handle_create_document(message, source_agent_id)
-            elif isinstance(message, OpenDocumentMessage):
-                await self._handle_open_document(message, source_agent_id)
-            elif isinstance(message, CloseDocumentMessage):
-                await self._handle_close_document(message, source_agent_id)
-            elif isinstance(message, InsertLinesMessage):
-                await self._handle_insert_lines(message, source_agent_id)
-            elif isinstance(message, RemoveLinesMessage):
-                await self._handle_remove_lines(message, source_agent_id)
-            elif isinstance(message, ReplaceLinesMessage):
-                await self._handle_replace_lines(message, source_agent_id)
-            elif isinstance(message, AddCommentMessage):
-                await self._handle_add_comment(message, source_agent_id)
-            elif isinstance(message, RemoveCommentMessage):
-                await self._handle_remove_comment(message, source_agent_id)
-            elif isinstance(message, UpdateCursorPositionMessage):
-                await self._handle_update_cursor_position(message, source_agent_id)
-            elif isinstance(message, GetDocumentContentMessage):
-                await self._handle_get_document_content(message, source_agent_id)
-            elif isinstance(message, GetDocumentHistoryMessage):
-                await self._handle_get_document_history(message, source_agent_id)
-            elif isinstance(message, ListDocumentsMessage):
-                await self._handle_list_documents(message, source_agent_id)
-            elif isinstance(message, GetAgentPresenceMessage):
-                await self._handle_get_agent_presence(message, source_agent_id)
+            source_agent_id = message.sender_id or message.relevant_agent_id or "unknown"
+            logger.info(f"Processing mod message from {source_agent_id}: {type(message)} - {message}")
+            
+            # Extract the actual message content from the mod message
+            content = message.content if hasattr(message, 'content') else message
+            message_type = content.get('message_type') if isinstance(content, dict) else getattr(content, 'message_type', None)
+            
+            logger.info(f"Message type: {message_type}, Content: {content}")
+            
+            # Parse the content into the appropriate message type
+            if message_type == "create_document":
+                doc_message = CreateDocumentMessage(**content)
+                await self._handle_create_document(doc_message, source_agent_id)
+            elif message_type == "list_documents":
+                doc_message = ListDocumentsMessage(**content)
+                await self._handle_list_documents(doc_message, source_agent_id)
+            elif message_type == "open_document":
+                doc_message = OpenDocumentMessage(**content)
+                await self._handle_open_document(doc_message, source_agent_id)
+            elif message_type == "close_document":
+                doc_message = CloseDocumentMessage(**content)
+                await self._handle_close_document(doc_message, source_agent_id)
+            elif message_type == "insert_lines":
+                doc_message = InsertLinesMessage(**content)
+                await self._handle_insert_lines(doc_message, source_agent_id)
+            elif message_type == "remove_lines":
+                doc_message = RemoveLinesMessage(**content)
+                await self._handle_remove_lines(doc_message, source_agent_id)
+            elif message_type == "replace_lines":
+                doc_message = ReplaceLinesMessage(**content)
+                await self._handle_replace_lines(doc_message, source_agent_id)
+            elif message_type == "add_comment":
+                doc_message = AddCommentMessage(**content)
+                await self._handle_add_comment(doc_message, source_agent_id)
+            elif message_type == "remove_comment":
+                doc_message = RemoveCommentMessage(**content)
+                await self._handle_remove_comment(doc_message, source_agent_id)
+            elif message_type == "update_cursor_position":
+                doc_message = UpdateCursorPositionMessage(**content)
+                await self._handle_update_cursor_position(doc_message, source_agent_id)
+            elif message_type == "get_document_content":
+                doc_message = GetDocumentContentMessage(**content)
+                await self._handle_get_document_content(doc_message, source_agent_id)
+            elif message_type == "get_document_history":
+                doc_message = GetDocumentHistoryMessage(**content)
+                await self._handle_get_document_history(doc_message, source_agent_id)
+            elif message_type == "get_agent_presence":
+                doc_message = GetAgentPresenceMessage(**content)
+                await self._handle_get_agent_presence(doc_message, source_agent_id)
             else:
-                logger.warning(f"Unknown message type: {type(message)}")
+                logger.warning(f"Unknown message type: {message_type}")
+                
+        except Exception as e:
+            logger.error(f"Error processing mod message from {source_agent_id}: {e}")
+            await self._send_error_response(source_agent_id, str(e))
+
+    async def process_message(self, message: BaseMessage, source_agent_id: str) -> None:
+        """Legacy process_message method - delegates to process_mod_message."""
+        try:
+            if isinstance(message, ModMessage):
+                await self.process_mod_message(message)
+            else:
+                logger.warning(f"Received non-mod message: {type(message)}")
+                
+                if isinstance(message, CreateDocumentMessage):
+                    await self._handle_create_document(message, source_agent_id)
+                elif isinstance(message, OpenDocumentMessage):
+                    await self._handle_open_document(message, source_agent_id)
+                elif isinstance(message, CloseDocumentMessage):
+                    await self._handle_close_document(message, source_agent_id)
+                elif isinstance(message, InsertLinesMessage):
+                    await self._handle_insert_lines(message, source_agent_id)
+                elif isinstance(message, RemoveLinesMessage):
+                    await self._handle_remove_lines(message, source_agent_id)
+                elif isinstance(message, ReplaceLinesMessage):
+                    await self._handle_replace_lines(message, source_agent_id)
+                elif isinstance(message, AddCommentMessage):
+                    await self._handle_add_comment(message, source_agent_id)
+                elif isinstance(message, RemoveCommentMessage):
+                    await self._handle_remove_comment(message, source_agent_id)
+                elif isinstance(message, UpdateCursorPositionMessage):
+                    await self._handle_update_cursor_position(message, source_agent_id)
+                elif isinstance(message, GetDocumentContentMessage):
+                    await self._handle_get_document_content(message, source_agent_id)
+                elif isinstance(message, GetDocumentHistoryMessage):
+                    await self._handle_get_document_history(message, source_agent_id)
+                elif isinstance(message, ListDocumentsMessage):
+                    await self._handle_list_documents(message, source_agent_id)
+                elif isinstance(message, GetAgentPresenceMessage):
+                    await self._handle_get_agent_presence(message, source_agent_id)
+                else:
+                    logger.warning(f"Unknown message type: {type(message)}")
                 
         except Exception as e:
             logger.error(f"Error processing message from {source_agent_id}: {e}")
@@ -461,7 +525,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=document_id,
                 success=True,
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response)
@@ -495,7 +559,13 @@ class SharedDocumentNetworkMod(BaseMod):
                 self.agent_sessions[source_agent_id] = set()
             self.agent_sessions[source_agent_id].add(document_id)
             
-            # Send document content
+            # Send document content with properly serialized agent presence
+            serialized_presence = []
+            for presence in document.agent_presence.values():
+                # Use model_dump with mode='json' to properly serialize datetime objects
+                presence_dict = presence.model_dump(mode='json')
+                serialized_presence.append(presence_dict)
+            
             response = DocumentContentResponse(
                 document_id=document_id,
                 content=document.content.copy(),
@@ -503,9 +573,9 @@ class SharedDocumentNetworkMod(BaseMod):
                     comment for comments in document.comments.values()
                     for comment in comments
                 ],
-                agent_presence=list(document.agent_presence.values()),
+                agent_presence=serialized_presence,
                 version=document.version,
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response)
@@ -536,7 +606,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=str(uuid.uuid4()),
                 success=True,
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response)
@@ -572,7 +642,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=operation.operation_id,
                 success=True,
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response)
@@ -607,7 +677,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=operation.operation_id,
                 success=True,
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response)
@@ -642,7 +712,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=operation.operation_id,
                 success=True,
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response)
@@ -677,7 +747,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=comment.comment_id,
                 success=True,
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response)
@@ -708,7 +778,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=message.comment_id,
                 success=success,
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response)
@@ -773,7 +843,7 @@ class SharedDocumentNetworkMod(BaseMod):
                 comments=comments,
                 agent_presence=agent_presence,
                 version=document.version,
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response)
@@ -810,7 +880,7 @@ class SharedDocumentNetworkMod(BaseMod):
                 document_id=document_id,
                 operations=operations,
                 total_operations=total_operations,
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response)
@@ -844,7 +914,7 @@ class SharedDocumentNetworkMod(BaseMod):
             
             response = DocumentListResponse(
                 documents=documents,
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response)
@@ -870,7 +940,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = AgentPresenceResponse(
                 document_id=document_id,
                 agent_presence=list(document.agent_presence.values()),
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response)
@@ -893,10 +963,10 @@ class SharedDocumentNetworkMod(BaseMod):
                     mod_message = ModMessage(
                         mod="shared_document",
                         content=operation_message.model_dump(),
-                        sender_id=self.network.node_id,
+                        sender_id=self.network.network_id,
                         relevant_agent_id=agent_id
                     )
-                    await self.network.send_message(agent_id, mod_message)
+                    await self.network.send_message(mod_message)
                 except Exception as e:
                     logger.error(f"Failed to broadcast operation to agent {agent_id}: {e}")
     
@@ -912,7 +982,7 @@ class SharedDocumentNetworkMod(BaseMod):
         
         presence_message = GetAgentPresenceMessage(
             document_id=document_id,
-            source_agent_id=self.network.node_id
+            sender_id=self.network.network_id
         )
         
         # Send to all active agents except the one whose presence changed
@@ -922,10 +992,10 @@ class SharedDocumentNetworkMod(BaseMod):
                     mod_message = ModMessage(
                         mod="shared_document",
                         content=presence_message.model_dump(),
-                        sender_id=self.network.node_id,
+                        sender_id=self.network.network_id,
                         relevant_agent_id=other_agent_id
                     )
-                    await self.network.send_message(other_agent_id, mod_message)
+                    await self.network.send_message(mod_message)
                 except Exception as e:
                     logger.error(f"Failed to broadcast presence update to agent {other_agent_id}: {e}")
     
@@ -934,11 +1004,11 @@ class SharedDocumentNetworkMod(BaseMod):
         try:
             mod_message = ModMessage(
                 mod="shared_document",
-                content=response.model_dump(),
-                sender_id=self.network.node_id,
+                content=response.model_dump(mode='json'),
+                sender_id=self.network.network_id,
                 relevant_agent_id=target_agent_id
             )
-            await self.network.send_message(target_agent_id, mod_message)
+            await self.network.send_message(mod_message)
         except Exception as e:
             logger.error(f"Failed to send response to agent {target_agent_id}: {e}")
     
@@ -949,7 +1019,7 @@ class SharedDocumentNetworkMod(BaseMod):
                 operation_id=str(uuid.uuid4()),
                 success=False,
                 error_message=error_message,
-                sender_id=self.network.node_id
+                sender_id=self.network.network_id
             )
             await self._send_response(target_agent_id, response)
         except Exception as e:

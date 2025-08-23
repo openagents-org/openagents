@@ -6,7 +6,7 @@ discovery:
   auto_discovery: true
   heartbeat_interval: 30
   
-communication:
+work:
   mod_name: "shared_document"
   
 transport:

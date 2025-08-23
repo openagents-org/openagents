@@ -44,7 +44,8 @@ export interface SidebarProps {
   onSettingsClick: () => void;
   onProfileClick: () => void;
   onMcpClick: () => void;
-  activeView: 'chat' | 'settings' | 'profile' | 'mcp';
+  onDocumentsClick?: () => void;
+  activeView: 'chat' | 'settings' | 'profile' | 'mcp' | 'documents';
   onConversationChange: (conversationId: string) => void;
   activeConversationId: string;
   conversations: Conversation[];
@@ -52,6 +53,7 @@ export interface SidebarProps {
   toggleTheme: () => void;
   currentTheme: 'light' | 'dark';
   currentNetwork: NetworkConnection | null;
+  hasSharedDocuments?: boolean;
 }
 
 export interface SettingsViewProps {
@@ -81,4 +83,47 @@ export interface MessageListProps {
   toolSections?: ToolSectionsMap;
   forceRender?: number;
   isAutoScrollingDisabled?: boolean;
+}
+
+// Shared Document Types
+export interface DocumentInfo {
+  document_id: string;
+  name: string;
+  creator: string;
+  created: string;
+  last_modified: string;
+  version: number;
+  active_agents: string[];
+  permission: string;
+}
+
+export interface DocumentComment {
+  comment_id: string;
+  line_number: number;
+  agent_id: string;
+  comment_text: string;
+  timestamp: string;
+}
+
+export interface AgentPresence {
+  agent_id: string;
+  cursor_position?: {
+    line_number: number;
+    column_number: number;
+  };
+  last_activity: string;
+  is_active: boolean;
+}
+
+export interface DocumentContent {
+  document_id: string;
+  content: string[];
+  comments: DocumentComment[];
+  agent_presence: AgentPresence[];
+  version: number;
+}
+
+export interface DocumentsViewProps {
+  onBackClick: () => void;
+  currentTheme: 'light' | 'dark';
 } 

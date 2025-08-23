@@ -1,0 +1,254 @@
+# OpenAgents Collaborative Network Configuration
+# This configuration enables both thread messaging and shared documents for full collaboration
+# 
+# Features enabled:
+# - Thread messaging for organized conversations
+# - Shared documents for collaborative editing
+# - Agent discovery for dynamic agent management
+# - Real-time synchronization and presence tracking
+#
+# Usage:
+# openagents launch-network collaborative_network_config.yaml
+
+# Core network configuration
+network:
+  name: "CollaborativeOpenAgentsNetwork"
+  mode: "centralized"  # Centralized topology for better coordination
+  node_id: "collab-coordinator-1"  # Unique identifier for this coordinator
+  
+  # Server/Coordinator settings
+  host: "0.0.0.0"  # Bind to all interfaces for external access
+  port: 8575  # Port for incoming connections (different from other examples)
+  server_mode: true  # This node acts as the coordinator/server
+  
+  # Transport configuration optimized for collaboration
+  transport: "websocket"  # WebSocket transport for real-time communication
+  transport_config:
+    buffer_size: 16384  # Larger buffer for document content
+    compression: true  # Enable compression for better performance
+    ping_interval: 20  # More frequent pings for real-time collaboration
+    ping_timeout: 8  # Shorter timeout for responsiveness
+    max_message_size: 52428800  # 50MB for large documents
+  
+  # Security configuration
+  encryption_enabled: true  # Enable encryption
+  encryption_type: "tls"  # TLS encryption for secure collaboration
+  
+  # Discovery configuration
+  discovery_interval: 5  # Quick discovery for dynamic collaboration
+  discovery_enabled: true  # Enable agent discovery
+  
+  # Connection management optimized for collaboration
+  max_connections: 200  # Support up to 200 collaborative agents
+  connection_timeout: 45.0  # Longer timeout for document operations
+  retry_attempts: 5  # More retry attempts for reliability
+  heartbeat_interval: 20  # Frequent heartbeats for presence tracking
+  
+  # Messaging configuration
+  message_queue_size: 3000  # Large queue for document operations
+  message_timeout: 45.0  # Longer timeout for document operations
+  message_routing_enabled: true  # Enable message routing between agents
+  
+  # Mod configuration - Both thread messaging and shared documents
+  mods:
+    # Thread Messaging for organized conversations
+    - name: "openagents.mods.communication.thread_messaging"
+      enabled: true
+      config:
+        max_message_size: 52428800  # 50MB for rich content
+        message_retention_time: 1800  # 30 minutes retention
+        enable_message_history: true
+        enable_threading: true
+        max_thread_depth: 10
+        enable_reactions: true
+        enable_mentions: true
+        enable_channels: true
+        default_channels:
+          - name: "general"
+            description: "General discussion"
+          - name: "documents"
+            description: "Document collaboration discussion"
+          - name: "project-planning"
+            description: "Project planning and coordination"
+    
+    # Shared Documents for collaborative editing
+    - name: "openagents.mods.work.shared_document"
+      enabled: true
+      config:
+        max_document_size: 10485760  # 10MB per document
+        max_line_length: 10000  # Maximum characters per line
+        max_comment_length: 2000  # Maximum comment length
+        enable_real_time_sync: true
+        enable_presence_tracking: true
+        enable_commenting: true
+        enable_version_history: true
+        conflict_resolution_strategy: "last_write_wins_with_notification"
+        auto_save_interval: 30  # Auto-save every 30 seconds
+        document_retention_days: 90  # Keep documents for 90 days
+        max_concurrent_editors: 50  # Up to 50 simultaneous editors per document
+        enable_document_locking: false  # Allow concurrent editing
+        
+    # Agent Discovery for dynamic agent management
+    - name: "openagents.mods.discovery.agent_discovery"
+      enabled: true
+      config:
+        announce_interval: 20  # Announce agents every 20 seconds
+        cleanup_interval: 40  # Clean up stale agents every 40 seconds
+        agent_timeout: 90  # Remove agents after 90 seconds of inactivity
+        enable_capability_discovery: true
+        enable_agent_metadata: true
+
+# Service agents for enhanced collaboration
+service_agents:
+  # Collaboration Coordinator
+  - name: "CollabCoordinator"
+    mods:
+      - name: "openagents.mods.communication.thread_messaging"
+        enabled: true
+        config:
+          routing_enabled: true
+          store_and_forward: true
+      - name: "openagents.mods.work.shared_document"
+        enabled: true
+        config:
+          document_indexing: true
+          search_enabled: true
+    services:
+      - name: "message_routing"
+        description: "Route messages between agents in conversations"
+      - name: "document_coordination"
+        description: "Coordinate document access and synchronization"
+      - name: "presence_tracking"
+        description: "Track agent presence across documents and channels"
+    subscriptions:
+      - "messages"
+      - "documents"
+      - "presence"
+      - "routing"
+
+  # Document Manager Service
+  - name: "DocumentManager"
+    mods:
+      - name: "openagents.mods.work.shared_document"
+        enabled: true
+        config:
+          indexing_enabled: true
+          backup_enabled: true
+          version_control: true
+    services:
+      - name: "document_backup"
+        description: "Automatic document backup and versioning"
+      - name: "document_search"
+        description: "Full-text search across all documents"
+      - name: "access_control"
+        description: "Manage document permissions and access"
+    subscriptions:
+      - "documents"
+      - "backup"
+      - "search"
+
+  # Agent Discovery Service
+  - name: "DiscoveryService"
+    mods:
+      - name: "openagents.mods.discovery.agent_discovery"
+        enabled: true
+        config:
+          registry_enabled: true
+          capability_matching: true
+          metadata_indexing: true
+    services:
+      - name: "agent_registry"
+        description: "Maintain registry of active collaborative agents"
+      - name: "capability_discovery"
+        description: "Help agents discover collaboration capabilities"
+      - name: "presence_coordination"
+        description: "Coordinate agent presence across the network"
+    subscriptions:
+      - "discovery"
+      - "registry"
+      - "capabilities"
+
+  # Collaboration Monitor
+  - name: "CollabMonitor"
+    mods:
+      - name: "openagents.mods.communication.thread_messaging"
+        enabled: true
+      - name: "openagents.mods.work.shared_document"
+        enabled: true
+    services:
+      - name: "collaboration_analytics"
+        description: "Monitor collaboration patterns and usage"
+      - name: "performance_tracking"
+        description: "Track network and collaboration performance"
+      - name: "conflict_resolution"
+        description: "Help resolve document and message conflicts"
+    subscriptions:
+      - "monitoring"
+      - "analytics"
+      - "conflicts"
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "OpenAgents Collaborative Network"
+  description: "A full-featured collaborative network with thread messaging and shared documents"
+  icon: "https://openagents.io/icons/collaborative-network.png"
+  website: "https://openagents.io"
+  tags:
+    - "collaborative"
+    - "thread-messaging"
+    - "shared-documents"
+    - "real-time"
+    - "production-ready"
+  categories:
+    - "collaboration"
+    - "team-work"
+    - "document-editing"
+    - "messaging"
+  country: "Worldwide"
+  required_openagents_version: "0.5.1"
+  capacity: 200  # Maximum 200 connected agents
+  features:
+    - "Thread-based messaging"
+    - "Real-time document collaboration"
+    - "Agent presence tracking"
+    - "Document commenting"
+    - "Version control"
+    - "Channel-based communication"
+    - "Agent discovery"
+  authentication:
+    type: "none"  # No authentication required (can be changed as needed)
+  host: "0.0.0.0"
+  port: 8575
+
+# Global settings
+log_level: "INFO"  # Logging level for collaboration debugging
+data_dir: "./data/collaborative"  # Data directory for persistent storage
+backup_dir: "./backups/collaborative"  # Backup directory for documents
+
+# Runtime configuration
+runtime_limit: null  # No runtime limit
+shutdown_timeout: 60  # Longer shutdown timeout for document saving
+graceful_shutdown: true  # Enable graceful shutdown for data integrity
+
+# Collaboration-specific settings
+collaboration:
+  # Document settings
+  document_auto_save: true
+  document_conflict_notification: true
+  document_presence_timeout: 300  # 5 minutes
+  
+  # Messaging settings
+  message_threading: true
+  message_reactions: true
+  message_search: true
+  
+  # Performance settings
+  real_time_sync_interval: 1000  # 1 second for real-time updates
+  presence_update_interval: 5000  # 5 seconds for presence updates
+  heartbeat_optimization: true
+  
+  # Security settings
+  validate_agent_permissions: true
+  enable_audit_logging: true
+  secure_document_access: true

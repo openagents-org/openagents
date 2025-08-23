@@ -14,7 +14,7 @@ from typing import Dict, Any
 
 from openagents.core.network import AgentNetwork, create_network
 from openagents.models.network_config import NetworkConfig, NetworkMode
-from openagents.mods.communication.shared_document import SharedDocumentNetworkMod
+from openagents.mods.work.shared_document import SharedDocumentNetworkMod
 
 
 class SharedDocumentDemo:

@@ -27,7 +27,7 @@ The shared document mod is included with OpenAgents. To use it in your agent con
 
 ```yaml
 mods:
-  communication:
+  work:
     - name: shared_document
       enabled: true
 ```

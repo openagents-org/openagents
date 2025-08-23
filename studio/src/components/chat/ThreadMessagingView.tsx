@@ -4,6 +4,7 @@ import { NetworkConnection } from '../../services/networkService';
 import ChannelSidebar from './ChannelSidebar';
 import MessageDisplay from './MessageDisplay';
 import MessageInput from './ThreadMessageInput';
+import DocumentsView from '../documents/DocumentsView';
 import { ReadMessageStore } from '../../utils/readMessageStore';
 import { mentionNotifier } from '../../utils/mentionNotifier';
 
@@ -13,6 +14,8 @@ interface ThreadMessagingViewProps {
   currentTheme: 'light' | 'dark';
   onProfileClick?: () => void;
   toggleTheme?: () => void;
+  hasSharedDocuments?: boolean;
+  onDocumentsClick?: () => void;
 }
 
 export interface ThreadState {
@@ -23,6 +26,7 @@ export interface ThreadState {
   messages: { [key: string]: ThreadMessage[] }; // channel/dm_agent_id -> messages
   isLoading: boolean;
   error: string | null;
+  showDocuments: boolean; // Track if we're showing documents view
 }
 
 const styles = `
@@ -158,7 +162,9 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
   agentName,
   currentTheme,
   onProfileClick,
-  toggleTheme
+  toggleTheme,
+  hasSharedDocuments = false,
+  onDocumentsClick
 }) => {
   const [connection, setConnection] = useState<OpenAgentsConnection | null>(null);
   const [state, setState] = useState<ThreadState>({
@@ -168,7 +174,8 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
     agents: [],
     messages: {},
     isLoading: true,
-    error: null
+    error: null,
+    showDocuments: false
   });
   
   // Reply and quote state
@@ -195,6 +202,7 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
   // Add periodic message checking
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const connectionRef = useRef<OpenAgentsConnection | null>(null);
+  const lastMessageTimeRef = useRef<number>(0); // Track last message time to reduce polling
   const [currentAgentId, setCurrentAgentId] = useState(agentName);
 
   // Initialize mention notifier with current agent ID
@@ -415,6 +423,9 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
     console.log('📥 Handling channel messages for:', channel);
     console.log('📥 Messages received:', messages?.length || 0);
     
+    // Update last message time to reduce unnecessary polling
+    lastMessageTimeRef.current = Date.now();
+    
     if (messages && messages.length > 0) {
       const sortedMessages = messages.sort((a: ThreadMessage, b: ThreadMessage) => 
         new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -613,16 +624,23 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
       return;
     }
 
-    // Check current channel for new messages
+    // Skip polling if we received a message very recently (within last 5 seconds)
+    const now = Date.now();
+    if (now - (lastMessageTimeRef.current || 0) < 5000) {
+      console.log('🔄 [PERIODIC] Skipping check - recent activity detected');
+      return;
+    }
+
+    // Check current channel for new messages (reduced frequency and scope)
     if (state.currentChannel) {
       console.log('🔄 [PERIODIC] Checking for new messages in channel:', state.currentChannel);
-      connection.retrieveChannelMessages(state.currentChannel, 50, 0, true);
+      connection.retrieveChannelMessages(state.currentChannel, 10, 0, true); // Further reduced to 10 messages
     }
 
     // Check current direct message for new messages  
     if (state.currentDirectMessage) {
       console.log('🔄 [PERIODIC] Checking for new messages with agent:', state.currentDirectMessage);
-      connection.retrieveDirectMessages(state.currentDirectMessage, 50, 0, true);
+      connection.retrieveDirectMessages(state.currentDirectMessage, 10, 0, true); // Further reduced to 10 messages
     }
   }, [state.currentChannel, state.currentDirectMessage]);
 
@@ -668,8 +686,8 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
     // Start periodic checking if we have a connection and an active channel/DM
     const connection = connectionRef.current;
     if (connection && connection.isConnected() && (state.currentChannel || state.currentDirectMessage)) {
-      console.log('🔄 [PERIODIC] Starting periodic message checking every 3 seconds');
-      intervalRef.current = setInterval(checkForNewMessages, 3000); // Check every 3 seconds
+      console.log('🔄 [PERIODIC] Starting periodic message checking every 10 seconds');
+      intervalRef.current = setInterval(checkForNewMessages, 10000); // Check every 10 seconds (reduced frequency)
     }
 
     // Cleanup function
@@ -687,7 +705,8 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
     setState(prev => ({
       ...prev,
       currentChannel: channelName,
-      currentDirectMessage: null
+      currentDirectMessage: null,
+      showDocuments: false
     }));
     
     // Mark all existing messages in the channel as read
@@ -719,7 +738,8 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
     setState(prev => ({
       ...prev,
       currentChannel: null,
-      currentDirectMessage: agentId
+      currentDirectMessage: agentId,
+      showDocuments: false
     }));
     
     // Mark all existing direct messages with this agent as read
@@ -744,6 +764,16 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
       console.warn('⚠️ Cannot retrieve direct messages - no connection');
     }
   }, [connection, state.messages]);
+
+  const handleDocumentsClick = useCallback(() => {
+    console.log('📄 Switching to documents view');
+    setState(prev => ({
+      ...prev,
+      currentChannel: null,
+      currentDirectMessage: null,
+      showDocuments: true
+    }));
+  }, []);
 
   const sendMessage = useCallback((text: string, replyTo?: string, quotedMessageId?: string) => {
     if (!connection || !text.trim()) return;
@@ -807,7 +837,9 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
   };
 
   const getCurrentTitle = (): string => {
-    if (state.currentChannel) {
+    if (state.showDocuments) {
+      return '📄 Shared Documents';
+    } else if (state.currentChannel) {
       const channel = state.channels.find(c => c.name === state.currentChannel);
       return `#${state.currentChannel}`;
     } else if (state.currentDirectMessage) {
@@ -929,6 +961,8 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
         onProfileClick={onProfileClick}
         toggleTheme={toggleTheme}
         unreadCounts={unreadCounts}
+        hasSharedDocuments={hasSharedDocuments}
+        onDocumentsClick={handleDocumentsClick}
       />
       
       <div className="thread-messaging-main">
@@ -953,30 +987,39 @@ const ThreadMessagingView: React.FC<ThreadMessagingViewProps> = ({
           </div>
         </div>
         
-        <MessageDisplay
-          messages={getCurrentMessages()}
-          currentUserId={currentAgentId}
-          onReply={startReply}
-          onQuote={startQuote}
-          onReaction={addReaction}
-          currentTheme={currentTheme}
-        />
-        
-        <MessageInput
-          onSendMessage={sendMessage}
-          currentTheme={currentTheme}
-          placeholder={
-            state.currentChannel ? `Message #${state.currentChannel}` :
-            state.currentDirectMessage ? `Message @${state.currentDirectMessage}` :
-            'Select a channel or agent to start messaging'
-          }
-          disabled={!state.currentChannel && !state.currentDirectMessage}
-          agents={state.agents}
-          replyingTo={replyingTo}
-          quotingMessage={quotingMessage}
-          onCancelReply={cancelReply}
-          onCancelQuote={cancelQuote}
-        />
+        {state.showDocuments ? (
+          <DocumentsView
+            onBackClick={() => setState(prev => ({ ...prev, showDocuments: false }))}
+            currentTheme={currentTheme}
+          />
+        ) : (
+          <>
+            <MessageDisplay
+              messages={getCurrentMessages()}
+              currentUserId={currentAgentId}
+              onReply={startReply}
+              onQuote={startQuote}
+              onReaction={addReaction}
+              currentTheme={currentTheme}
+            />
+            
+            <MessageInput
+              onSendMessage={sendMessage}
+              currentTheme={currentTheme}
+              placeholder={
+                state.currentChannel ? `Message #${state.currentChannel}` :
+                state.currentDirectMessage ? `Message @${state.currentDirectMessage}` :
+                'Select a channel or agent to start messaging'
+              }
+              disabled={!state.currentChannel && !state.currentDirectMessage}
+              agents={state.agents}
+              replyingTo={replyingTo}
+              quotingMessage={quotingMessage}
+              onCancelReply={cancelReply}
+              onCancelQuote={cancelQuote}
+            />
+          </>
+        )}
       </div>
     </div>
   );

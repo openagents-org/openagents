@@ -20,12 +20,12 @@ from datetime import datetime
 from unittest.mock import Mock, AsyncMock, patch
 from typing import Dict, Any, List
 
-from openagents.mods.communication.shared_document import (
+from openagents.mods.work.shared_document import (
     SharedDocumentAgentAdapter,
     SharedDocumentNetworkMod,
     SharedDocument
 )
-from openagents.mods.communication.shared_document.document_messages import (
+from openagents.mods.work.shared_document.document_messages import (
     CreateDocumentMessage,
     OpenDocumentMessage,
     CloseDocumentMessage,

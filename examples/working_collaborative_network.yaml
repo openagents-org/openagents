@@ -1,0 +1,48 @@
+# Working Collaborative Network Configuration
+# Simple structure that properly loads both mods
+
+network:
+  name: "WorkingCollaborativeNetwork"
+  mode: "centralized"
+  node_id: "collab-coordinator-1"
+  transport: "websocket"
+  host: "0.0.0.0"
+  port: 8575
+  server_mode: true
+  discovery_enabled: true
+  encryption_enabled: false
+  max_connections: 50
+  heartbeat_interval: 20
+  
+  # Network-level mod configuration
+  mods:
+    # Thread Messaging 
+    - name: "openagents.mods.communication.thread_messaging"
+      enabled: true
+      config:
+        default_channels:
+          - name: "general"
+            description: "General discussion"
+          - name: "documents"
+            description: "Document collaboration discussion"
+          - name: "development"
+            description: "Development discussions"
+        max_message_history: 1000
+        max_thread_depth: 5
+        
+    # Shared Documents
+    - name: "openagents.mods.work.shared_document"
+      enabled: true
+      config:
+        max_document_size: 10485760  # 10MB
+        enable_real_time_sync: true
+        enable_presence_tracking: true
+        enable_commenting: true
+        enable_version_history: true
+        auto_save_interval: 30
+        max_concurrent_editors: 20
+
+# Logging configuration
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
