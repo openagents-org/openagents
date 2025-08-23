@@ -11,6 +11,7 @@ export interface OpenAgentsNetworkInfo {
   mode: 'centralized' | 'decentralized';
   mods: string[];
   agent_count: number;
+  workspace_path?: string;
 }
 
 export interface ThreadMessagingChannel {

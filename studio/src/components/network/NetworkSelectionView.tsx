@@ -161,11 +161,18 @@ const NetworkSelectionView: React.FC<NetworkSelectionViewProps> = ({ onNetworkSe
                 <div className="flex items-center justify-between">
                   <div>
                     <h3 className="text-lg font-semibold text-green-800 dark:text-green-400">
-                      Local OpenAgents Network
+                      {localNetwork.networkInfo?.name || 'Local OpenAgents Network'}
                     </h3>
                     <p className="text-green-600 dark:text-green-500">
                       Running on {localNetwork.host}:{localNetwork.port}
                     </p>
+                    {localNetwork.networkInfo?.workspace_path && (
+                      <p className="text-sm text-green-700 dark:text-green-400 mt-1">
+                        📁 Workspace: <span className="font-mono text-xs bg-green-100 dark:bg-green-800 px-2 py-1 rounded">
+                          {localNetwork.networkInfo.workspace_path}
+                        </span>
+                      </p>
+                    )}
                     {localNetwork.latency && (
                       <p className="text-sm text-green-600 dark:text-green-500">
                         Latency: {localNetwork.latency}ms
@@ -183,7 +190,7 @@ const NetworkSelectionView: React.FC<NetworkSelectionViewProps> = ({ onNetworkSe
             ) : (
               <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6">
                 <p className="text-yellow-800 dark:text-yellow-400">
-                  No local OpenAgents network detected on port 8571
+                  No local OpenAgents network detected on common ports (8570-8575)
                 </p>
               </div>
             )}

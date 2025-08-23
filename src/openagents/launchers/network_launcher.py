@@ -70,8 +70,8 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
         config = load_network_config(config_path)
         logger.info(f"Loaded network configuration from {config_path}")
         
-        # Create enhanced network
-        network = create_network(config.network)
+        # Create enhanced network - pass the full config path to preserve metadata
+        network = create_network(config_path)
         logger.info(f"Created network: {network.network_name}")
         
         # Load and register network mods

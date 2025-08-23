@@ -23,6 +23,10 @@ export interface NetworkConnection {
   port: number;
   status: 'connected' | 'connecting' | 'disconnected' | 'error';
   latency?: number;
+  networkInfo?: {
+    name?: string;
+    workspace_path?: string;
+  };
 }
 
 export interface NetworkListResponse {
@@ -32,40 +36,113 @@ export interface NetworkListResponse {
   items: Network[];
 }
 
-// Check if a local OpenAgents network is running on localhost:8571
-export const detectLocalNetwork = async (): Promise<NetworkConnection | null> => {
-  try {
-    // Try to establish a WebSocket connection to test the OpenAgents network
-    const ws = new WebSocket('ws://localhost:8571');
-    
-    return new Promise((resolve) => {
+// Fetch network info from an OpenAgents network
+const fetchNetworkInfo = async (host: string, port: number): Promise<{name?: string, workspace_path?: string} | null> => {
+  return new Promise((resolve) => {
+    try {
+      const ws = new WebSocket(`ws://${host}:${port}`);
+      let resolved = false;
+      
       const timeout = setTimeout(() => {
-        ws.close();
-        console.log('No local OpenAgents network detected on port 8571');
-        resolve(null);
-      }, 3000);
+        if (!resolved) {
+          resolved = true;
+          ws.close();
+          resolve(null);
+        }
+      }, 5000);
 
       ws.onopen = () => {
-        clearTimeout(timeout);
-        ws.close();
-        resolve({
-          host: 'localhost',
-          port: 8571,
-          status: 'connected',
-          latency: 0,
-        });
+        // Send a system request to get network info
+        const requestId = `network_info_${Date.now()}`;
+        ws.send(JSON.stringify({
+          type: 'system_request',
+          command: 'get_network_info',
+          request_id: requestId,
+          agent_id: `studio_temp_${Date.now()}`
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'system_response' && data.command === 'get_network_info' && data.success) {
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              ws.close();
+              resolve({
+                name: data.network_info?.name,
+                workspace_path: data.network_info?.workspace_path
+              });
+            }
+          }
+        } catch (err) {
+          // Ignore parsing errors
+        }
       };
 
       ws.onerror = () => {
-        clearTimeout(timeout);
-        console.log('No local OpenAgents network detected on port 8571');
-        resolve(null);
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          resolve(null);
+        }
       };
-    });
-  } catch (error) {
-    console.log('No local OpenAgents network detected on port 8571');
-    return null;
+    } catch (error) {
+      resolve(null);
+    }
+  });
+};
+
+// Check if a local OpenAgents network is running on localhost
+export const detectLocalNetwork = async (): Promise<NetworkConnection | null> => {
+  // Try common ports where OpenAgents might be running
+  const portsToTry = [8570, 8571, 8572, 8573, 8574, 8575];
+  
+  for (const port of portsToTry) {
+    try {
+      // Try to establish a WebSocket connection to test the OpenAgents network
+      const ws = new WebSocket(`ws://localhost:${port}`);
+      
+      const result = await new Promise<NetworkConnection | null>((resolve) => {
+        const timeout = setTimeout(() => {
+          ws.close();
+          resolve(null);
+        }, 1000); // Shorter timeout for multiple port attempts
+
+        ws.onopen = async () => {
+          clearTimeout(timeout);
+          ws.close();
+          
+          // Fetch additional network info
+          const networkInfo = await fetchNetworkInfo('localhost', port);
+          
+          resolve({
+            host: 'localhost',
+            port,
+            status: 'connected',
+            latency: 0,
+            networkInfo: networkInfo || undefined
+          });
+        };
+
+        ws.onerror = () => {
+          clearTimeout(timeout);
+          resolve(null);
+        };
+      });
+
+      if (result) {
+        console.log(`Found local OpenAgents network on port ${port}`);
+        return result;
+      }
+    } catch (error) {
+      // Continue to next port
+    }
   }
+  
+  console.log('No local OpenAgents network detected on common ports');
+  return null;
 };
 
 // Test connection to a specific network
