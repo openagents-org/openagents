@@ -48,7 +48,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   
   // Collaborative features
   const [collaborativeUsers, setCollaborativeUsers] = useState<CollaborativeUser[]>([]);
-  const [showComments, setShowComments] = useState(true);
+  const [showComments, setShowComments] = useState(false); // Turn off comments by default
   const [newCommentLine, setNewCommentLine] = useState<number | null>(null);
   const [commentText, setCommentText] = useState('');
   
@@ -434,6 +434,17 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             {renderCollaborativeCursors()}
           </div>
 
+          {/* Line numbers */}
+          <div className={`absolute left-0 top-0 bottom-0 w-16 flex flex-col text-right text-xs font-mono select-none pointer-events-none border-r ${
+            currentTheme === 'dark' ? 'text-gray-500 bg-gray-800 border-gray-700' : 'text-gray-400 bg-gray-50 border-gray-200'
+          }`}>
+            <div className="pt-6 pb-6 pr-3 flex-1">
+              {editorState.content.map((_, index) => (
+                <div key={index + 1} className="h-6 leading-6">{index + 1}</div>
+              ))}
+            </div>
+          </div>
+
           {/* Text Editor */}
           <textarea
             ref={editorRef}
@@ -442,23 +453,24 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             onKeyDown={handleKeyDown}
             onClick={handleClick}
             readOnly={readOnly}
-            className={`w-full h-full p-4 resize-none font-mono text-sm leading-6 focus:outline-none ${
+            className={`w-full h-full resize-none focus:outline-none transition-colors ${
               currentTheme === 'dark'
                 ? 'bg-gray-900 text-gray-200 placeholder-gray-500'
                 : 'bg-white text-gray-800 placeholder-gray-400'
             }`}
+            style={{
+              paddingLeft: '80px', // Space for line numbers (64px width + 16px margin)
+              paddingRight: '24px',
+              paddingTop: '24px',
+              paddingBottom: '24px',
+              fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
+              fontSize: '15px',
+              lineHeight: '24px',
+              letterSpacing: '0.025em'
+            }}
             placeholder={readOnly ? "This document is read-only" : "Start typing..."}
             spellCheck={false}
           />
-
-          {/* Line numbers (optional) */}
-          <div className={`absolute left-0 top-0 bottom-0 w-12 p-4 pt-4 text-right text-xs font-mono leading-6 select-none pointer-events-none ${
-            currentTheme === 'dark' ? 'text-gray-500 bg-gray-800' : 'text-gray-400 bg-gray-50'
-          }`}>
-            {editorState.content.map((_, index) => (
-              <div key={index + 1}>{index + 1}</div>
-            ))}
-          </div>
         </div>
 
         {/* Comments Sidebar */}
