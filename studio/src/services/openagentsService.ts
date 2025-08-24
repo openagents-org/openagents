@@ -457,8 +457,9 @@ export class OpenAgentsConnection {
       console.log('⚠️ No request ID found in message');
       
       // Special handling for document_content_response without request_id
-      if (actionType === 'document_content_response') {
-        console.log('🔧 Attempting to match document_content_response without request_id');
+      // Try to match document responses without request_id
+      if (actionType === 'document_content_response' || actionType === 'document_operation_response') {
+        console.log(`🔧 Attempting to match ${actionType} without request_id`);
         console.log('🔧 Current handlers:', Array.from(this.messageHandlers.keys()));
         
         const contentHandlers = Array.from(this.messageHandlers.entries())
@@ -475,12 +476,14 @@ export class OpenAgentsConnection {
           });
           
           const [handlerKey, handler] = sortedHandlers[0];
-          console.log('✅ Found pending content handler:', handlerKey);
+          console.log(`✅ Found pending content handler for ${actionType}:`, handlerKey);
+          console.log(`🗑️ Removing handler:`, handlerKey);
           this.messageHandlers.delete(handlerKey);
+          console.log(`📊 Handlers remaining:`, this.messageHandlers.size);
           handler(content);
           return;
         } else {
-          console.log('⚠️ No pending content handlers found');
+          console.log(`⚠️ No pending content handlers found for ${actionType}`);
         }
       }
     }
@@ -529,12 +532,23 @@ export class OpenAgentsConnection {
       case 'document_operation_response':
         console.log('⚙️ Document operation response received:', content);
         // Try to match with pending document operation requests (create, open, insert, remove, etc.)
+        // Also include get_document_content_ since server sometimes sends operation_response for content requests
         const operationHandlers = Array.from(this.messageHandlers.entries())
-          .filter(([key]) => key.match(/(create_document_|open_document_|close_document_|insert_lines_|remove_lines_|replace_lines_|add_comment_|remove_comment_)/));
+          .filter(([key]) => key.match(/(create_document_|open_document_|close_document_|insert_lines_|remove_lines_|replace_lines_|add_comment_|remove_comment_|get_document_content_)/));
         if (operationHandlers.length > 0) {
-          const [handlerKey, handler] = operationHandlers[0];
+          console.log('🔧 Available operation handlers:', operationHandlers.map(([key]) => key));
+          // Sort by timestamp (most recent first) for better matching
+          const sortedHandlers = operationHandlers.sort(([keyA], [keyB]) => {
+            const timestampA = parseInt(keyA.split('_').pop() || '0');
+            const timestampB = parseInt(keyB.split('_').pop() || '0');
+            return timestampB - timestampA;
+          });
+          const [handlerKey, handler] = sortedHandlers[0];
           console.log('✅ Found pending operation handler:', handlerKey);
+          console.log('🎯 Calling handler for document_operation_response');
+          console.log(`🗑️ Removing operation handler:`, handlerKey);
           this.messageHandlers.delete(handlerKey);
+          console.log(`📊 Handlers remaining after operation:`, this.messageHandlers.size);
           handler(content);
         } else {
           this.emit('document_operation', content);
@@ -1166,6 +1180,10 @@ export class OpenAgentsConnection {
           resolve(response);
         }
       });
+      
+      console.log(`📝 Added getDocumentContent handler for:`, requestId);
+      console.log(`📊 Total handlers now:`, this.messageHandlers.size);
+      console.log(`🔍 All current handlers:`, Array.from(this.messageHandlers.keys()));
 
       this.sendMessage({
         type: 'mod_message',
@@ -1187,6 +1205,10 @@ export class OpenAgentsConnection {
         if (!isResolved) {
           isResolved = true;
           console.warn('⏰ Get document content request timeout for ID:', requestId);
+          console.warn('🔍 Handler still exists?', this.messageHandlers.has(requestId));
+          console.warn('📊 Total handlers at timeout:', this.messageHandlers.size);
+          console.warn('🔍 All handlers at timeout:', Array.from(this.messageHandlers.keys()));
+          this.messageHandlers.delete(requestId); // Clean up
           reject(new Error('Get document content request timeout'));
         }
       }, 15000); // Increased from 5000ms to 15000ms (15 seconds)

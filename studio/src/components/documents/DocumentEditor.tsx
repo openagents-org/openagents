@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Typography from '@tiptap/extension-typography';
+import Placeholder from '@tiptap/extension-placeholder';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { DocumentContent, DocumentComment, AgentPresence } from '../../types';
 import { OpenAgentsConnection } from '../../services/openagentsService';
 
@@ -13,7 +19,7 @@ interface DocumentEditorProps {
 interface EditorState {
   content: string[];
   cursorPosition: { line: number; column: number };
-  selection: { start: { line: number; column: number }; end: { line: number; column: number } } | null;
+  selection: { start: number; end: number } | null;
   isEditing: boolean;
 }
 
@@ -37,6 +43,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingDocument, setIsLoadingDocument] = useState(false); // Prevent concurrent loads
+  const [hasUserEdits, setHasUserEdits] = useState(false); // Track if user has made any edits
   
   // Editor state
   const [editorState, setEditorState] = useState<EditorState>({
@@ -46,15 +54,16 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     isEditing: false
   });
   
+  // UI state
+  const [title, setTitle] = useState('');
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  
   // Collaborative features
   const [collaborativeUsers, setCollaborativeUsers] = useState<CollaborativeUser[]>([]);
-  const [showComments, setShowComments] = useState(false); // Turn off comments by default
-  const [newCommentLine, setNewCommentLine] = useState<number | null>(null);
-  const [commentText, setCommentText] = useState('');
   
   // Refs
-  const editorRef = useRef<HTMLTextAreaElement>(null);
-  const commentTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Auto-save delay (ms)
@@ -66,30 +75,222 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'
   ];
 
+  // Convert markdown to HTML for TipTap
+  const markdownToHtml = useCallback((markdown: string) => {
+    if (!markdown.trim()) return '<p></p>';
+    
+    console.log('🔍 Processing markdown:', markdown);
+    
+    // First, handle inline patterns that can appear anywhere
+    let processed = markdown
+      // Bold and italic
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      // Inline code (but not code blocks)
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      // Links
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    
+    // Then handle block-level patterns
+    // Headers - look for ## at start of line or after whitespace
+    processed = processed
+      .replace(/(^|\n)### ([^\n]+)/g, '$1<h3>$2</h3>')
+      .replace(/(^|\n)## ([^\n]+)/g, '$1<h2>$2</h2>')
+      .replace(/(^|\n)# ([^\n]+)/g, '$1<h1>$2</h1>');
+    
+    console.log('🎯 After header processing:', processed);
+    
+    // Split into lines and group into paragraphs
+    const lines = processed.split('\n');
+    const result: string[] = [];
+    let currentParagraph: string[] = [];
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      
+      if (trimmedLine.startsWith('<h') && trimmedLine.endsWith('>')) {
+        // Finish current paragraph if any
+        if (currentParagraph.length > 0) {
+          result.push(`<p>${currentParagraph.join('<br>')}</p>`);
+          currentParagraph = [];
+        }
+        // Add header
+        result.push(trimmedLine);
+      } else if (trimmedLine === '') {
+        // Empty line - finish current paragraph
+        if (currentParagraph.length > 0) {
+          result.push(`<p>${currentParagraph.join('<br>')}</p>`);
+          currentParagraph = [];
+        }
+      } else {
+        // Regular content line
+        currentParagraph.push(line);
+      }
+    }
+    
+    // Finish final paragraph if any
+    if (currentParagraph.length > 0) {
+      result.push(`<p>${currentParagraph.join('<br>')}</p>`);
+    }
+    
+    const finalResult = result.join('') || '<p></p>';
+    console.log('✅ Final HTML result:', finalResult);
+    
+    return finalResult;
+  }, []);
+
+  // Convert HTML back to markdown for saving
+  const htmlToMarkdown = useCallback((html: string) => {
+    if (!html.trim()) return '';
+    
+    let markdown = html
+      // Headers
+      .replace(/<h1>(.*?)<\/h1>/g, '# $1')
+      .replace(/<h2>(.*?)<\/h2>/g, '## $1')
+      .replace(/<h3>(.*?)<\/h3>/g, '### $1')
+      // Bold and italic
+      .replace(/<strong>(.*?)<\/strong>/g, '**$1**')
+      .replace(/<em>(.*?)<\/em>/g, '*$1*')
+      // Code
+      .replace(/<code>(.*?)<\/code>/g, '`$1`')
+      // Links
+      .replace(/<a href="([^"]+)">(.*?)<\/a>/g, '[$2]($1)')
+      // Paragraphs and line breaks
+      .replace(/<\/p><p>/g, '\n\n')
+      .replace(/<p>/g, '')
+      .replace(/<\/p>/g, '')
+      .replace(/<br>/g, '\n')
+      // Remove any remaining HTML tags
+      .replace(/<[^>]*>/g, '');
+    
+    return markdown.trim();
+  }, []);
+
+  // TipTap Editor
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: {
+          levels: [1, 2, 3, 4, 5, 6],
+        },
+        bulletList: {
+          keepMarks: true,
+          keepAttributes: false,
+        },
+        orderedList: {
+          keepMarks: true,
+          keepAttributes: false,
+        },
+      }),
+      Typography,
+      Placeholder.configure({
+        placeholder: 'Start writing...',
+      }),
+    ],
+    content: '',
+    editable: !readOnly,
+    onUpdate: ({ editor }) => {
+      // Get the HTML content and convert back to markdown-like format
+      const htmlContent = editor.getHTML();
+      const markdownContent = htmlToMarkdown(htmlContent);
+      const lines = markdownContent.split('\n');
+      
+      console.log('📝 Editor updated - HTML:', htmlContent);
+      console.log('📝 Editor updated - Markdown:', markdownContent);
+      
+      setEditorState(prev => ({
+        ...prev,
+        content: lines,
+        isEditing: true
+      }));
+      
+      // Mark that user has made edits
+      setHasUserEdits(true);
+
+      // Clear existing timeout
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+
+      // Set new timeout for auto-save and stop editing state
+      if (!readOnly) {
+        saveTimeoutRef.current = setTimeout(() => {
+          saveDocument();
+          setEditorState(prev => ({ ...prev, isEditing: false }));
+        }, AUTO_SAVE_DELAY);
+      }
+    },
+    onFocus: () => {
+      console.log('📝 Editor focused - user is editing');
+      setEditorState(prev => ({ ...prev, isEditing: true }));
+    },
+    onBlur: () => {
+      console.log('📝 Editor blurred - user stopped editing');
+      // Don't immediately set isEditing to false, let the timeout handle it
+      // This prevents issues when user clicks elsewhere briefly
+    },
+    editorProps: {
+      attributes: {
+        class: `prose prose-lg max-w-none focus:outline-none ${
+          currentTheme === 'dark' 
+            ? 'prose-invert prose-headings:text-gray-100 prose-p:text-gray-200 prose-strong:text-gray-100 prose-code:text-gray-200 prose-blockquote:text-gray-300'
+            : 'prose-headings:text-gray-900 prose-p:text-gray-700 prose-strong:text-gray-900 prose-code:text-gray-800 prose-blockquote:text-gray-600'
+        }`,
+        style: `
+          font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+          font-size: 16px;
+          line-height: 1.6;
+          color: ${currentTheme === 'dark' ? '#f3f4f6' : '#1f2937'};
+        `,
+      },
+    },
+  });
+
   // Load document content
   const loadDocumentContent = useCallback(async () => {
+    // Prevent concurrent loads
+    if (isLoadingDocument) {
+      console.log('🔄 Document load already in progress, skipping...');
+      return;
+    }
+    
     try {
+      setIsLoadingDocument(true);
       setIsLoading(true);
       setError(null);
       
-      // Try to open the document first, but don't fail if it times out
-      try {
-        await connection.openDocument(documentId);
-        console.log('✅ Document opened successfully');
-      } catch (openErr) {
-        console.warn('⚠️ Failed to open document, but will try to get content anyway:', openErr);
-        // Continue anyway - sometimes getDocumentContent works even if openDocument fails
-      }
+      console.log('📖 Loading document:', documentId);
       
-      // Get the content (this is the critical part)
+      // Only use getDocumentContent - avoid dual loading that causes conflicts
       const content = await connection.getDocumentContent(documentId, true, true);
       console.log('📄 Loaded document content:', content);
+      console.log('📄 Content array:', content.content);
+      console.log('📄 Content length:', content.content ? content.content.length : 0);
       
       setDocumentContent(content);
+      
+      // Reset user edits flag for fresh document load
+      setHasUserEdits(false);
+      
+      // Convert content array to string and set in editor
+      const contentString = content.content ? content.content.join('\n') : '';
+      console.log('📝 Raw content string:', contentString);
+      console.log('📝 Content string length:', contentString.length);
+      
+      if (editor) {
+        // Convert markdown to HTML for proper rendering
+        const htmlContent = markdownToHtml(contentString);
+        console.log('🎨 Converted HTML:', htmlContent);
+        editor.commands.setContent(htmlContent);
+      }
+      
       setEditorState(prev => ({
         ...prev,
         content: content.content || ['']
       }));
+      
+      // Set title from document ID or metadata
+      setTitle(content.document_id || documentId);
       
       // Initialize collaborative users from agent presence
       if (content.agent_presence) {
@@ -108,189 +309,107 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       setError('Failed to load document content');
     } finally {
       setIsLoading(false);
+      setIsLoadingDocument(false);
     }
-  }, [connection, documentId]);
+  }, [connection, documentId, editor]);
 
   useEffect(() => {
-    loadDocumentContent();
-  }, [loadDocumentContent]);
+    if (editor) {
+      loadDocumentContent();
+    }
+  }, [loadDocumentContent, editor]);
+
+  // Update editor content when document content changes
+  useEffect(() => {
+    if (editor && documentContent && documentContent.content) {
+      const contentString = documentContent.content.join('\n');
+      const currentText = editor.getText();
+      
+      console.log('🔍 Editor update check:');
+      console.log('  - Current editor text:', currentText);
+      console.log('  - New content string:', contentString);
+      console.log('  - Content different?', currentText !== contentString);
+      console.log('  - Is editing?', editorState.isEditing);
+      
+      // Only update if content is different to avoid cursor jumping
+      // Be very protective: don't update if user is editing OR has made any edits in this session
+      const shouldSkipUpdate = editorState.isEditing || hasUserEdits;
+      
+      if (currentText !== contentString && !shouldSkipUpdate) {
+        console.log('📝 Updating editor with new document content');
+        const htmlContent = markdownToHtml(contentString);
+        editor.commands.setContent(htmlContent);
+      } else if (shouldSkipUpdate) {
+        console.log('✋ Skipping editor update - protecting user edits (isEditing:', editorState.isEditing, ', hasUserEdits:', hasUserEdits, ')');
+      } else {
+        console.log('📋 Content is same, no update needed');
+      }
+    } else {
+      console.log('🔍 Editor update skipped - missing requirements:');
+      console.log('  - Editor exists?', !!editor);
+      console.log('  - Document content exists?', !!documentContent);
+      console.log('  - Content array exists?', !!(documentContent && documentContent.content));
+    }
+  }, [editor, documentContent, markdownToHtml, editorState.isEditing, hasUserEdits]);
 
   // Auto-save functionality
+  // Manual reload function that bypasses user edit protection
+  const reloadDocument = useCallback(async () => {
+    console.log('🔄 Manual document reload requested');
+    setHasUserEdits(false); // Reset protection
+    await loadDocumentContent();
+  }, [loadDocumentContent]);
+
   const saveDocument = useCallback(async () => {
-    if (readOnly || !editorState.isEditing) return;
-    
+    if (!documentContent || readOnly || !editorState.isEditing) return;
+
     try {
       setIsSaving(true);
-      
-      // Replace all lines with current content
-      await connection.replaceLines(
-        documentId, 
-        1, 
-        documentContent?.content.length || 1, 
-        editorState.content
-      );
-      
-      console.log('📄 Document saved successfully');
+      // Replace all lines with the current content
+      connection.replaceLines(documentId, 1, documentContent.content?.length || 1, editorState.content);
       setEditorState(prev => ({ ...prev, isEditing: false }));
-      
+      console.log('📄 Document saved successfully');
     } catch (err) {
       console.error('Failed to save document:', err);
-      // Could add toast notification here
     } finally {
       setIsSaving(false);
     }
-  }, [connection, documentId, editorState.content, editorState.isEditing, documentContent, readOnly]);
+  }, [connection, documentId, documentContent, editorState.content, editorState.isEditing, readOnly]);
 
-  // Debounced auto-save
-  const debouncedSave = useCallback(() => {
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-    
-    saveTimeoutRef.current = setTimeout(() => {
-      saveDocument();
-    }, AUTO_SAVE_DELAY);
-  }, [saveDocument]);
+  // Handle title changes
+  const handleTitleChange = useCallback((newTitle: string) => {
+    setTitle(newTitle);
+    // TODO: Save title to document metadata
+  }, []);
 
-  // Handle text changes
-  const handleContentChange = useCallback((newContent: string) => {
-    const lines = newContent.split('\n');
-    
-    setEditorState(prev => ({
-      ...prev,
-      content: lines,
-      isEditing: true
-    }));
-    
-    // Trigger auto-save
+  // Handle title editing
+  const handleTitleClick = useCallback(() => {
     if (!readOnly) {
-      debouncedSave();
+      setIsEditingTitle(true);
+      setTimeout(() => titleRef.current?.focus(), 0);
     }
-  }, [debouncedSave, readOnly]);
+  }, [readOnly]);
 
-  // Handle cursor position changes
-  const handleCursorChange = useCallback((line: number, column: number) => {
-    setEditorState(prev => ({
-      ...prev,
-      cursorPosition: { line, column }
-    }));
-    
-    // Update cursor position on server
-    connection.updateCursorPosition(documentId, line, column);
-  }, [connection, documentId]);
-
-  // Handle key events
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (readOnly) return;
-    
-    const textarea = e.currentTarget;
-    const { selectionStart, selectionEnd } = textarea;
-    const content = textarea.value;
-    
-    // Calculate line and column from cursor position
-    const beforeCursor = content.substring(0, selectionStart);
-    const lines = beforeCursor.split('\n');
-    const line = lines.length;
-    const column = lines[lines.length - 1].length + 1;
-    
-    handleCursorChange(line, column);
-    
-    // Handle special key combinations
-    if (e.ctrlKey || e.metaKey) {
-      switch (e.key) {
-        case 's':
-          e.preventDefault();
-          saveDocument();
-          break;
-        case 'z':
-          // Could implement undo/redo here
-          break;
-      }
-    }
-  }, [handleCursorChange, saveDocument, readOnly]);
-
-  // Handle mouse clicks for cursor positioning
-  const handleClick = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
-    const textarea = e.currentTarget;
-    const { selectionStart } = textarea;
-    const content = textarea.value;
-    
-    const beforeCursor = content.substring(0, selectionStart);
-    const lines = beforeCursor.split('\n');
-    const line = lines.length;
-    const column = lines[lines.length - 1].length + 1;
-    
-    handleCursorChange(line, column);
-  }, [handleCursorChange]);
-
-  // Comment functionality
-  const handleAddComment = useCallback((lineNumber: number) => {
-    setNewCommentLine(lineNumber);
-    setCommentText('');
-    setTimeout(() => {
-      commentTextareaRef.current?.focus();
-    }, 100);
+  const handleTitleBlur = useCallback(() => {
+    setIsEditingTitle(false);
   }, []);
 
-  const handleSaveComment = useCallback(async () => {
-    if (!commentText.trim() || newCommentLine === null) return;
-    
-    try {
-      await connection.addComment(documentId, newCommentLine, commentText.trim());
-      setNewCommentLine(null);
-      setCommentText('');
-      // Reload document to get updated comments
-      await loadDocumentContent();
-    } catch (err) {
-      console.error('Failed to add comment:', err);
+  const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      setIsEditingTitle(false);
+      editor?.commands.focus();
     }
-  }, [connection, documentId, commentText, newCommentLine, loadDocumentContent]);
+  }, [editor]);
 
-  const handleCancelComment = useCallback(() => {
-    setNewCommentLine(null);
-    setCommentText('');
-  }, []);
-
-  // Memoized content string for textarea
-  const contentString = useMemo(() => {
-    return editorState.content.join('\n');
-  }, [editorState.content]);
-
-  // Render collaborative cursors
-  const renderCollaborativeCursors = useCallback(() => {
-    return collaborativeUsers
-      .filter(user => user.isActive && user.agentId !== connection.getCurrentAgentId())
-      .map(user => (
-        <div
-          key={user.agentId}
-          className="absolute pointer-events-none z-10"
-          style={{
-            // This would need more sophisticated positioning logic
-            // based on line/column to pixel conversion
-            top: `${user.cursorPosition.line * 1.5}rem`,
-            left: `${user.cursorPosition.column * 0.6}rem`,
-          }}
-        >
-          <div
-            className="w-0.5 h-5 animate-pulse"
-            style={{ backgroundColor: user.color }}
-          />
-          <div
-            className="absolute -top-6 left-0 px-1 py-0.5 text-xs text-white rounded whitespace-nowrap"
-            style={{ backgroundColor: user.color }}
-          >
-            {user.displayName}
-          </div>
-        </div>
-      ));
-  }, [collaborativeUsers, connection]);
-
+  // Loading state
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center">
+      <div className={`flex items-center justify-center h-full ${
+        currentTheme === 'dark' ? 'bg-gray-900' : 'bg-white'
+      }`}>
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className={currentTheme === 'dark' ? 'text-gray-300' : 'text-gray-600'}>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className={currentTheme === 'dark' ? 'text-gray-400' : 'text-gray-600'}>
             Loading document...
           </p>
         </div>
@@ -298,179 +417,136 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     );
   }
 
+  // Error state
   if (error) {
     return (
-      <div className="h-full flex items-center justify-center">
+      <div className={`flex items-center justify-center h-full ${
+        currentTheme === 'dark' ? 'bg-gray-900' : 'bg-white'
+      }`}>
         <div className="text-center">
-          <div className="text-red-500 mb-4">
-            <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.864-.833-2.634 0L4.268 15.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
-          </div>
-          <h3 className={`text-lg font-medium mb-2 ${currentTheme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
-            Failed to load document
-          </h3>
-          <p className={`${currentTheme === 'dark' ? 'text-gray-400' : 'text-gray-600'} mb-4`}>
-            {error}
-          </p>
+          <p className="text-red-600 mb-4">{error}</p>
           <button
-            onClick={onBack}
+            onClick={loadDocumentContent}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
-            Back to Documents
+            Retry
           </button>
         </div>
       </div>
     );
   }
 
-  if (!documentContent) return null;
-
   return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className={`flex items-center justify-between p-4 border-b ${
-        currentTheme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+    <div className={`notion-editor flex flex-col h-full ${
+      currentTheme === 'dark' ? 'bg-gray-900 text-gray-100' : 'bg-white text-gray-900'
+    }`}>
+      {/* Minimal Header */}
+      <div className={`px-6 py-4 border-b ${
+        currentTheme === 'dark' ? 'border-gray-800' : 'border-gray-100'
       }`}>
-        <div className="flex items-center space-x-4">
-          <button
-            onClick={onBack}
-            className={`p-2 rounded-lg transition-colors ${
-              currentTheme === 'dark' 
-                ? 'hover:bg-gray-700 text-gray-300' 
-                : 'hover:bg-gray-100 text-gray-600'
-            }`}
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          
-          <div>
-            <h1 className={`text-xl font-semibold ${
-              currentTheme === 'dark' ? 'text-gray-200' : 'text-gray-800'
-            }`}>
-              {documentContent.document_id}
-            </h1>
-            <div className="flex items-center space-x-4 text-sm">
-              <span className={currentTheme === 'dark' ? 'text-gray-400' : 'text-gray-500'}>
-                Version {documentContent.version}
-              </span>
-              {isSaving && (
-                <span className="text-blue-600 flex items-center">
-                  <svg className="animate-spin -ml-1 mr-2 h-3 w-3" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Saving...
-                </span>
-              )}
-              {editorState.isEditing && !isSaving && (
-                <span className="text-orange-600">Unsaved changes</span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Toolbar */}
-        <div className="flex items-center space-x-2">
-          {/* Collaborative users indicator */}
-          {collaborativeUsers.length > 0 && (
-            <div className="flex items-center space-x-1">
-              {collaborativeUsers.slice(0, 3).map((user, index) => (
-                <div
-                  key={user.agentId}
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-medium"
-                  style={{ backgroundColor: user.color }}
-                  title={user.displayName}
-                >
-                  {user.displayName.charAt(0).toUpperCase()}
-                </div>
-              ))}
-              {collaborativeUsers.length > 3 && (
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
-                  currentTheme === 'dark' ? 'bg-gray-600 text-gray-200' : 'bg-gray-300 text-gray-700'
-                }`}>
-                  +{collaborativeUsers.length - 3}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Comments toggle */}
-          <button
-            onClick={() => setShowComments(!showComments)}
-            className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-              showComments
-                ? 'bg-blue-600 text-white'
-                : currentTheme === 'dark'
-                ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            Comments ({documentContent.comments?.length || 0})
-          </button>
-
-          {/* Save button */}
-          {!readOnly && (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
             <button
-              onClick={saveDocument}
-              disabled={!editorState.isEditing || isSaving}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              onClick={onBack}
+              className={`p-2 rounded-lg transition-colors ${
+                currentTheme === 'dark'
+                  ? 'hover:bg-gray-800 text-gray-400 hover:text-gray-200'
+                  : 'hover:bg-gray-100 text-gray-600 hover:text-gray-800'
+              }`}
             >
-              {isSaving ? 'Saving...' : 'Save'}
+              ←
             </button>
-          )}
+          </div>
+
+          <div className="flex items-center space-x-3">
+            {/* Reload button */}
+            <button
+              onClick={reloadDocument}
+              disabled={isLoading}
+              className={`px-3 py-1 rounded-lg text-sm transition-colors ${
+                isLoading
+                  ? 'opacity-50 cursor-not-allowed'
+                  : currentTheme === 'dark'
+                  ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+              title="Reload document from server"
+            >
+              🔄 Reload
+            </button>
+            
+            {/* Comments toggle */}
+            <button
+              onClick={() => setShowComments(!showComments)}
+              className={`px-3 py-1 rounded-lg text-sm transition-colors ${
+                showComments
+                  ? 'bg-blue-600 text-white'
+                  : currentTheme === 'dark'
+                  ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Comments ({documentContent?.comments?.length || 0})
+            </button>
+
+            {/* Save indicator */}
+            {!readOnly && (
+              <div className="flex items-center space-x-2">
+                {isSaving ? (
+                  <div className="flex items-center space-x-2 text-sm text-blue-600">
+                    <div className="animate-spin rounded-full h-3 w-3 border-b border-blue-600"></div>
+                    <span>Saving...</span>
+                  </div>
+                ) : editorState.isEditing ? (
+                  <span className="text-sm text-orange-600">Unsaved changes</span>
+                ) : (
+                  <span className="text-sm text-green-600">Saved</span>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Editor Content */}
+      {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Main Editor */}
-        <div className="flex-1 relative">
-          {/* Collaborative cursors overlay */}
-          <div className="absolute inset-0 pointer-events-none z-10">
-            {renderCollaborativeCursors()}
+        {/* Editor Area */}
+        <div className="flex-1 flex flex-col">
+          {/* Document Title */}
+          <div className="px-16 pt-12 pb-4">
+            {isEditingTitle ? (
+              <input
+                ref={titleRef}
+                value={title}
+                onChange={(e) => handleTitleChange(e.target.value)}
+                onBlur={handleTitleBlur}
+                onKeyDown={handleTitleKeyDown}
+                className={`w-full text-4xl font-bold bg-transparent border-none outline-none ${
+                  currentTheme === 'dark' ? 'text-gray-100' : 'text-gray-900'
+                }`}
+                placeholder="Untitled"
+              />
+            ) : (
+              <h1
+                onClick={handleTitleClick}
+                className={`text-4xl font-bold cursor-pointer hover:bg-opacity-10 hover:bg-gray-500 rounded px-2 py-1 -mx-2 -my-1 transition-colors ${
+                  currentTheme === 'dark' ? 'text-gray-100' : 'text-gray-900'
+                } ${title ? '' : 'text-gray-400'}`}
+              >
+                {title || 'Untitled'}
+              </h1>
+            )}
           </div>
 
-          {/* Line numbers */}
-          <div className={`absolute left-0 top-0 bottom-0 w-16 flex flex-col text-right text-xs font-mono select-none pointer-events-none border-r ${
-            currentTheme === 'dark' ? 'text-gray-500 bg-gray-800 border-gray-700' : 'text-gray-400 bg-gray-50 border-gray-200'
-          }`}>
-            <div className="pt-6 pb-6 pr-3 flex-1">
-              {editorState.content.map((_, index) => (
-                <div key={index + 1} className="h-6 leading-6">{index + 1}</div>
-              ))}
+          {/* WYSIWYG Editor */}
+          <div className="flex-1 px-16 pb-16 overflow-auto">
+            <div className="min-h-full">
+              <EditorContent 
+                editor={editor} 
+                className="min-h-full focus-within:outline-none"
+              />
             </div>
           </div>
-
-          {/* Text Editor */}
-          <textarea
-            ref={editorRef}
-            value={contentString}
-            onChange={(e) => handleContentChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onClick={handleClick}
-            readOnly={readOnly}
-            className={`w-full h-full resize-none focus:outline-none transition-colors ${
-              currentTheme === 'dark'
-                ? 'bg-gray-900 text-gray-200 placeholder-gray-500'
-                : 'bg-white text-gray-800 placeholder-gray-400'
-            }`}
-            style={{
-              paddingLeft: '80px', // Space for line numbers (64px width + 16px margin)
-              paddingRight: '24px',
-              paddingTop: '24px',
-              paddingBottom: '24px',
-              fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
-              fontSize: '15px',
-              lineHeight: '24px',
-              letterSpacing: '0.025em'
-            }}
-            placeholder={readOnly ? "This document is read-only" : "Start typing..."}
-            spellCheck={false}
-          />
         </div>
 
         {/* Comments Sidebar */}
@@ -478,119 +554,39 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           <div className={`w-80 border-l overflow-y-auto ${
             currentTheme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'
           }`}>
-            <div className="p-4">
-              <h3 className={`font-medium mb-4 ${
+            <div className="p-6">
+              <h3 className={`font-medium mb-6 ${
                 currentTheme === 'dark' ? 'text-gray-200' : 'text-gray-800'
               }`}>
                 Comments
               </h3>
 
-              {/* Add comment form */}
-              {newCommentLine !== null && (
-                <div className={`mb-4 p-3 rounded-lg ${
-                  currentTheme === 'dark' ? 'bg-gray-700' : 'bg-blue-50'
-                }`}>
-                  <div className="text-sm mb-2">
-                    Adding comment to line {newCommentLine}
-                  </div>
-                  <textarea
-                    ref={commentTextareaRef}
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    placeholder="Add a comment..."
-                    className={`w-full p-2 text-sm border rounded resize-none ${
-                      currentTheme === 'dark'
-                        ? 'bg-gray-800 border-gray-600 text-gray-200 placeholder-gray-400'
-                        : 'bg-white border-gray-300 text-gray-800 placeholder-gray-500'
-                    }`}
-                    rows={3}
-                  />
-                  <div className="flex justify-end space-x-2 mt-2">
-                    <button
-                      onClick={handleCancelComment}
-                      className={`px-3 py-1 text-sm rounded transition-colors ${
-                        currentTheme === 'dark'
-                          ? 'bg-gray-600 text-gray-200 hover:bg-gray-500'
-                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                      }`}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleSaveComment}
-                      disabled={!commentText.trim()}
-                      className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      Comment
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Existing comments */}
-              <div className="space-y-3">
-                {documentContent.comments?.map((comment: DocumentComment) => (
-                  <div
-                    key={comment.comment_id}
-                    className={`p-3 rounded-lg ${
-                      currentTheme === 'dark' ? 'bg-gray-700' : 'bg-white border border-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="text-sm font-medium">
-                        Line {comment.line_number}
-                      </div>
-                      <div className={`text-xs ${
-                        currentTheme === 'dark' ? 'text-gray-400' : 'text-gray-500'
-                      }`}>
-                        {comment.agent_id}
-                      </div>
-                    </div>
-                    <p className={`text-sm ${
-                      currentTheme === 'dark' ? 'text-gray-300' : 'text-gray-700'
-                    }`}>
-                      {comment.comment_text}
-                    </p>
-                    <div className={`text-xs mt-2 ${
-                      currentTheme === 'dark' ? 'text-gray-500' : 'text-gray-400'
-                    }`}>
-                      {new Date(comment.timestamp).toLocaleString()}
-                    </div>
-                  </div>
-                ))}
+              {/* Comments content */}
+              <div className={`text-center py-8 ${
+                currentTheme === 'dark' ? 'text-gray-500' : 'text-gray-400'
+              }`}>
+                <p>No comments yet</p>
+                <p className="text-sm mt-2">Select text to add a comment</p>
               </div>
-
-              {/* Quick add comment button */}
-              {!readOnly && newCommentLine === null && (
-                <button
-                  onClick={() => handleAddComment(editorState.cursorPosition.line)}
-                  className="w-full mt-4 px-4 py-2 border-2 border-dashed border-gray-300 text-gray-500 rounded-lg hover:border-blue-400 hover:text-blue-600 transition-colors"
-                >
-                  Add comment to current line
-                </button>
-              )}
             </div>
           </div>
         )}
       </div>
 
       {/* Status Bar */}
-      <div className={`px-4 py-2 border-t text-sm ${
+      <div className={`px-6 py-2 border-t text-sm ${
         currentTheme === 'dark' 
-          ? 'bg-gray-800 border-gray-700 text-gray-400' 
-          : 'bg-gray-50 border-gray-200 text-gray-600'
+          ? 'bg-gray-900 border-gray-800 text-gray-500' 
+          : 'bg-gray-50 border-gray-100 text-gray-500'
       }`}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-6">
             <span>
-              Line {editorState.cursorPosition.line}, Column {editorState.cursorPosition.column}
+              {editorState.content.length} lines, {editor?.getText().length || 0} characters
             </span>
-            <span>
-              {editorState.content.length} lines, {contentString.length} characters
-            </span>
+            {readOnly && <span className="text-orange-600">Read Only</span>}
           </div>
           <div className="flex items-center space-x-4">
-            {readOnly && <span className="text-orange-600">Read Only</span>}
             <span>
               {collaborativeUsers.filter(u => u.isActive).length} active users
             </span>

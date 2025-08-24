@@ -112,4 +112,491 @@
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: rgba(156, 163, 175, 0.5);
+}
+
+/* Notion-like Editor Styles */
+.notion-editor {
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+.notion-editor .prose {
+  font-family: inherit;
+  line-height: 1.6;
+}
+
+.notion-editor .prose h1,
+.notion-editor .prose h2,
+.notion-editor .prose h3,
+.notion-editor .prose h4,
+.notion-editor .prose h5,
+.notion-editor .prose h6 {
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+}
+
+.notion-editor .prose h1 {
+  font-size: 2rem;
+  margin-top: 3rem;
+}
+
+.notion-editor .prose h2 {
+  font-size: 1.5rem;
+  margin-top: 2.5rem;
+}
+
+.notion-editor .prose h3 {
+  font-size: 1.25rem;
+  margin-top: 2rem;
+}
+
+.notion-editor .prose p {
+  margin-bottom: 1rem;
+  line-height: 1.7;
+}
+
+.notion-editor .prose ul,
+.notion-editor .prose ol {
+  margin-bottom: 1rem;
+  padding-left: 1.5rem;
+}
+
+.notion-editor .prose li {
+  margin-bottom: 0.25rem;
+  line-height: 1.6;
+}
+
+.notion-editor .prose blockquote {
+  border-left: 3px solid #e5e7eb;
+  padding-left: 1rem;
+  margin: 1.5rem 0;
+  font-style: italic;
+}
+
+.dark .notion-editor .prose blockquote {
+  border-left-color: #4b5563;
+}
+
+.notion-editor .prose code {
+  background-color: rgba(135, 131, 120, 0.15);
+  color: #eb5757;
+  border-radius: 3px;
+  font-size: 85%;
+  padding: 0.2em 0.4em;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+}
+
+.dark .notion-editor .prose code {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #ff6b6b;
+}
+
+.notion-editor .prose pre {
+  background-color: #f8f9fa;
+  border-radius: 6px;
+  padding: 1rem;
+  margin: 1.5rem 0;
+  overflow-x: auto;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.dark .notion-editor .prose pre {
+  background-color: #1f2937;
+}
+
+.notion-editor .prose pre code {
+  background-color: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+/* Syntax highlighting for code blocks */
+.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 0;
+  background: transparent;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #6a737d;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-subst {
+  color: #d73a49;
+  font-weight: bold;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-tag .hljs-attr {
+  color: #005cc5;
+}
+
+.hljs-string,
+.hljs-doctag {
+  color: #032f62;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-selector-id {
+  color: #6f42c1;
+  font-weight: bold;
+}
+
+.hljs-type,
+.hljs-class .hljs-title {
+  color: #d73a49;
+  font-weight: bold;
+}
+
+.hljs-tag,
+.hljs-name,
+.hljs-attribute {
+  color: #22863a;
+  font-weight: normal;
+}
+
+.hljs-regexp,
+.hljs-link {
+  color: #032f62;
+}
+
+.hljs-symbol,
+.hljs-bullet {
+  color: #e36209;
+}
+
+.hljs-built_in,
+.hljs-builtin-name {
+  color: #005cc5;
+}
+
+.hljs-meta {
+  color: #6a737d;
+}
+
+.hljs-deletion {
+  background: #ffeef0;
+}
+
+.hljs-addition {
+  background: #f0fff4;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: bold;
+}
+
+/* Dark theme syntax highlighting */
+.dark .hljs-comment,
+.dark .hljs-quote {
+  color: #8b949e;
+}
+
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-subst {
+  color: #ff7b72;
+}
+
+.dark .hljs-number,
+.dark .hljs-literal,
+.dark .hljs-variable,
+.dark .hljs-template-variable,
+.dark .hljs-tag .hljs-attr {
+  color: #79c0ff;
+}
+
+.dark .hljs-string,
+.dark .hljs-doctag {
+  color: #a5d6ff;
+}
+
+.dark .hljs-title,
+.dark .hljs-section,
+.dark .hljs-selector-id {
+  color: #d2a8ff;
+}
+
+.dark .hljs-type,
+.dark .hljs-class .hljs-title {
+  color: #ff7b72;
+}
+
+.dark .hljs-tag,
+.dark .hljs-name,
+.dark .hljs-attribute {
+  color: #7ee787;
+}
+
+.dark .hljs-regexp,
+.dark .hljs-link {
+  color: #a5d6ff;
+}
+
+.dark .hljs-symbol,
+.dark .hljs-bullet {
+  color: #ffa657;
+}
+
+.dark .hljs-built_in,
+.dark .hljs-builtin-name {
+  color: #79c0ff;
+}
+
+.dark .hljs-meta {
+  color: #8b949e;
+}
+
+/* WYSIWYG Markdown Editor Styles */
+.w-md-editor {
+  background-color: transparent !important;
+  border: none !important;
+}
+
+.w-md-editor.w-md-editor-focus {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.w-md-editor-text-container,
+.w-md-editor-text-input,
+.w-md-editor-text-textarea {
+  background-color: transparent !important;
+  border: none !important;
+  font-size: 16px !important;
+  line-height: 1.6 !important;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+}
+
+.w-md-editor-text-textarea {
+  padding: 0 !important;
+  resize: none !important;
+}
+
+.w-md-editor-text-textarea:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Hide the toolbar and drag bar */
+.w-md-editor-toolbar {
+  display: none !important;
+}
+
+.w-md-editor-bar {
+  display: none !important;
+}
+
+/* Ensure proper theming */
+[data-color-mode="dark"] .w-md-editor {
+  background-color: transparent !important;
+  color: #f3f4f6 !important;
+}
+
+[data-color-mode="dark"] .w-md-editor-text-textarea {
+  color: #f3f4f6 !important;
+  background-color: transparent !important;
+}
+
+[data-color-mode="light"] .w-md-editor {
+  background-color: transparent !important;
+  color: #1f2937 !important;
+}
+
+[data-color-mode="light"] .w-md-editor-text-textarea {
+  color: #1f2937 !important;
+  background-color: transparent !important;
+}
+
+/* Custom placeholder styling */
+.w-md-editor-text-textarea::placeholder {
+  color: #9ca3af !important;
+  opacity: 1 !important;
+}
+
+[data-color-mode="dark"] .w-md-editor-text-textarea::placeholder {
+  color: #6b7280 !important;
+}
+
+/* Remove any borders or outlines */
+.w-md-editor * {
+  border: none !important;
+  outline: none !important;
+}
+
+.w-md-editor *:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* TipTap Editor Styles */
+.ProseMirror {
+  outline: none !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  font-size: 16px !important;
+  line-height: 1.6 !important;
+  min-height: 200px;
+}
+
+.ProseMirror:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Notion-like styling for TipTap */
+.ProseMirror h1 {
+  font-size: 2rem !important;
+  font-weight: 700 !important;
+  margin-top: 2rem !important;
+  margin-bottom: 1rem !important;
+  line-height: 1.2 !important;
+}
+
+.ProseMirror h1:first-child {
+  margin-top: 0 !important;
+}
+
+.ProseMirror h2 {
+  font-size: 1.5rem !important;
+  font-weight: 600 !important;
+  margin-top: 1.5rem !important;
+  margin-bottom: 0.75rem !important;
+  line-height: 1.3 !important;
+}
+
+.ProseMirror h2:first-child {
+  margin-top: 0 !important;
+}
+
+.ProseMirror h3 {
+  font-size: 1.25rem !important;
+  font-weight: 600 !important;
+  margin-top: 1.25rem !important;
+  margin-bottom: 0.5rem !important;
+  line-height: 1.4 !important;
+}
+
+.ProseMirror h3:first-child {
+  margin-top: 0 !important;
+}
+
+.ProseMirror p {
+  margin-bottom: 1rem !important;
+  line-height: 1.6 !important;
+}
+
+.ProseMirror p:last-child {
+  margin-bottom: 0 !important;
+}
+
+.ProseMirror ul, .ProseMirror ol {
+  margin-bottom: 1rem !important;
+  padding-left: 1.5rem !important;
+}
+
+.ProseMirror li {
+  margin-bottom: 0.25rem !important;
+  line-height: 1.6 !important;
+}
+
+.ProseMirror blockquote {
+  border-left: 3px solid #e5e7eb !important;
+  padding-left: 1rem !important;
+  margin: 1.5rem 0 !important;
+  font-style: italic !important;
+  color: #6b7280 !important;
+}
+
+.dark .ProseMirror blockquote {
+  border-left-color: #4b5563 !important;
+  color: #9ca3af !important;
+}
+
+.ProseMirror code {
+  background-color: rgba(135, 131, 120, 0.15) !important;
+  color: #eb5757 !important;
+  border-radius: 3px !important;
+  font-size: 0.875rem !important;
+  padding: 0.2em 0.4em !important;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace !important;
+}
+
+.dark .ProseMirror code {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  color: #ff6b6b !important;
+}
+
+.ProseMirror pre {
+  background-color: #f8f9fa !important;
+  border-radius: 6px !important;
+  padding: 1rem !important;
+  margin: 1.5rem 0 !important;
+  overflow-x: auto !important;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace !important;
+  font-size: 0.875rem !important;
+  line-height: 1.5 !important;
+}
+
+.dark .ProseMirror pre {
+  background-color: #1f2937 !important;
+}
+
+.ProseMirror pre code {
+  background-color: transparent !important;
+  color: inherit !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  font-size: inherit !important;
+}
+
+/* Placeholder styling */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #9ca3af;
+  pointer-events: none;
+  height: 0;
+}
+
+.dark .ProseMirror p.is-editor-empty:first-child::before {
+  color: #6b7280;
+}
+
+/* Selection styling */
+.ProseMirror ::selection {
+  background-color: rgba(59, 130, 246, 0.2);
+}
+
+.dark .ProseMirror ::selection {
+  background-color: rgba(96, 165, 250, 0.3);
+}
+
+/* Remove default prose margins that conflict */
+.notion-editor .prose {
+  max-width: none !important;
+}
+
+.notion-editor .prose > * {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
 } 
