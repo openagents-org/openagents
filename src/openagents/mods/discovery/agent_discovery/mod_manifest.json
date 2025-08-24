@@ -12,6 +12,7 @@
         "capability_matching"
     ],
     "requires_adapter": true,
+    "studio_interface": false,
     "dependencies": [],
     "metadata": {
         "supported_capability_types": [

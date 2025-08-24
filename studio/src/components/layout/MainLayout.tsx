@@ -1,4 +1,4 @@
-import React, { ReactNode, useEffect, useState } from 'react';
+import React, { ReactNode, useEffect } from 'react';
 import Sidebar from '../Sidebar';
 import ModSidebar from './ModSidebar';
 import { NetworkConnection } from '../../services/networkService';
@@ -45,21 +45,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   onChannelSelect,
   onDirectMessageSelect
 }) => {
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-
   // Use passed thread state instead of hook
-  useEffect(() => {
-    console.log('🔍 MainLayout - threadState received:', threadState);
-    console.log('🔍 MainLayout - hasThreadMessaging:', hasThreadMessaging);
-    console.log('🔍 MainLayout - activeView:', activeView);
-    if (threadState) {
-      console.log('🔍 MainLayout - agents in threadState:', threadState.agents?.length);
-    }
-  }, [threadState, hasThreadMessaging, activeView]);
-
-  const toggleSidebar = (): void => {
-    setIsSidebarCollapsed(!isSidebarCollapsed);
-  };
 
   useEffect(() => {
     console.log(`theme:${currentTheme} MainLayout`);
@@ -78,10 +64,6 @@ const MainLayout: React.FC<MainLayoutProps> = ({
 
       {/* Main sidebar - always show, with thread messaging data when available */}
       <Sidebar
-        // isCollapsed={isSidebarCollapsed} 
-        // toggleSidebar={toggleSidebar} 
-        onSettingsClick={() => setActiveView('settings')}
-        onProfileClick={() => setActiveView('profile')}
         onMcpClick={() => setActiveView('mcp')}
         onDocumentsClick={() => setActiveView('documents')}
         activeView={activeView}

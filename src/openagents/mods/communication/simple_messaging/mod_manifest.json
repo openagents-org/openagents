@@ -12,6 +12,7 @@
         "simple_file_transfer"
     ],
     "requires_adapter": true,
+    "studio_interface": true,
     "dependencies": [],
     "metadata": {
         "max_file_size": 10485760,

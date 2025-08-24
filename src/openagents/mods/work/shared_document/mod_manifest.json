@@ -17,6 +17,7 @@
         "operation_history"
     ],
     "requires_adapter": true,
+    "studio_interface": true,
     "dependencies": [],
     "metadata": {
         "max_document_size": 1048576,

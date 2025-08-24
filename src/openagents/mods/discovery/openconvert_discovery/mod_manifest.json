@@ -12,6 +12,7 @@
         "mime_format_matching"
     ],
     "requires_adapter": true,
+    "studio_interface": false,
     "dependencies": [],
     "metadata": {
         "supported_mime_types": [

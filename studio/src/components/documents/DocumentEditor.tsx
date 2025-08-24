@@ -72,10 +72,16 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       setIsLoading(true);
       setError(null);
       
-      // First open the document
-      await connection.openDocument(documentId);
+      // Try to open the document first, but don't fail if it times out
+      try {
+        await connection.openDocument(documentId);
+        console.log('✅ Document opened successfully');
+      } catch (openErr) {
+        console.warn('⚠️ Failed to open document, but will try to get content anyway:', openErr);
+        // Continue anyway - sometimes getDocumentContent works even if openDocument fails
+      }
       
-      // Then get the content
+      // Get the content (this is the critical part)
       const content = await connection.getDocumentContent(documentId, true, true);
       console.log('📄 Loaded document content:', content);
       
@@ -253,7 +259,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   // Render collaborative cursors
   const renderCollaborativeCursors = useCallback(() => {
     return collaborativeUsers
-      .filter(user => user.isActive && user.agentId !== connection.currentAgentId)
+      .filter(user => user.isActive && user.agentId !== connection.getCurrentAgentId())
       .map(user => (
         <div
           key={user.agentId}
@@ -277,7 +283,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           </div>
         </div>
       ));
-  }, [collaborativeUsers, connection.currentAgentId]);
+  }, [collaborativeUsers, connection]);
 
   if (isLoading) {
     return (

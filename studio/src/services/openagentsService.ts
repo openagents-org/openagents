@@ -77,11 +77,6 @@ export class OpenAgentsConnection {
     this.networkConnection = networkConnection;
   }
 
-  // Public getter for agentId
-  get currentAgentId(): string {
-    return this.agentId;
-  }
-
   private generateUniqueAgentId(baseId: string, attempt: number = 1): string {
     if (attempt === 1) {
       return `${baseId}_${Date.now()}`;
@@ -293,17 +288,6 @@ export class OpenAgentsConnection {
       const message = JSON.parse(data);
       console.log('📨 Received message:', message);
       
-      // Check if this could be a shared document response
-      if (message.type === 'message' && message.data) {
-        const innerMessage = message.data;
-        if (innerMessage.message_type === 'document_operation_response' || 
-            innerMessage.message_type === 'document_content_response' ||
-            (innerMessage.content && (innerMessage.content.message_type === 'document_operation_response' || 
-                                     innerMessage.content.message_type === 'document_content_response'))) {
-          console.log('🔍 POTENTIAL SHARED DOCUMENT RESPONSE:', message);
-        }
-      }
-      
       // Handle system responses first
       if (message.type === 'system_response') {
         console.log('🔧 System response:', message);
@@ -349,7 +333,6 @@ export class OpenAgentsConnection {
           } else if (modField === 'openagents.mods.work.shared_document' || 
                      modField === 'shared_document') {
             console.log('✅ Processing shared document mod message');
-            console.log('✅ Raw shared document message:', innerMessage);
             
             // Use payload.content if available, otherwise use content
             const messageToProcess = {
@@ -443,19 +426,22 @@ export class OpenAgentsConnection {
 
   private handleSharedDocumentMessage(message: any): void {
     // Handle shared document mod messages
-    // The content might be nested in payload.content for shared document responses
-    const content = message.content || message.payload?.content || message;
+    const content = message.content;
     
     console.log('📄 Shared document message received:', message);
     console.log('📋 Content:', content);
     console.log('🔍 Action/Type:', content.action || content.message_type);
-    console.log('🔍 Current pending handlers:', Array.from(this.messageHandlers.keys()));
     
     // Handle both action and message_type fields
     const actionType = content.action || content.message_type;
     
     // Check if this is a response to a specific request
     const requestId = message.request_id || content.request_id;
+    console.log('🔍 Debug - message.request_id:', message.request_id);
+    console.log('🔍 Debug - content.request_id:', content.request_id);
+    console.log('🔍 Debug - final requestId:', requestId);
+    console.log('🔍 Debug - available handlers:', Array.from(this.messageHandlers.keys()));
+    
     if (requestId) {
       console.log('📨 Processing response for request ID:', requestId);
       const handler = this.messageHandlers.get(requestId);
@@ -466,6 +452,36 @@ export class OpenAgentsConnection {
         return;
       } else {
         console.log('⚠️ No handler found for request ID:', requestId);
+      }
+    } else {
+      console.log('⚠️ No request ID found in message');
+      
+      // Special handling for document_content_response without request_id
+      if (actionType === 'document_content_response') {
+        console.log('🔧 Attempting to match document_content_response without request_id');
+        console.log('🔧 Current handlers:', Array.from(this.messageHandlers.keys()));
+        
+        const contentHandlers = Array.from(this.messageHandlers.entries())
+          .filter(([key]) => key.match(/(open_document_|get_document_content_)/));
+        
+        console.log('🔧 Matching content handlers:', contentHandlers.map(([key]) => key));
+        
+        if (contentHandlers.length > 0) {
+          // Sort by timestamp (most recent first) to match the most recent request
+          const sortedHandlers = contentHandlers.sort(([keyA], [keyB]) => {
+            const timestampA = parseInt(keyA.split('_').pop() || '0');
+            const timestampB = parseInt(keyB.split('_').pop() || '0');
+            return timestampB - timestampA;
+          });
+          
+          const [handlerKey, handler] = sortedHandlers[0];
+          console.log('✅ Found pending content handler:', handlerKey);
+          this.messageHandlers.delete(handlerKey);
+          handler(content);
+          return;
+        } else {
+          console.log('⚠️ No pending content handlers found');
+        }
       }
     }
     
@@ -491,6 +507,12 @@ export class OpenAgentsConnection {
         console.log('📄 Document created:', content);
         this.emit('document_created', content);
         break;
+      case 'document_content_response':
+        console.log('📄 Document content received:', content);
+        // This is handled by request_id matching above, so this case should not be reached
+        console.log('⚠️ document_content_response reached switch case - this should be handled by request_id matching');
+        this.emit('document_content', content);
+        break;
       case 'document_updated':
         console.log('📝 Document updated:', content);
         this.emit('document_updated', content);
@@ -500,35 +522,21 @@ export class OpenAgentsConnection {
         this.emit('document_deleted', content);
         break;
       case 'document_content':
-      case 'document_content_response':
       case 'get_document_content_response':
         console.log('📄 Document content received:', content);
-        // Try to match with pending document content requests (open_document or get_document_content)
-        const contentHandlers = Array.from(this.messageHandlers.entries())
-          .filter(([key]) => key.startsWith('open_document_') || key.startsWith('get_document_content_'));
-        if (contentHandlers.length > 0) {
-          const [handlerKey, handler] = contentHandlers[0];
-          console.log('✅ Found pending document content handler:', handlerKey);
-          this.messageHandlers.delete(handlerKey);
-          handler(content);
-        } else {
-          this.emit('document_content', content);
-        }
+        this.emit('document_content', content);
         break;
       case 'document_operation_response':
         console.log('⚙️ Document operation response received:', content);
-        console.log('⚙️ Looking for operation handlers matching pattern...');
         // Try to match with pending document operation requests (create, open, insert, remove, etc.)
         const operationHandlers = Array.from(this.messageHandlers.entries())
           .filter(([key]) => key.match(/(create_document_|open_document_|close_document_|insert_lines_|remove_lines_|replace_lines_|add_comment_|remove_comment_)/));
-        console.log('⚙️ Found operation handlers:', operationHandlers.map(([key]) => key));
         if (operationHandlers.length > 0) {
           const [handlerKey, handler] = operationHandlers[0];
           console.log('✅ Found pending operation handler:', handlerKey);
           this.messageHandlers.delete(handlerKey);
           handler(content);
         } else {
-          console.log('❌ No matching operation handlers found for response');
           this.emit('document_operation', content);
         }
         break;
@@ -542,32 +550,6 @@ export class OpenAgentsConnection {
         break;
       default:
         console.log('🤔 Unhandled shared document action type:', actionType, 'Content:', content);
-        
-        // Fallback: try to match any pending handlers as a last resort
-        console.log('🔄 Attempting fallback handler matching...');
-        const allHandlers = Array.from(this.messageHandlers.entries());
-        console.log('🔄 All pending handlers:', allHandlers.map(([key]) => key));
-        
-        // Try to match open_document handlers specifically
-        const openDocHandlers = allHandlers.filter(([key]) => key.startsWith('open_document_'));
-        if (openDocHandlers.length > 0) {
-          console.log('🔄 Found open_document handlers, using first one:', openDocHandlers[0][0]);
-          const [handlerKey, handler] = openDocHandlers[0];
-          this.messageHandlers.delete(handlerKey);
-          handler(content);
-          return;
-        }
-        
-        // Try to match any document-related handlers
-        const docHandlers = allHandlers.filter(([key]) => key.includes('document'));
-        if (docHandlers.length > 0) {
-          console.log('🔄 Found document handlers, using first one:', docHandlers[0][0]);
-          const [handlerKey, handler] = docHandlers[0];
-          this.messageHandlers.delete(handlerKey);
-          handler(content);
-          return;
-        }
-        
         break;
     }
   }
@@ -1168,7 +1150,7 @@ export class OpenAgentsConnection {
           console.warn('⏰ List documents request timeout for ID:', requestId);
           reject(new Error('List documents request timeout'));
         }
-      }, 5000);
+      }, 15000); // Increased from 5000ms to 15000ms (15 seconds)
     });
   }
 
@@ -1207,7 +1189,7 @@ export class OpenAgentsConnection {
           console.warn('⏰ Get document content request timeout for ID:', requestId);
           reject(new Error('Get document content request timeout'));
         }
-      }, 5000);
+      }, 15000); // Increased from 5000ms to 15000ms (15 seconds)
     });
   }
 
@@ -1246,7 +1228,7 @@ export class OpenAgentsConnection {
           console.warn('⏰ Create document request timeout for ID:', requestId);
           reject(new Error('Create document request timeout'));
         }
-      }, 5000);
+      }, 15000); // Increased from 5000ms to 15000ms (15 seconds)
     });
   }
 
@@ -1258,12 +1240,13 @@ export class OpenAgentsConnection {
       this.messageHandlers.set(requestId, (response: any) => {
         if (!isResolved) {
           isResolved = true;
-          console.log('📂 Document opened:', response);
+          console.log('✅ Open document response received for:', requestId, 'at:', Date.now());
           resolve(response);
         }
       });
+      console.log('📝 Added handler for request:', requestId, 'total handlers:', this.messageHandlers.size);
 
-      const messageToSend = {
+      this.sendMessage({
         type: 'mod_message',
         message_type: 'mod_message',
         mod: 'openagents.mods.work.shared_document',
@@ -1275,61 +1258,39 @@ export class OpenAgentsConnection {
           document_id: documentId,
           sender_id: this.agentId
         }
-      };
-      
-      console.log('📤 Sending open_document request:', messageToSend);
-      this.sendMessage(messageToSend);
+      });
 
+      const timeoutStart = Date.now();
+      console.log('⏱️ Setting timeout for request:', requestId, 'at:', timeoutStart);
       setTimeout(() => {
         if (!isResolved) {
           isResolved = true;
-          console.warn('⏰ Open document request timeout for ID:', requestId);
+          const timeoutEnd = Date.now();
+          console.warn('⏰ Open document request timeout for ID:', requestId, 'after:', timeoutEnd - timeoutStart, 'ms');
+          console.log('🗑️ Removing handler for timed out request:', requestId);
+          this.messageHandlers.delete(requestId);
           reject(new Error('Open document request timeout'));
+        } else {
+          console.log('✅ Timeout cancelled for resolved request:', requestId);
         }
-      }, 5000);
+      }, 15000); // Increased from 5000ms to 15000ms (15 seconds)
     });
   }
 
-  insertLines(documentId: string, lineNumber: number, content: string[]): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const requestId = `insert_lines_${Date.now()}`;
-      let isResolved = false;
-
-      this.messageHandlers.set(requestId, (response: any) => {
-        if (!isResolved) {
-          isResolved = true;
-          console.log('📝 Insert lines response:', response);
-          if (response.success) {
-            resolve(response);
-          } else {
-            reject(new Error(response.error_message || 'Insert lines failed'));
-          }
-        }
-      });
-
-      this.sendMessage({
-        type: 'mod_message',
-        message_type: 'mod_message',
-        mod: 'openagents.mods.work.shared_document',
-        direction: 'outbound',
-        relevant_agent_id: this.agentId,
-        request_id: requestId,
-        content: {
-          message_type: 'insert_lines',
-          document_id: documentId,
-          line_number: lineNumber,
-          content: content,
-          sender_id: this.agentId
-        }
-      });
-
-      setTimeout(() => {
-        if (!isResolved) {
-          isResolved = true;
-          console.warn('⏰ Insert lines request timeout for ID:', requestId);
-          reject(new Error('Insert lines request timeout'));
-        }
-      }, 5000);
+  insertLines(documentId: string, lineNumber: number, content: string[]): void {
+    this.sendMessage({
+      type: 'mod_message',
+      message_type: 'mod_message',
+      mod: 'openagents.mods.work.shared_document',
+      direction: 'outbound',
+      relevant_agent_id: this.agentId,
+      content: {
+        message_type: 'insert_lines',
+        document_id: documentId,
+        line_number: lineNumber,
+        content: content,
+        sender_id: this.agentId
+      }
     });
   }
 
@@ -1350,47 +1311,21 @@ export class OpenAgentsConnection {
     });
   }
 
-  replaceLines(documentId: string, startLine: number, endLine: number, content: string[]): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const requestId = `replace_lines_${Date.now()}`;
-      let isResolved = false;
-
-      this.messageHandlers.set(requestId, (response: any) => {
-        if (!isResolved) {
-          isResolved = true;
-          console.log('📝 Replace lines response:', response);
-          if (response.success) {
-            resolve(response);
-          } else {
-            reject(new Error(response.error_message || 'Replace lines failed'));
-          }
-        }
-      });
-
-      this.sendMessage({
-        type: 'mod_message',
-        message_type: 'mod_message',
-        mod: 'openagents.mods.work.shared_document',
-        direction: 'outbound',
-        relevant_agent_id: this.agentId,
-        request_id: requestId,
-        content: {
-          message_type: 'replace_lines',
-          document_id: documentId,
-          start_line: startLine,
-          end_line: endLine,
-          content: content,
-          sender_id: this.agentId
-        }
-      });
-
-      setTimeout(() => {
-        if (!isResolved) {
-          isResolved = true;
-          console.warn('⏰ Replace lines request timeout for ID:', requestId);
-          reject(new Error('Replace lines request timeout'));
-        }
-      }, 5000);
+  replaceLines(documentId: string, startLine: number, endLine: number, content: string[]): void {
+    this.sendMessage({
+      type: 'mod_message',
+      message_type: 'mod_message',
+      mod: 'openagents.mods.work.shared_document',
+      direction: 'outbound',
+      relevant_agent_id: this.agentId,
+      content: {
+        message_type: 'replace_lines',
+        document_id: documentId,
+        start_line: startLine,
+        end_line: endLine,
+        content: content,
+        sender_id: this.agentId
+      }
     });
   }
 
