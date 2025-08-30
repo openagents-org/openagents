@@ -300,11 +300,16 @@ class GRPCHTTPAdapter:
                 if command == 'list_agents':
                     agent_list = []
                     for agent_id_key, metadata in network.agents.items():
+                        # Create a copy of metadata and set the status based on connection
+                        agent_metadata = metadata.copy()
+                        is_connected = agent_id_key in network.connections
+                        agent_metadata['status'] = 'online' if is_connected else 'offline'
+                        
                         agent_info = {
                             "agent_id": agent_id_key,
                             "name": metadata.get("name", agent_id_key),
-                            "connected": agent_id_key in network.connections,
-                            "metadata": metadata
+                            "connected": is_connected,
+                            "metadata": agent_metadata
                         }
                         agent_list.append(agent_info)
                     
