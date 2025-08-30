@@ -1,0 +1,142 @@
+syntax = "proto3";
+
+package openagents;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/any.proto";
+
+// Agent service for OpenAgents gRPC transport
+service AgentService {
+  // Bidirectional streaming for real-time communication
+  rpc StreamMessages(stream Message) returns (stream Message);
+  
+  // Unary calls for request-response patterns
+  rpc SendMessage(Message) returns (MessageResponse);
+  
+  // Agent registration and management
+  rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse);
+  rpc UnregisterAgent(UnregisterAgentRequest) returns (UnregisterAgentResponse);
+  
+  // Agent discovery
+  rpc DiscoverAgents(DiscoverAgentsRequest) returns (DiscoverAgentsResponse);
+  rpc GetAgentInfo(GetAgentInfoRequest) returns (GetAgentInfoResponse);
+  
+  // System commands
+  rpc SendSystemCommand(SystemCommandRequest) returns (SystemCommandResponse);
+  
+  // Heartbeat and health checks
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc GetNetworkInfo(NetworkInfoRequest) returns (NetworkInfoResponse);
+}
+
+// Core message structure
+message Message {
+  string message_id = 1;
+  string sender_id = 2;
+  string target_id = 3;
+  string message_type = 4;
+  google.protobuf.Any payload = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  map<string, string> metadata = 7;
+}
+
+// Message response
+message MessageResponse {
+  bool success = 1;
+  string error_message = 2;
+  string message_id = 3;
+}
+
+// Agent registration
+message RegisterAgentRequest {
+  string agent_id = 1;
+  map<string, string> metadata = 2;
+  repeated string capabilities = 3;
+}
+
+message RegisterAgentResponse {
+  bool success = 1;
+  string error_message = 2;
+  string network_name = 3;
+  string network_id = 4;
+}
+
+// Agent unregistration
+message UnregisterAgentRequest {
+  string agent_id = 1;
+}
+
+message UnregisterAgentResponse {
+  bool success = 1;
+  string error_message = 2;
+}
+
+// Agent discovery
+message DiscoverAgentsRequest {
+  repeated string required_capabilities = 1;
+}
+
+message DiscoverAgentsResponse {
+  repeated AgentInfo agents = 1;
+}
+
+message GetAgentInfoRequest {
+  string agent_id = 1;
+}
+
+message GetAgentInfoResponse {
+  AgentInfo agent = 1;
+  bool found = 2;
+}
+
+// Agent information
+message AgentInfo {
+  string agent_id = 1;
+  map<string, string> metadata = 2;
+  repeated string capabilities = 3;
+  google.protobuf.Timestamp last_seen = 4;
+  string transport_type = 5;
+  string address = 6;
+}
+
+// System commands
+message SystemCommandRequest {
+  string command = 1;
+  google.protobuf.Any data = 2;
+  string request_id = 3;
+}
+
+message SystemCommandResponse {
+  bool success = 1;
+  string error_message = 2;
+  google.protobuf.Any data = 3;
+  string request_id = 4;
+}
+
+// Ping/Pong for heartbeat
+message PingRequest {
+  string agent_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+message PingResponse {
+  bool success = 1;
+  google.protobuf.Timestamp timestamp = 2;
+}
+
+// Network information
+message NetworkInfoRequest {
+}
+
+message NetworkInfoResponse {
+  string network_id = 1;
+  string network_name = 2;
+  bool is_running = 3;
+  int64 uptime_seconds = 4;
+  int32 agent_count = 5;
+  repeated AgentInfo agents = 6;
+  string topology_mode = 7;
+  string transport_type = 8;
+  string host = 9;
+  int32 port = 10;
+}

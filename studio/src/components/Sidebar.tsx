@@ -1,6 +1,6 @@
 import React from 'react';
 import { SidebarProps, DocumentInfo } from '../types';
-import { ThreadMessagingChannel, AgentInfo } from '../services/openagentsService';
+import { ThreadMessagingChannel, AgentInfo } from '../services/grpcService';
 import OpenAgentsLogo from './icons/OpenAgentsLogo';
 
 interface ExtendedSidebarProps extends Omit<SidebarProps, 'isCollapsed' | 'toggleSidebar' | 'onSettingsClick' | 'onProfileClick'> {

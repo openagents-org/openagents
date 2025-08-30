@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { OpenAgentsConnection, ThreadMessage, ThreadMessagingChannel, AgentInfo } from '../../services/openagentsService';
+import { OpenAgentsGRPCConnection, ThreadMessage, ThreadMessagingChannel, AgentInfo } from '../../services/grpcService';
 import { NetworkConnection } from '../../services/networkService';
 
 import MessageDisplay from './MessageDisplay';
@@ -156,6 +156,43 @@ const styles = `
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
   }
+  
+  .refreshing-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #3b82f6;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  
+  .refreshing-indicator.visible {
+    opacity: 1;
+  }
+  
+  .refreshing-indicator.dark {
+    color: #60a5fa;
+  }
+  
+  .refresh-spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid #e5e7eb;
+    border-top: 2px solid #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  
+  .refresh-spinner.dark {
+    border-color: #4b5563;
+    border-top-color: #60a5fa;
+  }
+  
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
 `;
 
 const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, ThreadMessagingViewProps>(({
@@ -168,7 +205,7 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
   onDocumentsClick,
   onThreadStateChange
 }, ref) => {
-  const [connection, setConnection] = useState<OpenAgentsConnection | null>(null);
+  const [connection, setConnection] = useState<OpenAgentsGRPCConnection | null>(null);
   const [state, setState] = useState<ThreadState>({
     currentChannel: null,
     currentDirectMessage: null,
@@ -197,13 +234,14 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
   
   // Add unread message tracking
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   // Add read message store
   const readMessageStoreRef = useRef<ReadMessageStore | null>(null);
   
   // Add periodic message checking
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const connectionRef = useRef<OpenAgentsConnection | null>(null);
+  const connectionRef = useRef<OpenAgentsGRPCConnection | null>(null);
   const lastMessageTimeRef = useRef<number>(0); // Track last message time to reduce polling
   const [currentAgentId, setCurrentAgentId] = useState(agentName);
 
@@ -256,7 +294,7 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
         setState(prev => ({ ...prev, isLoading: true, error: null }));
         setConnectionStatus('connecting');
 
-        const conn = new OpenAgentsConnection(agentName, networkConnection);
+        const conn = new OpenAgentsGRPCConnection(agentName, networkConnection);
         connectionRef.current = conn;
 
         // Set up event handlers
@@ -805,21 +843,44 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
     selectDirectMessage: selectDirectMessage
   }), [state, selectChannel, selectDirectMessage]);
 
-  const sendMessage = useCallback((text: string, replyTo?: string, quotedMessageId?: string) => {
+  const sendMessage = useCallback(async (text: string, replyTo?: string, quotedMessageId?: string) => {
     if (!connection || !text.trim()) return;
     
     if (state.currentChannel) {
       if (replyTo) {
-        connection.replyToMessage(replyTo, text, state.currentChannel, undefined, quotedMessageId);
+        await connection.replyToMessage(replyTo, text, state.currentChannel, undefined, quotedMessageId);
       } else {
-        connection.sendChannelMessage(state.currentChannel, text, undefined, quotedMessageId);
+        await connection.sendChannelMessage(state.currentChannel, text, undefined, quotedMessageId);
       }
+      
+      // Automatically refresh channel messages after sending
+      setTimeout(() => {
+        if (connection && state.currentChannel) {
+          console.log('🔄 Auto-refreshing channel messages after sending');
+          setIsRefreshing(true);
+          connection.retrieveChannelMessages(state.currentChannel, 50, 0, true);
+          // Hide refreshing indicator after a short delay
+          setTimeout(() => setIsRefreshing(false), 1000);
+        }
+      }, 500); // Small delay to ensure message is processed
+      
     } else if (state.currentDirectMessage) {
       if (replyTo) {
-        connection.replyToMessage(replyTo, text, undefined, state.currentDirectMessage, quotedMessageId);
+        await connection.replyToMessage(replyTo, text, undefined, state.currentDirectMessage, quotedMessageId);
       } else {
-        connection.sendDirectMessage(state.currentDirectMessage, text, quotedMessageId);
+        await connection.sendDirectMessage(state.currentDirectMessage, text, quotedMessageId);
       }
+      
+      // Automatically refresh direct messages after sending
+      setTimeout(() => {
+        if (connection && state.currentDirectMessage) {
+          console.log('🔄 Auto-refreshing direct messages after sending');
+          setIsRefreshing(true);
+          connection.retrieveDirectMessages(state.currentDirectMessage, 50, 0);
+          // Hide refreshing indicator after a short delay
+          setTimeout(() => setIsRefreshing(false), 1000);
+        }
+      }, 500);
     }
     
     // Clear reply and quote state after sending
@@ -827,11 +888,27 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
     setQuotingMessage(null);
   }, [connection, state.currentChannel, state.currentDirectMessage]);
 
-  const addReaction = useCallback((messageId: string, reactionType: string) => {
+  const addReaction = useCallback(async (messageId: string, reactionType: string) => {
     if (connection) {
-      connection.reactToMessage(messageId, reactionType, 'add', state.currentChannel || undefined);
+      await connection.reactToMessage(messageId, reactionType, 'add', state.currentChannel || undefined);
+      
+      // Automatically refresh messages after reacting to see updated reactions
+      setTimeout(() => {
+        if (connection) {
+          setIsRefreshing(true);
+          if (state.currentChannel) {
+            console.log('🔄 Auto-refreshing channel messages after reaction');
+            connection.retrieveChannelMessages(state.currentChannel, 50, 0, true);
+          } else if (state.currentDirectMessage) {
+            console.log('🔄 Auto-refreshing direct messages after reaction');
+            connection.retrieveDirectMessages(state.currentDirectMessage, 50, 0);
+          }
+          // Hide refreshing indicator after a short delay
+          setTimeout(() => setIsRefreshing(false), 800);
+        }
+      }, 300); // Shorter delay for reactions
     }
-  }, [connection, state.currentChannel]);
+  }, [connection, state.currentChannel, state.currentDirectMessage]);
 
   const startReply = useCallback((messageId: string, text: string, author: string) => {
     setReplyingTo({ messageId, text, author });
@@ -924,24 +1001,30 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
                 className="retry-button" 
                 style={{ background: '#059669' }}
                 onClick={() => {
-                  // Test WebSocket connection manually
-                  const wsUrl = `ws://${networkConnection.host}:${networkConnection.port}`;
-                  console.log('🧪 Manual WebSocket test to:', wsUrl);
+                  // Test gRPC connection via HTTP adapter
+                  const httpPort = networkConnection.port + 1000;
+                  const testUrl = `http://${networkConnection.host}:${httpPort}/api/register`;
+                  console.log('🧪 Manual gRPC HTTP test to:', testUrl);
                   
-                  const testWs = new WebSocket(wsUrl);
-                  testWs.onopen = () => {
-                    console.log('✅ Manual test: WebSocket opened successfully');
-                    testWs.close();
-                  };
-                  testWs.onerror = (error) => {
-                    console.error('❌ Manual test: WebSocket error:', error);
-                  };
-                  testWs.onclose = (event) => {
-                    console.log('Manual test: WebSocket closed:', event.code, event.reason);
-                  };
+                  fetch(testUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      agent_id: 'manual_test',
+                      metadata: { test: true },
+                      capabilities: []
+                    })
+                  })
+                  .then(response => response.json())
+                  .then(data => {
+                    console.log('✅ Manual test: gRPC HTTP response:', data);
+                  })
+                  .catch(error => {
+                    console.error('❌ Manual test: gRPC HTTP error:', error);
+                  });
                 }}
               >
-                Test WebSocket
+                Test gRPC Connection
               </button>
             )}
             
@@ -1000,6 +1083,43 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
               {connectionStatus === 'connected' ? 'Connected' : 
                connectionStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}
             </span>
+            
+            {/* Manual refresh button */}
+            <button
+              onClick={() => {
+                if (connection && !isRefreshing) {
+                  setIsRefreshing(true);
+                  if (state.currentChannel) {
+                    console.log('🔄 Manual refresh: channel messages');
+                    connection.retrieveChannelMessages(state.currentChannel, 50, 0, true);
+                  } else if (state.currentDirectMessage) {
+                    console.log('🔄 Manual refresh: direct messages');
+                    connection.retrieveDirectMessages(state.currentDirectMessage, 50, 0);
+                  }
+                  setTimeout(() => setIsRefreshing(false), 1000);
+                }
+              }}
+              disabled={!connection || isRefreshing}
+              className={`action-button ${currentTheme} ${isRefreshing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+              title="Refresh messages"
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                padding: '6px', 
+                borderRadius: '6px',
+                fontSize: '14px',
+                cursor: isRefreshing ? 'not-allowed' : 'pointer',
+                marginLeft: '8px'
+              }}
+            >
+              🔄
+            </button>
+            
+            {/* Refreshing indicator */}
+            <div className={`refreshing-indicator ${isRefreshing ? 'visible' : ''} ${currentTheme}`}>
+              <div className={`refresh-spinner ${currentTheme}`}></div>
+              <span>Refreshing...</span>
+            </div>
           </div>
         </div>
         

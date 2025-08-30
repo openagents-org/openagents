@@ -145,6 +145,9 @@ class CentralizedTopology(NetworkTopology):
             if transport_type == TransportType.WEBSOCKET:
                 from .transport import WebSocketTransport
                 transport = WebSocketTransport(self.config.get("transport_config", {}))
+            elif transport_type == TransportType.GRPC:
+                from .transport import GRPCTransport
+                transport = GRPCTransport(self.config.get("transport_config", {}))
             else:
                 logger.error(f"Unsupported transport for centralized topology: {transport_type}")
                 return False
@@ -304,6 +307,9 @@ class DecentralizedTopology(NetworkTopology):
             if transport_type == TransportType.WEBSOCKET:
                 from .transport import WebSocketTransport
                 transport = WebSocketTransport(self.config.get("transport_config", {}))
+            elif transport_type == TransportType.GRPC:
+                from .transport import GRPCTransport
+                transport = GRPCTransport(self.config.get("transport_config", {}))
             else:
                 logger.error(f"Unsupported transport for decentralized topology: {transport_type}")
                 return False

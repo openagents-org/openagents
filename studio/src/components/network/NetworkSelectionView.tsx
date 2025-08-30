@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Network, NetworkConnection, detectLocalNetwork, fetchNetworksList, testNetworkConnection } from '../../services/networkService';
-import { saveManualConnection, getSavedManualConnection, clearSavedManualConnection, getSavedAgentNameForNetwork } from '../../utils/cookies';
+import { saveManualConnection, getSavedManualConnection, clearSavedManualConnection, getSavedAgentNameForNetwork, migrateOldConnections } from '../../utils/cookies';
 import OpenAgentsLogo from '../icons/OpenAgentsLogo';
 
 interface NetworkSelectionViewProps {
@@ -23,6 +23,9 @@ const NetworkSelectionView: React.FC<NetworkSelectionViewProps> = ({ onNetworkSe
 
   // Load saved connection and detect local network on component mount
   useEffect(() => {
+    // Migrate old connections to new gRPC port
+    migrateOldConnections();
+    
     // Load saved manual connection
     const saved = getSavedManualConnection();
     if (saved) {

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ThreadMessage } from '../../services/openagentsService';
+import { ThreadMessage } from '../../services/grpcService';
 
 interface MessageDisplayProps {
   messages: ThreadMessage[];

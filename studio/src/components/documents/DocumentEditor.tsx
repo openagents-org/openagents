@@ -6,11 +6,11 @@ import Placeholder from '@tiptap/extension-placeholder';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DocumentContent, DocumentComment, AgentPresence } from '../../types';
-import { OpenAgentsConnection } from '../../services/openagentsService';
+import { OpenAgentsGRPCConnection } from '../../services/grpcService';
 
 interface DocumentEditorProps {
   documentId: string;
-  connection: OpenAgentsConnection;
+  connection: OpenAgentsGRPCConnection;
   currentTheme: 'light' | 'dark';
   onBack: () => void;
   readOnly?: boolean;
@@ -366,7 +366,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     try {
       setIsSaving(true);
       // Replace all lines with the current content
-      connection.replaceLines(documentId, 1, documentContent.content?.length || 1, editorState.content);
+      connection.replaceLines(documentId, 1, documentContent.content?.length || 1, editorState.content.join('\n'));
       setEditorState(prev => ({ ...prev, isEditing: false }));
       console.log('📄 Document saved successfully');
     } catch (err) {

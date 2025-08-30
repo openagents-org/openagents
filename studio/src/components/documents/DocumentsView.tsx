@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { DocumentsViewProps, DocumentInfo } from '../../types';
-import { OpenAgentsConnection } from '../../services/openagentsService';
+import { OpenAgentsGRPCConnection } from '../../services/grpcService';
 import { useNetwork } from '../../context/NetworkContext';
 import DocumentList from './DocumentList';
 import DocumentViewer from './DocumentViewer';
@@ -17,7 +17,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
   onDocumentsChange: sharedOnDocumentsChange
 }) => {
   const { currentNetwork } = useNetwork();
-  const [connection, setConnection] = useState<OpenAgentsConnection | null>(null);
+  const [connection, setConnection] = useState<OpenAgentsGRPCConnection | null>(null);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,7 +35,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
     if (sharedConnection) return;
 
     let isMounted = true;
-    let currentConnection: OpenAgentsConnection | null = null;
+    let currentConnection: OpenAgentsGRPCConnection | null = null;
 
     const initConnection = async () => {
       if (!currentNetwork || !isMounted) return;
@@ -43,7 +43,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
       try {
         // Use a consistent agent ID based on network to avoid multiple connections
         const agentId = `studio_documents_${currentNetwork.host}_${currentNetwork.port}`;
-        const conn = new OpenAgentsConnection(agentId, currentNetwork);
+        const conn = new OpenAgentsGRPCConnection(agentId, currentNetwork);
         currentConnection = conn;
         
         const connected = await conn.connect();

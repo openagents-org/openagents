@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ThreadMessagingChannel, AgentInfo } from '../../services/openagentsService';
+import { ThreadMessagingChannel, AgentInfo } from '../../services/grpcService';
 import OpenAgentsLogo from '../icons/OpenAgentsLogo';
 
 interface ChannelSidebarProps {

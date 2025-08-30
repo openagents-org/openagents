@@ -1,10 +1,7 @@
-# Working Collaborative Network Configuration
-# Simple structure that properly loads both mods
-
 network:
-  name: "WorkingCollaborativeNetwork"
+  name: "GRPCThreadMessagingNetwork"
   mode: "centralized"
-  node_id: "collab-coordinator-1"
+  node_id: "grpc-coordinator-1"
   transport: "grpc"
   host: "0.0.0.0"
   port: 8571
@@ -24,23 +21,23 @@ network:
     max_connection_age: 3600  # 1 hour
     compression: "gzip"
   
-  # Network-level mod configuration
+  # CRITICAL: Network-level mod configuration
   mods:
-    # Thread Messaging 
+    # Thread Messaging - REQUIRED for channel messaging
     - name: "openagents.mods.communication.thread_messaging"
       enabled: true
       config:
         default_channels:
           - name: "general"
             description: "General discussion"
-          - name: "documents"
-            description: "Document collaboration discussion"
           - name: "development"
             description: "Development discussions"
+          - name: "support"
+            description: "Support and help"
         max_message_history: 1000
         max_thread_depth: 5
         
-    # Shared Documents
+    # Optional: Shared Documents
     - name: "openagents.mods.work.shared_document"
       enabled: true
       config:

@@ -196,6 +196,10 @@ class AgentNetwork:
                 # Register agent connection resolver for routing messages by agent_id
                 if hasattr(transport, 'register_agent_connection_resolver'):
                     transport.register_agent_connection_resolver(self._resolve_agent_connection)
+                
+                # Set network instance reference for gRPC transport
+                if hasattr(transport, 'set_network_instance'):
+                    transport.set_network_instance(self)
         
         # Register network-level message handlers
         self.message_handlers["mod_message"] = [self._handle_mod_message]
@@ -324,6 +328,34 @@ class AgentNetwork:
             bool: True if message sent successfully
         """
         try:
+            # Check if this is a mod message response that needs to be queued for HTTP polling
+            if isinstance(message, ModMessage) and hasattr(message, 'relevant_agent_id'):
+                target_agent_id = message.relevant_agent_id
+                
+                # Check if the target agent is connected via gRPC HTTP adapter
+                if hasattr(self.topology, 'transport_manager'):
+                    transport = self.topology.transport_manager.get_active_transport()
+                    if transport and hasattr(transport, 'http_adapter') and transport.http_adapter:
+                        # Queue the message for HTTP polling
+                        command = self._extract_command_from_mod_message(message)
+                        response_message = {
+                            'message_type': 'system_response',
+                            'command': command,
+                            'data': message.content,
+                            'timestamp': message.timestamp
+                        }
+                        
+                        logger.info(f"🔧 Queuing mod response: command={command}, data_keys={list(message.content.keys())}")
+                        if 'channel' in message.content:
+                            logger.info(f"🔧 Channel in response: {message.content['channel']}")
+                        
+                        if target_agent_id not in transport.http_adapter.message_queues:
+                            transport.http_adapter.message_queues[target_agent_id] = []
+                        transport.http_adapter.message_queues[target_agent_id].append(response_message)
+                        
+                        logger.debug(f"Queued mod response for HTTP agent {target_agent_id}")
+                        return True
+            
             # Convert to transport message
             transport_message = self._convert_to_transport_message(message)
             
@@ -332,6 +364,27 @@ class AgentNetwork:
         except Exception as e:
             logger.error(f"Failed to send message: {e}")
             return False
+    
+    def _extract_command_from_mod_message(self, message: ModMessage) -> str:
+        """Extract the appropriate command name from a mod message for HTTP responses."""
+        try:
+            content = message.content
+            action = content.get('action', '')
+            
+            # Map mod actions to HTTP command responses
+            if action == 'retrieve_channel_messages_response':
+                return 'get_channel_messages'
+            elif action == 'list_channels_response':
+                return 'list_channels'
+            elif action == 'retrieve_direct_messages_response':
+                return 'get_direct_messages'
+            elif action == 'reaction_response':
+                return 'react_to_message'
+            else:
+                # Default to the action name
+                return action.replace('_response', '') if action.endswith('_response') else action
+        except Exception:
+            return 'unknown'
     
     async def discover_agents(self, capabilities: Optional[List[str]] = None) -> List[AgentInfo]:
         """Discover agents in the network.

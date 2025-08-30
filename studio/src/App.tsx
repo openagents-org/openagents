@@ -13,8 +13,9 @@ import { ConfirmProvider } from './context/ConfirmContext';
 import { NetworkProvider, useNetwork } from './context/NetworkContext';
 import { NewsSummaryExample } from './components/mcp_output/template';
 import { NetworkConnection } from './services/networkService';
-import { OpenAgentsConnection } from './services/openagentsService';
+import { OpenAgentsGRPCConnection } from './services/grpcService';
 import { DocumentInfo } from './types';
+import { clearAllOpenAgentsData } from './utils/cookies';
 
 // App main component wrapped with NetworkProvider
 const AppContent: React.FC = () => {
@@ -32,7 +33,7 @@ const AppContent: React.FC = () => {
   // Documents state
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
-  const [documentsConnection, setDocumentsConnection] = useState<OpenAgentsConnection | null>(null);
+  const [documentsConnection, setDocumentsConnection] = useState<OpenAgentsGRPCConnection | null>(null);
   const threadMessagingRef = useRef<{ 
     getState: () => ThreadState;
     selectChannel: (channel: string) => void;
@@ -79,6 +80,12 @@ const AppContent: React.FC = () => {
   } = useConversation();
 
   const { theme, toggleTheme } = useTheme();
+
+  // Add debug function to window for troubleshooting
+  useEffect(() => {
+    (window as any).clearOpenAgentsData = clearAllOpenAgentsData;
+    console.log('🔧 Debug: Run clearOpenAgentsData() in console to clear all saved data');
+  }, []);
 
   // Enhanced createNewConversation function that always shows chat view
   const createNewConversationAndShowChat = () => {
@@ -166,7 +173,7 @@ const AppContent: React.FC = () => {
         
         // Use a consistent agent ID to avoid creating multiple connections
         const checkAgentId = `studio_mod_check_${currentNetwork.host}_${currentNetwork.port}`;
-        const connection = new OpenAgentsConnection(checkAgentId, currentNetwork);
+        const connection = new OpenAgentsGRPCConnection(checkAgentId, currentNetwork);
         
         const connected = await connection.connect();
         if (connected) {
@@ -214,7 +221,7 @@ const AppContent: React.FC = () => {
   // Initialize documents connection when shared documents mod is available
   useEffect(() => {
     let isMounted = true;
-    let currentConnection: OpenAgentsConnection | null = null;
+    let currentConnection: OpenAgentsGRPCConnection | null = null;
 
     const initDocumentsConnection = async () => {
       if (!currentNetwork || !hasSharedDocuments || !agentName || !isMounted) return;
@@ -222,7 +229,7 @@ const AppContent: React.FC = () => {
       try {
         // Use a consistent agent ID based on network to avoid multiple connections
         const agentId = `studio_documents_${currentNetwork.host}_${currentNetwork.port}`;
-        const conn = new OpenAgentsConnection(agentId, currentNetwork);
+        const conn = new OpenAgentsGRPCConnection(agentId, currentNetwork);
         currentConnection = conn;
         
         const connected = await conn.connect();

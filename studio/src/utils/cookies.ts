@@ -230,3 +230,33 @@ export const clearSavedAgentNameForNetwork = (host: string, port: string | numbe
 export const clearAllSavedAgentNames = (): void => {
   deleteCookie('openagents_agent_names');
 };
+
+/**
+ * Migrate old connections to new gRPC port (8571)
+ * This helps users who have saved connections to old ports
+ */
+export const migrateOldConnections = (): void => {
+  try {
+    const saved = getSavedManualConnection();
+    if (saved) {
+      // Check if it's an old port and migrate to gRPC
+      const oldPorts = ['8575', '8570', '50051'];
+      if (oldPorts.includes(saved.port)) {
+        console.log(`Migrating old connection from port ${saved.port} to 8571`);
+        saveManualConnection(saved.host, '8571');
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to migrate old connections:', error);
+  }
+};
+
+/**
+ * Clear all OpenAgents related cookies (useful for troubleshooting)
+ */
+export const clearAllOpenAgentsData = (): void => {
+  clearSavedManualConnection();
+  clearAllSavedAgentNames();
+  deleteCookie('openagents_theme');
+  console.log('Cleared all OpenAgents data from cookies');
+};

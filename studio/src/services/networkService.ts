@@ -35,33 +35,32 @@ export interface NetworkListResponse {
 // Check if a local OpenAgents network is running on localhost:8571
 export const detectLocalNetwork = async (): Promise<NetworkConnection | null> => {
   try {
-    // Try to establish a WebSocket connection to test the OpenAgents network
-    const ws = new WebSocket('ws://localhost:8571');
-    
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        ws.close();
-        console.log('No local OpenAgents network detected on port 8571');
-        resolve(null);
-      }, 3000);
-
-      ws.onopen = () => {
-        clearTimeout(timeout);
-        ws.close();
-        resolve({
-          host: 'localhost',
-          port: 8571,
-          status: 'connected',
-          latency: 0,
-        });
-      };
-
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        console.log('No local OpenAgents network detected on port 8571');
-        resolve(null);
-      };
+    // Test local gRPC network via HTTP adapter (port 9571)
+    const response = await fetch('http://localhost:9571/api/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        agent_id: 'local_network_test',
+        metadata: { test: true },
+        capabilities: []
+      }),
+      signal: AbortSignal.timeout(3000) // 3 second timeout
     });
+
+    if (response.ok) {
+      console.log('Local OpenAgents network detected on port 8571');
+      return {
+        host: 'localhost',
+        port: 8571,
+        status: 'connected',
+        latency: 0,
+      };
+    } else {
+      console.log('No local OpenAgents network detected on port 8571');
+      return null;
+    }
   } catch (error) {
     console.log('No local OpenAgents network detected on port 8571');
     return null;
@@ -73,43 +72,44 @@ export const testNetworkConnection = async (host: string, port: number): Promise
   const startTime = Date.now();
   
   try {
-    // Try to establish a WebSocket connection to test the OpenAgents network
-    const ws = new WebSocket(`ws://${host}:${port}`);
+    // Test gRPC network via HTTP adapter (port + 1000)
+    const httpPort = port + 1000;
+    const protocol = window.location.protocol === 'https:' ? 'https' : 'http';
+    const testUrl = `${protocol}://${host}:${httpPort}/api/register`;
     
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        ws.close();
-        resolve({
-          host,
-          port,
-          status: 'error',
-          latency: Date.now() - startTime,
-        });
-      }, 5000);
-
-      ws.onopen = () => {
-        clearTimeout(timeout);
-        const latency = Date.now() - startTime;
-        ws.close();
-        resolve({
-          host,
-          port,
-          status: 'connected',
-          latency,
-        });
-      };
-
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        resolve({
-          host,
-          port,
-          status: 'error',
-          latency: Date.now() - startTime,
-        });
-      };
+    // Try a simple HTTP request to test connectivity
+    const response = await fetch(testUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        agent_id: 'test_connection',
+        metadata: { test: true },
+        capabilities: []
+      }),
+      signal: AbortSignal.timeout(5000) // 5 second timeout
     });
+
+    const latency = Date.now() - startTime;
+
+    if (response.ok) {
+      return {
+        host,
+        port,
+        status: 'connected',
+        latency,
+      };
+    } else {
+      return {
+        host,
+        port,
+        status: 'error',
+        latency,
+      };
+    }
   } catch (error) {
+    console.error(`Connection test failed for ${host}:${port}:`, error);
     return {
       host,
       port,

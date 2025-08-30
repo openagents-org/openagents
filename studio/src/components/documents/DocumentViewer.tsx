@@ -1,10 +1,10 @@
 import React from 'react';
-import { OpenAgentsConnection } from '../../services/openagentsService';
+import { OpenAgentsGRPCConnection } from '../../services/grpcService';
 import DocumentEditor from './DocumentEditor';
 
 interface DocumentViewerProps {
   documentId: string;
-  connection: OpenAgentsConnection;
+  connection: OpenAgentsGRPCConnection;
   currentTheme: 'light' | 'dark';
   onBack: () => void;
   readOnly?: boolean;

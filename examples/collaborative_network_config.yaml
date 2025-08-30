@@ -18,7 +18,7 @@ network:
   
   # Server/Coordinator settings
   host: "0.0.0.0"  # Bind to all interfaces for external access
-  port: 8575  # Port for incoming connections (different from other examples)
+  port: 8571  # Port for incoming connections (gRPC default)
   server_mode: true  # This node acts as the coordinator/server
   
   # Transport configuration optimized for collaboration
@@ -219,7 +219,7 @@ network_profile:
   authentication:
     type: "none"  # No authentication required (can be changed as needed)
   host: "0.0.0.0"
-  port: 8575
+  port: 8571
 
 # Global settings
 log_level: "INFO"  # Logging level for collaboration debugging

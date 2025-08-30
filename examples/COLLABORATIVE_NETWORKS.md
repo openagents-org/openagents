@@ -30,7 +30,7 @@ openagents launch-network examples/simple_collaborative_network.yaml
 
 **Best for:** Production environments, large teams, complex collaboration workflows
 
-**Port:** 8575
+**Port:** 8571
 **Max Agents:** 200
 **Document Size:** Up to 10MB per document
 
@@ -76,7 +76,7 @@ npm start
 
 ### 3. Connect to Your Network
 - **Host:** `localhost` 
-- **Port:** `8575` (full config) or `8576` (simple config)
+- **Port:** `8571` (full config) or `8576` (simple config)
 - **Agent Name:** Choose any name you like
 
 ### 4. Enjoy Full Collaboration!

@@ -297,18 +297,24 @@ class ThreadMessagingNetworkMod(BaseMod):
                 inner_message = MessageRetrievalMessage(**content)
                 await self._process_message_retrieval_request(inner_message)
             elif message_type == "reaction":
+                # Preserve the original message ID from the ModMessage
+                content['message_id'] = message.message_id
                 inner_message = ReactionMessage(**content)
                 await self._process_reaction_message(inner_message)
             elif message_type == "direct_message":
                 # Populate quoted_text if quoted_message_id is provided
                 if 'quoted_message_id' in content and content['quoted_message_id']:
                     content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
+                # Preserve the original message ID from the ModMessage
+                content['message_id'] = message.message_id
                 inner_message = DirectMessage(**content)
                 await self._process_direct_message(inner_message)
             elif message_type == "channel_message":
                 # Populate quoted_text if quoted_message_id is provided
                 if 'quoted_message_id' in content and content['quoted_message_id']:
                     content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
+                # Preserve the original message ID from the ModMessage
+                content['message_id'] = message.message_id
                 inner_message = ChannelMessage(**content)
                 await self._process_channel_message(inner_message)
             else:
@@ -755,7 +761,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Send response
         response = ModMessage(
             sender_id=self.network.network_id,
-            mod="thread_messaging",
+            mod="openagents.mods.communication.thread_messaging",
             content={
                 "action": "retrieve_channel_messages_response",
                 "success": True,
@@ -877,7 +883,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Send response
         response = ModMessage(
             sender_id=self.network.network_id,
-            mod="thread_messaging",
+            mod="openagents.mods.communication.thread_messaging",
             content={
                 "action": "retrieve_direct_messages_response",
                 "success": True,
@@ -967,7 +973,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Send response
         response = ModMessage(
             sender_id=self.network.network_id,
-            mod="thread_messaging",
+            mod="openagents.mods.communication.thread_messaging",
             content={
                 "action": "reaction_response",
                 "success": success,

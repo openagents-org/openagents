@@ -446,41 +446,502 @@ class LibP2PTransport(Transport):
 
 
 class GRPCTransport(Transport):
-    """gRPC transport implementation (placeholder)."""
+    """gRPC transport implementation."""
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         super().__init__(TransportType.GRPC, config)
+        self.server = None
+        self.channels: Dict[str, Any] = {}  # peer_id -> gRPC channel
+        self.stubs: Dict[str, Any] = {}    # peer_id -> gRPC stub
+        self.streaming_calls: Dict[str, Any] = {}  # peer_id -> streaming call
+        self.servicer = None
+        self.http_adapter = None
+        self.http_runner = None
+        self.network_instance = None  # Reference to the network instance
     
+    def set_network_instance(self, network_instance):
+        """Set the network instance reference for system command handling."""
+        self.network_instance = network_instance
+        
     async def initialize(self) -> bool:
         """Initialize gRPC transport."""
-        # TODO: Implement gRPC integration
-        logger.warning("gRPC transport not yet implemented")
-        return False
+        try:
+            import grpc
+            from grpc import aio
+            from openagents.proto.agent_service_pb2_grpc import (
+                AgentServiceServicer, AgentServiceStub, 
+                add_AgentServiceServicer_to_server
+            )
+            
+            self.grpc = grpc
+            self.aio = aio
+            self.AgentServiceServicer = AgentServiceServicer
+            self.AgentServiceStub = AgentServiceStub
+            self.add_AgentServiceServicer_to_server = add_AgentServiceServicer_to_server
+            
+            logger.info("gRPC transport initialized")
+            return True
+        except ImportError as e:
+            logger.error(f"gRPC libraries not available: {e}")
+            return False
     
     async def shutdown(self) -> bool:
         """Shutdown gRPC transport."""
-        # TODO: Implement gRPC shutdown
+        self.is_running = False
+        
+        # Close all streaming calls
+        for call in self.streaming_calls.values():
+            try:
+                call.cancel()
+            except:
+                pass
+        
+        # Close all channels
+        for channel in self.channels.values():
+            try:
+                await channel.close()
+            except:
+                pass
+        
+        # Stop HTTP adapter
+        if self.http_runner:
+            await self.http_runner.cleanup()
+            self.http_runner = None
+        
+        # Stop server
+        if self.server:
+            await self.server.stop(grace=5)
+        
+        self.channels.clear()
+        self.stubs.clear()
+        self.streaming_calls.clear()
+        
+        logger.info("gRPC transport shutdown")
         return True
     
     async def connect(self, peer_id: str, address: str) -> bool:
         """Connect to gRPC peer."""
-        # TODO: Implement gRPC connection
-        return False
+        try:
+            # Create gRPC channel with configuration
+            options = [
+                ('grpc.keepalive_time_ms', self.config.get('keepalive_time', 30) * 1000),
+                ('grpc.keepalive_timeout_ms', self.config.get('keepalive_timeout', 5) * 1000),
+                ('grpc.keepalive_permit_without_calls', self.config.get('keepalive_permit_without_calls', True)),
+                ('grpc.max_receive_message_length', self.config.get('max_message_size', 104857600)),
+                ('grpc.max_send_message_length', self.config.get('max_message_size', 104857600)),
+            ]
+            
+            compression = self.config.get('compression')
+            if compression == 'gzip':
+                options.append(('grpc.default_compression_algorithm', self.grpc.Compression.Gzip))
+            
+            channel = self.aio.insecure_channel(address, options=options)
+            stub = self.AgentServiceStub(channel)
+            
+            # Test connection with ping
+            from openagents.proto.agent_service_pb2 import PingRequest
+            import time
+            ping_request = PingRequest(agent_id=peer_id, timestamp=self._to_timestamp(time.time()))
+            
+            try:
+                response = await stub.Ping(ping_request, timeout=5)
+                if response.success:
+                    self.channels[peer_id] = channel
+                    self.stubs[peer_id] = stub
+                    
+                    # Update connection info
+                    self.connections[peer_id] = ConnectionInfo(
+                        connection_id=f"grpc-{peer_id}",
+                        peer_id=peer_id,
+                        transport_type=self.transport_type,
+                        state=ConnectionState.CONNECTED,
+                        last_activity=asyncio.get_event_loop().time()
+                    )
+                    
+                    await self._notify_connection_handlers(peer_id, ConnectionState.CONNECTED)
+                    logger.info(f"Connected to gRPC peer {peer_id} at {address}")
+                    return True
+                else:
+                    await channel.close()
+                    return False
+            except Exception as e:
+                await channel.close()
+                logger.error(f"Failed to ping gRPC peer {peer_id}: {e}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to connect to gRPC peer {peer_id}: {e}")
+            return False
     
     async def disconnect(self, peer_id: str) -> bool:
         """Disconnect from gRPC peer."""
-        # TODO: Implement gRPC disconnection
-        return False
+        try:
+            # Cancel streaming call if exists
+            if peer_id in self.streaming_calls:
+                self.streaming_calls[peer_id].cancel()
+                del self.streaming_calls[peer_id]
+            
+            # Close channel
+            if peer_id in self.channels:
+                await self.channels[peer_id].close()
+                del self.channels[peer_id]
+            
+            # Remove stub
+            if peer_id in self.stubs:
+                del self.stubs[peer_id]
+            
+            # Update connection info
+            if peer_id in self.connections:
+                del self.connections[peer_id]
+            
+            await self._notify_connection_handlers(peer_id, ConnectionState.DISCONNECTED)
+            logger.info(f"Disconnected from gRPC peer {peer_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error disconnecting from gRPC peer {peer_id}: {e}")
+            return False
     
     async def send(self, message: Message) -> bool:
         """Send message via gRPC."""
-        # TODO: Implement gRPC message sending
-        return False
+        try:
+            # Convert to gRPC message
+            grpc_message = self._to_grpc_message(message)
+            
+            # For gRPC transport, we handle messages through the message handlers
+            # rather than direct peer-to-peer connections like WebSocket
+            
+            # Notify local message handlers (for mod processing)
+            await self._notify_message_handlers(message)
+            
+            # For now, always return success for local message handling
+            # In a full implementation, this would route to other gRPC nodes
+            return True
+                    
+        except Exception as e:
+            logger.error(f"Failed to send gRPC message: {e}")
+            return False
     
     async def listen(self, address: str) -> bool:
         """Start gRPC listener."""
-        # TODO: Implement gRPC listening
-        return False
+        try:
+            host, port = address.split(":")
+            port = int(port)
+            
+            # Create gRPC server
+            self.server = self.aio.server()
+            
+            # Create and add servicer
+            self.servicer = GRPCAgentServicer(self)
+            self.add_AgentServiceServicer_to_server(self.servicer, self.server)
+            
+            # Add port
+            listen_addr = f"{host}:{port}"
+            self.server.add_insecure_port(listen_addr)
+            
+            # Start server
+            await self.server.start()
+            self.is_running = True
+            
+            # Start HTTP adapter for browser compatibility
+            from .grpc_http_adapter import GRPCHTTPAdapter
+            self.http_adapter = GRPCHTTPAdapter(self)
+            self.http_runner = await self.http_adapter.start_server(host, port)
+            
+            logger.info(f"gRPC transport listening on {listen_addr}")
+            logger.info(f"gRPC HTTP adapter listening on {host}:{port + 1000}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to start gRPC server: {e}")
+            return False
+    
+    def _to_grpc_message(self, message: Message):
+        """Convert transport message to gRPC message."""
+        from openagents.proto.agent_service_pb2 import Message as GRPCMessage
+        from google.protobuf.any_pb2 import Any
+        import json
+        
+        # Convert payload to Any
+        payload_any = Any()
+        payload_any.type_url = "type.googleapis.com/openagents.Payload"
+        payload_any.value = json.dumps(message.payload).encode('utf-8')
+        
+        return GRPCMessage(
+            message_id=message.message_id,
+            sender_id=message.sender_id,
+            target_id=message.target_id or "",
+            message_type=message.message_type,
+            payload=payload_any,
+            timestamp=self._to_timestamp(message.timestamp),
+            metadata=message.metadata or {}
+        )
+    
+    def _from_grpc_message(self, grpc_message) -> Message:
+        """Convert gRPC message to transport message."""
+        import json
+        
+        # Extract payload from Any
+        payload = {}
+        if grpc_message.payload:
+            try:
+                payload = json.loads(grpc_message.payload.value.decode('utf-8'))
+            except:
+                payload = {}
+        
+        return Message(
+            message_id=grpc_message.message_id,
+            sender_id=grpc_message.sender_id,
+            target_id=grpc_message.target_id if grpc_message.target_id else None,
+            message_type=grpc_message.message_type,
+            payload=payload,
+            timestamp=self._from_timestamp(grpc_message.timestamp),
+            metadata=dict(grpc_message.metadata) if grpc_message.metadata else {}
+        )
+    
+    def _to_timestamp(self, timestamp: float):
+        """Convert float timestamp to protobuf timestamp."""
+        from google.protobuf.timestamp_pb2 import Timestamp
+        ts = Timestamp()
+        ts.FromSeconds(int(timestamp))
+        return ts
+    
+    def _from_timestamp(self, timestamp) -> float:
+        """Convert protobuf timestamp to float."""
+        return timestamp.ToSeconds()
+
+
+class GRPCAgentServicer:
+    """gRPC servicer implementation for AgentService."""
+    
+    def __init__(self, transport: GRPCTransport):
+        self.transport = transport
+    
+    async def SendMessage(self, request, context):
+        """Handle SendMessage RPC."""
+        try:
+            # Convert gRPC message to transport message
+            message = self.transport._from_grpc_message(request)
+            
+            # Notify message handlers
+            await self.transport._notify_message_handlers(message)
+            
+            # Create response
+            from openagents.proto.agent_service_pb2 import MessageResponse
+            return MessageResponse(
+                success=True,
+                message_id=request.message_id
+            )
+            
+        except Exception as e:
+            logger.error(f"Error handling SendMessage: {e}")
+            from openagents.proto.agent_service_pb2 import MessageResponse
+            return MessageResponse(
+                success=False,
+                error_message=str(e),
+                message_id=request.message_id
+            )
+    
+    async def RegisterAgent(self, request, context):
+        """Handle RegisterAgent RPC."""
+        try:
+            # Extract peer address
+            peer_address = context.peer()
+            
+            # Notify system message handlers
+            system_message = {
+                "command": "register_agent",
+                "data": {
+                    "agent_id": request.agent_id,
+                    "metadata": dict(request.metadata),
+                    "capabilities": list(request.capabilities)
+                }
+            }
+            
+            await self.transport._notify_system_message_handlers(
+                request.agent_id, system_message, context
+            )
+            
+            from openagents.proto.agent_service_pb2 import RegisterAgentResponse
+            return RegisterAgentResponse(
+                success=True,
+                network_name="OpenAgents Network",
+                network_id="grpc-network"
+            )
+            
+        except Exception as e:
+            logger.error(f"Error handling RegisterAgent: {e}")
+            from openagents.proto.agent_service_pb2 import RegisterAgentResponse
+            return RegisterAgentResponse(
+                success=False,
+                error_message=str(e)
+            )
+    
+    async def Ping(self, request, context):
+        """Handle Ping RPC."""
+        try:
+            from openagents.proto.agent_service_pb2 import PingResponse
+            import time
+            
+            return PingResponse(
+                success=True,
+                timestamp=self.transport._to_timestamp(time.time())
+            )
+            
+        except Exception as e:
+            logger.error(f"Error handling Ping: {e}")
+            from openagents.proto.agent_service_pb2 import PingResponse
+            return PingResponse(success=False)
+    
+    async def UnregisterAgent(self, request, context):
+        """Handle UnregisterAgent RPC."""
+        try:
+            from openagents.proto.agent_service_pb2 import UnregisterAgentResponse
+            return UnregisterAgentResponse(success=True)
+        except Exception as e:
+            logger.error(f"Error handling UnregisterAgent: {e}")
+            from openagents.proto.agent_service_pb2 import UnregisterAgentResponse
+            return UnregisterAgentResponse(success=False, error_message=str(e))
+    
+    async def DiscoverAgents(self, request, context):
+        """Handle DiscoverAgents RPC."""
+        try:
+            from openagents.proto.agent_service_pb2 import DiscoverAgentsResponse, AgentInfo
+            
+            # Get agents from the network instance
+            agents = []
+            if hasattr(self.transport, 'network_instance') and self.transport.network_instance:
+                network = self.transport.network_instance
+                for agent_id, metadata in network.agents.items():
+                    agent_info = AgentInfo(
+                        agent_id=agent_id,
+                        metadata=metadata,
+                        capabilities=metadata.get('capabilities', []),
+                        transport_type="grpc",
+                        address=f"{network.host}:{network.port}"
+                    )
+                    agents.append(agent_info)
+            
+            return DiscoverAgentsResponse(agents=agents)
+        except Exception as e:
+            logger.error(f"Error handling DiscoverAgents: {e}")
+            from openagents.proto.agent_service_pb2 import DiscoverAgentsResponse
+            return DiscoverAgentsResponse(agents=[])
+    
+    async def GetAgentInfo(self, request, context):
+        """Handle GetAgentInfo RPC."""
+        try:
+            from openagents.proto.agent_service_pb2 import GetAgentInfoResponse
+            return GetAgentInfoResponse(found=False)
+        except Exception as e:
+            logger.error(f"Error handling GetAgentInfo: {e}")
+            from openagents.proto.agent_service_pb2 import GetAgentInfoResponse
+            return GetAgentInfoResponse(found=False)
+    
+    async def SendSystemCommand(self, request, context):
+        """Handle SendSystemCommand RPC."""
+        try:
+            from openagents.proto.agent_service_pb2 import SystemCommandResponse
+            import json
+            
+            # Extract command and data from the request
+            command = request.command
+            data = {}
+            if request.data:
+                try:
+                    # Try to parse the data from Any type
+                    data = json.loads(request.data.value.decode('utf-8'))
+                except:
+                    data = {}
+            
+            # Forward to network instance system message handler
+            if hasattr(self.transport, 'network_instance') and self.transport.network_instance:
+                system_message = {
+                    "command": command,
+                    "data": data
+                }
+                
+                # Use context as a mock connection for system commands
+                await self.transport.network_instance._handle_system_message(
+                    "system", system_message, context
+                )
+            
+            return SystemCommandResponse(success=True)
+        except Exception as e:
+            logger.error(f"Error handling SendSystemCommand: {e}")
+            from openagents.proto.agent_service_pb2 import SystemCommandResponse
+            return SystemCommandResponse(success=False, error_message=str(e))
+    
+    async def GetNetworkInfo(self, request, context):
+        """Handle GetNetworkInfo RPC."""
+        try:
+            from openagents.proto.agent_service_pb2 import NetworkInfoResponse, AgentInfo
+            import time
+            
+            # Get real network info from the network instance
+            agents = []
+            agent_count = 0
+            network_id = "grpc-network"
+            network_name = "OpenAgents gRPC Network"
+            
+            if hasattr(self.transport, 'network_instance') and self.transport.network_instance:
+                network = self.transport.network_instance
+                network_id = getattr(network, 'network_id', network_id)
+                network_name = getattr(network, 'network_name', network_name)
+                agent_count = len(network.agents)
+                
+                for agent_id, metadata in network.agents.items():
+                    agent_info = AgentInfo(
+                        agent_id=agent_id,
+                        metadata=metadata,
+                        capabilities=metadata.get('capabilities', []),
+                        transport_type="grpc",
+                        address=f"{network.host}:{network.port}"
+                    )
+                    agents.append(agent_info)
+            
+            return NetworkInfoResponse(
+                network_id=network_id,
+                network_name=network_name,
+                is_running=True,
+                uptime_seconds=int(time.time()),
+                agent_count=agent_count,
+                agents=agents,
+                topology_mode="centralized",
+                transport_type="grpc",
+                host="0.0.0.0",
+                port=50051
+            )
+        except Exception as e:
+            logger.error(f"Error handling GetNetworkInfo: {e}")
+            from openagents.proto.agent_service_pb2 import NetworkInfoResponse
+            return NetworkInfoResponse(
+                network_id="error",
+                network_name="Error",
+                is_running=False,
+                uptime_seconds=0,
+                agent_count=0,
+                agents=[],
+                topology_mode="unknown",
+                transport_type="grpc",
+                host="0.0.0.0",
+                port=50051
+            )
+
+    async def StreamMessages(self, request_iterator, context):
+        """Handle bidirectional streaming."""
+        try:
+            # This would implement bidirectional streaming for real-time communication
+            # For now, we'll use unary calls for simplicity
+            async for request in request_iterator:
+                message = self.transport._from_grpc_message(request)
+                await self.transport._notify_message_handlers(message)
+                
+                # Echo back for now
+                yield request
+                
+        except Exception as e:
+            logger.error(f"Error in StreamMessages: {e}")
 
 
 class WebRTCTransport(Transport):
@@ -592,9 +1053,9 @@ class TransportManager:
         """
         # Priority order for transport selection
         priority_order = [
+            TransportType.GRPC,
             TransportType.LIBP2P,
             TransportType.WEBRTC,
-            TransportType.GRPC,
             TransportType.WEBSOCKET
         ]
         
