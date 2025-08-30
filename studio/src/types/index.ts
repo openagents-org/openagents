@@ -126,4 +126,10 @@ export interface DocumentContent {
 export interface DocumentsViewProps {
   onBackClick: () => void;
   currentTheme: 'light' | 'dark';
+  // Optional props for shared state management
+  documents?: DocumentInfo[];
+  selectedDocumentId?: string | null;
+  onDocumentSelect?: (documentId: string | null) => void;
+  documentsConnection?: any; // OpenAgentsConnection type
+  onDocumentsChange?: (documents: DocumentInfo[]) => void;
 } 

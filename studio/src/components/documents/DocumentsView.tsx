@@ -6,7 +6,16 @@ import DocumentList from './DocumentList';
 import DocumentViewer from './DocumentViewer';
 import CreateDocumentModal from './CreateDocumentModal';
 
-const DocumentsView: React.FC<DocumentsViewProps> = ({ onBackClick, currentTheme }) => {
+const DocumentsView: React.FC<DocumentsViewProps> = ({ 
+  onBackClick, 
+  currentTheme,
+  // Shared state props (optional)
+  documents: sharedDocuments,
+  selectedDocumentId: sharedSelectedDocumentId,
+  onDocumentSelect: sharedOnDocumentSelect,
+  documentsConnection: sharedConnection,
+  onDocumentsChange: sharedOnDocumentsChange
+}) => {
   const { currentNetwork } = useNetwork();
   const [connection, setConnection] = useState<OpenAgentsConnection | null>(null);
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
@@ -15,8 +24,16 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({ onBackClick, currentTheme
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Initialize connection
+  // Use shared state if available, otherwise use local state
+  const effectiveDocuments = sharedDocuments || documents;
+  const effectiveSelectedDocument = sharedSelectedDocumentId || selectedDocument;
+  const effectiveConnection = sharedConnection || connection;
+
+  // Initialize connection (only if not using shared connection)
   useEffect(() => {
+    // Skip initialization if using shared connection
+    if (sharedConnection) return;
+
     let isMounted = true;
     let currentConnection: OpenAgentsConnection | null = null;
 
@@ -58,37 +75,43 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({ onBackClick, currentTheme
         }
       }
     };
-  }, [currentNetwork]);
+  }, [currentNetwork, sharedConnection]);
 
   // Load documents
   const loadDocuments = useCallback(async () => {
-    if (!connection) return;
+    if (!effectiveConnection) return;
 
     try {
       setIsLoading(true);
       setError(null);
-      const docs = await connection.listDocuments(false); // Don't include closed documents by default
+      const docs = await effectiveConnection.listDocuments(false); // Don't include closed documents by default
       console.log('📋 Loaded documents:', docs);
-      setDocuments(docs || []);
+      
+      // Update shared state if available, otherwise local state
+      if (sharedOnDocumentsChange) {
+        sharedOnDocumentsChange(docs || []);
+      } else {
+        setDocuments(docs || []);
+      }
     } catch (err) {
       console.error('Failed to load documents:', err);
       setError('Failed to load documents');
     } finally {
       setIsLoading(false);
     }
-  }, [connection]);
+  }, [effectiveConnection, sharedOnDocumentsChange]);
 
   useEffect(() => {
-    if (connection) {
+    if (effectiveConnection) {
       loadDocuments();
     }
-  }, [connection, loadDocuments]);
+  }, [effectiveConnection, loadDocuments]);
 
   const handleCreateDocument = async (name: string, content: string, permissions: Record<string, string>) => {
-    if (!connection) return;
+    if (!effectiveConnection) return;
 
     try {
-      await connection.createDocument(name, content, permissions);
+      await effectiveConnection.createDocument(name, content, permissions);
       await loadDocuments(); // Refresh the list
       setShowCreateModal(false);
     } catch (err) {
@@ -98,11 +121,21 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({ onBackClick, currentTheme
   };
 
   const handleDocumentSelect = (documentId: string) => {
-    setSelectedDocument(documentId);
+    // Use shared handler if available, otherwise local state
+    if (sharedOnDocumentSelect) {
+      sharedOnDocumentSelect(documentId);
+    } else {
+      setSelectedDocument(documentId);
+    }
   };
 
   const handleBackToList = () => {
-    setSelectedDocument(null);
+    // Use shared handler if available, otherwise local state
+    if (sharedOnDocumentSelect) {
+      sharedOnDocumentSelect(null);
+    } else {
+      setSelectedDocument(null);
+    }
   };
 
   if (isLoading) {
@@ -145,11 +178,11 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({ onBackClick, currentTheme
     );
   }
 
-  if (selectedDocument) {
+  if (effectiveSelectedDocument) {
     return (
       <DocumentViewer
-        documentId={selectedDocument}
-        connection={connection!}
+        documentId={effectiveSelectedDocument}
+        connection={effectiveConnection!}
         currentTheme={currentTheme}
         onBack={handleBackToList}
       />
@@ -198,7 +231,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({ onBackClick, currentTheme
       {/* Document List */}
       <div className="flex-1 overflow-hidden">
         <DocumentList
-          documents={documents}
+          documents={effectiveDocuments}
           currentTheme={currentTheme}
           onDocumentSelect={handleDocumentSelect}
           onRefresh={loadDocuments}

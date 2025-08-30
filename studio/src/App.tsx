@@ -14,6 +14,7 @@ import { NetworkProvider, useNetwork } from './context/NetworkContext';
 import { NewsSummaryExample } from './components/mcp_output/template';
 import { NetworkConnection } from './services/networkService';
 import { OpenAgentsConnection } from './services/openagentsService';
+import { DocumentInfo } from './types';
 
 // App main component wrapped with NetworkProvider
 const AppContent: React.FC = () => {
@@ -27,6 +28,11 @@ const AppContent: React.FC = () => {
   const [agentName, setAgentName] = useState<string | null>(null);
   const [threadState, setThreadState] = useState<ThreadState | null>(null);
   const [forceUpdate, setForceUpdate] = useState(0);
+  
+  // Documents state
+  const [documents, setDocuments] = useState<DocumentInfo[]>([]);
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
+  const [documentsConnection, setDocumentsConnection] = useState<OpenAgentsConnection | null>(null);
   const threadMessagingRef = useRef<{ 
     getState: () => ThreadState;
     selectChannel: (channel: string) => void;
@@ -110,6 +116,15 @@ const AppContent: React.FC = () => {
       threadMessagingRef.current.selectDirectMessage(agentId);
     }
   };
+
+  // Document selection handler
+  const handleDocumentSelect = useCallback((documentId: string | null) => {
+    console.log('📄 App - handleDocumentSelect called with:', documentId);
+    setSelectedDocumentId(documentId);
+    if (documentId) {
+      setActiveView('documents'); // Switch to documents view when a document is selected
+    }
+  }, []);
 
   const handleNetworkSelected = (network: NetworkConnection) => {
     setSelectedNetwork(network);
@@ -196,6 +211,66 @@ const AppContent: React.FC = () => {
     }
   }, [currentNetwork, isConnected, agentName, hasThreadMessaging, hasSharedDocuments, isCheckingMods]);
 
+  // Initialize documents connection when shared documents mod is available
+  useEffect(() => {
+    let isMounted = true;
+    let currentConnection: OpenAgentsConnection | null = null;
+
+    const initDocumentsConnection = async () => {
+      if (!currentNetwork || !hasSharedDocuments || !agentName || !isMounted) return;
+
+      try {
+        // Use a consistent agent ID based on network to avoid multiple connections
+        const agentId = `studio_documents_${currentNetwork.host}_${currentNetwork.port}`;
+        const conn = new OpenAgentsConnection(agentId, currentNetwork);
+        currentConnection = conn;
+        
+        const connected = await conn.connect();
+        if (connected && isMounted) {
+          setDocumentsConnection(conn);
+          console.log('📄 Connected for documents management');
+        }
+      } catch (err) {
+        console.error('Failed to initialize documents connection:', err);
+      }
+    };
+
+    if (hasSharedDocuments) {
+      initDocumentsConnection();
+    }
+
+    return () => {
+      isMounted = false;
+      if (currentConnection) {
+        try {
+          currentConnection.disconnect();
+          console.log('📄 Documents connection cleaned up');
+        } catch (e) {
+          console.warn('⚠️ Error cleaning up documents connection:', e);
+        }
+      }
+    };
+  }, [currentNetwork, hasSharedDocuments, agentName]);
+
+  // Load documents when connection is established
+  const loadDocuments = useCallback(async () => {
+    if (!documentsConnection) return;
+
+    try {
+      const docs = await documentsConnection.listDocuments(false); // Don't include closed documents by default
+      console.log('📋 Loaded documents:', docs);
+      setDocuments(docs || []);
+    } catch (err) {
+      console.error('Failed to load documents:', err);
+    }
+  }, [documentsConnection]);
+
+  useEffect(() => {
+    if (documentsConnection) {
+      loadDocuments();
+    }
+  }, [documentsConnection, loadDocuments]);
+
   // Show network selection if no network is selected
   if (!selectedNetwork) {
     return <NetworkSelectionView onNetworkSelected={handleNetworkSelected} />;
@@ -265,6 +340,10 @@ const AppContent: React.FC = () => {
             threadState={getCurrentThreadState()}
             onChannelSelect={handleChannelSelect}
             onDirectMessageSelect={handleDirectMessageSelect}
+            // Documents props
+            documents={documents}
+            onDocumentSelect={handleDocumentSelect}
+            selectedDocumentId={selectedDocumentId}
           >
             {activeView === 'chat' ? (
               <ThreadMessagingView
@@ -282,6 +361,11 @@ const AppContent: React.FC = () => {
               <DocumentsView 
                 currentTheme={theme}
                 onBackClick={() => setActiveView('chat')}
+                documents={documents}
+                selectedDocumentId={selectedDocumentId}
+                onDocumentSelect={handleDocumentSelect}
+                documentsConnection={documentsConnection}
+                onDocumentsChange={setDocuments}
               />
             ) : activeView === 'settings' ? (
               <div className="p-6">
@@ -322,6 +406,10 @@ const AppContent: React.FC = () => {
           threadState={getCurrentThreadState()}
           onChannelSelect={handleChannelSelect}
           onDirectMessageSelect={handleDirectMessageSelect}
+          // Documents props
+          documents={documents}
+          onDocumentSelect={handleDocumentSelect}
+          selectedDocumentId={selectedDocumentId}
         >
           {/* 新的布局：HTML结果在中间，聊天在右边 */}
           <div className="flex h-full">
@@ -336,6 +424,11 @@ const AppContent: React.FC = () => {
                   <DocumentsView 
                     onBackClick={() => setActiveView('chat')}
                     currentTheme={theme}
+                    documents={documents}
+                    selectedDocumentId={selectedDocumentId}
+                    onDocumentSelect={handleDocumentSelect}
+                    documentsConnection={documentsConnection}
+                    onDocumentsChange={setDocuments}
                   />
                 ) : activeView === 'chat' ? (
                   <div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { SidebarProps } from '../types';
+import { SidebarProps, DocumentInfo } from '../types';
 import { ThreadMessagingChannel, AgentInfo } from '../services/openagentsService';
 import OpenAgentsLogo from './icons/OpenAgentsLogo';
 
@@ -14,6 +14,11 @@ interface ExtendedSidebarProps extends Omit<SidebarProps, 'isCollapsed' | 'toggl
   onDirectMessageSelect?: (agentId: string) => void;
   showThreadMessaging?: boolean;
   agentName?: string | null;
+  
+  // Documents data
+  documents?: DocumentInfo[];
+  onDocumentSelect?: (documentId: string | null) => void;
+  selectedDocumentId?: string | null;
 }
 
 const Sidebar: React.FC<ExtendedSidebarProps> = ({
@@ -37,8 +42,34 @@ const Sidebar: React.FC<ExtendedSidebarProps> = ({
   onChannelSelect,
   onDirectMessageSelect,
   showThreadMessaging = false,
-  agentName = null
+  agentName = null,
+  // Documents props
+  documents = [],
+  onDocumentSelect,
+  selectedDocumentId = null
 }) => {
+  // Helper function to format dates
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return date.toLocaleDateString();
+  };
+
+  // Sort documents by last modified date (most recent first)
+  const sortedDocuments = [...documents].sort((a, b) => {
+    return new Date(b.last_modified).getTime() - new Date(a.last_modified).getTime();
+  });
+
   return (
     <div className="sidebar h-full flex flex-col transition-all duration-200 bg-slate-100 dark:bg-gray-900" style={{ width: '19rem' }}>
       {/* Top Section */}
@@ -169,6 +200,68 @@ const Sidebar: React.FC<ExtendedSidebarProps> = ({
                   </li>
                 ))}
               </ul>
+            </div>
+          </>
+        ) : activeView === 'documents' ? (
+          <>
+            {/* Documents List */}
+            <div className="px-5">
+              <div className="flex items-center mb-2">
+                <div className="text-xs font-bold text-gray-400 tracking-wide select-none">DOCUMENTS</div>
+                <div className="ml-2 h-px bg-gray-200 dark:bg-gray-700 flex-1"></div>
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto px-3 custom-scrollbar">
+              {sortedDocuments.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="text-gray-400 dark:text-gray-500 text-sm">
+                    <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} 
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    No documents yet
+                  </div>
+                </div>
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {sortedDocuments.map(doc => (
+                    <li key={doc.document_id}>
+                      <button
+                        onClick={() => onDocumentSelect?.(doc.document_id)}
+                        className={`w-full text-left text-sm px-2 py-3 font-medium rounded transition-colors
+                          ${selectedDocumentId === doc.document_id
+                            ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-300 border-l-2 border-indigo-500 dark:border-indigo-400 pl-2 shadow-sm'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 pl-2.5'}
+                        `}
+                        title={doc.name}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center mb-1">
+                              <svg className="w-4 h-4 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                                      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                              <span className="truncate font-medium">{doc.name}</span>
+                            </div>
+                            <div className="text-xs opacity-75 ml-6">
+                              <div className="truncate">v{doc.version} • {doc.creator}</div>
+                              <div className="mt-0.5">{formatDate(doc.last_modified)}</div>
+                            </div>
+                          </div>
+                          {doc.active_agents.length > 0 && (
+                            <div className="ml-2 flex items-center">
+                              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                              <span className="ml-1 text-xs opacity-75">{doc.active_agents.length}</span>
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </>
         ) : null}

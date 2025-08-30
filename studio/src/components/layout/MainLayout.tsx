@@ -3,6 +3,7 @@ import Sidebar from '../Sidebar';
 import ModSidebar from './ModSidebar';
 import { NetworkConnection } from '../../services/networkService';
 import { ThreadState } from '../chat/ThreadMessagingView';
+import { DocumentInfo } from '../../types';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -25,6 +26,10 @@ interface MainLayoutProps {
   threadState?: ThreadState | null;
   onChannelSelect?: (channel: string) => void;
   onDirectMessageSelect?: (agentId: string) => void;
+  // Documents props
+  documents?: DocumentInfo[];
+  onDocumentSelect?: (documentId: string | null) => void;
+  selectedDocumentId?: string | null;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({
@@ -43,7 +48,11 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   agentName = null,
   threadState = null,
   onChannelSelect,
-  onDirectMessageSelect
+  onDirectMessageSelect,
+  // Documents props
+  documents = [],
+  onDocumentSelect,
+  selectedDocumentId = null
 }) => {
   // Use passed thread state instead of hook
 
@@ -86,6 +95,10 @@ const MainLayout: React.FC<MainLayoutProps> = ({
         onChannelSelect={onChannelSelect}
         onDirectMessageSelect={onDirectMessageSelect}
         agentName={agentName}
+        // Documents props
+        documents={documents}
+        onDocumentSelect={onDocumentSelect}
+        selectedDocumentId={selectedDocumentId}
       />
 
       <main className={`flex-1 flex flex-col overflow-hidden m-1 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 dark:bg-gray-800 ${currentTheme === 'light' ? 'bg-gradient-to-br from-white via-blue-50 to-purple-50' : ''
