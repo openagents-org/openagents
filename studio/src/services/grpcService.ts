@@ -769,7 +769,7 @@ export class OpenAgentsGRPCConnection {
       console.log('📖 Requesting document content for:', documentId);
       
       // Send the command - this will trigger 'document_content' events
-      // The DocumentEditor will handle the events directly
+      // The YjsDocumentEditor will handle the events directly
       await this.sendSystemCommand('get_document_content', {
         document_id: documentId,
         include_comments: includeComments,
@@ -786,6 +786,9 @@ export class OpenAgentsGRPCConnection {
 
   async replaceLines(documentId: string, startLine: number, endLine: number, content: string): Promise<boolean> {
     try {
+      // Convert string content to array of lines as expected by the backend
+      const contentLines = content.split('\n');
+      
       const response = await fetch(`${this.baseUrl}/api/system_command`, {
         method: 'POST',
         headers: {
@@ -798,7 +801,7 @@ export class OpenAgentsGRPCConnection {
             document_id: documentId,
             start_line: startLine,
             end_line: endLine,
-            content: content
+            content: contentLines  // Send as array of lines
           }
         })
       });

@@ -5,10 +5,6 @@
   "private": true,
   "proxy": "http://localhost:5000",
   "dependencies": {
-    "@tiptap/extension-placeholder": "^3.3.0",
-    "@tiptap/extension-typography": "^3.3.0",
-    "@tiptap/react": "^3.3.0",
-    "@tiptap/starter-kit": "^3.3.0",
     "@types/prismjs": "^1.26.5",
     "@uiw/react-markdown-preview": "^5.1.5",
     "@uiw/react-md-editor": "^4.0.8",

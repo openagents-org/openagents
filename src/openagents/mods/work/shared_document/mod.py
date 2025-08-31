@@ -221,8 +221,13 @@ class SharedDocument:
             if start_line < 1 or end_line < 1 or start_line > end_line:
                 raise ValueError(f"Invalid line range: {start_line}-{end_line}")
             
-            if start_line > len(self.content) or end_line > len(self.content):
-                raise ValueError(f"Line range exceeds document length: {len(self.content)}")
+            # Allow expanding the document - only check that start_line is valid
+            if start_line > len(self.content) + 1:
+                raise ValueError(f"Start line {start_line} exceeds document length + 1: {len(self.content) + 1}")
+            
+            # If end_line exceeds current content, we'll expand the document
+            if end_line > len(self.content):
+                logger.info(f"Expanding document from {len(self.content)} lines to accommodate {end_line} lines")
             
             # Remove comments in the range being replaced
             for line_num in range(start_line, end_line + 1):
@@ -233,8 +238,13 @@ class SharedDocument:
             start_index = start_line - 1
             end_index = end_line - 1
             
-            # Replace the content
-            self.content[start_index:end_index + 1] = content
+            # If we're expanding beyond current content, adjust the slice
+            if end_index >= len(self.content):
+                # Expanding the document - replace from start_index to end of current content
+                self.content[start_index:] = content
+            else:
+                # Normal replacement within existing content
+                self.content[start_index:end_index + 1] = content
             
             # Update version and metadata
             self.version += 1

@@ -1,6 +1,6 @@
 import React from 'react';
 import { OpenAgentsGRPCConnection } from '../../services/grpcService';
-import EtherpadDocumentEditor from './EtherpadDocumentEditor';
+import OpenAgentsDocumentEditor from './OpenAgentsDocumentEditor';
 
 interface DocumentViewerProps {
   documentId: string;
@@ -17,9 +17,9 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
   onBack,
   readOnly = false
 }) => {
-  // Use the new Etherpad-based DocumentEditor component
+  // Use the new pure OpenAgents-based collaborative DocumentEditor
   return (
-    <EtherpadDocumentEditor
+    <OpenAgentsDocumentEditor
       documentId={documentId}
       connection={connection}
       currentTheme={currentTheme}
