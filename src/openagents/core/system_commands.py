@@ -517,7 +517,7 @@ async def send_system_request(connection: ServerConnection, command: str, **kwar
         request_data = {
             "type": "system_request",
             "command": command,
-            **kwargs
+            "data": kwargs
         }
         await connection.send(json.dumps(request_data))
         logger.debug(f"Sent system request: {command}")
