@@ -331,6 +331,17 @@ class GRPCHTTPAdapter:
                 if command in ['get_channel_messages', 'list_channels', 'react_to_message']:
                     return await self._handle_thread_messaging_command(agent_id, command, data)
                 
+                # Handle mod checking command
+                if command == 'check_mod':
+                    return await self._handle_check_mod_command(agent_id, data)
+                
+                # Handle shared document commands by converting to mod messages
+                if command in ['create_document', 'open_document', 'close_document', 'list_documents', 
+                              'get_document_content', 'get_document_history', 'get_agent_presence',
+                              'insert_lines', 'remove_lines', 'replace_lines', 'add_comment', 
+                              'remove_comment', 'update_cursor_position']:
+                    return await self._handle_shared_document_command(agent_id, command, data)
+                
                 # Handle other system commands by creating a system message
                 system_message = {
                     "command": command,
@@ -476,6 +487,87 @@ class GRPCHTTPAdapter:
             
         except Exception as e:
             logger.error(f"Error handling thread messaging command: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    async def _handle_shared_document_command(self, agent_id: str, command: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle shared document specific commands by converting to mod messages."""
+        try:
+            logger.info(f"🔧 _handle_shared_document_command: agent_id={agent_id}, command={command}, data={data}")
+            
+            if not hasattr(self.transport, 'network_instance') or not self.transport.network_instance:
+                return {'success': False, 'error': 'Network instance not available'}
+            
+            network = self.transport.network_instance
+            
+            # Create appropriate mod message based on command
+            # The content should match exactly what the shared document mod expects
+            # BaseMessage requires sender_id, and we need all the data fields
+            mod_content = {
+                "message_type": command,
+                "sender_id": agent_id,  # Required by BaseMessage
+                **data  # Include all data from the request (document_id, line_number, content, etc.)
+            }
+            
+            # Create ModMessage
+            from openagents.models.messages import ModMessage
+            import uuid
+            
+            mod_message = ModMessage(
+                message_id=str(uuid.uuid4()),
+                sender_id=agent_id,
+                mod="openagents.mods.work.shared_document",
+                direction="outbound",
+                relevant_agent_id=agent_id,
+                content=mod_content,
+                timestamp=int(time.time())
+            )
+            
+            # Send through network's mod message handler
+            await network._handle_mod_message(mod_message)
+            
+            return {'success': True, 'forwarded_to_mod': True}
+            
+        except Exception as e:
+            logger.error(f"Error handling shared document command: {e}")
+            return {'success': False, 'error': str(e)}
+    
+    async def _handle_check_mod_command(self, agent_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle mod checking commands to detect available mods."""
+        try:
+            mod_name = data.get('mod_name', '')
+            logger.info(f"🔧 _handle_check_mod_command: agent_id={agent_id}, mod_name={mod_name}")
+            
+            if not hasattr(self.transport, 'network_instance') or not self.transport.network_instance:
+                return {'success': False, 'error': 'Network instance not available'}
+            
+            network = self.transport.network_instance
+            
+            # Check if the mod is loaded in the network
+            available_mods = getattr(network, 'mods', {})
+            
+            # Map frontend mod names to actual mod names
+            mod_mapping = {
+                'shared_documents': 'openagents.mods.work.shared_document',
+                'thread_messaging': 'openagents.mods.communication.thread_messaging'
+            }
+            
+            actual_mod_name = mod_mapping.get(mod_name, mod_name)
+            is_available = actual_mod_name in available_mods
+            
+            logger.info(f"🔧 Mod check result: {mod_name} -> {actual_mod_name} = {is_available}")
+            logger.info(f"🔧 Available mods: {list(available_mods.keys())}")
+            
+            return {
+                'success': True,
+                'response_data': {
+                    'available': is_available,
+                    'mod_name': mod_name,
+                    'actual_mod_name': actual_mod_name
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error handling check mod command: {e}")
             return {'success': False, 'error': str(e)}
     
     def queue_message_for_agent(self, agent_id: str, message: Dict[str, Any]):

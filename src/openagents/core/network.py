@@ -370,6 +370,7 @@ class AgentNetwork:
         try:
             content = message.content
             action = content.get('action', '')
+            message_type = content.get('message_type', '')
             
             # Map mod actions to HTTP command responses
             if action == 'retrieve_channel_messages_response':
@@ -380,6 +381,46 @@ class AgentNetwork:
                 return 'get_direct_messages'
             elif action == 'reaction_response':
                 return 'react_to_message'
+            # Shared document response mappings
+            elif action == 'document_created':
+                return 'create_document'
+            elif action == 'document_opened':
+                return 'open_document'
+            elif action == 'document_closed':
+                return 'close_document'
+            elif action == 'document_list_response':
+                return 'list_documents'
+            elif action == 'document_content_response':
+                return 'get_document_content'
+            elif action == 'document_history_response':
+                return 'get_document_history'
+            elif action == 'agent_presence_response':
+                return 'get_agent_presence'
+            elif action == 'lines_inserted':
+                return 'insert_lines'
+            elif action == 'lines_removed':
+                return 'remove_lines'
+            elif action == 'lines_replaced':
+                return 'replace_lines'
+            elif action == 'comment_added':
+                return 'add_comment'
+            elif action == 'comment_removed':
+                return 'remove_comment'
+            elif action == 'cursor_updated':
+                return 'update_cursor_position'
+            # Shared document message_type mappings (these use message_type instead of action)
+            elif message_type == 'document_operation_response':
+                # For operation responses, we need to determine the original command
+                # This is a generic response, so we'll return a default
+                return 'document_operation'
+            elif message_type == 'document_list_response':
+                return 'list_documents'
+            elif message_type == 'document_content_response':
+                return 'get_document_content'
+            elif message_type == 'document_history_response':
+                return 'get_document_history'
+            elif message_type == 'agent_presence_response':
+                return 'get_agent_presence'
             else:
                 # Default to the action name
                 return action.replace('_response', '') if action.endswith('_response') else action

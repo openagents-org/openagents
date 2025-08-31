@@ -1018,7 +1018,7 @@ class SharedDocumentNetworkMod(BaseMod):
             logger.info(f"🔧 _send_response - Final content request_id: {content.get('request_id', 'NOT_FOUND')}")
             
             mod_message = ModMessage(
-                mod="shared_document",
+                mod="openagents.mods.work.shared_document",
                 content=content,
                 sender_id=self.network.network_id,
                 relevant_agent_id=target_agent_id

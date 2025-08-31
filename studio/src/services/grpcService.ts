@@ -302,6 +302,89 @@ export class OpenAgentsGRPCConnection {
           this.emit('reaction', message.data);
         }
         break;
+      case 'list_documents':
+        // Handle document list responses
+        console.log('🔍 list_documents response received:', message.data);
+        if (message.data && message.data.documents) {
+          console.log('📋 Emitting documents:', message.data.documents);
+          this.emit('documents', message.data.documents);
+        } else {
+          console.log('⚠️ No documents found in response');
+        }
+        break;
+      case 'create_document':
+        // Handle document creation responses
+        console.log('🔍 create_document response received:', message.data);
+        if (message.data && message.data.success) {
+          console.log('✅ Document created successfully');
+          this.emit('document_created', message.data);
+        }
+        break;
+      case 'document_operation':
+        // Handle document operation responses
+        console.log('🔍 document_operation response received:', message.data);
+        if (message.data && message.data.success) {
+          console.log('✅ Document operation completed');
+          this.emit('document_operation', message.data);
+        }
+        break;
+      case 'get_document_content':
+        // Handle document content responses
+        console.log('🔍 get_document_content response received:', message.data);
+        if (message.data && message.data.content !== undefined) {
+          console.log('📄 Emitting document content');
+          this.emit('document_content', message.data);
+        } else {
+          console.log('⚠️ No content found in document response');
+        }
+        break;
+      case 'insert_lines':
+      case 'remove_lines':
+      case 'replace_lines':
+        // Handle document editing operations
+        console.log(`🔍 ${command} response received:`, message.data);
+        if (message.data && message.data.success !== undefined) {
+          console.log(`✅ ${command} operation completed`);
+          this.emit('document_operation', { operation: command, ...message.data });
+        }
+        break;
+      case 'add_comment':
+      case 'remove_comment':
+        // Handle comment operations
+        console.log(`🔍 ${command} response received:`, message.data);
+        if (message.data && message.data.success !== undefined) {
+          console.log(`✅ ${command} operation completed`);
+          this.emit('comment_operation', { operation: command, ...message.data });
+        }
+        break;
+      case 'update_cursor_position':
+        // Handle cursor position updates
+        console.log('🔍 cursor position update received:', message.data);
+        this.emit('cursor_update', message.data);
+        break;
+      case 'get_agent_presence':
+        // Handle agent presence responses
+        console.log('🔍 agent presence response received:', message.data);
+        if (message.data && message.data.agent_presence) {
+          this.emit('agent_presence', message.data.agent_presence);
+        }
+        break;
+      case 'get_document_history':
+        // Handle document history responses
+        console.log('🔍 document history response received:', message.data);
+        if (message.data && message.data.operations) {
+          this.emit('document_history', message.data.operations);
+        }
+        break;
+      case 'open_document':
+      case 'close_document':
+        // Handle document open/close operations
+        console.log(`🔍 ${command} response received:`, message.data);
+        if (message.data && message.data.success !== undefined) {
+          console.log(`✅ ${command} operation completed`);
+          this.emit('document_lifecycle', { operation: command, ...message.data });
+        }
+        break;
       default:
         console.log(`Unhandled system response: ${command}`);
     }
@@ -509,6 +592,19 @@ export class OpenAgentsGRPCConnection {
     this.messageHandlers.set(event, handler);
   }
 
+  off(event: string, handler?: (data: any) => void): void {
+    if (handler) {
+      // If a specific handler is provided, only remove if it matches
+      const currentHandler = this.messageHandlers.get(event);
+      if (currentHandler === handler) {
+        this.messageHandlers.delete(event);
+      }
+    } else {
+      // If no handler provided, remove all handlers for this event
+      this.messageHandlers.delete(event);
+    }
+  }
+
   private emit(event: string, data: any): void {
     const handler = this.messageHandlers.get(event);
     if (handler) {
@@ -576,7 +672,13 @@ export class OpenAgentsGRPCConnection {
   // Document-related methods for shared documents mod
   async hasSharedDocumentMod(): Promise<boolean> {
     try {
-      // Check if the shared documents mod is available by trying to list documents
+      // For now, assume shared documents mod is available if we can connect
+      // This is a temporary workaround until the server is restarted with proper mod detection
+      if (!this.connected) {
+        return false;
+      }
+      
+      // Try to test if shared document commands work by attempting a simple list_documents call
       const response = await fetch(`${this.baseUrl}/api/system_command`, {
         method: 'POST',
         headers: {
@@ -584,16 +686,17 @@ export class OpenAgentsGRPCConnection {
         },
         body: JSON.stringify({
           agent_id: this.agentId,
-          command: 'check_mod',
+          command: 'list_documents',
           data: {
-            mod_name: 'shared_documents'
+            include_closed: false
           }
         })
       });
 
       if (response.ok) {
         const result = await response.json();
-        return result.success && result.response_data?.available === true;
+        // If we get a response with forwarded_to_mod, the shared document mod is working
+        return result.success === true;
       }
       return false;
     } catch (error) {
@@ -629,7 +732,7 @@ export class OpenAgentsGRPCConnection {
     }
   }
 
-  async getDocumentContent(documentId: string, includeComments: boolean = true, includePresence: boolean = true): Promise<any> {
+  async createDocument(name: string, initialContent: string = '', permissions: Record<string, string> = {}): Promise<string | null> {
     try {
       const response = await fetch(`${this.baseUrl}/api/system_command`, {
         method: 'POST',
@@ -638,20 +741,43 @@ export class OpenAgentsGRPCConnection {
         },
         body: JSON.stringify({
           agent_id: this.agentId,
-          command: 'get_document_content',
+          command: 'create_document',
           data: {
-            document_id: documentId,
-            include_comments: includeComments,
-            include_presence: includePresence
+            document_name: name,
+            initial_content: initialContent,
+            access_permissions: permissions
           }
         })
       });
 
       if (response.ok) {
         const result = await response.json();
-        return result.success ? result.response_data : null;
+        if (result.success) {
+          // The document ID should come back in the response
+          return result.document_id || result.response_data?.document_id || null;
+        }
       }
       return null;
+    } catch (error) {
+      console.error('Error creating document:', error);
+      return null;
+    }
+  }
+
+  async getDocumentContent(documentId: string, includeComments: boolean = true, includePresence: boolean = true): Promise<any> {
+    try {
+      console.log('📖 Requesting document content for:', documentId);
+      
+      // Send the command - this will trigger 'document_content' events
+      // The DocumentEditor will handle the events directly
+      await this.sendSystemCommand('get_document_content', {
+        document_id: documentId,
+        include_comments: includeComments,
+        include_presence: includePresence
+      });
+
+      // Return a simple success indicator - the actual content will come via events
+      return { success: true, requested_document_id: documentId };
     } catch (error) {
       console.error('Error getting document content:', error);
       return null;

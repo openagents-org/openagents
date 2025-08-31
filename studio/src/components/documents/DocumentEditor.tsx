@@ -246,6 +246,53 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     },
   });
 
+  // Handle document content received via events
+  const handleDocumentContentReceived = useCallback((content: any) => {
+    console.log('📄 Document content received via event:', content);
+    console.log('📄 Content array:', content.content);
+    console.log('📄 Content length:', content.content ? content.content.length : 0);
+    
+    setDocumentContent(content);
+    
+    // Reset user edits flag for fresh document load
+    setHasUserEdits(false);
+    
+    // Convert content array to string and set in editor
+    const contentString = content.content ? content.content.join('\n') : '';
+    console.log('📝 Raw content string:', contentString);
+    console.log('📝 Content string length:', contentString.length);
+    
+    if (editor) {
+      // Convert markdown to HTML for proper rendering
+      const htmlContent = markdownToHtml(contentString);
+      console.log('🎨 Converted HTML:', htmlContent);
+      editor.commands.setContent(htmlContent);
+    }
+    
+    setEditorState(prev => ({
+      ...prev,
+      content: content.content || ['']
+    }));
+    
+    // Set title from document ID or metadata
+    setTitle(content.document_id || documentId);
+    
+    // Initialize collaborative users from agent presence
+    if (content.agent_presence) {
+      const users = content.agent_presence.map((presence: any, index: number) => ({
+        id: presence.agent_id,
+        name: presence.agent_id,
+        color: USER_COLORS[index % USER_COLORS.length],
+        cursor: presence.cursor_position || { line: 1, column: 1 },
+        isActive: presence.is_active
+      }));
+      setCollaborativeUsers(users);
+    }
+    
+    setIsLoading(false);
+    setIsLoadingDocument(false);
+  }, [editor, documentId]);
+
   // Load document content
   const loadDocumentContent = useCallback(async () => {
     // Prevent concurrent loads
@@ -261,57 +308,33 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       
       console.log('📖 Loading document:', documentId);
       
-      // Only use getDocumentContent - avoid dual loading that causes conflicts
-      const content = await connection.getDocumentContent(documentId, true, true);
-      console.log('📄 Loaded document content:', content);
-      console.log('📄 Content array:', content.content);
-      console.log('📄 Content length:', content.content ? content.content.length : 0);
+      // Request document content - this will trigger 'document_content' events
+      const result = await connection.getDocumentContent(documentId, true, true);
+      console.log('📤 Document content requested:', result);
       
-      setDocumentContent(content);
-      
-      // Reset user edits flag for fresh document load
-      setHasUserEdits(false);
-      
-      // Convert content array to string and set in editor
-      const contentString = content.content ? content.content.join('\n') : '';
-      console.log('📝 Raw content string:', contentString);
-      console.log('📝 Content string length:', contentString.length);
-      
-      if (editor) {
-        // Convert markdown to HTML for proper rendering
-        const htmlContent = markdownToHtml(contentString);
-        console.log('🎨 Converted HTML:', htmlContent);
-        editor.commands.setContent(htmlContent);
-      }
-      
-      setEditorState(prev => ({
-        ...prev,
-        content: content.content || ['']
-      }));
-      
-      // Set title from document ID or metadata
-      setTitle(content.document_id || documentId);
-      
-      // Initialize collaborative users from agent presence
-      if (content.agent_presence) {
-        const users = content.agent_presence.map((presence: AgentPresence, index: number) => ({
-          agentId: presence.agent_id,
-          displayName: presence.agent_id,
-          cursorPosition: presence.cursor_position || { line: 1, column: 1 },
-          color: USER_COLORS[index % USER_COLORS.length],
-          isActive: presence.is_active
-        }));
-        setCollaborativeUsers(users);
-      }
+      // The actual content will be received via the 'document_content' event
+      // and handled by handleDocumentContentReceived
       
     } catch (err) {
       console.error('Failed to load document content:', err);
       setError('Failed to load document content');
-    } finally {
       setIsLoading(false);
       setIsLoadingDocument(false);
     }
-  }, [connection, documentId, editor]);
+  }, [connection, documentId]);
+
+  // Set up event listeners
+  useEffect(() => {
+    if (connection) {
+      // Listen for document content events
+      connection.on('document_content', handleDocumentContentReceived);
+      
+      // Cleanup event listeners
+      return () => {
+        connection.off('document_content', handleDocumentContentReceived);
+      };
+    }
+  }, [connection, handleDocumentContentReceived]);
 
   useEffect(() => {
     if (editor) {

@@ -77,42 +77,73 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
     };
   }, [currentNetwork, sharedConnection]);
 
-  // Load documents
+  // Handle documents received from gRPC service
+  const handleDocumentsReceived = useCallback((docs: DocumentInfo[]) => {
+    console.log('📋 Documents received via event:', docs);
+    
+    // Update shared state if available, otherwise local state
+    if (sharedOnDocumentsChange) {
+      sharedOnDocumentsChange(docs || []);
+    } else {
+      setDocuments(docs || []);
+    }
+    
+    setIsLoading(false);
+    setError(null);
+  }, [sharedOnDocumentsChange]);
+
+  // Load documents by requesting them (triggers events)
   const loadDocuments = useCallback(async () => {
     if (!effectiveConnection) return;
 
     try {
       setIsLoading(true);
       setError(null);
-      const docs = await effectiveConnection.listDocuments(false); // Don't include closed documents by default
-      console.log('📋 Loaded documents:', docs);
       
-      // Update shared state if available, otherwise local state
-      if (sharedOnDocumentsChange) {
-        sharedOnDocumentsChange(docs || []);
-      } else {
-        setDocuments(docs || []);
-      }
+      // Send list_documents command - this will trigger 'documents' events
+      await effectiveConnection.sendSystemCommand('list_documents', { include_closed: false });
+      console.log('📤 Requested documents list');
     } catch (err) {
-      console.error('Failed to load documents:', err);
+      console.error('Failed to request documents:', err);
       setError('Failed to load documents');
-    } finally {
       setIsLoading(false);
     }
-  }, [effectiveConnection, sharedOnDocumentsChange]);
+  }, [effectiveConnection]);
 
+  // Handle document creation events
+  const handleDocumentCreated = useCallback((data: any) => {
+    console.log('📄 Document created event received:', data);
+    // Refresh the document list
+    loadDocuments();
+  }, [loadDocuments]);
+
+  // Set up event listeners
   useEffect(() => {
     if (effectiveConnection) {
+      // Listen for documents events
+      effectiveConnection.on('documents', handleDocumentsReceived);
+      effectiveConnection.on('document_created', handleDocumentCreated);
+      
+      // Load initial documents
       loadDocuments();
+      
+      // Cleanup event listeners
+      return () => {
+        effectiveConnection.off('documents', handleDocumentsReceived);
+        effectiveConnection.off('document_created', handleDocumentCreated);
+      };
     }
-  }, [effectiveConnection, loadDocuments]);
+  }, [effectiveConnection, loadDocuments, handleDocumentsReceived, handleDocumentCreated]);
 
   const handleCreateDocument = async (name: string, content: string, permissions: Record<string, string>) => {
     if (!effectiveConnection) return;
 
     try {
-      await effectiveConnection.createDocument(name, content, permissions);
-      await loadDocuments(); // Refresh the list
+      const documentId = await effectiveConnection.createDocument(name, content, permissions);
+      console.log('📄 Document creation initiated:', documentId);
+      
+      // Request updated document list (will trigger 'documents' event)
+      await loadDocuments();
       setShowCreateModal(false);
     } catch (err) {
       console.error('Failed to create document:', err);
