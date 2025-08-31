@@ -524,18 +524,19 @@ const MessageDisplay: React.FC<MessageDisplayProps> = ({
 
           {message.reactions && Object.keys(message.reactions).length > 0 && (
             <div className="reactions">
-              {Object.entries(message.reactions).map(([type, count]) => (
-                count > 0 && (
+              {Object.entries(message.reactions).map(([type, count]) => {
+                const numCount = Number(count);
+                return numCount > 0 && (
                   <div
                     key={type}
                     className={`reaction-item ${currentTheme}`}
                     onClick={(event) => handleReaction(messageId, type, event)}
                   >
                     <span>{REACTION_EMOJIS[type as keyof typeof REACTION_EMOJIS] || type}</span>
-                    <span>{count}</span>
+                    <span>{numCount}</span>
                   </div>
-                )
-              ))}
+                );
+              })}
             </div>
           )}
 

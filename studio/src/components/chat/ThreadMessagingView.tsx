@@ -341,10 +341,10 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
           conn.listChannels();
           
           console.log('📤 Requesting agents list...');
-          conn.listAgents().then((agents) => {
+          conn.listAgents().then((agents: AgentInfo[]) => {
             console.log('👥 Network agents received:', agents);
             handleAgentsList(agents);
-          }).catch((error) => {
+          }).catch((error: any) => {
             console.error('❌ Failed to get agents:', error);
           });
           
