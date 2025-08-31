@@ -346,7 +346,12 @@ async def handle_get_network_info(command: str, data: Dict[str, Any], connection
     """
     requesting_agent_id = data.get("agent_id")
     
-    if requesting_agent_id not in network_instance.connections:
+    # Allow temporary studio connections to fetch network info without being registered
+    is_studio_temp = requesting_agent_id and requesting_agent_id.startswith("studio_temp_")
+    
+    if is_studio_temp:
+        logger.debug(f"Studio frontend requesting network info via temporary connection: {requesting_agent_id}")
+    elif requesting_agent_id not in network_instance.connections:
         logger.warning(f"Agent {requesting_agent_id} not connected")
         return
     
@@ -358,6 +363,10 @@ async def handle_get_network_info(command: str, data: Dict[str, Any], connection
         "mods": list(network_instance.mods.keys()),
         "agent_count": len(network_instance.connections)
     }
+    
+    # Include workspace path if available in metadata
+    if hasattr(network_instance, 'metadata') and 'workspace_path' in network_instance.metadata:
+        network_info["workspace_path"] = network_instance.metadata['workspace_path']
     
     # Send response
     try:

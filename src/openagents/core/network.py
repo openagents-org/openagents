@@ -139,6 +139,11 @@ class AgentNetwork:
                 # Create the network instance
                 network = AgentNetwork(network_config)
                 
+                # Load metadata if specified in config
+                if 'metadata' in config_dict:
+                    network.metadata.update(config_dict['metadata'])
+                    logger.debug(f"Loaded metadata: {config_dict['metadata']}")
+                
                 # Load network mods if specified in config
                 if 'mods' in config_dict['network'] and config_dict['network']['mods']:
                     logger.info(f"Loading {len(config_dict['network']['mods'])} network mods...")

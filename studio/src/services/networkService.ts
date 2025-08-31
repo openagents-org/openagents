@@ -23,6 +23,10 @@ export interface NetworkConnection {
   port: number;
   status: 'connected' | 'connecting' | 'disconnected' | 'error';
   latency?: number;
+  networkInfo?: {
+    name?: string;
+    workspace_path?: string;
+  };
 }
 
 export interface NetworkListResponse {
@@ -65,6 +69,9 @@ export const detectLocalNetwork = async (): Promise<NetworkConnection | null> =>
     console.log('No local OpenAgents network detected on port 8571');
     return null;
   }
+  
+  console.log('No local OpenAgents network detected on common ports');
+  return null;
 };
 
 // Test connection to a specific network
