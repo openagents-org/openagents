@@ -37,12 +37,20 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
   const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [liveUpdateIndicator, setLiveUpdateIndicator] = useState(false);
   
   // Content state
   const [textContent, setTextContent] = useState('');
   const [localVersion, setLocalVersion] = useState(0);
   const [serverVersion, setServerVersion] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
+  const [lastSaveTime, setLastSaveTime] = useState<number>(0);
+  
+  // Line authorship tracking
+  const [lineAuthors, setLineAuthors] = useState<{[lineNumber: number]: string}>({});
+  
+  // Line locking tracking
+  const [lineLocks, setLineLocks] = useState<{[lineNumber: number]: string}>({});
   
   // Refs
   const titleRef = useRef<HTMLInputElement>(null);
@@ -52,7 +60,7 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Configuration
-  const SYNC_INTERVAL = 2000; // Poll every 2 seconds for changes
+  const SYNC_INTERVAL = 1000; // Poll every 1 second for real-time collaboration
   const SAVE_DEBOUNCE = 500; // Wait 500ms after typing stops to save (faster sync)
   const PRESENCE_UPDATE_INTERVAL = 5000; // Update presence every 5 seconds
 
@@ -61,6 +69,14 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
     '#3B82F6', '#EF4444', '#10B981', '#F59E0B', 
     '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'
   ];
+  
+  // Get author color and info
+  const getAuthorInfo = useCallback((agentId: string) => {
+    const colorIndex = Math.abs(agentId.split('').reduce((a, b) => a + b.charCodeAt(0), 0)) % USER_COLORS.length;
+    const color = USER_COLORS[colorIndex];
+    const initials = agentId.length >= 2 ? agentId.substring(0, 2).toUpperCase() : agentId.toUpperCase();
+    return { color, initials, agentId };
+  }, []);
 
   // Handle document content received via events
   const handleDocumentContentReceived = useCallback((content: any) => {
@@ -114,30 +130,85 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
     
     console.log(`📄 Processing content: "${newTextContent}" (version ${newVersion})`);
     
-    // Only update content if we're not currently editing/saving or if server version is significantly newer
+    // Smart live collaboration: Allow updates but protect active typing
     const isCurrentlyEditing = document.activeElement === textareaRef.current;
-    const hasSignificantVersionDifference = newVersion > serverVersion + 1; // Only update if version jumped significantly
     const isInitialLoad = serverVersion === 0;
-    const shouldUpdate = (!isCurrentlyEditing && !isSaving && !hasUnsavedChanges) || hasSignificantVersionDifference || isInitialLoad;
+    const hasNewerVersion = newVersion > serverVersion;
+    const hasUnsavedWork = hasUnsavedChanges;
+    const recentlySaved = Date.now() - lastSaveTime < 2000; // 2 seconds grace period after save
     
-    console.log(`📄 Update decision: editing=${isCurrentlyEditing}, saving=${isSaving}, unsaved=${hasUnsavedChanges}, serverV=${serverVersion}, newV=${newVersion}, shouldUpdate=${shouldUpdate}`);
+    // Update logic:
+    // 1. Always update on initial load
+    // 2. Update if not currently editing AND not saving AND no unsaved work
+    // 3. Update if version jumped significantly (major changes from others)
+    // 4. NEVER update if user has unsaved changes and is actively typing
+    // 5. Give user 2 seconds grace period after saving to continue typing
+    const versionJumpedSignificantly = newVersion > serverVersion + 2;
+    const shouldUpdate = isInitialLoad || 
+                        (!isCurrentlyEditing && !isSaving && !hasUnsavedWork && !recentlySaved) ||
+                        (versionJumpedSignificantly && !isSaving && !recentlySaved);
+    
+    console.log(`📄 Update decision: editing=${isCurrentlyEditing}, saving=${isSaving}, unsaved=${hasUnsavedChanges}, recentSave=${recentlySaved}, serverV=${serverVersion}, newV=${newVersion}, shouldUpdate=${shouldUpdate}`);
     
     if (shouldUpdate) {
+      // Preserve cursor position during live updates (Notion-style)
+      let cursorPosition = 0;
+      let selectionEnd = 0;
+      if (textareaRef.current && isCurrentlyEditing) {
+        cursorPosition = textareaRef.current.selectionStart || 0;
+        selectionEnd = textareaRef.current.selectionEnd || 0;
+      }
+      
       setTextContent(newTextContent);
       setServerVersion(newVersion);
       
-      // Update textarea if it exists and we're not currently editing
-      if (textareaRef.current && !isCurrentlyEditing) {
+      if (textareaRef.current) {
         textareaRef.current.value = newTextContent;
+        
+        // Restore cursor position if user was editing
+        if (isCurrentlyEditing && cursorPosition >= 0) {
+          // Ensure cursor position is within bounds of new content
+          const safeStart = Math.min(cursorPosition, newTextContent.length);
+          const safeEnd = Math.min(selectionEnd, newTextContent.length);
+          textareaRef.current.setSelectionRange(safeStart, safeEnd);
+          console.log(`🎯 Restored cursor position: ${safeStart}-${safeEnd}`);
+        }
       }
       
       setLastSyncTime(new Date());
-      console.log(`✅ Updated content from server (version ${newVersion}): "${newTextContent}"`);
+      console.log(`✅ Live collaboration update (version ${newVersion})`);
       
-      // Reset unsaved changes flag since we just loaded from server
-      setHasUnsavedChanges(false);
+      // Show live update indicator briefly (only for updates from other users)
+      if (isCurrentlyEditing && hasNewerVersion && !isSaving) {
+        setLiveUpdateIndicator(true);
+        setTimeout(() => setLiveUpdateIndicator(false), 1500);
+      }
+      
+      // Only clear unsaved changes if this isn't a user's active edit
+      if (!isCurrentlyEditing || !hasUnsavedChanges) {
+        setHasUnsavedChanges(false);
+      }
+      
+      // Update line authorship from backend data
+      if (content.line_authors && typeof content.line_authors === 'object') {
+        console.log('📝 Updating line authorship:', content.line_authors);
+        setLineAuthors(content.line_authors);
+      } else if (hasNewerVersion) {
+        // Fallback: if no line authorship data, clear existing authorship
+        console.log('⚠️ No line authorship data received, clearing authorship');
+        setLineAuthors({});
+      }
+      
+      // Update line locks from backend data
+      if (content.line_locks && typeof content.line_locks === 'object') {
+        console.log('🔒 Updating line locks:', content.line_locks);
+        setLineLocks(content.line_locks);
+      } else {
+        // Clear existing locks if no lock data received
+        setLineLocks({});
+      }
     } else {
-      console.log(`⏭️ Skipping update - user is currently editing`);
+      console.log(`⏭️ Skipping update - currently saving`);
       // Still update the server version to track what the server has
       setServerVersion(newVersion);
     }
@@ -184,8 +255,13 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
       console.log(`💾 Replacing lines 1 to ${lines.length} with ${lines.length} lines`);
       await connection.replaceLines(documentId, 1, lines.length, content);
       
+      // Update line authorship for all modified lines
+      // The backend will track authorship, but we can optimistically update the UI
+      // Note: The real authorship will come from the next content update from the server
+      
       setHasUnsavedChanges(false);
       setLocalVersion(prev => prev + 1);
+      setLastSaveTime(Date.now()); // Record save time for grace period
       console.log('✅ Content saved successfully');
       
     } catch (error) {
@@ -386,7 +462,63 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
   }
 
   return (
-    <div className={`flex-1 flex flex-col ${currentTheme === 'dark' ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
+    <>
+      {/* Custom CSS for enhanced cursor and typography */}
+      <style>{`
+        .enhanced-editor {
+          caret-color: #60A5FA !important;
+          transition: all 0.2s ease;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+          text-rendering: optimizeLegibility;
+          line-height: 1.6 !important;
+          border-radius: 0;
+        }
+        
+        .enhanced-editor:focus {
+          caret-color: #3B82F6 !important;
+          box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.2);
+          animation: cursor-pulse 1.2s ease-in-out infinite;
+        }
+        
+        /* Better text selection with light blue theme */
+        .enhanced-editor::selection {
+          background-color: rgba(96, 165, 250, 0.25);
+          color: inherit;
+        }
+        
+        .enhanced-editor::-moz-selection {
+          background-color: rgba(96, 165, 250, 0.25);
+          color: inherit;
+        }
+        
+        /* Dark mode adjustments */
+        .enhanced-editor.dark-mode::selection {
+          background-color: rgba(96, 165, 250, 0.4);
+        }
+        
+        .enhanced-editor.dark-mode::-moz-selection {
+          background-color: rgba(96, 165, 250, 0.4);
+        }
+        
+        /* Enhanced cursor visibility */
+        @keyframes cursor-pulse {
+          0%, 50% { 
+            caret-color: #60A5FA; 
+          }
+          51%, 100% { 
+            caret-color: rgba(96, 165, 250, 0.3); 
+          }
+        }
+        
+        /* Better placeholder styling */
+        .enhanced-editor::placeholder {
+          font-style: italic;
+          opacity: 0.6;
+        }
+      `}</style>
+      
+      <div className={`flex-1 flex flex-col ${currentTheme === 'dark' ? 'bg-gray-900 text-white' : 'bg-white text-gray-900'}`}>
       {/* Header */}
       <div className={`flex items-center justify-between p-4 border-b ${currentTheme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
         <div className="flex items-center space-x-4">
@@ -469,6 +601,18 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
             >
               💾
             </button>
+            
+            {/* Live collaboration indicator */}
+            {liveUpdateIndicator && (
+              <div className={`flex items-center space-x-1 text-xs px-2 py-1 rounded-full animate-pulse ${
+                currentTheme === 'dark' 
+                  ? 'bg-blue-900 text-blue-300' 
+                  : 'bg-blue-100 text-blue-600'
+              }`}>
+                <div className="w-1 h-1 bg-current rounded-full animate-ping"></div>
+                <span>Live update</span>
+              </div>
+            )}
           </div>
 
           {/* Save status */}
@@ -530,6 +674,68 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
 
       {/* Main content area */}
       <div className="flex-1 flex">
+        {/* Line authorship and locking sidebar */}
+        <div className={`w-12 flex-shrink-0 ${
+          currentTheme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'
+        } border-r`}>
+          <div className="py-6">
+            {textContent.split('\n').map((line, index) => {
+              const lineNumber = index + 1;
+              const authorId = lineAuthors[lineNumber];
+              const lockerId = lineLocks[lineNumber];
+              const prevAuthorId = index > 0 ? lineAuthors[index] : null;
+              const showAuthor = authorId && (index === 0 || authorId !== lineAuthors[index]);
+              
+              // Show lock indicator if line is locked
+              if (lockerId) {
+                const lockerInfo = getAuthorInfo(lockerId);
+                return (
+                  <div
+                    key={`lock-${lineNumber}`}
+                    className="flex justify-center mb-1"
+                    style={{ height: '1.6rem' }}
+                    title={`Line locked by ${lockerId}`}
+                  >
+                    <div
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white border-2 border-red-400 animate-pulse"
+                      style={{ backgroundColor: lockerInfo.color }}
+                    >
+                      🔒
+                    </div>
+                  </div>
+                );
+              }
+              // Show author indicator if no lock and author should be shown
+              else if (showAuthor) {
+                const authorInfo = getAuthorInfo(authorId);
+                return (
+                  <div
+                    key={`author-${lineNumber}`}
+                    className="flex justify-center mb-1"
+                    style={{ height: '1.6rem' }}
+                    title={`Last edited by ${authorId}`}
+                  >
+                    <div
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                      style={{ backgroundColor: authorInfo.color }}
+                    >
+                      {authorInfo.initials}
+                    </div>
+                  </div>
+                );
+              } else {
+                return (
+                  <div
+                    key={`spacer-${lineNumber}`}
+                    style={{ height: '1.6rem' }}
+                    className="mb-1"
+                  />
+                );
+              }
+            })}
+          </div>
+        </div>
+        
         {/* Text editor */}
         <div className="flex-1 relative">
           <textarea
@@ -537,18 +743,27 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
             value={textContent}
             onChange={handleTextChange}
             disabled={readOnly}
-            className={`w-full h-full p-6 resize-none border-none outline-none font-mono text-sm leading-relaxed ${
+            className={`enhanced-editor w-full h-full p-6 resize-none border-none outline-none text-base leading-relaxed ${
               currentTheme === 'dark' 
-                ? 'bg-gray-900 text-gray-100 placeholder-gray-500' 
+                ? 'bg-gray-900 text-gray-100 placeholder-gray-500 dark-mode' 
                 : 'bg-white text-gray-900 placeholder-gray-400'
             } ${readOnly ? 'cursor-default' : ''}`}
             placeholder={readOnly ? 'This document is read-only' : 'Start typing your document...'}
             spellCheck={false}
+            style={{ 
+              lineHeight: '1.6',
+              fontFamily: '"Inter", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+              fontSize: '16px',
+              letterSpacing: '0.01em',
+              caretColor: '#60A5FA', // Light blue cursor
+              fontWeight: '400',
+              wordSpacing: '0.05em'
+            }}
           />
           {/* Debug info */}
           {process.env.NODE_ENV === 'development' && (
             <div className="absolute bottom-2 right-2 text-xs opacity-50 bg-black text-white p-1 rounded">
-              Content: {textContent.length} chars | Server v{serverVersion} | Local v{localVersion} | {isSaving ? '💾 Saving...' : hasUnsavedChanges ? '✏️ Unsaved' : '✅ Saved'}
+              Content: {textContent.length} chars | Server v{serverVersion} | Local v{localVersion} | {isSaving ? '💾 Saving...' : hasUnsavedChanges ? '✏️ Unsaved' : '✅ Saved'} {liveUpdateIndicator ? '🔄 Live Update' : ''}
             </div>
           )}
         </div>
@@ -585,6 +800,7 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
         )}
       </div>
     </div>
+    </>
   );
 };
 

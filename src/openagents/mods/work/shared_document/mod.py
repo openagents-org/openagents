@@ -31,6 +31,9 @@ from .document_messages import (
     GetDocumentHistoryMessage,
     ListDocumentsMessage,
     GetAgentPresenceMessage,
+    AcquireLineLockMessage,
+    ReleaseLineLockMessage,
+    LineLockResponse,
     DocumentOperationResponse,
     DocumentContentResponse,
     DocumentListResponse,
@@ -59,6 +62,16 @@ class SharedDocument:
         
         # Document content (list of lines)
         self.content: List[str] = initial_content.split('\n') if initial_content else [""]
+        
+        # Line authorship tracking (line_number -> agent_id)
+        self.line_authors: Dict[int, str] = {}
+        initial_lines = len(self.content)
+        for i in range(1, initial_lines + 1):
+            self.line_authors[i] = creator_agent_id  # Creator owns all initial lines
+        
+        # Line locking mechanism (line_number -> {agent_id, timestamp, timeout})
+        self.line_locks: Dict[int, Dict[str, Any]] = {}
+        self.lock_timeout_seconds = 30  # Locks expire after 30 seconds of inactivity
         
         # Document metadata
         self.comments: Dict[int, List[DocumentComment]] = {}  # line_number -> [comments]
@@ -225,6 +238,19 @@ class SharedDocument:
             if start_line > len(self.content) + 1:
                 raise ValueError(f"Start line {start_line} exceeds document length + 1: {len(self.content) + 1}")
             
+            # Check for line locks - prevent editing locked lines
+            locked_lines = []
+            for line_num in range(start_line, min(end_line + 1, len(self.content) + 1)):
+                if self.is_line_locked_by_other(agent_id, line_num):
+                    locked_lines.append(line_num)
+            
+            if locked_lines:
+                lock_info = []
+                for line_num in locked_lines:
+                    lock_agent = self.line_locks[line_num]['agent_id']
+                    lock_info.append(f"line {line_num} (locked by {lock_agent})")
+                raise ValueError(f"Cannot edit locked lines: {', '.join(lock_info)}")
+            
             # If end_line exceeds current content, we'll expand the document
             if end_line > len(self.content):
                 logger.info(f"Expanding document from {len(self.content)} lines to accommodate {end_line} lines")
@@ -245,6 +271,32 @@ class SharedDocument:
             else:
                 # Normal replacement within existing content
                 self.content[start_index:end_index + 1] = content
+            
+            # Update line authorship for replaced lines
+            # Clear old authorship for replaced range
+            for line_num in range(start_line, end_line + 1):
+                if line_num in self.line_authors:
+                    del self.line_authors[line_num]
+            
+            # Set new authorship for all new content lines
+            for i, _ in enumerate(content):
+                line_num = start_line + i
+                self.line_authors[line_num] = agent_id
+            
+            # Shift authorship for lines after the replacement if document length changed
+            lines_added = len(content)
+            lines_removed = end_line - start_line + 1
+            line_shift = lines_added - lines_removed
+            
+            if line_shift != 0:
+                # Shift line authorship for lines after the replacement
+                old_authors = dict(self.line_authors)
+                for line_num in sorted(old_authors.keys(), reverse=True):
+                    if line_num > end_line:
+                        new_line_num = line_num + line_shift
+                        if new_line_num > 0:
+                            self.line_authors[new_line_num] = old_authors[line_num]
+                        del self.line_authors[line_num]
             
             # Update version and metadata
             self.version += 1
@@ -362,8 +414,141 @@ class SharedDocument:
                 for agent_id, presence in self.agent_presence.items()
             },
             "last_modified": self.last_modified.isoformat(),
-            "active_agents": list(self.active_agents)
+            "active_agents": list(self.active_agents),
+            "line_locks": self._get_active_line_locks()
         }
+    
+    def _get_active_line_locks(self) -> Dict[int, str]:
+        """Get currently active line locks (line_number -> agent_id)."""
+        current_time = datetime.now()
+        active_locks = {}
+        
+        # Clean up expired locks and collect active ones
+        expired_locks = []
+        for line_number, lock_info in self.line_locks.items():
+            lock_time = lock_info.get('timestamp', current_time)
+            if isinstance(lock_time, str):
+                lock_time = datetime.fromisoformat(lock_time)
+            
+            time_diff = (current_time - lock_time).total_seconds()
+            if time_diff > self.lock_timeout_seconds:
+                expired_locks.append(line_number)
+            else:
+                active_locks[line_number] = lock_info['agent_id']
+        
+        # Remove expired locks
+        for line_number in expired_locks:
+            del self.line_locks[line_number]
+        
+        return active_locks
+    
+    def acquire_line_lock(self, agent_id: str, line_number: int) -> bool:
+        """Acquire a lock on a specific line. Returns True if successful."""
+        try:
+            # Validate line number
+            if line_number < 1 or line_number > len(self.content):
+                return False
+            
+            current_time = datetime.now()
+            
+            # Check if line is already locked by another agent
+            if line_number in self.line_locks:
+                existing_lock = self.line_locks[line_number]
+                existing_agent = existing_lock['agent_id']
+                lock_time = existing_lock.get('timestamp', current_time)
+                
+                if isinstance(lock_time, str):
+                    lock_time = datetime.fromisoformat(lock_time)
+                
+                # If locked by same agent, refresh the lock
+                if existing_agent == agent_id:
+                    self.line_locks[line_number]['timestamp'] = current_time
+                    return True
+                
+                # Check if existing lock has expired
+                time_diff = (current_time - lock_time).total_seconds()
+                if time_diff <= self.lock_timeout_seconds:
+                    return False  # Line is locked by another agent
+                
+                # Lock has expired, remove it
+                del self.line_locks[line_number]
+            
+            # Acquire the lock
+            self.line_locks[line_number] = {
+                'agent_id': agent_id,
+                'timestamp': current_time
+            }
+            
+            logger.info(f"Agent {agent_id} acquired lock on line {line_number}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to acquire line lock: {e}")
+            return False
+    
+    def release_line_lock(self, agent_id: str, line_number: int) -> bool:
+        """Release a lock on a specific line. Returns True if successful."""
+        try:
+            if line_number not in self.line_locks:
+                return True  # Already unlocked
+            
+            lock_info = self.line_locks[line_number]
+            if lock_info['agent_id'] != agent_id:
+                return False  # Can't release someone else's lock
+            
+            del self.line_locks[line_number]
+            logger.info(f"Agent {agent_id} released lock on line {line_number}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to release line lock: {e}")
+            return False
+    
+    def release_all_agent_locks(self, agent_id: str) -> int:
+        """Release all locks held by an agent. Returns number of locks released."""
+        try:
+            released_count = 0
+            locks_to_remove = []
+            
+            for line_number, lock_info in self.line_locks.items():
+                if lock_info['agent_id'] == agent_id:
+                    locks_to_remove.append(line_number)
+            
+            for line_number in locks_to_remove:
+                del self.line_locks[line_number]
+                released_count += 1
+            
+            if released_count > 0:
+                logger.info(f"Released {released_count} locks for agent {agent_id}")
+            
+            return released_count
+            
+        except Exception as e:
+            logger.error(f"Failed to release agent locks: {e}")
+            return 0
+    
+    def is_line_locked_by_other(self, agent_id: str, line_number: int) -> bool:
+        """Check if a line is locked by another agent."""
+        if line_number not in self.line_locks:
+            return False
+        
+        lock_info = self.line_locks[line_number]
+        if lock_info['agent_id'] == agent_id:
+            return False  # Locked by same agent
+        
+        # Check if lock has expired
+        current_time = datetime.now()
+        lock_time = lock_info.get('timestamp', current_time)
+        if isinstance(lock_time, str):
+            lock_time = datetime.fromisoformat(lock_time)
+        
+        time_diff = (current_time - lock_time).total_seconds()
+        if time_diff > self.lock_timeout_seconds:
+            # Lock expired, remove it
+            del self.line_locks[line_number]
+            return False
+        
+        return True  # Locked by another agent
 
 class SharedDocumentNetworkMod(BaseMod):
     """Network-level shared document mod implementation.
@@ -449,6 +634,12 @@ class SharedDocumentNetworkMod(BaseMod):
             elif message_type == "update_cursor_position":
                 doc_message = UpdateCursorPositionMessage(**content)
                 await self._handle_update_cursor_position(doc_message, source_agent_id, request_id)
+            elif message_type == "acquire_line_lock":
+                doc_message = AcquireLineLockMessage(**content)
+                await self._handle_acquire_line_lock(doc_message, source_agent_id, request_id)
+            elif message_type == "release_line_lock":
+                doc_message = ReleaseLineLockMessage(**content)
+                await self._handle_release_line_lock(doc_message, source_agent_id, request_id)
             elif message_type == "get_document_content":
                 doc_message = GetDocumentContentMessage(**content)
                 await self._handle_get_document_content(doc_message, source_agent_id, request_id)
@@ -588,6 +779,8 @@ class SharedDocumentNetworkMod(BaseMod):
                 ],
                 agent_presence=serialized_presence,
                 version=document.version,
+                line_authors=document.line_authors.copy(),
+                line_locks=document._get_active_line_locks(),
                 sender_id=self.network.network_id
             )
             
@@ -856,6 +1049,8 @@ class SharedDocumentNetworkMod(BaseMod):
                 comments=comments,
                 agent_presence=agent_presence,
                 version=document.version,
+                line_authors=document.line_authors.copy(),
+                line_locks=document._get_active_line_locks(),
                 sender_id=self.network.network_id
             )
             
@@ -1071,3 +1266,124 @@ class SharedDocumentNetworkMod(BaseMod):
                 logger.info(f"Removed inactive agent {agent_id} from document {document.document_id}")
         
         self.last_cleanup = now
+    
+    async def _handle_acquire_line_lock(self, message: AcquireLineLockMessage, source_agent_id: str, request_id: str = None) -> None:
+        """Handle line lock acquisition request."""
+        try:
+            document_id = message.document_id
+            line_number = message.line_number
+            
+            if document_id not in self.documents:
+                await self._send_error_response(source_agent_id, f"Document {document_id} not found", request_id)
+                return
+            
+            document = self.documents[document_id]
+            
+            # Attempt to acquire the lock
+            success = document.acquire_line_lock(source_agent_id, line_number)
+            
+            # Determine who holds the lock if acquisition failed
+            locked_by = None
+            error_message = None
+            if not success:
+                if line_number in document.line_locks:
+                    locked_by = document.line_locks[line_number]['agent_id']
+                    error_message = f"Line {line_number} is locked by {locked_by}"
+                else:
+                    error_message = f"Failed to acquire lock on line {line_number}"
+            
+            # Send response
+            response = LineLockResponse(
+                document_id=document_id,
+                line_number=line_number,
+                success=success,
+                locked_by=locked_by,
+                error_message=error_message,
+                sender_id=self.network.network_id
+            )
+            
+            await self._send_response(source_agent_id, response, request_id)
+            
+            # If lock was acquired, broadcast the update to other agents
+            if success:
+                await self._broadcast_line_lock_update(document_id, line_number, source_agent_id, 'acquired')
+            
+        except Exception as e:
+            logger.error(f"Failed to handle acquire line lock: {e}")
+            await self._send_error_response(source_agent_id, str(e), request_id)
+    
+    async def _handle_release_line_lock(self, message: ReleaseLineLockMessage, source_agent_id: str, request_id: str = None) -> None:
+        """Handle line lock release request."""
+        try:
+            document_id = message.document_id
+            line_number = message.line_number
+            
+            if document_id not in self.documents:
+                await self._send_error_response(source_agent_id, f"Document {document_id} not found", request_id)
+                return
+            
+            document = self.documents[document_id]
+            
+            # Attempt to release the lock
+            success = document.release_line_lock(source_agent_id, line_number)
+            
+            error_message = None
+            if not success:
+                if line_number in document.line_locks:
+                    current_holder = document.line_locks[line_number]['agent_id']
+                    if current_holder != source_agent_id:
+                        error_message = f"Cannot release lock held by {current_holder}"
+                    else:
+                        error_message = f"Failed to release lock on line {line_number}"
+                else:
+                    error_message = f"Line {line_number} is not locked"
+            
+            # Send response
+            response = LineLockResponse(
+                document_id=document_id,
+                line_number=line_number,
+                success=success,
+                locked_by=None,
+                error_message=error_message,
+                sender_id=self.network.network_id
+            )
+            
+            await self._send_response(source_agent_id, response, request_id)
+            
+            # If lock was released, broadcast the update to other agents
+            if success:
+                await self._broadcast_line_lock_update(document_id, line_number, source_agent_id, 'released')
+            
+        except Exception as e:
+            logger.error(f"Failed to handle release line lock: {e}")
+            await self._send_error_response(source_agent_id, str(e), request_id)
+    
+    async def _broadcast_line_lock_update(self, document_id: str, line_number: int, agent_id: str, action: str) -> None:
+        """Broadcast line lock updates to all agents in the document."""
+        try:
+            if document_id not in self.documents:
+                return
+            
+            document = self.documents[document_id]
+            
+            # Create a document content response with updated line locks
+            response = DocumentContentResponse(
+                document_id=document_id,
+                content=document.content.copy(),
+                comments=[],  # Don't include comments in lock updates
+                agent_presence=[],  # Don't include presence in lock updates
+                version=document.version,
+                line_authors=document.line_authors.copy(),
+                line_locks=document._get_active_line_locks(),
+                sender_id=self.network.network_id
+            )
+            
+            # Send to all agents except the one who triggered the change
+            for active_agent_id in document.active_agents:
+                if active_agent_id != agent_id:
+                    await self._send_response(active_agent_id, response)
+            
+            logger.info(f"Broadcasted line lock update for line {line_number} in document {document_id} ({action} by {agent_id})")
+            
+        except Exception as e:
+            logger.error(f"Failed to broadcast line lock update: {e}")

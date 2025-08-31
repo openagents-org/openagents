@@ -339,7 +339,7 @@ class GRPCHTTPAdapter:
                 if command in ['create_document', 'open_document', 'close_document', 'list_documents', 
                               'get_document_content', 'get_document_history', 'get_agent_presence',
                               'insert_lines', 'remove_lines', 'replace_lines', 'add_comment', 
-                              'remove_comment', 'update_cursor_position']:
+                              'remove_comment', 'update_cursor_position', 'acquire_line_lock', 'release_line_lock']:
                     return await self._handle_shared_document_command(agent_id, command, data)
                 
                 # Handle other system commands by creating a system message

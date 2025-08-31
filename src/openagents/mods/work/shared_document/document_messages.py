@@ -291,6 +291,8 @@ class DocumentContentResponse(BaseMessage):
     comments: List[DocumentComment] = Field(default_factory=list, description="Document comments")
     agent_presence: List[AgentPresence] = Field(default_factory=list, description="Agent presence information")
     version: int = Field(..., description="Document version number")
+    line_authors: Optional[Dict[int, str]] = Field(default_factory=dict, description="Line authorship mapping (line_number -> agent_id)")
+    line_locks: Optional[Dict[int, str]] = Field(default_factory=dict, description="Line locks mapping (line_number -> agent_id)")
 
 class DocumentListResponse(BaseMessage):
     """Response message containing list of documents."""
@@ -312,3 +314,28 @@ class AgentPresenceResponse(BaseMessage):
     message_type: str = Field("agent_presence_response", description="Agent presence response type")
     document_id: str = Field(..., description="Document ID")
     agent_presence: List[AgentPresence] = Field(..., description="Agent presence information")
+
+# Line Locking Messages
+class AcquireLineLockMessage(BaseMessage):
+    """Message to acquire a lock on a specific line."""
+    
+    message_type: str = Field("acquire_line_lock", description="Acquire line lock message type")
+    document_id: str = Field(..., description="Document ID")
+    line_number: int = Field(..., description="Line number to lock (1-based)")
+
+class ReleaseLineLockMessage(BaseMessage):
+    """Message to release a lock on a specific line."""
+    
+    message_type: str = Field("release_line_lock", description="Release line lock message type")
+    document_id: str = Field(..., description="Document ID")
+    line_number: int = Field(..., description="Line number to unlock (1-based)")
+
+class LineLockResponse(BaseMessage):
+    """Response message for line lock operations."""
+    
+    message_type: str = Field("line_lock_response", description="Line lock response type")
+    document_id: str = Field(..., description="Document ID")
+    line_number: int = Field(..., description="Line number")
+    success: bool = Field(..., description="Whether the lock operation was successful")
+    locked_by: Optional[str] = Field(None, description="Agent ID that holds the lock (if failed)")
+    error_message: Optional[str] = Field(None, description="Error message if operation failed")
