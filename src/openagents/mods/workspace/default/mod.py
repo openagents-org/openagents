@@ -23,9 +23,9 @@ class DefaultWorkspaceNetworkMod(BaseMod):
     with thread messaging for agent communication within workspaces.
     """
     
-    def __init__(self, **kwargs):
+    def __init__(self, mod_name: str, **kwargs):
         """Initialize the default workspace network mod."""
-        super().__init__(**kwargs)
+        super().__init__(mod_name, **kwargs)
         self.workspaces: Dict[str, Dict[str, Any]] = {}
         self.agent_workspaces: Dict[str, str] = {}  # agent_id -> workspace_id
         

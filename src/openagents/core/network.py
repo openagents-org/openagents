@@ -11,15 +11,19 @@ import logging
 import uuid
 import time
 import yaml
-from typing import Dict, Any, List, Optional, Callable, Awaitable, Union
+from typing import Dict, Any, List, Optional, Callable, Awaitable, Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from openagents.core.workspace import Workspace
 from pathlib import Path
 
-from .transport import Transport, TransportManager, Message
+from openagents.core.transport import Transport, TransportManager, Message
 from openagents.models.transport import TransportType
-from .topology import NetworkTopology, NetworkMode, AgentInfo, create_topology
-from ..models.messages import BaseMessage, DirectMessage, BroadcastMessage, ModMessage
-from ..models.network_config import NetworkConfig, NetworkMode as ConfigNetworkMode
-from .agent_identity import AgentIdentityManager
+from openagents.core.topology import NetworkTopology, NetworkMode, AgentInfo, create_topology
+from openagents.models.messages import BaseMessage, DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.network_config import NetworkConfig, NetworkMode as ConfigNetworkMode
+from openagents.core.agent_identity import AgentIdentityManager
+from openagents.config.globals import WORKSPACE_DEFAULT_MOD_NAME
 
 logger = logging.getLogger(__name__)
 
@@ -623,7 +627,7 @@ class AgentNetwork:
             connection: WebSocket connection
         """
         try:
-            from .system_commands import (
+            from openagents.core.system_commands import (
                 handle_register_agent, handle_list_agents, handle_list_mods,
                 handle_ping_agent, handle_claim_agent_id, handle_validate_certificate,
                 handle_get_network_info,
@@ -818,6 +822,49 @@ class AgentNetwork:
         except Exception as e:
             logger.error(f"Error cleaning up agent {agent_id}: {e}")
             return False
+
+    def workspace(self, client_id: Optional[str] = None) -> 'Workspace':
+        """Create a workspace instance for this network.
+        
+        This method creates a workspace that provides access to channels and collaboration
+        features through the thread messaging mod. The workspace requires the
+        openagents.mods.workspace.default mod to be enabled in the network.
+        
+        Args:
+            client_id: Optional client ID for the workspace connection.
+                      If not provided, a random ID will be generated.
+                      
+        Returns:
+            Workspace: A workspace instance for channel communication
+            
+        Raises:
+            RuntimeError: If the workspace.default mod is not enabled in the network
+        """
+        # Check if workspace.default mod is enabled
+        if WORKSPACE_DEFAULT_MOD_NAME not in self.mods:
+            available_mods = list(self.mods.keys())
+            raise RuntimeError(
+                f"Workspace functionality requires the '{WORKSPACE_DEFAULT_MOD_NAME}' mod to be enabled in the network. "
+                f"Available mods: {available_mods}. "
+                f"Please add '{WORKSPACE_DEFAULT_MOD_NAME}' to your network configuration."
+            )
+        
+        # Import here to avoid circular imports
+        from openagents.core.client import AgentClient
+        from openagents.core.workspace import Workspace
+        
+        # Create a client for the workspace
+        if client_id is None:
+            import uuid
+            client_id = f"workspace-client-{uuid.uuid4().hex[:8]}"
+        
+        client = AgentClient(client_id)
+        
+        # Create and return workspace
+        workspace = Workspace(client)
+        
+        logger.info(f"Created workspace with client ID: {client_id}")
+        return workspace
 
 
 def create_network(config: Union[NetworkConfig, str, Path]) -> AgentNetwork:

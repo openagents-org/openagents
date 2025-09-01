@@ -4,7 +4,7 @@ import uuid
 import logging
 
 from openagents.utils.network_discovey import retrieve_network_details
-from .connector import NetworkConnector
+from openagents.core.connector import NetworkConnector
 from openagents.models.messages import BaseMessage
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage

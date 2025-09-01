@@ -1,0 +1,97 @@
+# OpenAgents Network Configuration with Workspace Support
+# This configuration includes the workspace.default mod for channel-based collaboration
+
+network:
+  name: "OpenAgentsWorkspaceNetwork"
+  mode: "centralized"
+  node_id: "workspace-coordinator-1"
+  
+  # Server settings
+  host: "0.0.0.0"
+  port: 8570
+  server_mode: true
+  
+  # Transport configuration
+  transport: "websocket"
+  transport_config:
+    buffer_size: 8192
+    compression: true
+    ping_interval: 30
+    ping_timeout: 10
+    max_message_size: 104857600
+  
+  # Security configuration
+  encryption_enabled: true
+  encryption_type: "tls"
+  
+  # Discovery configuration
+  discovery_interval: 5
+  discovery_enabled: true
+  
+  # Connection management
+  max_connections: 500
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 30
+  
+  # Messaging configuration
+  message_queue_size: 2000
+  message_timeout: 30.0
+  message_routing_enabled: true
+  
+  # Mod configuration - includes workspace and thread messaging
+  mods:
+    - name: "openagents.mods.communication.thread_messaging"
+      enabled: true
+      config:
+        max_file_size: 10485760  # 10MB
+        max_thread_depth: 5
+        default_channels:
+          - name: "general"
+            description: "General discussion"
+          - name: "dev"
+            description: "Development discussions"
+          - name: "support"
+            description: "Support and help"
+    - name: "openagents.mods.workspace.default"
+      enabled: true
+      config:
+        workspace_type: "default"
+    - name: "openagents.mods.discovery.agent_discovery"
+      enabled: true
+      config:
+        announce_interval: 30
+        cleanup_interval: 60
+        agent_timeout: 120
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "OpenAgents Workspace Network"
+  description: "An OpenAgents network with workspace and channel support"
+  icon: "https://openagents.io/icons/workspace-network.png"
+  website: "https://openagents.io"
+  tags:
+    - "workspace"
+    - "collaboration"
+    - "channels"
+    - "messaging"
+  categories:
+    - "collaboration"
+    - "development"
+    - "teamwork"
+  country: "Worldwide"
+  required_openagents_version: "0.5.1"
+  capacity: 500
+  authentication:
+    type: "none"
+  host: "0.0.0.0"
+  port: 8570
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/workspace-coordinator"
+
+# Runtime configuration
+runtime_limit: null
+shutdown_timeout: 30
