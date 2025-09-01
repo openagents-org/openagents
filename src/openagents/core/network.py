@@ -860,8 +860,26 @@ class AgentNetwork:
         
         client = AgentClient(client_id)
         
-        # Create and return workspace
+        # Create workspace
         workspace = Workspace(client)
+        
+        # Automatically connect the workspace client to the network
+        try:
+            # Use the same host and port as the network
+            host = self.config.host if self.config.host != "0.0.0.0" else "localhost"
+            port = self.config.port
+            
+            logger.info(f"Auto-connecting workspace client {client_id} to {host}:{port}")
+            
+            # Connect asynchronously - this needs to be awaited by the caller
+            # We'll create a method that handles the connection
+            workspace._auto_connect_config = {
+                'host': host,
+                'port': port
+            }
+            
+        except Exception as e:
+            logger.warning(f"Could not prepare auto-connection for workspace client: {e}")
         
         logger.info(f"Created workspace with client ID: {client_id}")
         return workspace

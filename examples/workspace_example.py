@@ -21,14 +21,10 @@ async def main():
         print("\n📋 Testing workspace functionality...")
         
         # Get workspace - this should work since workspace.default mod is enabled
+        # The workspace will automatically connect to the network when needed
         ws = network.workspace()
         print(f"✅ Created workspace: {ws}")
-        
-        # Connect the workspace client to the network
-        workspace_client = ws.get_client()
-        if workspace_client:
-            print(f"🔗 Connecting workspace client {workspace_client.agent_id} to network...")
-            await workspace_client.connect("localhost", 8570)
+        print(f"🔗 Workspace will auto-connect when accessing channels...")
         
         # List channels
         print("\n📺 Listing available channels...")
@@ -71,10 +67,12 @@ async def main():
         # Cleanup
         print("\n🧹 Cleaning up...")
         
-        # Disconnect workspace client
-        workspace_client = ws.get_client() if 'ws' in locals() else None
-        if workspace_client and workspace_client.connector:
-            await workspace_client.disconnect()
+        # Disconnect workspace client (if auto-connected)
+        if 'ws' in locals():
+            workspace_client = ws.get_client()
+            if workspace_client and workspace_client.connector:
+                print("🔌 Disconnecting workspace client...")
+                await workspace_client.disconnect()
         
         # Stop agent
         if 'agent' in locals():

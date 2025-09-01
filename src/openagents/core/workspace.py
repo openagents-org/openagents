@@ -49,8 +49,9 @@ class Channel:
         Returns:
             bool: True if message sent successfully
         """
-        if not self._client or not self._client.connector:
-            logger.error("No active client connection")
+        # Ensure we're connected to the network
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish network connection")
             return False
             
         try:
@@ -90,8 +91,9 @@ class Channel:
         Returns:
             List of message dictionaries
         """
-        if not self._client or not self._client.connector:
-            logger.error("No active client connection")
+        # Ensure we're connected to the network
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish network connection")
             return []
             
         try:
@@ -131,8 +133,9 @@ class Channel:
         Returns:
             bool: True if reply sent successfully
         """
-        if not self._client or not self._client.connector:
-            logger.error("No active client connection")
+        # Ensure we're connected to the network
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish network connection")
             return False
             
         try:
@@ -187,6 +190,44 @@ class Workspace:
         self._client = client
         self._channels_cache: Dict[str, Channel] = {}
         self._last_channels_fetch: Optional[datetime] = None
+        self._auto_connect_config: Optional[Dict[str, Any]] = None
+        self._is_connected: bool = False
+    
+    async def _ensure_connected(self) -> bool:
+        """Ensure the workspace client is connected to the network.
+        
+        Returns:
+            bool: True if connected successfully, False otherwise
+        """
+        if self._is_connected and self._client and self._client.connector:
+            return True
+        
+        if not self._client:
+            logger.error("No client available for workspace connection")
+            return False
+        
+        if self._auto_connect_config:
+            try:
+                host = self._auto_connect_config['host']
+                port = self._auto_connect_config['port']
+                
+                logger.info(f"Auto-connecting workspace client {self._client.agent_id} to {host}:{port}")
+                success = await self._client.connect(host, port)
+                
+                if success:
+                    self._is_connected = True
+                    logger.info(f"Workspace client {self._client.agent_id} connected successfully")
+                else:
+                    logger.error(f"Failed to connect workspace client {self._client.agent_id}")
+                
+                return success
+                
+            except Exception as e:
+                logger.error(f"Error during auto-connection: {e}")
+                return False
+        else:
+            logger.warning("No auto-connect configuration available")
+            return False
         
     async def channels(self, refresh: bool = False) -> List[str]:
         """List all available channels.
@@ -197,8 +238,9 @@ class Workspace:
         Returns:
             List of channel names
         """
-        if not self._client or not self._client.connector:
-            logger.error("No active client connection")
+        # Ensure we're connected to the network
+        if not await self._ensure_connected():
+            logger.error("Could not establish network connection")
             return []
             
         try:
@@ -264,8 +306,9 @@ class Workspace:
         if not channel_name.startswith('#'):
             channel_name = f"#{channel_name}"
         
-        if not self._client or not self._client.connector:
-            logger.error("No active client connection")
+        # Ensure we're connected to the network
+        if not await self._ensure_connected():
+            logger.error("Could not establish network connection")
             return self.channel(channel_name)  # Return channel object anyway
             
         try:
