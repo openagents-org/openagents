@@ -1,0 +1,26 @@
+{
+    "mod_name": "default",
+    "version": "1.0.0",
+    "description": "Default workspace mod for OpenAgents that provides basic workspace functionality and depends on thread messaging capabilities",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "DefaultWorkspaceAgentAdapter",
+    "network_mod_class": "DefaultWorkspaceNetworkMod",
+    "capabilities": [
+        "workspace_management",
+        "basic_workspace_operations"
+    ],
+    "requires_adapter": true,
+    "studio_interface": true,
+    "dependencies": [
+        "openagents.mods.communication.thread_messaging"
+    ],
+    "metadata": {
+        "workspace_type": "default",
+        "core_features": [
+            "basic_workspace_functionality",
+            "thread_messaging_integration"
+        ],
+        "tools": []
+    }
+}
