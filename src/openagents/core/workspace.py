@@ -129,7 +129,7 @@ class ChannelConnection:
         self.workspace = workspace
         self._client = workspace._client
         
-    async def send_message(self, content: Union[str, Dict[str, Any]], **kwargs) -> bool:
+    async def post(self, content: Union[str, Dict[str, Any]], **kwargs) -> bool:
         """Send a message to this channel.
         
         Args:
@@ -243,8 +243,8 @@ class ChannelConnection:
                 content={
                     "action": "reply_channel_message",
                     "channel": self.name,
-                    "parent_message_id": message_id,
-                    "content": reply_content,
+                    "reply_to_id": message_id,
+                    "text": reply_content.get("text", str(reply_content)),
                     **kwargs
                 }
             )
@@ -254,6 +254,82 @@ class ChannelConnection:
             
         except Exception as e:
             logger.error(f"Failed to reply to message {message_id} in channel {self.name}: {e}")
+            return False
+    
+    async def upload_file(self, file_path: str) -> Optional[str]:
+        """Upload a file to this channel.
+        
+        Args:
+            file_path: Path to the file to upload
+            
+        Returns:
+            File UUID if successful, None otherwise
+        """
+        # Ensure we're connected to the network
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish network connection")
+            return None
+            
+        try:
+            # Create mod message for file upload
+            mod_message = ModMessage(
+                sender_id=self._client.agent_id,
+                mod=THREAD_MESSAGING_MOD_NAME,
+                relevant_agent_id=self._client.agent_id,
+                content={
+                    "action": "upload_file",
+                    "file_path": file_path,
+                    "channel": self.name
+                }
+            )
+            
+            # Send through client
+            success = await self._client.send_mod_message(mod_message)
+            if success:
+                # In a real implementation, this would return the actual file UUID
+                # For now, return a placeholder
+                return f"file-{file_path.split('/')[-1]}-uuid"
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to upload file {file_path} to channel {self.name}: {e}")
+            return None
+    
+    async def react_to_message(self, message_id: str, reaction: str, action: str = "add") -> bool:
+        """Add or remove a reaction to a message.
+        
+        Args:
+            message_id: ID of the message to react to
+            reaction: Reaction emoji (e.g., "+1", "heart", "laugh")
+            action: "add" or "remove" the reaction
+            
+        Returns:
+            bool: True if reaction was successful
+        """
+        # Ensure we're connected to the network
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish network connection")
+            return False
+            
+        try:
+            # Create mod message for reaction
+            mod_message = ModMessage(
+                sender_id=self._client.agent_id,
+                mod=THREAD_MESSAGING_MOD_NAME,
+                relevant_agent_id=self._client.agent_id,
+                content={
+                    "action": "react_to_message",
+                    "target_message_id": message_id,
+                    "reaction_type": reaction,
+                    "action": action
+                }
+            )
+            
+            # Send through client
+            return await self._client.send_mod_message(mod_message)
+            
+        except Exception as e:
+            logger.error(f"Failed to react to message {message_id} in channel {self.name}: {e}")
             return False
     
     def __str__(self) -> str:

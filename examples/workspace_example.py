@@ -67,8 +67,26 @@ async def main():
         
         # Send a message to a channel
         print("\n📤 Sending message to #general channel...")
-        success = await general_channel.send_message("Hello from workspace!")
+        success = await general_channel.post("Hello from workspace!")
         print(f"Message sent successfully: {success}")
+        
+        # Test additional channel features
+        print("\n🔧 Testing additional channel features...")
+        
+        # Test reactions (using a placeholder message ID)
+        print("😀 Adding reaction to message...")
+        success = await general_channel.react_to_message("msg-123", "+1")
+        print(f"Reaction added successfully: {success}")
+        
+        # Test file upload (using a placeholder file)
+        print("📁 Testing file upload...")
+        file_uuid = await general_channel.upload_file("/tmp/test.txt")
+        print(f"File uploaded with UUID: {file_uuid}")
+        
+        # Test reply to message (using a placeholder message ID)
+        print("💬 Testing reply to message...")
+        success = await general_channel.reply_to_message("msg-123", "This is a reply!")
+        print(f"Reply sent successfully: {success}")
         
         # Create a new channel
         print("\n🆕 Creating new channel #test...")
@@ -77,7 +95,7 @@ async def main():
         
         # Send message to the new channel
         print("📤 Sending message to #test channel...")
-        success = await test_channel.send_message("This is a test message!")
+        success = await test_channel.post("This is a test message!")
         print(f"Message sent successfully: {success}")
         
         print("\n✅ Workspace functionality test completed!")
