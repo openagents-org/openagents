@@ -41,6 +41,30 @@ async def main():
         dev_channel = ws.channel("dev")
         print(f"Dev channel: {dev_channel}")
         
+        # List online agents
+        print("\n🤖 Listing online agents...")
+        agents = await ws.agents()
+        print(f"Online agents: {agents}")
+        
+        # Get connection to a specific agent
+        if agents:
+            agent_id = agents[0]  # Get first agent
+            print(f"\n🔗 Getting connection to agent: {agent_id}")
+            agent_conn = ws.agent(agent_id)
+            print(f"Agent connection: {agent_conn}")
+            
+            # Send direct message to agent
+            print(f"📤 Sending direct message to {agent_id}...")
+            success = await agent_conn.send_direct_message("Hello from workspace!")
+            print(f"Direct message sent successfully: {success}")
+            
+            # Get agent info
+            print(f"ℹ️ Getting info for agent {agent_id}...")
+            agent_info = await agent_conn.get_agent_info()
+            print(f"Agent info: {agent_info}")
+        else:
+            print("No agents found to test direct messaging")
+        
         # Send a message to a channel
         print("\n📤 Sending message to #general channel...")
         success = await general_channel.send_message("Hello from workspace!")

@@ -17,7 +17,97 @@ from openagents.config.globals import THREAD_MESSAGING_MOD_NAME, DEFAULT_CHANNEL
 logger = logging.getLogger(__name__)
 
 
-class Channel:
+class AgentConnection:
+    """
+    Represents a connection to a specific agent in the workspace.
+    
+    Provides methods to communicate directly with an agent.
+    """
+    
+    def __init__(self, agent_id: str, workspace: 'Workspace'):
+        """Initialize an agent connection.
+        
+        Args:
+            agent_id: ID of the target agent
+            workspace: Parent workspace instance
+        """
+        self.agent_id = agent_id
+        self.workspace = workspace
+        self._client = workspace._client
+        
+    async def send_direct_message(self, content: Union[str, Dict[str, Any]], **kwargs) -> bool:
+        """Send a direct message to this agent.
+        
+        Args:
+            content: Message content (string or dict)
+            **kwargs: Additional message parameters
+            
+        Returns:
+            bool: True if message sent successfully
+        """
+        # Ensure we're connected to the network
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish network connection")
+            return False
+            
+        try:
+            # Import here to avoid circular imports
+            from openagents.models.messages import DirectMessage
+            
+            # Prepare message content
+            if isinstance(content, str):
+                message_content = {"text": content}
+            else:
+                message_content = content.copy()
+            
+            # Create direct message
+            direct_message = DirectMessage(
+                sender_id=self._client.agent_id,
+                target_agent_id=self.agent_id,
+                content=message_content,
+                **kwargs
+            )
+            
+            # Send through client
+            return await self._client.send_direct_message(direct_message)
+            
+        except Exception as e:
+            logger.error(f"Failed to send direct message to agent {self.agent_id}: {e}")
+            return False
+    
+    async def get_agent_info(self) -> Optional[Dict[str, Any]]:
+        """Get information about this agent.
+        
+        Returns:
+            Dict with agent information or None if not available
+        """
+        # Ensure we're connected to the network
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish network connection")
+            return None
+            
+        try:
+            # Get agent info from the workspace's network connection
+            # This would need to be implemented with proper agent discovery
+            # For now, return basic info
+            return {
+                "agent_id": self.agent_id,
+                "status": "online",  # Placeholder
+                "capabilities": []   # Placeholder
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get info for agent {self.agent_id}: {e}")
+            return None
+    
+    def __str__(self) -> str:
+        return f"AgentConnection({self.agent_id})"
+    
+    def __repr__(self) -> str:
+        return f"AgentConnection(agent_id='{self.agent_id}', workspace='{self.workspace._client.agent_id if self.workspace._client else 'None'}')"
+
+
+class ChannelConnection:
     """
     Represents a communication channel in a workspace.
     
@@ -167,10 +257,10 @@ class Channel:
             return False
     
     def __str__(self) -> str:
-        return f"Channel({self.name})"
+        return f"ChannelConnection({self.name})"
     
     def __repr__(self) -> str:
-        return f"Channel(name='{self.name}', workspace='{self.workspace._client.agent_id if self.workspace._client else 'None'}')"
+        return f"ChannelConnection(name='{self.name}', workspace='{self.workspace._client.agent_id if self.workspace._client else 'None'}')"
 
 
 class Workspace:
@@ -188,8 +278,10 @@ class Workspace:
             client: AgentClient instance for network communication
         """
         self._client = client
-        self._channels_cache: Dict[str, Channel] = {}
+        self._channels_cache: Dict[str, ChannelConnection] = {}
+        self._agents_cache: Dict[str, AgentConnection] = {}
         self._last_channels_fetch: Optional[datetime] = None
+        self._last_agents_fetch: Optional[datetime] = None
         self._auto_connect_config: Optional[Dict[str, Any]] = None
         self._is_connected: bool = False
     
@@ -264,7 +356,7 @@ class Workspace:
             # Update cache
             for channel_name in default_channels:
                 if channel_name not in self._channels_cache:
-                    self._channels_cache[channel_name] = Channel(channel_name, self)
+                    self._channels_cache[channel_name] = ChannelConnection(channel_name, self)
             
             self._last_channels_fetch = datetime.now()
             return default_channels
@@ -273,14 +365,14 @@ class Workspace:
             logger.error(f"Failed to list channels: {e}")
             return []
     
-    def channel(self, channel_name: str) -> Channel:
+    def channel(self, channel_name: str) -> ChannelConnection:
         """Get a specific channel by name.
         
         Args:
             channel_name: Name of the channel (with or without # prefix)
             
         Returns:
-            Channel instance
+            ChannelConnection instance
         """
         # Normalize channel name
         if not channel_name.startswith('#'):
@@ -288,11 +380,64 @@ class Workspace:
         
         # Return cached channel or create new one
         if channel_name not in self._channels_cache:
-            self._channels_cache[channel_name] = Channel(channel_name, self)
+            self._channels_cache[channel_name] = ChannelConnection(channel_name, self)
         
         return self._channels_cache[channel_name]
     
-    async def create_channel(self, channel_name: str, description: str = "") -> Channel:
+    async def agents(self, refresh: bool = False) -> List[str]:
+        """List all online agents in the network.
+        
+        Args:
+            refresh: Whether to refresh the agent list from the server
+            
+        Returns:
+            List of agent IDs
+        """
+        # Ensure we're connected to the network
+        if not await self._ensure_connected():
+            logger.error("Could not establish network connection")
+            return []
+            
+        try:
+            # Get agents from the network
+            # This would ideally use the network's agent discovery functionality
+            # For now, we'll use the client's list_agents method if available
+            if hasattr(self._client, 'list_agents'):
+                agents_info = await self._client.list_agents()
+                if agents_info:
+                    agent_ids = [agent.get('agent_id', agent.get('id', '')) for agent in agents_info if agent.get('agent_id') or agent.get('id')]
+                    
+                    # Update cache
+                    for agent_id in agent_ids:
+                        if agent_id and agent_id not in self._agents_cache:
+                            self._agents_cache[agent_id] = AgentConnection(agent_id, self)
+                    
+                    self._last_agents_fetch = datetime.now()
+                    return agent_ids
+            
+            # Fallback: return cached agent IDs or empty list
+            return list(self._agents_cache.keys())
+            
+        except Exception as e:
+            logger.error(f"Failed to list agents: {e}")
+            return list(self._agents_cache.keys())  # Return cached agents as fallback
+    
+    def agent(self, agent_id: str) -> AgentConnection:
+        """Get a connection to a specific agent by ID.
+        
+        Args:
+            agent_id: ID of the agent to connect to
+            
+        Returns:
+            AgentConnection instance
+        """
+        # Return cached agent connection or create new one
+        if agent_id not in self._agents_cache:
+            self._agents_cache[agent_id] = AgentConnection(agent_id, self)
+        
+        return self._agents_cache[agent_id]
+    
+    async def create_channel(self, channel_name: str, description: str = "") -> ChannelConnection:
         """Create a new channel.
         
         Args:
@@ -300,7 +445,7 @@ class Workspace:
             description: Optional description for the channel
             
         Returns:
-            Channel instance for the created channel
+            ChannelConnection instance for the created channel
         """
         # Normalize channel name
         if not channel_name.startswith('#'):
@@ -328,7 +473,7 @@ class Workspace:
             await self._client.send_mod_message(mod_message)
             
             # Create and cache channel
-            channel = Channel(channel_name, self)
+            channel = ChannelConnection(channel_name, self)
             self._channels_cache[channel_name] = channel
             
             return channel
