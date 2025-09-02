@@ -88,6 +88,31 @@ async def main():
         success = await general_channel.reply_to_message("msg-123", "This is a reply!")
         print(f"Reply sent successfully: {success}")
         
+        # Test get_messages with wait functions (NEW FEATURE!)
+        print("\n📋 Testing get_messages with wait functions...")
+        try:
+            messages = await general_channel.get_messages(limit=10, timeout=3.0)
+            print(f"Retrieved {len(messages)} messages from {general_channel.name}")
+            if messages:
+                print("Recent messages:")
+                for i, msg in enumerate(messages[-3:], 1):  # Show last 3 messages
+                    sender = msg.get('sender_id', 'unknown')
+                    content = msg.get('content', {}).get('text', str(msg.get('content', '')))
+                    timestamp = msg.get('timestamp', 'unknown')
+                    print(f"  {i}. [{sender}] {content} (at {timestamp})")
+            else:
+                print("  No messages found (this is expected if thread_messaging mod doesn't respond)")
+        except Exception as e:
+            print(f"  Get messages failed (expected in demo): {e}")
+        
+        # Test channels list with wait functions (NEW FEATURE!)
+        print("\n📂 Testing channels list with wait functions...")
+        try:
+            channels = await ws.channels(refresh=True, timeout=3.0)
+            print(f"Available channels: {channels}")
+        except Exception as e:
+            print(f"  Channels list failed (expected in demo): {e}")
+        
         # Create a new channel
         print("\n🆕 Creating new channel #test...")
         test_channel = await ws.create_channel("test", "Test channel for workspace demo")

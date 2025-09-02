@@ -7,6 +7,7 @@ to provide channel-based communication and collaboration features.
 
 import asyncio
 import logging
+import uuid
 from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
 
@@ -171,12 +172,13 @@ class ChannelConnection:
             logger.error(f"Failed to send message to channel {self.name}: {e}")
             return False
     
-    async def get_messages(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+    async def get_messages(self, limit: int = 50, offset: int = 0, timeout: float = 10.0) -> List[Dict[str, Any]]:
         """Retrieve messages from this channel.
         
         Args:
             limit: Maximum number of messages to retrieve
             offset: Number of messages to skip
+            timeout: Timeout for waiting for response (seconds)
             
         Returns:
             List of message dictionaries
@@ -187,6 +189,9 @@ class ChannelConnection:
             return []
             
         try:
+            # Generate unique request ID for correlation
+            request_id = str(uuid.uuid4())
+            
             # Create mod message to retrieve channel messages
             mod_message = ModMessage(
                 sender_id=self._client.agent_id,
@@ -196,18 +201,59 @@ class ChannelConnection:
                     "action": "retrieve_channel_messages",
                     "channel": self.name,
                     "limit": limit,
-                    "offset": offset
+                    "offset": offset,
+                    "request_id": request_id
                 }
             )
             
-            # Send request and wait for response
-            # Note: This would need to be implemented with proper async response handling
-            await self._client.send_mod_message(mod_message)
+            # Define condition to match the response
+            def response_condition(msg):
+                """Check if this is the response to our request."""
+                try:
+                    content = msg.content
+                    return (
+                        content.get("action") == "retrieve_channel_messages_response" and
+                        content.get("request_id") == request_id and
+                        content.get("channel") == self.name
+                    )
+                except (AttributeError, KeyError):
+                    return False
             
-            # For now, return empty list - proper implementation would wait for response
-            # TODO: Implement proper request-response pattern
+            # Start waiting for response before sending request
+            wait_task = asyncio.create_task(
+                self._client.wait_mod_message(
+                    condition=response_condition,
+                    timeout=timeout
+                )
+            )
+            
+            # Give the wait task a moment to start
+            await asyncio.sleep(0.01)
+            
+            # Send request
+            success = await self._client.send_mod_message(mod_message)
+            if not success:
+                wait_task.cancel()
+                logger.error(f"Failed to send get_messages request for channel {self.name}")
+                return []
+            
+            # Wait for response
+            response = await wait_task
+            
+            if response is None:
+                logger.warning(f"Timeout waiting for messages from channel {self.name} (timeout: {timeout}s)")
+                return []
+            
+            # Extract messages from response
+            response_content = response.content
+            messages = response_content.get("messages", [])
+            
+            logger.debug(f"Retrieved {len(messages)} messages from channel {self.name}")
+            return messages
+            
+        except asyncio.CancelledError:
+            logger.debug(f"get_messages request cancelled for channel {self.name}")
             return []
-            
         except Exception as e:
             logger.error(f"Failed to retrieve messages from channel {self.name}: {e}")
             return []
@@ -397,49 +443,103 @@ class Workspace:
             logger.warning("No auto-connect configuration available")
             return False
         
-    async def channels(self, refresh: bool = False) -> List[str]:
+    async def channels(self, refresh: bool = False, timeout: float = 5.0) -> List[str]:
         """List all available channels.
         
         Args:
             refresh: Whether to refresh the channel list from the server
+            timeout: Timeout for waiting for response (seconds)
             
         Returns:
             List of channel names
         """
+        # Return cached channels if not refreshing and cache is recent
+        if not refresh and self._last_channels_fetch and self._channels_cache:
+            cache_age = (datetime.now() - self._last_channels_fetch).total_seconds()
+            if cache_age < 30:  # Use cache if less than 30 seconds old
+                return list(self._channels_cache.keys())
+        
         # Ensure we're connected to the network
         if not await self._ensure_connected():
             logger.error("Could not establish network connection")
-            return []
+            # Return cached channels as fallback
+            return list(self._channels_cache.keys()) if self._channels_cache else DEFAULT_CHANNELS
             
         try:
+            # Generate unique request ID for correlation
+            request_id = str(uuid.uuid4())
+            
             # Create mod message to list channels
             mod_message = ModMessage(
                 sender_id=self._client.agent_id,
                 mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
-                    "action": "list_channels"
+                    "action": "list_channels",
+                    "request_id": request_id
                 }
             )
             
-            # Send request
-            await self._client.send_mod_message(mod_message)
+            # Define condition to match the response
+            def response_condition(msg):
+                """Check if this is the response to our request."""
+                try:
+                    content = msg.content
+                    return (
+                        content.get("action") == "list_channels_response" and
+                        content.get("request_id") == request_id
+                    )
+                except (AttributeError, KeyError):
+                    return False
             
-            # For now, return default channels - proper implementation would wait for response
-            # TODO: Implement proper request-response pattern
-            default_channels = DEFAULT_CHANNELS
+            # Start waiting for response before sending request
+            wait_task = asyncio.create_task(
+                self._client.wait_mod_message(
+                    condition=response_condition,
+                    timeout=timeout
+                )
+            )
+            
+            # Give the wait task a moment to start
+            await asyncio.sleep(0.01)
+            
+            # Send request
+            success = await self._client.send_mod_message(mod_message)
+            if not success:
+                wait_task.cancel()
+                logger.error("Failed to send list_channels request")
+                # Return cached or default channels as fallback
+                return list(self._channels_cache.keys()) if self._channels_cache else DEFAULT_CHANNELS
+            
+            # Wait for response
+            response = await wait_task
+            
+            if response is None:
+                logger.warning(f"Timeout waiting for channel list (timeout: {timeout}s)")
+                # Return cached or default channels as fallback
+                return list(self._channels_cache.keys()) if self._channels_cache else DEFAULT_CHANNELS
+            
+            # Extract channels from response
+            response_content = response.content
+            channels = response_content.get("channels", DEFAULT_CHANNELS)
             
             # Update cache
-            for channel_name in default_channels:
+            self._channels_cache.clear()  # Clear old cache
+            for channel_name in channels:
                 if channel_name not in self._channels_cache:
                     self._channels_cache[channel_name] = ChannelConnection(channel_name, self)
             
             self._last_channels_fetch = datetime.now()
-            return default_channels
+            logger.debug(f"Retrieved {len(channels)} channels from server")
+            return channels
             
+        except asyncio.CancelledError:
+            logger.debug("list_channels request cancelled")
+            return list(self._channels_cache.keys()) if self._channels_cache else DEFAULT_CHANNELS
         except Exception as e:
             logger.error(f"Failed to list channels: {e}")
-            return []
+            # Return cached or default channels as fallback
+            return list(self._channels_cache.keys()) if self._channels_cache else DEFAULT_CHANNELS
     
     def channel(self, channel_name: str) -> ChannelConnection:
         """Get a specific channel by name.
