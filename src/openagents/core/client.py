@@ -5,6 +5,7 @@ import logging
 
 from openagents.utils.network_discovey import retrieve_network_details
 from openagents.core.connector import NetworkConnector
+from openagents.core.grpc_connector import GRPCNetworkConnector
 from openagents.models.messages import BaseMessage
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
@@ -47,6 +48,83 @@ class AgentClient:
             for mod_adapter in mod_adapters:
                 self.register_mod_adapter(mod_adapter)
     
+    async def _detect_transport_type(self, host: str, port: int) -> tuple[str, int]:
+        """Detect the transport type of the network server.
+        
+        Args:
+            host: Server host address
+            port: Server port
+            
+        Returns:
+            tuple: (transport_type, actual_port) where transport_type is 'grpc', 'grpc_http', or 'websocket'
+        """
+        # Try gRPC first
+        try:
+            import grpc
+            from grpc import aio
+            from openagents.proto import agent_service_pb2_grpc, agent_service_pb2
+            
+            # Create a temporary gRPC channel
+            channel = aio.insecure_channel(f"{host}:{port}")
+            stub = agent_service_pb2_grpc.AgentServiceStub(channel)
+            
+            # Try to ping the gRPC server
+            from google.protobuf.timestamp_pb2 import Timestamp
+            timestamp = Timestamp()
+            timestamp.GetCurrentTime()
+            
+            ping_request = agent_service_pb2.PingRequest(
+                agent_id="transport-detection",
+                timestamp=timestamp
+            )
+            
+            try:
+                await asyncio.wait_for(stub.Ping(ping_request), timeout=2.0)
+                await channel.close()
+                logger.info(f"Detected gRPC transport at {host}:{port}")
+                
+                # Check if WebSocket is available on agent port (port + 1)
+                agent_port = port + 1
+                try:
+                    import websockets
+                    from websockets.asyncio.client import connect
+                    
+                    # Try to connect to WebSocket on agent port
+                    try:
+                        ws = await asyncio.wait_for(connect(f"ws://{host}:{agent_port}"), timeout=1.0)
+                        await ws.close()
+                        logger.info(f"Detected WebSocket for agents at {host}:{agent_port}")
+                        return ("websocket", agent_port)
+                    except Exception:
+                        logger.debug(f"WebSocket not available at {host}:{agent_port}")
+                except ImportError:
+                    logger.debug("websockets library not available")
+                
+                # Check if HTTP adapter is available on port + 1000
+                http_port = port + 1000
+                try:
+                    import aiohttp
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(f"http://{host}:{http_port}/api/poll/test", timeout=aiohttp.ClientTimeout(total=1.0)) as response:
+                            if response.status in [200, 404]:  # 404 is expected for non-existent agent
+                                logger.info(f"Detected gRPC HTTP adapter at {host}:{http_port}")
+                                return ("grpc_http", http_port)
+                except Exception:
+                    logger.debug(f"gRPC HTTP adapter not available at {host}:{http_port}")
+                
+                return ("grpc", port)
+            except Exception:
+                await channel.close()
+                
+        except ImportError:
+            logger.debug("gRPC libraries not available, skipping gRPC detection")
+        except Exception as e:
+            logger.debug(f"gRPC detection failed: {e}")
+        
+        # Default to WebSocket
+        logger.info(f"Defaulting to WebSocket transport at {host}:{port}")
+        return ("websocket", port)
+
     async def connect_to_server(self, host: Optional[str] = None, port: Optional[int] = None, network_id: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None, max_message_size: int = 104857600) -> bool:
         """Connect to a network server.
         
@@ -81,7 +159,19 @@ class AgentClient:
             await self.disconnect()
             self.connector = None
         
-        self.connector = NetworkConnector(host, port, self.agent_id, metadata, max_message_size)
+        # Detect transport type and create appropriate connector
+        transport_type, actual_port = await self._detect_transport_type(host, port)
+        
+        if transport_type == "grpc":
+            logger.info(f"Creating gRPC connector for agent {self.agent_id}")
+            self.connector = GRPCNetworkConnector(host, actual_port, self.agent_id, metadata, max_message_size)
+        elif transport_type == "grpc_http":
+            logger.info(f"gRPC HTTP adapter detected, using WebSocket connector on HTTP adapter port")
+            # Use WebSocket connector on HTTP adapter port
+            self.connector = NetworkConnector(host, actual_port, self.agent_id, metadata, max_message_size)
+        else:
+            logger.info(f"Creating WebSocket connector for agent {self.agent_id}")
+            self.connector = NetworkConnector(host, actual_port, self.agent_id, metadata, max_message_size)
 
         # Connect using the connector
         success = await self.connector.connect_to_server()

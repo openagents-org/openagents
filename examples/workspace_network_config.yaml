@@ -11,14 +11,18 @@ network:
   port: 8570
   server_mode: true
   
+  # Agent connection port (WebSocket for agent-to-network communication)
+  agent_port: 8571
+  
   # Transport configuration
-  transport: "websocket"
+  transport: "grpc"
   transport_config:
-    buffer_size: 8192
-    compression: true
-    ping_interval: 30
-    ping_timeout: 10
     max_message_size: 104857600
+    compression: true
+    keepalive_time: 30
+    keepalive_timeout: 10
+    keepalive_permit_without_calls: true
+    max_connection_idle: 300
   
   # Security configuration
   encryption_enabled: true
@@ -57,12 +61,6 @@ network:
       enabled: true
       config:
         workspace_type: "default"
-    - name: "openagents.mods.discovery.agent_discovery"
-      enabled: true
-      config:
-        announce_interval: 30
-        cleanup_interval: 60
-        agent_timeout: 120
 
 # Network profile for discovery
 network_profile:
