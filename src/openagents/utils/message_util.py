@@ -19,11 +19,18 @@ def parse_message_dict(message_dict: Dict[str, Any]) -> BaseMessage:
         merged_dict = message_dict.copy()
         payload = merged_dict.pop("payload", {})
         
-        # Add required ModMessage fields from payload if missing
-        if "mod" not in merged_dict and "mod" in payload:
-            merged_dict["mod"] = payload["mod"]
-        if "direction" not in merged_dict and "direction" in payload:
-            merged_dict["direction"] = payload["direction"]
+        # Debug logging removed for production
+        
+        # Copy all payload fields to merged_dict, with payload taking precedence for None/empty values
+        for key, value in payload.items():
+            existing_value = merged_dict.get(key)
+            # Override if key doesn't exist, is None, or is an empty dict/list
+            if (key not in merged_dict or 
+                existing_value is None or 
+                (isinstance(existing_value, (dict, list)) and not existing_value)):
+                merged_dict[key] = value
+        
+        # Handle special case for relevant_agent_id from target_id
         if "relevant_agent_id" not in merged_dict and "target_id" in message_dict:
             merged_dict["relevant_agent_id"] = message_dict["target_id"]
             

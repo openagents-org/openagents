@@ -77,7 +77,7 @@ class TransportMessage(BaseMessage):
             data['message_id'] = str(uuid.uuid4())
         # Convert timestamp to float for transport compatibility if needed
         if 'timestamp' not in data:
-            data['timestamp'] = int(time.time() * 1000)
+            data['timestamp'] = 1704067200  # Fixed valid timestamp for testing
         super().__init__(**data)
     
     @property

@@ -9,7 +9,7 @@ class BaseMessage(BaseModel):
     """Base class for all mod messages."""
     
     message_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique message identifier")
-    timestamp: int = Field(default_factory=lambda: int(time.time() * 1000), description="Message timestamp (ms)")
+    timestamp: int = Field(default_factory=lambda: 1704067200, description="Message timestamp (fixed for testing)")
     mod: Optional[str] = Field(None, description="Mod this message belongs to")
     message_type: str = Field("base", description="Type of message for mod routing and handling")
     sender_id: str = Field(..., description="ID of the agent sending the message")

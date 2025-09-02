@@ -718,16 +718,52 @@ class AgentClient:
         Args:
             message: The message to handle
         """
+        logger.info(f"🔥 CLIENT: Handling ModMessage from {message.sender_id}, mod={message.mod}, action={message.content.get('action')}")
+        
         # Notify any waiting functions first
         await self._notify_message_waiters("mod_message", message)
         
-        for mod_adapter in self.mod_adapters.values():
+        # Process through mod adapters first
+        processed_by_adapter = False
+        logger.info(f"🔥 CLIENT: Processing through {len(self.mod_adapters)} mod adapters")
+        
+        for mod_name, mod_adapter in self.mod_adapters.items():
             try:
+                logger.info(f"🔥 CLIENT: Trying mod adapter {mod_name} ({mod_adapter.__class__.__name__})")
                 processed_message = await mod_adapter.process_incoming_mod_message(message)
+                logger.info(f"🔥 CLIENT: Mod adapter {mod_name} returned: {processed_message}")
                 if processed_message is None:
+                    processed_by_adapter = True
+                    logger.info(f"🔥 CLIENT: Mod adapter {mod_name} processed the message (returned None)")
                     break
             except Exception as e:
                 logger.error(f"Error handling message in protocol {mod_adapter.__class__.__name__}: {e}")
+        
+        # If no mod adapter processed the message, add it to message threads for agent processing
+        if not processed_by_adapter:
+            logger.info(f"🔥 CLIENT: ModMessage not processed by adapters, adding to message threads for agent processing")
+            
+            # Create a thread ID for the ModMessage
+            thread_id = f"mod_{message.mod}_{message.message_id[:8]}"
+            
+            # Try to add the message to any available mod adapter's message threads
+            added_to_thread = False
+            for mod_name, mod_adapter in self.mod_adapters.items():
+                if hasattr(mod_adapter, 'message_threads') and mod_adapter.message_threads is not None:
+                    if thread_id not in mod_adapter.message_threads:
+                        from openagents.models.message_thread import MessageThread
+                        mod_adapter.message_threads[thread_id] = MessageThread(thread_id=thread_id)
+                    
+                    # Add the ModMessage to the thread
+                    mod_adapter.message_threads[thread_id].add_message(message)
+                    logger.info(f"🔥 CLIENT: Added ModMessage to thread {thread_id} in {mod_name} adapter for agent processing")
+                    added_to_thread = True
+                    break
+            
+            if not added_to_thread:
+                logger.warning("🔥 CLIENT: No mod adapter message_threads available to add ModMessage")
+        else:
+            logger.info(f"🔥 CLIENT: ModMessage was processed by a mod adapter")
     
     async def wait_direct_message(self, 
                                 condition: Optional[Callable[[DirectMessage], bool]] = None,

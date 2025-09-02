@@ -43,7 +43,7 @@ network:
   message_timeout: 30.0
   message_routing_enabled: true
   
-  # Mod configuration - includes workspace and thread messaging
+  # Mod configuration - includes workspace, thread messaging, and project collaboration
   mods:
     - name: "openagents.mods.communication.thread_messaging"
       enabled: true
@@ -61,6 +61,15 @@ network:
       enabled: true
       config:
         workspace_type: "default"
+    - name: "openagents.mods.project.default"
+      enabled: true
+      config:
+        max_concurrent_projects: 10
+        default_service_agents: ["echo-agent"]  # Service agents automatically added to all projects
+        project_channel_prefix: "project-"
+        auto_invite_service_agents: true
+        project_timeout_hours: 24
+        enable_project_persistence: true
 
 # Network profile for discovery
 network_profile:

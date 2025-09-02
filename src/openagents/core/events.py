@@ -46,6 +46,19 @@ class EventType(str, Enum):
     NETWORK_STATUS_CHANGED = "network.status.changed"
     MOD_LOADED = "mod.loaded"
     MOD_UNLOADED = "mod.unloaded"
+    
+    # Project events
+    PROJECT_CREATED = "project.created"
+    PROJECT_STARTED = "project.started"
+    PROJECT_RUN_COMPLETED = "project.run.completed"
+    PROJECT_RUN_FAILED = "project.run.failed"
+    PROJECT_RUN_REQUIRES_INPUT = "project.run.requires_input"
+    PROJECT_MESSAGE_RECEIVED = "project.message.received"
+    PROJECT_RUN_NOTIFICATION = "project.run.notification"
+    PROJECT_STOPPED = "project.stopped"
+    PROJECT_AGENT_JOINED = "project.agent.joined"
+    PROJECT_AGENT_LEFT = "project.agent.left"
+    PROJECT_STATUS_CHANGED = "project.status.changed"
 
 
 @dataclass

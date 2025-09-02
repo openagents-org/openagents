@@ -1,0 +1,46 @@
+{
+    "mod_name": "default",
+    "version": "1.0.0",
+    "description": "Default project mod for OpenAgents that provides project-based collaboration with dedicated channels and service agents",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "DefaultProjectAgentAdapter",
+    "network_mod_class": "DefaultProjectNetworkMod",
+    "capabilities": [
+        "project_management",
+        "project_based_collaboration",
+        "service_agent_coordination",
+        "project_lifecycle_management"
+    ],
+    "requires_adapter": true,
+    "studio_interface": true,
+    "dependencies": [
+        "openagents.mods.communication.thread_messaging",
+        "openagents.mods.workspace.default"
+    ],
+    "metadata": {
+        "project_type": "default",
+        "core_features": [
+            "project_creation_and_management",
+            "private_channel_creation",
+            "service_agent_coordination",
+            "project_lifecycle_events",
+            "long_horizon_task_support"
+        ],
+        "tools": [
+            "start_project",
+            "get_project_status",
+            "list_projects",
+            "stop_project",
+            "get_project_messages"
+        ]
+    },
+    "default_config": {
+        "max_concurrent_projects": 10,
+        "default_service_agents": [],
+        "project_channel_prefix": "project-",
+        "auto_invite_service_agents": true,
+        "project_timeout_hours": 24,
+        "enable_project_persistence": true
+    }
+}

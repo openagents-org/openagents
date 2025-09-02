@@ -162,6 +162,24 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         logger.info(f"Initialized channels: {list(self.channels.keys())}")
     
+    def _create_channel(self, channel_name: str, description: str = "") -> None:
+        """Create a new channel.
+        
+        Args:
+            channel_name: Name of the channel to create
+            description: Optional description for the channel
+        """
+        if channel_name not in self.channels:
+            self.channels[channel_name] = {
+                'name': channel_name,
+                'description': description,
+                'created_timestamp': int(time.time() * 1000),
+                'message_count': 0,
+                'thread_count': 0
+            }
+            self.channel_agents[channel_name] = set()
+            logger.info(f"Created channel: {channel_name}")
+    
     def initialize(self) -> bool:
         """Initialize the mod.
         
@@ -337,7 +355,15 @@ class ThreadMessagingNetworkMod(BaseMod):
         if channel in self.channels:
             self.channels[channel]['message_count'] += 1
         else:
-            logger.warning(f"Message sent to unknown channel: {channel}")
+            # Auto-create channel and add all active agents to it
+            logger.info(f"Auto-creating channel {channel} and adding all active agents")
+            self._create_channel(channel, f"Auto-created channel {channel}")
+            
+            # Add all active agents to the new channel
+            for agent_id in self.active_agents:
+                self.channel_agents[channel].add(agent_id)
+                self.agent_channels[agent_id].add(channel)
+                logger.info(f"Added agent {agent_id} to auto-created channel {channel}")
         
         logger.debug(f"Processing channel message from {message.sender_id} in {channel}")
         

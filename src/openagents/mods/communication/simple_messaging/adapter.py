@@ -139,11 +139,14 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             except Exception as e:
                 logger.error(f"Error in message handler: {e}")
     
-    async def process_incoming_mod_message(self, message: ModMessage) -> None:
+    async def process_incoming_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
         """Process an incoming mod message.
         
         Args:
             message: The mod message to process
+            
+        Returns:
+            Optional[ModMessage]: None if the message was handled, or the message if not handled
         """
         logger.debug(f"Received protocol message from {message.sender_id}")
         
@@ -155,9 +158,15 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             request_id = message.content.get("request_id")
             if request_id in self.pending_file_downloads:
                 await self._handle_file_download_response(message)
+                return None  # Message was handled
         elif action == "file_deletion_response":
             # Handle file deletion response
             logger.debug(f"File deletion response: {message.content.get('success', False)}")
+            return None  # Message was handled
+        
+        # Return the message if we didn't handle it
+        logger.debug(f"SimpleMessagingAgentAdapter did not handle ModMessage with action: {action}")
+        return message
     
     def shutdown(self) -> bool:
         """Shutdown the protocol gracefully.

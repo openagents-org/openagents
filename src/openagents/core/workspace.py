@@ -762,6 +762,101 @@ class Workspace:
         
         # Initialize events system
         self._events: Optional['WorkspaceEvents'] = None
+        
+        # Initialize response handling
+        self._pending_responses: Dict[str, asyncio.Future] = {}
+        self._handlers_setup: bool = False
+    
+    def _setup_message_handlers(self) -> None:
+        """Set up message handlers for workspace responses."""
+        if self._handlers_setup or not self._client:
+            return
+            
+        try:
+            # Store original mod message handler to avoid recursion
+            if not hasattr(self, '_original_mod_handler'):
+                self._original_mod_handler = getattr(self._client, '_handle_mod_message', None)
+            
+            async def enhanced_mod_handler(message):
+                # Handle project mod responses first
+                await self._handle_project_responses(message)
+                
+                # Call original handler if it exists and is different from current
+                if self._original_mod_handler and self._original_mod_handler != enhanced_mod_handler:
+                    await self._original_mod_handler(message)
+            
+            async def enhanced_direct_handler(message):
+                # Handle project mod responses in direct messages too
+                await self._handle_project_responses(message)
+                
+                # Call original handler if it exists
+                if hasattr(self, '_original_direct_handler'):
+                    if self._original_direct_handler and self._original_direct_handler != enhanced_direct_handler:
+                        await self._original_direct_handler(message)
+            
+            # Replace the mod message handler only if not already replaced
+            if self._client._handle_mod_message != enhanced_mod_handler:
+                self._client._handle_mod_message = enhanced_mod_handler
+                self._handlers_setup = True
+            
+            # Also set up direct message handler for project responses
+            if not hasattr(self, '_original_direct_handler'):
+                self._original_direct_handler = getattr(self._client, '_handle_direct_message', None)
+            
+            if self._client._handle_direct_message != enhanced_direct_handler:
+                self._client._handle_direct_message = enhanced_direct_handler
+        except Exception as e:
+            logger.warning(f"Failed to setup message handlers: {e}")
+    
+    async def _handle_project_responses(self, message) -> None:
+        """Handle project mod responses.
+        
+        Args:
+            message: The message to handle (ModMessage or DirectMessage)
+        """
+        try:
+            # Handle both ModMessage and DirectMessage responses
+            content = None
+            is_project_response = False
+            
+            # Import here to avoid circular imports
+            from openagents.models.messages import ModMessage, DirectMessage
+            
+            if isinstance(message, ModMessage) and message.mod == "openagents.mods.project.default":
+                # ModMessage from project mod
+                content = message.content
+                is_project_response = True
+            elif isinstance(message, DirectMessage) and isinstance(message.content, dict):
+                # DirectMessage from project mod
+                if message.content.get("mod") == "openagents.mods.project.default":
+                    content = message.content
+                    is_project_response = True
+            
+            if not is_project_response or not content:
+                return
+            
+            action = content.get("action")
+            request_id = content.get("request_id")
+            
+            if not request_id:
+                return
+            
+            # Find matching response future
+            response_key = None
+            for key in self._pending_responses.keys():
+                if request_id in key:
+                    response_key = key
+                    break
+            
+            if response_key and response_key in self._pending_responses:
+                future = self._pending_responses[response_key]
+                if not future.done():
+                    future.set_result(content)
+                
+                # Clean up
+                del self._pending_responses[response_key]
+        except Exception as e:
+            logger.error(f"Error handling project response: {e}")
     
     async def _ensure_connected(self) -> bool:
         """Ensure the workspace client is connected to the network.
@@ -1026,6 +1121,227 @@ class Workspace:
             from openagents.core.events import WorkspaceEvents
             self._events = WorkspaceEvents(self)
         return self._events
+    
+    async def start_project(self, project, timeout: float = 10.0) -> Dict[str, Any]:
+        """Start a new project with project-based collaboration.
+        
+        Args:
+            project: Project instance with goal, name, and configuration
+            timeout: Timeout for waiting for response (seconds)
+            
+        Returns:
+            Dict containing project creation result with project_id, channel_name, etc.
+            
+        Raises:
+            RuntimeError: If project mod is not enabled in the network
+        """
+        # Import here to avoid circular imports
+        from openagents.workspace import Project
+        
+        # Ensure we're connected to the network
+        if not await self._ensure_connected():
+            raise RuntimeError("Could not establish network connection")
+        
+        # Set up message handlers if not already done
+        self._setup_message_handlers()
+        
+        # Validate project parameter
+        if not isinstance(project, Project):
+            raise ValueError("project must be an instance of Project class")
+        
+        try:
+            # Generate unique request ID for correlation
+            request_id = str(uuid.uuid4())
+            
+            # Create mod message to start project
+            mod_message = ModMessage(
+                sender_id=self._client.agent_id,
+                mod="openagents.mods.project.default",
+                relevant_agent_id=self._client.agent_id,
+                content={
+                    "message_type": "project_creation",
+                    "sender_id": self._client.agent_id,
+                    "project_id": project.project_id,
+                    "project_name": project.name,
+                    "project_goal": project.goal,
+                    "config": project.config,
+                    "request_id": request_id
+                }
+            )
+            
+            # Set up response waiting
+            response_future = asyncio.Future()
+            response_key = f"project_creation_response_{request_id}"
+            
+            # Store future for response correlation
+            self._pending_responses[response_key] = response_future
+            
+            # Send the message through the connector
+            await self._client.connector.send_message(mod_message)
+            
+            # Wait for response with timeout
+            try:
+                response_content = await asyncio.wait_for(response_future, timeout=timeout)
+                
+                if response_content.get("success"):
+                    logger.info(f"Successfully started project {project.project_id}")
+                    return {
+                        "success": True,
+                        "project_id": project.project_id,
+                        "project_name": response_content.get("project_name"),
+                        "channel_name": response_content.get("channel_name"),
+                        "service_agents": response_content.get("service_agents", [])
+                    }
+                else:
+                    error = response_content.get("error", "Unknown error")
+                    logger.error(f"Failed to start project: {error}")
+                    return {"success": False, "error": error}
+                    
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout waiting for project creation response")
+                return {"success": False, "error": "Timeout waiting for response"}
+                
+        except Exception as e:
+            logger.error(f"Error starting project: {e}")
+            return {"success": False, "error": str(e)}
+        finally:
+            # Clean up response future
+            self._pending_responses.pop(response_key, None)
+    
+    async def get_project_status(self, project_id: str, timeout: float = 10.0) -> Dict[str, Any]:
+        """Get the status of a project.
+        
+        Args:
+            project_id: ID of the project to get status for
+            timeout: Timeout for waiting for response (seconds)
+            
+        Returns:
+            Dict containing project status and details
+        """
+        # Ensure we're connected to the network
+        if not await self._ensure_connected():
+            raise RuntimeError("Could not establish network connection")
+        
+        try:
+            # Generate unique request ID for correlation
+            request_id = str(uuid.uuid4())
+            
+            # Create mod message to get project status
+            mod_message = ModMessage(
+                sender_id=self._client.agent_id,
+                mod="openagents.mods.project.default",
+                relevant_agent_id=self._client.agent_id,
+                content={
+                    "message_type": "project_status",
+                    "sender_id": self._client.agent_id,
+                    "project_id": project_id,
+                    "action": "get_status",
+                    "request_id": request_id
+                }
+            )
+            
+            # Set up response waiting
+            response_future = asyncio.Future()
+            response_key = f"project_status_response_{request_id}"
+            
+            # Store future for response correlation
+            self._pending_responses[response_key] = response_future
+            
+            # Send the message through the connector
+            await self._client.connector.send_message(mod_message)
+            
+            # Wait for response with timeout
+            try:
+                response_content = await asyncio.wait_for(response_future, timeout=timeout)
+                
+                if response_content.get("success"):
+                    return {
+                        "success": True,
+                        "project_id": project_id,
+                        "status": response_content.get("status"),
+                        "project_data": response_content.get("project_data", {})
+                    }
+                else:
+                    error = response_content.get("error", "Unknown error")
+                    return {"success": False, "error": error}
+                    
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout waiting for project status response")
+                return {"success": False, "error": "Timeout waiting for response"}
+                
+        except Exception as e:
+            logger.error(f"Error getting project status: {e}")
+            return {"success": False, "error": str(e)}
+        finally:
+            # Clean up response future
+            self._pending_responses.pop(response_key, None)
+    
+    async def list_projects(self, filter_status: Optional[str] = None, timeout: float = 10.0) -> Dict[str, Any]:
+        """List all projects associated with this workspace.
+        
+        Args:
+            filter_status: Optional status filter (created, running, completed, failed, stopped, paused)
+            timeout: Timeout for waiting for response (seconds)
+            
+        Returns:
+            Dict containing list of projects
+        """
+        # Ensure we're connected to the network
+        if not await self._ensure_connected():
+            raise RuntimeError("Could not establish network connection")
+        
+        try:
+            # Generate unique request ID for correlation
+            request_id = str(uuid.uuid4())
+            
+            # Create mod message to list projects
+            mod_message = ModMessage(
+                sender_id=self._client.agent_id,
+                mod="openagents.mods.project.default",
+                relevant_agent_id=self._client.agent_id,
+                content={
+                    "message_type": "project_list",
+                    "sender_id": self._client.agent_id,
+                    "action": "list_projects",
+                    "filter_status": filter_status,
+                    "request_id": request_id
+                }
+            )
+            
+            # Set up response waiting
+            response_future = asyncio.Future()
+            response_key = f"project_list_response_{request_id}"
+            
+            # Store future for response correlation
+            self._pending_responses[response_key] = response_future
+            
+            # Send the message through the connector
+            await self._client.connector.send_message(mod_message)
+            
+            # Wait for response with timeout
+            try:
+                response_content = await asyncio.wait_for(response_future, timeout=timeout)
+                
+                if response_content.get("success"):
+                    return {
+                        "success": True,
+                        "projects": response_content.get("projects", []),
+                        "total_count": response_content.get("total_count", 0)
+                    }
+                else:
+                    error = response_content.get("error", "Unknown error")
+                    return {"success": False, "error": error}
+                    
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout waiting for project list response")
+                return {"success": False, "error": "Timeout waiting for response"}
+                
+        except Exception as e:
+            logger.error(f"Error listing projects: {e}")
+            return {"success": False, "error": str(e)}
+        finally:
+            # Clean up response future
+            self._pending_responses.pop(response_key, None)
     
     def __str__(self) -> str:
         client_id = self._client.agent_id if self._client else "None"
