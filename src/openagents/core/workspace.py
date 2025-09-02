@@ -101,6 +101,74 @@ class AgentConnection:
             logger.error(f"Failed to get info for agent {self.agent_id}: {e}")
             return None
     
+    async def wait_for_message(self, timeout: float = 30.0) -> Optional[Dict[str, Any]]:
+        """Wait for a direct message from this agent.
+        
+        Args:
+            timeout: Timeout in seconds
+            
+        Returns:
+            Dict containing the message content, or None if timeout
+        """
+        # Ensure we're connected to the network
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish network connection")
+            return None
+            
+        try:
+            def message_condition(msg):
+                """Check if this is a direct message from our target agent."""
+                try:
+                    return msg.sender_id == self.agent_id
+                except (AttributeError, KeyError):
+                    return False
+            
+            # Wait for the direct message
+            response = await self._client.wait_direct_message(
+                condition=message_condition,
+                timeout=timeout
+            )
+            
+            if response:
+                return response.content
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error waiting for message from agent {self.agent_id}: {e}")
+            return None
+    
+    async def wait_for_reply(self, timeout: float = 30.0) -> Optional[Dict[str, Any]]:
+        """Wait for a reply from this agent (alias for wait_for_message).
+        
+        Args:
+            timeout: Timeout in seconds
+            
+        Returns:
+            Dict containing the message content, or None if timeout
+        """
+        return await self.wait_for_message(timeout)
+    
+    async def send_and_wait(self, content: Union[str, Dict[str, Any]], timeout: float = 30.0, **kwargs) -> Optional[Dict[str, Any]]:
+        """Send a direct message and wait for a reply.
+        
+        Args:
+            content: Message content to send
+            timeout: Timeout in seconds to wait for reply
+            **kwargs: Additional message parameters
+            
+        Returns:
+            Dict containing the reply message content, or None if timeout or send failed
+        """
+        # Send the message first
+        success = await self.send_direct_message(content, **kwargs)
+        if not success:
+            logger.error(f"Failed to send message to agent {self.agent_id}")
+            return None
+        
+        # Wait for reply
+        logger.info(f"Sent message to {self.agent_id}, waiting for reply...")
+        return await self.wait_for_reply(timeout=timeout)
+    
     def __str__(self) -> str:
         return f"AgentConnection({self.agent_id})"
     
@@ -383,6 +451,174 @@ class ChannelConnection:
         except Exception as e:
             logger.error(f"Failed to react to message {message_id} in channel {self.name}: {e}")
             return False
+    
+    async def wait_for_reply(self, message_id: Optional[str] = None, timeout: float = 30.0) -> Optional[Dict[str, Any]]:
+        """Wait for a reply to a specific message or any reply in this channel.
+        
+        Args:
+            message_id: ID of the message to wait for replies to (if None, waits for any reply)
+            timeout: Timeout in seconds
+            
+        Returns:
+            Dict containing the reply message, or None if timeout
+        """
+        # Ensure we're connected to the network
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish network connection")
+            return None
+            
+        try:
+            def reply_condition(msg):
+                """Check if this is a reply message in our channel."""
+                try:
+                    content = msg.content
+                    # Look for reply messages from thread messaging mod
+                    if content.get("action") == "channel_message_notification":
+                        msg_data = content.get("message", {})
+                        # Check if it's in our channel
+                        if msg_data.get("channel") != self.name:
+                            return False
+                        # Check if it's a reply (has reply_to_id)
+                        if not msg_data.get("reply_to_id"):
+                            return False
+                        # If specific message_id provided, check if it matches
+                        if message_id and msg_data.get("reply_to_id") != message_id:
+                            return False
+                        return True
+                    return False
+                except (AttributeError, KeyError):
+                    return False
+            
+            # Wait for the reply
+            response = await self._client.wait_mod_message(
+                condition=reply_condition,
+                timeout=timeout
+            )
+            
+            if response:
+                return response.content.get("message", {})
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error waiting for reply in channel {self.name}: {e}")
+            return None
+    
+    async def wait_for_post(self, from_agent: Optional[str] = None, timeout: float = 30.0) -> Optional[Dict[str, Any]]:
+        """Wait for the next post (not reply) in this channel.
+        
+        Args:
+            from_agent: Wait for post from specific agent (if None, waits for any agent)
+            timeout: Timeout in seconds
+            
+        Returns:
+            Dict containing the post message, or None if timeout
+        """
+        # Ensure we're connected to the network
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish network connection")
+            return None
+            
+        try:
+            def post_condition(msg):
+                """Check if this is a new post (not reply) in our channel."""
+                try:
+                    content = msg.content
+                    # Look for channel messages from thread messaging mod
+                    if content.get("action") == "channel_message_notification":
+                        msg_data = content.get("message", {})
+                        # Check if it's in our channel
+                        if msg_data.get("channel") != self.name:
+                            return False
+                        # Check if it's NOT a reply (no reply_to_id)
+                        if msg_data.get("reply_to_id"):
+                            return False
+                        # If specific agent provided, check sender
+                        if from_agent and msg_data.get("sender_id") != from_agent:
+                            return False
+                        # Don't wait for our own messages
+                        if msg_data.get("sender_id") == self._client.agent_id:
+                            return False
+                        return True
+                    return False
+                except (AttributeError, KeyError):
+                    return False
+            
+            # Wait for the post
+            response = await self._client.wait_mod_message(
+                condition=post_condition,
+                timeout=timeout
+            )
+            
+            if response:
+                return response.content.get("message", {})
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error waiting for post in channel {self.name}: {e}")
+            return None
+    
+    async def wait_for_reaction(self, message_id: str, timeout: float = 30.0) -> Optional[Dict[str, Any]]:
+        """Wait for a reaction to a specific message.
+        
+        Args:
+            message_id: ID of the message to wait for reactions to
+            timeout: Timeout in seconds
+            
+        Returns:
+            Dict containing the reaction info, or None if timeout
+        """
+        # Ensure we're connected to the network
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish network connection")
+            return None
+            
+        try:
+            def reaction_condition(msg):
+                """Check if this is a reaction to our message."""
+                try:
+                    content = msg.content
+                    # Look for reaction notifications from thread messaging mod
+                    if content.get("action") == "reaction_notification":
+                        return content.get("target_message_id") == message_id
+                    return False
+                except (AttributeError, KeyError):
+                    return False
+            
+            # Wait for the reaction
+            response = await self._client.wait_mod_message(
+                condition=reaction_condition,
+                timeout=timeout
+            )
+            
+            if response:
+                return response.content
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error waiting for reaction to message {message_id}: {e}")
+            return None
+    
+    async def post_and_wait(self, content: Union[str, Dict[str, Any]], timeout: float = 30.0, **kwargs) -> Optional[Dict[str, Any]]:
+        """Post a message and wait for any reply to it.
+        
+        Args:
+            content: Message content to post
+            timeout: Timeout in seconds to wait for reply
+            **kwargs: Additional message parameters
+            
+        Returns:
+            Dict containing the reply message, or None if timeout or post failed
+        """
+        # Post the message first
+        success = await self.post(content, **kwargs)
+        if not success:
+            logger.error(f"Failed to post message to {self.name}")
+            return None
+        
+        # For demo purposes, we'll wait for any reply since we don't have the actual message ID
+        # In a real implementation, the post method would return the message ID
+        logger.info(f"Posted message to {self.name}, waiting for replies...")
+        return await self.wait_for_reply(timeout=timeout)
     
     def __str__(self) -> str:
         return f"ChannelConnection({self.name})"

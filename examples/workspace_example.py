@@ -123,6 +123,65 @@ async def main():
         success = await test_channel.post("This is a test message!")
         print(f"Message sent successfully: {success}")
         
+        # Test new simplified wait functions
+        print("\n🔄 Testing new simplified wait functions...")
+        
+        # Test agent wait for message
+        print("🤖 Testing agent.wait_for_message...")
+        try:
+            # Start waiting for a message from echo agent
+            wait_task = asyncio.create_task(
+                agent_conn.wait_for_message(timeout=3.0)
+            )
+            
+            # Give it a moment to start waiting
+            await asyncio.sleep(0.5)
+            
+            # Send a message to trigger echo response
+            await agent_conn.send_direct_message("Test wait function")
+            
+            # Wait for the response
+            message = await wait_task
+            if message:
+                print(f"✅ Received message via wait_for_message: {message.get('text', str(message))}")
+            else:
+                print("⏰ No message received (timeout)")
+        except Exception as e:
+            print(f"❌ Error testing wait_for_message: {e}")
+        
+        # Test channel wait for post
+        print("\n💬 Testing channel.wait_for_post...")
+        try:
+            post = await general_channel.wait_for_post(timeout=2.0)
+            if post:
+                print(f"✅ Received post: {post}")
+            else:
+                print("⏰ No post received (expected - no other agents posting)")
+        except Exception as e:
+            print(f"❌ Error testing wait_for_post: {e}")
+        
+        # Test send and wait for reply
+        print("\n🔄 Testing agent.send_and_wait...")
+        try:
+            reply = await agent_conn.send_and_wait("Hello, please reply!", timeout=3.0)
+            if reply:
+                print(f"✅ Got reply via send_and_wait: {reply.get('text', str(reply))}")
+            else:
+                print("⏰ No reply received")
+        except Exception as e:
+            print(f"❌ Error testing send_and_wait: {e}")
+        
+        print("\n📋 New simplified wait functions available:")
+        print("   🤖 AgentConnection:")
+        print("      • agent.wait_for_message(timeout=30.0)")
+        print("      • agent.wait_for_reply(timeout=30.0)")  
+        print("      • agent.send_and_wait(content, timeout=30.0)")
+        print("   💬 ChannelConnection:")
+        print("      • channel.wait_for_reply(message_id=None, timeout=30.0)")
+        print("      • channel.wait_for_post(from_agent=None, timeout=30.0)")
+        print("      • channel.wait_for_reaction(message_id, timeout=30.0)")
+        print("      • channel.post_and_wait(content, timeout=30.0)")
+        
         print("\n✅ Workspace functionality test completed!")
         
     except Exception as e:
