@@ -158,9 +158,10 @@ class ChannelConnection:
                 mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
-                    "action": "send_channel_message",
+                    "message_type": "channel_message",
+                    "sender_id": self._client.agent_id,
                     "channel": self.name,
-                    "content": message_content,
+                    "text": message_content.get("text", str(message_content)),
                     **kwargs
                 }
             )
@@ -198,6 +199,8 @@ class ChannelConnection:
                 mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
+                    "message_type": "message_retrieval",
+                    "sender_id": self._client.agent_id,
                     "action": "retrieve_channel_messages",
                     "channel": self.name,
                     "limit": limit,
@@ -287,7 +290,8 @@ class ChannelConnection:
                 mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
-                    "action": "reply_channel_message",
+                    "message_type": "reply_message",
+                    "sender_id": self._client.agent_id,
                     "channel": self.name,
                     "reply_to_id": message_id,
                     "text": reply_content.get("text", str(reply_content)),
@@ -323,7 +327,8 @@ class ChannelConnection:
                 mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
-                    "action": "upload_file",
+                    "message_type": "file_upload",
+                    "sender_id": self._client.agent_id,
                     "file_path": file_path,
                     "channel": self.name
                 }
@@ -364,7 +369,8 @@ class ChannelConnection:
                 mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
-                    "action": "react_to_message",
+                    "message_type": "reaction",
+                    "sender_id": self._client.agent_id,
                     "target_message_id": message_id,
                     "reaction_type": reaction,
                     "action": action
@@ -475,6 +481,8 @@ class Workspace:
                 mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
+                    "message_type": "channel_info",
+                    "sender_id": self._client.agent_id,
                     "action": "list_channels",
                     "request_id": request_id
                 }
@@ -633,20 +641,9 @@ class Workspace:
             return self.channel(channel_name)  # Return channel object anyway
             
         try:
-            # Create mod message to create channel (if supported by thread messaging mod)
-            mod_message = ModMessage(
-                sender_id=self._client.agent_id,
-                mod=THREAD_MESSAGING_MOD_NAME,
-                relevant_agent_id=self._client.agent_id,
-                content={
-                    "action": "create_channel",
-                    "channel": channel_name,
-                    "description": description
-                }
-            )
-            
-            # Send request
-            await self._client.send_mod_message(mod_message)
+            # Note: Channel creation is not supported by the thread messaging mod
+            # We'll just create the channel object locally
+            logger.info(f"Creating local channel object for {channel_name}")
             
             # Create and cache channel
             channel = ChannelConnection(channel_name, self)
