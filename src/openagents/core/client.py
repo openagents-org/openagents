@@ -261,36 +261,41 @@ class AgentClient:
         logger.info(f"Unregistered mod adapter {mod_name} from agent {self.agent_id}")
         return True
     
-    async def send_direct_message(self, message: DirectMessage) -> None:
+    async def send_direct_message(self, message: DirectMessage) -> bool:
         """Send a direct message to another agent.
         
         Args:
             message: The message to send
+            
+        Returns:
+            bool: True if message was sent successfully
         """
         verbose_print(f"🔄 AgentClient.send_direct_message called for message to {message.target_agent_id}")
         verbose_print(f"   Available mod adapters: {list(self.mod_adapters.keys())}")
         
-        processed_message = message
-        for mod_name, mod_adapter in self.mod_adapters.items():
-            verbose_print(f"   Processing through {mod_name} adapter...")
-            processed_message = await mod_adapter.process_outgoing_direct_message(message)
-            verbose_print(f"   Result from {mod_name}: {'✅ message' if processed_message else '❌ None'}")
-            if processed_message is None:
-                break
-        
-        if processed_message is not None:
-            verbose_print(f"🚀 Sending message via connector...")
-            try:
+        try:
+            processed_message = message
+            for mod_name, mod_adapter in self.mod_adapters.items():
+                verbose_print(f"   Processing through {mod_name} adapter...")
+                processed_message = await mod_adapter.process_outgoing_direct_message(message)
+                verbose_print(f"   Result from {mod_name}: {'✅ message' if processed_message else '❌ None'}")
+                if processed_message is None:
+                    return False
+            
+            if processed_message is not None:
+                verbose_print(f"🚀 Sending message via connector...")
                 await self.connector.send_message(processed_message)
                 verbose_print(f"✅ Message sent via connector successfully")
-            except Exception as e:
-                print(f"❌ Connector failed to send message: {e}")
-                print(f"Exception type: {type(e).__name__}")
-                import traceback
-                traceback.print_exc()
-                raise
-        else:
-            verbose_print(f"❌ Message was filtered out by mod adapters - not sending")
+                return True
+            else:
+                verbose_print(f"❌ Message was filtered out by mod adapters - not sending")
+                return False
+        except Exception as e:
+            print(f"❌ Connector failed to send message: {e}")
+            print(f"Exception type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     async def send_broadcast_message(self, message: BroadcastMessage) -> None:
         """Send a broadcast message to all agents.
@@ -306,19 +311,27 @@ class AgentClient:
         if processed_message is not None:
             await self.connector.send_message(processed_message)
     
-    async def send_mod_message(self, message: ModMessage) -> None:
+    async def send_mod_message(self, message: ModMessage) -> bool:
         """Send a mod message to another agent.
         
         Args:
             message: The message to send
+            
+        Returns:
+            bool: True if message was sent successfully
         """
-        processed_message = message
-        for mod_adapter in self.mod_adapters.values():
-            processed_message = await mod_adapter.process_outgoing_mod_message(message)
-            if processed_message is None:
-                break
-        if processed_message is not None:
-            await self.connector.send_message(processed_message)
+        try:
+            processed_message = message
+            for mod_adapter in self.mod_adapters.values():
+                processed_message = await mod_adapter.process_outgoing_mod_message(message)
+                if processed_message is None:
+                    return False
+            if processed_message is not None:
+                await self.connector.send_message(processed_message)
+                return True
+            return False
+        except Exception:
+            return False
     
     async def send_system_request(self, command: str, **kwargs) -> bool:
         """Send a system request to the network server.

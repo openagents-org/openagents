@@ -8,10 +8,13 @@ to provide channel-based communication and collaboration features.
 import asyncio
 import logging
 import uuid
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, List, Optional, Union, TYPE_CHECKING
 from datetime import datetime
 
 from openagents.core.client import AgentClient
+
+if TYPE_CHECKING:
+    from openagents.core.events import WorkspaceEvents
 from openagents.models.messages import ModMessage
 from openagents.config.globals import THREAD_MESSAGING_MOD_NAME, DEFAULT_CHANNELS
 
@@ -70,7 +73,23 @@ class AgentConnection:
             )
             
             # Send through client
-            return await self._client.send_direct_message(direct_message)
+            success = await self._client.send_direct_message(direct_message)
+            
+            # Emit event if successful
+            if success:
+                try:
+                    from openagents.core.events import WorkspaceEvent, EventType
+                    event = WorkspaceEvent(
+                        event_type=EventType.AGENT_DIRECT_MESSAGE_SENT,
+                        source_agent_id=self._client.agent_id,
+                        target_agent_id=self.agent_id,
+                        data=message_content
+                    )
+                    await self.workspace.events.event_manager.emit_event(event)
+                except Exception as e:
+                    logger.debug(f"Failed to emit agent.direct_message.sent event: {e}")
+            
+            return success
             
         except Exception as e:
             logger.error(f"Failed to send direct message to agent {self.agent_id}: {e}")
@@ -235,10 +254,94 @@ class ChannelConnection:
             )
             
             # Send through client
-            return await self._client.send_mod_message(mod_message)
+            success = await self._client.send_mod_message(mod_message)
+            
+            # Emit event if successful
+            if success:
+                try:
+                    from openagents.core.events import WorkspaceEvent, EventType
+                    event = WorkspaceEvent(
+                        event_type=EventType.CHANNEL_POST_CREATED,
+                        source_agent_id=self._client.agent_id,
+                        channel=self.name,
+                        data={
+                            "text": message_content.get("text", str(message_content)),
+                            **kwargs
+                        }
+                    )
+                    await self.workspace.events.event_manager.emit_event(event)
+                except Exception as e:
+                    logger.debug(f"Failed to emit channel.post.created event: {e}")
+            
+            return success
             
         except Exception as e:
             logger.error(f"Failed to send message to channel {self.name}: {e}")
+            return False
+    
+    async def post_with_mention(self, content: Union[str, Dict[str, Any]], mention_agent_id: str, **kwargs) -> bool:
+        """Send a message to this channel with an explicit agent mention.
+        
+        Args:
+            content: Message content (string or dict)
+            mention_agent_id: ID of the agent to mention
+            **kwargs: Additional message parameters
+            
+        Returns:
+            bool: True if message sent successfully
+        """
+        # Ensure we're connected to the network
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish network connection")
+            return False
+            
+        try:
+            # Prepare message content
+            if isinstance(content, str):
+                message_content = {"text": content}
+            else:
+                message_content = content.copy()
+            
+            # Create mod message for thread messaging with mention
+            mod_message = ModMessage(
+                sender_id=self._client.agent_id,
+                mod=THREAD_MESSAGING_MOD_NAME,
+                relevant_agent_id=self._client.agent_id,
+                content={
+                    "message_type": "channel_message",
+                    "sender_id": self._client.agent_id,
+                    "channel": self.name,
+                    "text": message_content.get("text", str(message_content)),
+                    "mentioned_agent_id": mention_agent_id,  # Add explicit mention
+                    **kwargs
+                }
+            )
+            
+            # Send through client
+            success = await self._client.send_mod_message(mod_message)
+            
+            # Emit event if successful
+            if success:
+                try:
+                    from openagents.core.events import WorkspaceEvent, EventType
+                    event = WorkspaceEvent(
+                        event_type=EventType.CHANNEL_POST_CREATED,
+                        source_agent_id=self._client.agent_id,
+                        channel=self.name,
+                        data={
+                            "text": message_content.get("text", str(message_content)),
+                            "mentioned_agent_id": mention_agent_id,
+                            **kwargs
+                        }
+                    )
+                    await self.workspace.events.event_manager.emit_event(event)
+                except Exception as e:
+                    logger.debug(f"Failed to emit channel.post.created event: {e}")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"Failed to send message with mention to channel {self.name}: {e}")
             return False
     
     async def get_messages(self, limit: int = 50, offset: int = 0, timeout: float = 10.0) -> List[Dict[str, Any]]:
@@ -656,6 +759,9 @@ class Workspace:
         self._last_agents_fetch: Optional[datetime] = None
         self._auto_connect_config: Optional[Dict[str, Any]] = None
         self._is_connected: bool = False
+        
+        # Initialize events system
+        self._events: Optional['WorkspaceEvents'] = None
     
     async def _ensure_connected(self) -> bool:
         """Ensure the workspace client is connected to the network.
@@ -907,6 +1013,19 @@ class Workspace:
             AgentClient instance or None if not available
         """
         return self._client
+    
+    @property
+    def events(self) -> 'WorkspaceEvents':
+        """Get the events interface for this workspace.
+        
+        Returns:
+            WorkspaceEvents: Event subscription interface
+        """
+        if self._events is None:
+            # Import here to avoid circular imports
+            from openagents.core.events import WorkspaceEvents
+            self._events = WorkspaceEvents(self)
+        return self._events
     
     def __str__(self) -> str:
         client_id = self._client.agent_id if self._client else "None"
