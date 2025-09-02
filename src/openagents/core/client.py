@@ -34,6 +34,13 @@ class AgentClient:
         self._agent_list_callbacks: List[Callable[[List[Dict[str, Any]]], Awaitable[None]]] = []
         self._mod_list_callbacks: List[Callable[[List[Dict[str, Any]]], Awaitable[None]]] = []
         self._mod_manifest_callbacks: List[Callable[[Dict[str, Any]], Awaitable[None]]] = []
+        
+        # Message waiting infrastructure
+        self._message_waiters: Dict[str, List[Dict[str, Any]]] = {
+            "direct_message": [],
+            "broadcast_message": [],
+            "mod_message": []
+        }
 
         # Register mod adapters if provided
         if mod_adapters:
@@ -537,9 +544,9 @@ class AgentClient:
         # Call registered callbacks
         for callback in self._mod_list_callbacks:
             try:
-                await callback(protocols)
+                await callback(mods)
             except Exception as e:
-                logger.error(f"Error in protocol list callback: {e}")
+                logger.error(f"Error in mod list callback: {e}")
     
     async def _handle_mod_manifest_response(self, data: Dict[str, Any]) -> None:
         """Handle a get_mod_manifest response from the network server.
@@ -571,6 +578,9 @@ class AgentClient:
         Args:
             message: The message to handle
         """
+        # Notify any waiting functions first
+        await self._notify_message_waiters("direct_message", message)
+        
         # Route message to appropriate protocol if available
         for mod_name, mod_adapter in self.mod_adapters.items():
             try:
@@ -588,6 +598,9 @@ class AgentClient:
         Args:
             message: The message to handle
         """
+        # Notify any waiting functions first
+        await self._notify_message_waiters("broadcast_message", message)
+        
         for mod_adapter in self.mod_adapters.values():
             try:
                 processed_message = await mod_adapter.process_incoming_broadcast_message(message)
@@ -602,6 +615,9 @@ class AgentClient:
         Args:
             message: The message to handle
         """
+        # Notify any waiting functions first
+        await self._notify_message_waiters("mod_message", message)
+        
         for mod_adapter in self.mod_adapters.values():
             try:
                 processed_message = await mod_adapter.process_incoming_mod_message(message)
@@ -609,4 +625,113 @@ class AgentClient:
                     break
             except Exception as e:
                 logger.error(f"Error handling message in protocol {mod_adapter.__class__.__name__}: {e}")
+    
+    async def wait_direct_message(self, 
+                                condition: Optional[Callable[[DirectMessage], bool]] = None,
+                                timeout: float = 30.0) -> Optional[DirectMessage]:
+        """Wait for a direct message that matches the given condition.
+        
+        Args:
+            condition: Optional function to filter messages. If None, returns first message.
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            DirectMessage if found within timeout, None otherwise
+        """
+        return await self._wait_for_message("direct_message", condition, timeout)
+    
+    async def wait_broadcast_message(self, 
+                                   condition: Optional[Callable[[BroadcastMessage], bool]] = None,
+                                   timeout: float = 30.0) -> Optional[BroadcastMessage]:
+        """Wait for a broadcast message that matches the given condition.
+        
+        Args:
+            condition: Optional function to filter messages. If None, returns first message.
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            BroadcastMessage if found within timeout, None otherwise
+        """
+        return await self._wait_for_message("broadcast_message", condition, timeout)
+    
+    async def wait_mod_message(self, 
+                             condition: Optional[Callable[[ModMessage], bool]] = None,
+                             timeout: float = 30.0) -> Optional[ModMessage]:
+        """Wait for a mod message that matches the given condition.
+        
+        Args:
+            condition: Optional function to filter messages. If None, returns first message.
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            ModMessage if found within timeout, None otherwise
+        """
+        return await self._wait_for_message("mod_message", condition, timeout)
+    
+    async def _wait_for_message(self, message_type: str, condition: Optional[Callable] = None, timeout: float = 30.0) -> Optional[BaseMessage]:
+        """Internal method to wait for a message of a specific type.
+        
+        Args:
+            message_type: Type of message to wait for ("direct_message", "broadcast_message", "mod_message")
+            condition: Optional function to filter messages
+            timeout: Maximum time to wait in seconds
+            
+        Returns:
+            Message if found within timeout, None otherwise
+        """
+        if self.connector is None:
+            logger.warning(f"Agent {self.agent_id} is not connected to a network")
+            return None
+        
+        # Create event and waiter entry
+        message_event = asyncio.Event()
+        result_message = {"message": None}
+        
+        waiter_entry = {
+            "event": message_event,
+            "condition": condition,
+            "result": result_message
+        }
+        
+        # Add to waiters list
+        self._message_waiters[message_type].append(waiter_entry)
+        
+        try:
+            # Wait for the message with timeout
+            await asyncio.wait_for(message_event.wait(), timeout=timeout)
+            return result_message["message"]
+        except asyncio.TimeoutError:
+            logger.debug(f"Timeout waiting for {message_type} (timeout: {timeout}s)")
+            return None
+        finally:
+            # Clean up - remove waiter from list
+            if waiter_entry in self._message_waiters[message_type]:
+                self._message_waiters[message_type].remove(waiter_entry)
+    
+    async def _notify_message_waiters(self, message_type: str, message: BaseMessage) -> None:
+        """Notify all waiters for a specific message type.
+        
+        Args:
+            message_type: Type of message received
+            message: The received message
+        """
+        if message_type not in self._message_waiters:
+            return
+        
+        # Create a copy of the waiters list to avoid modification during iteration
+        waiters_to_notify = []
+        
+        for waiter in self._message_waiters[message_type][:]:  # Create a copy
+            condition = waiter["condition"]
+            
+            # Check if message matches condition
+            if condition is None or condition(message):
+                waiter["result"]["message"] = message
+                waiters_to_notify.append(waiter)
+                # Remove from waiters list since it's been satisfied
+                self._message_waiters[message_type].remove(waiter)
+        
+        # Notify all matching waiters
+        for waiter in waiters_to_notify:
+            waiter["event"].set()
     
