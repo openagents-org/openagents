@@ -217,6 +217,9 @@ class DefaultProjectNetworkMod(BaseMod):
         # Create the channel via thread messaging mod
         await self._create_project_channel(project, channel_name)
         
+        # Post the project goal as the initial message in the channel
+        await self._post_project_goal_to_channel(project, channel_name)
+        
         # Emit project created event
         await self._emit_project_event(
             "project.created",
@@ -555,6 +558,54 @@ class DefaultProjectNetworkMod(BaseMod):
         # 1. Send a message to thread messaging mod to create the channel
         # 2. Invite all service agents to the channel
         # 3. Set up channel permissions for project-only access
+    
+    async def _post_project_goal_to_channel(self, project: Project, channel_name: str) -> None:
+        """Post the project goal as the initial message in the project channel.
+        
+        Args:
+            project: The project whose goal to post
+            channel_name: Name of the channel to post to
+        """
+        try:
+            # Create a message with the project goal
+            goal_message = f"🎯 **Project Goal**: {project.goal}\n\n" \
+                          f"📋 **Project**: {project.name}\n" \
+                          f"🆔 **Project ID**: {project.project_id}\n\n" \
+                          f"Welcome to the project channel! This is where we'll collaborate to achieve the project goal."
+            
+            # Send the goal message to the channel via thread messaging mod
+            if hasattr(self, 'network') and self.network:
+                from openagents.core.transport import Message
+                import time
+                
+                # Create a transport message for the thread messaging mod
+                transport_message = Message(
+                    message_id=f"project-goal-{project.project_id}",
+                    sender_id=project.creator_agent_id,
+                    target_id="",  # Broadcast to mod
+                    message_type="mod_message",
+                    payload={
+                        "mod": "openagents.mods.communication.thread_messaging",
+                        "action": "channel_message",
+                        "direction": "outbound",
+                        "relevant_agent_id": project.creator_agent_id,
+                        "message_type": "channel_message",
+                        "sender_id": project.creator_agent_id,
+                        "channel": f"#{channel_name}",
+                        "content": {"text": goal_message},
+                        "system_message": True  # Mark as system message
+                    },
+                    timestamp=int(time.time())
+                )
+                
+                # Send through network's mod message handler
+                await self.network._handle_mod_message(transport_message)
+                logger.info(f"Posted project goal to channel #{channel_name}")
+            else:
+                logger.warning(f"Cannot post project goal - network not available")
+                
+        except Exception as e:
+            logger.error(f"Failed to post project goal to channel {channel_name}: {e}")
     
     async def _notify_service_agents(self, project: Project, notification_type: str) -> None:
         """Notify service agents about project events.
