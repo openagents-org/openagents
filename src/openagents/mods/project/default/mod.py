@@ -137,19 +137,28 @@ class DefaultProjectNetworkMod(BaseMod):
             content = message.content
             message_type = content.get("message_type")
             
+            logger.info(f"🔧 PROJECT MOD: Received message type: {message_type}")
+            logger.info(f"🔧 PROJECT MOD: Message content keys: {list(content.keys())}")
+            logger.info(f"🔧 PROJECT MOD: Sender: {message.sender_id}")
+            
             if message_type == "project_creation":
+                logger.info(f"🔧 PROJECT MOD: Processing project creation")
                 inner_message = ProjectCreationMessage(**content)
                 await self._process_project_creation(inner_message)
             elif message_type == "project_status":
+                logger.info(f"🔧 PROJECT MOD: Processing project status")
                 inner_message = ProjectStatusMessage(**content)
                 await self._process_project_status(inner_message)
             elif message_type == "project_notification":
+                logger.info(f"🔧 PROJECT MOD: Processing project notification")
                 inner_message = ProjectNotificationMessage(**content)
                 await self._process_project_notification(inner_message)
             elif message_type == "project_channel":
+                logger.info(f"🔧 PROJECT MOD: Processing project channel")
                 inner_message = ProjectChannelMessage(**content)
                 await self._process_project_channel(inner_message)
             elif message_type == "project_list":
+                logger.info(f"🔧 PROJECT MOD: Processing project list")
                 inner_message = ProjectListMessage(**content)
                 await self._process_project_list(inner_message)
             else:
@@ -314,6 +323,10 @@ class DefaultProjectNetworkMod(BaseMod):
                 )
                 
                 logger.info(f"Resumed project {project_id}")
+            
+        elif action == "get_status":
+            # Just return the current status - no state change needed
+            logger.info(f"Getting status for project {project_id}")
         
         # Send status response
         await self._send_project_response(
@@ -334,19 +347,24 @@ class DefaultProjectNetworkMod(BaseMod):
         Args:
             message: The project notification message
         """
+        logger.info(f"🔧 PROJECT MOD: Processing project notification - project_id: {message.project_id}, type: {message.notification_type}")
+        
         project_id = message.project_id
         notification_type = message.notification_type
         
         if project_id not in self.projects:
             logger.warning(f"Received notification for unknown project {project_id}")
+            logger.info(f"🔧 PROJECT MOD: Available projects: {list(self.projects.keys())}")
             return
         
         project = self.projects[project_id]
         
         # Handle different notification types
         if notification_type == "completion":
+            logger.info(f"🔧 PROJECT MOD: Handling completion for project {project_id}")
             project.complete(message.content.get("results"))
             
+            logger.info(f"🔧 PROJECT MOD: Emitting project.run.completed event for project {project_id}")
             # Emit project completed event
             await self._emit_project_event(
                 "project.run.completed",
@@ -602,9 +620,41 @@ class DefaultProjectNetworkMod(BaseMod):
             agent_id: ID of the agent triggering the event
             data: Additional event data
         """
-        # This would integrate with the workspace events system
-        # For now, we'll just log the event
-        logger.info(f"Project event: {event_type} for project {project_id} by agent {agent_id}: {data}")
+        logger.info(f"🔧 PROJECT MOD: Emitting event {event_type} for project {project_id} by agent {agent_id}")
+        
+        # Send event notification to all registered workspace clients
+        if hasattr(self.network, '_registered_workspaces'):
+            for workspace_agent_id, workspace in self.network._registered_workspaces.items():
+                try:
+                    # Create a WorkspaceEvent and emit it through the workspace's event system
+                    from openagents.core.events import WorkspaceEvent, EventType
+                    
+                    # Convert event_type string to EventType enum
+                    try:
+                        event_enum = EventType(event_type)
+                    except ValueError:
+                        logger.warning(f"Unknown event type: {event_type}")
+                        continue
+                    
+                    # Create the event
+                    event = WorkspaceEvent(
+                        event_type=event_enum,
+                        source_agent_id=agent_id,
+                        data={
+                            "project_id": project_id,
+                            "project_name": data.get("project_name", ""),
+                            **data
+                        }
+                    )
+                    
+                    # Emit through the workspace's event system
+                    await workspace.events.event_manager.emit_event(event)
+                    logger.info(f"🔧 PROJECT MOD: Sent {event_type} event to workspace {workspace_agent_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to emit event to workspace {workspace_agent_id}: {e}")
+        else:
+            logger.warning("No registered workspaces found to emit project event")
     
     async def _send_project_response(self, agent_id: str, request_id: str, action: str, content: Dict[str, Any]) -> None:
         """Send a response message to an agent.
@@ -615,22 +665,25 @@ class DefaultProjectNetworkMod(BaseMod):
             action: Response action type
             content: Response content
         """
-        from openagents.models.messages import DirectMessage
+        from openagents.models.messages import ModMessage
         
-        # Send response as DirectMessage to avoid routing loops
-        response = DirectMessage(
+        # Send response as ModMessage to ensure proper routing
+        response_content = {
+            "action": action,
+            "request_id": request_id,
+            **content
+        }
+        
+        response = ModMessage(
             sender_id=self.network.network_id,
-            target_agent_id=agent_id,
-            content={
-                "mod": "openagents.mods.project.default",
-                "action": action,
-                "request_id": request_id,
-                **content
-            }
+            mod="openagents.mods.project.default",
+            relevant_agent_id=agent_id,
+            content=response_content
         )
         
         try:
             await self.network.send_message(response)
+            logger.debug(f"Sent project response to {agent_id}: {action} for request {request_id}")
         except Exception as e:
             logger.error(f"Failed to send response to {agent_id}: {e}")
     

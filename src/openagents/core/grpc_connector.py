@@ -14,7 +14,7 @@ import uuid
 
 from openagents.models.messages import BaseMessage, BroadcastMessage, DirectMessage, ModMessage
 from openagents.utils.message_util import parse_message_dict
-from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST, PING_AGENT, CLAIM_AGENT_ID, VALIDATE_CERTIFICATE
+from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST, PING_AGENT, CLAIM_AGENT_ID, VALIDATE_CERTIFICATE, POLL_MESSAGES
 
 logger = logging.getLogger(__name__)
 
@@ -93,9 +93,12 @@ class GRPCNetworkConnector:
             
             # Create gRPC channel with configuration
             options = [
-                ('grpc.keepalive_time_ms', 30000),  # 30 seconds
-                ('grpc.keepalive_timeout_ms', 10000),  # 10 seconds
-                ('grpc.keepalive_permit_without_calls', True),
+                ('grpc.keepalive_time_ms', 60000),  # 60 seconds - less aggressive
+                ('grpc.keepalive_timeout_ms', 30000),  # 30 seconds
+                ('grpc.keepalive_permit_without_calls', False),  # Disable keepalive without calls
+                ('grpc.http2_max_pings_without_data', 0),  # Disable pings without data
+                ('grpc.http2_min_time_between_pings_ms', 60000),  # 60 seconds between pings
+                ('grpc.http2_min_ping_interval_without_data_ms', 300000),  # 5 minutes without data
                 ('grpc.max_receive_message_length', self.max_message_size),
                 ('grpc.max_send_message_length', self.max_message_size),
             ]
@@ -274,10 +277,18 @@ class GRPCNetworkConnector:
             if isinstance(message, ModMessage):
                 message.relevant_agent_id = self.agent_id
             
-            # For now, skip gRPC message sending to avoid timestamp serialization issues
-            # The core functionality works through WebSocket transport
-            logger.debug(f"gRPC message send skipped for {message.message_id} (using WebSocket transport)")
-            return True
+            # Send message via gRPC
+            grpc_message = self._to_grpc_message(message)
+            
+            # Send the message to the server
+            response = await self.stub.SendMessage(grpc_message)
+            
+            if response.success:
+                logger.debug(f"Successfully sent gRPC message {message.message_id}")
+                return True
+            else:
+                logger.error(f"Failed to send gRPC message {message.message_id}: {response.error_message}")
+                return False
                 
         except Exception as e:
             logger.error(f"Failed to send gRPC message: {e}")
@@ -320,15 +331,39 @@ class GRPCNetworkConnector:
                 "request_id": str(uuid.uuid4())
             }
             
-            # Convert to gRPC format
+            # Convert to gRPC format and serialize kwargs to protobuf Any field
+            from google.protobuf.any_pb2 import Any
+            import json
+            
+            # Serialize kwargs to Any field
+            data_any = Any()
+            data_any.type_url = "type.googleapis.com/openagents.SystemCommandData"
+            data_any.value = json.dumps(kwargs).encode('utf-8')
+            
             system_request = self.agent_service_pb2.SystemCommandRequest(
                 command=command,
-                request_id=request_data["request_id"]
+                request_id=request_data["request_id"],
+                data=data_any
             )
             
-            # TODO: Serialize kwargs to protobuf Any field
-            
             response = await self.stub.SendSystemCommand(system_request)
+            
+            # Process the response data if available
+            if response.success and response.data:
+                try:
+                    import json
+                    response_data = json.loads(response.data.value.decode('utf-8'))
+                    
+                    # Call the registered system handler if available
+                    if command in self.system_handlers:
+                        logger.info(f"🔧 GRPC: Processing system response for command: {command}")
+                        await self.system_handlers[command](response_data)
+                    else:
+                        logger.debug(f"No handler registered for system command: {command}")
+                        
+                except Exception as e:
+                    logger.error(f"Error processing gRPC system response: {e}")
+            
             return response.success
             
         except Exception as e:
@@ -342,6 +377,29 @@ class GRPCNetworkConnector:
     async def list_mods(self) -> bool:
         """Request a list of mods from the gRPC network server."""
         return await self.send_system_request(LIST_MODS)
+    
+    async def poll_messages(self) -> List[Dict[str, Any]]:
+        """Poll for queued messages from the gRPC network server.
+        
+        Returns:
+            List of messages waiting for this agent
+        """
+        if not self.is_connected:
+            logger.debug(f"Agent {self.agent_id} is not connected to gRPC network")
+            return []
+        
+        try:
+            # Send poll_messages system request
+            success = await self.send_system_request(POLL_MESSAGES)
+            if success:
+                # The response will be handled by the system command response handler
+                # For now, return empty list as this is async
+                return []
+            else:
+                return []
+        except Exception as e:
+            logger.error(f"Failed to poll messages: {e}")
+            return []
     
     def _to_grpc_message(self, message: BaseMessage):
         """Convert internal message to gRPC message format."""
@@ -361,11 +419,53 @@ class GRPCNetworkConnector:
             
             # Convert message content to protobuf Struct
             struct = Struct()
-            if hasattr(message, 'content') and message.content:
-                if isinstance(message.content, dict):
-                    struct.update(message.content)
-                else:
-                    struct.update({"content": str(message.content)})
+            
+            # For ModMessage, include mod-specific fields
+            if isinstance(message, ModMessage):
+                # Include the mod field and other ModMessage attributes
+                mod_data = {
+                    "mod": message.mod,
+                    "action": getattr(message, 'action', None),
+                    "direction": getattr(message, 'direction', None),
+                    "relevant_agent_id": getattr(message, 'relevant_agent_id', None)
+                }
+                # Add content
+                if message.content:
+                    if isinstance(message.content, dict):
+                        mod_data.update(message.content)
+                    else:
+                        mod_data["content"] = str(message.content)
+                
+                struct.update(mod_data)
+            else:
+                # Handle other message types by serializing all fields
+                message_data = {}
+                
+                # For ProjectNotificationMessage and other special types, include all fields
+                if hasattr(message, 'project_id'):
+                    message_data["project_id"] = getattr(message, 'project_id', '')
+                if hasattr(message, 'notification_type'):
+                    message_data["notification_type"] = getattr(message, 'notification_type', '')
+                if hasattr(message, 'content'):
+                    if isinstance(message.content, dict):
+                        message_data["content"] = message.content
+                    else:
+                        message_data["content"] = str(message.content)
+                
+                # Add any other fields that might be relevant
+                for field in ['target_agent_id', 'channel_name', 'action']:
+                    if hasattr(message, field):
+                        value = getattr(message, field, None)
+                        if value is not None:
+                            message_data[field] = value
+                
+                if message_data:
+                    struct.update(message_data)
+                elif hasattr(message, 'content') and message.content:
+                    if isinstance(message.content, dict):
+                        struct.update(message.content)
+                    else:
+                        struct.update({"content": str(message.content)})
             
             # Pack into Any
             any_payload = Any()
@@ -415,7 +515,10 @@ class GRPCNetworkConnector:
             # Ensure timestamp is in valid range (Unix epoch)
             if timestamp > 1e10:  # Likely milliseconds, convert to seconds
                 timestamp = timestamp / 1000.0
-            ts.FromSeconds(timestamp)
+            ts.FromSeconds(int(timestamp))
+            # Set nanoseconds for the fractional part
+            nanos = int((timestamp - int(timestamp)) * 1e9)
+            ts.nanos = nanos
         except Exception as e:
             logger.warning(f"Invalid timestamp {timestamp}, using current time: {e}")
             ts.GetCurrentTime()

@@ -156,27 +156,7 @@ class CentralizedTopology(NetworkTopology):
             if not await self.transport_manager.initialize_transport(transport_type):
                 return False
             
-            # If primary transport is gRPC, also add WebSocket for agent connections
-            if transport_type == TransportType.GRPC and self.server_mode:
-                try:
-                    from .transport import WebSocketTransport
-                    ws_config = self.config.get("agent_transport_config", {})
-                    ws_transport = WebSocketTransport(ws_config)
-                    self.transport_manager.register_transport(ws_transport)
-                    # Don't set as active transport, just register it
-                    await ws_transport.initialize()
-                    
-                    # Connect WebSocket transport to the same message handlers as the main transport
-                    main_transport = self.transport_manager.get_active_transport()
-                    if main_transport:
-                        # Copy message handlers from main transport to WebSocket transport
-                        ws_transport.message_handlers = main_transport.message_handlers
-                        ws_transport.connection_handlers = main_transport.connection_handlers
-                        ws_transport.system_message_handlers = main_transport.system_message_handlers
-                    
-                    logger.info("Registered WebSocket transport for agent connections")
-                except Exception as e:
-                    logger.warning(f"Failed to register WebSocket transport for agents: {e}")
+            # Note: Removed hybrid WebSocket setup - if gRPC is the transport, everything uses gRPC
             
             if self.server_mode:
                 # Start server mode (coordinator)
@@ -187,14 +167,7 @@ class CentralizedTopology(NetworkTopology):
                     return False
                 logger.info(f"Centralized coordinator started on {host}:{port}")
                 
-                # If we have WebSocket transport registered (for agent connections), start it on agent_port
-                if transport_type == TransportType.GRPC:
-                    agent_port = self.config.get("agent_port", port + 1)
-                    ws_transport = self.transport_manager.transports.get(TransportType.WEBSOCKET)
-                    if ws_transport and not await ws_transport.listen(f"{host}:{agent_port}"):
-                        logger.warning(f"Failed to start WebSocket transport for agents on {host}:{agent_port}")
-                    else:
-                        logger.info(f"WebSocket transport for agents started on {host}:{agent_port}")
+                # Note: Removed WebSocket agent port setup - agents use the same gRPC port
             else:
                 # Client mode - connect to coordinator
                 # This would be handled when agents register

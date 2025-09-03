@@ -524,9 +524,12 @@ class GRPCTransport(Transport):
         try:
             # Create gRPC channel with configuration
             options = [
-                ('grpc.keepalive_time_ms', self.config.get('keepalive_time', 30) * 1000),
-                ('grpc.keepalive_timeout_ms', self.config.get('keepalive_timeout', 5) * 1000),
-                ('grpc.keepalive_permit_without_calls', self.config.get('keepalive_permit_without_calls', True)),
+                ('grpc.keepalive_time_ms', self.config.get('keepalive_time', 60) * 1000),  # Default 60 seconds
+                ('grpc.keepalive_timeout_ms', self.config.get('keepalive_timeout', 30) * 1000),  # Default 30 seconds
+                ('grpc.keepalive_permit_without_calls', self.config.get('keepalive_permit_without_calls', False)),  # Default False
+                ('grpc.http2_max_pings_without_data', self.config.get('http2_max_pings_without_data', 0)),
+                ('grpc.http2_min_time_between_pings_ms', self.config.get('http2_min_time_between_pings', 60) * 1000),
+                ('grpc.http2_min_ping_interval_without_data_ms', self.config.get('http2_min_ping_interval_without_data', 300) * 1000),
                 ('grpc.max_receive_message_length', self.config.get('max_message_size', 104857600)),
                 ('grpc.max_send_message_length', self.config.get('max_message_size', 104857600)),
             ]
@@ -685,8 +688,17 @@ class GRPCTransport(Transport):
         payload = {}
         if grpc_message.payload:
             try:
-                payload = json.loads(grpc_message.payload.value.decode('utf-8'))
-            except:
+                # Try to unpack as protobuf Struct first (from gRPC connector)
+                from google.protobuf.struct_pb2 import Struct
+                struct = Struct()
+                if grpc_message.payload.Unpack(struct):
+                    # Convert Struct to dict
+                    payload = dict(struct)
+                else:
+                    # Fallback to JSON decoding (for other sources)
+                    payload = json.loads(grpc_message.payload.value.decode('utf-8'))
+            except Exception as e:
+                logger.debug(f"Failed to deserialize gRPC payload: {e}")
                 payload = {}
         
         return Message(
@@ -703,7 +715,17 @@ class GRPCTransport(Transport):
         """Convert float timestamp to protobuf timestamp."""
         from google.protobuf.timestamp_pb2 import Timestamp
         ts = Timestamp()
-        ts.FromSeconds(int(timestamp))
+        try:
+            # Handle both seconds and milliseconds timestamps
+            if timestamp > 1e10:  # Likely milliseconds, convert to seconds
+                timestamp = timestamp / 1000.0
+            ts.FromSeconds(int(timestamp))
+            # Set nanoseconds for the fractional part
+            nanos = int((timestamp - int(timestamp)) * 1e9)
+            ts.nanos = nanos
+        except Exception as e:
+            logger.warning(f"Invalid timestamp {timestamp}, using current time: {e}")
+            ts.GetCurrentTime()
         return ts
     
     def _from_timestamp(self, timestamp) -> float:
@@ -754,12 +776,27 @@ class GRPCAgentServicer:
                 "data": {
                     "agent_id": request.agent_id,
                     "metadata": dict(request.metadata),
-                    "capabilities": list(request.capabilities)
+                    "capabilities": list(request.capabilities),
+                    "force_reconnect": True  # Allow reconnection for gRPC agents
                 }
             }
             
+            # Create a mock connection for gRPC system commands
+            class MockGRPCConnection:
+                def __init__(self, context):
+                    self.context = context
+                    
+                async def send(self, data):
+                    # For gRPC, we don't send responses back through the connection
+                    # The response is handled by the gRPC return value
+                    pass
+                    
+                def peer(self):
+                    return self.context.peer() if hasattr(self.context, 'peer') else "grpc-client"
+            
+            mock_connection = MockGRPCConnection(context)
             await self.transport._notify_system_message_handlers(
-                request.agent_id, system_message, context
+                request.agent_id, system_message, mock_connection
             )
             
             from openagents.proto.agent_service_pb2 import RegisterAgentResponse
@@ -855,18 +892,48 @@ class GRPCAgentServicer:
                     data = {}
             
             # Forward to network instance system message handler
+            response_data = {}
             if hasattr(self.transport, 'network_instance') and self.transport.network_instance:
                 system_message = {
                     "command": command,
                     "data": data
                 }
                 
-                # Use context as a mock connection for system commands
+                # Create a mock connection for gRPC system commands that captures responses
+                class MockGRPCConnection:
+                    def __init__(self, context):
+                        self.context = context
+                        self.response_data = {}
+                        
+                    async def send(self, data):
+                        # Capture the response data for gRPC return
+                        try:
+                            import json
+                            response = json.loads(data) if isinstance(data, str) else data
+                            self.response_data = response
+                        except:
+                            self.response_data = {"raw_data": data}
+                        
+                    def peer(self):
+                        return self.context.peer() if hasattr(self.context, 'peer') else "grpc-client"
+                
+                mock_connection = MockGRPCConnection(context)
                 await self.transport.network_instance._handle_system_message(
-                    "system", system_message, context
+                    "system", system_message, mock_connection
                 )
+                response_data = mock_connection.response_data
             
-            return SystemCommandResponse(success=True)
+            # Serialize response data to Any field
+            from google.protobuf.any_pb2 import Any
+            response_any = Any()
+            response_any.type_url = "type.googleapis.com/openagents.SystemCommandResponse"
+            response_any.value = json.dumps(response_data).encode('utf-8')
+            
+            return SystemCommandResponse(
+                success=True,
+                data=response_any,
+                request_id=request.request_id
+            )
         except Exception as e:
             logger.error(f"Error handling SendSystemCommand: {e}")
             from openagents.proto.agent_service_pb2 import SystemCommandResponse

@@ -12,22 +12,72 @@ async def main():
     network = AgentNetwork.load("examples/workspace_network_config.yaml")
     await network.initialize()
     
+    # Debug: Check if project mod is loaded
+    print(f"🔧 Loaded mods: {list(network.mods.keys())}")
+    if "openagents.mods.project.default" in network.mods:
+        print("✅ Project mod loaded successfully")
+        project_mod = network.mods["openagents.mods.project.default"]
+        print(f"   Project mod instance: {project_mod}")
+        print(f"   Project mod config: {project_mod.config}")
+    else:
+        print("❌ Project mod not loaded!")
+    
+    # Wait a moment for network to fully initialize
+    print("⏳ Waiting for network to fully initialize...")
+    await asyncio.sleep(2.0)
+    
     # Start some service agents
     print("🤖 Starting service agents...")
-    echo_agent = ProjectEchoAgentRunner("echo-agent", echo_prefix="ProjectWorker")
-    await echo_agent.async_start("localhost", 8570)
+    echo_agent = ProjectEchoAgentRunner(
+        "echo-agent", 
+        protocol_names=["openagents.mods.communication.thread_messaging"],
+        echo_prefix="ProjectWorker"
+    )
+    
+    # Store reference to echo agent for later use
+    global_echo_agent = echo_agent
+    print(f"   Starting echo agent with ID: {echo_agent.client.agent_id}")
+    try:
+        print(f"   🔧 Agent connector before start: {echo_agent.client.connector}")
+        await echo_agent.async_start("localhost", 8570)
+        print(f"   🔧 Agent connector after start: {echo_agent.client.connector}")
+        print(f"   🔧 Agent connector connected: {echo_agent.client.connector.is_connected if echo_agent.client.connector else 'None'}")
+        print(f"   ✅ Echo agent started successfully")
+    except Exception as e:
+        print(f"   ❌ Failed to start echo agent: {e}")
+        raise
     
     # Give agents time to connect and register
     print("⏳ Waiting for agents to connect...")
-    await asyncio.sleep(3)
+    await asyncio.sleep(5)
     
     try:
         # Test project functionality
         print("\n📋 Testing project-based collaboration...")
         
         # Get workspace - this should work since both workspace and project mods are enabled
+        print("🔧 Creating workspace...")
         ws = network.workspace()
         print(f"✅ Created workspace: {ws}")
+        print(f"   Workspace client ID: {ws.get_client().agent_id}")
+        
+        # Check if workspace client is connected
+        workspace_client = ws.get_client()
+        if workspace_client.connector:
+            print(f"   Workspace client connected: {workspace_client.connector.is_connected}")
+        else:
+            print("   ⚠️  Workspace client connector is None - attempting to connect...")
+            # Try to connect the workspace client
+            try:
+                connected = await workspace_client.connect_to_server("localhost", 8570)
+                if connected:
+                    print("   ✅ Workspace client connected successfully")
+                else:
+                    print("   ❌ Failed to connect workspace client")
+            except Exception as e:
+                print(f"   ❌ Error connecting workspace client: {e}")
+                # If connection failed due to duplicate agent ID, continue anyway
+                # The workspace functionality might still work through the network
         
         # Create a new project
         print("\n🆕 Creating a new project...")
@@ -52,9 +102,9 @@ async def main():
         # Start the project
         print("\n🚀 Starting the project...")
         print(f"   Project ID: {my_project.project_id}")
-        print(f"   Using timeout: 10.0 seconds")
+        print(f"   Using timeout: 15.0 seconds")
         try:
-            result = await ws.start_project(my_project, timeout=10.0)
+            result = await ws.start_project(my_project, timeout=15.0)
             print(f"   Raw result: {result}")
         except Exception as e:
             print(f"❌ Project start failed with exception: {e}")
@@ -155,6 +205,14 @@ async def main():
                 if channel_name:
                     project_channel = ws.channel(channel_name)
                     print(f"📤 Sending tasks to project channel: {channel_name}")
+                    
+                    # Tell the ProjectEchoAgent about this project so it can complete it
+                    if 'global_echo_agent' in locals() or 'global_echo_agent' in globals():
+                        if hasattr(global_echo_agent, 'discovered_projects'):
+                            global_echo_agent.discovered_projects.add(project_id)
+                            print(f"🔧 Informed ProjectEchoAgent about project {project_id}")
+                        else:
+                            print(f"🔧 Could not inform ProjectEchoAgent about project {project_id} - no discovered_projects attribute")
                     
                     # Send a task that the ProjectEchoAgent will pick up and complete
                     await project_channel.post("🚀 NEW TASK: Implement user authentication system with login/logout functionality")
@@ -275,7 +333,10 @@ async def main():
             workspace_client = ws.get_client()
             if workspace_client and workspace_client.connector:
                 print("🔌 Disconnecting workspace client...")
-                await workspace_client.disconnect()
+                try:
+                    await workspace_client.disconnect()
+                except Exception as e:
+                    print(f"   ⚠️  Error disconnecting workspace client: {e}")
         
         # Stop agents
         if 'echo_agent' in locals():

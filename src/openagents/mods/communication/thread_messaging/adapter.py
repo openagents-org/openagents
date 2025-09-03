@@ -165,6 +165,10 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             await self._handle_reaction_response(message)
         elif action == "reaction_notification":
             await self._handle_reaction_notification(message)
+        elif action == "channel_message_notification":
+            await self._handle_channel_message_notification(message)
+        else:
+            logger.debug(f"Unhandled thread messaging action: {action}")
     
     async def send_direct_message(self, target_agent_id: str, text: str, quote: Optional[str] = None) -> None:
         """Send a direct message to another agent.
@@ -255,6 +259,35 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         
         await self.connector.send_mod_message(message)
         logger.debug(f"Sent channel message to {channel}")
+    
+    async def _handle_channel_message_notification(self, message: ModMessage) -> None:
+        """Handle a channel message notification from the network.
+        
+        Args:
+            message: The channel message notification
+        """
+        logger.info(f"🔧 THREAD MESSAGING ADAPTER: Received channel message notification")
+        logger.info(f"🔧 THREAD MESSAGING ADAPTER: Notification content: {message.content}")
+        
+        # Forward the notification to the agent's ModMessage handler
+        # This allows agents like ProjectEchoAgent to process channel notifications
+        if hasattr(self, '_agent_mod_message_handler') and self._agent_mod_message_handler:
+            try:
+                await self._agent_mod_message_handler(message)
+                logger.info(f"🔧 THREAD MESSAGING ADAPTER: Forwarded notification to agent handler")
+            except Exception as e:
+                logger.error(f"Error forwarding channel notification to agent: {e}")
+        else:
+            logger.warning(f"🔧 THREAD MESSAGING ADAPTER: No agent mod message handler registered")
+    
+    def set_agent_mod_message_handler(self, handler):
+        """Set the agent's ModMessage handler for forwarding notifications.
+        
+        Args:
+            handler: The agent's _handle_mod_message method
+        """
+        self._agent_mod_message_handler = handler
+        logger.info(f"🔧 THREAD MESSAGING ADAPTER: Registered agent mod message handler")
     
     async def upload_file(self, file_path: Union[str, Path]) -> Optional[str]:
         """Upload a local file and get a UUID for it.

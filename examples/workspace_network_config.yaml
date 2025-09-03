@@ -19,10 +19,14 @@ network:
   transport_config:
     max_message_size: 104857600
     compression: true
-    keepalive_time: 30
-    keepalive_timeout: 10
-    keepalive_permit_without_calls: true
-    max_connection_idle: 300
+    keepalive_time: 60000  # 60 seconds in milliseconds
+    keepalive_timeout: 30000  # 30 seconds in milliseconds
+    keepalive_permit_without_calls: false  # Disable keepalive without calls
+    max_connection_idle: 300000  # 5 minutes in milliseconds
+    max_connection_age: 1800000  # 30 minutes in milliseconds
+    http2_max_pings_without_data: 0  # Disable pings without data
+    http2_min_time_between_pings: 60000  # 60 seconds between pings
+    http2_min_ping_interval_without_data: 300000  # 5 minutes without data
   
   # Security configuration
   encryption_enabled: true

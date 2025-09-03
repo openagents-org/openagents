@@ -52,6 +52,7 @@ message RegisterAgentRequest {
   string agent_id = 1;
   map<string, string> metadata = 2;
   repeated string capabilities = 3;
+  bool force_reconnect = 4;
 }
 
 message RegisterAgentResponse {

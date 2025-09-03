@@ -60,7 +60,8 @@ class NetworkConnector:
                 self.connection, 
                 REGISTER_AGENT, 
                 agent_id=self.agent_id, 
-                metadata=self.metadata
+                metadata=self.metadata,
+                force_reconnect=True  # Allow reconnection if agent ID already exists
             )
             
             # Wait for registration response

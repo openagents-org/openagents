@@ -9,7 +9,7 @@ Key features:
 - Capability matching
 """
 
-from src.openagents.mods.discovery.agent_discovery.adapter import AgentDiscoveryAdapter
-from src.openagents.mods.discovery.agent_discovery.mod import AgentDiscoveryMod
+from openagents.mods.discovery.agent_discovery.adapter import AgentDiscoveryAdapter
+from openagents.mods.discovery.agent_discovery.mod import AgentDiscoveryMod
 
 __all__ = ["AgentDiscoveryAdapter", "AgentDiscoveryMod"]

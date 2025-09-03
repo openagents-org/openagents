@@ -37,16 +37,6 @@ class EventType(str, Enum):
     REACTION_ADDED = "reaction.added"
     REACTION_REMOVED = "reaction.removed"
     
-    # File events
-    FILE_UPLOADED = "file.uploaded"
-    FILE_DOWNLOADED = "file.downloaded"
-    FILE_SHARED = "file.shared"
-    
-    # System events
-    NETWORK_STATUS_CHANGED = "network.status.changed"
-    MOD_LOADED = "mod.loaded"
-    MOD_UNLOADED = "mod.unloaded"
-    
     # Project events
     PROJECT_CREATED = "project.created"
     PROJECT_STARTED = "project.started"
@@ -59,6 +49,16 @@ class EventType(str, Enum):
     PROJECT_AGENT_JOINED = "project.agent.joined"
     PROJECT_AGENT_LEFT = "project.agent.left"
     PROJECT_STATUS_CHANGED = "project.status.changed"
+    
+    # File events
+    FILE_UPLOADED = "file.uploaded"
+    FILE_DOWNLOADED = "file.downloaded"
+    FILE_SHARED = "file.shared"
+    
+    # System events
+    NETWORK_STATUS_CHANGED = "network.status.changed"
+    MOD_LOADED = "mod.loaded"
+    MOD_UNLOADED = "mod.unloaded"
 
 
 @dataclass

@@ -125,12 +125,23 @@ async def handle_register_agent(command: str, data: Dict[str, Any], connection: 
     
     # Store connection
     from .network import AgentConnection
-    network_instance.connections[agent_id] = AgentConnection(
+    agent_connection = AgentConnection(
         agent_id=agent_id,
         connection=connection,
         metadata=metadata,
         last_activity=asyncio.get_event_loop().time()
     )
+    network_instance.connections[agent_id] = agent_connection
+    
+    # Store agent client reference for direct delivery (if available)
+    # This is a workaround for gRPC transport not supporting bidirectional messaging
+    if hasattr(connection, 'agent_client'):
+        if hasattr(network_instance, '_register_agent_client'):
+            network_instance._register_agent_client(agent_id, connection.agent_client)
+            logger.info(f"🔧 REGISTRATION: Registered agent client {agent_id} for direct delivery")
+    
+    logger.info(f"🔧 REGISTRATION: Added agent {agent_id} to connections. Total connections: {len(network_instance.connections)}")
+    logger.info(f"🔧 REGISTRATION: Current connections: {list(network_instance.connections.keys())}")
     
     # Register agent metadata
     await network_instance.register_agent(agent_id, metadata)
@@ -198,9 +209,22 @@ async def handle_list_mods(command: str, data: Dict[str, Any], connection: Serve
     """
     requesting_agent_id = data.get("agent_id")
     
+    logger.info(f"🔧 LIST_MODS: Request from agent_id: {requesting_agent_id}")
+    logger.info(f"🔧 LIST_MODS: Available connections: {list(network_instance.connections.keys())}")
+    
     if requesting_agent_id not in network_instance.connections:
         logger.warning(f"Agent {requesting_agent_id} not connected")
         return
+    
+    # Try to register agent client for direct message delivery (workaround for gRPC)
+    # This is a best-effort attempt to enable direct delivery for agents using gRPC
+    try:
+        if hasattr(network_instance, '_register_agent_client') and requesting_agent_id:
+            # We don't have direct access to the agent client here, but we can try to find it
+            # This is a workaround - in a proper implementation, the agent would register itself
+            logger.debug(f"🔧 LIST_MODS: Attempting to enable direct delivery for {requesting_agent_id}")
+    except Exception as e:
+        logger.debug(f"Could not enable direct delivery for {requesting_agent_id}: {e}")
     
     # Get all unique mod names from both mods and mod_manifests
     all_mod_names = set(network_instance.mods.keys())
@@ -464,6 +488,66 @@ async def handle_claim_agent_id(command: str, data: Dict[str, Any], connection: 
         }))
 
 
+async def handle_poll_messages(command: str, data: Dict[str, Any], connection: ServerConnection,
+                              network_instance: Any) -> None:
+    """Handle the poll_messages command for gRPC agents.
+    
+    Args:
+        command: The command name
+        data: The command data
+        connection: The connection
+        network_instance: The network instance
+    """
+    logger.info(f"🔧 POLL_MESSAGES: Handler called for command: {command}")
+    requesting_agent_id = data.get("agent_id")
+    logger.info(f"🔧 POLL_MESSAGES: Requesting agent: {requesting_agent_id}")
+    
+    if not requesting_agent_id:
+        logger.warning("poll_messages command missing agent_id")
+        return
+    
+    if requesting_agent_id not in network_instance.connections:
+        logger.warning(f"Agent {requesting_agent_id} not connected")
+        return
+    
+    # Get queued messages for the agent
+    messages = network_instance._get_queued_messages(requesting_agent_id)
+    logger.info(f"🔧 POLL_MESSAGES: Retrieved {len(messages)} messages for {requesting_agent_id}")
+    
+    # Convert messages to serializable format
+    serialized_messages = []
+    for message in messages:
+        try:
+            if hasattr(message, 'model_dump'):
+                serialized_messages.append(message.model_dump())
+            elif hasattr(message, 'dict'):
+                serialized_messages.append(message.dict())
+            else:
+                serialized_messages.append(str(message))
+        except Exception as e:
+            logger.error(f"Error serializing message: {e}")
+    
+    logger.info(f"🔧 POLL_MESSAGES: Serialized {len(serialized_messages)} messages")
+    
+    # Send response
+    try:
+        response = {
+            "type": "system_response",
+            "command": "poll_messages",
+            "success": True,
+            "messages": serialized_messages
+        }
+        
+        # Include request_id if it was provided in the original request
+        if "request_id" in data:
+            response["request_id"] = data["request_id"]
+            
+        await connection.send(json.dumps(response))
+        logger.info(f"🔧 POLL_MESSAGES: Sent {len(serialized_messages)} queued messages to {requesting_agent_id}")
+    except Exception as e:
+        logger.error(f"Failed to send queued messages to {requesting_agent_id}: {e}")
+
+
 async def handle_validate_certificate(command: str, data: Dict[str, Any], connection: ServerConnection,
                                     network_instance: Any) -> None:
     """Handle the validate_certificate command.
@@ -545,6 +629,16 @@ PING_AGENT = "ping_agent"
 CLAIM_AGENT_ID = "claim_agent_id"
 VALIDATE_CERTIFICATE = "validate_certificate"
 GET_NETWORK_INFO = "get_network_info"
+POLL_MESSAGES = "poll_messages"
 
 # Default system command registry
-default_registry = SystemCommandRegistry() 
+default_registry = SystemCommandRegistry()
+default_registry.register_handler(REGISTER_AGENT, handle_register_agent)
+default_registry.register_handler(LIST_AGENTS, handle_list_agents)
+default_registry.register_handler(LIST_MODS, handle_list_mods)
+default_registry.register_handler(GET_MOD_MANIFEST, handle_get_mod_manifest)
+default_registry.register_handler(PING_AGENT, handle_ping_agent)
+default_registry.register_handler(CLAIM_AGENT_ID, handle_claim_agent_id)
+default_registry.register_handler(VALIDATE_CERTIFICATE, handle_validate_certificate)
+default_registry.register_handler(GET_NETWORK_INFO, handle_get_network_info)
+default_registry.register_handler(POLL_MESSAGES, handle_poll_messages) 

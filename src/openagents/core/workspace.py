@@ -7,6 +7,7 @@ to provide channel-based communication and collaboration features.
 
 import asyncio
 import logging
+import time
 import uuid
 from typing import Dict, Any, List, Optional, Union, TYPE_CHECKING
 from datetime import datetime
@@ -209,10 +210,8 @@ class ChannelConnection:
             channel_name: Name of the channel (with or without # prefix)
             workspace: Parent workspace instance
         """
-        # Normalize channel name (ensure it starts with #)
-        if not channel_name.startswith('#'):
-            channel_name = f"#{channel_name}"
-        
+        # Store channel name as-is (don't add # prefix for project channels)
+        # Project channels should not have # prefix to match agent expectations
         self.name = channel_name
         self.workspace = workspace
         self._client = workspace._client
@@ -244,17 +243,19 @@ class ChannelConnection:
                 sender_id=self._client.agent_id,
                 mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
+                action="channel_message",
+                direction="outbound",
                 content={
                     "message_type": "channel_message",
                     "sender_id": self._client.agent_id,
                     "channel": self.name,
-                    "text": message_content.get("text", str(message_content)),
+                    "content": {"text": message_content.get("text", str(message_content))},
                     **kwargs
                 }
             )
             
-            # Send through client
-            success = await self._client.send_mod_message(mod_message)
+            # Send through workspace
+            success = await self.workspace._send_mod_message(mod_message)
             
             # Emit event if successful
             if success:
@@ -318,7 +319,7 @@ class ChannelConnection:
             )
             
             # Send through client
-            success = await self._client.send_mod_message(mod_message)
+            success = await self._send_mod_message(mod_message)
             
             # Emit event if successful
             if success:
@@ -405,7 +406,7 @@ class ChannelConnection:
             await asyncio.sleep(0.01)
             
             # Send request
-            success = await self._client.send_mod_message(mod_message)
+            success = await self._send_mod_message(mod_message)
             if not success:
                 wait_task.cancel()
                 logger.error(f"Failed to send get_messages request for channel {self.name}")
@@ -514,7 +515,7 @@ class ChannelConnection:
             )
             
             # Send through client
-            success = await self._client.send_mod_message(mod_message)
+            success = await self._send_mod_message(mod_message)
             if success:
                 # In a real implementation, this would return the actual file UUID
                 # For now, return a placeholder
@@ -746,13 +747,19 @@ class Workspace:
     communication and other collaborative features.
     """
     
-    def __init__(self, client: AgentClient):
+    def __init__(self, client: AgentClient, network=None):
         """Initialize a workspace.
         
         Args:
             client: AgentClient instance for network communication
+            network: Optional network instance for direct mod communication
         """
         self._client = client
+        self._network = network
+        
+        # Register this workspace with the network for direct response delivery
+        if self._network and hasattr(self._network, '_register_workspace'):
+            self._network._register_workspace(self._client.agent_id, self)
         self._channels_cache: Dict[str, ChannelConnection] = {}
         self._agents_cache: Dict[str, AgentConnection] = {}
         self._last_channels_fetch: Optional[datetime] = None
@@ -766,6 +773,45 @@ class Workspace:
         # Initialize response handling
         self._pending_responses: Dict[str, asyncio.Future] = {}
         self._handlers_setup: bool = False
+    
+    async def _send_mod_message(self, mod_message) -> bool:
+        """Send a mod message either directly to network or through connector.
+        
+        Args:
+            mod_message: ModMessage to send
+            
+        Returns:
+            bool: True if message was sent successfully
+        """
+        # Send the message through the network's mod system if available, otherwise through connector
+        if self._network and hasattr(self._network, '_handle_mod_message'):
+            logger.info(f"🔧 WORKSPACE: Sending message directly to network mod system")
+            # Convert ModMessage to transport Message format for network processing
+            from openagents.core.transport import Message
+            # Create payload with mod-specific fields and content
+            payload = {
+                "mod": mod_message.mod,
+                "action": mod_message.action,
+                "direction": mod_message.direction,
+                "relevant_agent_id": mod_message.relevant_agent_id,
+                **mod_message.content  # Merge content at top level
+            }
+            transport_message = Message(
+                message_id=mod_message.message_id,
+                sender_id=mod_message.sender_id,
+                target_id="",
+                message_type="mod_message",
+                payload=payload,
+                timestamp=mod_message.timestamp
+            )
+            await self._network._handle_mod_message(transport_message)
+            logger.info(f"🔧 WORKSPACE: Sent message directly to network mod system")
+            return True
+        else:
+            logger.info(f"🔧 WORKSPACE: Sending message through connector")
+            success = await self._client.connector.send_message(mod_message)
+            logger.info(f"🔧 WORKSPACE: Connector send result: {success}")
+            return success
     
     def _setup_message_handlers(self) -> None:
         """Set up message handlers for workspace responses."""
@@ -815,6 +861,8 @@ class Workspace:
             message: The message to handle (ModMessage or DirectMessage)
         """
         try:
+            logger.info(f"🔧 WORKSPACE: _handle_project_responses called with message type: {type(message).__name__}")
+            
             # Handle both ModMessage and DirectMessage responses
             content = None
             is_project_response = False
@@ -824,11 +872,13 @@ class Workspace:
             
             if isinstance(message, ModMessage) and message.mod == "openagents.mods.project.default":
                 # ModMessage from project mod
+                logger.info(f"🔧 WORKSPACE: Received ModMessage from project mod")
                 content = message.content
                 is_project_response = True
             elif isinstance(message, DirectMessage) and isinstance(message.content, dict):
                 # DirectMessage from project mod
                 if message.content.get("mod") == "openagents.mods.project.default":
+                    logger.info(f"🔧 WORKSPACE: Received DirectMessage from project mod")
                     content = message.content
                     is_project_response = True
             
@@ -957,7 +1007,7 @@ class Workspace:
             await asyncio.sleep(0.01)
             
             # Send request
-            success = await self._client.send_mod_message(mod_message)
+            success = await self._send_mod_message(mod_message)
             if not success:
                 wait_task.cancel()
                 logger.error("Failed to send list_channels request")
@@ -1158,6 +1208,7 @@ class Workspace:
                 sender_id=self._client.agent_id,
                 mod="openagents.mods.project.default",
                 relevant_agent_id=self._client.agent_id,
+                action="project_creation",
                 content={
                     "message_type": "project_creation",
                     "sender_id": self._client.agent_id,
@@ -1165,7 +1216,9 @@ class Workspace:
                     "project_name": project.name,
                     "project_goal": project.goal,
                     "config": project.config,
-                    "request_id": request_id
+                    "request_id": request_id,
+                    "message_id": request_id,  # Add required message_id
+                    "timestamp": int(time.time())  # Add required timestamp
                 }
             )
             
@@ -1176,8 +1229,8 @@ class Workspace:
             # Store future for response correlation
             self._pending_responses[response_key] = response_future
             
-            # Send the message through the connector
-            await self._client.connector.send_message(mod_message)
+            # Send the message
+            success = await self._send_mod_message(mod_message)
             
             # Wait for response with timeout
             try:
@@ -1231,12 +1284,15 @@ class Workspace:
                 sender_id=self._client.agent_id,
                 mod="openagents.mods.project.default",
                 relevant_agent_id=self._client.agent_id,
+                action="get_status",
                 content={
                     "message_type": "project_status",
                     "sender_id": self._client.agent_id,
                     "project_id": project_id,
                     "action": "get_status",
-                    "request_id": request_id
+                    "request_id": request_id,
+                    "message_id": request_id,  # Add required message_id
+                    "timestamp": int(time.time())  # Add required timestamp
                 }
             )
             
@@ -1247,8 +1303,8 @@ class Workspace:
             # Store future for response correlation
             self._pending_responses[response_key] = response_future
             
-            # Send the message through the connector
-            await self._client.connector.send_message(mod_message)
+            # Send the message
+            success = await self._send_mod_message(mod_message)
             
             # Wait for response with timeout
             try:
@@ -1299,12 +1355,15 @@ class Workspace:
                 sender_id=self._client.agent_id,
                 mod="openagents.mods.project.default",
                 relevant_agent_id=self._client.agent_id,
+                action="list_projects",
                 content={
                     "message_type": "project_list",
                     "sender_id": self._client.agent_id,
                     "action": "list_projects",
                     "filter_status": filter_status,
-                    "request_id": request_id
+                    "request_id": request_id,
+                    "message_id": request_id,  # Add required message_id
+                    "timestamp": int(time.time())  # Add required timestamp
                 }
             )
             
@@ -1315,8 +1374,8 @@ class Workspace:
             # Store future for response correlation
             self._pending_responses[response_key] = response_future
             
-            # Send the message through the connector
-            await self._client.connector.send_message(mod_message)
+            # Send the message
+            success = await self._send_mod_message(mod_message)
             
             # Wait for response with timeout
             try:

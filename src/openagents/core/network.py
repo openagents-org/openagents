@@ -76,6 +76,15 @@ class AgentNetwork:
         self.mods: Dict[str, Any] = {}
         self.mod_manifests: Dict[str, Any] = {}
         
+        # Workspace tracking for direct response delivery
+        self._registered_workspaces: Dict[str, Any] = {}  # agent_id -> workspace
+        
+        # Agent client tracking for direct message delivery
+        self._registered_agent_clients: Dict[str, Any] = {}  # agent_id -> agent_client
+        
+        # Message queue for gRPC agents (workaround for bidirectional messaging limitation)
+        self._agent_message_queues: Dict[str, List[Any]] = {}  # agent_id -> list of pending messages
+        
         # Message handling
         self.message_handlers: Dict[str, List[Callable[[Message], Awaitable[None]]]] = {}
         self.agent_handlers: Dict[str, List[Callable[[AgentInfo], Awaitable[None]]]] = {}
@@ -215,6 +224,7 @@ class AgentNetwork:
         
         # Register network-level message handlers
         self.message_handlers["mod_message"] = [self._handle_mod_message]
+        self.message_handlers["project_notification"] = [self._handle_project_notification]
     
     async def initialize(self) -> bool:
         """Initialize the network.
@@ -349,46 +359,57 @@ class AgentNetwork:
         try:
             # Handle ModMessages locally - do NOT route through transport
             if isinstance(message, ModMessage):
-                logger.debug(f"Handling ModMessage {message.message_id} locally")
+                logger.info(f"🔧 NETWORK: Handling ModMessage {message.message_id} locally, mod={message.mod}")
+                logger.info(f"🔧 NETWORK: ModMessage sender={message.sender_id}, relevant_agent={message.relevant_agent_id}")
                 
                 # Check if this is a mod message response that needs to be delivered to an agent
-                if hasattr(message, 'relevant_agent_id'):
+                if hasattr(message, 'relevant_agent_id') and message.relevant_agent_id:
                     target_agent_id = message.relevant_agent_id
+                    logger.info(f"🔧 NETWORK: Delivering ModMessage response to agent {target_agent_id}")
                     
-                    # First try to deliver directly to WebSocket-connected agents
+                    # First try to deliver directly to registered workspaces
+                    if target_agent_id in self._registered_workspaces:
+                        logger.info(f"🔧 NETWORK: Found registered workspace {target_agent_id}, delivering response directly")
+                        workspace = self._registered_workspaces[target_agent_id]
+                        await workspace._handle_project_responses(message)
+                        logger.info(f"🔧 NETWORK: Successfully delivered response to workspace {target_agent_id}")
+                        return True
+                    
+                    # Try to deliver directly to registered agent clients
+                    elif target_agent_id in self._registered_agent_clients:
+                        logger.info(f"🔧 NETWORK: Found registered agent client {target_agent_id}, delivering ModMessage directly")
+                        agent_client = self._registered_agent_clients[target_agent_id]
+                        await agent_client._handle_mod_message(message)
+                        logger.info(f"🔧 NETWORK: Successfully delivered ModMessage to agent client {target_agent_id}")
+                        return True
+                    
+                    # Fallback: try to deliver to connected agents through transport
+                    elif target_agent_id in self.agents:
+                        logger.info(f"🔧 NETWORK: Found connected agent {target_agent_id}, delivering ModMessage through transport")
+                        logger.info(f"🔧 NETWORK: All registered agents: {list(self.agents.keys())}")
+                        # Convert ModMessage to transport Message and route it
+                        transport_message = self._convert_to_transport_message(message)
+                        transport_message.target_id = target_agent_id
+                        logger.info(f"🔧 NETWORK: Transport message: type={transport_message.message_type}, target={transport_message.target_id}")
+                        logger.info(f"🔧 NETWORK: Transport payload keys: {list(transport_message.payload.keys()) if transport_message.payload else 'None'}")
+                        logger.info(f"🔧 NETWORK: Attempting to route message through topology...")
+                        success = await self.topology.route_message(transport_message)
+                        logger.info(f"🔧 NETWORK: Topology route_message returned: {success}")
+                        if success:
+                            logger.info(f"🔧 NETWORK: Successfully delivered ModMessage to {target_agent_id}")
+                            return True
+                        else:
+                            logger.error(f"🔧 NETWORK: Failed to route ModMessage to {target_agent_id}")
+                            logger.info(f"🔧 NETWORK: Falling back to message queue for gRPC agent")
+                            # Fallback: Queue the message for gRPC agents
+                            self._queue_message_for_agent(target_agent_id, message)
+                            return True
+                    else:
+                        logger.warning(f"🔧 NETWORK: Agent {target_agent_id} not found in registered agents: {list(self.agents.keys())}")
+                    
+                    # Fallback: Deliver ModMessage through the active transport (gRPC HTTP adapter)
                     if hasattr(self.topology, 'transport_manager'):
                         transport_manager = self.topology.transport_manager
-                        
-                        # Check if agent is connected via WebSocket
-                        websocket_transport = None
-                        for transport in transport_manager.transports.values():
-                            # Check both connections and client_connections for WebSocket transport
-                            if hasattr(transport, 'connections') and target_agent_id in transport.connections:
-                                websocket_transport = transport
-                                break
-                            elif hasattr(transport, 'client_connections'):
-                                # For WebSocket transport, we need to check if the agent is registered
-                                # The client_connections uses peer IDs, but we need to check if our target agent is registered
-                                if hasattr(self.topology, 'registry') and target_agent_id in self.topology.registry:
-                                    # Agent is registered and this is a WebSocket transport with connections
-                                    if len(transport.client_connections) > 0:
-                                        websocket_transport = transport
-                                        break
-                        
-                        if websocket_transport:
-                            logger.info(f"🔧 Delivering ModMessage directly to WebSocket agent {target_agent_id}")
-                            try:
-                                # Convert ModMessage to transport format and send directly via WebSocket transport
-                                logger.info(f"🔥 NETWORK: Original ModMessage - mod={message.mod}, action={message.content.get('action')}")
-                                transport_message = self._convert_to_transport_message(message)
-                                logger.info(f"🔥 NETWORK: Transport message payload - mod={transport_message.payload.get('mod')}, action={transport_message.payload.get('content', {}).get('action')}")
-                                await websocket_transport.send(transport_message)
-                                logger.debug(f"Successfully delivered ModMessage to WebSocket agent {target_agent_id}")
-                                return True
-                            except Exception as e:
-                                logger.error(f"Failed to deliver ModMessage to WebSocket agent {target_agent_id}: {e}")
-                        
-                        # Fallback: Check if the target agent is connected via gRPC HTTP adapter
                         transport = transport_manager.get_active_transport()
                         if transport and hasattr(transport, 'http_adapter') and transport.http_adapter:
                             # Queue the message for HTTP polling
@@ -400,9 +421,7 @@ class AgentNetwork:
                                 'timestamp': message.timestamp
                             }
                             
-                            logger.info(f"🔧 Queuing mod response for HTTP polling: command={command}, data_keys={list(message.content.keys())}")
-                            if 'channel' in message.content:
-                                logger.info(f"🔧 Channel in response: {message.content['channel']}")
+                            logger.debug(f"Queuing mod response for HTTP polling: command={command}")
                             
                             if target_agent_id not in transport.http_adapter.message_queues:
                                 transport.http_adapter.message_queues[target_agent_id] = []
@@ -415,6 +434,39 @@ class AgentNetwork:
                 transport_message = self._convert_to_transport_message(message)
                 await self._handle_mod_message(transport_message)
                 return True
+            
+            # Handle DirectMessage for gRPC agents (queue for HTTP polling)
+            if isinstance(message, DirectMessage):
+                target_agent_id = message.target_agent_id
+                
+                # Check if target agent is using gRPC HTTP polling
+                if hasattr(self.topology, 'transport_manager'):
+                    transport_manager = self.topology.transport_manager
+                    transport = transport_manager.get_active_transport()
+                    if transport and hasattr(transport, 'http_adapter') and transport.http_adapter:
+                        # Queue DirectMessage for HTTP polling
+                        response_message = {
+                            'message_type': 'direct_message',
+                            'data': {
+                                'message_id': message.message_id,
+                                'sender_id': message.sender_id,
+                                'target_agent_id': message.target_agent_id,
+                                'content': message.content,
+                                'timestamp': message.timestamp,
+                                'metadata': message.metadata,
+                                'requires_response': message.requires_response
+                            },
+                            'timestamp': message.timestamp
+                        }
+                        
+                        logger.debug(f"Queuing DirectMessage for HTTP polling to agent {target_agent_id}")
+                        
+                        if target_agent_id not in transport.http_adapter.message_queues:
+                            transport.http_adapter.message_queues[target_agent_id] = []
+                        transport.http_adapter.message_queues[target_agent_id].append(response_message)
+                        
+                        logger.debug(f"Queued DirectMessage for HTTP agent {target_agent_id}")
+                        return True
             
             # Convert to transport message for other message types
             transport_message = self._convert_to_transport_message(message)
@@ -615,7 +667,11 @@ class AgentNetwork:
             message: Transport message to handle
         """
         try:
-            logger.debug(f"_handle_transport_message called: id={message.message_id}, type={message.message_type}, available_handlers={list(self.message_handlers.keys())}")
+            logger.info(f"🔧 NETWORK: _handle_transport_message called: id={message.message_id}, type={message.message_type}, sender={message.sender_id}")
+            if hasattr(message, 'payload') and message.payload:
+                logger.info(f"🔧 NETWORK: Message payload keys: {list(message.payload.keys())}")
+                if 'mod' in message.payload:
+                    logger.info(f"🔧 NETWORK: Message is for mod: {message.payload['mod']}")
             
             # Prevent infinite loops by tracking processed messages
             if message.message_id in self.processed_message_ids:
@@ -667,6 +723,53 @@ class AgentNetwork:
         except Exception as e:
             logger.error(f"Error handling transport message: {e}")
     
+    async def _handle_project_notification(self, message: Message) -> None:
+        """Handle project notification messages by routing them to the project mod.
+        
+        Args:
+            message: Transport message containing project notification
+        """
+        try:
+            logger.info(f"🔧 NETWORK: Handling project_notification message {message.message_id}")
+            
+            # Find the project mod
+            project_mod = None
+            for mod_name, mod_instance in self.mods.items():
+                if "project" in mod_name.lower():
+                    project_mod = mod_instance
+                    break
+            
+            if not project_mod:
+                logger.warning("No project mod found to handle project notification")
+                return
+            
+            # Convert transport message to ProjectNotificationMessage
+            from openagents.workspace.project_messages import ProjectNotificationMessage
+            
+            # Extract data from message payload
+            payload = message.payload or {}
+            logger.info(f"🔧 NETWORK: Message payload: {payload}")
+            
+            # Create ProjectNotificationMessage from the transport message
+            project_notification = ProjectNotificationMessage(
+                sender_id=message.sender_id,
+                project_id=payload.get("project_id", ""),
+                notification_type=payload.get("notification_type", ""),
+                content=payload.get("content", {}),
+                message_id=message.message_id,
+                timestamp=message.timestamp
+            )
+            
+            logger.info(f"🔧 NETWORK: Created notification - project_id: {project_notification.project_id}, type: {project_notification.notification_type}")
+            
+            logger.info(f"🔧 NETWORK: Routing project notification to project mod: {project_notification.notification_type}")
+            
+            # Call the project mod's notification handler
+            await project_mod._process_project_notification(project_notification)
+            
+        except Exception as e:
+            logger.error(f"Error handling project notification: {e}")
+    
     async def _handle_mod_message(self, message: Message) -> None:
         """Handle mod messages by routing them to the appropriate network mods.
         
@@ -674,17 +777,43 @@ class AgentNetwork:
             message: Transport message to route to network mods
         """
         try:
-            logger.debug(f"_handle_mod_message called with message: {message.message_id}, type: {message.message_type}")
-            logger.debug(f"Message attributes: content={hasattr(message, 'content')}, payload={hasattr(message, 'payload')}")
+            logger.info(f"🔧 NETWORK: _handle_mod_message called with message: {message.message_id}, type: {message.message_type}")
+            logger.info(f"🔧 NETWORK: Message attributes: content={hasattr(message, 'content')}, payload={hasattr(message, 'payload')}")
             
-            # The TransportMessage is already a ModMessage - we just need to extract the target mod name
-            target_mod_name = message.mod
+            # Extract the target mod name from the payload
+            target_mod_name = None
+            if hasattr(message, 'payload') and message.payload:
+                logger.debug(f"Payload contents: {message.payload}")
+                target_mod_name = message.payload.get('mod')
             logger.debug(f"Target mod name: {target_mod_name}")
             
             if target_mod_name and target_mod_name in self.mods:
                 network_mod = self.mods[target_mod_name]
                 logger.debug(f"Routing mod message {message.message_id} to network mod {target_mod_name}")
-                await network_mod.process_mod_message(message)
+                
+                # Convert transport message back to ModMessage
+                from openagents.models.messages import ModMessage
+                
+                # Extract content from payload (excluding mod-specific fields)
+                content = {}
+                mod_specific_fields = {'mod', 'direction', 'relevant_agent_id'}  # Keep 'action' in content
+                for key, value in message.payload.items():
+                    if key not in mod_specific_fields:
+                        content[key] = value
+                
+                mod_message = ModMessage(
+                    message_id=message.message_id,
+                    sender_id=message.sender_id,
+                    mod=target_mod_name,
+                    content=content,
+                    action=message.payload.get('action'),
+                    direction=message.payload.get('direction'),
+                    relevant_agent_id=message.payload.get('relevant_agent_id'),
+                    timestamp=message.timestamp,
+                    metadata=message.metadata
+                )
+                
+                await network_mod.process_mod_message(mod_message)
             else:
                 logger.warning(f"No network mod found for {target_mod_name}, available mods: {list(self.mods.keys())}")
                     
@@ -705,9 +834,9 @@ class AgentNetwork:
             from openagents.core.system_commands import (
                 handle_register_agent, handle_list_agents, handle_list_mods,
                 handle_ping_agent, handle_claim_agent_id, handle_validate_certificate,
-                handle_get_network_info,
+                handle_get_network_info, handle_poll_messages,
                 REGISTER_AGENT, LIST_AGENTS, LIST_MODS, PING_AGENT, 
-                CLAIM_AGENT_ID, VALIDATE_CERTIFICATE, GET_NETWORK_INFO
+                CLAIM_AGENT_ID, VALIDATE_CERTIFICATE, GET_NETWORK_INFO, POLL_MESSAGES
             )
             
             command = message.get("command")
@@ -741,27 +870,25 @@ class AgentNetwork:
                 await handle_claim_agent_id(command, message.get("data", {}), connection, self)
             elif command == VALIDATE_CERTIFICATE:
                 await handle_validate_certificate(command, message.get("data", {}), connection, self)
+            elif command == POLL_MESSAGES:
+                await handle_poll_messages(command, message.get("data", {}), connection, self)
             else:
                 logger.warning(f"Unhandled system command: {command}")
         except Exception as e:
             logger.error(f"Error handling system message: {e}")
     
     def _resolve_agent_connection(self, agent_id: str) -> Any:
-        """Resolve agent_id to WebSocket connection.
+        """Resolve agent_id to connection.
         
         Args:
             agent_id: ID of the agent to find connection for
             
         Returns:
-            WebSocket connection or None if not found
+            Connection or None if not found
         """
-        print(f"🔍 Resolving connection for agent_id: {agent_id}")
-        print(f"   Available connections: {list(self.connections.keys())}")
         if agent_id in self.connections:
             connection = self.connections[agent_id].connection
-            print(f"   ✅ Found connection for {agent_id}: {type(connection).__name__}")
             return connection
-        print(f"   ❌ No connection found for {agent_id}")
         return None
     
     async def _notify_agent_handlers(self, agent_info: AgentInfo) -> None:
@@ -935,8 +1062,8 @@ class AgentNetwork:
         
         client = AgentClient(client_id)
         
-        # Create workspace
-        workspace = Workspace(client)
+        # Create workspace with network reference
+        workspace = Workspace(client, network=self)
         
         # Automatically connect the workspace client to the network
         try:
@@ -958,6 +1085,54 @@ class AgentNetwork:
         
         logger.info(f"Created workspace with client ID: {client_id}")
         return workspace
+    
+    def _register_workspace(self, agent_id: str, workspace) -> None:
+        """Register a workspace for direct response delivery.
+        
+        Args:
+            agent_id: ID of the workspace client
+            workspace: Workspace instance
+        """
+        self._registered_workspaces[agent_id] = workspace
+        logger.info(f"Registered workspace for agent {agent_id}")
+    
+    def _queue_message_for_agent(self, agent_id: str, message: Any) -> None:
+        """Queue a message for a gRPC agent to be retrieved via polling.
+        
+        Args:
+            agent_id: ID of the target agent
+            message: Message to queue
+        """
+        if agent_id not in self._agent_message_queues:
+            self._agent_message_queues[agent_id] = []
+        
+        self._agent_message_queues[agent_id].append(message)
+        logger.info(f"🔧 NETWORK: Queued message for gRPC agent {agent_id}. Queue size: {len(self._agent_message_queues[agent_id])}")
+    
+    def _get_queued_messages(self, agent_id: str) -> List[Any]:
+        """Get and clear all queued messages for an agent.
+        
+        Args:
+            agent_id: ID of the agent
+            
+        Returns:
+            List of queued messages
+        """
+        messages = self._agent_message_queues.get(agent_id, [])
+        if messages:
+            self._agent_message_queues[agent_id] = []
+            logger.info(f"🔧 NETWORK: Retrieved {len(messages)} queued messages for agent {agent_id}")
+        return messages
+    
+    def _register_agent_client(self, agent_id: str, agent_client) -> None:
+        """Register an agent client for direct message delivery.
+        
+        Args:
+            agent_id: ID of the agent
+            agent_client: AgentClient instance
+        """
+        self._registered_agent_clients[agent_id] = agent_client
+        logger.info(f"Registered agent client for agent {agent_id}")
 
 
 def create_network(config: Union[NetworkConfig, str, Path]) -> AgentNetwork:

@@ -254,7 +254,15 @@ class AgentRunner(ABC):
                 if len(self.client.mod_adapters) == 0:
                     verbose_print("🔧 Server provided no protocols, loading essential protocols manually...")
                     try:
-                        manual_adapters = load_mod_adapters(["openagents.mods.communication.simple_messaging"])
+                        # Load essential protocols, including any specified in mod_names
+                        essential_mods = ["openagents.mods.communication.simple_messaging"]
+                        if hasattr(self, '_preset_mod_names') and self._preset_mod_names:
+                            essential_mods.extend(self._preset_mod_names)
+                        
+                        # Remove duplicates while preserving order
+                        essential_mods = list(dict.fromkeys(essential_mods))
+                        
+                        manual_adapters = load_mod_adapters(essential_mods)
                         verbose_print(f"   Manually loaded {len(manual_adapters)} adapters")
                         for adapter in manual_adapters:
                             self.client.register_mod_adapter(adapter)
@@ -264,6 +272,29 @@ class AgentRunner(ABC):
                         verbose_print(f"   ❌ Failed to manually load mod adapters: {e}")
                         import traceback
                         traceback.print_exc()
+                
+                # Also try to load any missing preset mod_names that weren't loaded from server
+                if hasattr(self, '_preset_mod_names') and self._preset_mod_names:
+                    loaded_mod_names = [adapter.mod_name for adapter in self.client.mod_adapters.values()]
+                    verbose_print(f"🔧 Preset mod names: {self._preset_mod_names}")
+                    verbose_print(f"🔧 Loaded mod names: {loaded_mod_names}")
+                    missing_mods = [mod for mod in self._preset_mod_names if mod not in loaded_mod_names]
+                    
+                    if missing_mods:
+                        verbose_print(f"🔧 Loading missing preset mods: {missing_mods}")
+                        try:
+                            additional_adapters = load_mod_adapters(missing_mods)
+                            verbose_print(f"   Loaded {len(additional_adapters)} additional adapters")
+                            for adapter in additional_adapters:
+                                self.client.register_mod_adapter(adapter)
+                                verbose_print(f"   ✅ Registered additional adapter: {adapter.mod_name}")
+                            self.update_tools()
+                        except Exception as e:
+                            verbose_print(f"   ❌ Failed to load additional mod adapters: {e}")
+                            import traceback
+                            traceback.print_exc()
+                    else:
+                        verbose_print(f"🔧 All preset mods already loaded")
             else:
                 verbose_print(f"🔄 Using existing protocols: {self._supported_mods}")
             

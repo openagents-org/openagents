@@ -162,15 +162,14 @@ class AgentClient:
         # Detect transport type and create appropriate connector
         transport_type, actual_port = await self._detect_transport_type(host, port)
         
-        if transport_type == "grpc":
+        if transport_type == "grpc" or transport_type == "grpc_http":
             logger.info(f"Creating gRPC connector for agent {self.agent_id}")
-            self.connector = GRPCNetworkConnector(host, actual_port, self.agent_id, metadata, max_message_size)
-        elif transport_type == "grpc_http":
-            logger.info(f"gRPC HTTP adapter detected, using WebSocket connector on HTTP adapter port")
-            # Use WebSocket connector on HTTP adapter port
-            self.connector = NetworkConnector(host, actual_port, self.agent_id, metadata, max_message_size)
+            # Use the main gRPC port, not the HTTP adapter port
+            main_port = port if transport_type == "grpc" else actual_port - 1000  # HTTP adapter is typically +1000 from main port
+            self.connector = GRPCNetworkConnector(host, main_port, self.agent_id, metadata, max_message_size)
         else:
             logger.info(f"Creating WebSocket connector for agent {self.agent_id}")
+            # TODO: change the network connector name to WebSocketNetworkConnector
             self.connector = NetworkConnector(host, actual_port, self.agent_id, metadata, max_message_size)
 
         # Connect using the connector
@@ -191,6 +190,24 @@ class AgentClient:
             self.connector.register_system_handler(LIST_AGENTS, self._handle_list_agents_response)
             self.connector.register_system_handler(LIST_MODS, self._handle_list_mods_response)
             self.connector.register_system_handler(GET_MOD_MANIFEST, self._handle_mod_manifest_response)
+            self.connector.register_system_handler("poll_messages", self._handle_poll_messages_response)
+            
+            # Start message polling for gRPC connectors (workaround for bidirectional messaging limitation)
+            if hasattr(self.connector, 'poll_messages'):
+                logger.info(f"🔧 Starting message polling for gRPC agent {self.agent_id}")
+                asyncio.create_task(self._start_message_polling())
+            
+            # Register this client with the network for direct message delivery (if network is accessible)
+            # This is a workaround for gRPC transport not supporting bidirectional messaging
+            try:
+                # Try to get network instance through connector
+                if hasattr(self.connector, 'network_instance') or hasattr(self.connector, '_network_instance'):
+                    network = getattr(self.connector, 'network_instance', None) or getattr(self.connector, '_network_instance', None)
+                    if network and hasattr(network, '_register_agent_client'):
+                        network._register_agent_client(self.agent_id, self)
+                        logger.info(f"🔧 Registered agent client {self.agent_id} for direct message delivery")
+            except Exception as e:
+                logger.debug(f"Could not register agent client for direct delivery: {e}")
         
         return success
 
@@ -718,30 +735,29 @@ class AgentClient:
         Args:
             message: The message to handle
         """
-        logger.info(f"🔥 CLIENT: Handling ModMessage from {message.sender_id}, mod={message.mod}, action={message.content.get('action')}")
+        logger.info(f"🔧 CLIENT: Handling ModMessage from {message.sender_id}, mod={message.mod}, action={message.content.get('action')}")
+        logger.info(f"🔧 CLIENT: ModMessage content keys: {list(message.content.keys()) if message.content else 'None'}")
+        logger.info(f"🔧 CLIENT: Agent ID: {self.agent_id}, Message relevant_agent_id: {message.relevant_agent_id}")
         
         # Notify any waiting functions first
         await self._notify_message_waiters("mod_message", message)
         
         # Process through mod adapters first
         processed_by_adapter = False
-        logger.info(f"🔥 CLIENT: Processing through {len(self.mod_adapters)} mod adapters")
         
         for mod_name, mod_adapter in self.mod_adapters.items():
             try:
-                logger.info(f"🔥 CLIENT: Trying mod adapter {mod_name} ({mod_adapter.__class__.__name__})")
                 processed_message = await mod_adapter.process_incoming_mod_message(message)
-                logger.info(f"🔥 CLIENT: Mod adapter {mod_name} returned: {processed_message}")
                 if processed_message is None:
                     processed_by_adapter = True
-                    logger.info(f"🔥 CLIENT: Mod adapter {mod_name} processed the message (returned None)")
+                    logger.debug(f"Mod adapter {mod_name} processed the message")
                     break
             except Exception as e:
                 logger.error(f"Error handling message in protocol {mod_adapter.__class__.__name__}: {e}")
         
         # If no mod adapter processed the message, add it to message threads for agent processing
         if not processed_by_adapter:
-            logger.info(f"🔥 CLIENT: ModMessage not processed by adapters, adding to message threads for agent processing")
+            logger.debug(f"ModMessage not processed by adapters, adding to message threads for agent processing")
             
             # Create a thread ID for the ModMessage
             thread_id = f"mod_{message.mod}_{message.message_id[:8]}"
@@ -756,14 +772,12 @@ class AgentClient:
                     
                     # Add the ModMessage to the thread
                     mod_adapter.message_threads[thread_id].add_message(message)
-                    logger.info(f"🔥 CLIENT: Added ModMessage to thread {thread_id} in {mod_name} adapter for agent processing")
+                    logger.debug(f"Added ModMessage to thread {thread_id} in {mod_name} adapter for agent processing")
                     added_to_thread = True
                     break
             
             if not added_to_thread:
-                logger.warning("🔥 CLIENT: No mod adapter message_threads available to add ModMessage")
-        else:
-            logger.info(f"🔥 CLIENT: ModMessage was processed by a mod adapter")
+                logger.warning("No mod adapter message_threads available to add ModMessage")
     
     async def wait_direct_message(self, 
                                 condition: Optional[Callable[[DirectMessage], bool]] = None,
@@ -873,4 +887,55 @@ class AgentClient:
         # Notify all matching waiters
         for waiter in waiters_to_notify:
             waiter["event"].set()
+    
+    async def _start_message_polling(self):
+        """Start periodic polling for messages (gRPC workaround)."""
+        logger.info(f"🔧 CLIENT: Starting message polling for agent {self.agent_id}")
+        
+        while True:
+            try:
+                await asyncio.sleep(2.0)  # Poll every 2 seconds
+                
+                if hasattr(self.connector, 'poll_messages') and self.connector.is_connected:
+                    await self.connector.poll_messages()
+                else:
+                    break  # Stop polling if connector doesn't support it or is disconnected
+                    
+            except Exception as e:
+                logger.error(f"Error in message polling: {e}")
+                await asyncio.sleep(5.0)  # Wait longer on error
+    
+    async def _handle_poll_messages_response(self, data: Dict[str, Any]) -> None:
+        """Handle poll_messages system command response."""
+        logger.info(f"🔧 CLIENT: Received poll_messages response for agent {self.agent_id}")
+        
+        if data.get("success"):
+            messages = data.get("messages", [])
+            logger.info(f"🔧 CLIENT: Processing {len(messages)} polled messages")
+            
+            for message_data in messages:
+                try:
+                    # Reconstruct the message object
+                    if message_data.get("message_type") == "mod_message":
+                        # Reconstruct ModMessage
+                        mod_message = ModMessage(
+                            sender_id=message_data.get("sender_id", ""),
+                            mod=message_data.get("mod", ""),
+                            relevant_agent_id=message_data.get("relevant_agent_id", ""),
+                            action=message_data.get("action", ""),
+                            content=message_data.get("content", {}),
+                            message_id=message_data.get("message_id", ""),
+                            timestamp=message_data.get("timestamp", 0)
+                        )
+                        
+                        logger.info(f"🔧 CLIENT: Processing polled ModMessage: {mod_message.mod}, action: {mod_message.action}")
+                        await self._handle_mod_message(mod_message)
+                    else:
+                        logger.debug(f"🔧 CLIENT: Skipping non-ModMessage: {message_data.get('message_type')}")
+                        
+                except Exception as e:
+                    logger.error(f"Error processing polled message: {e}")
+        else:
+            error = data.get("error", "Unknown error")
+            logger.error(f"Poll messages failed: {error}")
     

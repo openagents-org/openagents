@@ -396,7 +396,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         # Create a mod message to notify other agents about the new channel message
         for agent_id in notify_agents:
-            logger.info(f"Creating notification for agent: {agent_id}")
+            logger.info(f"🔧 THREAD MESSAGING: Creating notification for agent: {agent_id}")
             notification = ModMessage(
                 sender_id=self.network.network_id,
                 mod="openagents.mods.communication.thread_messaging",
@@ -408,13 +408,14 @@ class ThreadMessagingNetworkMod(BaseMod):
                 direction="inbound",
                 relevant_agent_id=agent_id
             )
-            logger.info(f"Notification target_id will be: {notification.relevant_agent_id}")
+            logger.info(f"🔧 THREAD MESSAGING: Notification target_id will be: {notification.relevant_agent_id}")
+            logger.info(f"🔧 THREAD MESSAGING: Notification content: {notification.content}")
             
             try:
                 await self.network.send_message(notification)
-                logger.debug(f"Sent channel message notification to agent {agent_id}")
+                logger.info(f"🔧 THREAD MESSAGING: Sent channel message notification to agent {agent_id}")
             except Exception as e:
-                logger.error(f"Failed to send channel message notification to {agent_id}: {e}")
+                logger.error(f"🔧 THREAD MESSAGING: Failed to send channel message notification to {agent_id}: {e}")
     
     async def _process_direct_message(self, message: DirectMessage) -> None:
         """Process a direct message.
