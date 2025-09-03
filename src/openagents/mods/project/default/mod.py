@@ -118,9 +118,9 @@ class DefaultProjectNetworkMod(BaseMod):
                     # Emit agent left event
                     asyncio.create_task(self._emit_project_event(
                         "project.agent.left",
-                        project_id=project_id,
-                        agent_id=agent_id,
-                        data={"left_agent_id": agent_id}
+                        project_id,
+                        agent_id,
+                        {"left_agent_id": agent_id}
                     ))
             
             del self.agent_projects[agent_id]
@@ -223,9 +223,9 @@ class DefaultProjectNetworkMod(BaseMod):
         # Emit project created event
         await self._emit_project_event(
             "project.created",
-            project_id=project.project_id,
-            agent_id=message.sender_id,
-            data={
+            project.project_id,
+            message.sender_id,
+            {
                 "project_name": project.name,
                 "project_goal": project.goal,
                 "channel_name": channel_name,
@@ -275,9 +275,9 @@ class DefaultProjectNetworkMod(BaseMod):
                 # Emit project started event
                 await self._emit_project_event(
                     "project.started",
-                    project_id=project_id,
-                    agent_id=message.sender_id,
-                    data={"project_name": project.name}
+                    project_id,
+                    message.sender_id,
+                    {"project_name": project.name}
                 )
                 
                 # Notify service agents
@@ -292,9 +292,9 @@ class DefaultProjectNetworkMod(BaseMod):
                 # Emit project stopped event
                 await self._emit_project_event(
                     "project.stopped",
-                    project_id=project_id,
-                    agent_id=message.sender_id,
-                    data={"project_name": project.name}
+                    project_id,
+                    message.sender_id,
+                    {"project_name": project.name}
                 )
                 
                 logger.info(f"Stopped project {project_id}")
@@ -306,9 +306,9 @@ class DefaultProjectNetworkMod(BaseMod):
                 # Emit project status changed event
                 await self._emit_project_event(
                     "project.status.changed",
-                    project_id=project_id,
-                    agent_id=message.sender_id,
-                    data={"project_name": project.name, "new_status": "paused"}
+                    project_id,
+                    message.sender_id,
+                    {"project_name": project.name, "new_status": "paused"}
                 )
                 
                 logger.info(f"Paused project {project_id}")
@@ -320,9 +320,9 @@ class DefaultProjectNetworkMod(BaseMod):
                 # Emit project status changed event
                 await self._emit_project_event(
                     "project.status.changed",
-                    project_id=project_id,
-                    agent_id=message.sender_id,
-                    data={"project_name": project.name, "new_status": "running"}
+                    project_id,
+                    message.sender_id,
+                    {"project_name": project.name, "new_status": "running"}
                 )
                 
                 logger.info(f"Resumed project {project_id}")
@@ -355,10 +355,22 @@ class DefaultProjectNetworkMod(BaseMod):
         project_id = message.project_id
         notification_type = message.notification_type
         
+        # Check if this is a short project ID that needs to be mapped to full ID
         if project_id not in self.projects:
-            logger.warning(f"Received notification for unknown project {project_id}")
-            logger.info(f"🔧 PROJECT MOD: Available projects: {list(self.projects.keys())}")
-            return
+            # Try to find the full project ID by checking if this is a short ID
+            full_project_id = None
+            for full_id in self.projects.keys():
+                if full_id.startswith(project_id):
+                    full_project_id = full_id
+                    break
+            
+            if full_project_id:
+                logger.info(f"🔧 PROJECT MOD: Mapped short project ID {project_id} to full ID {full_project_id}")
+                project_id = full_project_id
+            else:
+                logger.warning(f"Received notification for unknown project {project_id}")
+                logger.info(f"🔧 PROJECT MOD: Available projects: {list(self.projects.keys())}")
+                return
         
         project = self.projects[project_id]
         
@@ -371,9 +383,9 @@ class DefaultProjectNetworkMod(BaseMod):
             # Emit project completed event
             await self._emit_project_event(
                 "project.run.completed",
-                project_id=project_id,
-                agent_id=message.sender_id,
-                data={
+                project_id,
+                message.sender_id,
+                {
                     "project_name": project.name,
                     "results": project.results
                 }
@@ -386,9 +398,9 @@ class DefaultProjectNetworkMod(BaseMod):
             # Emit project failed event
             await self._emit_project_event(
                 "project.run.failed",
-                project_id=project_id,
-                agent_id=message.sender_id,
-                data={
+                project_id,
+                message.sender_id,
+                {
                     "project_name": project.name,
                     "error": error_msg
                 }
@@ -398,9 +410,9 @@ class DefaultProjectNetworkMod(BaseMod):
             # Emit input required event
             await self._emit_project_event(
                 "project.run.requires_input",
-                project_id=project_id,
-                agent_id=message.sender_id,
-                data={
+                project_id,
+                message.sender_id,
+                {
                     "project_name": project.name,
                     "input_request": message.content
                 }
@@ -413,9 +425,9 @@ class DefaultProjectNetworkMod(BaseMod):
             # Emit progress notification event
             await self._emit_project_event(
                 "project.run.notification",
-                project_id=project_id,
-                agent_id=message.sender_id,
-                data={
+                project_id,
+                message.sender_id,
+                {
                     "project_name": project.name,
                     "notification_type": "progress",
                     "progress": message.content
@@ -459,9 +471,9 @@ class DefaultProjectNetworkMod(BaseMod):
                 # Emit agent joined event
                 await self._emit_project_event(
                     "project.agent.joined",
-                    project_id=project_id,
-                    agent_id=message.sender_id,
-                    data={"joined_agent_id": message.sender_id}
+                    project_id,
+                    message.sender_id,
+                    {"joined_agent_id": message.sender_id}
                 )
                 
                 logger.info(f"Agent {message.sender_id} joined project {project_id}")
@@ -478,9 +490,9 @@ class DefaultProjectNetworkMod(BaseMod):
                 # Emit agent left event
                 await self._emit_project_event(
                     "project.agent.left",
-                    project_id=project_id,
-                    agent_id=message.sender_id,
-                    data={"left_agent_id": message.sender_id}
+                    project_id,
+                    message.sender_id,
+                    {"left_agent_id": message.sender_id}
                 )
                 
                 logger.info(f"Agent {message.sender_id} left project {project_id}")
