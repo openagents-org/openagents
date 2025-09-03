@@ -243,9 +243,9 @@ class ChannelConnection:
                 sender_id=self._client.agent_id,
                 mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
-                action="channel_message",
                 direction="outbound",
                 content={
+                    "action": "channel_message",
                     "message_type": "channel_message",
                     "sender_id": self._client.agent_id,
                     "channel": self.name,
@@ -318,8 +318,8 @@ class ChannelConnection:
                 }
             )
             
-            # Send through client
-            success = await self._send_mod_message(mod_message)
+            # Send through workspace's method
+            success = await self.workspace._send_mod_message(mod_message)
             
             # Emit event if successful
             if success:
@@ -406,7 +406,7 @@ class ChannelConnection:
             await asyncio.sleep(0.01)
             
             # Send request
-            success = await self._send_mod_message(mod_message)
+            success = await self.workspace._send_mod_message(mod_message)
             if not success:
                 wait_task.cancel()
                 logger.error(f"Failed to send get_messages request for channel {self.name}")
@@ -514,8 +514,8 @@ class ChannelConnection:
                 }
             )
             
-            # Send through client
-            success = await self._send_mod_message(mod_message)
+            # Send through workspace's method
+            success = await self.workspace._send_mod_message(mod_message)
             if success:
                 # In a real implementation, this would return the actual file UUID
                 # For now, return a placeholder
@@ -791,7 +791,7 @@ class Workspace:
             # Create payload with mod-specific fields and content
             payload = {
                 "mod": mod_message.mod,
-                "action": mod_message.action,
+                "action": mod_message.content.get('action') if mod_message.content else None,
                 "direction": mod_message.direction,
                 "relevant_agent_id": mod_message.relevant_agent_id,
                 **mod_message.content  # Merge content at top level
@@ -1208,8 +1208,8 @@ class Workspace:
                 sender_id=self._client.agent_id,
                 mod="openagents.mods.project.default",
                 relevant_agent_id=self._client.agent_id,
-                action="project_creation",
                 content={
+                    "action": "project_creation",
                     "message_type": "project_creation",
                     "sender_id": self._client.agent_id,
                     "project_id": project.project_id,
@@ -1284,7 +1284,6 @@ class Workspace:
                 sender_id=self._client.agent_id,
                 mod="openagents.mods.project.default",
                 relevant_agent_id=self._client.agent_id,
-                action="get_status",
                 content={
                     "message_type": "project_status",
                     "sender_id": self._client.agent_id,
@@ -1355,7 +1354,6 @@ class Workspace:
                 sender_id=self._client.agent_id,
                 mod="openagents.mods.project.default",
                 relevant_agent_id=self._client.agent_id,
-                action="list_projects",
                 content={
                     "message_type": "project_list",
                     "sender_id": self._client.agent_id,

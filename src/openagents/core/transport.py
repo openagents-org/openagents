@@ -668,7 +668,9 @@ class GRPCTransport(Transport):
         # Convert payload to Any
         payload_any = Any()
         payload_any.type_url = "type.googleapis.com/openagents.Payload"
-        payload_any.value = json.dumps(message.payload).encode('utf-8')
+        # Make payload JSON serializable before encoding
+        serializable_payload = self._make_json_serializable(message.payload)
+        payload_any.value = json.dumps(serializable_payload).encode('utf-8')
         
         return GRPCMessage(
             message_id=message.message_id,
@@ -731,6 +733,38 @@ class GRPCTransport(Transport):
     def _from_timestamp(self, timestamp) -> float:
         """Convert protobuf timestamp to float."""
         return timestamp.ToSeconds()
+    
+    def _make_json_serializable(self, obj):
+        """Convert an object to be JSON serializable, handling gRPC types."""
+        import json
+        from google.protobuf.struct_pb2 import ListValue, Struct
+        from google.protobuf.message import Message
+        
+        if isinstance(obj, dict):
+            return {k: self._make_json_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._make_json_serializable(item) for item in obj]
+        elif isinstance(obj, ListValue):
+            return [self._make_json_serializable(item) for item in obj]
+        elif isinstance(obj, Struct):
+            return dict(obj)
+        elif isinstance(obj, Message):
+            # Convert protobuf message to dict
+            from google.protobuf.json_format import MessageToDict
+            return MessageToDict(obj)
+        elif hasattr(obj, '__dict__'):
+            # Handle custom objects by converting to dict
+            try:
+                return {k: self._make_json_serializable(v) for k, v in obj.__dict__.items()}
+            except:
+                return str(obj)
+        else:
+            # Try to serialize directly, fallback to string representation
+            try:
+                json.dumps(obj)
+                return obj
+            except (TypeError, ValueError):
+                return str(obj)
 
 
 class GRPCAgentServicer:

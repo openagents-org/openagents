@@ -432,7 +432,9 @@ class GRPCNetworkConnector:
                 # Add content
                 if message.content:
                     if isinstance(message.content, dict):
-                        mod_data.update(message.content)
+                        # Make sure content is JSON serializable
+                        serializable_content = self._make_json_serializable(message.content)
+                        mod_data.update(serializable_content)
                     else:
                         mod_data["content"] = str(message.content)
                 
@@ -448,7 +450,7 @@ class GRPCNetworkConnector:
                     message_data["notification_type"] = getattr(message, 'notification_type', '')
                 if hasattr(message, 'content'):
                     if isinstance(message.content, dict):
-                        message_data["content"] = message.content
+                        message_data["content"] = self._make_json_serializable(message.content)
                     else:
                         message_data["content"] = str(message.content)
                 
@@ -457,7 +459,7 @@ class GRPCNetworkConnector:
                     if hasattr(message, field):
                         value = getattr(message, field, None)
                         if value is not None:
-                            message_data[field] = value
+                            message_data[field] = self._make_json_serializable(value)
                 
                 if message_data:
                     struct.update(message_data)
@@ -476,6 +478,38 @@ class GRPCNetworkConnector:
             logger.warning(f"Failed to serialize message content: {e}")
         
         return grpc_message
+    
+    def _make_json_serializable(self, obj):
+        """Convert an object to be JSON serializable, handling gRPC types."""
+        import json
+        from google.protobuf.struct_pb2 import ListValue, Struct
+        from google.protobuf.message import Message
+        
+        if isinstance(obj, dict):
+            return {k: self._make_json_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._make_json_serializable(item) for item in obj]
+        elif isinstance(obj, ListValue):
+            return [self._make_json_serializable(item) for item in obj]
+        elif isinstance(obj, Struct):
+            return dict(obj)
+        elif isinstance(obj, Message):
+            # Convert protobuf message to dict
+            from google.protobuf.json_format import MessageToDict
+            return MessageToDict(obj)
+        elif hasattr(obj, '__dict__'):
+            # Handle custom objects by converting to dict
+            try:
+                return {k: self._make_json_serializable(v) for k, v in obj.__dict__.items()}
+            except:
+                return str(obj)
+        else:
+            # Try to serialize directly, fallback to string representation
+            try:
+                json.dumps(obj)
+                return obj
+            except (TypeError, ValueError):
+                return str(obj)
     
     def _from_grpc_message(self, grpc_message) -> Dict[str, Any]:
         """Convert gRPC message to internal message format."""

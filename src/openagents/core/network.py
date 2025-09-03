@@ -387,6 +387,22 @@ class AgentNetwork:
                     elif target_agent_id in self.agents:
                         logger.info(f"🔧 NETWORK: Found connected agent {target_agent_id}, delivering ModMessage through transport")
                         logger.info(f"🔧 NETWORK: All registered agents: {list(self.agents.keys())}")
+                        
+                        # Check if this is a gRPC agent - if so, queue the message instead of routing
+                        # because gRPC transport doesn't support direct agent-to-agent delivery
+                        is_grpc_transport = False
+                        if hasattr(self.topology, 'transport_manager') and self.topology.transport_manager:
+                            for transport in self.topology.transport_manager.transports.values():
+                                if hasattr(transport, 'transport_type') and transport.transport_type.value == 'grpc':
+                                    is_grpc_transport = True
+                                    break
+                        
+                        if is_grpc_transport:
+                            logger.info(f"🔧 NETWORK: Detected gRPC transport, queuing ModMessage for agent {target_agent_id}")
+                            self._queue_message_for_agent(target_agent_id, message)
+                            return True
+                        
+                        # For non-gRPC transports, try normal routing
                         # Convert ModMessage to transport Message and route it
                         transport_message = self._convert_to_transport_message(message)
                         transport_message.target_id = target_agent_id
