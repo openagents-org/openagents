@@ -56,15 +56,19 @@ class EventTestAgent:
     async def collect_events(self, subscription, max_events=5, timeout=10.0):
         """Collect events from a subscription."""
         events = []
+        
+        async def collect_from_subscription():
+            """Inner function to collect events."""
+            async for event in subscription:
+                events.append(event)
+                self.received_events.append(event)
+                logger.info(f"Collected event: {event.event_name} from {event.source_agent_id}")
+                
+                if len(events) >= max_events:
+                    break
+        
         try:
-            async with asyncio.timeout(timeout):
-                async for event in subscription:
-                    events.append(event)
-                    self.received_events.append(event)
-                    logger.info(f"Collected event: {event.event_name} from {event.source_agent_id}")
-                    
-                    if len(events) >= max_events:
-                        break
+            await asyncio.wait_for(collect_from_subscription(), timeout=timeout)
         except asyncio.TimeoutError:
             logger.info(f"Event collection timed out after {timeout}s, collected {len(events)} events")
         

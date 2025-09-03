@@ -128,15 +128,19 @@ class TestEventSubscriptionInterface:
         event_count = 0
         max_events = 2
         
+        async def collect_events():
+            """Collect events from subscription."""
+            nonlocal events_received, event_count
+            async for ev in sub:
+                print("EVENT:", ev.event_name, "from:", ev.source_agent_id, "data:", ev.data)
+                events_received.append(ev)
+                event_count += 1
+                
+                if event_count >= max_events:
+                    break
+        
         try:
-            async with asyncio.timeout(5.0):  # 5 second timeout
-                async for ev in sub:
-                    print("EVENT:", ev.event_name, "from:", ev.source_agent_id, "data:", ev.data)
-                    events_received.append(ev)
-                    event_count += 1
-                    
-                    if event_count >= max_events:
-                        break
+            await asyncio.wait_for(collect_events(), timeout=5.0)
         except asyncio.TimeoutError:
             logger.info(f"Timeout reached, received {len(events_received)} events")
         
@@ -197,15 +201,19 @@ class TestEventSubscriptionInterface:
         events_received = []
         event_count = 0
         
+        async def collect_filtered_events():
+            """Collect filtered events from subscription."""
+            nonlocal events_received, event_count
+            async for ev in sub:
+                print("FILTERED EVENT:", ev.event_name, "channel:", ev.channel, "data:", ev.data)
+                events_received.append(ev)
+                event_count += 1
+                
+                if event_count >= 2:
+                    break
+        
         try:
-            async with asyncio.timeout(3.0):
-                async for ev in sub:
-                    print("FILTERED EVENT:", ev.event_name, "channel:", ev.channel, "data:", ev.data)
-                    events_received.append(ev)
-                    event_count += 1
-                    
-                    if event_count >= 2:
-                        break
+            await asyncio.wait_for(collect_filtered_events(), timeout=3.0)
         except asyncio.TimeoutError:
             logger.info(f"Timeout reached, received {len(events_received)} filtered events")
         
@@ -238,10 +246,14 @@ class TestEventSubscriptionInterface:
         
         # Test that iterating over unsubscribed subscription stops
         events_after_unsubscribe = []
+        
+        async def collect_after_unsubscribe():
+            """Try to collect events after unsubscribe."""
+            async for ev in sub:
+                events_after_unsubscribe.append(ev)
+        
         try:
-            async with asyncio.timeout(1.0):
-                async for ev in sub:
-                    events_after_unsubscribe.append(ev)
+            await asyncio.wait_for(collect_after_unsubscribe(), timeout=1.0)
         except (asyncio.TimeoutError, StopAsyncIteration):
             pass  # Expected
         
@@ -269,24 +281,30 @@ class TestEventSubscriptionInterface:
         # Collect from both subscriptions concurrently
         async def collect_channel_events():
             events = []
+            
+            async def collect_from_channel_sub():
+                async for ev in channel_sub:
+                    events.append(ev)
+                    print("CHANNEL EVENT:", ev.event_name)
+                    break
+            
             try:
-                async with asyncio.timeout(2.0):
-                    async for ev in channel_sub:
-                        events.append(ev)
-                        print("CHANNEL EVENT:", ev.event_name)
-                        break
+                await asyncio.wait_for(collect_from_channel_sub(), timeout=2.0)
             except asyncio.TimeoutError:
                 pass
             return events
         
         async def collect_agent_events():
             events = []
+            
+            async def collect_from_agent_sub():
+                async for ev in agent_sub:
+                    events.append(ev)
+                    print("AGENT EVENT:", ev.event_name)
+                    break
+            
             try:
-                async with asyncio.timeout(2.0):
-                    async for ev in agent_sub:
-                        events.append(ev)
-                        print("AGENT EVENT:", ev.event_name)
-                        break
+                await asyncio.wait_for(collect_from_agent_sub(), timeout=2.0)
             except asyncio.TimeoutError:
                 pass
             return events

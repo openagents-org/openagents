@@ -236,28 +236,33 @@ async def main():
                 print("🎧 Listening for project events (including completion)...")
                 event_count = 0
                 completion_received = False
-                try:
-                    async with asyncio.timeout(15.0):  # Increased timeout for project completion
-                        async for event in event_sub:
-                            event_count += 1
-                            print(f"📨 Project Event {event_count}: {event.event_name}")
-                            print(f"   Source: {event.source_agent_id}")
-                            if event.channel:
-                                print(f"   Channel: {event.channel}")
-                            if event.target_agent_id:
-                                print(f"   Target: {event.target_agent_id}")
-                            if event.data:
-                                print(f"   Data: {event.data}")
-                                
-                                # Check for project completion
-                                if event.event_name == "project.run.completed":
-                                    completion_received = True
-                                    print(f"🎉 PROJECT COMPLETED! Results: {event.data.get('results', {})}")
-                            print()
+                
+                async def listen_for_project_events():
+                    """Listen for project events."""
+                    nonlocal event_count, completion_received
+                    async for event in event_sub:
+                        event_count += 1
+                        print(f"📨 Project Event {event_count}: {event.event_name}")
+                        print(f"   Source: {event.source_agent_id}")
+                        if event.channel:
+                            print(f"   Channel: {event.channel}")
+                        if event.target_agent_id:
+                            print(f"   Target: {event.target_agent_id}")
+                        if event.data:
+                            print(f"   Data: {event.data}")
                             
-                            # Stop after getting completion event or collecting many events
-                            if completion_received or event_count >= 10:
-                                break
+                            # Check for project completion
+                            if event.event_name == "project.run.completed":
+                                completion_received = True
+                                print(f"🎉 PROJECT COMPLETED! Results: {event.data.get('results', {})}")
+                        print()
+                        
+                        # Stop after getting completion event or collecting many events
+                        if completion_received or event_count >= 10:
+                            break
+                
+                try:
+                    await asyncio.wait_for(listen_for_project_events(), timeout=15.0)
                 except asyncio.TimeoutError:
                     print(f"⏰ Event listening timeout - collected {event_count} events")
                 

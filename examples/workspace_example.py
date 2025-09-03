@@ -242,25 +242,30 @@ async def main():
             # Listen for events for a short time
             print("🎧 Listening for events...")
             event_count = 0
+            
+            async def listen_for_workspace_events():
+                """Listen for workspace events."""
+                nonlocal event_count
+                async for event in event_sub:
+                    event_count += 1
+                    print(f"📨 Event {event_count}: {event.event_name}")
+                    print(f"   Source: {event.source_agent_id}")
+                    if event.channel:
+                        print(f"   Channel: {event.channel}")
+                    if event.target_agent_id:
+                        print(f"   Target: {event.target_agent_id}")
+                    if event.data.get('text'):
+                        print(f"   Text: {event.data['text']}")
+                    if event.data.get('mention_type'):
+                        print(f"   Mention Type: {event.data['mention_type']}")
+                    print()
+                    
+                    # Stop after collecting a few events
+                    if event_count >= 5:
+                        break
+            
             try:
-                async with asyncio.timeout(5.0):
-                    async for event in event_sub:
-                        event_count += 1
-                        print(f"📨 Event {event_count}: {event.event_name}")
-                        print(f"   Source: {event.source_agent_id}")
-                        if event.channel:
-                            print(f"   Channel: {event.channel}")
-                        if event.target_agent_id:
-                            print(f"   Target: {event.target_agent_id}")
-                        if event.data.get('text'):
-                            print(f"   Text: {event.data['text']}")
-                        if event.data.get('mention_type'):
-                            print(f"   Mention Type: {event.data['mention_type']}")
-                        print()
-                        
-                        # Stop after collecting a few events
-                        if event_count >= 5:
-                            break
+                await asyncio.wait_for(listen_for_workspace_events(), timeout=5.0)
             except asyncio.TimeoutError:
                 print(f"⏰ Event listening timeout - collected {event_count} events")
             

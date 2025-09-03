@@ -114,19 +114,23 @@ async def run_simple_event_test():
             event_count = 0
             max_events = 3
             
+            async def collect_simple_events():
+                """Collect events from subscription."""
+                nonlocal event_count
+                async for ev in sub:
+                    print(f"📨 EVENT: {ev.event_name}")
+                    print(f"   Source: {ev.source_agent_id}")
+                    print(f"   Channel: {ev.channel}")
+                    print(f"   Data: {ev.data}")
+                    print(f"   Timestamp: {ev.timestamp}")
+                    print()
+                    
+                    event_count += 1
+                    if event_count >= max_events:
+                        break
+            
             try:
-                async with asyncio.timeout(10.0):
-                    async for ev in sub:
-                        print(f"📨 EVENT: {ev.event_name}")
-                        print(f"   Source: {ev.source_agent_id}")
-                        print(f"   Channel: {ev.channel}")
-                        print(f"   Data: {ev.data}")
-                        print(f"   Timestamp: {ev.timestamp}")
-                        print()
-                        
-                        event_count += 1
-                        if event_count >= max_events:
-                            break
+                await asyncio.wait_for(collect_simple_events(), timeout=10.0)
             except asyncio.TimeoutError:
                 print(f"⏰ Timeout reached, received {event_count} events")
             
@@ -239,18 +243,22 @@ async def run_filtered_event_test():
             print("\n🎧 Listening for filtered events (only #general)...")
             event_count = 0
             
+            async def collect_filtered_events():
+                """Collect filtered events from subscription."""
+                nonlocal event_count
+                async for ev in sub:
+                    print(f"📨 FILTERED EVENT: {ev.event_name} in {ev.channel}")
+                    print(f"   Text: {ev.data.get('text', 'N/A')}")
+                    
+                    # Verify it's from #general
+                    assert ev.channel == "#general", f"Expected #general, got {ev.channel}"
+                    
+                    event_count += 1
+                    if event_count >= 2:
+                        break
+            
             try:
-                async with asyncio.timeout(5.0):
-                    async for ev in sub:
-                        print(f"📨 FILTERED EVENT: {ev.event_name} in {ev.channel}")
-                        print(f"   Text: {ev.data.get('text', 'N/A')}")
-                        
-                        # Verify it's from #general
-                        assert ev.channel == "#general", f"Expected #general, got {ev.channel}"
-                        
-                        event_count += 1
-                        if event_count >= 2:
-                            break
+                await asyncio.wait_for(collect_filtered_events(), timeout=5.0)
             except asyncio.TimeoutError:
                 print(f"⏰ Timeout reached, received {event_count} filtered events")
             
