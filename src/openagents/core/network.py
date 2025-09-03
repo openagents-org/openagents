@@ -130,7 +130,7 @@ class AgentNetwork:
             network = AgentNetwork.load("examples/centralized_network_config.yaml")
             network = AgentNetwork.load(Path("config/network.yaml"))
         """
-        if isinstance(config, NetworkConfig):
+        if isinstance(config, NetworkConfig) or (hasattr(config, '__class__') and config.__class__.__name__ == 'NetworkConfig'):
             # Direct NetworkConfig object
             return AgentNetwork(config)
         
@@ -650,9 +650,9 @@ class AgentNetwork:
         
         # Determine target ID based on message type
         target_id = None
-        if isinstance(message, DirectMessage):
+        if isinstance(message, DirectMessage) or (hasattr(message, '__class__') and message.__class__.__name__ == 'DirectMessage'):
             target_id = message.target_agent_id
-        elif isinstance(message, ModMessage):
+        elif isinstance(message, ModMessage) or (hasattr(message, '__class__') and message.__class__.__name__ == 'ModMessage'):
             target_id = message.relevant_agent_id
         # BroadcastMessage has target_id = None (broadcast)
         
@@ -799,9 +799,7 @@ class AgentNetwork:
             # Extract the target mod name from the payload
             target_mod_name = None
             if hasattr(message, 'payload') and message.payload:
-                logger.debug(f"Payload contents: {message.payload}")
                 target_mod_name = message.payload.get('mod')
-            logger.debug(f"Target mod name: {target_mod_name}")
             
             if target_mod_name and target_mod_name in self.mods:
                 network_mod = self.mods[target_mod_name]

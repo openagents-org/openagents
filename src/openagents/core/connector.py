@@ -246,10 +246,33 @@ class NetworkConnector:
             if isinstance(message, ModMessage):
                 message.relevant_agent_id = self.agent_id
                 
-            # Send the message
+            # Send the message - convert to transport format if needed
+            if isinstance(message, ModMessage):
+                # Convert ModMessage to transport format
+                message_data = {
+                    "message_id": message.message_id,
+                    "sender_id": message.sender_id,
+                    "target_id": None,  # ModMessage doesn't have target_id
+                    "message_type": message.message_type,
+                    "payload": {
+                        "mod": message.mod,
+                        "direction": message.direction,
+                        "relevant_agent_id": message.relevant_agent_id,
+                        "metadata": message.metadata,
+                        "text_representation": message.text_representation,
+                        "requires_response": message.requires_response,
+                        **message.content  # Merge content at top level of payload
+                    },
+                    "timestamp": message.timestamp,
+                    "metadata": message.metadata
+                }
+            else:
+                # For other message types, use model_dump directly
+                message_data = message.model_dump()
+            
             await self.connection.send(json.dumps({
                 "type": "message",
-                "data": message.model_dump()
+                "data": message_data
             }))
             
             logger.debug(f"Message sent: {message.message_id}")

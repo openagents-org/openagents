@@ -100,6 +100,26 @@ class SimpleMessageAgent(AgentRunner):
             logger.error("❌ send_text_message tool not found!")
             return False
 
+    async def send_broadcast_text_message(self, text: str):
+        """Send a broadcast text message using the protocol tools."""
+        # Use the simple messaging protocol tool
+        tools = self.client.get_tools()
+        broadcast_tool = None
+        
+        for tool in tools:
+            if tool.name == "broadcast_text_message":
+                broadcast_tool = tool
+                break
+        
+        if broadcast_tool:
+            logger.info(f"📡 Broadcasting text message via protocol tool: {text}")
+            result = await broadcast_tool.execute(text=text)
+            logger.info(f"✅ Broadcast tool result: {result}")
+            return result
+        else:
+            logger.error("❌ broadcast_text_message tool not found!")
+            return False
+
 
 class TestSimpleMessageProtocol:
     """Test simple message protocol between agents."""
@@ -326,26 +346,6 @@ class TestSimpleMessageProtocol:
         
         logger.info("🎉 Protocol tool availability test PASSED!")
 
-    async def send_broadcast_text_message(self, text: str):
-        """Send a broadcast text message using the protocol tools."""
-        # Use the simple messaging protocol tool
-        tools = self.client.get_tools()
-        broadcast_tool = None
-        
-        for tool in tools:
-            if tool.name == "broadcast_text_message":
-                broadcast_tool = tool
-                break
-        
-        if broadcast_tool:
-            logger.info(f"📡 Broadcasting text message via protocol tool: {text}")
-            result = await broadcast_tool.execute(text=text)
-            logger.info(f"✅ Broadcast tool result: {result}")
-            return result
-        else:
-            logger.error("❌ broadcast_text_message tool not found!")
-            return False
-
     async def create_multiple_agents(self):
         """Create three agents for broadcast testing."""
         # Create agents with simple messaging protocol
@@ -400,10 +400,7 @@ class TestSimpleMessageProtocol:
         
         logger.info(f"📡 Agent 1 broadcasting message: {broadcast_text}")
         
-        # Add broadcast method to agent1
-        self.agent1.send_broadcast_text_message = lambda text: self.send_broadcast_text_message.__get__(self.agent1, SimpleMessageAgent)(text)
-        
-        # Send broadcast using the protocol tool
+        # Send broadcast using the protocol tool (method is now part of SimpleMessageAgent)
         result = await self.agent1.send_broadcast_text_message(broadcast_text)
         
         logger.info(f"✅ Broadcast result: {result}")
