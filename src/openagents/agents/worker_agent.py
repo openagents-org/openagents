@@ -1321,7 +1321,7 @@ class WorkerAgent(AgentRunner):
             # Send through mod message system
             mod_message = ModMessage(
                 sender_id=self.client.agent_id,
-                mod="openagents.mods.project.default",
+                relevant_mod="openagents.mods.project.default",
                 direction="outbound",
                 relevant_agent_id=self.client.agent_id,
                 content=notification.model_dump()

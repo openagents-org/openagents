@@ -206,7 +206,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         # Wrap in ModMessage for proper transport
         message = ModMessage(
             sender_id=self.agent_id,
-            mod="openagents.mods.communication.thread_messaging",
+            relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
             relevant_agent_id=target_agent_id,
             content=direct_msg.model_dump()
@@ -251,7 +251,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         # Wrap in ModMessage for proper transport
         message = ModMessage(
             sender_id=self.agent_id,
-            mod="openagents.mods.communication.thread_messaging",
+            relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
             relevant_agent_id=self.agent_id,
             content=channel_msg.model_dump()
@@ -323,7 +323,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             # Wrap in ModMessage for proper transport
             message = ModMessage(
                 sender_id=self.agent_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 direction="outbound",
                 relevant_agent_id=self.agent_id,
                 content=upload_msg.model_dump()
@@ -381,7 +381,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         # Wrap in ModMessage for proper transport
         message = ModMessage(
             sender_id=self.agent_id,
-            mod="openagents.mods.communication.thread_messaging",
+            relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
             relevant_agent_id=self.agent_id,
             content=reply_msg.model_dump()
@@ -425,7 +425,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         # Wrap in ModMessage for proper transport
         message = ModMessage(
             sender_id=self.agent_id,
-            mod="openagents.mods.communication.thread_messaging",
+            relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
             relevant_agent_id=self.agent_id,
             content=reply_msg.model_dump()
@@ -465,7 +465,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         # Wrap in ModMessage for proper transport
         message = ModMessage(
             sender_id=self.agent_id,
-            mod="openagents.mods.communication.thread_messaging",
+            relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
             relevant_agent_id=self.agent_id,
             content=retrieval_msg.model_dump()
@@ -515,7 +515,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         # Wrap in ModMessage for proper transport
         message = ModMessage(
             sender_id=self.agent_id,
-            mod="openagents.mods.communication.thread_messaging",
+            relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
             relevant_agent_id=self.agent_id,
             content=retrieval_msg.model_dump()
@@ -555,7 +555,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         # Wrap in ModMessage for proper transport
         message = ModMessage(
             sender_id=self.agent_id,
-            mod="openagents.mods.communication.thread_messaging",
+            relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
             relevant_agent_id=self.agent_id,
             content=channel_info_msg.model_dump()
@@ -598,7 +598,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         # Wrap in ModMessage for proper transport
         message = ModMessage(
             sender_id=self.agent_id,
-            mod="openagents.mods.communication.thread_messaging",
+            relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
             relevant_agent_id=self.agent_id,
             content=reaction_msg.model_dump()

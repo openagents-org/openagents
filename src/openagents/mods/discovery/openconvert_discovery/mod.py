@@ -11,6 +11,7 @@ import logging
 import copy
 from openagents.core.base_mod import BaseMod
 from openagents.models.messages import ModMessage
+from openagents.models.event import Event
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +128,59 @@ class OpenConvertDiscoveryMod(BaseMod):
             logger.info(f"Agent {agent_id} unregistered, conversion capabilities removed")
         return True
     
+    async def process_broadcast_message(self, message) -> Optional[Event]:
+        """Process broadcast messages for conversion discovery.
+        
+        Args:
+            message: The broadcast message to process
+            
+        Returns:
+            Optional[Event]: Response message if needed
+        """
+        try:
+            # Check if this is a BroadcastMessage with conversion-related payload
+            if hasattr(message, 'payload'):
+                payload = message.payload or {}
+                action = payload.get('action', '')
+                
+                if action == 'announce_conversion_capabilities':
+                    # Handle capability announcement
+                    agent_id = message.source_id
+                    capabilities = payload.get('conversion_capabilities', {})
+                    self._update_agent_conversion_capabilities(agent_id, capabilities)
+                    logger.info(f"Updated conversion capabilities for agent {agent_id}: {capabilities}")
+                    return None
+                
+                elif action == 'discover_conversion_agents':
+                    # Handle discovery request
+                    query = payload.get('query', {})
+                    from_format = query.get('from_format', '')
+                    to_format = query.get('to_format', '')
+                    filters = query.get('filters', {})
+                    
+                    # Find matching agents
+                    matching_agents = self._find_conversion_agents(from_format, to_format, filters)
+                    
+                    # Create response as a direct message to the requesting agent
+                    from openagents.models.messages import DirectMessage
+                    response_payload = {
+                        'action': 'conversion_discovery_response',
+                        'query': query,
+                        'agents': matching_agents
+                    }
+                    
+                    return DirectMessage(
+                        source_id=self._network.network_id,
+                        target_agent_id=message.source_id,
+                        payload=response_payload
+                    )
+            
+            return None
+                
+        except Exception as e:
+            logger.error(f"Error processing broadcast message: {e}")
+            return None
+
     async def process_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
         """Process a mod message.
         
@@ -146,7 +200,7 @@ class OpenConvertDiscoveryMod(BaseMod):
         sender_id = message.sender_id
         
         logger.debug(f"Processing protocol message from {sender_id}: {message.content}")
-        logger.debug(f"Message ID: {message.message_id}, Protocol: {message.mod}, Sender: {sender_id}")
+        logger.debug(f"Message ID: {message.message_id}, Protocol: {getattr(message, 'mod', 'N/A')}, Sender: {sender_id}")
         
         if action == ANNOUNCE_CONVERSION_CAPABILITIES:
             # Agent is announcing its conversion capabilities
@@ -181,7 +235,7 @@ class OpenConvertDiscoveryMod(BaseMod):
                     message_type="mod_message",
                     direction="outbound",
                     sender_id=self.network.network_id,
-                    mod=self.mod_name,
+                    relevant_mod=self.mod_name,
                     relevant_agent_id=sender_id,
                     text_representation=None,
                     requires_response=False,

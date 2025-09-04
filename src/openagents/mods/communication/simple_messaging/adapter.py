@@ -200,7 +200,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             target_agent_id=target_agent_id,
             content=content,
             direction="outbound",
-            mod="openagents.mods.communication.simple_messaging"
+            relevant_mod="openagents.mods.communication.simple_messaging"
         )
         
         # DO NOT add outbound messages to sender's threads - only recipients should process incoming messages
@@ -359,7 +359,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         # Create and send the protocol message
         message = ModMessage(
             sender_id=self.agent_id,
-            mod="simple_messaging",
+            relevant_mod="simple_messaging",
             content={
                 "action": "get_file",
                 "file_id": file_id
@@ -386,7 +386,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         # Create and send the protocol message
         message = ModMessage(
             sender_id=self.agent_id,
-            mod="simple_messaging",
+            relevant_mod="simple_messaging",
             content={
                 "action": "delete_file",
                 "file_id": file_id

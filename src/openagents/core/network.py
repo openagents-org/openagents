@@ -282,7 +282,7 @@ class AgentNetwork:
     
     async def _log_event(self, event: Event):
         """Global event handler for logging."""
-        logger.debug(f"Event: {event.event_name} from {event.source_agent_id} to {event.target_agent_id or 'all'}")
+        logger.debug(f"Event: {event.event_name} from {event.source_id} to {event.target_agent_id or 'all'}")
     
     async def emit_event(self, event: Event) -> None:
         """
@@ -318,7 +318,7 @@ class AgentNetwork:
         """
         try:
             # Convert transport message to Event directly
-            event = self._transport_message_to_event(message)
+            event = self._transport_message_to_base_message(message)
             if event:
                 await self.emit_event(event)
         except Exception as e:
@@ -353,10 +353,18 @@ class AgentNetwork:
                 payload = message.payload or {}
                 return ModMessage(
                     source_id=message.sender_id,
-                    mod=payload.get('mod', ''),
+                    relevant_mod=payload.get('mod', ''),
                     relevant_agent_id=payload.get('relevant_agent_id', message.sender_id),
                     direction=payload.get('direction', 'inbound'),
                     payload=payload,
+                    metadata=message.metadata or {}
+                )
+            elif message.message_type == "transport":
+                # Transport messages are typically capability announcements or system messages
+                # Convert them to broadcast messages so they can be processed by mods
+                return BroadcastMessage(
+                    source_id=message.sender_id,
+                    payload=message.payload or {},
                     metadata=message.metadata or {}
                 )
             else:
@@ -504,7 +512,7 @@ class AgentNetwork:
             # This will be removed once all components use events
             if isinstance(message, ModMessage):
                 logger.info(f"🔧 NETWORK: Handling ModMessage {message.event_id} locally, mod={message.mod}")
-                logger.info(f"🔧 NETWORK: ModMessage sender={message.source_agent_id}, relevant_agent={message.relevant_agent_id}")
+                logger.info(f"🔧 NETWORK: ModMessage sender={message.source_id}, relevant_agent={message.relevant_agent_id}")
                 
                 # Check if this is a mod message response that needs to be delivered to an agent
                 if hasattr(message, 'relevant_agent_id') and message.relevant_agent_id:
@@ -938,10 +946,13 @@ class AgentNetwork:
             logger.info(f"🔧 NETWORK: _handle_mod_message called with message: {message.message_id}, type: {message.message_type}")
             logger.info(f"🔧 NETWORK: Message attributes: content={hasattr(message, 'content')}, payload={hasattr(message, 'payload')}")
             
-            # Extract the target mod name from the payload
+            # Extract the target mod name from the message
             target_mod_name = None
-            if hasattr(message, 'payload') and message.payload:
-                target_mod_name = message.payload.get('mod')
+            if hasattr(message, 'relevant_mod') and message.relevant_mod:
+                target_mod_name = message.relevant_mod
+            elif hasattr(message, 'payload') and message.payload:
+                # Fallback: check payload for backward compatibility
+                target_mod_name = message.payload.get('mod') or message.payload.get('relevant_mod')
             
             if target_mod_name and target_mod_name in self.mods:
                 network_mod = self.mods[target_mod_name]
@@ -959,7 +970,7 @@ class AgentNetwork:
                 
                 mod_message = ModMessage(
                     source_id=message.sender_id,
-                    mod=target_mod_name,
+                    relevant_mod=target_mod_name,
                     payload=content,
                     action=message.payload.get('action'),
                     direction=message.payload.get('direction'),

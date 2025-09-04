@@ -1073,7 +1073,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
         """
         try:
             mod_message = ModMessage(
-                mod="shared_document",
+                relevant_mod="shared_document",
                 content=message.model_dump(),
                 sender_id=self.agent_id,
                 relevant_agent_id=self.agent_id

@@ -136,7 +136,7 @@ class ConsoleAgent:
             metadata={"type": "text"},
             requires_response=True,
             text_representation=content,
-            mod="openagents.mods.communication.simple_messaging",
+            relevant_mod="openagents.mods.communication.simple_messaging",
             message_type="direct_message"
         )
         
@@ -171,7 +171,7 @@ class ConsoleAgent:
             sender_id=self.agent_id,
             content={"text": content},
             metadata={"type": "text"},
-            mod="openagents.mods.communication.simple_messaging",
+            relevant_mod="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",
             text_representation=content,
             requires_response=False

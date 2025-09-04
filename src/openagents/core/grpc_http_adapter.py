@@ -193,7 +193,7 @@ class GRPCHTTPAdapter:
                 
                 mod_message = ModMessage(
                     source_id=data.get('sender_id'),
-                    mod="openagents.mods.communication.thread_messaging",
+                    relevant_mod="openagents.mods.communication.thread_messaging",
                     direction="outbound",
                     relevant_agent_id=data.get('sender_id'),
                     payload=mod_content,
@@ -482,7 +482,7 @@ class GRPCHTTPAdapter:
             
             mod_message = ModMessage(
                 source_id=agent_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 direction="outbound",
                 relevant_agent_id=agent_id,
                 payload=mod_content,
@@ -523,7 +523,7 @@ class GRPCHTTPAdapter:
             
             mod_message = ModMessage(
                 source_id=agent_id,
-                mod="openagents.mods.work.shared_document",
+                relevant_mod="openagents.mods.work.shared_document",
                 direction="outbound",
                 relevant_agent_id=agent_id,
                 payload=mod_content,

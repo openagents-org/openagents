@@ -630,7 +630,7 @@ class DefaultProjectNetworkMod(BaseMod):
         for agent_id in project.service_agents:
             notification = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.project.default",
+                relevant_mod="openagents.mods.project.default",
                 content={
                     "action": "project_notification",
                     "notification_type": notification_type,
@@ -660,7 +660,7 @@ class DefaultProjectNetworkMod(BaseMod):
         if project.creator_agent_id and project.creator_agent_id != message.sender_id:
             notification = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.project.default",
+                relevant_mod="openagents.mods.project.default",
                 content={
                     "action": "project_message_received",
                     "project_id": project.project_id,
@@ -693,7 +693,7 @@ class DefaultProjectNetworkMod(BaseMod):
             # Create the event using the new Event structure
             event = Event(
                 event_name=event_type,
-                source_agent_id=agent_id,
+                source_id=agent_id,
                 relevant_mod="project.default",
                 payload={
                     "project_id": project_id,
@@ -733,7 +733,7 @@ class DefaultProjectNetworkMod(BaseMod):
         
         response = ModMessage(
             sender_id=self.network.network_id,
-            mod="openagents.mods.project.default",
+            relevant_mod="openagents.mods.project.default",
             relevant_agent_id=agent_id,
             content=response_content
         )

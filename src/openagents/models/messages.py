@@ -171,7 +171,6 @@ class ModMessage(Event):
     """A message for network mods to consume - now based on Event."""
     
     # Mod-specific fields (backward compatibility)
-    mod: str = field(default="")
     direction: str = field(default="inbound")
     relevant_agent_id: str = field(default="")
     
@@ -184,22 +183,30 @@ class ModMessage(Event):
             source_id = kwargs.pop('sender_id')
         
         # Extract ModMessage-specific fields
-        mod = kwargs.pop('mod', '')
+        mod = kwargs.pop('mod', '')  # For backward compatibility, still accept mod parameter
         direction = kwargs.pop('direction', 'inbound')
         relevant_agent_id = kwargs.pop('relevant_agent_id', '')
         payload = kwargs.get('payload', {})
         
+        # Handle relevant_mod - use mod for backward compatibility if relevant_mod not provided
+        if mod and 'relevant_mod' not in kwargs:
+            kwargs['relevant_mod'] = mod
+        elif 'relevant_mod' not in kwargs:
+            kwargs['relevant_mod'] = ''
+        
+        relevant_mod = kwargs.get('relevant_mod', '')
+        
         # Generate event name if not provided
         if not event_name:
-            if mod:
+            if relevant_mod:
                 action = payload.get('action', 'message_received') if payload else 'message_received'
                 # Convert mod name to event name format
-                mod_parts = mod.split('.')
+                mod_parts = relevant_mod.split('.')
                 if len(mod_parts) >= 2:
                     # e.g., "openagents.mods.project.default" -> "project"
                     mod_short = mod_parts[-2] if mod_parts[-1] == 'default' else mod_parts[-1]
                 else:
-                    mod_short = mod
+                    mod_short = relevant_mod
                 
                 # Ensure action is meaningful
                 if action in ['unknown', 'default', 'generic', 'placeholder']:
@@ -207,16 +214,12 @@ class ModMessage(Event):
                 
                 event_name = f"{mod_short}.{action}"
             else:
-                # If no mod is specified, this is an error - ModMessage must have a mod
-                raise ValueError("ModMessage must have a 'mod' field to generate meaningful event name")
+                # If no relevant_mod is specified, this is an error - ModMessage must have a relevant_mod
+                raise ValueError("ModMessage must have a 'relevant_mod' field to generate meaningful event name")
         
         # Set default visibility for mod messages if not specified
         if 'visibility' not in kwargs:
             kwargs['visibility'] = EventVisibility.MOD_ONLY
-        
-        # Set relevant_mod from mod field for backward compatibility
-        if mod and 'relevant_mod' not in kwargs:
-            kwargs['relevant_mod'] = mod
         
         # Set relevant_agent_id as target if not set
         if relevant_agent_id and 'target_agent_id' not in kwargs:
@@ -230,7 +233,6 @@ class ModMessage(Event):
         super().__init__(event_name=event_name, source_id=source_id, **kwargs)
         
         # Set ModMessage-specific fields after initialization
-        self.mod = mod
         self.direction = direction
         self.relevant_agent_id = relevant_agent_id
     
@@ -274,6 +276,16 @@ class ModMessage(Event):
     def content(self, value: Dict[str, Any]):
         """Backward compatibility: content maps to payload."""
         self.payload = value
+    
+    @property
+    def mod(self) -> str:
+        """Backward compatibility: mod maps to relevant_mod."""
+        return self.relevant_mod or ""
+    
+    @mod.setter
+    def mod(self, value: str):
+        """Backward compatibility: mod maps to relevant_mod."""
+        self.relevant_mod = value
     
     @property
     def message_type(self) -> str:

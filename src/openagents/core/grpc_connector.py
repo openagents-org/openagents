@@ -271,9 +271,9 @@ class GRPCNetworkConnector:
             return False
             
         try:
-            # Ensure source_agent_id is set (Event field)
-            if not message.source_agent_id:
-                message.source_agent_id = self.agent_id
+            # Ensure source_id is set (Event field)
+            if not message.source_id:
+                message.source_id = self.agent_id
             
             # For ModMessage backward compatibility
             if isinstance(message, ModMessage):
@@ -488,7 +488,7 @@ class GRPCNetworkConnector:
         # This will be updated when we update the protobuf definitions
         grpc_message = self.agent_service_pb2.Message(
             message_id=event.event_id,
-            sender_id=event.source_agent_id,
+            sender_id=event.source_id,
             target_id=event.target_agent_id or '',
             message_type=event.event_name,  # Use event_name as message_type
             timestamp=self._to_timestamp(event.timestamp)

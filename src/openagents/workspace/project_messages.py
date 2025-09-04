@@ -23,6 +23,10 @@ class ProjectMessage(Event):
         project_id = kwargs.pop('project_id', '')
         message_type = kwargs.pop('message_type', '')  # For backward compatibility
         
+        # Handle legacy sender_id for backward compatibility
+        if 'sender_id' in kwargs:
+            source_id = kwargs.pop('sender_id')
+        
         # Handle legacy message_id and timestamp
         if 'message_id' in kwargs:
             kwargs['event_id'] = kwargs.pop('message_id')
@@ -34,6 +38,26 @@ class ProjectMessage(Event):
         
         # Set project-specific fields
         self.project_id = project_id
+    
+    @property
+    def sender_id(self) -> str:
+        """Backward compatibility: sender_id maps to source_id."""
+        return self.source_id
+    
+    @sender_id.setter
+    def sender_id(self, value: str):
+        """Backward compatibility: sender_id maps to source_id."""
+        self.source_id = value
+    
+    @property
+    def message_id(self) -> str:
+        """Backward compatibility: message_id maps to event_id."""
+        return self.event_id
+    
+    @message_id.setter
+    def message_id(self, value: str):
+        """Backward compatibility: message_id maps to event_id."""
+        self.event_id = value
 
 
 class ProjectCreationMessage(ProjectMessage):
@@ -177,7 +201,7 @@ class ProjectChannelMessage(ProjectMessage):
         self.agents_to_invite = agents_to_invite
 
 
-class ProjectListMessage(Event):
+class ProjectListMessage(ProjectMessage):
     """Message for listing projects."""
     
     action: str = "list_projects"
@@ -195,8 +219,8 @@ class ProjectListMessage(Event):
         if 'timestamp' not in kwargs:
             kwargs['timestamp'] = 1704067200  # Fixed timestamp for testing
         
-        # Call parent constructor
-        super().__init__(event_name=event_name, source_id=source_id, **kwargs)
+        # Call parent constructor (project_id is empty for list messages)
+        super().__init__(event_name=event_name, source_id=source_id, project_id="", **kwargs)
         
         # Set list-specific fields
         self.action = action

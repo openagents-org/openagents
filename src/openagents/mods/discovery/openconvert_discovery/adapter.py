@@ -193,7 +193,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
         Returns:
             Optional[ModMessage]: The processed message, or None for stopping the message from being processed further by other adapters
         """
-        if message.mod != self.mod_name:
+        if getattr(message, 'mod', None) != self.mod_name:
             return message
         
         # Handle conversion discovery requests
@@ -219,7 +219,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
         Returns:
             Optional[BroadcastMessage]: The processed message, or None for stopping the message from being processed further by other adapters
         """
-        if message.mod != self.mod_name:
+        if getattr(message, 'mod', None) != self.mod_name:
             return message
         
         # Handle conversion discovery requests
@@ -263,7 +263,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
         message = ModMessage(
             direction="inbound",
             sender_id=self.agent_id,
-            mod=self.mod_name,
+            relevant_mod=self.mod_name,
             message_type="mod_message",
             relevant_agent_id=self.agent_id,
             content={

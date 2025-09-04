@@ -226,7 +226,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             # File not found
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="simple_messaging",
+                relevant_mod="simple_messaging",
                 content={
                     "action": "file_download_response",
                     "success": False,
@@ -250,7 +250,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             # Send response
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="simple_messaging",
+                relevant_mod="simple_messaging",
                 content={
                     "action": "file_download_response",
                     "success": True,
@@ -268,7 +268,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             # Error reading file
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="simple_messaging",
+                relevant_mod="simple_messaging",
                 content={
                     "action": "file_download_response",
                     "success": False,
@@ -295,7 +295,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             # File not found
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="simple_messaging",
+                relevant_mod="simple_messaging",
                 content={
                     "action": "file_deletion_response",
                     "success": False,
@@ -315,7 +315,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             # Send response
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="simple_messaging",
+                relevant_mod="simple_messaging",
                 content={
                     "action": "file_deletion_response",
                     "success": True,
@@ -332,7 +332,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             # Error deleting file
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="simple_messaging",
+                relevant_mod="simple_messaging",
                 content={
                     "action": "file_deletion_response",
                     "success": False,

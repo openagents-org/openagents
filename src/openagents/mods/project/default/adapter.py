@@ -399,7 +399,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
         # For notifications, we don't necessarily need to wait for a response
         mod_message = ModMessage(
             sender_id=self._agent_id,
-            mod="openagents.mods.project.default",
+            relevant_mod="openagents.mods.project.default",
             content=message.model_dump()
         )
         
@@ -458,7 +458,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
         # Send message
         mod_message = ModMessage(
             sender_id=self._agent_id,
-            mod="openagents.mods.project.default",
+            relevant_mod="openagents.mods.project.default",
             content=message.model_dump()
         )
         

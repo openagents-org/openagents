@@ -15,7 +15,7 @@ Usage:
     # Create and emit events
     event = Event(
         event_name="agent.direct_message.sent",
-        source_agent_id="agent1",
+        source_id="agent1",
         target_agent_id="agent2",
         payload={"text": "Hello!"}
     )

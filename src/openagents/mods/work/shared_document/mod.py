@@ -1170,7 +1170,7 @@ class SharedDocumentNetworkMod(BaseMod):
             if agent_id != source_agent_id:
                 try:
                     mod_message = ModMessage(
-                        mod="shared_document",
+                        relevant_mod="shared_document",
                         content=operation_message.model_dump(),
                         sender_id=self.network.network_id,
                         relevant_agent_id=agent_id
@@ -1199,7 +1199,7 @@ class SharedDocumentNetworkMod(BaseMod):
             if other_agent_id != agent_id:
                 try:
                     mod_message = ModMessage(
-                        mod="shared_document",
+                        relevant_mod="shared_document",
                         content=presence_message.model_dump(),
                         sender_id=self.network.network_id,
                         relevant_agent_id=other_agent_id
@@ -1224,7 +1224,7 @@ class SharedDocumentNetworkMod(BaseMod):
             logger.info(f"🔧 _send_response - Final content request_id: {content.get('request_id', 'NOT_FOUND')}")
             
             mod_message = ModMessage(
-                mod="openagents.mods.work.shared_document",
+                relevant_mod="openagents.mods.work.shared_document",
                 content=content,
                 sender_id=self.network.network_id,
                 relevant_agent_id=target_agent_id

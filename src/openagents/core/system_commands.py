@@ -520,12 +520,20 @@ async def handle_poll_messages(command: str, data: Dict[str, Any], connection: S
         try:
             if hasattr(message, 'model_dump'):
                 serialized_messages.append(message.model_dump())
+            elif hasattr(message, 'to_dict'):
+                serialized_messages.append(message.to_dict())
             elif hasattr(message, 'dict'):
                 serialized_messages.append(message.dict())
             else:
-                serialized_messages.append(str(message))
+                # Fallback: convert to dict manually for Event-based objects
+                if hasattr(message, '__dict__'):
+                    serialized_messages.append(message.__dict__)
+                else:
+                    serialized_messages.append(str(message))
         except Exception as e:
             logger.error(f"Error serializing message: {e}")
+            # Add empty dict to maintain message count
+            serialized_messages.append({})
     
     logger.info(f"🔧 POLL_MESSAGES: Serialized {len(serialized_messages)} messages")
     

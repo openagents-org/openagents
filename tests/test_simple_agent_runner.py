@@ -57,7 +57,7 @@ def create_testing_simple_agent(agent_id: str = None):
             """Enhanced react method that tracks received messages."""
             # Store the received message for verification
             self.received_messages.append({
-                'sender_id': incoming_message.source_agent_id,
+                'sender_id': incoming_message.source_id,
                 'content': incoming_message.payload,
                 'message_type': type(incoming_message).__name__,
                 'timestamp': time.time(),

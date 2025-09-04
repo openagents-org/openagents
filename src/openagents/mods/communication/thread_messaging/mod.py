@@ -400,7 +400,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             logger.info(f"🔧 THREAD MESSAGING: Creating notification for agent: {agent_id}")
             notification = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "channel_message_notification",
                     "message": message.model_dump(),
@@ -498,7 +498,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             # Send response with file UUID
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "file_upload_response",
                     "success": True,
@@ -517,7 +517,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             # Send error response
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "file_upload_response",
                     "success": False,
@@ -553,7 +553,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             # File not found
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "file_download_response",
                     "success": False,
@@ -573,7 +573,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             # File deleted from storage
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "file_download_response",
                     "success": False,
@@ -596,7 +596,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             # Send file content
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "file_download_response",
                     "success": True,
@@ -617,7 +617,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             # Send error response
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "file_download_response",
                     "success": False,
@@ -651,7 +651,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "list_channels_response",
                     "success": True,
@@ -693,7 +693,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             # Send error response
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "retrieve_channel_messages_response",
                     "success": False,
@@ -710,7 +710,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             # Send error response
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "retrieve_channel_messages_response",
                     "success": False,
@@ -786,7 +786,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Send response
         response = ModMessage(
             sender_id=self.network.network_id,
-            mod="openagents.mods.communication.thread_messaging",
+            relevant_mod="openagents.mods.communication.thread_messaging",
             content={
                 "action": "retrieve_channel_messages_response",
                 "success": True,
@@ -820,7 +820,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             # Send error response
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "retrieve_direct_messages_response",
                     "success": False,
@@ -908,7 +908,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Send response
         response = ModMessage(
             sender_id=self.network.network_id,
-            mod="openagents.mods.communication.thread_messaging",
+            relevant_mod="openagents.mods.communication.thread_messaging",
             content={
                 "action": "retrieve_direct_messages_response",
                 "success": True,
@@ -944,7 +944,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             # Send error response
             response = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "reaction_response",
                     "success": False,
@@ -998,7 +998,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Send response
         response = ModMessage(
             sender_id=self.network.network_id,
-            mod="openagents.mods.communication.thread_messaging",
+            relevant_mod="openagents.mods.communication.thread_messaging",
             content={
                 "action": "reaction_response",
                 "success": success,
@@ -1041,7 +1041,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         for notify_agent in notify_agents:
             notification = ModMessage(
                 sender_id=self.network.network_id,
-                mod="openagents.mods.communication.thread_messaging",
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
                     "action": "reaction_notification",
                     "target_message_id": target_message_id,

@@ -228,7 +228,7 @@ class ChannelConnection:
             # Create mod message for thread messaging
             mod_message = ModMessage(
                 sender_id=self._client.agent_id,
-                mod=THREAD_MESSAGING_MOD_NAME,
+                relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 direction="outbound",
                 content={
@@ -278,7 +278,7 @@ class ChannelConnection:
             # Create mod message for thread messaging with mention
             mod_message = ModMessage(
                 sender_id=self._client.agent_id,
-                mod=THREAD_MESSAGING_MOD_NAME,
+                relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
                     "message_type": "channel_message",
@@ -324,7 +324,7 @@ class ChannelConnection:
             # Create mod message to retrieve channel messages
             mod_message = ModMessage(
                 sender_id=self._client.agent_id,
-                mod=THREAD_MESSAGING_MOD_NAME,
+                relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
                     "message_type": "message_retrieval",
@@ -415,7 +415,7 @@ class ChannelConnection:
             # Create mod message for thread messaging
             mod_message = ModMessage(
                 sender_id=self._client.agent_id,
-                mod=THREAD_MESSAGING_MOD_NAME,
+                relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
                     "message_type": "reply_message",
@@ -457,7 +457,7 @@ class ChannelConnection:
             
             mod_message = ModMessage(
                 sender_id=self._client.agent_id,
-                mod=THREAD_MESSAGING_MOD_NAME,
+                relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
                     "message_type": "file_upload",
@@ -502,7 +502,7 @@ class ChannelConnection:
             # Create mod message for reaction
             mod_message = ModMessage(
                 sender_id=self._client.agent_id,
-                mod=THREAD_MESSAGING_MOD_NAME,
+                relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
                     "message_type": "reaction",
@@ -928,7 +928,7 @@ class Workspace:
             # Create mod message to list channels
             mod_message = ModMessage(
                 sender_id=self._client.agent_id,
-                mod=THREAD_MESSAGING_MOD_NAME,
+                relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
                 content={
                     "message_type": "channel_info",
@@ -1154,7 +1154,7 @@ class Workspace:
             # Create mod message to start project
             mod_message = ModMessage(
                 sender_id=self._client.agent_id,
-                mod="openagents.mods.project.default",
+                relevant_mod="openagents.mods.project.default",
                 relevant_agent_id=self._client.agent_id,
                 content={
                     "action": "project_creation",
@@ -1230,7 +1230,7 @@ class Workspace:
             # Create mod message to get project status
             mod_message = ModMessage(
                 sender_id=self._client.agent_id,
-                mod="openagents.mods.project.default",
+                relevant_mod="openagents.mods.project.default",
                 relevant_agent_id=self._client.agent_id,
                 content={
                     "message_type": "project_status",
@@ -1300,7 +1300,7 @@ class Workspace:
             # Create mod message to list projects
             mod_message = ModMessage(
                 sender_id=self._client.agent_id,
-                mod="openagents.mods.project.default",
+                relevant_mod="openagents.mods.project.default",
                 relevant_agent_id=self._client.agent_id,
                 content={
                     "message_type": "project_list",
