@@ -35,6 +35,27 @@
             "get_project_messages"
         ]
     },
+    "process_events": [
+        "project_creation",
+        "project_status",
+        "project_notification",
+        "project_channel",
+        "project_list",
+        "agent.connected",
+        "agent.disconnected"
+    ],
+    "generate_events": [
+        "project.created",
+        "project.started",
+        "project.stopped",
+        "project.status.changed",
+        "project.run.completed",
+        "project.run.failed",
+        "project.run.requires_input",
+        "project.run.notification",
+        "project.agent.joined",
+        "project.agent.left"
+    ],
     "default_config": {
         "max_concurrent_projects": 10,
         "default_service_agents": [],

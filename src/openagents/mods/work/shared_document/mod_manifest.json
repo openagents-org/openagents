@@ -83,5 +83,32 @@
                 "parameters": ["document_id", "line_number", "column_number"]
             }
         }
-    }
+    },
+    "process_events": [
+        "create_document",
+        "list_documents",
+        "open_document",
+        "close_document",
+        "insert_lines",
+        "remove_lines",
+        "replace_lines",
+        "add_comment",
+        "remove_comment",
+        "update_cursor_position",
+        "acquire_line_lock",
+        "release_line_lock",
+        "get_document_content",
+        "get_document_history",
+        "get_agent_presence",
+        "agent.connected",
+        "agent.disconnected"
+    ],
+    "generate_events": [
+        "DocumentOperationResponse",
+        "DocumentContentResponse",
+        "DocumentListResponse",
+        "DocumentHistoryResponse",
+        "AgentPresenceResponse",
+        "LineLockResponse"
+    ]
 }

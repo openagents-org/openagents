@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional, List
 from abc import ABC, abstractmethod
-from openagents.models.messages import BaseMessage, DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.event import Event
 from openagents.models.tool import AgentAdapterTool
 from openagents.core.connector import NetworkConnector
 from openagents.models.message_thread import MessageThread
@@ -99,7 +100,7 @@ class BaseModAdapter(ABC):
         """
         return True
     
-    def add_message_to_thread(self, thread_id: str, message: BaseMessage, requires_response: bool = True, text_representation: str = None) -> None:
+    def add_message_to_thread(self, thread_id: str, message: Event, requires_response: bool = True, text_representation: str = None) -> None:
         """Add a message to a conversation thread.
         
         Args:

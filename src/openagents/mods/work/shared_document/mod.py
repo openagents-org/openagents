@@ -16,7 +16,8 @@ from typing import Dict, Any, List, Optional, Set
 from datetime import datetime, timedelta
 
 from openagents.core.base_mod import BaseMod
-from openagents.models.messages import BaseMessage, ModMessage
+from openagents.models.messages import ModMessage
+from openagents.models.event import Event
 from .document_messages import (
     CreateDocumentMessage,
     OpenDocumentMessage,
@@ -656,7 +657,7 @@ class SharedDocumentNetworkMod(BaseMod):
             logger.error(f"Error processing mod message from {source_agent_id}: {e}")
             await self._send_error_response(source_agent_id, str(e))
 
-    async def process_message(self, message: BaseMessage, source_agent_id: str) -> None:
+    async def process_message(self, message: Event, source_agent_id: str) -> None:
         """Legacy process_message method - delegates to process_mod_message."""
         try:
             if isinstance(message, ModMessage):
@@ -1157,7 +1158,7 @@ class SharedDocumentNetworkMod(BaseMod):
             logger.error(f"Failed to get agent presence: {e}")
             await self._send_error_response(source_agent_id, str(e))
     
-    async def _broadcast_operation(self, document_id: str, operation_message: BaseMessage, source_agent_id: str) -> None:
+    async def _broadcast_operation(self, document_id: str, operation_message: Event, source_agent_id: str) -> None:
         """Broadcast an operation to all other agents working on the document."""
         if document_id not in self.documents:
             return
@@ -1207,7 +1208,7 @@ class SharedDocumentNetworkMod(BaseMod):
                 except Exception as e:
                     logger.error(f"Failed to broadcast presence update to agent {other_agent_id}: {e}")
     
-    async def _send_response(self, target_agent_id: str, response: BaseMessage, request_id: str = None) -> None:
+    async def _send_response(self, target_agent_id: str, response: Event, request_id: str = None) -> None:
         """Send a response message to an agent."""
         try:
             # Include request_id in the content for proper matching

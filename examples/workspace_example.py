@@ -182,36 +182,42 @@ async def main():
         print("      • channel.wait_for_reaction(message_id, timeout=30.0)")
         print("      • channel.post_and_wait(content, timeout=30.0)")
         
-        # Test event subscription system
-        print("\n🎧 Testing event subscription system...")
+        # Test event subscription system (using network-level events)
+        print("\n🎧 Testing network-level event subscription system...")
         try:
-            # Subscribe to various events
-            print("📡 Subscribing to workspace events...")
-            event_sub = ws.events.subscribe([
-                "channel.post.created",
-                "channel.message.received", 
-                "channel.message.mentioned",
-                "agent.direct_message.sent",
-                "agent.direct_message.received"
-            ])
+            # Subscribe to various events using network-level event system
+            print("📡 Subscribing to network events...")
+            event_sub = network.events.subscribe(
+                agent_id="workspace-demo-agent",
+                event_patterns=[
+                    "channel.message.*",
+                    "agent.direct_message.*"
+                ]
+            )
             
-            print("✅ Event subscription created!")
+            # Create event queue for polling
+            event_queue = network.events.create_agent_event_queue("workspace-demo-agent")
+            
+            print("✅ Network event subscription created!")
             
             # Give the subscription a moment to initialize
             await asyncio.sleep(0.5)
             
             # Debug: Check if events system is properly initialized
-            print(f"   Events manager active subscriptions: {len(ws.events.event_manager.subscriptions)}")
+            stats = network.events.get_stats()
+            print(f"   Network event subscriptions: {stats.get('active_subscriptions', 0)}")
             print(f"   Workspace client connected: {ws._client is not None and ws._client.connector is not None}")
             
             # Test direct event emission
             print("   Testing direct event emission...")
-            test_event = await ws.events.emit(
-                "channel.post.created",
-                source_agent_id="test-agent",
-                channel="#test",
-                data={"text": "Direct emission test"}
+            from openagents.models.event import Event, EventNames
+            test_event = Event(
+                event_name=EventNames.CHANNEL_MESSAGE_POSTED,
+                source_agent_id="workspace-demo-agent",
+                target_channel="#test",
+                payload={"text": "Direct emission test"}
             )
+            await network.emit_event(test_event)
             print(f"   Direct event emitted: {test_event.event_name}")
             
             # Test posting with mention
@@ -239,35 +245,39 @@ async def main():
             # Give events time to propagate
             await asyncio.sleep(1.0)
             
-            # Listen for events for a short time
+            # Listen for events for a short time using event queue
             print("🎧 Listening for events...")
             event_count = 0
             
             async def listen_for_workspace_events():
-                """Listen for workspace events."""
+                """Listen for workspace events using event queue polling."""
                 nonlocal event_count
-                async for event in event_sub:
-                    event_count += 1
-                    print(f"📨 Event {event_count}: {event.event_name}")
-                    print(f"   Source: {event.source_agent_id}")
-                    if event.channel:
-                        print(f"   Channel: {event.channel}")
-                    if event.target_agent_id:
-                        print(f"   Target: {event.target_agent_id}")
-                    if event.data.get('text'):
-                        print(f"   Text: {event.data['text']}")
-                    if event.data.get('mention_type'):
-                        print(f"   Mention Type: {event.data['mention_type']}")
-                    print()
-                    
-                    # Stop after collecting a few events
-                    if event_count >= 5:
-                        break
+                timeout_count = 0
+                max_timeouts = 5  # 5 seconds total
+                
+                while timeout_count < max_timeouts and event_count < 5:
+                    try:
+                        event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
+                        event_count += 1
+                        print(f"📨 Event {event_count}: {event.event_name}")
+                        print(f"   Source: {event.source_agent_id}")
+                        if event.target_channel:
+                            print(f"   Channel: {event.target_channel}")
+                        if event.target_agent_id:
+                            print(f"   Target: {event.target_agent_id}")
+                        if event.payload.get('text'):
+                            print(f"   Text: {event.payload['text']}")
+                        if event.payload.get('mention_type'):
+                            print(f"   Mention Type: {event.payload['mention_type']}")
+                        print()
+                    except asyncio.TimeoutError:
+                        timeout_count += 1
+                        continue
             
             try:
-                await asyncio.wait_for(listen_for_workspace_events(), timeout=5.0)
-            except asyncio.TimeoutError:
-                print(f"⏰ Event listening timeout - collected {event_count} events")
+                await listen_for_workspace_events()
+            except Exception as e:
+                print(f"⏰ Event listening completed - collected {event_count} events")
             
             # Check if no events were received
             if event_count == 0:
@@ -277,19 +287,22 @@ async def main():
                 print("   • The echo agent doesn't participate in channels")
                 print("   • Events are working correctly - just no multi-agent activity")
             
-            # Clean up subscription
-            ws.events.unsubscribe(event_sub)
-            print("✅ Event subscription test completed!")
+            # Clean up subscription and queue
+            network.events.unsubscribe(event_sub.subscription_id)
+            network.events.remove_agent_event_queue("workspace-demo-agent")
+            print("✅ Network event subscription test completed!")
             
             # Show available event types
             print("\n📋 Available event types:")
-            from openagents.core.events import EventType
-            for i, event_type in enumerate(EventType, 1):
-                if 'mention' in event_type.value:
-                    print(f"   {i:2d}. {event_type.value} ⭐")
+            from openagents.models.event import EventNames
+            event_names = [name for name in dir(EventNames) if not name.startswith('_')]
+            for i, event_name in enumerate(event_names, 1):
+                event_value = getattr(EventNames, event_name)
+                if 'mention' in event_value:
+                    print(f"   {i:2d}. {event_value} ⭐")
                 else:
-                    print(f"   {i:2d}. {event_type.value}")
-            print(f"   Total: {len(list(EventType))} event types available")
+                    print(f"   {i:2d}. {event_value}")
+            print(f"   Total: {len(event_names)} event types available")
             
         except Exception as e:
             print(f"❌ Error testing events: {e}")

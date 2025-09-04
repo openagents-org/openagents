@@ -16,7 +16,8 @@ from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
 
 from openagents.core.base_mod import BaseMod
-from openagents.models.messages import BaseMessage, ModMessage
+from openagents.models.messages import ModMessage
+from openagents.models.event import Event
 from openagents.workspace.project import Project
 from openagents.workspace.project_messages import (
     ProjectCreationMessage,
@@ -675,7 +676,7 @@ class DefaultProjectNetworkMod(BaseMod):
                 logger.error(f"Failed to forward notification to creator {project.creator_agent_id}: {e}")
     
     async def _emit_project_event(self, event_type: str, project_id: str, agent_id: str, data: Dict[str, Any]) -> None:
-        """Emit a project-related event.
+        """Emit a project-related event using the unified network event system.
         
         Args:
             event_type: Type of event to emit
@@ -685,39 +686,32 @@ class DefaultProjectNetworkMod(BaseMod):
         """
         logger.info(f"🔧 PROJECT MOD: Emitting event {event_type} for project {project_id} by agent {agent_id}")
         
-        # Send event notification to all registered workspace clients
-        if hasattr(self.network, '_registered_workspaces'):
-            for workspace_agent_id, workspace in self.network._registered_workspaces.items():
-                try:
-                    # Create a WorkspaceEvent and emit it through the workspace's event system
-                    from openagents.core.events import WorkspaceEvent, EventType
-                    
-                    # Convert event_type string to EventType enum
-                    try:
-                        event_enum = EventType(event_type)
-                    except ValueError:
-                        logger.warning(f"Unknown event type: {event_type}")
-                        continue
-                    
-                    # Create the event
-                    event = WorkspaceEvent(
-                        event_type=event_enum,
-                        source_agent_id=agent_id,
-                        data={
-                            "project_id": project_id,
-                            "project_name": data.get("project_name", ""),
-                            **data
-                        }
-                    )
-                    
-                    # Emit through the workspace's event system
-                    await workspace.events.event_manager.emit_event(event)
-                    logger.info(f"🔧 PROJECT MOD: Sent {event_type} event to workspace {workspace_agent_id}")
-                    
-                except Exception as e:
-                    logger.error(f"Failed to emit event to workspace {workspace_agent_id}: {e}")
-        else:
-            logger.warning("No registered workspaces found to emit project event")
+        try:
+            # Use the new unified event system
+            from openagents.models.event import Event, EventVisibility
+            
+            # Create the event using the new Event structure
+            event = Event(
+                event_name=event_type,
+                source_agent_id=agent_id,
+                relevant_mod="project.default",
+                payload={
+                    "project_id": project_id,
+                    "project_name": data.get("project_name", ""),
+                    **data
+                },
+                visibility=EventVisibility.NETWORK  # Make project events visible to entire network
+            )
+            
+            # Emit through the network's unified event system
+            if hasattr(self.network, 'emit_event'):
+                await self.network.emit_event(event)
+                logger.info(f"🔧 PROJECT MOD: Emitted {event_type} event via network event system")
+            else:
+                logger.warning("Network event system not available")
+                
+        except Exception as e:
+            logger.error(f"Failed to emit project event {event_type}: {e}")
     
     async def _send_project_response(self, agent_id: str, request_id: str, action: str, content: Dict[str, Any]) -> None:
         """Send a response message to an agent.

@@ -5,7 +5,8 @@ from typing import Dict, List, Optional
 
 from openagents.agents.runner import AgentRunner
 from openagents.models.message_thread import MessageThread
-from openagents.models.messages import BaseMessage, DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.event import Event
 from openagents.workspace.project_messages import ProjectNotificationMessage
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class ProjectEchoAgentRunner(AgentRunner):
             }
         ]
 
-    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
+    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: Event):
         """React to incoming messages and handle project participation."""
         self.message_count += 1
         sender_id = incoming_message.sender_id
@@ -182,7 +183,7 @@ class ProjectEchoAgentRunner(AgentRunner):
         else:
             logger.info(f"🔧 PROJECT ECHO AGENT: Not a channel message notification: action={message.content.get('action')}")
 
-    async def _check_project_channel_message(self, thread_id: str, message: BaseMessage, text: str):
+    async def _check_project_channel_message(self, thread_id: str, message: Event, text: str):
         """Check if this is a project channel message and handle project tasks."""
         # Check if this is a project channel (starts with "project-")
         if thread_id.startswith("project-") or "project" in thread_id.lower():
@@ -237,7 +238,7 @@ class ProjectEchoAgentRunner(AgentRunner):
         # Complete the project with a random response
         await self._complete_project(project_id, text)
 
-    async def _handle_project_task(self, project_id: str, message: BaseMessage, text: str):
+    async def _handle_project_task(self, project_id: str, message: Event, text: str):
         """Handle a task in a project channel (legacy method)."""
         sender_id = message.sender_id
         

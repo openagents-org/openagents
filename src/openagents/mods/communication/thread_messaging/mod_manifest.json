@@ -68,5 +68,28 @@
             "text/javascript",
             "text/css"
         ]
-    }
+    },
+    "process_events": [
+        "reply_message",
+        "file_upload",
+        "file_operation",
+        "channel_info",
+        "channel_info_message",
+        "message_retrieval",
+        "reaction",
+        "direct_message",
+        "channel_message",
+        "agent.connected",
+        "agent.disconnected"
+    ],
+    "generate_events": [
+        "file_upload_response",
+        "file_download_response",
+        "list_channels_response",
+        "retrieve_channel_messages_response",
+        "retrieve_direct_messages_response",
+        "reaction_response",
+        "reaction_notification",
+        "channel_message_notification"
+    ]
 }

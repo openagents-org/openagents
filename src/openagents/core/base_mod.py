@@ -5,7 +5,8 @@ import logging
 # Use TYPE_CHECKING to avoid circular imports
 if TYPE_CHECKING:
     from openagents.core.network import AgentNetworkServer
-from openagents.models.messages import BaseMessage, ModMessage, DirectMessage, BroadcastMessage
+from openagents.models.messages import ModMessage, DirectMessage, BroadcastMessage
+from openagents.models.event import Event
 
 logger = logging.getLogger(__name__)
 

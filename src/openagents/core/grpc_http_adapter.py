@@ -513,10 +513,10 @@ class GRPCHTTPAdapter:
             
             # Create appropriate mod message based on command
             # The content should match exactly what the shared document mod expects
-            # BaseMessage requires sender_id, and we need all the data fields
+            # Event requires sender_id, and we need all the data fields
             mod_content = {
                 "message_type": command,
-                "sender_id": agent_id,  # Required by BaseMessage
+                "sender_id": agent_id,  # Required by Event
                 **data  # Include all data from the request (document_id, line_number, content, etc.)
             }
             

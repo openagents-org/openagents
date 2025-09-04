@@ -54,21 +54,27 @@ running_projects = await ws.list_projects(filter_status="running")
 ### Event Subscription
 
 ```python
-# Subscribe to project events
-event_sub = ws.events.subscribe([
-    "project.created",
-    "project.started",
-    "project.run.completed",
-    "project.run.failed",
-    "project.run.requires_input",
-    "project.message.received",
-    "project.run.notification"
-])
+# Subscribe to project events using network-level events
+event_sub = network.events.subscribe(
+    agent_id="my-agent",
+    event_patterns=["project.*"]  # Subscribe to all project events
+)
+
+# Create event queue for polling
+event_queue = network.events.create_agent_event_queue("my-agent")
 
 # Listen for events
-async for event in event_sub:
+while True:
+    event = await event_queue.get()
     print(f"Project event: {event.event_name}")
-    print(f"Data: {event.data}")
+    print(f"Payload: {event.payload}")
+    
+    if event.event_name == "project.run.completed":
+        break
+
+# Cleanup
+network.events.unsubscribe(event_sub.subscription_id)
+network.events.remove_agent_event_queue("my-agent")
 ```
 
 ## Project States

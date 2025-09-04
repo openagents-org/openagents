@@ -61,40 +61,50 @@ async def main():
                 # Subscribe to project events to wait for completion
                 print(f"\n🎧 Subscribing to project events...")
                 try:
-                    event_sub = ws.events.subscribe([
-                        "project.run.completed",
-                        "project.run.failed",
-                        "project.started"
-                    ])
+                    event_sub = network.events.subscribe(
+                        agent_id="project-simple-demo",
+                        event_patterns=["project.*"]
+                    )
                     
-                    print("✅ Event subscription created!")
+                    # Create event queue for polling
+                    event_queue = network.events.create_agent_event_queue("project-simple-demo")
+                    
+                    print("✅ Network event subscription created!")
                     print("⏳ Waiting for project.run.completed event...")
                     
                     # Listen for events with timeout (Python 3.10 compatible)
                     completion_received = False
                     
                     async def listen_for_completion():
-                        """Listen for project completion events."""
+                        """Listen for project completion events using event queue."""
                         nonlocal completion_received
-                        async for event in event_sub:
-                            print(f"📨 Event: {event.event_name}")
-                            if event.source_agent_id:
-                                print(f"   Source: {event.source_agent_id}")
-                            if event.data:
-                                print(f"   Data: {event.data}")
-                            
-                            # Check for project completion
-                            if event.event_name == "project.run.completed":
-                                completion_received = True
-                                print(f"🎉 PROJECT COMPLETED!")
-                                if event.data.get('results'):
-                                    print(f"   Results: {event.data['results']}")
-                                break
-                            elif event.event_name == "project.run.failed":
-                                print(f"❌ PROJECT FAILED!")
-                                if event.data.get('error'):
-                                    print(f"   Error: {event.data['error']}")
-                                break
+                        timeout_count = 0
+                        max_timeouts = 30  # 30 seconds total
+                        
+                        while timeout_count < max_timeouts and not completion_received:
+                            try:
+                                event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
+                                print(f"📨 Event: {event.event_name}")
+                                if event.source_agent_id:
+                                    print(f"   Source: {event.source_agent_id}")
+                                if event.payload:
+                                    print(f"   Payload: {event.payload}")
+                                
+                                # Check for project completion
+                                if event.event_name == "project.run.completed":
+                                    completion_received = True
+                                    print(f"🎉 PROJECT COMPLETED!")
+                                    if event.payload.get('results'):
+                                        print(f"   Results: {event.payload['results']}")
+                                    break
+                                elif event.event_name == "project.run.failed":
+                                    print(f"❌ PROJECT FAILED!")
+                                    if event.payload.get('error'):
+                                        print(f"   Error: {event.payload['error']}")
+                                    break
+                            except asyncio.TimeoutError:
+                                timeout_count += 1
+                                continue
                     
                     try:
                         await asyncio.wait_for(listen_for_completion(), timeout=15.0)
@@ -107,8 +117,9 @@ async def main():
                         print("⚠️  No completion event received within timeout")
                         print("   Note: Service agents may be needed to complete the project")
                     
-                    # Clean up subscription
-                    ws.events.unsubscribe(event_sub)
+                    # Clean up subscription and queue
+                    network.events.unsubscribe(event_sub.subscription_id)
+                    network.events.remove_agent_event_queue("project-simple-demo")
                     
                 except Exception as e:
                     print(f"❌ Error with event subscription: {e}")

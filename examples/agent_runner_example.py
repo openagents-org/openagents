@@ -8,8 +8,9 @@ import logging
 from typing import Dict
 
 from openagents.agents.runner import AgentRunner
-from openagents.models.messages import DirectMessage, BroadcastMessage, BaseMessage
+from openagents.models.messages import DirectMessage, BroadcastMessage
 from openagents.models.message_thread import MessageThread
+from openagents.models.event import Event
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +23,7 @@ class SimpleAgent(AgentRunner):
         super().__init__(agent_id="simple-demo-agent")
         self.message_count = 0
 
-    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
+    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message):
         """React to an incoming message."""
         print(f"🎯 REACT CALLED! Processing message from {incoming_message.sender_id}")
         print(f"   Message type: {type(incoming_message).__name__}")

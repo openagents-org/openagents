@@ -21,7 +21,8 @@ from typing import Dict, Any, List, Optional
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../examples')))
 
-from openagents.models.messages import DirectMessage, BroadcastMessage, BaseMessage
+from openagents.models.messages import DirectMessage, BroadcastMessage
+from openagents.models.event import Event
 from openagents.models.message_thread import MessageThread
 from openagents.core.network import create_network
 from openagents.models.network_config import NetworkConfig, NetworkMode
@@ -52,16 +53,16 @@ def create_testing_simple_agent(agent_id: str = None):
             self.setup_called = False
             self.teardown_called = False
         
-        async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
+        async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: Event):
             """Enhanced react method that tracks received messages."""
             # Store the received message for verification
             self.received_messages.append({
-                'sender_id': incoming_message.sender_id,
-                'content': incoming_message.content,
+                'sender_id': incoming_message.source_agent_id,
+                'content': incoming_message.payload,
                 'message_type': type(incoming_message).__name__,
                 'timestamp': time.time(),
                 'thread_id': incoming_thread_id,
-                'message_id': incoming_message.message_id
+                'message_id': incoming_message.event_id
             })
             
             # Call the original react method

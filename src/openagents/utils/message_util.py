@@ -1,15 +1,16 @@
 from typing import Any, Dict
-from openagents.models.messages import BaseMessage, DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.event import Event
 
-def parse_message_dict(message_dict: Dict[str, Any]) -> BaseMessage:
+def parse_message_dict(message_dict: Dict[str, Any]) -> Event:
     """
-    Parse a message dictionary into a BaseMessage instance.
+    Parse a message dictionary into an Event instance.
 
     Args:
         message_dict: A dictionary containing message data
 
     Returns:
-        A BaseMessage instance
+        An Event instance (DirectMessage, BroadcastMessage, or ModMessage)
     """
     message_type = message_dict.get("message_type")
     

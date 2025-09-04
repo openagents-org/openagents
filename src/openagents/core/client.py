@@ -6,7 +6,7 @@ import logging
 from openagents.utils.network_discovey import retrieve_network_details
 from openagents.core.connector import NetworkConnector
 from openagents.core.grpc_connector import GRPCNetworkConnector
-from openagents.models.messages import BaseMessage
+from openagents.models.event import Event
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
 from openagents.core.system_commands import LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST
@@ -821,7 +821,7 @@ class AgentClient:
         """
         return await self._wait_for_message("mod_message", condition, timeout)
     
-    async def _wait_for_message(self, message_type: str, condition: Optional[Callable] = None, timeout: float = 30.0) -> Optional[BaseMessage]:
+    async def _wait_for_message(self, message_type: str, condition: Optional[Callable] = None, timeout: float = 30.0) -> Optional[Event]:
         """Internal method to wait for a message of a specific type.
         
         Args:
@@ -861,7 +861,7 @@ class AgentClient:
             if waiter_entry in self._message_waiters[message_type]:
                 self._message_waiters[message_type].remove(waiter_entry)
     
-    async def _notify_message_waiters(self, message_type: str, message: BaseMessage) -> None:
+    async def _notify_message_waiters(self, message_type: str, message: Event) -> None:
         """Notify all waiters for a specific message type.
         
         Args:

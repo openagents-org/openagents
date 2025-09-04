@@ -1,7 +1,7 @@
 import os
 from openagents.agents.runner import AgentRunner
 from openagents.models.message_thread import MessageThread
-from openagents.models.messages import BaseMessage
+from openagents.models.event import Event
 from typing import Dict, List, Any, Optional
 import json
 import asyncio
@@ -93,7 +93,7 @@ class SimpleOpenAIAgentRunner(AgentRunner):
             func=lambda reason: f"Action chain completed: {reason}"
         )
 
-    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
+    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: Event):
         verbose_print(f">>> Reacting to message: {incoming_message.text_representation} (thread:{incoming_thread_id})")
         # Generate the prompt using the template
         prompt_content = user_prompt_template.render(

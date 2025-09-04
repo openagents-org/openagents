@@ -19,7 +19,8 @@ from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
 
 from openagents.core.base_mod import BaseMod
-from openagents.models.messages import BaseMessage, ModMessage
+from openagents.models.messages import ModMessage
+from openagents.models.event import Event
 from .thread_messages import (
     DirectMessage,
     ChannelMessage, 
@@ -36,11 +37,11 @@ logger = logging.getLogger(__name__)
 class MessageThread:
     """Represents a conversation thread with Reddit-like nesting."""
     
-    def __init__(self, root_message_id: str, root_message: BaseMessage):
+    def __init__(self, root_message_id: str, root_message: Event):
         self.thread_id = str(uuid.uuid4())
         self.root_message_id = root_message_id
         self.root_message = root_message
-        self.replies: Dict[str, List[BaseMessage]] = {}  # parent_id -> [replies]
+        self.replies: Dict[str, List[Event]] = {}  # parent_id -> [replies]
         self.message_levels: Dict[str, int] = {root_message_id: 0}  # message_id -> level
         self.created_timestamp = root_message.timestamp
         
@@ -111,7 +112,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         # Initialize mod state
         self.active_agents: Set[str] = set()
-        self.message_history: Dict[str, BaseMessage] = {}  # message_id -> message
+        self.message_history: Dict[str, Event] = {}  # message_id -> message
         self.threads: Dict[str, MessageThread] = {}  # thread_id -> MessageThread
         self.message_to_thread: Dict[str, str] = {}  # message_id -> thread_id
         self.reactions: Dict[str, Dict[str, Set[str]]] = {}  # message_id -> {reaction_type -> set of agent_ids}
@@ -269,14 +270,14 @@ class ThreadMessagingNetworkMod(BaseMod):
         logger.debug(f"Processing direct message from {message.sender_id} to {message.target_agent_id}")
         return message
     
-    async def process_broadcast_message(self, message) -> Optional[BaseMessage]:
+    async def process_broadcast_message(self, message) -> Optional[Event]:
         """Process broadcast messages (channel messages in our case).
         
         Args:
             message: The broadcast message to process
             
         Returns:
-            Optional[BaseMessage]: The processed message, or None if the message was handled
+            Optional[Event]: The processed message, or None if the message was handled
         """
         if isinstance(message, ChannelMessage):
             await self._process_channel_message(message)
@@ -540,7 +541,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         if action == "download":
             await self._handle_file_download(message.sender_id, message.file_id, message)
     
-    async def _handle_file_download(self, agent_id: str, file_id: str, request_message: BaseMessage) -> None:
+    async def _handle_file_download(self, agent_id: str, file_id: str, request_message: Event) -> None:
         """Handle a file download request.
         
         Args:
@@ -1073,7 +1074,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             "file_storage_path": str(self.file_storage_path)
         }
     
-    def _add_to_history(self, message: BaseMessage) -> None:
+    def _add_to_history(self, message: Event) -> None:
         """Add a message to the history.
         
         Args:

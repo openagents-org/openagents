@@ -21,7 +21,8 @@ from typing import Dict, Any, List, Optional
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 from openagents.agents.runner import AgentRunner
-from openagents.models.messages import DirectMessage, BroadcastMessage, BaseMessage
+from openagents.models.messages import DirectMessage, BroadcastMessage
+from openagents.models.event import Event
 from openagents.models.message_thread import MessageThread
 from openagents.core.network import create_network
 from openagents.models.network_config import NetworkConfig, NetworkMode
@@ -43,18 +44,18 @@ class SimpleMessageAgent(AgentRunner):
         self.received_messages = []
         self.is_ready = False
         
-    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
+    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: Event):
         """React to incoming messages using simple message protocol."""
         logger.info(f"🎯 Agent {self.client.agent_id} received message!")
-        logger.info(f"   From: {incoming_message.sender_id}")
+        logger.info(f"   From: {incoming_message.source_agent_id}")
         logger.info(f"   Type: {type(incoming_message).__name__}")
-        logger.info(f"   Content: {incoming_message.content}")
+        logger.info(f"   Content: {incoming_message.payload}")
         logger.info(f"   Mod: {incoming_message.mod}")
         
         # Store the received message for verification
         self.received_messages.append({
-            'sender_id': incoming_message.sender_id,
-            'content': incoming_message.content,
+            'sender_id': incoming_message.source_agent_id,
+            'content': incoming_message.payload,
             'message_type': type(incoming_message).__name__,
             'mod': incoming_message.mod,
             'timestamp': time.time(),

@@ -17,7 +17,11 @@ from typing import List, Dict, Any
 from src.openagents.core.network import AgentNetwork
 from src.openagents.core.client import AgentClient
 from src.openagents.agents.simple_echo_agent import SimpleEchoAgentRunner
-from src.openagents.core.events import EventType, WorkspaceEvent
+# DEPRECATED: This test file tests the old workspace-level event system
+# The functionality has been moved to network-level events
+# See tests/test_unified_event_system.py for the new event system tests
+import pytest
+pytest.skip("Workspace events deprecated - use network events instead", allow_module_level=True)
 
 # Configure logging for tests
 logger = logging.getLogger(__name__)

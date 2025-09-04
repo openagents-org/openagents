@@ -22,5 +22,15 @@
             "resource",
             "tool"
         ]
-    }
+    },
+    "process_events": [
+        "announce_capabilities",
+        "discover_agents",
+        "agent.connected",
+        "agent.disconnected",
+        "agent.capability.updated"
+    ],
+    "generate_events": [
+        "discovery_results"
+    ]
 } 

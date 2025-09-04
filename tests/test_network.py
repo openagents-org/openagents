@@ -25,11 +25,11 @@ from openagents.core.network import AgentNetwork, create_network
 from openagents.models.network_config import NetworkConfig, NetworkMode
 from openagents.models.transport import TransportType, AgentInfo
 from openagents.models.messages import (
-    BaseMessage,
     DirectMessage,
     BroadcastMessage,
     ModMessage
 )
+from openagents.models.event import Event
 
 # Configure logging for tests
 logging.basicConfig(level=logging.DEBUG)

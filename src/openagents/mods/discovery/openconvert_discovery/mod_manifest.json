@@ -32,5 +32,15 @@
             {"format": "object", "schema": {"from": "string", "to": "string"}},
             {"format": "tuple", "schema": ["string", "string"]}
         ]
-    }
+    },
+    "process_events": [
+        "announce_conversion_capabilities",
+        "discover_conversion_agents",
+        "agent.connected",
+        "agent.disconnected",
+        "agent.capability.updated"
+    ],
+    "generate_events": [
+        "conversion_discovery_results"
+    ]
 } 

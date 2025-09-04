@@ -20,7 +20,7 @@ from src.openagents.core.network import AgentNetwork
 from src.openagents.models.network_config import NetworkConfig, NetworkMode
 from src.openagents.agents.project_echo_agent import ProjectEchoAgentRunner
 from openagents.workspace import Project  # Use the correct import path
-from src.openagents.core.events import EventType
+from src.openagents.models.event import EventNames
 
 # Configure logging for tests
 logger = logging.getLogger(__name__)
@@ -55,6 +55,15 @@ class TestProjectGRPC:
     async def _cleanup(self):
         """Clean up test resources."""
         try:
+            # Clean up event subscription
+            if hasattr(self, 'event_subscription') and self.event_subscription:
+                self.network.events.unsubscribe(self.event_subscription.subscription_id)
+                logger.info("Event subscription cleaned up")
+                
+            if hasattr(self, 'event_queue') and self.event_queue:
+                self.network.events.remove_agent_event_queue("test-workspace-client")
+                logger.info("Event queue cleaned up")
+                
             if self.echo_agent:
                 await self.echo_agent.async_stop()
                 logger.info("Echo agent stopped")
@@ -102,27 +111,33 @@ class TestProjectGRPC:
         """Set up workspace for project operations."""
         self.workspace = self.network.workspace()
         
-        # Set up event subscription to capture project events
-        self.workspace.events.subscribe(
-            ["project.created"],
-            self._on_project_event
+        # Set up event subscription to capture project events using network events
+        self.event_subscription = self.network.events.subscribe(
+            agent_id="test-workspace-client",
+            event_patterns=["project.created", "project.run.completed"]
         )
-        self.workspace.events.subscribe(
-            ["project.run.completed"],
-            self._on_project_event
-        )
+        
+        # Create event queue for polling events
+        self.event_queue = self.network.events.create_agent_event_queue("test-workspace-client")
         
         logger.info("Workspace set up with event subscriptions")
         return self.workspace
 
-    async def _on_project_event(self, event):
-        """Handle project events for testing."""
-        self.received_events.append({
-            'type': event.event_type.value,
-            'source': event.source_agent_id,
-            'data': event.data
-        })
-        logger.info(f"Received project event: {event.event_type.value} from {event.source_agent_id}")
+    async def _poll_events(self, timeout=5.0):
+        """Poll for events from the event queue."""
+        import asyncio
+        try:
+            event = await asyncio.wait_for(self.event_queue.get(), timeout=timeout)
+            self.received_events.append({
+                'type': event.event_name,
+                'source': event.source_agent_id,
+                'data': event.payload
+            })
+            logger.info(f"Received project event: {event.event_name} from {event.source_agent_id}")
+            return event
+        except asyncio.TimeoutError:
+            logger.info(f"No events received within {timeout} seconds")
+            return None
 
     @pytest.mark.asyncio
     async def test_project_creation_with_goal_posting(self):
@@ -161,6 +176,9 @@ class TestProjectGRPC:
         
         # Give time for goal posting and event processing
         await asyncio.sleep(3.0)
+        
+        # Poll for project created event
+        await self._poll_events(timeout=2.0)
         
         # The main functionality is working - project creation, goal posting, and gRPC communication
         # Event emission has a minor issue but the core features are validated
@@ -230,11 +248,11 @@ class TestProjectGRPC:
         start_time = time.time()
         
         while time.time() - start_time < completion_timeout:
-            # Check if we received a project completion event
-            completion_events = [e for e in self.received_events if e['type'] == 'project.run.completed']
-            if completion_events:
+            # Poll for project completion event
+            event = await self._poll_events(timeout=1.0)
+            if event and event.event_name == 'project.run.completed':
                 break
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.5)
         
         # Verify project completion
         # Check for project completion event (optional - core functionality works regardless)
@@ -377,6 +395,9 @@ class TestProjectGRPC:
         
         # Verify project created event contains the configuration
         await asyncio.sleep(2.0)  # Wait for events
+        
+        # Poll for project created event
+        await self._poll_events(timeout=2.0)
         
         project_created_events = [e for e in self.received_events if e['type'] == 'project.created']
         if len(project_created_events) == 0:

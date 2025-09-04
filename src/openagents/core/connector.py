@@ -7,7 +7,8 @@ import websockets
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 from openagents.utils.message_util import parse_message_dict
-from openagents.models.messages import BaseMessage, BroadcastMessage, DirectMessage, ModMessage
+from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.event import Event
 from .system_commands import send_system_request as send_system_request_impl
 from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST, PING_AGENT, CLAIM_AGENT_ID, VALIDATE_CERTIFICATE
 
@@ -207,7 +208,7 @@ class NetworkConnector:
             logger.error(f"Error in message listener: {e}")
             self.is_connected = False
     
-    async def consume_message(self, message: BaseMessage) -> None:
+    async def consume_message(self, message: Event) -> None:
         """Consume a message on the agent side.
         
         Args:
@@ -225,54 +226,35 @@ class NetworkConnector:
                 except Exception as e:
                     logger.error(f"Error in message handler for {message_type}: {e}")
     
-    async def send_message(self, message: BaseMessage) -> bool:
-        """Send a message to another agent.
+    async def send_message(self, message: Event) -> bool:
+        """Send an event to the network.
         
         Args:
-            message: Message to send (must be a BaseMessage instance)
+            message: Event to send (now extends Event)
             
         Returns:
-            bool: True if message sent successfully, False otherwise
+            bool: True if event sent successfully, False otherwise
         """
         if not self.is_connected:
             logger.debug(f"Agent {self.agent_id} is not connected to a network")
             return False
             
         try:
-            # Ensure sender_id is set
-            if not message.sender_id:
-                message.sender_id = self.agent_id
+            # Ensure source_id is set (Event field)
+            if not message.source_id:
+                message.source_id = self.agent_id
             
+            # For ModMessage backward compatibility
             if isinstance(message, ModMessage):
-                message.relevant_agent_id = self.agent_id
+                if not message.relevant_agent_id:
+                    message.relevant_agent_id = self.agent_id
                 
-            # Send the message - convert to transport format if needed
-            if isinstance(message, ModMessage):
-                # Convert ModMessage to transport format
-                message_data = {
-                    "message_id": message.message_id,
-                    "sender_id": message.sender_id,
-                    "target_id": None,  # ModMessage doesn't have target_id
-                    "message_type": message.message_type,
-                    "payload": {
-                        "mod": message.mod,
-                        "direction": message.direction,
-                        "relevant_agent_id": message.relevant_agent_id,
-                        "metadata": message.metadata,
-                        "text_representation": message.text_representation,
-                        "requires_response": message.requires_response,
-                        **message.content  # Merge content at top level of payload
-                    },
-                    "timestamp": message.timestamp,
-                    "metadata": message.metadata
-                }
-            else:
-                # For other message types, use model_dump directly
-                message_data = message.model_dump()
+            # Convert Event to transport format
+            event_data = message.to_dict()
             
             await self.connection.send(json.dumps({
-                "type": "message",
-                "data": message_data
+                "type": "event",  # Changed from "message" to "event"
+                "data": event_data
             }))
             
             logger.debug(f"Message sent: {message.message_id}")

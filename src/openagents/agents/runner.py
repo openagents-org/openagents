@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.message_thread import MessageThread
-from openagents.models.messages import BaseMessage
+from openagents.models.event import Event
 from openagents.models.tool import AgentAdapterTool
 from openagents.core.client import AgentClient
 from openagents.utils.mod_loaders import load_mod_adapters
@@ -105,7 +105,7 @@ class AgentRunner(ABC):
         return self.client.mod_adapters.get(mod_name)
 
     @abstractmethod
-    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
+    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: Event):
         """React to an incoming message.
         
         This method is called when a new message is received and should implement

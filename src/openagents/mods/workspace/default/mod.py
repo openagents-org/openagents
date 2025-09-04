@@ -10,7 +10,8 @@ from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
 
 from openagents.core.base_mod import BaseMod
-from openagents.models.messages import BaseMessage, ModMessage
+from openagents.models.messages import ModMessage
+from openagents.models.event import Event
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class DefaultWorkspaceNetworkMod(BaseMod):
         self.workspaces: Dict[str, Dict[str, Any]] = {}
         self.agent_workspaces: Dict[str, str] = {}  # agent_id -> workspace_id
         
-    def handle_message(self, message: BaseMessage) -> Optional[BaseMessage]:
+    def handle_message(self, message: Event) -> Optional[Event]:
         """
         Handle incoming messages at the network level.
         

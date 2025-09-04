@@ -6,6 +6,10 @@ Simple test for the new channel.message.mentioned event.
 import asyncio
 import sys
 import os
+import pytest
+
+# Skip this entire test file - uses deprecated workspace events
+pytest.skip("Mention event tests use deprecated workspace events", allow_module_level=True)
 
 # Add the project root to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))

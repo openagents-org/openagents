@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 
 from openagents.agents.runner import AgentRunner
 from openagents.models.message_thread import MessageThread
-from openagents.models.messages import BaseMessage
+from openagents.models.event import Event
 from openagents.models.tool import AgentAdapterTool
 from openagents.utils.verbose import verbose_print
 from jinja2 import Template
@@ -637,7 +637,7 @@ class SimpleAgentRunner(AgentRunner):
             func=lambda reason: f"Action chain completed: {reason}"
         )
     
-    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
+    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: Event):
         """React to an incoming message using the configured model provider."""
         verbose_print(f">>> Reacting to message: {incoming_message.text_representation} (thread:{incoming_thread_id})")
         

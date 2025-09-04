@@ -178,20 +178,11 @@ async def main():
             # Test event subscription for project events
             print(f"\n🎧 Testing project event subscription...")
             try:
-                # Subscribe to project events
-                event_sub = ws.events.subscribe([
-                    "project.created",
-                    "project.started", 
-                    "project.run.completed",
-                    "project.run.failed",
-                    "project.run.requires_input",
-                    "project.message.received",
-                    "project.run.notification",
-                    "project.stopped",
-                    "project.agent.joined",
-                    "project.agent.left",
-                    "project.status.changed"
-                ])
+                # Subscribe to project events using network-level events
+                event_sub = network.events.subscribe(
+                    agent_id="project-demo-agent",
+                    event_patterns=["project.*"]  # Subscribe to all project events
+                )
                 
                 print("✅ Project event subscription created!")
                 
@@ -237,29 +228,37 @@ async def main():
                 event_count = 0
                 completion_received = False
                 
+                # Create event queue for polling approach
+                event_queue = network.events.create_agent_event_queue("project-demo-agent")
+                
                 async def listen_for_project_events():
-                    """Listen for project events."""
+                    """Listen for project events using queue polling."""
                     nonlocal event_count, completion_received
-                    async for event in event_sub:
-                        event_count += 1
-                        print(f"📨 Project Event {event_count}: {event.event_name}")
-                        print(f"   Source: {event.source_agent_id}")
-                        if event.channel:
-                            print(f"   Channel: {event.channel}")
-                        if event.target_agent_id:
-                            print(f"   Target: {event.target_agent_id}")
-                        if event.data:
-                            print(f"   Data: {event.data}")
-                            
-                            # Check for project completion
-                            if event.event_name == "project.run.completed":
-                                completion_received = True
-                                print(f"🎉 PROJECT COMPLETED! Results: {event.data.get('results', {})}")
-                        print()
-                        
-                        # Stop after getting completion event or collecting many events
-                        if completion_received or event_count >= 10:
-                            break
+                    timeout_count = 0
+                    max_timeouts = 15  # 15 seconds total
+                    
+                    while timeout_count < max_timeouts and not completion_received and event_count < 10:
+                        try:
+                            # Poll for events with 1 second timeout
+                            event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
+                            event_count += 1
+                            print(f"📨 Project Event {event_count}: {event.event_name}")
+                            print(f"   Source: {event.source_agent_id}")
+                            if event.target_channel:
+                                print(f"   Channel: {event.target_channel}")
+                            if event.target_agent_id:
+                                print(f"   Target: {event.target_agent_id}")
+                            if event.payload:
+                                print(f"   Payload: {event.payload}")
+                                
+                                # Check for project completion
+                                if event.event_name == "project.run.completed":
+                                    completion_received = True
+                                    print(f"🎉 PROJECT COMPLETED! Results: {event.payload.get('results', {})}")
+                            print()
+                        except asyncio.TimeoutError:
+                            timeout_count += 1
+                            continue
                 
                 try:
                     await asyncio.wait_for(listen_for_project_events(), timeout=15.0)
@@ -275,8 +274,9 @@ async def main():
                     print("   🔧 The agent functionality has been verified in isolated tests.")
                     print("   💡 In a production environment, this would work with proper message routing.")
                 
-                # Clean up subscription
-                ws.events.unsubscribe(event_sub)
+                # Clean up subscription and queue
+                network.events.unsubscribe(event_sub.subscription_id)
+                network.events.remove_agent_event_queue("project-demo-agent")
                 print("✅ Project event subscription test completed!")
                 
             except Exception as e:
@@ -302,10 +302,11 @@ async def main():
             
             # Show available project event types
             print(f"\n📋 Available project event types:")
-            from openagents.core.events import EventType
-            project_events = [et for et in EventType if 'project' in et.value.lower()]
+            from openagents.models.event import EventNames
+            event_names = [name for name in dir(EventNames) if not name.startswith('_')]
+            project_events = [getattr(EventNames, name) for name in event_names if 'project' in getattr(EventNames, name).lower()]
             for i, event_type in enumerate(project_events, 1):
-                print(f"   {i:2d}. {event_type.value}")
+                print(f"   {i:2d}. {event_type}")
             print(f"   Total: {len(project_events)} project-related event types")
             
         else:

@@ -10,7 +10,6 @@ from .transport import (
 )
 
 from .messages import (
-    BaseMessage,
     DirectMessage,
     BroadcastMessage,
     ModMessage
@@ -30,8 +29,7 @@ __all__ = [
     "ConnectionInfo",
     "AgentInfo",
     "TransportMessage",
-    # Message models
-    "BaseMessage",
+    # Message models (now Event-based)
     "DirectMessage",
     "BroadcastMessage", 
     "ModMessage",

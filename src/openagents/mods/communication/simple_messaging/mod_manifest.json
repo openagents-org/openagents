@@ -30,5 +30,18 @@
             "application/zip",
             "application/gzip"
         ]
-    }
+    },
+    "process_events": [
+        "DirectMessage",
+        "BroadcastMessage",
+        "get_file",
+        "delete_file",
+        "agent.connected",
+        "agent.disconnected"
+    ],
+    "generate_events": [
+        "file_upload_response",
+        "file_download_response",
+        "file_delete_response"
+    ]
 } 

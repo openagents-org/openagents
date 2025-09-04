@@ -12,7 +12,8 @@ import time
 from typing import Dict, Any, Optional, Callable, Awaitable, List
 import uuid
 
-from openagents.models.messages import BaseMessage, BroadcastMessage, DirectMessage, ModMessage
+from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.event import Event
 from openagents.utils.message_util import parse_message_dict
 from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST, PING_AGENT, CLAIM_AGENT_ID, VALIDATE_CERTIFICATE, POLL_MESSAGES
 
@@ -239,7 +240,7 @@ class GRPCNetworkConnector:
     # Note: Streaming methods removed for simplicity
     # TODO: Implement bidirectional streaming for better performance
     
-    async def consume_message(self, message: BaseMessage) -> None:
+    async def consume_message(self, message: Event) -> None:
         """Consume a message on the agent side.
         
         Args:
@@ -256,38 +257,40 @@ class GRPCNetworkConnector:
                 except Exception as e:
                     logger.error(f"Error in gRPC message handler for {message_type}: {e}")
     
-    async def send_message(self, message: BaseMessage) -> bool:
-        """Send a message via gRPC.
+    async def send_message(self, message: Event) -> bool:
+        """Send an event via gRPC.
         
         Args:
-            message: Message to send (must be a BaseMessage instance)
+            message: Event to send (now extends Event)
             
         Returns:
-            bool: True if message sent successfully, False otherwise
+            bool: True if event sent successfully, False otherwise
         """
         if not self.is_connected:
             logger.debug(f"Agent {self.agent_id} is not connected to gRPC network")
             return False
             
         try:
-            # Ensure sender_id is set
-            if not message.sender_id:
-                message.sender_id = self.agent_id
+            # Ensure source_agent_id is set (Event field)
+            if not message.source_agent_id:
+                message.source_agent_id = self.agent_id
             
+            # For ModMessage backward compatibility
             if isinstance(message, ModMessage):
-                message.relevant_agent_id = self.agent_id
+                if not message.relevant_agent_id:
+                    message.relevant_agent_id = self.agent_id
             
-            # Send message via gRPC
-            grpc_message = self._to_grpc_message(message)
+            # Send event via gRPC
+            grpc_message = self._to_grpc_event(message)
             
-            # Send the message to the server
-            response = await self.stub.SendMessage(grpc_message)
+            # Send the event to the server (using existing SendMessage for now)
+            response = await self.stub.SendMessage(grpc_message)  # TODO: Update to SendEvent when protobuf is updated
             
             if response.success:
-                logger.debug(f"Successfully sent gRPC message {message.message_id}")
+                logger.debug(f"Successfully sent gRPC event {message.event_id}")
                 return True
             else:
-                logger.error(f"Failed to send gRPC message {message.message_id}: {response.error_message}")
+                logger.error(f"Failed to send gRPC event {message.event_id}: {response.error_message}")
                 return False
                 
         except Exception as e:
@@ -401,7 +404,7 @@ class GRPCNetworkConnector:
             logger.error(f"Failed to poll messages: {e}")
             return []
     
-    def _to_grpc_message(self, message: BaseMessage):
+    def _to_grpc_message(self, message: Event):
         """Convert internal message to gRPC message format."""
         # Create protobuf message
         grpc_message = self.agent_service_pb2.Message(
@@ -476,6 +479,38 @@ class GRPCNetworkConnector:
             
         except Exception as e:
             logger.warning(f"Failed to serialize message content: {e}")
+        
+        return grpc_message
+    
+    def _to_grpc_event(self, event: Event):
+        """Convert internal event to gRPC message format (temporary - will be updated with new protobuf)."""
+        # For now, convert Event to the existing gRPC message format
+        # This will be updated when we update the protobuf definitions
+        grpc_message = self.agent_service_pb2.Message(
+            message_id=event.event_id,
+            sender_id=event.source_agent_id,
+            target_id=event.target_agent_id or '',
+            message_type=event.event_name,  # Use event_name as message_type
+            timestamp=self._to_timestamp(event.timestamp)
+        )
+        
+        # Serialize event data to protobuf Any field
+        try:
+            from google.protobuf.any_pb2 import Any
+            from google.protobuf.struct_pb2 import Struct
+            
+            # Convert event to protobuf Struct
+            struct = Struct()
+            event_data = event.to_dict()
+            struct.update(self._make_json_serializable(event_data))
+            
+            # Pack into Any field
+            any_field = Any()
+            any_field.Pack(struct)
+            grpc_message.payload.CopyFrom(any_field)
+            
+        except Exception as e:
+            logger.warning(f"Failed to serialize event content: {e}")
         
         return grpc_message
     

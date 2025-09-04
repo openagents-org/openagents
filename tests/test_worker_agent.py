@@ -18,8 +18,8 @@ from openagents.agents.worker_agent import (
 from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
 
 
-class TestWorkerAgent(WorkerAgent):
-    """Test agent for unit testing."""
+class MockWorkerAgent(WorkerAgent):
+    """Mock agent for unit testing."""
     
     name = "test-agent"
     
@@ -75,7 +75,7 @@ def mock_thread_adapter():
 @pytest.fixture
 def worker_agent(mock_client, mock_thread_adapter):
     """Create a test WorkerAgent instance."""
-    agent = TestWorkerAgent(agent_id="test-agent")
+    agent = MockWorkerAgent(agent_id="test-agent")
     agent._network_client = mock_client
     mock_client.mod_adapters = {"thread_messaging": mock_thread_adapter}
     # Set the thread adapter directly for testing
@@ -83,12 +83,12 @@ def worker_agent(mock_client, mock_thread_adapter):
     return agent
 
 
-class TestWorkerAgentBasics:
+class MockWorkerAgentBasics:
     """Test basic WorkerAgent functionality."""
     
     def test_initialization(self):
         """Test agent initialization."""
-        agent = TestWorkerAgent()
+        agent = MockWorkerAgent()
         assert agent.name == "test-agent"
         assert agent.ignore_own_messages == True
         assert agent.auto_mention_response == True
@@ -97,7 +97,7 @@ class TestWorkerAgentBasics:
     
     def test_initialization_with_custom_id(self):
         """Test agent initialization with custom ID."""
-        agent = TestWorkerAgent(agent_id="custom-id")
+        agent = MockWorkerAgent(agent_id="custom-id")
         assert agent.client.agent_id == "custom-id"
     
     def test_is_mentioned(self, worker_agent):

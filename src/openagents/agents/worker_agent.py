@@ -15,7 +15,8 @@ from dataclasses import dataclass
 
 from openagents.agents.runner import AgentRunner
 from openagents.models.message_thread import MessageThread
-from openagents.models.messages import BaseMessage, DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.event import Event
 from openagents.mods.communication.thread_messaging.thread_messages import (
     DirectMessage as ThreadDirectMessage,
     ChannelMessage,
@@ -32,7 +33,8 @@ try:
         ProjectStatusMessage,
         ProjectNotificationMessage
     )
-    from openagents.core.events import WorkspaceEvent, EventType
+    # Use new unified event system
+    from openagents.models.event import Event, EventNames
     PROJECT_IMPORTS_AVAILABLE = True
 except ImportError:
     PROJECT_IMPORTS_AVAILABLE = False
@@ -47,7 +49,7 @@ class MessageContext:
     sender_id: str
     timestamp: int
     content: Dict[str, Any]
-    raw_message: BaseMessage
+    raw_message: Event
     
     @property
     def text(self) -> str:
@@ -101,7 +103,7 @@ class ReactionContext:
     reaction_type: str
     action: str  # 'add' or 'remove'
     timestamp: int
-    raw_message: BaseMessage
+    raw_message: Event
 
 
 @dataclass
@@ -114,7 +116,7 @@ class FileContext:
     mime_type: str
     file_size: int
     timestamp: int
-    raw_message: BaseMessage
+    raw_message: Event
     
     @property
     def content_bytes(self) -> bytes:
@@ -133,7 +135,7 @@ class ProjectEventContext:
     timestamp: int
     source_agent_id: str
     data: Dict[str, Any]
-    raw_event: Any  # WorkspaceEvent if available
+    raw_event: Any  # Event if available
     
     @property
     def project_channel(self) -> Optional[str]:
@@ -302,6 +304,7 @@ class WorkerAgent(AgentRunner):
         self._active_projects: Dict[str, Dict[str, Any]] = {}
         self._project_channels: Dict[str, str] = {}  # project_id -> channel_name
         self._project_event_subscription = None
+        self._project_event_queue = None
         self._workspace_client = None
         self._project_mod_available = False
         
@@ -363,13 +366,13 @@ class WorkerAgent(AgentRunner):
         
         await super().teardown()
 
-    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
+    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: Event):
         """Route incoming messages to appropriate handlers."""
         # Skip our own messages if configured to do so
-        if self.ignore_own_messages and incoming_message.sender_id == self.client.agent_id:
+        if self.ignore_own_messages and incoming_message.source_agent_id == self.client.agent_id:
             return
         
-        logger.debug(f"WorkerAgent '{self.default_agent_id}' processing message from {incoming_message.sender_id}")
+        logger.debug(f"WorkerAgent '{self.default_agent_id}' processing message from {incoming_message.source_agent_id}")
         
         # Handle different message types
         if isinstance(incoming_message, DirectMessage):
@@ -685,7 +688,18 @@ class WorkerAgent(AgentRunner):
                 "project.status.changed"
             ]
             
-            self._project_event_subscription = self._workspace_client.events.subscribe(project_events)
+            # Get network reference from workspace client
+            network = getattr(self._workspace_client, '_network', None)
+            if network and hasattr(network, 'events'):
+                self._project_event_subscription = network.events.subscribe(
+                    agent_id=self.client.agent_id,
+                    event_patterns=["project.*"]  # Use pattern matching for all project events
+                )
+                # Also create an event queue for polling
+                self._project_event_queue = network.events.create_agent_event_queue(self.client.agent_id)
+                logger.info("Network event subscription and queue created for project events")
+            else:
+                logger.warning("Network events not available - project events disabled")
             
             # Start event processing task
             event_task = asyncio.create_task(self._process_project_events())
@@ -697,16 +711,25 @@ class WorkerAgent(AgentRunner):
             logger.error(f"Failed to setup project event subscription: {e}")
 
     async def _process_project_events(self):
-        """Process incoming project events."""
-        if not self._project_event_subscription:
+        """Process incoming project events using event queue polling."""
+        if not hasattr(self, '_project_event_queue') or not self._project_event_queue:
             return
         
         try:
-            async for event in self._project_event_subscription:
+            while True:
                 try:
-                    await self._handle_project_event(event)
-                except Exception as e:
-                    logger.error(f"Error handling project event {event.event_name}: {e}")
+                    # Poll for events with timeout to allow graceful shutdown
+                    event = await asyncio.wait_for(self._project_event_queue.get(), timeout=1.0)
+                    try:
+                        await self._handle_project_event(event)
+                    except Exception as e:
+                        logger.error(f"Error handling project event {event.event_name}: {e}")
+                except asyncio.TimeoutError:
+                    # Continue polling - this allows the task to be cancelled
+                    continue
+                except asyncio.CancelledError:
+                    logger.info("Project event processing task cancelled")
+                    break
         except Exception as e:
             logger.error(f"Error in project event processing loop: {e}")
 
@@ -715,14 +738,14 @@ class WorkerAgent(AgentRunner):
         if not PROJECT_IMPORTS_AVAILABLE:
             return
         
-        # Create base context
+        # Create base context using new Event structure
         base_context = ProjectEventContext(
-            project_id=event.data.get("project_id", ""),
-            project_name=event.data.get("project_name", ""),
+            project_id=event.payload.get("project_id", ""),
+            project_name=event.payload.get("project_name", ""),
             event_type=event.event_name,
-            timestamp=int(event.timestamp.timestamp()) if hasattr(event.timestamp, 'timestamp') else 0,
+            timestamp=event.timestamp,
             source_agent_id=event.source_agent_id or "",
-            data=event.data,
+            data=event.payload,  # Use payload instead of data
             raw_event=event
         )
         
@@ -773,9 +796,15 @@ class WorkerAgent(AgentRunner):
         """Cleanup project functionality."""
         if self._project_event_subscription:
             try:
-                if self._workspace_client:
-                    self._workspace_client.events.unsubscribe(self._project_event_subscription)
-                logger.info("Project event subscription cleaned up")
+                # Get network reference from workspace client
+                network = getattr(self._workspace_client, '_network', None)
+                if network and hasattr(network, 'events'):
+                    network.events.unsubscribe(self._project_event_subscription.subscription_id)
+                    if hasattr(self, '_project_event_queue'):
+                        network.events.remove_agent_event_queue(self.client.agent_id)
+                    logger.info("Project event subscription and queue cleaned up")
+                else:
+                    logger.warning("Network events not available for cleanup")
             except Exception as e:
                 logger.error(f"Error cleaning up project subscription: {e}")
 

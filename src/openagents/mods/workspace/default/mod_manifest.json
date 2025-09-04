@@ -22,5 +22,13 @@
             "thread_messaging_integration"
         ],
         "tools": []
-    }
+    },
+    "process_events": [
+        "workspace_message",
+        "agent.connected",
+        "agent.disconnected"
+    ],
+    "generate_events": [
+        "workspace_response"
+    ]
 }
