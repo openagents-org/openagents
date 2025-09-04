@@ -74,6 +74,15 @@ class TransportMessage(Event):
     
     def __init__(self, event_name: str = "network.transport.sent", source_id: str = "", **kwargs):
         """Initialize TransportMessage with backward compatibility."""
+        # Handle case where source_id is in kwargs (from event data)
+        if not source_id and 'source_id' in kwargs:
+            source_id = kwargs.pop('source_id')
+        
+        # Handle case where event_name is in kwargs (from event data)
+        if not event_name or event_name == "network.transport.sent":
+            if 'event_name' in kwargs:
+                event_name = kwargs.pop('event_name')
+        
         # Handle message_type for backward compatibility
         if 'message_type' in kwargs:
             message_type = kwargs.pop('message_type')

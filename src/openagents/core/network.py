@@ -338,27 +338,21 @@ class AgentNetwork:
         try:
             if message.message_type == "direct_message":
                 return DirectMessage(
-                    event_id=message.message_id,
-                    timestamp=message.timestamp,
-                    source_agent_id=message.sender_id,
+                    source_id=message.sender_id,
                     target_agent_id=message.target_id,
                     payload=message.payload or {},
                     metadata=message.metadata or {}
                 )
             elif message.message_type == "broadcast_message":
                 return BroadcastMessage(
-                    event_id=message.message_id,
-                    timestamp=message.timestamp,
-                    source_agent_id=message.sender_id,
+                    source_id=message.sender_id,
                     payload=message.payload or {},
                     metadata=message.metadata or {}
                 )
             elif message.message_type == "mod_message":
                 payload = message.payload or {}
                 return ModMessage(
-                    event_id=message.message_id,
-                    timestamp=message.timestamp,
-                    source_agent_id=message.sender_id,
+                    source_id=message.sender_id,
                     mod=payload.get('mod', ''),
                     relevant_agent_id=payload.get('relevant_agent_id', message.sender_id),
                     direction=payload.get('direction', 'inbound'),
@@ -614,10 +608,10 @@ class AgentNetwork:
                         response_message = {
                             'message_type': 'direct_message',
                             'data': {
-                                'message_id': message.message_id,
-                                'sender_id': message.sender_id,
+                                'message_id': message.message_id,  # Use backward compatibility property
+                                'sender_id': message.sender_id,   # Use backward compatibility property
                                 'target_agent_id': message.target_agent_id,
-                                'content': message.content,
+                                'content': message.content,       # Use backward compatibility property
                                 'timestamp': message.timestamp,
                                 'metadata': message.metadata,
                                 'requires_response': message.requires_response
@@ -809,9 +803,7 @@ class AgentNetwork:
         # Create transport message from Event
         # Since messages are now Events, we can create TransportMessage directly
         transport_message = TransportMessage(
-            event_id=message.event_id,
-            event_name=message.event_name,
-            source_agent_id=message.source_agent_id,
+            source_id=message.source_id,
             target_agent_id=message.target_agent_id,
             target_id=target_id,
             payload=message.payload,
@@ -919,11 +911,10 @@ class AgentNetwork:
             
             # Create ProjectNotificationMessage from the transport message
             project_notification = ProjectNotificationMessage(
-                sender_id=message.sender_id,
+                source_id=message.sender_id,
                 project_id=payload.get("project_id", ""),
                 notification_type=payload.get("notification_type", ""),
-                content=payload.get("content", {}),
-                message_id=message.message_id,
+                payload=payload.get("content", {}),
                 timestamp=message.timestamp
             )
             
@@ -967,10 +958,9 @@ class AgentNetwork:
                         content[key] = value
                 
                 mod_message = ModMessage(
-                    message_id=message.message_id,
-                    sender_id=message.sender_id,
+                    source_id=message.sender_id,
                     mod=target_mod_name,
-                    content=content,
+                    payload=content,
                     action=message.payload.get('action'),
                     direction=message.payload.get('direction'),
                     relevant_agent_id=message.payload.get('relevant_agent_id'),

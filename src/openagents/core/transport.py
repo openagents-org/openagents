@@ -373,8 +373,8 @@ class WebSocketTransport(Transport):
                         continue
                     
                     # Check if this is a regular message with data wrapper
-                    if data.get("type") == "message":
-                        verbose_print("📬 Processing regular message with data wrapper")
+                    if data.get("type") == "message" or data.get("type") == "event":
+                        verbose_print(f"📬 Processing {data.get('type')} with data wrapper")
                         # Extract the actual message data from the wrapper
                         message_payload = data.get("data", {})
                         verbose_print(f"   Message payload: {message_payload}")

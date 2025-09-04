@@ -192,12 +192,11 @@ class GRPCHTTPAdapter:
                     }
                 
                 mod_message = ModMessage(
-                    message_id=message_id,
-                    sender_id=data.get('sender_id'),
+                    source_id=data.get('sender_id'),
                     mod="openagents.mods.communication.thread_messaging",
                     direction="outbound",
                     relevant_agent_id=data.get('sender_id'),
-                    content=mod_content,
+                    payload=mod_content,
                     timestamp=int(time.time())
                 )
                 
@@ -206,15 +205,14 @@ class GRPCHTTPAdapter:
                 
                 return web.json_response({
                     'success': True,
-                    'message_id': message_id
+                    'message_id': mod_message.message_id  # Use backward compatibility property
                 })
             else:
                 # Fallback to transport message if no network instance
                 from openagents.models.transport import TransportMessage
                 
                 message = TransportMessage(
-                    message_id=str(uuid.uuid4()),
-                    sender_id=data.get('sender_id'),
+                    source_id=data.get('sender_id'),
                     target_id=data.get('target_agent_id'),
                     message_type=data.get('message_type', 'direct_message'),
                     payload={
@@ -483,12 +481,11 @@ class GRPCHTTPAdapter:
             import uuid
             
             mod_message = ModMessage(
-                message_id=str(uuid.uuid4()),
-                sender_id=agent_id,
+                source_id=agent_id,
                 mod="openagents.mods.communication.thread_messaging",
                 direction="outbound",
                 relevant_agent_id=agent_id,
-                content=mod_content,
+                payload=mod_content,
                 timestamp=int(time.time())
             )
             
@@ -525,12 +522,11 @@ class GRPCHTTPAdapter:
             import uuid
             
             mod_message = ModMessage(
-                message_id=str(uuid.uuid4()),
-                sender_id=agent_id,
+                source_id=agent_id,
                 mod="openagents.mods.work.shared_document",
                 direction="outbound",
                 relevant_agent_id=agent_id,
-                content=mod_content,
+                payload=mod_content,
                 timestamp=int(time.time())
             )
             

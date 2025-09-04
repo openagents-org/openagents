@@ -154,7 +154,7 @@ class TestSimpleMessaging:
         transport_message = self.network._convert_to_transport_message(test_message)
         assert transport_message.sender_id == agent1_id
         assert transport_message.target_id == agent2_id
-        assert transport_message.payload["content"]["text"] == "Hello from TestAgent1!"
+        assert transport_message.payload["text"] == "Hello from TestAgent1!"
 
         # Verify that both agents are registered
         agents = self.network.get_agents()
@@ -238,7 +238,7 @@ class TestSimpleMessaging:
         transport_message = self.network._convert_to_transport_message(file_message)
         assert transport_message.sender_id == agent1_id
         assert transport_message.target_id == agent2_id
-        assert "file_data" in transport_message.payload["content"]
+        assert "file_data" in transport_message.payload
 
         # Verify that both agents are still registered
         agents = self.network.get_agents()
