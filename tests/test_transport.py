@@ -32,7 +32,7 @@ class TestTransportMessage:
         
         assert message.source_id == "agent1"
         assert message.target_id == "agent2"
-        assert message.message_type == "direct"
+        assert message.message_type == "direct_message"
         assert message.payload["content"] == "Hello!"
         assert message.message_id is not None
         assert message.timestamp > 0

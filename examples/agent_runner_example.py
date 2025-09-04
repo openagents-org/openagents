@@ -36,7 +36,7 @@ class SimpleAgent(AgentRunner):
         text = content.get("text", str(content))
         
         logger.info(f"Agent {self.client.agent_id} received message from {sender_id}: {text}")
-        logger.info(f"Message type: {type(incoming_message).__name__}, Protocol: {incoming_message.protocol}")
+        logger.info(f"Message type: {type(incoming_message).__name__}, Protocol: {getattr(incoming_message, 'protocol', 'N/A')}")
         
         # Handle different message types
         if isinstance(incoming_message, DirectMessage):

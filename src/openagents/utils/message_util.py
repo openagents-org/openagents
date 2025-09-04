@@ -43,14 +43,14 @@ def parse_message_dict(message_dict: Dict[str, Any]) -> Event:
         if "relevant_agent_id" not in merged_dict:
             merged_dict["relevant_agent_id"] = "unknown"  # Default value to prevent validation error
             
-        return ModMessage.model_validate(merged_dict)
+        return ModMessage(**merged_dict)
     
     if message_type == "direct_message":
-        return DirectMessage.model_validate(message_dict)
+        return DirectMessage(**message_dict)
     elif message_type == "broadcast_message":
-        return BroadcastMessage.model_validate(message_dict)
+        return BroadcastMessage(**message_dict)
     elif message_type == "mod_message":
-        return ModMessage.model_validate(message_dict)
+        return ModMessage(**message_dict)
     else:
         raise ValueError(f"Unknown message type: {message_type}")
 

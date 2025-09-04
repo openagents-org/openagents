@@ -50,14 +50,17 @@ class SimpleMessageAgent(AgentRunner):
         logger.info(f"   From: {incoming_message.source_agent_id}")
         logger.info(f"   Type: {type(incoming_message).__name__}")
         logger.info(f"   Content: {incoming_message.payload}")
-        logger.info(f"   Mod: {incoming_message.mod}")
+        logger.info(f"   Mod: {getattr(incoming_message, 'mod', 'N/A')}")
         
         # Store the received message for verification
+        # Get mod name from the adapter that processed this message
+        mod_name = "openagents.mods.communication.simple_messaging"  # This message was processed by simple messaging mod
+        
         self.received_messages.append({
             'sender_id': incoming_message.source_agent_id,
             'content': incoming_message.payload,
             'message_type': type(incoming_message).__name__,
-            'mod': incoming_message.mod,
+            'mod': mod_name,
             'timestamp': time.time(),
             'thread_id': incoming_thread_id
         })

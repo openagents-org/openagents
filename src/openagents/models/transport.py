@@ -143,16 +143,16 @@ class TransportMessage(Event):
     def message_type(self) -> str:
         """Backward compatibility: extract message_type from event_name."""
         if "direct" in self.event_name:
-            return "direct"
+            return "direct_message"
         elif "broadcast" in self.event_name:
-            return "broadcast"
+            return "broadcast_message"
         elif "mod" in self.event_name:
-            return "mod"
+            return "mod_message"
         else:
             # Extract from event_name pattern like "network.transport.{type}_sent"
             parts = self.event_name.split('.')
             if len(parts) >= 3 and parts[-1] == "sent":
-                return parts[-2].replace("_sent", "")
+                return parts[-2].replace("_sent", "") + "_message"
             return "transport"
     
 
@@ -179,7 +179,7 @@ class TransportMessage(Event):
             "payload": self.payload,
             "metadata": self.metadata,
             "text_representation": self.text_representation,
-            "visibility": self.visibility.value if self.visibility else None,
+            "visibility": self.visibility.value if hasattr(self.visibility, 'value') else self.visibility,
             "allowed_agents": list(self.allowed_agents) if self.allowed_agents else None,
             # Backward compatibility fields
             "message_id": self.event_id,
