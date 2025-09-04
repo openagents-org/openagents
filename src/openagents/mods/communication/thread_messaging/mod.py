@@ -135,6 +135,24 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         logger.info(f"Initializing Thread Messaging network mod with file storage at {self.file_storage_path}")
     
+    def _get_request_id(self, message) -> str:
+        """Extract request_id from message, with fallback to message_id."""
+        # Try to get request_id from message attribute (for MessageRetrievalMessage, ReactionMessage, etc.)
+        if hasattr(message, 'request_id') and message.request_id:
+            return message.request_id
+        
+        # Try to get request_id from message content/payload
+        if hasattr(message, 'content') and isinstance(message.content, dict):
+            request_id = message.content.get('request_id')
+            if request_id:
+                return request_id
+        if hasattr(message, 'payload') and isinstance(message.payload, dict):
+            request_id = message.payload.get('request_id')
+            if request_id:
+                return request_id
+        # Fallback to message_id
+        return message.message_id
+    
     def _initialize_default_channels(self) -> None:
         """Initialize default channels from configuration."""
         # Get channels from config or use default
@@ -294,6 +312,9 @@ class ThreadMessagingNetworkMod(BaseMod):
         try:
             content = message.content
             message_type = content.get("message_type")
+            
+            logger.debug(f"Processing mod message of type: {message_type}")
+            logger.debug(f"Message content keys: {list(content.keys())}")
             
             if message_type == "reply_message":
                 # Populate quoted_text if quoted_message_id is provided
@@ -504,7 +525,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                     "success": True,
                     "file_id": file_id,
                     "filename": message.filename,
-                    "request_id": message.message_id
+                    "request_id": self._get_request_id(message)
                 },
                 direction="outbound",
                 relevant_agent_id=message.sender_id
@@ -522,7 +543,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                     "action": "file_upload_response",
                     "success": False,
                     "error": str(e),
-                    "request_id": message.message_id
+                    "request_id": self._get_request_id(message)
                 },
                 direction="outbound",
                 relevant_agent_id=message.sender_id
@@ -656,7 +677,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                     "action": "list_channels_response",
                     "success": True,
                     "channels": channels_data,
-                    "request_id": message.message_id
+                    "request_id": self._get_request_id(message)
                 },
                 direction="outbound",
                 relevant_agent_id=message.sender_id
@@ -698,7 +719,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                     "action": "retrieve_channel_messages_response",
                     "success": False,
                     "error": "Channel name is required",
-                    "request_id": message.message_id
+                    "request_id": self._get_request_id(message)
                 },
                 direction="outbound",
                 relevant_agent_id=agent_id
@@ -715,7 +736,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                     "action": "retrieve_channel_messages_response",
                     "success": False,
                     "error": f"Channel '{channel}' not found",
-                    "request_id": message.message_id
+                    "request_id": self._get_request_id(message)
                 },
                 direction="outbound",
                 relevant_agent_id=agent_id
@@ -796,7 +817,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                 "offset": offset,
                 "limit": limit,
                 "has_more": (offset + limit) < total_count,
-                "request_id": message.message_id
+                "request_id": self._get_request_id(message)
             },
             direction="outbound",
             relevant_agent_id=agent_id
@@ -825,7 +846,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                     "action": "retrieve_direct_messages_response",
                     "success": False,
                     "error": "Target agent ID is required",
-                    "request_id": message.message_id
+                    "request_id": self._get_request_id(message)
                 },
                 direction="outbound",
                 relevant_agent_id=agent_id
@@ -951,7 +972,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                     "error": f"Target message {target_message_id} not found",
                     "target_message_id": target_message_id,
                     "reaction_type": reaction_type,
-                    "request_id": message.message_id
+                    "request_id": self._get_request_id(message)
                 },
                 direction="outbound",
                 relevant_agent_id=agent_id

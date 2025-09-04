@@ -539,12 +539,14 @@ class ChannelInfoMessage(Event):
         
         # Extract channel info specific fields
         action = kwargs.pop('action', 'list_channels')
+        request_id = kwargs.pop('request_id', None)  # Preserve request_id for HTTP correlation
         
         # Call parent constructor
         super().__init__(event_name=event_name, source_id=source_id, **kwargs)
         
         # Set channel info specific fields
         self.action = action
+        self.request_id = request_id  # Store request_id for HTTP correlation
     
     # Backward compatibility properties
     @property
@@ -642,6 +644,7 @@ class MessageRetrievalMessage(Event):
         limit = kwargs.pop('limit', 50)
         offset = kwargs.pop('offset', 0)
         include_threads = kwargs.pop('include_threads', True)
+        request_id = kwargs.pop('request_id', None)  # Preserve request_id for HTTP correlation
         
         # Validate action
         valid_actions = ["retrieve_channel_messages", "retrieve_direct_messages"]
@@ -680,6 +683,7 @@ class MessageRetrievalMessage(Event):
         self.limit = limit
         self.offset = offset
         self.include_threads = include_threads
+        self.request_id = request_id  # Store request_id for HTTP correlation
     
     # Backward compatibility properties
     @property
@@ -774,10 +778,15 @@ class ReactionMessage(Event):
     
     def __init__(self, event_name: str = "", source_id: str = "", **kwargs):
         """Initialize ReactionMessage with dynamic event name based on action."""
+        # Handle backward compatibility for sender_id
+        if 'sender_id' in kwargs:
+            source_id = kwargs.pop('sender_id')
+        
         # Extract reaction specific fields
         target_message_id = kwargs.pop('target_message_id', '')
         reaction_type = kwargs.pop('reaction_type', '')
         action = kwargs.pop('action', 'add')
+        request_id = kwargs.pop('request_id', None)  # Preserve request_id for HTTP correlation
         
         # Generate event name based on action if not provided
         if not event_name:
@@ -795,6 +804,28 @@ class ReactionMessage(Event):
         self.target_message_id = target_message_id
         self.reaction_type = reaction_type
         self.action = action
+        self.request_id = request_id  # Store request_id for HTTP correlation
+    
+    # Backward compatibility properties
+    @property
+    def message_id(self) -> str:
+        """Backward compatibility: message_id maps to event_id."""
+        return self.event_id
+    
+    @message_id.setter
+    def message_id(self, value: str):
+        """Backward compatibility: message_id maps to event_id."""
+        self.event_id = value
+    
+    @property
+    def sender_id(self) -> str:
+        """Backward compatibility: sender_id maps to source_id."""
+        return self.source_id
+    
+    @sender_id.setter
+    def sender_id(self, value: str):
+        """Backward compatibility: sender_id maps to source_id."""
+        self.source_id = value
     
     @field_validator('reaction_type')
     @classmethod

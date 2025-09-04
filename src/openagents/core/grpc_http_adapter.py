@@ -32,6 +32,16 @@ class GRPCHTTPAdapter:
         self.app.router.add_post('/api/system_command', self.system_command)
         self.app.router.add_post('/api/add_reaction', self.add_reaction)
         
+        # Workspace API endpoints
+        self.app.router.add_post('/api/workspace/channels', self.workspace_channels)
+        self.app.router.add_post('/api/workspace/messages', self.workspace_messages)
+        self.app.router.add_post('/api/workspace/agents', self.workspace_agents)
+        self.app.router.add_post('/api/workspace/react', self.workspace_react)
+        
+        # Event subscription endpoints
+        self.app.router.add_post('/api/events/subscribe', self.events_subscribe)
+        self.app.router.add_post('/api/events/unsubscribe', self.events_unsubscribe)
+        
         # CORS middleware
         self.app.middlewares.append(self.cors_handler)
     
@@ -479,6 +489,11 @@ class GRPCHTTPAdapter:
             # Create ModMessage
             from openagents.models.messages import ModMessage
             import uuid
+            import asyncio
+            
+            # Generate unique request ID for response correlation
+            request_id = str(uuid.uuid4())
+            mod_content['request_id'] = request_id
             
             mod_message = ModMessage(
                 source_id=agent_id,
@@ -489,10 +504,28 @@ class GRPCHTTPAdapter:
                 timestamp=int(time.time())
             )
             
+            # Initialize pending requests dict if not exists
+            if not hasattr(self, '_pending_requests'):
+                self._pending_requests = {}
+            
+            # Create future to wait for response
+            response_future = asyncio.Future()
+            self._pending_requests[request_id] = response_future
+            
             # Send through network's mod message handler
             await network._handle_mod_message(mod_message)
             
-            return {'success': True, 'forwarded_to_mod': True}
+            # Wait for response with timeout
+            try:
+                response_data = await asyncio.wait_for(response_future, timeout=10.0)
+                logger.info(f"🔧 Received mod response for {command}: {response_data}")
+                return response_data
+            except asyncio.TimeoutError:
+                logger.warning(f"🔧 Timeout waiting for mod response to {command}")
+                return {'success': False, 'error': 'Request timeout - mod did not respond'}
+            finally:
+                # Clean up pending request
+                self._pending_requests.pop(request_id, None)
             
         except Exception as e:
             logger.error(f"Error handling thread messaging command: {e}")
@@ -612,8 +645,294 @@ class GRPCHTTPAdapter:
     
     def queue_message_for_agent(self, agent_id: str, message: Dict[str, Any]):
         """Queue a message for an agent to retrieve via polling."""
+        # Check if this is a response to a pending HTTP request
+        if hasattr(self, '_pending_requests') and self._pending_requests:
+            self._handle_mod_response(message)
+        
         if agent_id in self.message_queues:
             self.message_queues[agent_id].append(message)
+    
+    def _handle_mod_response(self, message: Dict[str, Any]):
+        """Handle responses from mods and resolve pending HTTP requests."""
+        try:
+            logger.info(f"🔧 _handle_mod_response called with message keys: {list(message.keys()) if isinstance(message, dict) else 'Not a dict'}")
+            logger.info(f"🔧 Current pending requests: {list(self._pending_requests.keys()) if hasattr(self, '_pending_requests') else 'No _pending_requests'}")
+            
+            # Check if this message contains a request_id that matches a pending request
+            request_id = message.get('request_id')
+            logger.info(f"🔧 Found request_id in message: {request_id}")
+            
+            if request_id and hasattr(self, '_pending_requests') and request_id in self._pending_requests:
+                future = self._pending_requests[request_id]
+                if not future.done():
+                    logger.info(f"🔧 Resolving pending request {request_id} with response")
+                    future.set_result(message)
+                    return True
+                else:
+                    logger.info(f"🔧 Future for request {request_id} is already done")
+            else:
+                logger.info(f"🔧 No matching pending request for {request_id}")
+            
+            # Also check in nested content/data structures
+            content = message.get('content', {})
+            if isinstance(content, dict):
+                request_id = content.get('request_id')
+                logger.info(f"🔧 Found request_id in nested content: {request_id}")
+                if request_id and hasattr(self, '_pending_requests') and request_id in self._pending_requests:
+                    future = self._pending_requests[request_id]
+                    if not future.done():
+                        logger.info(f"🔧 Resolving pending request {request_id} with nested response")
+                        future.set_result(content)
+                        return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Error handling mod response: {e}")
+            return False
+    
+    async def workspace_channels(self, request):
+        """Handle workspace channels API requests."""
+        try:
+            data = await request.json()
+            agent_id = data.get('agent_id')
+            action = data.get('action', 'list_channels')
+            
+            if not agent_id:
+                return web.json_response({
+                    'success': False,
+                    'error': 'agent_id is required'
+                }, status=400)
+            
+            if action == 'list_channels':
+                # Use the existing system command infrastructure
+                result = await self._handle_system_command(agent_id, 'list_channels', {})
+                
+                if result.get('success'):
+                    # Return channels in workspace format
+                    channels = result.get('channels', [])
+                    return web.json_response({
+                        'success': True,
+                        'channels': channels
+                    })
+                else:
+                    # Return default channels
+                    default_channels = [
+                        {'name': 'general', 'description': 'General discussion', 'agents': [], 'message_count': 0, 'thread_count': 0},
+                        {'name': 'development', 'description': 'Development discussions', 'agents': [], 'message_count': 0, 'thread_count': 0},
+                        {'name': 'support', 'description': 'Support and help', 'agents': [], 'message_count': 0, 'thread_count': 0}
+                    ]
+                    return web.json_response({
+                        'success': True,
+                        'channels': default_channels
+                    })
+            
+            return web.json_response({
+                'success': False,
+                'error': f'Unknown action: {action}'
+            }, status=400)
+            
+        except Exception as e:
+            logger.error(f"Error in workspace_channels: {e}")
+            return web.json_response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+    
+    async def workspace_messages(self, request):
+        """Handle workspace messages API requests."""
+        try:
+            data = await request.json()
+            agent_id = data.get('agent_id')
+            action = data.get('action', 'get_channel_messages')
+            
+            if not agent_id:
+                return web.json_response({
+                    'success': False,
+                    'error': 'agent_id is required'
+                }, status=400)
+            
+            if action == 'get_channel_messages':
+                channel = data.get('channel', 'general')
+                limit = data.get('limit', 50)
+                offset = data.get('offset', 0)
+                
+                # Use the existing thread messaging command infrastructure
+                result = await self._handle_thread_messaging_command(agent_id, 'get_channel_messages', {
+                    'channel': channel,
+                    'limit': limit,
+                    'offset': offset,
+                    'include_threads': data.get('include_threads', True)
+                })
+                
+                if result.get('success') and result.get('messages'):
+                    return web.json_response({
+                        'success': True,
+                        'messages': result['messages'],
+                        'total_count': result.get('total_count', len(result['messages'])),
+                        'has_more': result.get('has_more', False)
+                    })
+                else:
+                    return web.json_response({
+                        'success': True,
+                        'messages': [],
+                        'total_count': 0,
+                        'has_more': False
+                    })
+            
+            return web.json_response({
+                'success': False,
+                'error': f'Unknown action: {action}'
+            }, status=400)
+            
+        except Exception as e:
+            logger.error(f"Error in workspace_messages: {e}")
+            return web.json_response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+    
+    async def workspace_agents(self, request):
+        """Handle workspace agents API requests."""
+        try:
+            data = await request.json()
+            agent_id = data.get('agent_id')
+            action = data.get('action', 'list_agents')
+            
+            if not agent_id:
+                return web.json_response({
+                    'success': False,
+                    'error': 'agent_id is required'
+                }, status=400)
+            
+            if action == 'list_agents':
+                # Use the existing system command infrastructure
+                result = await self._handle_system_command(agent_id, 'list_agents', {})
+                
+                if result.get('success'):
+                    agents = result.get('agents', [])
+                    return web.json_response({
+                        'success': True,
+                        'agents': agents
+                    })
+                else:
+                    return web.json_response({
+                        'success': True,
+                        'agents': []
+                    })
+            
+            return web.json_response({
+                'success': False,
+                'error': f'Unknown action: {action}'
+            }, status=400)
+            
+        except Exception as e:
+            logger.error(f"Error in workspace_agents: {e}")
+            return web.json_response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+    
+    async def workspace_react(self, request):
+        """Handle workspace reaction API requests."""
+        try:
+            data = await request.json()
+            agent_id = data.get('agent_id')
+            action = data.get('action', 'react_to_message')
+            
+            if not agent_id:
+                return web.json_response({
+                    'success': False,
+                    'error': 'agent_id is required'
+                }, status=400)
+            
+            if action == 'react_to_message':
+                target_message_id = data.get('target_message_id')
+                reaction_type = data.get('reaction_type')
+                
+                if not target_message_id or not reaction_type:
+                    return web.json_response({
+                        'success': False,
+                        'error': 'target_message_id and reaction_type are required'
+                    }, status=400)
+                
+                # Use the existing thread messaging command infrastructure
+                result = await self._handle_thread_messaging_command(agent_id, 'react_to_message', {
+                    'target_message_id': target_message_id,
+                    'reaction_type': reaction_type,
+                    'action': 'add'
+                })
+                
+                return web.json_response({
+                    'success': result.get('success', True)
+                })
+            
+            return web.json_response({
+                'success': False,
+                'error': f'Unknown action: {action}'
+            }, status=400)
+            
+        except Exception as e:
+            logger.error(f"Error in workspace_react: {e}")
+            return web.json_response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+    
+    async def events_subscribe(self, request):
+        """Handle event subscription requests."""
+        try:
+            data = await request.json()
+            agent_id = data.get('agent_id')
+            event_patterns = data.get('event_patterns', [])
+            
+            if not agent_id:
+                return web.json_response({
+                    'success': False,
+                    'error': 'agent_id is required'
+                }, status=400)
+            
+            # For now, just return a mock subscription ID
+            # In a full implementation, this would integrate with the event system
+            subscription_id = f"sub_{agent_id}_{int(time.time())}"
+            
+            logger.info(f"Event subscription created: {subscription_id} for agent {agent_id}")
+            
+            return web.json_response({
+                'success': True,
+                'subscription_id': subscription_id
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in events_subscribe: {e}")
+            return web.json_response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+    
+    async def events_unsubscribe(self, request):
+        """Handle event unsubscription requests."""
+        try:
+            data = await request.json()
+            subscription_id = data.get('subscription_id')
+            
+            if not subscription_id:
+                return web.json_response({
+                    'success': False,
+                    'error': 'subscription_id is required'
+                }, status=400)
+            
+            logger.info(f"Event subscription removed: {subscription_id}")
+            
+            return web.json_response({
+                'success': True
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in events_unsubscribe: {e}")
+            return web.json_response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
     
     async def start_server(self, host: str, port: int):
         """Start the HTTP server."""

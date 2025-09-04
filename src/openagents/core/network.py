@@ -199,6 +199,10 @@ class AgentNetwork:
                             logger.info(f"Registered network mod: {mod_name}")
                             
                         logger.info(f"Successfully loaded {len(mods)} network mods")
+                        
+                        # Re-register event handlers for loaded mods
+                        network._setup_event_system()
+                        
                     except Exception as e:
                         logger.warning(f"Failed to load network mods: {e}")
                         # Continue without mods - this shouldn't be fatal
@@ -576,27 +580,52 @@ class AgentNetwork:
                         logger.warning(f"🔧 NETWORK: Agent {target_agent_id} not found in registered agents: {list(self.agents.keys())}")
                     
                     # Fallback: Deliver ModMessage through the active transport (gRPC HTTP adapter)
+                    logger.info(f"🔧 NETWORK: Attempting HTTP adapter fallback for {target_agent_id}")
+                    logger.info(f"🔧 NETWORK: Has topology: {hasattr(self, 'topology')}")
+                    logger.info(f"🔧 NETWORK: Has transport_manager: {hasattr(self.topology, 'transport_manager') if hasattr(self, 'topology') else 'No topology'}")
                     if hasattr(self.topology, 'transport_manager'):
                         transport_manager = self.topology.transport_manager
+                        logger.info(f"🔧 NETWORK: Got transport_manager: {transport_manager}")
                         transport = transport_manager.get_active_transport()
+                        logger.info(f"🔧 NETWORK: Got active transport: {transport}")
+                        logger.info(f"🔧 NETWORK: Transport has http_adapter: {hasattr(transport, 'http_adapter') if transport else 'No transport'}")
+                        logger.info(f"🔧 NETWORK: HTTP adapter exists: {transport.http_adapter if transport and hasattr(transport, 'http_adapter') else 'None'}")
                         if transport and hasattr(transport, 'http_adapter') and transport.http_adapter:
-                            # Queue the message for HTTP polling
-                            command = self._extract_command_from_mod_message(message)
-                            response_message = {
-                                'message_type': 'system_response',
-                                'command': command,
-                                'data': message.content,
-                                'timestamp': message.timestamp
-                            }
-                            
-                            logger.debug(f"Queuing mod response for HTTP polling: command={command}")
-                            
-                            if target_agent_id not in transport.http_adapter.message_queues:
-                                transport.http_adapter.message_queues[target_agent_id] = []
-                            transport.http_adapter.message_queues[target_agent_id].append(response_message)
-                            
-                            logger.debug(f"Queued mod response for HTTP agent {target_agent_id}")
-                            return True
+                            logger.info(f"🔧 NETWORK: Entering HTTP adapter fallback block")
+                            try:
+                                # Queue the message for HTTP polling
+                                logger.info(f"🔧 NETWORK: Extracting command from ModMessage")
+                                command = self._extract_command_from_mod_message(message)
+                                logger.info(f"🔧 NETWORK: Extracted command: {command}")
+                                
+                                response_message = {
+                                    'message_type': 'system_response',
+                                    'command': command,
+                                    'data': message.content,
+                                    'timestamp': message.timestamp
+                                }
+                                
+                                logger.info(f"🔧 NETWORK: Queuing mod response for HTTP polling: command={command}")
+                                logger.info(f"🔧 NETWORK: Response data keys: {list(message.content.keys()) if hasattr(message.content, 'keys') else 'Not a dict'}")
+                                
+                                if target_agent_id not in transport.http_adapter.message_queues:
+                                    transport.http_adapter.message_queues[target_agent_id] = []
+                                transport.http_adapter.message_queues[target_agent_id].append(response_message)
+                                
+                                logger.info(f"🔧 NETWORK: Successfully queued mod response for HTTP agent {target_agent_id}")
+                                logger.info(f"🔧 NETWORK: Queue size for {target_agent_id}: {len(transport.http_adapter.message_queues[target_agent_id])}")
+                                
+                                # Also notify the HTTP adapter's response handler
+                                if hasattr(transport.http_adapter, '_handle_mod_response'):
+                                    logger.info(f"🔧 NETWORK: Calling HTTP adapter _handle_mod_response")
+                                    transport.http_adapter._handle_mod_response(message.content)
+                                
+                                return True
+                            except Exception as e:
+                                logger.error(f"🔧 NETWORK: Error in HTTP adapter fallback: {e}")
+                                import traceback
+                                logger.error(f"🔧 NETWORK: Traceback: {traceback.format_exc()}")
+                                return False
                 
                 # Handle ModMessage locally by the network's mod system
                 transport_message = self._convert_to_transport_message(message)
@@ -979,7 +1008,24 @@ class AgentNetwork:
                     metadata=message.metadata
                 )
                 
-                await network_mod.process_mod_message(mod_message)
+                # Route through event system instead of calling directly
+                logger.info(f"🔧 NETWORK: Handling ModMessage {mod_message.message_id} locally, mod={target_mod_name}")
+                logger.info(f"🔧 NETWORK: ModMessage sender={mod_message.source_id}, relevant_agent={mod_message.relevant_agent_id}")
+                
+                # Convert ModMessage to Event and emit through event system
+                from openagents.models.event import Event, EventVisibility
+                
+                event = Event(
+                    event_name=f"mod.{target_mod_name}.message",
+                    source_id=mod_message.source_id,
+                    target_agent_id=mod_message.relevant_agent_id,
+                    payload=mod_message.payload,
+                    relevant_mod=target_mod_name,
+                    visibility=EventVisibility.MOD_ONLY
+                )
+                
+                # Emit event through the event system
+                await self.event_bus.emit_event(event)
             else:
                 logger.warning(f"No network mod found for {target_mod_name}, available mods: {list(self.mods.keys())}")
                     
@@ -1273,6 +1319,15 @@ class AgentNetwork:
             self._agent_message_queues[agent_id] = []
         
         self._agent_message_queues[agent_id].append(message)
+        
+        # Also notify HTTP adapter if it exists (for pending HTTP requests)
+        if hasattr(self.topology, 'transport_manager'):
+            transport_manager = self.topology.transport_manager
+            transport = transport_manager.get_active_transport()
+            if transport and hasattr(transport, 'http_adapter') and transport.http_adapter:
+                # Convert message to dict format for HTTP adapter
+                message_dict = message.to_dict() if hasattr(message, 'to_dict') else message.model_dump() if hasattr(message, 'model_dump') else {}
+                transport.http_adapter.queue_message_for_agent(agent_id, message_dict)
         logger.info(f"🔧 NETWORK: Queued message for gRPC agent {agent_id}. Queue size: {len(self._agent_message_queues[agent_id])}")
     
     def _get_queued_messages(self, agent_id: str) -> List[Any]:

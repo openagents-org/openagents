@@ -265,13 +265,22 @@ export class OpenAgentsGRPCConnection {
       
       // Route message to appropriate handler
       const messageType = message.message_type || message.type;
+      const eventName = message.event_name;
       
       if (messageType === 'system_response') {
         this.handleSystemResponse(message);
       } else if (messageType === 'direct_message' || messageType === 'channel_message') {
         this.emit('message', message);
+      } else if (eventName && eventName.includes('thread_messaging.message_received')) {
+        // Handle thread messaging events
+        console.log('📨 Handling thread messaging event:', eventName);
+        this.emit('message', message);
+      } else if (eventName && eventName.startsWith('thread.')) {
+        // Handle other thread events (channel_message.posted, etc.)
+        console.log('📨 Handling thread event:', eventName);
+        this.emit('message', message);
       } else {
-        console.log(`📨 Unhandled message type: ${messageType}`);
+        console.log(`📨 Unhandled message - type: ${messageType}, event: ${eventName}`);
       }
       
     } catch (error) {
