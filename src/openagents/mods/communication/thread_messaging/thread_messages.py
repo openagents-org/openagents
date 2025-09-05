@@ -6,7 +6,7 @@ from openagents.models.event import Event
 from dataclasses import dataclass, field
 
 @dataclass
-class DirectMessage(Event):
+class Event(Event):
     """A direct message between two agents."""
     
     # Thread messaging specific fields
@@ -14,7 +14,7 @@ class DirectMessage(Event):
     quoted_text: Optional[str] = field(default=None)
     
     def __init__(self, event_name: str = "thread.direct_message.sent", source_id: str = "", **kwargs):
-        """Initialize DirectMessage with proper event name."""
+        """Initialize Event with proper event name."""
         # Handle backward compatibility for sender_id
         if 'sender_id' in kwargs:
             source_id = kwargs.pop('sender_id')

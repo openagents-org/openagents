@@ -21,7 +21,7 @@ from typing import Dict, Any, List, Optional
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 from openagents.agents.runner import AgentRunner
-from openagents.models.messages import DirectMessage, BroadcastMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 from openagents.models.message_thread import MessageThread
 from openagents.core.network import create_network

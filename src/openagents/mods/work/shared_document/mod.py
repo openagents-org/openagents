@@ -16,7 +16,7 @@ from typing import Dict, Any, List, Optional, Set
 from datetime import datetime, timedelta
 
 from openagents.core.base_mod import BaseMod
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 from .document_messages import (
     CreateDocumentMessage,
@@ -589,7 +589,7 @@ class SharedDocumentNetworkMod(BaseMod):
         logger.info("Shutting down SharedDocument network mod")
         return True
     
-    async def process_mod_message(self, message: ModMessage) -> None:
+    async def process_mod_message(self, message: Event) -> None:
         """Process incoming mod messages."""
         try:
             source_agent_id = message.sender_id or message.relevant_agent_id or "unknown"
@@ -599,7 +599,7 @@ class SharedDocumentNetworkMod(BaseMod):
             content = message.content if hasattr(message, 'content') else message
             message_type = content.get('message_type') if isinstance(content, dict) else getattr(content, 'message_type', None)
             
-            # Extract request_id from the ModMessage for response matching
+            # Extract request_id from the Event for response matching
             request_id = getattr(message, 'request_id', None)
             
             logger.info(f"Message type: {message_type}, Content: {content}, Request ID: {request_id}")
@@ -660,7 +660,7 @@ class SharedDocumentNetworkMod(BaseMod):
     async def process_message(self, message: Event, source_agent_id: str) -> None:
         """Legacy process_message method - delegates to process_mod_message."""
         try:
-            if isinstance(message, ModMessage):
+            if isinstance(message, Event):
                 await self.process_mod_message(message)
             else:
                 logger.warning(f"Received non-mod message: {type(message)}")
@@ -1169,7 +1169,7 @@ class SharedDocumentNetworkMod(BaseMod):
         for agent_id in document.active_agents:
             if agent_id != source_agent_id:
                 try:
-                    mod_message = ModMessage(
+                    mod_message = Event(
                         relevant_mod="shared_document",
                         content=operation_message.model_dump(),
                         sender_id=self.network.network_id,
@@ -1198,7 +1198,7 @@ class SharedDocumentNetworkMod(BaseMod):
         for other_agent_id in document.active_agents:
             if other_agent_id != agent_id:
                 try:
-                    mod_message = ModMessage(
+                    mod_message = Event(
                         relevant_mod="shared_document",
                         content=presence_message.model_dump(),
                         sender_id=self.network.network_id,
@@ -1223,7 +1223,7 @@ class SharedDocumentNetworkMod(BaseMod):
             logger.info(f"🔧 _send_response - Final content keys: {list(content.keys())}")
             logger.info(f"🔧 _send_response - Final content request_id: {content.get('request_id', 'NOT_FOUND')}")
             
-            mod_message = ModMessage(
+            mod_message = Event(
                 relevant_mod="openagents.mods.work.shared_document",
                 content=content,
                 sender_id=self.network.network_id,

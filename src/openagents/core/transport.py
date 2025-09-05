@@ -14,14 +14,15 @@ import uuid
 
 from openagents.models.transport import (
     TransportType, ConnectionState, PeerMetadata, 
-    ConnectionInfo, TransportMessage, AgentInfo
+    ConnectionInfo, AgentInfo
 )
+from openagents.models.event import Event
 from openagents.utils.verbose import verbose_print
 
 logger = logging.getLogger(__name__)
 
 # Type alias for backward compatibility
-Message = TransportMessage
+Message = Event
 
 # Export models for convenience
 __all__ = [
@@ -32,7 +33,7 @@ __all__ = [
     "WebRTCTransport",
     "TransportManager",
     "Message",
-    "TransportMessage",
+    "Event",
     "TransportType",
     "ConnectionState", 
     "PeerMetadata",
@@ -292,7 +293,7 @@ class WebSocketTransport(Transport):
             message_payload = {"type": "message", "data": message.model_dump()}
             message_data = json.dumps(message_payload)
             
-            # Check for target - could be target_id (generic) or target_agent_id (DirectMessage)
+            # Check for target - could be target_id (generic) or target_agent_id (Event)
             target = message.target_id or getattr(message, 'target_agent_id', None)
             if target:
                 # Direct message - try agent connection resolver first

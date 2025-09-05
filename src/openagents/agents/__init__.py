@@ -5,7 +5,7 @@ OpenAgents agent classes and utilities.
 from .runner import AgentRunner
 from .worker_agent import (
     WorkerAgent,
-    DirectMessageContext,
+    EventContext,
     ChannelMessageContext,
     ReplyMessageContext,
     ReactionContext,
@@ -25,7 +25,7 @@ from .project_echo_agent import ProjectEchoAgentRunner
 __all__ = [
     'AgentRunner',
     'WorkerAgent',
-    'DirectMessageContext',
+    'EventContext',
     'ChannelMessageContext', 
     'ReplyMessageContext',
     'ReactionContext',

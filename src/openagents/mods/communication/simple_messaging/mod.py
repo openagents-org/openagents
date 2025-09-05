@@ -14,9 +14,9 @@ from pathlib import Path
 
 from openagents.core.base_mod import BaseMod
 from openagents.models.messages import (
-    DirectMessage,
-    BroadcastMessage,
-    ModMessage
+    Event,
+    Event,
+    Event
 )
 from openagents.models.event import Event
 
@@ -98,14 +98,14 @@ class SimpleMessagingNetworkMod(BaseMod):
             self.active_agents.remove(agent_id)
             logger.info(f"Unregistered agent {agent_id} from Simple Messaging protocol")
     
-    async def process_direct_message(self, message: DirectMessage) -> Optional[DirectMessage]:
+    async def process_direct_message(self, message: Event) -> Optional[Event]:
         """Process a direct message.
         
         Args:
             message: The direct message to process
             
         Returns:
-            Optional[DirectMessage]: The processed message, or None if the message was handled
+            Optional[Event]: The processed message, or None if the message was handled
         """
         # Add the message to history
         self._add_to_history(message)
@@ -121,14 +121,14 @@ class SimpleMessagingNetworkMod(BaseMod):
         # Continue processing the message
         return message
     
-    async def process_broadcast_message(self, message: BroadcastMessage) -> Optional[BroadcastMessage]:
+    async def process_broadcast_message(self, message: Event) -> Optional[Event]:
         """Process a broadcast message.
         
         Args:
             message: The broadcast message to process
             
         Returns:
-            Optional[BroadcastMessage]: The processed message, or None if the message was handled
+            Optional[Event]: The processed message, or None if the message was handled
         """
         # Add the message to history
         self._add_to_history(message)
@@ -144,7 +144,7 @@ class SimpleMessagingNetworkMod(BaseMod):
         # Continue processing the message
         return message
     
-    async def process_mod_message(self, message: ModMessage) -> None:
+    async def process_mod_message(self, message: Event) -> None:
         """Process a mod message.
         
         Args:
@@ -212,7 +212,7 @@ class SimpleMessagingNetworkMod(BaseMod):
         if processed_files:
             message.content["files"] = processed_files
     
-    async def _handle_file_download(self, agent_id: str, file_id: str, request_message: ModMessage) -> None:
+    async def _handle_file_download(self, agent_id: str, file_id: str, request_message: Event) -> None:
         """Handle a file download request.
         
         Args:
@@ -224,7 +224,7 @@ class SimpleMessagingNetworkMod(BaseMod):
         
         if not file_path.exists():
             # File not found
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="simple_messaging",
                 content={
@@ -248,7 +248,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             encoded_content = base64.b64encode(file_content).decode("utf-8")
             
             # Send response
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="simple_messaging",
                 content={
@@ -266,7 +266,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             logger.debug(f"Sent file {file_id} to agent {agent_id}")
         except Exception as e:
             # Error reading file
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="simple_messaging",
                 content={
@@ -281,7 +281,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             await self.network.send_mod_message(response)
             logger.error(f"Error sending file {file_id} to agent {agent_id}: {e}")
     
-    async def _handle_file_deletion(self, agent_id: str, file_id: str, request_message: ModMessage) -> None:
+    async def _handle_file_deletion(self, agent_id: str, file_id: str, request_message: Event) -> None:
         """Handle a file deletion request.
         
         Args:
@@ -293,7 +293,7 @@ class SimpleMessagingNetworkMod(BaseMod):
         
         if not file_path.exists():
             # File not found
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="simple_messaging",
                 content={
@@ -313,7 +313,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             os.remove(file_path)
             
             # Send response
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="simple_messaging",
                 content={
@@ -330,7 +330,7 @@ class SimpleMessagingNetworkMod(BaseMod):
             logger.debug(f"Deleted file {file_id} for agent {agent_id}")
         except Exception as e:
             # Error deleting file
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="simple_messaging",
                 content={

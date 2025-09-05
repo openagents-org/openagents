@@ -6,7 +6,7 @@ thread messaging functionality including:
 - All 8 tools (send_direct_message, send_channel_message, upload_file, 
   reply_channel_message, reply_direct_message, list_channels,
   retrieve_channel_messages, retrieve_direct_messages)
-- New message types (DirectMessage, ChannelMessage, ReplyMessage, etc.)
+- New message types (Event, ChannelMessage, ReplyMessage, etc.)
 - 5-level Reddit-like threading
 - Message retrieval with pagination
 - File upload/download
@@ -27,7 +27,7 @@ from typing import Dict, Any, List
 from openagents.mods.communication.thread_messaging import (
     ThreadMessagingAgentAdapter,
     ThreadMessagingNetworkMod,
-    DirectMessage,
+    Event,
     ChannelMessage,
     ReplyMessage,
     FileUploadMessage,
@@ -35,15 +35,12 @@ from openagents.mods.communication.thread_messaging import (
     ChannelInfoMessage,
     MessageRetrievalMessage
 )
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event, EventNames
 
 
-def wrap_message_for_mod(inner_message) -> ModMessage:
-    """Helper function to wrap inner messages in ModMessage for testing."""
-    return ModMessage(
-        sender_id=inner_message.sender_id,
-        mod="openagents.mods.communication.thread_messaging",
-        content=inner_message.model_dump(),
+def wrap_message_for_mod(inner_message) -> Event:
+    """Helper function to wrap inner messages in Event for testing."""
+    return Event(event_name="mod.thread_messaging.message_received", source_id=inner_message.sender_id, relevant_mod="openagents.mods.communication.thread_messaging", payload=inner_message.model_dump(),
         direction="inbound",
         relevant_agent_id=inner_message.sender_id
     )
@@ -54,7 +51,7 @@ class TestNewMessageTypes:
     
     def test_direct_message_creation(self):
         """Test creating direct messages."""
-        message = DirectMessage(
+        message = Event(
             sender_id="alice",
             target_agent_id="bob",
             content={"text": "Hello Bob!"},
@@ -72,7 +69,7 @@ class TestNewMessageTypes:
     
     def test_direct_message_with_quote(self):
         """Test direct message with quote."""
-        message = DirectMessage(
+        message = Event(
             sender_id="alice",
             target_agent_id="bob",
             content={"text": "I agree!"},
@@ -377,7 +374,7 @@ class TestThreadMessagingNetworkModRedesigned:
     @pytest.mark.asyncio
     async def test_direct_message_handling(self):
         """Test handling direct messages."""
-        inner_message = DirectMessage(
+        inner_message = Event(
             sender_id="alice",
             target_agent_id="bob",
             content={"text": "Hello Bob!"},
@@ -597,7 +594,7 @@ class TestThreadMessagingNetworkModRedesigned:
     async def test_direct_messages_retrieval(self):
         """Test retrieving direct messages between agents."""
                 # Create conversation between alice and bob
-        inner_dm1 = DirectMessage(
+        inner_dm1 = Event(
             sender_id="alice",
             target_agent_id="bob",
             content={"text": "Hello Bob"},
@@ -608,7 +605,7 @@ class TestThreadMessagingNetworkModRedesigned:
         dm1 = wrap_message_for_mod(inner_dm1)
         await self.mod.process_mod_message(dm1)
         
-        inner_dm2 = DirectMessage(
+        inner_dm2 = Event(
             sender_id="bob",
             target_agent_id="alice",
             content={"text": "Hi Alice"},
@@ -736,7 +733,7 @@ class TestThreadMessagingAgentAdapterRedesigned:
         self.mock_connector.send_mod_message.assert_called_once()
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
-        assert isinstance(sent_message, ModMessage)
+        assert isinstance(sent_message, Event)
         assert sent_message.content['message_type'] == 'direct_message'
         assert sent_message.content['target_agent_id'] == "bob"
         assert sent_message.content['content']['text'] == "Hello Bob!"
@@ -755,7 +752,7 @@ class TestThreadMessagingAgentAdapterRedesigned:
         self.mock_connector.send_mod_message.assert_called_once()
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
-        assert isinstance(sent_message, ModMessage)
+        assert isinstance(sent_message, Event)
         assert sent_message.content['message_type'] == 'channel_message'
         assert sent_message.content['channel'] == "development"
         assert sent_message.content['content']['text'] == "Feature is ready!"
@@ -776,7 +773,7 @@ class TestThreadMessagingAgentAdapterRedesigned:
             self.mock_connector.send_mod_message.assert_called_once()
             sent_message = self.mock_connector.send_mod_message.call_args[0][0]
             
-            assert isinstance(sent_message, ModMessage)
+            assert isinstance(sent_message, Event)
             assert sent_message.content['message_type'] == 'file_upload'
             assert sent_message.content['filename'] == Path(temp_path).name
             assert sent_message.content['mime_type'] == "text/plain"
@@ -798,7 +795,7 @@ class TestThreadMessagingAgentAdapterRedesigned:
         self.mock_connector.send_mod_message.assert_called_once()
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
-        assert isinstance(sent_message, ModMessage)
+        assert isinstance(sent_message, Event)
         assert sent_message.content['message_type'] == 'reply_message'
         assert sent_message.content['channel'] == "development"
         assert sent_message.content['reply_to_id'] == "original_msg_123"
@@ -819,7 +816,7 @@ class TestThreadMessagingAgentAdapterRedesigned:
         self.mock_connector.send_mod_message.assert_called_once()
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
-        assert isinstance(sent_message, ModMessage)
+        assert isinstance(sent_message, Event)
         assert sent_message.content['message_type'] == 'reply_message'
         assert sent_message.content['target_agent_id'] == "alice"
         assert sent_message.content['reply_to_id'] == "dm_msg_789"
@@ -835,7 +832,7 @@ class TestThreadMessagingAgentAdapterRedesigned:
         self.mock_connector.send_mod_message.assert_called_once()
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
-        assert isinstance(sent_message, ModMessage)
+        assert isinstance(sent_message, Event)
         assert sent_message.content['message_type'] == 'channel_info'
         assert sent_message.content['action'] == "list_channels"
     
@@ -852,7 +849,7 @@ class TestThreadMessagingAgentAdapterRedesigned:
         self.mock_connector.send_mod_message.assert_called_once()
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
-        assert isinstance(sent_message, ModMessage)
+        assert isinstance(sent_message, Event)
         assert sent_message.content['message_type'] == 'message_retrieval'
         assert sent_message.content['action'] == "retrieve_channel_messages"
         assert sent_message.content['channel'] == "development"
@@ -873,7 +870,7 @@ class TestThreadMessagingAgentAdapterRedesigned:
         self.mock_connector.send_mod_message.assert_called_once()
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
-        assert isinstance(sent_message, ModMessage)
+        assert isinstance(sent_message, Event)
         assert sent_message.content['message_type'] == 'message_retrieval'
         assert sent_message.content['action'] == "retrieve_direct_messages"
         assert sent_message.content['target_agent_id'] == "alice"
@@ -899,12 +896,8 @@ class TestThreadMessagingAgentAdapterRedesigned:
         assert "test_handler" in self.adapter.message_handlers
         
         # Simulate incoming message response
-        mock_message = ModMessage(
-            sender_id="network",
-            mod="thread_messaging",
-            content={
-                "action": "retrieve_channel_messages_response",
-                "success": True,
+        mock_message = Event(event_name="mod.thread_messaging.message_received", source_id="network", relevant_mod="thread_messaging", payload={
+                "action": "retrieve_channel_messages_response", "success": True,
                 "channel": "development",
                 "messages": [{"id": "msg1", "text": "Hello"}],
                 "total_count": 1,
@@ -955,12 +948,8 @@ class TestThreadMessagingAgentAdapterRedesigned:
         assert "test_file_handler" in self.adapter.file_handlers
         
         # Simulate file upload response
-        mock_message = ModMessage(
-            sender_id="network",
-            mod="thread_messaging",
-            content={
-                "action": "file_upload_response",
-                "success": True,
+        mock_message = Event(event_name="mod.thread_messaging.message_received", source_id="network", relevant_mod="thread_messaging", payload={
+                "action": "file_upload_response", "success": True,
                 "file_id": "uuid_123",
                 "filename": "test.txt",
                 "request_id": "req_456"

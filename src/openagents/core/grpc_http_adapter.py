@@ -174,7 +174,7 @@ class GRPCHTTPAdapter:
             # Check if we have network instance for thread messaging
             if hasattr(self.transport, 'network_instance') and self.transport.network_instance:
                 # Create mod message for thread messaging
-                from openagents.models.messages import ModMessage
+                from openagents.models.messages import Event, EventNames
                 
                 message_type = data.get('message_type', 'direct_message')
                 message_id = str(uuid.uuid4())
@@ -201,7 +201,7 @@ class GRPCHTTPAdapter:
                         "quoted_text": data.get('quoted_text')
                     }
                 
-                mod_message = ModMessage(
+                mod_message = Event(
                     source_id=data.get('sender_id'),
                     relevant_mod="openagents.mods.communication.thread_messaging",
                     direction="outbound",
@@ -497,8 +497,8 @@ class GRPCHTTPAdapter:
             else:
                 return {'success': False, 'error': f'Unknown thread messaging command: {command}'}
             
-            # Create ModMessage
-            from openagents.models.messages import ModMessage
+            # Create Event
+            from openagents.models.messages import Event, EventNames
             import uuid
             import asyncio
             
@@ -506,7 +506,7 @@ class GRPCHTTPAdapter:
             request_id = str(uuid.uuid4())
             mod_content['request_id'] = request_id
             
-            mod_message = ModMessage(
+            mod_message = Event(
                 source_id=agent_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 direction="outbound",
@@ -561,11 +561,11 @@ class GRPCHTTPAdapter:
                 **data  # Include all data from the request (document_id, line_number, content, etc.)
             }
             
-            # Create ModMessage
-            from openagents.models.messages import ModMessage
+            # Create Event
+            from openagents.models.messages import Event, EventNames
             import uuid
             
-            mod_message = ModMessage(
+            mod_message = Event(
                 source_id=agent_id,
                 relevant_mod="openagents.mods.work.shared_document",
                 direction="outbound",
@@ -696,7 +696,7 @@ class GRPCHTTPAdapter:
                         future.set_result(content)
                         return True
             
-            # Also check in payload field (for ModMessage responses)
+            # Also check in payload field (for Event responses)
             payload = message.get('payload', {})
             if isinstance(payload, dict):
                 request_id = payload.get('request_id')

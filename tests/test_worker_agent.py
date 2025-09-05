@@ -9,13 +9,13 @@ from typing import Dict, Any
 
 from openagents.agents.worker_agent import (
     WorkerAgent,
-    DirectMessageContext,
+    EventContext,
     ChannelMessageContext,
     ReplyMessageContext,
     ReactionContext,
     FileContext
 )
-from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.messages import Event, EventNames
 
 
 class MockWorkerAgent(WorkerAgent):
@@ -28,7 +28,7 @@ class MockWorkerAgent(WorkerAgent):
         self.received_messages = []
         self.sent_messages = []
     
-    async def on_direct(self, msg: DirectMessageContext):
+    async def on_direct(self, msg: EventContext):
         self.received_messages.append(('direct', msg))
         await self.send_direct(to=msg.sender_id, text=f"Got: {msg.text}")
     
@@ -126,7 +126,7 @@ class TestMessageHandling:
     async def test_direct_message_handling(self, worker_agent):
         """Test direct message handling."""
         # Create a direct message
-        message = DirectMessage(
+        message = Event(
             sender_id="user1",
             target_agent_id="test-agent",
             content={"text": "Hello agent!"},
@@ -140,7 +140,7 @@ class TestMessageHandling:
         assert len(worker_agent.received_messages) == 1
         msg_type, context = worker_agent.received_messages[0]
         assert msg_type == "direct"
-        assert isinstance(context, DirectMessageContext)
+        assert isinstance(context, EventContext)
         assert context.sender_id == "user1"
         assert context.text == "Hello agent!"
         assert context.target_agent_id == "test-agent"
@@ -149,7 +149,7 @@ class TestMessageHandling:
     async def test_broadcast_message_handling(self, worker_agent):
         """Test broadcast message handling."""
         # Create a broadcast message
-        message = BroadcastMessage(
+        message = Event(
             sender_id="user1",
             content={"text": "Hello everyone!"},
             text_representation="Hello everyone!"
@@ -171,7 +171,7 @@ class TestMessageHandling:
     async def test_broadcast_message_with_mention(self, worker_agent):
         """Test broadcast message with mention."""
         # Create a broadcast message that mentions the agent
-        message = BroadcastMessage(
+        message = Event(
             sender_id="user1",
             content={"text": "Hello @test-agent!"},
             text_representation="Hello @test-agent!"
@@ -192,7 +192,7 @@ class TestMessageHandling:
     async def test_ignore_own_messages(self, worker_agent):
         """Test that agent ignores its own messages."""
         # Create a message from the agent itself
-        message = DirectMessage(
+        message = Event(
             sender_id="test-agent",  # Same as agent ID
             target_agent_id="other-agent",
             content={"text": "Self message"},
@@ -316,7 +316,7 @@ class TestCommandHandling:
         worker_agent.register_command("/test", test_handler)
         
         # Create a direct message with the command
-        context = DirectMessageContext(
+        context = EventContext(
             message_id="msg1",
             sender_id="user1",
             timestamp=123456,
@@ -341,7 +341,7 @@ class TestContextClasses:
     def test_message_context_text_property(self):
         """Test text property extraction."""
         # Test with dict content
-        context = DirectMessageContext(
+        context = EventContext(
             message_id="msg1",
             sender_id="user1",
             timestamp=123456,

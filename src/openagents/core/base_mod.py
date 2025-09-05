@@ -5,8 +5,7 @@ import logging
 # Use TYPE_CHECKING to avoid circular imports
 if TYPE_CHECKING:
     from openagents.core.network import AgentNetworkServer
-from openagents.models.messages import ModMessage, DirectMessage, BroadcastMessage
-from openagents.models.event import Event
+from openagents.models.messages import Event, EventNames
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +124,7 @@ class BaseMod(ABC):
         """
         self._config.update(config)
 
-    async def process_mod_message(self, message: ModMessage) -> None:
+    async def process_mod_message(self, message: Event) -> None:
         """Process a message sent to this mod.
         
         Args:
@@ -135,25 +134,25 @@ class BaseMod(ABC):
             None
         """
 
-    async def process_direct_message(self, message: DirectMessage) -> Optional[DirectMessage]:
+    async def process_direct_message(self, message: Event) -> Optional[Event]:
         """Process a message received from an agent directed to another agent.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[DirectMessage]: Processed message to continue processing, or None if the message is handled and no further processing is needed    
+            Optional[Event]: Processed message to continue processing, or None if the message is handled and no further processing is needed    
         """
         return message
     
-    async def process_broadcast_message(self, message: BroadcastMessage) -> Optional[BroadcastMessage]:
+    async def process_broadcast_message(self, message: Event) -> Optional[Event]:
         """Process a broadcast message received from an agent.
         
         Args:
             message: The broadcast message to handle
         
         Returns:
-            Optional[BroadcastMessage]: Processed message to continue processing, or None if the message is handled and no further processing is needed
+            Optional[Event]: Processed message to continue processing, or None if the message is handled and no further processing is needed
         """
         return message
     

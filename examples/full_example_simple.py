@@ -2,7 +2,7 @@ import asyncio
 from openagents.core.network import AgentNetwork
 from openagents.core.client import AgentClient  
 from openagents.agents.simple_echo_agent import SimpleEchoAgentRunner
-from openagents.models.messages import DirectMessage
+from openagents.models.messages import Event
 
 # Global variable to store received messages
 received_messages = []
@@ -39,7 +39,7 @@ async def main():
         client.connector.register_message_handler("direct_message", handle_direct_message)
     
     # Send message
-    msg = DirectMessage(sender_id="demo-client", target_agent_id="echo-agent", 
+    msg = Event(sender_id="demo-client", target_agent_id="echo-agent", 
                        content={"text": "Hello!"})
     await client.send_direct_message(msg)
     print("📤 Sent: Hello!")

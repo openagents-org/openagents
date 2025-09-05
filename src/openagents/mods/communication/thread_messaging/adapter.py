@@ -18,14 +18,14 @@ from typing import Dict, Any, List, Optional, Callable, Union
 from pathlib import Path
 
 from openagents.core.base_mod_adapter import BaseModAdapter
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.tool import AgentAdapterTool
 from openagents.utils.message_util import (
     get_direct_message_thread_id,
     get_broadcast_message_thread_id
 )
 from .thread_messages import (
-    DirectMessage,
+    Event,
     ChannelMessage, 
     ReplyMessage,
     FileUploadMessage,
@@ -97,7 +97,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         
         return True
     
-    async def process_incoming_direct_message(self, message: DirectMessage) -> None:
+    async def process_incoming_direct_message(self, message: Event) -> None:
         """Process an incoming direct message.
         
         Args:
@@ -140,7 +140,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                 except Exception as e:
                     logger.error(f"Error in message handler: {e}")
     
-    async def process_incoming_mod_message(self, message: ModMessage) -> None:
+    async def process_incoming_mod_message(self, message: Event) -> None:
         """Process an incoming mod message.
         
         Args:
@@ -195,7 +195,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                 quoted_text = f"[Quoted message {quote}]"
         
         # Create direct message
-        direct_msg = DirectMessage(
+        direct_msg = Event(
             sender_id=self.agent_id,
             target_agent_id=target_agent_id,
             content=content,
@@ -203,8 +203,8 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             quoted_text=quoted_text
         )
         
-        # Wrap in ModMessage for proper transport
-        message = ModMessage(
+        # Wrap in Event for proper transport
+        message = Event(
             sender_id=self.agent_id,
             relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
@@ -248,8 +248,8 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             quoted_text=quoted_text
         )
         
-        # Wrap in ModMessage for proper transport
-        message = ModMessage(
+        # Wrap in Event for proper transport
+        message = Event(
             sender_id=self.agent_id,
             relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
@@ -260,7 +260,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         await self.connector.send_mod_message(message)
         logger.debug(f"Sent channel message to {channel}")
     
-    async def _handle_channel_message_notification(self, message: ModMessage) -> None:
+    async def _handle_channel_message_notification(self, message: Event) -> None:
         """Handle a channel message notification from the network.
         
         Args:
@@ -269,7 +269,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         logger.info(f"🔧 THREAD MESSAGING ADAPTER: Received channel message notification")
         logger.info(f"🔧 THREAD MESSAGING ADAPTER: Notification content: {message.content}")
         
-        # Forward the notification to the agent's ModMessage handler
+        # Forward the notification to the agent's Event handler
         # This allows agents like ProjectEchoAgent to process channel notifications
         if hasattr(self, '_agent_mod_message_handler') and self._agent_mod_message_handler:
             try:
@@ -281,7 +281,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             logger.warning(f"🔧 THREAD MESSAGING ADAPTER: No agent mod message handler registered")
     
     def set_agent_mod_message_handler(self, handler):
-        """Set the agent's ModMessage handler for forwarding notifications.
+        """Set the agent's Event handler for forwarding notifications.
         
         Args:
             handler: The agent's _handle_mod_message method
@@ -320,8 +320,8 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                 file_size=len(file_content)
             )
             
-            # Wrap in ModMessage for proper transport
-            message = ModMessage(
+            # Wrap in Event for proper transport
+            message = Event(
                 sender_id=self.agent_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 direction="outbound",
@@ -378,8 +378,8 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             quoted_text=quoted_text
         )
         
-        # Wrap in ModMessage for proper transport
-        message = ModMessage(
+        # Wrap in Event for proper transport
+        message = Event(
             sender_id=self.agent_id,
             relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
@@ -422,8 +422,8 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             quoted_text=quoted_text
         )
         
-        # Wrap in ModMessage for proper transport
-        message = ModMessage(
+        # Wrap in Event for proper transport
+        message = Event(
             sender_id=self.agent_id,
             relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
@@ -462,8 +462,8 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             include_threads=include_threads
         )
         
-        # Wrap in ModMessage for proper transport
-        message = ModMessage(
+        # Wrap in Event for proper transport
+        message = Event(
             sender_id=self.agent_id,
             relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
@@ -512,8 +512,8 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             include_threads=include_threads
         )
         
-        # Wrap in ModMessage for proper transport
-        message = ModMessage(
+        # Wrap in Event for proper transport
+        message = Event(
             sender_id=self.agent_id,
             relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
@@ -552,8 +552,8 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             action="list_channels"
         )
         
-        # Wrap in ModMessage for proper transport
-        message = ModMessage(
+        # Wrap in Event for proper transport
+        message = Event(
             sender_id=self.agent_id,
             relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
@@ -595,8 +595,8 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             action=action
         )
         
-        # Wrap in ModMessage for proper transport
-        message = ModMessage(
+        # Wrap in Event for proper transport
+        message = Event(
             sender_id=self.agent_id,
             relevant_mod="openagents.mods.communication.thread_messaging",
             direction="outbound",
@@ -647,7 +647,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             del self.file_handlers[handler_id]
             logger.debug(f"Unregistered file handler {handler_id}")
     
-    async def _handle_file_upload_response(self, message: ModMessage) -> None:
+    async def _handle_file_upload_response(self, message: Event) -> None:
         """Handle file upload response.
         
         Args:
@@ -682,7 +682,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         if request_id in self.pending_file_operations:
             del self.pending_file_operations[request_id]
     
-    async def _handle_file_download_response(self, message: ModMessage) -> None:
+    async def _handle_file_download_response(self, message: Event) -> None:
         """Handle file download response.
         
         Args:
@@ -738,7 +738,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         if request_id in self.pending_file_operations:
             del self.pending_file_operations[request_id]
     
-    async def _handle_channels_list_response(self, message: ModMessage) -> None:
+    async def _handle_channels_list_response(self, message: Event) -> None:
         """Handle channels list response.
         
         Args:
@@ -759,7 +759,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         if request_id in self.pending_channel_requests:
             del self.pending_channel_requests[request_id]
     
-    async def _handle_channel_messages_response(self, message: ModMessage) -> None:
+    async def _handle_channel_messages_response(self, message: Event) -> None:
         """Handle channel messages retrieval response.
         
         Args:
@@ -813,7 +813,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                     except Exception as e:
                         logger.error(f"Error in message handler {handler_id}: {e}")
     
-    async def _handle_direct_messages_response(self, message: ModMessage) -> None:
+    async def _handle_direct_messages_response(self, message: Event) -> None:
         """Handle direct messages retrieval response.
         
         Args:
@@ -867,7 +867,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                     except Exception as e:
                         logger.error(f"Error in message handler {handler_id}: {e}")
     
-    async def _handle_reaction_response(self, message: ModMessage) -> None:
+    async def _handle_reaction_response(self, message: Event) -> None:
         """Handle reaction response.
         
         Args:
@@ -901,7 +901,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             except Exception as e:
                 logger.error(f"Error in message handler {handler_id}: {e}")
     
-    async def _handle_reaction_notification(self, message: ModMessage) -> None:
+    async def _handle_reaction_notification(self, message: Event) -> None:
         """Handle reaction notification from other agents.
         
         Args:

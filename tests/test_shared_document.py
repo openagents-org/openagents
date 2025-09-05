@@ -47,12 +47,12 @@ from openagents.mods.work.shared_document.document_messages import (
     CursorPosition,
     DocumentComment
 )
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event, EventNames
 
 
-def wrap_message_for_mod(inner_message) -> ModMessage:
-    """Helper function to wrap inner messages in ModMessage for testing."""
-    return ModMessage(
+def wrap_message_for_mod(inner_message) -> Event:
+    """Helper function to wrap inner messages in Event for testing."""
+    return Event(
         mod_name="shared_document",
         content=inner_message.model_dump(),
         source_agent_id=inner_message.source_agent_id,

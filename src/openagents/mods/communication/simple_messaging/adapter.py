@@ -14,9 +14,9 @@ from pathlib import Path
 
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import (
-    DirectMessage,
-    BroadcastMessage,
-    ModMessage
+    Event,
+    Event,
+    Event
 )
 from openagents.models.tool import AgentAdapterTool
 from openagents.utils.message_util import (
@@ -87,7 +87,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         
         return True
     
-    async def process_incoming_direct_message(self, message: DirectMessage) -> None:
+    async def process_incoming_direct_message(self, message: Event) -> None:
         """Process an incoming direct message.
         
         Args:
@@ -115,7 +115,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             except Exception as e:
                 logger.error(f"Error in message handler: {e}")
     
-    async def process_incoming_broadcast_message(self, message: BroadcastMessage) -> None:
+    async def process_incoming_broadcast_message(self, message: Event) -> None:
         """Process an incoming broadcast message.
         
         Args:
@@ -139,14 +139,14 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             except Exception as e:
                 logger.error(f"Error in message handler: {e}")
     
-    async def process_incoming_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
+    async def process_incoming_mod_message(self, message: Event) -> Optional[Event]:
         """Process an incoming mod message.
         
         Args:
             message: The mod message to process
             
         Returns:
-            Optional[ModMessage]: None if the message was handled, or the message if not handled
+            Optional[Event]: None if the message was handled, or the message if not handled
         """
         logger.debug(f"Received protocol message from {message.sender_id}")
         
@@ -165,7 +165,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             return None  # Message was handled
         
         # Return the message if we didn't handle it
-        logger.debug(f"SimpleMessagingAgentAdapter did not handle ModMessage with action: {action}")
+        logger.debug(f"SimpleMessagingAgentAdapter did not handle Event with action: {action}")
         return message
     
     def shutdown(self) -> bool:
@@ -195,7 +195,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             return f"Error: Agent {self.agent_id} is not connected to a network"
             
         # Create and send the message
-        message = DirectMessage(
+        message = Event(
             sender_id=self.agent_id,
             target_agent_id=target_agent_id,
             content=content,
@@ -220,7 +220,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             return f"Error: Agent {self.agent_id} is not connected to a network"
             
         # Create and send the message
-        message = BroadcastMessage(
+        message = Event(
             sender_id=self.agent_id,
             content=content,
             direction="outbound"
@@ -357,7 +357,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         request_id = str(uuid.uuid4())
         
         # Create and send the protocol message
-        message = ModMessage(
+        message = Event(
             sender_id=self.agent_id,
             relevant_mod="simple_messaging",
             content={
@@ -384,7 +384,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             file_id: ID of the file to delete
         """
         # Create and send the protocol message
-        message = ModMessage(
+        message = Event(
             sender_id=self.agent_id,
             relevant_mod="simple_messaging",
             content={
@@ -438,7 +438,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             del self.file_handlers[handler_id]
             logger.debug(f"Unregistered file handler {handler_id}")
     
-    async def _process_file_references(self, message: Union[DirectMessage, BroadcastMessage]) -> None:
+    async def _process_file_references(self, message: Union[Event, Event]) -> None:
         """Process file references in a message.
         
         Args:
@@ -452,7 +452,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
                 file_id = file_data["file_id"]
                 await self.download_file(file_id)
     
-    async def _handle_file_download_response(self, message: ModMessage) -> None:
+    async def _handle_file_download_response(self, message: Event) -> None:
         """Handle a file download response.
         
         Args:

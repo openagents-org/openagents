@@ -21,7 +21,7 @@ from typing import Dict, Any, List, Optional
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../examples')))
 
-from openagents.models.messages import DirectMessage, BroadcastMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 from openagents.models.message_thread import MessageThread
 from openagents.core.network import create_network
@@ -233,7 +233,7 @@ class TestSimpleAgentRunner:
         # Send a direct message to SimpleAgent
         test_text = "Hello SimpleAgent, please echo this message!"
         
-        direct_message = DirectMessage(
+        direct_message = Event(
             sender_id=self.test_agent.client.agent_id,
             target_agent_id=self.simple_agent.client.agent_id,
             protocol="openagents.mods.communication.simple_messaging",
@@ -251,7 +251,7 @@ class TestSimpleAgentRunner:
         
         # Find the direct message we sent (filter out broadcast messages)
         direct_messages_received = [msg for msg in self.simple_agent.received_messages 
-                                  if msg['message_type'] == 'DirectMessage' and 
+                                  if msg['message_type'] == 'Event' and 
                                      msg['sender_id'] == self.test_agent.client.agent_id and
                                      msg['content']['text'] == test_text]
         
@@ -259,12 +259,12 @@ class TestSimpleAgentRunner:
         
         received_msg = direct_messages_received[0]
         assert received_msg['sender_id'] == self.test_agent.client.agent_id
-        assert received_msg['message_type'] == 'DirectMessage'
+        assert received_msg['message_type'] == 'Event'
         assert received_msg['content']['text'] == test_text
         
         # Find the echo response (filter out other messages)
         echo_responses = [msg for msg in self.test_agent.received_messages 
-                         if msg['message_type'] == 'DirectMessage' and 
+                         if msg['message_type'] == 'Event' and 
                             msg['sender_id'] == self.simple_agent.client.agent_id and
                             f"Echo: {test_text}" in msg['content']['text']]
         
@@ -272,7 +272,7 @@ class TestSimpleAgentRunner:
         
         echo_response = echo_responses[0]
         assert echo_response['sender_id'] == self.simple_agent.client.agent_id
-        assert echo_response['message_type'] == 'DirectMessage'
+        assert echo_response['message_type'] == 'Event'
         assert f"Echo: {test_text}" in echo_response['content']['text']
         
         # Verify message counter increased
@@ -295,7 +295,7 @@ class TestSimpleAgentRunner:
         # Send a broadcast message with "hello"
         greeting_text = "hello everyone!"
         
-        broadcast_message = BroadcastMessage(
+        broadcast_message = Event(
             sender_id=self.test_agent.client.agent_id,
             protocol="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",
@@ -312,7 +312,7 @@ class TestSimpleAgentRunner:
         
         # Find the broadcast that SimpleAgent received
         broadcast_received = [msg for msg in self.simple_agent.received_messages 
-                             if msg['message_type'] == 'BroadcastMessage' and 
+                             if msg['message_type'] == 'Event' and 
                                 msg['sender_id'] == self.test_agent.client.agent_id and
                                 "hello" in msg['content']['text'].lower()]
         
@@ -320,7 +320,7 @@ class TestSimpleAgentRunner:
         
         # Find greeting responses sent to test agent (filtering for the specific greeting response)
         greeting_responses = [msg for msg in self.test_agent.received_messages 
-                             if msg['message_type'] == 'DirectMessage' and 
+                             if msg['message_type'] == 'Event' and 
                                 msg['sender_id'] == self.simple_agent.client.agent_id and
                                 "Hello" in msg['content']['text'] and
                                 "Nice to meet you" in msg['content']['text']]
@@ -384,7 +384,7 @@ class TestSimpleAgentRunner:
             test_text = f"Unique test message {i+1} for counting"
             test_messages.append(test_text)
             
-            direct_message = DirectMessage(
+            direct_message = Event(
                 sender_id=self.test_agent.client.agent_id,
                 target_agent_id=self.simple_agent.client.agent_id,
                 protocol="openagents.mods.communication.simple_messaging",
@@ -402,7 +402,7 @@ class TestSimpleAgentRunner:
         
         # Find the specific direct messages we sent (filter out other messages)
         our_messages = [msg for msg in self.simple_agent.received_messages 
-                       if msg['message_type'] == 'DirectMessage' and 
+                       if msg['message_type'] == 'Event' and 
                           msg['sender_id'] == self.test_agent.client.agent_id and
                           "Unique test message" in msg['content']['text']]
         
@@ -410,7 +410,7 @@ class TestSimpleAgentRunner:
         
         # Find the echo responses for our messages
         echo_responses = [msg for msg in self.test_agent.received_messages 
-                         if msg['message_type'] == 'DirectMessage' and 
+                         if msg['message_type'] == 'Event' and 
                             msg['sender_id'] == self.simple_agent.client.agent_id and
                             "Echo: Unique test message" in msg['content']['text']]
         
@@ -439,7 +439,7 @@ class TestSimpleAgentRunner:
         # This should not trigger a greeting response to itself
         greeting_text = "hello from myself - unique test message!"
         
-        broadcast_message = BroadcastMessage(
+        broadcast_message = Event(
             sender_id=self.simple_agent.client.agent_id,  # From SimpleAgent itself
             protocol="openagents.mods.communication.simple_messaging", 
             message_type="broadcast_message",
@@ -456,7 +456,7 @@ class TestSimpleAgentRunner:
         
         # Find the specific broadcast we sent
         self_broadcast = [msg for msg in self.simple_agent.received_messages 
-                         if msg['message_type'] == 'BroadcastMessage' and 
+                         if msg['message_type'] == 'Event' and 
                             msg['sender_id'] == self.simple_agent.client.agent_id and
                             "hello from myself - unique test message" in msg['content']['text']]
         
@@ -464,7 +464,7 @@ class TestSimpleAgentRunner:
         
         # Verify no greeting response was sent to itself (check test agent received no direct messages from SimpleAgent containing greeting response)
         greeting_responses_to_self = [msg for msg in self.test_agent.received_messages 
-                                     if msg['message_type'] == 'DirectMessage' and 
+                                     if msg['message_type'] == 'Event' and 
                                         msg['sender_id'] == self.simple_agent.client.agent_id and
                                         "Hello" in msg['content']['text'] and
                                         self.simple_agent.client.agent_id in msg['content']['text']]

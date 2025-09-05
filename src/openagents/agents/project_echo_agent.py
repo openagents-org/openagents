@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 
 from openagents.agents.runner import AgentRunner
 from openagents.models.message_thread import MessageThread
-from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 from openagents.workspace.project_messages import ProjectNotificationMessage
 
@@ -84,16 +84,16 @@ class ProjectEchoAgentRunner(AgentRunner):
         logger.info(f"   Content: {content}")
         
         # Handle different message types
-        if isinstance(incoming_message, DirectMessage):
-            logger.info("   → Handling as DirectMessage")
+        if isinstance(incoming_message, Event):
+            logger.info("   → Handling as Event")
             await self._handle_direct_message(sender_id, text)
             
-        elif isinstance(incoming_message, BroadcastMessage):
-            logger.info("   → Handling as BroadcastMessage")
+        elif isinstance(incoming_message, Event):
+            logger.info("   → Handling as Event")
             await self._handle_broadcast_message(sender_id, text)
             
-        elif isinstance(incoming_message, ModMessage):
-            logger.info("   → Handling as ModMessage")
+        elif isinstance(incoming_message, Event):
+            logger.info("   → Handling as Event")
             await self._handle_mod_message(incoming_message)
             
         else:
@@ -108,7 +108,7 @@ class ProjectEchoAgentRunner(AgentRunner):
         
         # Create echo response
         echo_text = f"{self.echo_prefix}: {text}"
-        echo_message = DirectMessage(
+        echo_message = Event(
             sender_id=self.client.agent_id,
             target_agent_id=sender_id,
             message_type="direct_message",
@@ -128,7 +128,7 @@ class ProjectEchoAgentRunner(AgentRunner):
         # Respond to greetings in broadcast messages
         if "hello" in text.lower() and sender_id != self.client.agent_id:
             greeting_text = f"Hello {sender_id}! I'm a project-aware echo agent. I can participate in projects and complete them!"
-            greeting_message = DirectMessage(
+            greeting_message = Event(
                 sender_id=self.client.agent_id,
                 target_agent_id=sender_id,
                 message_type="direct_message",
@@ -139,10 +139,10 @@ class ProjectEchoAgentRunner(AgentRunner):
             await self.client.send_direct_message(greeting_message)
             logger.info(f"✅ Sent greeting message to {sender_id}")
 
-    async def _handle_mod_message(self, message: ModMessage):
-        """Handle ModMessage notifications, especially channel message notifications."""
-        logger.info(f"🔧 PROJECT ECHO AGENT: Received ModMessage from {message.sender_id}")
-        logger.info(f"🔧 PROJECT ECHO AGENT: ModMessage content: {message.content}")
+    async def _handle_mod_message(self, message: Event):
+        """Handle Event notifications, especially channel message notifications."""
+        logger.info(f"🔧 PROJECT ECHO AGENT: Received Event from {message.sender_id}")
+        logger.info(f"🔧 PROJECT ECHO AGENT: Event content: {message.content}")
         
         # Check if this is a channel message notification
         if message.content.get("action") == "channel_message_notification":

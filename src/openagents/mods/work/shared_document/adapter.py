@@ -15,7 +15,7 @@ from typing import Dict, Any, List, Optional, Callable, Union
 from datetime import datetime
 
 from openagents.core.base_mod_adapter import BaseModAdapter
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event
 from openagents.models.tool import AgentAdapterTool
 from .document_messages import (
     CreateDocumentMessage,
@@ -1072,7 +1072,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
             message: The message to send
         """
         try:
-            mod_message = ModMessage(
+            mod_message = Event(
                 relevant_mod="shared_document",
                 content=message.model_dump(),
                 sender_id=self.agent_id,

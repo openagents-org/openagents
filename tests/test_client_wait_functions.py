@@ -14,7 +14,7 @@ from typing import List, Dict, Any
 from src.openagents.core.network import AgentNetwork
 from src.openagents.core.client import AgentClient
 from src.openagents.models.network_config import NetworkConfig, NetworkMode
-from src.openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.messages import Event, EventNames
 from src.openagents.agents.simple_echo_agent import SimpleEchoAgentRunner
 
 # Configure logging for tests
@@ -110,10 +110,7 @@ class TestClientWaitFunctions:
         await asyncio.sleep(0.5)
         
         # Send a message and wait for response
-        msg = DirectMessage(
-            sender_id="test-client",
-            target_agent_id="echo-agent",
-            content={"text": "Hello Echo!"}
+        msg = Event(event_name="agent.direct_message.sent", source_id="test-client", target_agent_id="echo-agent", payload={"text": "Hello Echo!"}
         )
         
         # Send message and immediately start waiting
@@ -143,10 +140,7 @@ class TestClientWaitFunctions:
         await asyncio.sleep(0.5)
         
         # Send a message
-        msg = DirectMessage(
-            sender_id="test-client",
-            target_agent_id="echo-agent",
-            content={"text": "Test condition filtering"}
+        msg = Event(event_name="agent.direct_message.sent", source_id="test-client", target_agent_id="echo-agent", payload={"text": "Test condition filtering"}
         )
         await client.send_direct_message(msg)
         
@@ -209,9 +203,7 @@ class TestClientWaitFunctions:
         await asyncio.sleep(0.1)
         
         # Send broadcast message
-        broadcast_msg = BroadcastMessage(
-            sender_id="sender-client",
-            content={"text": "Hello everyone!"}
+        broadcast_msg = Event(event_name="agent.broadcast_message.sent", source_id="sender-client", payload={"text": "Hello everyone!"}
         )
         await sender_client.send_broadcast_message(broadcast_msg)
         
@@ -281,15 +273,9 @@ class TestClientWaitFunctions:
         await asyncio.sleep(0.1)
         
         # Send messages to trigger responses
-        msg1 = DirectMessage(
-            sender_id="client-1",
-            target_agent_id="echo-agent",
-            content={"text": "Message for client-1"}
+        msg1 = Event(event_name="agent.direct_message.sent", source_id="client-1", target_agent_id="echo-agent", payload={"text": "Message for client-1"}
         )
-        msg2 = DirectMessage(
-            sender_id="client-2", 
-            target_agent_id="echo-agent",
-            content={"text": "Message for client-2"}
+        msg2 = Event(event_name="agent.direct_message.sent", source_id="client-2", target_agent_id="echo-agent", payload={"text": "Message for client-2"}
         )
         
         await client1.send_direct_message(msg1)

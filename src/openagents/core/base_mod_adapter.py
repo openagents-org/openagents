@@ -1,6 +1,6 @@
 from typing import Dict, Any, Optional, List
 from abc import ABC, abstractmethod
-from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 from openagents.models.tool import AgentAdapterTool
 from openagents.core.connector import NetworkConnector
@@ -119,69 +119,69 @@ class BaseModAdapter(ABC):
             
         self._message_threads[thread_id].add_message(message)
     
-    async def process_incoming_direct_message(self, message: DirectMessage) -> Optional[DirectMessage]:
+    async def process_incoming_direct_message(self, message: Event) -> Optional[Event]:
         """Process an incoming message sent to this agent.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[DirectMessage]: The processed message, or None for stopping the message from being processed further by other adapters
+            Optional[Event]: The processed message, or None for stopping the message from being processed further by other adapters
         """
         return message
     
-    async def process_incoming_broadcast_message(self, message: BroadcastMessage) -> Optional[BroadcastMessage]:
+    async def process_incoming_broadcast_message(self, message: Event) -> Optional[Event]:
         """Process an incoming broadcast message.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[BroadcastMessage]: The processed message, or None for stopping the message from being processed further by other adapters
+            Optional[Event]: The processed message, or None for stopping the message from being processed further by other adapters
         """
         return message
     
-    async def process_incoming_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
+    async def process_incoming_mod_message(self, message: Event) -> Optional[Event]:
         """Process an incoming mod message.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[ModMessage]: The processed message, or None for stopping the message from being processed further by other adapters
+            Optional[Event]: The processed message, or None for stopping the message from being processed further by other adapters
         """
         return message
     
-    async def process_outgoing_direct_message(self, message: DirectMessage) -> Optional[DirectMessage]:
+    async def process_outgoing_direct_message(self, message: Event) -> Optional[Event]:
         """Process an outgoing message sent to another agent.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[DirectMessage]: The processed message, or None for stopping the message from being processed further by other adapters
+            Optional[Event]: The processed message, or None for stopping the message from being processed further by other adapters
         """
         return message
         
-    async def process_outgoing_broadcast_message(self, message: BroadcastMessage) -> Optional[BroadcastMessage]:
+    async def process_outgoing_broadcast_message(self, message: Event) -> Optional[Event]:
         """Process an outgoing broadcast message.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[BroadcastMessage]: The processed message, or None for stopping the message from being processed further by other adapters
+            Optional[Event]: The processed message, or None for stopping the message from being processed further by other adapters
         """
         return message
 
-    async def process_outgoing_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
+    async def process_outgoing_mod_message(self, message: Event) -> Optional[Event]:
         """Process an outgoing mod message.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[ModMessage]: The processed message, or None for stopping the message from being processed further by other adapters
+            Optional[Event]: The processed message, or None for stopping the message from being processed further by other adapters
         """
         return message
     

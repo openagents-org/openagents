@@ -20,13 +20,14 @@ from pathlib import Path
 from openagents.core.transport import Transport, TransportManager, Message
 from openagents.models.transport import TransportType
 from openagents.core.topology import NetworkTopology, NetworkMode, AgentInfo, create_topology
-from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.network_config import NetworkConfig, NetworkMode as ConfigNetworkMode
 from openagents.core.agent_identity import AgentIdentityManager
 from openagents.core.events import EventBus
 from openagents.models.event import Event, EventNames, EventVisibility
 from openagents.core.events.event_bridge import EventBridge
 from openagents.config.globals import WORKSPACE_DEFAULT_MOD_NAME
+from openagents.utils.protobuf_utils import safe_get, protobuf_to_dict
 
 logger = logging.getLogger(__name__)
 
@@ -270,10 +271,10 @@ class AgentNetwork:
                 def create_mod_event_handler(mod_name, mod_instance):
                     async def mod_event_handler(event: Event):
                         if event.relevant_mod == mod_name:
-                            # Convert event back to ModMessage for backward compatibility
+                            # Convert event back to Event for backward compatibility
                             try:
                                 mod_message = self.event_bridge.event_to_message(event)
-                                if isinstance(mod_message, ModMessage):
+                                if isinstance(mod_message, Event):
                                     await mod_instance.process_mod_message(mod_message)
                             except Exception as e:
                                 logger.error(f"Error processing event in mod {mod_name}: {e}")
@@ -340,226 +341,43 @@ class AgentNetwork:
             logger.error(f"🔧 NETWORK: Traceback: {traceback.format_exc()}")
             # This is not critical, so we don't raise the exception
     
-    def _safe_get(self, obj, key, default=None):
-        """Safely get a value from an object that might be dict or protobuf."""
-        if obj is None:
-            return default
-        if hasattr(obj, 'get'):
-            return obj.get(key, default)
-        else:
-            return getattr(obj, key, default)
-    
-    def _protobuf_to_dict(self, obj):
-        """Convert a protobuf object to a dictionary recursively."""
-        if obj is None:
-            return {}
-        
-        # If it's already a dict, return as-is
-        if hasattr(obj, 'get'):
-            return obj
-        
-        # Handle protobuf struct_value with fields
-        if hasattr(obj, 'fields'):
-            result = {}
-            try:
-                for key, value in obj.fields.items():
-                    # Check for struct_value first (nested objects)
-                    if hasattr(value, 'struct_value') and value.struct_value:
-                        # Recursively convert nested struct_value
-                        result[key] = self._protobuf_to_dict(value.struct_value)
-                    elif hasattr(value, 'string_value'):
-                        result[key] = value.string_value  # Allow empty strings
-                    elif hasattr(value, 'number_value'):
-                        result[key] = value.number_value
-                    elif hasattr(value, 'bool_value'):
-                        result[key] = value.bool_value
-                    elif hasattr(value, 'null_value'):
-                        result[key] = None
-                    else:
-                        # Fallback for unknown types
-                        result[key] = str(value)
-                        logger.debug(f"🔧 NETWORK: Unknown protobuf value type for key '{key}': {type(value)} = {value}")
-                return result
-            except Exception as e:
-                logger.warning(f"🔧 NETWORK: Error converting protobuf fields to dict: {e}")
-                return {}
-        
-        # If it's a simple value, try to extract common fields
-        try:
-            result = {}
-            for field in ['text', 'message_type', 'sender_id', 'channel', 'timestamp', 'event_id', 'payload', 'content']:
-                if hasattr(obj, field):
-                    value = getattr(obj, field)
-                    if hasattr(value, 'fields'):
-                        result[field] = self._protobuf_to_dict(value)
-                    else:
-                        result[field] = value
-            return result if result else {}
-        except Exception as e:
-            logger.warning(f"🔧 NETWORK: Error extracting protobuf fields: {e}")
-            return {}
 
     def _transport_message_to_base_message(self, message: Message) -> Optional[Event]:
         """
-        Convert a transport Message to an Event.
+        Convert a transport Message (which is now Event) to a properly formatted Event.
+        This method is simplified since transport messages are already Events.
         
         Args:
-            message: Transport message to convert
+            message: Transport message (Event) to process
             
         Returns:
-            Optional[Event]: Converted event or None if conversion fails
+            Optional[Event]: The message itself (since it's already an Event) with any necessary processing
         """
         try:
-            logger.info(f"🔧 NETWORK: _transport_message_to_base_message called for message type: {message.message_type}")
-            logger.info(f"🔧 NETWORK: Message payload type: {type(message.payload)}")
-            logger.info(f"🔧 NETWORK: Message payload has 'get' method: {hasattr(message.payload, 'get') if message.payload else False}")
-            if message.message_type == "direct_message":
-                return DirectMessage(
-                    source_id=message.sender_id,
-                    target_agent_id=message.target_id,
-                    payload=message.payload or {},
-                    metadata=message.metadata or {}
-                )
-            elif message.message_type == "broadcast_message":
-                return BroadcastMessage(
-                    source_id=message.sender_id,
-                    payload=message.payload or {},
-                    metadata=message.metadata or {}
-                )
-            elif message.message_type == "mod_message":
-                payload = message.payload or {}
-                return ModMessage(
-                    source_id=message.sender_id,
-                    relevant_mod=payload.get('mod', '') if hasattr(payload, 'get') else getattr(payload, 'mod', ''),
-                    relevant_agent_id=payload.get('relevant_agent_id', message.sender_id) if hasattr(payload, 'get') else getattr(payload, 'relevant_agent_id', message.sender_id),
-                    direction=payload.get('direction', 'inbound') if hasattr(payload, 'get') else getattr(payload, 'direction', 'inbound'),
-                    payload=payload,
-                    metadata=message.metadata or {}
-                )
-            elif message.message_type == "transport":
-                # Check if transport message is actually a mod message by looking for relevant_mod
-                raw_payload = message.payload or {}
+            # Since Message is now Event, we just need to ensure proper event_name
+            # and let the Event class handle the routing
+            logger.info(f"🔧 NETWORK: Processing Event: {message.event_name}")
+            
+            # If this is a mod-related event, ensure it has proper content structure
+            if message.relevant_mod:
+                # Extract text content for mod processing
+                from openagents.utils.protobuf_utils import extract_text_from_protobuf_payload
+                message_text = extract_text_from_protobuf_payload(message.payload)
                 
-                # Convert payload to dictionary format for consistent access
-                payload = {}
-                if hasattr(raw_payload, 'get'):
-                    # Already a dictionary
-                    payload = raw_payload
-                else:
-                    # Convert protobuf-like object to dictionary
-                    try:
-                        # Try to extract common fields from protobuf object
-                        for field in ['relevant_mod', 'target_channel', 'target_agent_id', 'payload', 'mod', 'direction', 'source_id']:
-                            if hasattr(raw_payload, field):
-                                payload[field] = getattr(raw_payload, field)
-                        logger.info(f"🔧 NETWORK: Converted protobuf payload to dict: {list(payload.keys())}")
-                    except Exception as e:
-                        logger.warning(f"🔧 NETWORK: Could not convert payload to dict: {e}")
-                        payload = {}
+                # Ensure text_representation is set for compatibility
+                if not message.text_representation and message_text:
+                    message.text_representation = message_text
                 
-                logger.debug(f"🔧 NETWORK: Transport message payload keys: {list(payload.keys()) if hasattr(payload, 'keys') else 'N/A'}")
-                relevant_mod = self._safe_get(payload, 'relevant_mod')
-                logger.debug(f"🔧 NETWORK: relevant_mod value: {relevant_mod}")
-                
-                if relevant_mod:
-                    # This is a mod message wrapped as a transport message
-                    logger.info(f"🔧 NETWORK: Converting transport message to ModMessage for mod: {relevant_mod}")
-                    
-                    # Extract the actual mod message content from nested payload
-                    raw_mod_content = self._safe_get(payload, 'payload', {})
-                    logger.info(f"🔧 NETWORK: Raw mod content: {raw_mod_content}")
-                    
-                    # Convert protobuf nested payload to dictionary
-                    mod_content = self._protobuf_to_dict(raw_mod_content)
-                    logger.info(f"🔧 NETWORK: Converted mod content: {mod_content}")
-                    logger.debug(f"🔧 NETWORK: Mod message content keys: {list(mod_content.keys()) if mod_content else 'None'}")
-                    
-                    # Extract text from nested payload structure 
-                    message_text = ""
-                    logger.info(f"🔧 NETWORK: mod_content type: {type(mod_content)}")
-                    
-                    if isinstance(mod_content, dict):
-                        logger.info(f"🔧 NETWORK: mod_content keys: {list(mod_content.keys())}")
-                        
-                        # Try direct text field
-                        if 'text' in mod_content and mod_content['text']:
-                            message_text = mod_content['text']
-                            logger.info(f"🔧 NETWORK: Extracted text from 'text' field: '{message_text[:100]}...'")
-                        
-                        # Try nested payload -> text
-                        elif 'payload' in mod_content and isinstance(mod_content['payload'], dict) and 'text' in mod_content['payload']:
-                            message_text = mod_content['payload']['text']
-                            logger.info(f"🔧 NETWORK: Extracted text from payload->text: '{message_text[:100]}...'")
-                            
-                        # Try nested content -> text    
-                        elif 'content' in mod_content and isinstance(mod_content['content'], dict) and 'text' in mod_content['content']:
-                            message_text = mod_content['content']['text']
-                            logger.info(f"🔧 NETWORK: Extracted text from content->text: '{message_text[:100]}...'")
-                            
-                        # Log nested structure for debugging
-                        if 'payload' in mod_content:
-                            logger.info(f"🔧 NETWORK: payload structure: {type(mod_content['payload'])} - {mod_content['payload']}")
-                        if 'content' in mod_content:
-                            logger.info(f"🔧 NETWORK: content structure: {type(mod_content['content'])} - {mod_content['content']}")
-                    
-                    if not message_text:
-                        # Fallback: try to extract from the original raw content
-                        message_text = str(raw_mod_content)[:200] if raw_mod_content else ""
-                        logger.info(f"🔧 NETWORK: Using fallback text extraction: '{message_text[:100]}...'")
-                        logger.warning(f"🔧 NETWORK: No text extracted from structured data!")
-                    
-                    # Create properly structured content for ChannelMessage constructor  
-                    # Try both 'channel' and 'target_channel' fields for channel name
-                    channel_name = (self._safe_get(payload, 'channel') or 
-                                  self._safe_get(payload, 'target_channel') or 
-                                  self._safe_get(mod_content, 'channel') or 
+                # Ensure target_channel is set if this is a channel message
+                if not message.target_channel:
+                    channel_name = (safe_get(message.payload, 'channel') or 
+                                  safe_get(message.payload, 'target_channel') or 
                                   'general')
-                    
-                    content = {
-                        "message_type": "channel_message",
-                        "sender_id": message.sender_id,
-                        "channel": channel_name,
-                        "payload": {"text": message_text},  # Event expects text in payload
-                        "text_representation": message_text,  # For compatibility
-                        "target_channel": channel_name,
-                        "event_name": "thread.channel_message.posted",
-                        "source_id": message.sender_id,
-                        "visibility": "channel"
-                    }
-                        
-                    logger.info(f"🔧 NETWORK: Final content for mod: {content}")
-                    
-                    try:
-                        return ModMessage(
-                            source_id=message.sender_id,
-                            relevant_mod=relevant_mod,
-                            relevant_agent_id=self._safe_get(payload, 'target_agent_id', message.sender_id),
-                            direction='inbound',
-                            content=content,  # Thread messaging mod expects 'content' field
-                            metadata=message.metadata or {}
-                        )
-                    except Exception as mod_error:
-                        logger.error(f"🔧 NETWORK: Error creating ModMessage: {mod_error}")
-                        logger.error(f"🔧 NETWORK: Message sender_id: {message.sender_id}")
-                        logger.error(f"🔧 NETWORK: Payload relevant_mod: {relevant_mod}")
-                        logger.error(f"🔧 NETWORK: Payload target_agent_id: {self._safe_get(payload, 'target_agent_id')}")
-                        logger.error(f"🔧 NETWORK: Mod content type: {type(mod_content)}")
-                        logger.error(f"🔧 NETWORK: Message metadata type: {type(message.metadata)}")
-                        raise mod_error
-                else:
-                    # Transport messages are typically capability announcements or system messages
-                    # Convert them to broadcast messages so they can be processed by mods
-                    logger.debug(f"🔧 NETWORK: Converting transport message to BroadcastMessage")
-                    return BroadcastMessage(
-                        source_id=message.sender_id,
-                        payload=payload,
-                        metadata=message.metadata or {}
-                    )
-            else:
-                logger.debug(f"Unknown message type for conversion: {message.message_type}")
-                return None
+                    message.target_channel = channel_name
+            
+            return message
         except Exception as e:
-            logger.error(f"Error converting transport message to base message: {e}")
+            logger.error(f"Error processing transport event: {e}")
             return None
     
     async def initialize(self) -> bool:
@@ -698,14 +516,14 @@ class AgentNetwork:
             
             # For backward compatibility, still handle some direct routing
             # This will be removed once all components use events
-            if isinstance(message, ModMessage):
-                logger.info(f"🔧 NETWORK: Handling ModMessage {message.event_id} locally, mod={message.mod}")
-                logger.info(f"🔧 NETWORK: ModMessage sender={message.source_id}, relevant_agent={message.relevant_agent_id}")
+            if isinstance(message, Event):
+                logger.info(f"🔧 NETWORK: Handling Event {message.event_id} locally, mod={message.relevant_mod}")
+                logger.info(f"🔧 NETWORK: Event sender={message.source_id}, target_agent={message.target_agent_id}")
                 
                 # Check if this is a mod message response that needs to be delivered to an agent
-                if hasattr(message, 'relevant_agent_id') and message.relevant_agent_id:
-                    target_agent_id = message.relevant_agent_id
-                    logger.info(f"🔧 NETWORK: Delivering ModMessage response to agent {target_agent_id}")
+                if hasattr(message, 'target_agent_id') and message.target_agent_id:
+                    target_agent_id = message.target_agent_id
+                    logger.info(f"🔧 NETWORK: Delivering Event response to agent {target_agent_id}")
                     
                     # First try to deliver directly to registered workspaces
                     if target_agent_id in self._registered_workspaces:
@@ -717,15 +535,15 @@ class AgentNetwork:
                     
                     # Try to deliver directly to registered agent clients
                     elif target_agent_id in self._registered_agent_clients:
-                        logger.info(f"🔧 NETWORK: Found registered agent client {target_agent_id}, delivering ModMessage directly")
+                        logger.info(f"🔧 NETWORK: Found registered agent client {target_agent_id}, delivering Event directly")
                         agent_client = self._registered_agent_clients[target_agent_id]
                         await agent_client._handle_mod_message(message)
-                        logger.info(f"🔧 NETWORK: Successfully delivered ModMessage to agent client {target_agent_id}")
+                        logger.info(f"🔧 NETWORK: Successfully delivered Event to agent client {target_agent_id}")
                         return True
                     
                     # Fallback: try to deliver to connected agents through transport
                     elif target_agent_id in self.agents:
-                        logger.info(f"🔧 NETWORK: Found connected agent {target_agent_id}, delivering ModMessage through transport")
+                        logger.info(f"🔧 NETWORK: Found connected agent {target_agent_id}, delivering Event through transport")
                         logger.info(f"🔧 NETWORK: All registered agents: {list(self.agents.keys())}")
                         
                         # Check if this is a gRPC agent - if so, queue the message instead of routing
@@ -738,12 +556,12 @@ class AgentNetwork:
                                     break
                         
                         if is_grpc_transport:
-                            logger.info(f"🔧 NETWORK: Detected gRPC transport, queuing ModMessage for agent {target_agent_id}")
+                            logger.info(f"🔧 NETWORK: Detected gRPC transport, queuing Event for agent {target_agent_id}")
                             self._queue_message_for_agent(target_agent_id, message)
                             return True
                         
                         # For non-gRPC transports, try normal routing
-                        # Convert ModMessage to transport Message and route it
+                        # Convert Event to transport Message and route it
                         transport_message = self._convert_to_transport_message(message)
                         transport_message.target_id = target_agent_id
                         logger.info(f"🔧 NETWORK: Transport message: type={transport_message.message_type}, target={transport_message.target_id}")
@@ -752,10 +570,10 @@ class AgentNetwork:
                         success = await self.topology.route_message(transport_message)
                         logger.info(f"🔧 NETWORK: Topology route_message returned: {success}")
                         if success:
-                            logger.info(f"🔧 NETWORK: Successfully delivered ModMessage to {target_agent_id}")
+                            logger.info(f"🔧 NETWORK: Successfully delivered Event to {target_agent_id}")
                             return True
                         else:
-                            logger.error(f"🔧 NETWORK: Failed to route ModMessage to {target_agent_id}")
+                            logger.error(f"🔧 NETWORK: Failed to route Event to {target_agent_id}")
                             logger.info(f"🔧 NETWORK: Falling back to message queue for gRPC agent")
                             # Fallback: Queue the message for gRPC agents
                             self._queue_message_for_agent(target_agent_id, message)
@@ -763,7 +581,7 @@ class AgentNetwork:
                     else:
                         logger.warning(f"🔧 NETWORK: Agent {target_agent_id} not found in registered agents: {list(self.agents.keys())}")
                     
-                    # Fallback: Deliver ModMessage through the active transport (gRPC HTTP adapter)
+                    # Fallback: Deliver Event through the active transport (gRPC HTTP adapter)
                     logger.info(f"🔧 NETWORK: Attempting HTTP adapter fallback for {target_agent_id}")
                     logger.info(f"🔧 NETWORK: Has topology: {hasattr(self, 'topology')}")
                     logger.info(f"🔧 NETWORK: Has transport_manager: {hasattr(self.topology, 'transport_manager') if hasattr(self, 'topology') else 'No topology'}")
@@ -778,7 +596,7 @@ class AgentNetwork:
                             logger.info(f"🔧 NETWORK: Entering HTTP adapter fallback block")
                             try:
                                 # Queue the message for HTTP polling
-                                logger.info(f"🔧 NETWORK: Extracting command from ModMessage")
+                                logger.info(f"🔧 NETWORK: Extracting command from Event")
                                 command = self._extract_command_from_mod_message(message)
                                 logger.info(f"🔧 NETWORK: Extracted command: {command}")
                                 
@@ -811,13 +629,13 @@ class AgentNetwork:
                                 logger.error(f"🔧 NETWORK: Traceback: {traceback.format_exc()}")
                                 return False
                 
-                # Handle ModMessage locally by the network's mod system
+                # Handle Event locally by the network's mod system
                 transport_message = self._convert_to_transport_message(message)
                 await self._handle_mod_message(transport_message)
                 return True
             
-            # Handle DirectMessage for gRPC agents (queue for HTTP polling)
-            if isinstance(message, DirectMessage):
+            # Handle Event for gRPC agents (queue for HTTP polling)
+            if isinstance(message, Event):
                 target_agent_id = message.target_agent_id
                 
                 # Check if target agent is using gRPC HTTP polling
@@ -825,7 +643,7 @@ class AgentNetwork:
                     transport_manager = self.topology.transport_manager
                     transport = transport_manager.get_active_transport()
                     if transport and hasattr(transport, 'http_adapter') and transport.http_adapter:
-                        # Queue DirectMessage for HTTP polling
+                        # Queue Event for HTTP polling
                         response_message = {
                             'message_type': 'direct_message',
                             'data': {
@@ -840,13 +658,13 @@ class AgentNetwork:
                             'timestamp': message.timestamp
                         }
                         
-                        logger.debug(f"Queuing DirectMessage for HTTP polling to agent {target_agent_id}")
+                        logger.debug(f"Queuing Event for HTTP polling to agent {target_agent_id}")
                         
                         if target_agent_id not in transport.http_adapter.message_queues:
                             transport.http_adapter.message_queues[target_agent_id] = []
                         transport.http_adapter.message_queues[target_agent_id].append(response_message)
                         
-                        logger.debug(f"Queued DirectMessage for HTTP agent {target_agent_id}")
+                        logger.debug(f"Queued Event for HTTP agent {target_agent_id}")
                         return True
             
             # Convert to transport message for other message types
@@ -858,7 +676,7 @@ class AgentNetwork:
             logger.error(f"Failed to send message: {e}")
             return False
     
-    def _extract_command_from_mod_message(self, message: ModMessage) -> str:
+    def _extract_command_from_mod_message(self, message: Event) -> str:
         """Extract the appropriate command name from a mod message for HTTP responses."""
         try:
             content = message.content
@@ -1005,37 +823,17 @@ class AgentNetwork:
     def _convert_to_transport_message(self, message: Event) -> Message:
         """Convert a base message to a transport message.
         
+        Since we unified everything around Event, this method now simply returns 
+        the message as-is (Event is the unified message format).
+        
         Args:
             message: Base message to convert
             
         Returns:
-            Message: Transport message
+            Message: Transport message (same Event object)
         """
-        from openagents.models.transport import TransportMessage
-        
-        # Determine target ID based on message type
-        target_id = None
-        if isinstance(message, DirectMessage) or (hasattr(message, '__class__') and message.__class__.__name__ == 'DirectMessage'):
-            target_id = message.target_agent_id
-        elif isinstance(message, ModMessage) or (hasattr(message, '__class__') and message.__class__.__name__ == 'ModMessage'):
-            target_id = message.relevant_agent_id
-        # BroadcastMessage has target_id = None (broadcast)
-        
-        # Create transport message from Event
-        # Since messages are now Events, we can create TransportMessage directly
-        transport_message = TransportMessage(
-            source_id=message.source_id,
-            target_agent_id=message.target_agent_id,
-            target_id=target_id,
-            payload=message.payload,
-            metadata=message.metadata,
-            timestamp=message.timestamp,
-            visibility=message.visibility,
-            requires_response=message.requires_response,
-            relevant_mod=getattr(message, 'relevant_mod', None)
-        )
-        
-        return transport_message
+        # With unified Event system, no conversion needed
+        return message
     
     async def _handle_transport_message(self, message: Message) -> None:
         """Handle incoming transport messages.
@@ -1098,7 +896,7 @@ class AgentNetwork:
                     relevant_mod = payload.get('relevant_mod') if hasattr(payload, 'get') else getattr(payload, 'relevant_mod', None)
                     if relevant_mod:
                         logger.info(f"🔧 NETWORK: Transport message contains mod message for {relevant_mod}")
-                        # Convert to ModMessage and handle directly
+                        # Convert to Event and handle directly
                         mod_message_event = self._transport_message_to_base_message(message)
                         if mod_message_event and hasattr(mod_message_event, 'relevant_mod'):
                             logger.info(f"🔧 NETWORK: Processing transport mod message directly")
@@ -1189,12 +987,12 @@ class AgentNetwork:
                 network_mod = self.mods[target_mod_name]
                 logger.debug(f"Routing mod message {message.message_id} to network mod {target_mod_name}")
                 
-                # Convert transport message back to ModMessage
-                from openagents.models.messages import ModMessage
+                # Convert transport message back to Event
+                from openagents.models.messages import Event, EventNames
                 
-                # Check if message already is a properly formatted ModMessage (from transport conversion)
+                # Check if message already is a properly formatted Event (from transport conversion)
                 if hasattr(message, 'content') and hasattr(message, 'relevant_mod'):
-                    # This is already a converted ModMessage from transport, use it directly
+                    # This is already a converted Event from transport, use it directly
                     mod_message = message
                 else:
                     # Extract content from payload (excluding mod-specific fields) 
@@ -1205,7 +1003,7 @@ class AgentNetwork:
                         if key not in mod_specific_fields:
                             content[key] = value
                     
-                    mod_message = ModMessage(
+                    mod_message = Event(
                         source_id=message.sender_id,
                         relevant_mod=target_mod_name,
                         payload=content,
@@ -1217,8 +1015,8 @@ class AgentNetwork:
                     )
                 
                 # Call mod's process_mod_message directly instead of using event system
-                logger.info(f"🔧 NETWORK: Handling ModMessage {mod_message.message_id} locally, mod={target_mod_name}")
-                logger.info(f"🔧 NETWORK: ModMessage sender={mod_message.source_id}, relevant_agent={mod_message.relevant_agent_id}")
+                logger.info(f"🔧 NETWORK: Handling Event {mod_message.message_id} locally, mod={target_mod_name}")
+                logger.info(f"🔧 NETWORK: Event sender={mod_message.source_id}, relevant_agent={mod_message.relevant_agent_id}")
                 
                 # Call the mod's process_mod_message method directly
                 await network_mod.process_mod_message(mod_message)

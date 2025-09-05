@@ -27,7 +27,7 @@ from pathlib import Path
 
 from openagents.agents.worker_agent import (
     WorkerAgent,
-    DirectMessageContext,
+    EventContext,
     ChannelMessageContext,
     ReplyMessageContext
 )
@@ -158,7 +158,7 @@ class AINewsWorkerAgent(WorkerAgent):
         await self._save_knowledge_base()
         logger.info("✅ AI News Agent shutdown complete")
     
-    async def on_direct(self, msg: DirectMessageContext):
+    async def on_direct(self, msg: EventContext):
         """Handle direct messages with personalized AI news assistance."""
         text = msg.text.lower().strip()
         

@@ -9,7 +9,7 @@ import logging
 from typing import Dict, Any, List, Optional, Callable
 
 from openagents.core.base_mod_adapter import BaseModAdapter
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.tool import AgentAdapterTool
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class DefaultWorkspaceAgentAdapter(BaseModAdapter):
         # No tools for now as requested
         return []
     
-    def handle_message(self, message: ModMessage) -> Optional[ModMessage]:
+    def handle_message(self, message: Event) -> Optional[Event]:
         """
         Handle incoming messages for the workspace.
         

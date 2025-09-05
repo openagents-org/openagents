@@ -14,16 +14,16 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../s
 from openagents.core.transport import WebSocketTransport, TransportManager, Message
 from openagents.models.transport import (
     TransportType, ConnectionState, PeerMetadata, 
-    ConnectionInfo, TransportMessage
+    ConnectionInfo, Event
 )
 
 
-class TestTransportMessage:
-    """Test TransportMessage model."""
+class TestEvent:
+    """Test Event model."""
     
     def test_create_transport_message(self):
         """Test creating a transport message."""
-        message = TransportMessage(
+        message = Event(
             source_id="agent1",
             target_id="agent2",
             message_type="direct",

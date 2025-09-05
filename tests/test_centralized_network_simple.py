@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../s
 from openagents.core.network import AgentNetwork, create_network
 from openagents.models.network_config import NetworkConfig, NetworkMode
 from openagents.models.transport import TransportType
-from openagents.models.messages import DirectMessage, BroadcastMessage
+from openagents.models.messages import Event, EventNames
 
 # Configure logging for tests
 logger = logging.getLogger(__name__)
@@ -128,11 +128,12 @@ class TestSimpleCentralizedNetwork:
         await self.test_coordinator_setup()
         
         # Create a direct message
-        direct_msg = DirectMessage(
-            sender_id="agent-1",
+        direct_msg = Event(
+            event_name="agent.direct_message.sent",
+            source_id="agent-1",
             target_agent_id="agent-2",
-            content={"text": "Hello Agent 2!"},
-            message_id="test-msg-1"
+            payload={"text": "Hello Agent 2!"},
+            event_id="test-msg-1"
         )
         
         # Verify message structure
@@ -142,10 +143,11 @@ class TestSimpleCentralizedNetwork:
         assert direct_msg.message_type == "direct_message"
         
         # Create a broadcast message
-        broadcast_msg = BroadcastMessage(
-            sender_id="agent-1",
-            content={"text": "Hello everyone!"},
-            message_id="test-broadcast-1"
+        broadcast_msg = Event(
+            event_name="agent.broadcast_message.sent",
+            source_id="agent-1",
+            payload={"text": "Hello everyone!"},
+            event_id="test-broadcast-1"
         )
         
         # Verify broadcast message structure
@@ -184,11 +186,12 @@ class TestSimpleCentralizedNetwork:
         await self.coordinator_network.register_agent("agent-2", {"name": "Agent2"})
         
         # Create and attempt to send a message (even if routing doesn't work)
-        message = DirectMessage(
-            sender_id="agent-1",
+        message = Event(
+            event_name="agent.direct_message.sent",
+            source_id="agent-1",
             target_agent_id="agent-2", 
-            content={"text": "Integration test message"},
-            message_id="integration-test-1"
+            payload={"text": "Integration test message"},
+            event_id="integration-test-1"
         )
         
         # This demonstrates the framework is working even if message delivery isn't perfect

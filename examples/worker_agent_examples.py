@@ -14,7 +14,7 @@ from openagents.core.network import AgentNetwork
 from openagents.workspace import Project
 from openagents.agents.worker_agent import (
     WorkerAgent, 
-    DirectMessageContext, 
+    EventContext, 
     ChannelMessageContext, 
     ReplyMessageContext,
     ReactionContext,
@@ -36,7 +36,7 @@ class EchoAgent(WorkerAgent):
     
     default_agent_id = "echo"
     
-    async def on_direct(self, msg: DirectMessageContext):
+    async def on_direct(self, msg: EventContext):
         """Echo back direct messages."""
         await self.send_direct(to=msg.sender_id, text=f"Echo: {msg.text}")
         logger.info(f"Echoed message from {msg.sender_id}")
@@ -57,7 +57,7 @@ class HelpfulAgent(WorkerAgent):
     auto_mention_response = True
     default_channels = ["#general", "#help"]
     
-    async def on_direct(self, msg: DirectMessageContext):
+    async def on_direct(self, msg: EventContext):
         """Handle direct messages with helpful responses."""
         text = msg.text.lower()
         
@@ -172,7 +172,7 @@ class ProjectManagerAgent(WorkerAgent):
                 mention=msg.sender_id
             )
     
-    async def on_direct(self, msg: DirectMessageContext):
+    async def on_direct(self, msg: EventContext):
         """Handle direct project management requests."""
         text = msg.text.lower()
         
@@ -259,7 +259,7 @@ The file has been analyzed and is ready for use.
         # Add a reaction to show we processed it
         await self.react_to(msg.message_id, "check")
     
-    async def on_direct(self, msg: DirectMessageContext):
+    async def on_direct(self, msg: EventContext):
         """Handle direct messages about file processing."""
         if "file" in msg.text.lower():
             await self.send_direct(
@@ -291,7 +291,7 @@ class ProjectWorkerAgent(WorkerAgent):
         else:
             logger.info(f"📝 ProjectWorkerAgent '{self.default_agent_id}' started without project support (project mod not enabled)")
     
-    async def on_direct(self, msg: DirectMessageContext):
+    async def on_direct(self, msg: EventContext):
         """Handle direct messages with project management commands."""
         text = msg.text.lower()
         

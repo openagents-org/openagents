@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
 
 from openagents.core.base_mod import BaseMod
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ class DefaultWorkspaceNetworkMod(BaseMod):
         Returns:
             Optional response message
         """
-        if not isinstance(message, ModMessage):
+        if not isinstance(message, Event):
             return None
             
         logger.info(f"Default workspace network mod received message: {message.message_type}")

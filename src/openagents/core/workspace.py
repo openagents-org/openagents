@@ -15,7 +15,7 @@ from datetime import datetime
 from openagents.core.client import AgentClient
 
 # Removed WorkspaceEvents import - events are now handled at network level
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.config.globals import THREAD_MESSAGING_MOD_NAME, DEFAULT_CHANNELS
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ class AgentConnection:
             
         try:
             # Import here to avoid circular imports
-            from openagents.models.messages import DirectMessage
+            from openagents.models.messages import Event
             
             # Prepare message content
             if isinstance(content, str):
@@ -65,7 +65,7 @@ class AgentConnection:
                 message_content = content.copy()
             
             # Create direct message
-            direct_message = DirectMessage(
+            direct_message = Event(
                 sender_id=self._client.agent_id,
                 target_agent_id=self.agent_id,
                 content=message_content,
@@ -226,7 +226,7 @@ class ChannelConnection:
                 message_content = content.copy()
             
             # Create mod message for thread messaging
-            mod_message = ModMessage(
+            mod_message = Event(
                 sender_id=self._client.agent_id,
                 relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
@@ -276,7 +276,7 @@ class ChannelConnection:
                 message_content = content.copy()
             
             # Create mod message for thread messaging with mention
-            mod_message = ModMessage(
+            mod_message = Event(
                 sender_id=self._client.agent_id,
                 relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
@@ -322,7 +322,7 @@ class ChannelConnection:
             request_id = str(uuid.uuid4())
             
             # Create mod message to retrieve channel messages
-            mod_message = ModMessage(
+            mod_message = Event(
                 sender_id=self._client.agent_id,
                 relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
@@ -413,7 +413,7 @@ class ChannelConnection:
                 reply_content = content.copy()
             
             # Create mod message for thread messaging
-            mod_message = ModMessage(
+            mod_message = Event(
                 sender_id=self._client.agent_id,
                 relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
@@ -455,7 +455,7 @@ class ChannelConnection:
             filename = file_path.split("/")[-1] if "/" in file_path else file_path
             file_size = len(file_content)
             
-            mod_message = ModMessage(
+            mod_message = Event(
                 sender_id=self._client.agent_id,
                 relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
@@ -500,7 +500,7 @@ class ChannelConnection:
             
         try:
             # Create mod message for reaction
-            mod_message = ModMessage(
+            mod_message = Event(
                 sender_id=self._client.agent_id,
                 relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
@@ -733,7 +733,7 @@ class Workspace:
         """Send a mod message either directly to network or through connector.
         
         Args:
-            mod_message: ModMessage to send
+            mod_message: Event to send
             
         Returns:
             bool: True if message was sent successfully
@@ -741,7 +741,7 @@ class Workspace:
         # Send the message through the network's mod system if available, otherwise through connector
         if self._network and hasattr(self._network, '_handle_mod_message'):
             logger.info(f"🔧 WORKSPACE: Sending message directly to network mod system")
-            # Convert ModMessage to transport Message format for network processing
+            # Convert Event to transport Message format for network processing
             from openagents.core.transport import Message
             # Create payload with mod-specific fields and content
             payload = {
@@ -813,27 +813,27 @@ class Workspace:
         """Handle project mod responses.
         
         Args:
-            message: The message to handle (ModMessage or DirectMessage)
+            message: The message to handle (Event or Event)
         """
         try:
             logger.info(f"🔧 WORKSPACE: _handle_project_responses called with message type: {type(message).__name__}")
             
-            # Handle both ModMessage and DirectMessage responses
+            # Handle both Event and Event responses
             content = None
             is_project_response = False
             
             # Import here to avoid circular imports
-            from openagents.models.messages import ModMessage, DirectMessage
+            from openagents.models.messages import Event, EventNames, Event
             
-            if isinstance(message, ModMessage) and message.mod == "openagents.mods.project.default":
-                # ModMessage from project mod
-                logger.info(f"🔧 WORKSPACE: Received ModMessage from project mod")
+            if isinstance(message, Event) and message.mod == "openagents.mods.project.default":
+                # Event from project mod
+                logger.info(f"🔧 WORKSPACE: Received Event from project mod")
                 content = message.content
                 is_project_response = True
-            elif isinstance(message, DirectMessage) and isinstance(message.content, dict):
-                # DirectMessage from project mod
+            elif isinstance(message, Event) and isinstance(message.content, dict):
+                # Event from project mod
                 if message.content.get("mod") == "openagents.mods.project.default":
-                    logger.info(f"🔧 WORKSPACE: Received DirectMessage from project mod")
+                    logger.info(f"🔧 WORKSPACE: Received Event from project mod")
                     content = message.content
                     is_project_response = True
             
@@ -926,7 +926,7 @@ class Workspace:
             request_id = str(uuid.uuid4())
             
             # Create mod message to list channels
-            mod_message = ModMessage(
+            mod_message = Event(
                 sender_id=self._client.agent_id,
                 relevant_mod=THREAD_MESSAGING_MOD_NAME,
                 relevant_agent_id=self._client.agent_id,
@@ -1152,7 +1152,7 @@ class Workspace:
             request_id = str(uuid.uuid4())
             
             # Create mod message to start project
-            mod_message = ModMessage(
+            mod_message = Event(
                 sender_id=self._client.agent_id,
                 relevant_mod="openagents.mods.project.default",
                 relevant_agent_id=self._client.agent_id,
@@ -1228,7 +1228,7 @@ class Workspace:
             request_id = str(uuid.uuid4())
             
             # Create mod message to get project status
-            mod_message = ModMessage(
+            mod_message = Event(
                 sender_id=self._client.agent_id,
                 relevant_mod="openagents.mods.project.default",
                 relevant_agent_id=self._client.agent_id,
@@ -1298,7 +1298,7 @@ class Workspace:
             request_id = str(uuid.uuid4())
             
             # Create mod message to list projects
-            mod_message = ModMessage(
+            mod_message = Event(
                 sender_id=self._client.agent_id,
                 relevant_mod="openagents.mods.project.default",
                 relevant_agent_id=self._client.agent_id,

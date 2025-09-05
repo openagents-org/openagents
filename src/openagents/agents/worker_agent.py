@@ -15,10 +15,10 @@ from dataclasses import dataclass
 
 from openagents.agents.runner import AgentRunner
 from openagents.models.message_thread import MessageThread
-from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 from openagents.mods.communication.thread_messaging.thread_messages import (
-    DirectMessage as ThreadDirectMessage,
+    Event as ThreadEvent,
     ChannelMessage,
     ReplyMessage,
     FileUploadMessage,
@@ -60,7 +60,7 @@ class MessageContext:
 
 
 @dataclass
-class DirectMessageContext(MessageContext):
+class EventContext(MessageContext):
     """Context for direct messages."""
     target_agent_id: str
     quoted_message_id: Optional[str] = None
@@ -375,18 +375,18 @@ class WorkerAgent(AgentRunner):
         logger.debug(f"WorkerAgent '{self.default_agent_id}' processing message from {incoming_message.source_agent_id}")
         
         # Handle different message types
-        if isinstance(incoming_message, DirectMessage):
+        if isinstance(incoming_message, Event):
             await self._handle_direct_message(incoming_message)
-        elif isinstance(incoming_message, BroadcastMessage):
+        elif isinstance(incoming_message, Event):
             await self._handle_broadcast_message(incoming_message)
-        elif isinstance(incoming_message, ModMessage):
+        elif isinstance(incoming_message, Event):
             await self._handle_mod_message(incoming_message)
         else:
             logger.debug(f"Unhandled message type: {type(incoming_message)}")
 
-    async def _handle_direct_message(self, message: DirectMessage):
+    async def _handle_direct_message(self, message: Event):
         """Handle direct messages."""
-        context = DirectMessageContext(
+        context = EventContext(
             message_id=message.message_id,
             sender_id=message.sender_id,
             timestamp=message.timestamp,
@@ -403,7 +403,7 @@ class WorkerAgent(AgentRunner):
         
         await self.on_direct(context)
 
-    async def _handle_broadcast_message(self, message: BroadcastMessage):
+    async def _handle_broadcast_message(self, message: Event):
         """Handle broadcast messages (treat as channel messages to 'general')."""
         # Convert broadcast to channel message context
         context = ChannelMessageContext(
@@ -421,7 +421,7 @@ class WorkerAgent(AgentRunner):
         else:
             await self.on_channel_post(context)
 
-    async def _handle_mod_message(self, message: ModMessage):
+    async def _handle_mod_message(self, message: Event):
         """Handle mod messages from thread messaging."""
         if message.mod != 'thread_messaging':
             return
@@ -429,7 +429,7 @@ class WorkerAgent(AgentRunner):
         # This will be handled by _handle_thread_mod_message
         pass
 
-    async def _handle_thread_mod_message(self, message: ModMessage):
+    async def _handle_thread_mod_message(self, message: Event):
         """Handle thread messaging mod messages."""
         action = message.content.get("action", "")
         
@@ -442,7 +442,7 @@ class WorkerAgent(AgentRunner):
         else:
             logger.debug(f"Unhandled thread messaging action: {action}")
 
-    async def _handle_channel_notification(self, message: ModMessage):
+    async def _handle_channel_notification(self, message: Event):
         """Handle channel message notifications."""
         channel_msg_data = message.content.get("message", {})
         channel = message.content.get("channel", "")
@@ -491,7 +491,7 @@ class WorkerAgent(AgentRunner):
             
             await self.on_channel_reply(context)
 
-    async def _handle_reaction_notification(self, message: ModMessage):
+    async def _handle_reaction_notification(self, message: Event):
         """Handle reaction notifications."""
         reaction_data = message.content.get("reaction", {})
         
@@ -507,7 +507,7 @@ class WorkerAgent(AgentRunner):
         
         await self.on_reaction(context)
 
-    async def _handle_file_notification(self, message: ModMessage):
+    async def _handle_file_notification(self, message: Event):
         """Handle file upload notifications."""
         file_data = message.content.get("file", {})
         
@@ -809,7 +809,7 @@ class WorkerAgent(AgentRunner):
                 logger.error(f"Error cleaning up project subscription: {e}")
 
     # Abstract handler methods that users should override
-    async def on_direct(self, msg: DirectMessageContext):
+    async def on_direct(self, msg: EventContext):
         """Handle direct messages. Override this method."""
         pass
 
@@ -1319,7 +1319,7 @@ class WorkerAgent(AgentRunner):
             )
             
             # Send through mod message system
-            mod_message = ModMessage(
+            mod_message = Event(
                 sender_id=self.client.agent_id,
                 relevant_mod="openagents.mods.project.default",
                 direction="outbound",

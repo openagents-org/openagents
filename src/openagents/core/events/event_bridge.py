@@ -1,26 +1,24 @@
 """
 Bridge between the old message system and new event system.
 
-This module provides backward compatibility by converting between
-the old message types (DirectMessage, BroadcastMessage, ModMessage)
-and the new unified Event type.
+This module provides backward compatibility by working with the unified Event type.
+Since all messages are now Events, this bridge is simplified.
 """
 
 import logging
 from typing import Dict, Any, Optional
 
 from openagents.models.event import Event, EventVisibility, EventNames
-from ...models.messages import DirectMessage, BroadcastMessage, ModMessage
+from ...models.messages import Event as MessageEvent
 
 logger = logging.getLogger(__name__)
 
 
 class EventBridge:
     """
-    Converts between old message types and new Event type.
+    Simplified event bridge for the unified Event system.
     
-    This enables backward compatibility during the migration period
-    where both systems need to coexist.
+    Since all messages are now Events, most conversion is pass-through.
     """
     
     @staticmethod
@@ -28,40 +26,30 @@ class EventBridge:
         """
         Convert a message to an event.
         
-        Since messages now extend Event, this is mostly a pass-through
-        but ensures proper event name and visibility are set.
+        Since messages are now Events, this is a pass-through.
         
         Args:
-            message: The message to convert (now an Event)
+            message: The message to convert (already an Event)
             
         Returns:
-            Event: The event (may be the same object or a copy)
+            Event: The event (same object)
         """
-        try:
-            # Since messages now extend Event, we can return them directly
-            # but we ensure they have proper event names
-            if isinstance(message, DirectMessage):
-                if not message.event_name or message.event_name == "":
-                    message.event_name = EventNames.AGENT_DIRECT_MESSAGE_SENT
-                return message
-            elif isinstance(message, BroadcastMessage):
-                if not message.event_name or message.event_name == "":
-                    message.event_name = EventNames.NETWORK_BROADCAST_SENT
-                return message
-            elif isinstance(message, ModMessage):
-                # Event name should already be set by ModMessage.__post_init__
-                return message
-            elif isinstance(message, Event):
-                # Already an event, return as-is
-                return message
-            else:
-                raise ValueError(f"Unsupported message type: {type(message)}")
-                
-        except Exception as e:
-            logger.error(f"Error converting message to event: {e}")
-            raise
+        return message
     
-
+    @staticmethod
+    def event_to_message(event: Event) -> Event:
+        """
+        Convert an Event to a message.
+        
+        Since messages are now Events, this is a pass-through.
+        
+        Args:
+            event: The event to convert
+            
+        Returns:
+            Event: The message (same object)
+        """
+        return event
     
     @staticmethod
     def _get_mod_event_name(mod_name: str, content: Dict[str, Any]) -> str:
@@ -117,91 +105,6 @@ class EventBridge:
             # Generic mod event name
             mod_short_name = mod_name.split(".")[-1] if "." in mod_name else mod_name
             return f"{mod_short_name}.{message_type}" if message_type else f"{mod_short_name}.unknown"
-    
-    @staticmethod
-    def event_to_message(event: Event) -> Event:
-        """
-        Convert an Event to a specific message type.
-        
-        Since messages now extend Event, this creates the appropriate
-        message subclass based on the event properties.
-        
-        Args:
-            event: The event to convert
-            
-        Returns:
-            Event: The converted message (DirectMessage, BroadcastMessage, or ModMessage)
-            
-        Raises:
-            ValueError: If event cannot be converted to a message
-        """
-        try:
-            # Determine message type based on event name and properties
-            if event.event_name.startswith("agent.direct_message") or event.target_agent_id:
-                return EventBridge._event_to_direct_message(event)
-            elif event.event_name.startswith("network.broadcast"):
-                return EventBridge._event_to_broadcast_message(event)
-            elif event.relevant_mod:
-                return EventBridge._event_to_mod_message(event)
-            else:
-                # Default to broadcast message for unknown events
-                return EventBridge._event_to_broadcast_message(event)
-                
-        except Exception as e:
-            logger.error(f"Error converting event to message: {e}")
-            raise
-    
-    @staticmethod
-    def _event_to_direct_message(event: Event) -> DirectMessage:
-        """Convert Event to DirectMessage."""
-        if not event.target_agent_id:
-            raise ValueError("Direct message event must have target_agent_id")
-        
-        return DirectMessage(
-            event_id=event.event_id,
-            event_name=event.event_name,
-            timestamp=event.timestamp,
-            source_id=event.source_id,
-            target_agent_id=event.target_agent_id,
-            payload=event.payload,
-            metadata=event.metadata,
-            requires_response=event.requires_response,
-            visibility=event.visibility
-        )
-    
-    @staticmethod
-    def _event_to_broadcast_message(event: Event) -> BroadcastMessage:
-        """Convert Event to BroadcastMessage."""
-        return BroadcastMessage(
-            event_id=event.event_id,
-            event_name=event.event_name,
-            timestamp=event.timestamp,
-            source_id=event.source_id,
-            payload=event.payload,
-            metadata=event.metadata,
-            requires_response=event.requires_response,
-            visibility=event.visibility
-        )
-    
-    @staticmethod
-    def _event_to_mod_message(event: Event) -> ModMessage:
-        """Convert Event to ModMessage."""
-        if not event.relevant_mod:
-            raise ValueError("Mod message event must have relevant_mod")
-        
-        return ModMessage(
-            event_id=event.event_id,
-            event_name=event.event_name,
-            timestamp=event.timestamp,
-            source_id=event.source_id,
-            mod=event.relevant_mod,
-            relevant_mod=event.relevant_mod,
-            relevant_agent_id=event.target_agent_id or event.source_id,
-            payload=event.payload,
-            metadata=event.metadata,
-            requires_response=event.requires_response,
-            visibility=event.visibility
-        )
 
 
 class LegacyEventAdapter:

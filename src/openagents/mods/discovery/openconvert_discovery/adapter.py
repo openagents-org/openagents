@@ -9,7 +9,7 @@ MIME format conversions.
 from typing import Dict, Any, Optional, List
 import logging
 from openagents.core.base_mod_adapter import BaseModAdapter
-from openagents.models.messages import ModMessage, BroadcastMessage
+from openagents.models.messages import Event, EventNames, Event
 from openagents.models.tool import AgentAdapterTool
 from openagents.utils.message_util import get_mod_message_thread_id
 import copy
@@ -156,8 +156,8 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
             return []
         
         # Create discovery request as broadcast message to reach all agents
-        from openagents.models.messages import BroadcastMessage
-        message = BroadcastMessage(
+        from openagents.models.messages import Event
+        message = Event(
             sender_id=self.agent_id,
             mod=self.mod_name,
             message_type="broadcast_message",
@@ -184,14 +184,14 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
         logger.info(f"Agent {self.agent_id} received {len(results)} conversion discovery results")
         return results
     
-    async def process_incoming_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
+    async def process_incoming_mod_message(self, message: Event) -> Optional[Event]:
         """Process an incoming protocol message.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[ModMessage]: The processed message, or None for stopping the message from being processed further by other adapters
+            Optional[Event]: The processed message, or None for stopping the message from being processed further by other adapters
         """
         if getattr(message, 'mod', None) != self.mod_name:
             return message
@@ -210,14 +210,14 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
         
         return message
     
-    async def process_incoming_broadcast_message(self, message: BroadcastMessage) -> Optional[BroadcastMessage]:
+    async def process_incoming_broadcast_message(self, message: Event) -> Optional[Event]:
         """Process an incoming broadcast message.
         
         Args:
             message: The message to handle
         
         Returns:
-            Optional[BroadcastMessage]: The processed message, or None for stopping the message from being processed further by other adapters
+            Optional[Event]: The processed message, or None for stopping the message from being processed further by other adapters
         """
         if getattr(message, 'mod', None) != self.mod_name:
             return message
@@ -260,7 +260,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
             return
             
         # Create announcement message with explicit direction=inbound
-        message = ModMessage(
+        message = Event(
             direction="inbound",
             sender_id=self.agent_id,
             relevant_mod=self.mod_name,
@@ -329,7 +329,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
             logger.info(f"Agent {self.agent_id} responding to discovery request: found {len(matching_pairs)} matching conversions")
             
             # Send response as broadcast so it reaches all agents including the requester
-            response_message = BroadcastMessage(
+            response_message = Event(
                 sender_id=self.agent_id,
                 mod=self.mod_name,
                 message_type="broadcast_message",

@@ -8,7 +8,7 @@ from openagents.core.connector import NetworkConnector
 from openagents.core.grpc_connector import GRPCNetworkConnector
 from openagents.models.event import Event
 from openagents.core.base_mod_adapter import BaseModAdapter
-from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.core.system_commands import LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST
 from openagents.models.tool import AgentAdapterTool
 from openagents.models.message_thread import MessageThread
@@ -278,7 +278,7 @@ class AgentClient:
         logger.info(f"Unregistered mod adapter {mod_name} from agent {self.agent_id}")
         return True
     
-    async def send_direct_message(self, message: DirectMessage) -> bool:
+    async def send_direct_message(self, message: Event) -> bool:
         """Send a direct message to another agent.
         
         Args:
@@ -314,7 +314,7 @@ class AgentClient:
             traceback.print_exc()
             return False
     
-    async def send_broadcast_message(self, message: BroadcastMessage) -> None:
+    async def send_broadcast_message(self, message: Event) -> None:
         """Send a broadcast message to all agents.
         
         Args:
@@ -328,7 +328,7 @@ class AgentClient:
         if processed_message is not None:
             await self.connector.send_message(processed_message)
     
-    async def send_mod_message(self, message: ModMessage) -> bool:
+    async def send_mod_message(self, message: Event) -> bool:
         """Send a mod message to another agent.
         
         Args:
@@ -692,7 +692,7 @@ class AgentClient:
             except Exception as e:
                 logger.error(f"Error in protocol manifest callback: {e}")
     
-    async def _handle_direct_message(self, message: DirectMessage) -> None:
+    async def _handle_direct_message(self, message: Event) -> None:
         """Handle a direct message from another agent.
         
         Args:
@@ -712,7 +712,7 @@ class AgentClient:
                 import traceback
                 traceback.print_exc()
     
-    async def _handle_broadcast_message(self, message: BroadcastMessage) -> None:
+    async def _handle_broadcast_message(self, message: Event) -> None:
         """Handle a broadcast message from another agent.
         
         Args:
@@ -729,14 +729,14 @@ class AgentClient:
             except Exception as e:
                 logger.error(f"Error handling message in protocol {mod_adapter.__class__.__name__}: {e}")
     
-    async def _handle_mod_message(self, message: ModMessage) -> None:
+    async def _handle_mod_message(self, message: Event) -> None:
         """Handle a protocol message from another agent.
         
         Args:
             message: The message to handle
         """
-        logger.info(f"🔧 CLIENT: Handling ModMessage from {message.sender_id}, mod={message.mod}, action={message.content.get('action')}")
-        logger.info(f"🔧 CLIENT: ModMessage content keys: {list(message.content.keys()) if message.content else 'None'}")
+        logger.info(f"🔧 CLIENT: Handling Event from {message.sender_id}, mod={message.mod}, action={message.content.get('action')}")
+        logger.info(f"🔧 CLIENT: Event content keys: {list(message.content.keys()) if message.content else 'None'}")
         logger.info(f"🔧 CLIENT: Agent ID: {self.agent_id}, Message relevant_agent_id: {message.relevant_agent_id}")
         
         # Notify any waiting functions first
@@ -757,9 +757,9 @@ class AgentClient:
         
         # If no mod adapter processed the message, add it to message threads for agent processing
         if not processed_by_adapter:
-            logger.debug(f"ModMessage not processed by adapters, adding to message threads for agent processing")
+            logger.debug(f"Event not processed by adapters, adding to message threads for agent processing")
             
-            # Create a thread ID for the ModMessage
+            # Create a thread ID for the Event
             thread_id = f"mod_{message.mod}_{message.message_id[:8]}"
             
             # Try to add the message to any available mod adapter's message threads
@@ -770,18 +770,18 @@ class AgentClient:
                         from openagents.models.message_thread import MessageThread
                         mod_adapter.message_threads[thread_id] = MessageThread(thread_id=thread_id)
                     
-                    # Add the ModMessage to the thread
+                    # Add the Event to the thread
                     mod_adapter.message_threads[thread_id].add_message(message)
-                    logger.debug(f"Added ModMessage to thread {thread_id} in {mod_name} adapter for agent processing")
+                    logger.debug(f"Added Event to thread {thread_id} in {mod_name} adapter for agent processing")
                     added_to_thread = True
                     break
             
             if not added_to_thread:
-                logger.warning("No mod adapter message_threads available to add ModMessage")
+                logger.warning("No mod adapter message_threads available to add Event")
     
     async def wait_direct_message(self, 
-                                condition: Optional[Callable[[DirectMessage], bool]] = None,
-                                timeout: float = 30.0) -> Optional[DirectMessage]:
+                                condition: Optional[Callable[[Event], bool]] = None,
+                                timeout: float = 30.0) -> Optional[Event]:
         """Wait for a direct message that matches the given condition.
         
         Args:
@@ -789,13 +789,13 @@ class AgentClient:
             timeout: Maximum time to wait in seconds
             
         Returns:
-            DirectMessage if found within timeout, None otherwise
+            Event if found within timeout, None otherwise
         """
         return await self._wait_for_message("direct_message", condition, timeout)
     
     async def wait_broadcast_message(self, 
-                                   condition: Optional[Callable[[BroadcastMessage], bool]] = None,
-                                   timeout: float = 30.0) -> Optional[BroadcastMessage]:
+                                   condition: Optional[Callable[[Event], bool]] = None,
+                                   timeout: float = 30.0) -> Optional[Event]:
         """Wait for a broadcast message that matches the given condition.
         
         Args:
@@ -803,13 +803,13 @@ class AgentClient:
             timeout: Maximum time to wait in seconds
             
         Returns:
-            BroadcastMessage if found within timeout, None otherwise
+            Event if found within timeout, None otherwise
         """
         return await self._wait_for_message("broadcast_message", condition, timeout)
     
     async def wait_mod_message(self, 
-                             condition: Optional[Callable[[ModMessage], bool]] = None,
-                             timeout: float = 30.0) -> Optional[ModMessage]:
+                             condition: Optional[Callable[[Event], bool]] = None,
+                             timeout: float = 30.0) -> Optional[Event]:
         """Wait for a mod message that matches the given condition.
         
         Args:
@@ -817,7 +817,7 @@ class AgentClient:
             timeout: Maximum time to wait in seconds
             
         Returns:
-            ModMessage if found within timeout, None otherwise
+            Event if found within timeout, None otherwise
         """
         return await self._wait_for_message("mod_message", condition, timeout)
     
@@ -917,8 +917,8 @@ class AgentClient:
                 try:
                     # Reconstruct the message object
                     if message_data.get("message_type") == "mod_message":
-                        # Reconstruct ModMessage
-                        mod_message = ModMessage(
+                        # Reconstruct Event
+                        mod_message = Event(
                             sender_id=message_data.get("sender_id", ""),
                             mod=message_data.get("mod", ""),
                             relevant_agent_id=message_data.get("relevant_agent_id", ""),
@@ -928,10 +928,10 @@ class AgentClient:
                             timestamp=message_data.get("timestamp", 0)
                         )
                         
-                        logger.info(f"🔧 CLIENT: Processing polled ModMessage: {mod_message.mod}, action: {mod_message.action}")
+                        logger.info(f"🔧 CLIENT: Processing polled Event: {mod_message.mod}, action: {mod_message.action}")
                         await self._handle_mod_message(mod_message)
                     else:
-                        logger.debug(f"🔧 CLIENT: Skipping non-ModMessage: {message_data.get('message_type')}")
+                        logger.debug(f"🔧 CLIENT: Skipping non-Event: {message_data.get('message_type')}")
                         
                 except Exception as e:
                     logger.error(f"Error processing polled message: {e}")

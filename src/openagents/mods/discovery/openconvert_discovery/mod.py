@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, List, Set, Tuple
 import logging
 import copy
 from openagents.core.base_mod import BaseMod
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 
 logger = logging.getLogger(__name__)
@@ -138,7 +138,7 @@ class OpenConvertDiscoveryMod(BaseMod):
             Optional[Event]: Response message if needed
         """
         try:
-            # Check if this is a BroadcastMessage with conversion-related payload
+            # Check if this is a Event with conversion-related payload
             if hasattr(message, 'payload'):
                 payload = message.payload or {}
                 action = payload.get('action', '')
@@ -162,14 +162,14 @@ class OpenConvertDiscoveryMod(BaseMod):
                     matching_agents = self._find_conversion_agents(from_format, to_format, filters)
                     
                     # Create response as a direct message to the requesting agent
-                    from openagents.models.messages import DirectMessage
+                    from openagents.models.messages import Event
                     response_payload = {
                         'action': 'conversion_discovery_response',
                         'query': query,
                         'agents': matching_agents
                     }
                     
-                    return DirectMessage(
+                    return Event(
                         source_id=self._network.network_id,
                         target_agent_id=message.source_id,
                         payload=response_payload
@@ -181,7 +181,7 @@ class OpenConvertDiscoveryMod(BaseMod):
             logger.error(f"Error processing broadcast message: {e}")
             return None
 
-    async def process_mod_message(self, message: ModMessage) -> Optional[ModMessage]:
+    async def process_mod_message(self, message: Event) -> Optional[Event]:
         """Process a mod message.
         
         Args:
@@ -231,7 +231,7 @@ class OpenConvertDiscoveryMod(BaseMod):
             
             # Send response back to the requesting agent
             if self.network:
-                response = ModMessage(
+                response = Event(
                     message_type="mod_message",
                     direction="outbound",
                     sender_id=self.network.network_id,

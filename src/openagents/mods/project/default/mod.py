@@ -16,7 +16,7 @@ from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
 
 from openagents.core.base_mod import BaseMod
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 from openagents.workspace.project import Project
 from openagents.workspace.project_messages import (
@@ -128,7 +128,7 @@ class DefaultProjectNetworkMod(BaseMod):
         
         logger.info(f"Unregistered agent {agent_id} from Project mod")
     
-    async def process_mod_message(self, message: ModMessage) -> None:
+    async def process_mod_message(self, message: Event) -> None:
         """Process a mod message.
         
         Args:
@@ -628,7 +628,7 @@ class DefaultProjectNetworkMod(BaseMod):
             notification_type: Type of notification
         """
         for agent_id in project.service_agents:
-            notification = ModMessage(
+            notification = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.project.default",
                 content={
@@ -658,7 +658,7 @@ class DefaultProjectNetworkMod(BaseMod):
         """
         # Forward to project creator
         if project.creator_agent_id and project.creator_agent_id != message.sender_id:
-            notification = ModMessage(
+            notification = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.project.default",
                 content={
@@ -722,16 +722,16 @@ class DefaultProjectNetworkMod(BaseMod):
             action: Response action type
             content: Response content
         """
-        from openagents.models.messages import ModMessage
+        from openagents.models.messages import Event, EventNames
         
-        # Send response as ModMessage to ensure proper routing
+        # Send response as Event to ensure proper routing
         response_content = {
             "action": action,
             "request_id": request_id,
             **content
         }
         
-        response = ModMessage(
+        response = Event(
             sender_id=self.network.network_id,
             relevant_mod="openagents.mods.project.default",
             relevant_agent_id=agent_id,

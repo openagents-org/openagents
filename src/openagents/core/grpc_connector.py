@@ -12,7 +12,7 @@ import time
 from typing import Dict, Any, Optional, Callable, Awaitable, List
 import uuid
 
-from openagents.models.messages import DirectMessage, BroadcastMessage, ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 from openagents.utils.message_util import parse_message_dict
 from .system_commands import REGISTER_AGENT, LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST, PING_AGENT, CLAIM_AGENT_ID, VALIDATE_CERTIFICATE, POLL_MESSAGES
@@ -246,7 +246,7 @@ class GRPCNetworkConnector:
         Args:
             message: Message to consume
         """
-        if isinstance(message, ModMessage):
+        if isinstance(message, Event):
             message.relevant_agent_id = self.agent_id
             
         message_type = message.message_type
@@ -275,8 +275,8 @@ class GRPCNetworkConnector:
             if not message.source_id:
                 message.source_id = self.agent_id
             
-            # For ModMessage backward compatibility
-            if isinstance(message, ModMessage):
+            # For Event backward compatibility
+            if isinstance(message, Event):
                 if not message.relevant_agent_id:
                     message.relevant_agent_id = self.agent_id
             
@@ -297,15 +297,15 @@ class GRPCNetworkConnector:
             logger.error(f"Failed to send gRPC message: {e}")
             return False
     
-    async def send_direct_message(self, message: DirectMessage) -> bool:
+    async def send_direct_message(self, message: Event) -> bool:
         """Send a direct message to another agent."""
         return await self.send_message(message)
     
-    async def send_broadcast_message(self, message: BroadcastMessage) -> bool:
+    async def send_broadcast_message(self, message: Event) -> bool:
         """Send a broadcast message to all connected agents."""
         return await self.send_message(message)
     
-    async def send_mod_message(self, message: ModMessage) -> bool:
+    async def send_mod_message(self, message: Event) -> bool:
         """Send a mod message to another agent."""
         return await self.send_message(message)
     
@@ -423,9 +423,9 @@ class GRPCNetworkConnector:
             # Convert message content to protobuf Struct
             struct = Struct()
             
-            # For ModMessage, include mod-specific fields
-            if isinstance(message, ModMessage):
-                # Include the mod field and other ModMessage attributes
+            # For Event, include mod-specific fields
+            if isinstance(message, Event):
+                # Include the mod field and other Event attributes
                 mod_data = {
                     "mod": message.mod,
                     "action": getattr(message, 'action', None),
@@ -598,7 +598,7 @@ class GRPCNetworkConnector:
         return timestamp.ToSeconds()
     
     # Compatibility methods for existing NetworkConnector interface
-    async def wait_mod_message(self, mod_name: str, filter_dict: Optional[Dict[str, Any]] = None, timeout: float = 5.0) -> Optional[ModMessage]:
+    async def wait_mod_message(self, mod_name: str, filter_dict: Optional[Dict[str, Any]] = None, timeout: float = 5.0) -> Optional[Event]:
         """Wait for a mod message from the specified mod that matches the filter criteria."""
         if not self.is_connected:
             logger.debug(f"Agent {self.agent_id} is not connected to gRPC network")
@@ -607,7 +607,7 @@ class GRPCNetworkConnector:
         # Create a future to store the response
         response_future = asyncio.Future()
         
-        async def temp_mod_handler(msg: ModMessage) -> None:
+        async def temp_mod_handler(msg: Event) -> None:
             # Check if this is the message we're waiting for
             if (msg.mod == mod_name and 
                 msg.relevant_agent_id == self.agent_id):
@@ -643,7 +643,7 @@ class GRPCNetworkConnector:
             # Unregister the temporary handler
             self.unregister_message_handler("mod_message", temp_mod_handler)
     
-    async def wait_direct_message(self, sender_id: str, timeout: float = 5.0) -> Optional[DirectMessage]:
+    async def wait_direct_message(self, sender_id: str, timeout: float = 5.0) -> Optional[Event]:
         """Wait for a direct message from the specified sender."""
         if not self.is_connected:
             logger.debug(f"Agent {self.agent_id} is not connected to gRPC network")
@@ -653,7 +653,7 @@ class GRPCNetworkConnector:
         response_future = asyncio.Future()
         
         # Create a temporary handler that will resolve the future when the message arrives
-        async def temp_direct_handler(msg: DirectMessage) -> None:
+        async def temp_direct_handler(msg: Event) -> None:
             # Check if this is the message we're waiting for
             if msg.sender_id == sender_id:
                 response_future.set_result(msg)

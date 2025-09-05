@@ -9,7 +9,7 @@ import asyncio
 from typing import Dict, Any, List, Optional
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.tool import AgentAdapterTool
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.workspace.project import Project
 from openagents.workspace.project_messages import (
     ProjectCreationMessage,
@@ -397,7 +397,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
         )
         
         # For notifications, we don't necessarily need to wait for a response
-        mod_message = ModMessage(
+        mod_message = Event(
             sender_id=self._agent_id,
             relevant_mod="openagents.mods.project.default",
             content=message.model_dump()
@@ -456,7 +456,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
         self._pending_responses[request_id] = future
         
         # Send message
-        mod_message = ModMessage(
+        mod_message = Event(
             sender_id=self._agent_id,
             relevant_mod="openagents.mods.project.default",
             content=message.model_dump()
@@ -485,7 +485,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
         Args:
             message: Incoming message
         """
-        if isinstance(message, ModMessage) and message.mod == "openagents.mods.project.default":
+        if isinstance(message, Event) and message.mod == "openagents.mods.project.default":
             content = message.content
             action = content.get("action")
             request_id = content.get("request_id")

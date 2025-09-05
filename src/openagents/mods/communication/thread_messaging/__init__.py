@@ -20,7 +20,7 @@ Key features:
 from openagents.mods.communication.thread_messaging.adapter import ThreadMessagingAgentAdapter
 from openagents.mods.communication.thread_messaging.mod import ThreadMessagingNetworkMod
 from openagents.mods.communication.thread_messaging.thread_messages import (
-    DirectMessage,
+    Event,
     ChannelMessage,
     ReplyMessage,
     FileUploadMessage,
@@ -33,7 +33,7 @@ from openagents.mods.communication.thread_messaging.thread_messages import (
 __all__ = [
     "ThreadMessagingAgentAdapter", 
     "ThreadMessagingNetworkMod",
-    "DirectMessage",
+    "Event",
     "ChannelMessage",
     "ReplyMessage",
     "FileUploadMessage",

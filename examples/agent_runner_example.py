@@ -8,7 +8,7 @@ import logging
 from typing import Dict
 
 from openagents.agents.runner import AgentRunner
-from openagents.models.messages import DirectMessage, BroadcastMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.message_thread import MessageThread
 from openagents.models.event import Event
 
@@ -39,11 +39,11 @@ class SimpleAgent(AgentRunner):
         logger.info(f"Message type: {type(incoming_message).__name__}, Protocol: {getattr(incoming_message, 'protocol', 'N/A')}")
         
         # Handle different message types
-        if isinstance(incoming_message, DirectMessage):
+        if isinstance(incoming_message, Event):
             logger.info(f"Processing direct message from {sender_id} to {incoming_message.target_agent_id}")
             print(f"📨 Sending echo response to {sender_id}")
             # Echo direct messages back
-            echo_message = DirectMessage(
+            echo_message = Event(
                 sender_id=self.client.agent_id,
                 target_agent_id=sender_id,
                 protocol="openagents.mods.communication.simple_messaging",
@@ -56,11 +56,11 @@ class SimpleAgent(AgentRunner):
             logger.info(f"Sent echo message back to {sender_id}")
             print(f"✅ Echo sent successfully!")
             
-        elif isinstance(incoming_message, BroadcastMessage):
+        elif isinstance(incoming_message, Event):
             logger.info(f"Processing broadcast message from {sender_id}")
             # Respond to greetings in broadcast messages
             if "hello" in text.lower() and sender_id != self.client.agent_id:
-                greeting_message = DirectMessage(
+                greeting_message = Event(
                     sender_id=self.client.agent_id,
                     target_agent_id=sender_id,
                     protocol="openagents.mods.communication.simple_messaging",
@@ -82,7 +82,7 @@ class SimpleAgent(AgentRunner):
         print(f"📋 Loaded protocols: {list(self.client.mod_adapters.keys())}")
         
         # Send a greeting broadcast message
-        greeting_message = BroadcastMessage(
+        greeting_message = Event(
             sender_id=self.client.agent_id,
             protocol="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",
@@ -97,7 +97,7 @@ class SimpleAgent(AgentRunner):
         logger.info(f"Agent {self.client.agent_id} is shutting down...")
         
         # Send goodbye message
-        goodbye_message = BroadcastMessage(
+        goodbye_message = Event(
             sender_id=self.client.agent_id,
             protocol="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",

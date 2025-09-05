@@ -19,10 +19,10 @@ from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
 
 from openagents.core.base_mod import BaseMod
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 from .thread_messages import (
-    DirectMessage,
+    Event,
     ChannelMessage, 
     ReplyMessage,
     FileUploadMessage,
@@ -304,14 +304,14 @@ class ThreadMessagingNetworkMod(BaseMod):
             
             logger.info(f"Unregistered agent {agent_id} from Thread Messaging protocol")
     
-    async def process_direct_message(self, message: DirectMessage) -> Optional[DirectMessage]:
+    async def process_direct_message(self, message: Event) -> Optional[Event]:
         """Process a direct message.
         
         Args:
             message: The direct message to process
             
         Returns:
-            Optional[DirectMessage]: The processed message, or None if the message was handled
+            Optional[Event]: The processed message, or None if the message was handled
         """
         self._add_to_history(message)
         logger.debug(f"Processing direct message from {message.sender_id} to {message.target_agent_id}")
@@ -331,13 +331,13 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         return message
     
-    async def process_mod_message(self, message: ModMessage) -> None:
+    async def process_mod_message(self, message: Event) -> None:
         """Process a mod message.
         
         Args:
             message: The mod message to process
         """
-        # Extract the inner message from the ModMessage content
+        # Extract the inner message from the Event content
         try:
             content = message.content
             message_type = content.get("message_type")
@@ -376,7 +376,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                 # Populate quoted_text if quoted_message_id is provided
                 if 'quoted_message_id' in content and content['quoted_message_id']:
                     content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
-                inner_message = DirectMessage(**content)
+                inner_message = Event(**content)
                 self._add_to_history(inner_message)
                 await self._process_direct_message(inner_message)
             elif message_type == "channel_message":
@@ -448,7 +448,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Create a mod message to notify other agents about the new channel message
         for agent_id in notify_agents:
             logger.info(f"🔧 THREAD MESSAGING: Creating notification for agent: {agent_id}")
-            notification = ModMessage(
+            notification = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
@@ -470,7 +470,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                 import traceback
                 traceback.print_exc()
     
-    async def _process_direct_message(self, message: DirectMessage) -> None:
+    async def _process_direct_message(self, message: Event) -> None:
         """Process a direct message.
         
         Args:
@@ -548,7 +548,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             }
             
             # Send response with file UUID
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
@@ -567,7 +567,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         except Exception as e:
             # Send error response
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
@@ -603,7 +603,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         """
         if file_id not in self.files:
             # File not found
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
@@ -623,7 +623,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         if not file_path.exists():
             # File deleted from storage
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
@@ -646,7 +646,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             encoded_content = base64.b64encode(file_content).decode("utf-8")
             
             # Send file content
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
@@ -667,7 +667,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         except Exception as e:
             # Send error response
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
@@ -701,7 +701,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                     'agent_count': len(agents_in_channel)
                 })
             
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
@@ -743,7 +743,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         if not channel:
             # Send error response
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
@@ -760,7 +760,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         if channel not in self.channels:
             # Send error response
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
@@ -836,7 +836,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         paginated_messages = channel_messages[offset:offset + limit]
         
         # Send response
-        response = ModMessage(
+        response = Event(
             sender_id=self.network.network_id,
             relevant_mod="openagents.mods.communication.thread_messaging",
             content={
@@ -870,7 +870,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         if not target_agent_id:
             # Send error response
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
@@ -890,7 +890,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         for msg_id, msg in self.message_history.items():
             # Check if this is a direct message between the agents
             is_direct_msg_between_agents = (
-                isinstance(msg, DirectMessage) and 
+                isinstance(msg, Event) and 
                 ((msg.sender_id == agent_id and msg.target_agent_id == target_agent_id) or
                  (msg.sender_id == target_agent_id and msg.target_agent_id == agent_id))
             )
@@ -958,7 +958,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         paginated_messages = direct_messages[offset:offset + limit]
         
         # Send response
-        response = ModMessage(
+        response = Event(
             sender_id=self.network.network_id,
             relevant_mod="openagents.mods.communication.thread_messaging",
             content={
@@ -994,7 +994,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             logger.warning(f"Cannot react: target message {target_message_id} not found")
             
             # Send error response
-            response = ModMessage(
+            response = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={
@@ -1048,7 +1048,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                 logger.debug(f"{agent_id} doesn't have {reaction_type} reaction on message {target_message_id}")
         
         # Send response
-        response = ModMessage(
+        response = Event(
             sender_id=self.network.network_id,
             relevant_mod="openagents.mods.communication.thread_messaging",
             content={
@@ -1071,7 +1071,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Determine who should be notified based on the message type
         notify_agents = set()
         
-        if isinstance(target_message, DirectMessage):
+        if isinstance(target_message, Event):
             # Notify both participants in the direct conversation
             notify_agents.add(target_message.sender_id)
             notify_agents.add(target_message.target_agent_id)
@@ -1091,7 +1091,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         # Send notification to relevant agents
         for notify_agent in notify_agents:
-            notification = ModMessage(
+            notification = Event(
                 sender_id=self.network.network_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
                 content={

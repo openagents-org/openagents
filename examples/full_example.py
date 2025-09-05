@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 from openagents.core.network import AgentNetwork
 from openagents.core.client import AgentClient
-from openagents.models.messages import DirectMessage, BroadcastMessage
+from openagents.models.messages import Event, Event
 from openagents.agents.simple_echo_agent import SimpleEchoAgentRunner
 
 
@@ -152,7 +152,7 @@ class InteractiveClient:
 
     async def send_direct_message(self, target_agent_id: str, text: str):
         """Send a direct message (following agent_client_example.py pattern)."""
-        message = DirectMessage(
+        message = Event(
             sender_id=self.agent_id,
             target_agent_id=target_agent_id,
             protocol="openagents.mods.communication.simple_messaging",
@@ -167,7 +167,7 @@ class InteractiveClient:
 
     async def send_broadcast_message(self, text: str):
         """Send a broadcast message (following agent_client_example.py pattern)."""
-        message = BroadcastMessage(
+        message = Event(
             sender_id=self.agent_id,
             protocol="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",

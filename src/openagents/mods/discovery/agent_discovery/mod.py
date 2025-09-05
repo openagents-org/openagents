@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, List, Set
 import logging
 import copy
 from openagents.core.base_mod import BaseMod
-from openagents.models.messages import ModMessage
+from openagents.models.messages import Event, EventNames
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +125,7 @@ class AgentDiscoveryMod(BaseMod):
             logger.info(f"Agent {agent_id} unregistered, capabilities removed")
         return True
     
-    async def process_protocol_message(self, message: ModMessage) -> Optional[ModMessage]:
+    async def process_protocol_message(self, message: Event) -> Optional[Event]:
         """Process a protocol message.
         
         Args:
@@ -211,7 +211,7 @@ class AgentDiscoveryMod(BaseMod):
             results = self._discover_agents(query)
             
             # Send response back to the requesting agent
-            response = ModMessage(
+            response = Event(
                 direction="outbound",
                 sender_id=self.network.network_id,
                 mod=self.mod_name,

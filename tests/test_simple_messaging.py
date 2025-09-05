@@ -16,7 +16,7 @@ from typing import List, Dict, Any
 
 from src.openagents.core.network import AgentNetwork, create_network
 from src.openagents.models.network_config import NetworkConfig, NetworkMode
-from src.openagents.models.messages import DirectMessage, BroadcastMessage
+from openagents.models.messages import Event, EventNames
 
 # Configure logging for tests
 logger = logging.getLogger(__name__)
@@ -142,10 +142,11 @@ class TestSimpleMessaging:
         self.received_messages.clear()
         
         # Create a test message
-        test_message = DirectMessage(
-            sender_id=agent1_id,
+        test_message = Event(
+            event_name="agent.direct_message.sent",
+            source_id=agent1_id,
             target_agent_id=agent2_id,
-            content={"text": "Hello from TestAgent1!"},
+            payload={"text": "Hello from TestAgent1!"},
             message_type="direct"
         )
         
@@ -178,9 +179,10 @@ class TestSimpleMessaging:
         self.received_messages.clear()
         
         # Create a broadcast message
-        broadcast_message = BroadcastMessage(
-            sender_id=agent1_id,
-            content={"text": "Broadcast message from TestAgent1!"},
+        broadcast_message = Event(
+            event_name="agent.broadcast_message.sent",
+            source_id=agent1_id,
+            payload={"text": "Broadcast message from TestAgent1!"},
             message_type="broadcast"
         )
 
@@ -223,10 +225,7 @@ class TestSimpleMessaging:
             original_content = f.read()
         
         # Create a file transfer message
-        file_message = DirectMessage(
-            sender_id=agent1_id,
-            target_agent_id=agent2_id,
-            content={
+        file_message = Event(event_name="agent.direct_message.sent", source_id=agent1_id, target_agent_id=agent2_id, payload={
                 "file_data": original_content.decode('utf-8'),
                 "filename": "test_file.txt",
                 "file_size": len(original_content)
@@ -264,10 +263,11 @@ class TestSimpleMessaging:
             
             # Create a simple file transfer message
             test_content = "This is a test file content"
-            file_message = DirectMessage(
-                sender_id=agent1_id,
+            file_message = Event(
+                event_name="agent.direct_message.sent",
+                source_id=agent1_id,
                 target_agent_id=agent2_id,
-                content={
+                payload={
                     "type": "file_transfer",
                     "filename": "test.txt",
                     "data": test_content

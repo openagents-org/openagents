@@ -31,7 +31,7 @@ class Event:
     """
     Unified event structure for all network interactions.
     
-    This replaces DirectMessage, BroadcastMessage, ModMessage, and workspace events
+    This replaces Event, Event, Event, and workspace events
     with a single, flexible event type that supports all use cases.
     """
     
@@ -250,6 +250,134 @@ class Event:
             visibility=EventVisibility(data.get("visibility", EventVisibility.NETWORK.value)),
             allowed_agents=allowed_agents
         )
+    
+    # Backward compatibility properties for TransportMessage
+    @property
+    def message_id(self) -> str:
+        """Backward compatibility: message_id maps to event_id."""
+        return self.event_id
+    
+    @message_id.setter
+    def message_id(self, value: str):
+        """Backward compatibility: message_id maps to event_id."""
+        self.event_id = value
+    
+    @property
+    def sender_id(self) -> str:
+        """Backward compatibility: sender_id maps to source_id."""
+        return self.source_id
+    
+    @sender_id.setter
+    def sender_id(self, value: str):
+        """Backward compatibility: sender_id maps to source_id."""
+        self.source_id = value
+    
+    @property
+    def target_id(self) -> Optional[str]:
+        """Backward compatibility: target_id maps to target_agent_id."""
+        return self.target_agent_id
+    
+    @target_id.setter
+    def target_id(self, value: Optional[str]):
+        """Backward compatibility: target_id maps to target_agent_id."""
+        self.target_agent_id = value
+    
+    @property
+    def content(self) -> Dict[str, Any]:
+        """Backward compatibility: content maps to payload."""
+        return self.payload
+    
+    @content.setter
+    def content(self, value: Dict[str, Any]):
+        """Backward compatibility: content maps to payload."""
+        self.payload = value
+    
+    @property
+    def message_type(self) -> str:
+        """Backward compatibility: extract message_type from event_name."""
+        if "direct" in self.event_name:
+            return "direct_message"
+        elif "broadcast" in self.event_name:
+            return "broadcast_message"
+        elif "mod" in self.event_name:
+            return "mod_message"
+        else:
+            return "event"
+    
+    @message_type.setter
+    def message_type(self, value: str):
+        """Backward compatibility: message_type influences event_name."""
+        # Keep the existing event_name but add a warning
+        logger.warning(f"Setting message_type '{value}' on Event is deprecated. Use event_name instead.")
+    
+    @property
+    def timestamp_float(self) -> float:
+        """Get timestamp as float for backward compatibility."""
+        return float(self.timestamp) / 1000.0
+    
+    def model_dump(self) -> Dict[str, Any]:
+        """Pydantic-style model dump for backward compatibility."""
+        return {
+            "event_id": self.event_id,
+            "event_name": self.event_name,
+            "timestamp": self.timestamp,
+            "source_id": self.source_id,
+            "source_type": self.source_type,
+            "target_agent_id": self.target_agent_id,
+            "target_channel": self.target_channel,
+            "relevant_mod": self.relevant_mod,
+            "requires_response": self.requires_response,
+            "response_to": self.response_to,
+            "payload": self.payload,
+            "metadata": self.metadata,
+            "text_representation": self.text_representation,
+            "visibility": self.visibility.value if hasattr(self.visibility, 'value') else self.visibility,
+            "allowed_agents": list(self.allowed_agents) if self.allowed_agents else None,
+            # Backward compatibility fields
+            "message_id": self.event_id,
+            "sender_id": self.source_id,
+            "target_id": self.target_agent_id,
+            "message_type": self.message_type
+        }
+    
+    @classmethod
+    def from_legacy_data(cls, **data) -> 'Event':
+        """Create Event from legacy message data."""
+        # Map old field names to Event field names
+        event_data = {}
+        
+        if 'message_id' in data:
+            event_data['event_id'] = data.pop('message_id')
+        if 'sender_id' in data:
+            event_data['source_id'] = data.pop('sender_id')
+        if 'target_id' in data:
+            event_data['target_agent_id'] = data.pop('target_id')
+        if 'message_type' in data:
+            # Convert legacy message_type to proper event_name
+            message_type = data.pop('message_type')
+            if message_type == 'direct_message':
+                event_data['event_name'] = 'agent.direct_message.sent'
+            elif message_type == 'broadcast_message':
+                event_data['event_name'] = 'agent.broadcast_message.sent'
+            elif message_type == 'mod_message':
+                event_data['event_name'] = 'mod.generic.message_received'
+            else:
+                event_data['event_name'] = 'network.transport.sent'
+        if 'content' in data:
+            event_data['payload'] = data.pop('content')
+        
+        # Add remaining data
+        event_data.update(data)
+        
+        # Ensure required Event fields are set
+        if not event_data.get('event_id'):
+            event_data['event_id'] = str(uuid.uuid4())
+        if not event_data.get('event_name'):
+            event_data['event_name'] = 'network.transport.sent'
+        if not event_data.get('source_id'):
+            event_data['source_id'] = 'transport'
+        
+        return cls(**event_data)
 
 
 @dataclass

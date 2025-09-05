@@ -5,14 +5,13 @@ from .transport import (
     ConnectionState,
     PeerMetadata,
     ConnectionInfo,
-    AgentInfo,
-    TransportMessage
+    AgentInfo
 )
 
 from .messages import (
-    DirectMessage,
-    BroadcastMessage,
-    ModMessage
+    Event,
+    EventVisibility,
+    EventNames
 )
 
 from .network_config import (
@@ -28,11 +27,10 @@ __all__ = [
     "PeerMetadata",
     "ConnectionInfo",
     "AgentInfo",
-    "TransportMessage",
-    # Message models (now Event-based)
-    "DirectMessage",
-    "BroadcastMessage", 
-    "ModMessage",
+    # Event models (unified message system)
+    "Event",
+    "EventVisibility",
+    "EventNames",
     # Config models
     "NetworkConfig",
     "OpenAgentsConfig",

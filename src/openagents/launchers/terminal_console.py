@@ -11,7 +11,7 @@ import uuid
 from typing import Dict, Any, Optional, List
 
 from openagents.core.client import AgentClient
-from openagents.models.messages import DirectMessage, BroadcastMessage
+from openagents.models.messages import Event, EventNames
 from openagents.core.system_commands import LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST
 from openagents.utils.verbose import verbose_print
 
@@ -129,7 +129,7 @@ class ConsoleAgent:
             print("Not connected to a network server")
             return False
         
-        message = DirectMessage(
+        message = Event(
             sender_id=self.agent_id,
             target_agent_id=target_id,
             content={"text": content},
@@ -167,7 +167,7 @@ class ConsoleAgent:
             print("Not connected to a network server")
             return False
         
-        message = BroadcastMessage(
+        message = Event(
             sender_id=self.agent_id,
             content={"text": content},
             metadata={"type": "text"},
@@ -235,7 +235,7 @@ class ConsoleAgent:
         
         return await self.agent.send_system_request(command, **kwargs)
     
-    async def _handle_direct_message(self, message: DirectMessage) -> None:
+    async def _handle_direct_message(self, message: Event) -> None:
         """Handle a direct message from another agent.
         
         Args:
@@ -252,7 +252,7 @@ class ConsoleAgent:
         print(f"\n[DM from {sender_id}]: {content}")
         print("> ", end="", flush=True)
     
-    async def _handle_broadcast_message(self, message: BroadcastMessage) -> None:
+    async def _handle_broadcast_message(self, message: Event) -> None:
         """Handle a broadcast message from another agent.
         
         Args:

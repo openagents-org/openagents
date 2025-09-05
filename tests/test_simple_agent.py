@@ -18,7 +18,7 @@ from openagents.agents.simple_agent import (
     SimpleGenericProvider
 )
 from openagents.models.message_thread import MessageThread
-from openagents.models.messages import DirectMessage
+from openagents.models.messages import Event
 
 
 class TestSimpleAgentRunner:
@@ -224,7 +224,7 @@ class TestSimpleAgentRunnerWithMockedAPI:
     @pytest.fixture
     def test_message(self):
         """Create a test message."""
-        return DirectMessage(
+        return Event(
             sender_id="test-user",
             target_agent_id="test-agent",
             content={"text": "Hello, test agent!"},

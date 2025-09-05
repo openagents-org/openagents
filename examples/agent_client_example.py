@@ -8,7 +8,7 @@ This script demonstrates how to connect an agent to a centralized network using 
 import asyncio
 import logging
 from openagents.core.client import AgentClient
-from openagents.models.messages import DirectMessage, BroadcastMessage
+from openagents.models.messages import Event, Event
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -64,7 +64,7 @@ async def main():
         
         # Send a broadcast message
         print("Sending broadcast message...")
-        broadcast_msg = BroadcastMessage(
+        broadcast_msg = Event(
             sender_id=agent_id,
             protocol="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",

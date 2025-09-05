@@ -14,7 +14,7 @@ from pathlib import Path
 # Add the OpenAgents source to the path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from openagents.agents.worker_agent import WorkerAgent, ChannelMessageContext, DirectMessageContext
+from openagents.agents.worker_agent import WorkerAgent, ChannelMessageContext, EventContext
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

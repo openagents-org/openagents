@@ -2,7 +2,7 @@
 Unified event system for OpenAgents.
 
 This module provides a unified event-based architecture that replaces
-the current message system (DirectMessage, BroadcastMessage, ModMessage)
+the current message system (Event, Event, Event)
 with a single Event type and global EventBus.
 
 Key Components:

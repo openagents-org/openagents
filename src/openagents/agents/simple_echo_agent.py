@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 
 from openagents.agents.runner import AgentRunner
 from openagents.models.message_thread import MessageThread
-from openagents.models.messages import DirectMessage, BroadcastMessage
+from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 
 logger = logging.getLogger(__name__)
@@ -52,17 +52,18 @@ class SimpleEchoAgentRunner(AgentRunner):
             text = str(content)
         
         # Handle different message types
-        if isinstance(incoming_message, DirectMessage):
+        if isinstance(incoming_message, Event):
             logger.info(f"Processing direct message from {sender_id}")
             
             # Create echo response
             echo_text = f"{self.echo_prefix}: {text}"
-            echo_message = DirectMessage(
-                sender_id=self.client.agent_id,
+            echo_message = Event(
+                event_name="agent.direct_message.sent",
+                source_id=self.client.agent_id,
                 target_agent_id=sender_id,
                 protocol="openagents.mods.communication.simple_messaging",
                 message_type="direct_message",
-                content={"text": echo_text},
+                payload={"text": echo_text},
                 text_representation=echo_text,
                 requires_response=False
             )
@@ -71,18 +72,19 @@ class SimpleEchoAgentRunner(AgentRunner):
             await self.client.send_direct_message(echo_message)
             logger.info(f"✅ Sent echo message back to {sender_id}: {echo_text}")
             
-        elif isinstance(incoming_message, BroadcastMessage):
+        elif isinstance(incoming_message, Event):
             logger.info(f"Processing broadcast message from {sender_id}")
             
             # Respond to greetings in broadcast messages
             if "hello" in text.lower() and sender_id != self.client.agent_id:
                 greeting_text = f"Hello {sender_id}! I'm an echo agent. Send me a direct message and I'll echo it back!"
-                greeting_message = DirectMessage(
-                    sender_id=self.client.agent_id,
+                greeting_message = Event(
+                    event_name="agent.direct_message.sent",
+                    source_id=self.client.agent_id,
                     target_agent_id=sender_id,
                     protocol="openagents.mods.communication.simple_messaging",
                     message_type="direct_message",
-                    content={"text": greeting_text},
+                    payload={"text": greeting_text},
                     text_representation=greeting_text,
                     requires_response=False
                 )
@@ -101,11 +103,12 @@ class SimpleEchoAgentRunner(AgentRunner):
         
         # Announce presence to the network
         announcement_text = f"Echo agent {self.client.agent_id} is online! Send me a direct message and I'll echo it back."
-        greeting = BroadcastMessage(
-            sender_id=self.client.agent_id,
+        greeting = Event(
+            event_name="agent.broadcast_message.sent",
+            source_id=self.client.agent_id,
             relevant_mod="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message", 
-            content={"text": announcement_text},
+            payload={"text": announcement_text},
             text_representation=announcement_text,
             requires_response=False
         )
@@ -121,11 +124,12 @@ class SimpleEchoAgentRunner(AgentRunner):
         
         # Send goodbye message
         goodbye_text = f"Echo agent {self.client.agent_id} is going offline. Processed {self.message_count} messages total."
-        goodbye = BroadcastMessage(
-            sender_id=self.client.agent_id,
+        goodbye = Event(
+            event_name="agent.broadcast_message.sent",
+            source_id=self.client.agent_id,
             relevant_mod="openagents.mods.communication.simple_messaging",
             message_type="broadcast_message",
-            content={"text": goodbye_text},
+            payload={"text": goodbye_text},
             text_representation=goodbye_text,
             requires_response=False
         )
