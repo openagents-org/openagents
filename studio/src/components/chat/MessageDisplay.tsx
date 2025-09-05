@@ -436,7 +436,10 @@ const MessageDisplay: React.FC<MessageDisplayProps> = ({
   };
 
   const formatTimestamp = (timestamp: string): string => {
-    const date = new Date(timestamp);
+    // Convert timestamp to milliseconds if it's in seconds (Unix timestamp)
+    const timestampNum = parseInt(timestamp);
+    const timestampMs = timestampNum < 1e10 ? timestampNum * 1000 : timestampNum;
+    const date = new Date(timestampMs);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / (1000 * 60));
@@ -633,7 +636,11 @@ const MessageDisplay: React.FC<MessageDisplayProps> = ({
   const threadStructure = buildThreadStructure();
   const rootMessages = messages
     .filter(m => !m.reply_to_id)
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    .sort((a, b) => {
+      const aTime = parseInt(a.timestamp) < 1e10 ? parseInt(a.timestamp) * 1000 : parseInt(a.timestamp);
+      const bTime = parseInt(b.timestamp) < 1e10 ? parseInt(b.timestamp) * 1000 : parseInt(b.timestamp);
+      return aTime - bTime;
+    });
 
   return (
     <div className={`message-display ${currentTheme}`}>

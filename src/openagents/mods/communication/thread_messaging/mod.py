@@ -240,22 +240,51 @@ class ThreadMessagingNetworkMod(BaseMod):
             agent_id: Unique identifier for the agent
             metadata: Agent metadata including capabilities
         """
+        logger.info(f"🎯 THREAD MESSAGING MOD: Registering agent {agent_id}")
+        logger.info(f"🎯 THREAD MESSAGING MOD: Agent metadata: {metadata}")
+        
         self.active_agents.add(agent_id)
         
-        # Add agent to all channels by default
-        self.agent_channels[agent_id] = set()
+        # CRITICAL FIX: Add agent to all channels by default
+        # This ensures Studio UI and all agents receive channel messages
+        if agent_id not in self.agent_channels:
+            self.agent_channels[agent_id] = set()
+        
+        # Force add to all existing channels
+        channels_before = len(self.channels)
         for channel_name in self.channels.keys():
+            if channel_name not in self.channel_agents:
+                self.channel_agents[channel_name] = set()
+            
+            # Add agent to channel
+            was_in_channel = agent_id in self.channel_agents[channel_name]
             self.channel_agents[channel_name].add(agent_id)
             self.agent_channels[agent_id].add(channel_name)
-            logger.info(f"Added agent {agent_id} to channel {channel_name}")
+            
+            if not was_in_channel:
+                logger.info(f"✅ AUTO-ADDED agent {agent_id} to channel '{channel_name}' (total agents: {len(self.channel_agents[channel_name])})")
+            else:
+                logger.info(f"ℹ️  Agent {agent_id} already in channel '{channel_name}'")
+        
+        # If no channels exist yet, create general channel and add agent
+        if channels_before == 0:
+            logger.info(f"🏗️  Creating default 'general' channel for first agent {agent_id}")
+            self._create_channel("general", "General discussion channel")
+            self.channel_agents["general"].add(agent_id)
+            self.agent_channels[agent_id].add("general")
         
         # Create agent-specific file storage directory
         agent_storage_path = self.file_storage_path / agent_id
         os.makedirs(agent_storage_path, exist_ok=True)
         
-        logger.info(f"Registered agent {agent_id} with Thread Messaging protocol")
-        logger.info(f"Current active agents: {self.active_agents}")
-        logger.info(f"Channel agents mapping: {dict(self.channel_agents)}")
+        logger.info(f"🎉 THREAD MESSAGING MOD: Successfully registered agent {agent_id}")
+        logger.info(f"📊 Total active agents: {len(self.active_agents)} -> {self.active_agents}")
+        
+        # Log detailed channel membership for debugging
+        for ch_name, ch_agents in self.channel_agents.items():
+            logger.info(f"📺 Channel '{ch_name}': {len(ch_agents)} agents -> {list(ch_agents)}")
+        
+        logger.info(f"🔗 Agent {agent_id} channels: {list(self.agent_channels[agent_id])}")
     
     def handle_unregister_agent(self, agent_id: str) -> None:
         """Unregister an agent from the thread messaging protocol.
@@ -435,9 +464,11 @@ class ThreadMessagingNetworkMod(BaseMod):
             
             try:
                 await self.network.send_message(notification)
-                logger.info(f"🔧 THREAD MESSAGING: Sent channel message notification to agent {agent_id}")
+                logger.info(f"✅ THREAD MESSAGING: Sent channel message notification to agent {agent_id}")
             except Exception as e:
-                logger.error(f"🔧 THREAD MESSAGING: Failed to send channel message notification to {agent_id}: {e}")
+                logger.error(f"❌ THREAD MESSAGING: Failed to send channel message notification to {agent_id}: {e}")
+                import traceback
+                traceback.print_exc()
     
     async def _process_direct_message(self, message: DirectMessage) -> None:
         """Process a direct message.

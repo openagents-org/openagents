@@ -47,7 +47,7 @@ class AINewsWorkerAgent(WorkerAgent):
     
     default_agent_id = "ai-news-bot"
     auto_mention_response = True
-    default_channels = ["general", "#ai-news", "#research", "#tools"]
+    default_channels = ["#general", "#ai-news", "#research", "#tools"]
     
     def __init__(self, **kwargs):
         """Initialize the AI News Worker Agent."""
@@ -133,7 +133,7 @@ class AINewsWorkerAgent(WorkerAgent):
         
         try:
             await self._thread_adapter.send_channel_message(
-                channel="general",
+                channel="#general",
                 text=startup_message
             )
             logger.info("✅ Successfully sent startup message to general channel")

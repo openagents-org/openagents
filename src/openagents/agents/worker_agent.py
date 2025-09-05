@@ -909,7 +909,7 @@ class WorkerAgent(AgentRunner):
         await self._thread_adapter.send_channel_message(
             channel=channel,
             text=text,
-            target_agent=mention,
+            mentioned_agent_id=mention,
             quote=quote
         )
         logger.debug(f"Sent channel message to {channel}: {text}")

@@ -215,13 +215,13 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         await self.connector.send_mod_message(message)
         logger.debug(f"Sent direct message to {target_agent_id}")
     
-    async def send_channel_message(self, channel: str, text: str, target_agent: Optional[str] = None, quote: Optional[str] = None) -> None:
+    async def send_channel_message(self, channel: str, text: str, mentioned_agent_id: Optional[str] = None, quote: Optional[str] = None) -> None:
         """Send a message into a channel, optionally mentioning an agent.
         
         Args:
             channel: Channel name
             text: Message text content  
-            target_agent: Optional agent ID to mention/tag
+            mentioned_agent_id: Optional agent ID to mention/tag
             quote: Optional message ID to quote
         """
         if self.connector is None:
@@ -242,7 +242,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         channel_msg = ChannelMessage(
             sender_id=self.agent_id,
             channel=channel,
-            mentioned_agent_id=target_agent,
+            mentioned_agent_id=mentioned_agent_id,
             content=content,
             quoted_message_id=quoted_message_id,
             quoted_text=quoted_text
@@ -1017,7 +1017,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                         "type": "string",
                         "description": "Text content of the message"
                     },
-                    "target_agent": {
+                    "mentioned_agent_id": {
                         "type": "string",
                         "description": "Optional agent ID to mention/tag in the channel"
                     },

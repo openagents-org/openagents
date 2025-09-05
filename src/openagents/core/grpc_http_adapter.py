@@ -348,7 +348,7 @@ class GRPCHTTPAdapter:
                     return {'success': True, 'agents': agent_list}
                 
                 # Handle thread messaging commands by converting to mod messages
-                if command in ['get_channel_messages', 'list_channels', 'react_to_message']:
+                if command in ['get_channel_messages', 'list_channels', 'react_to_message', 'send_channel_message']:
                     return await self._handle_thread_messaging_command(agent_id, command, data)
                 
                 # Handle mod checking command
@@ -482,6 +482,17 @@ class GRPCHTTPAdapter:
                     "target_message_id": data.get('target_message_id'),
                     "reaction_type": data.get('reaction_type'),
                     "action": data.get('action', 'add')
+                }
+            elif command == 'send_channel_message':
+                # Create a ChannelMessage with proper payload structure
+                message_text = data.get('message', '')
+                mod_content = {
+                    "message_type": data.get('message_type', 'channel_message'),
+                    "sender_id": agent_id,
+                    "channel": data.get('channel', 'general'),
+                    "text": message_text,  # For compatibility
+                    "payload": {"text": message_text},  # The Event payload field
+                    "timestamp": int(time.time())
                 }
             else:
                 return {'success': False, 'error': f'Unknown thread messaging command: {command}'}
@@ -683,6 +694,18 @@ class GRPCHTTPAdapter:
                     if not future.done():
                         logger.info(f"🔧 Resolving pending request {request_id} with nested response")
                         future.set_result(content)
+                        return True
+            
+            # Also check in payload field (for ModMessage responses)
+            payload = message.get('payload', {})
+            if isinstance(payload, dict):
+                request_id = payload.get('request_id')
+                logger.info(f"🔧 Found request_id in payload: {request_id}")
+                if request_id and hasattr(self, '_pending_requests') and request_id in self._pending_requests:
+                    future = self._pending_requests[request_id]
+                    if not future.done():
+                        logger.info(f"🔧 Resolving pending request {request_id} with payload response")
+                        future.set_result(payload)
                         return True
             
             return False

@@ -452,7 +452,11 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
       if (existingIndex === -1) {
         newMessages[conversationKey].push(message);
         // Sort by timestamp
-        newMessages[conversationKey].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        newMessages[conversationKey].sort((a, b) => {
+          const aTime = parseInt(a.timestamp) < 1e10 ? parseInt(a.timestamp) * 1000 : parseInt(a.timestamp);
+          const bTime = parseInt(b.timestamp) < 1e10 ? parseInt(b.timestamp) * 1000 : parseInt(b.timestamp);
+          return aTime - bTime;
+        });
       }
       
       return { ...prev, messages: newMessages };
@@ -531,9 +535,11 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
     lastMessageTimeRef.current = Date.now();
     
     if (messages && messages.length > 0) {
-      const sortedMessages = messages.sort((a: ThreadMessage, b: ThreadMessage) => 
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-      );
+      const sortedMessages = messages.sort((a: ThreadMessage, b: ThreadMessage) => {
+        const aTime = parseInt(a.timestamp) < 1e10 ? parseInt(a.timestamp) * 1000 : parseInt(a.timestamp);
+        const bTime = parseInt(b.timestamp) < 1e10 ? parseInt(b.timestamp) * 1000 : parseInt(b.timestamp);
+        return aTime - bTime;
+      });
 
       // Check for mentions in new messages (only notify for unread messages)
       sortedMessages.forEach((message: ThreadMessage) => {
@@ -573,9 +579,11 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
     console.log('📥 Messages received:', messages?.length || 0);
     
     if (messages && messages.length > 0) {
-      const sortedMessages = messages.sort((a: ThreadMessage, b: ThreadMessage) => 
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-      );
+      const sortedMessages = messages.sort((a: ThreadMessage, b: ThreadMessage) => {
+        const aTime = parseInt(a.timestamp) < 1e10 ? parseInt(a.timestamp) * 1000 : parseInt(a.timestamp);
+        const bTime = parseInt(b.timestamp) < 1e10 ? parseInt(b.timestamp) * 1000 : parseInt(b.timestamp);
+        return aTime - bTime;
+      });
 
       // Check for mentions in new messages (only notify for unread messages)
       sortedMessages.forEach((message: ThreadMessage) => {
@@ -668,9 +676,11 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
       };
       
       // Add the new message and sort by timestamp
-      const updatedMessages = [...existingMessages, messageWithReactions].sort((a: ThreadMessage, b: ThreadMessage) => 
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-      );
+      const updatedMessages = [...existingMessages, messageWithReactions].sort((a: ThreadMessage, b: ThreadMessage) => {
+        const aTime = parseInt(a.timestamp) < 1e10 ? parseInt(a.timestamp) * 1000 : parseInt(a.timestamp);
+        const bTime = parseInt(b.timestamp) < 1e10 ? parseInt(b.timestamp) * 1000 : parseInt(b.timestamp);
+        return aTime - bTime;
+      });
       
       return {
         ...prev,

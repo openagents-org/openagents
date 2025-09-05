@@ -748,7 +748,7 @@ class TestThreadMessagingAgentAdapterRedesigned:
         await self.adapter.send_channel_message(
             channel="development",
             text="Feature is ready!",
-            target_agent="bob",
+            mentioned_agent_id="bob",
             quote="feature_request_id"
         )
         
@@ -1116,7 +1116,7 @@ class TestThreadMessagingIntegration:
             await self.alice_adapter.send_channel_message(
                 channel="development",
                 text=f"Here's the new auth module: {file_uuid}",
-                target_agent="bob"
+                mentioned_agent_id="bob"
             )
             
             share_msg = self.alice_adapter.connector.send_mod_message.call_args[0][0]
