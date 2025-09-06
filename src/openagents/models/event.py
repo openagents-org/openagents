@@ -295,11 +295,11 @@ class Event:
     @property
     def message_type(self) -> str:
         """Backward compatibility: extract message_type from event_name."""
-        if "direct" in self.event_name:
+        if self.event_name.startswith("agent.direct_message."):
             return "direct_message"
-        elif "broadcast" in self.event_name:
+        elif self.event_name.startswith("agent.broadcast_message."):
             return "broadcast_message"
-        elif "mod" in self.event_name:
+        elif self.event_name.startswith("mod."):
             return "mod_message"
         else:
             return "event"

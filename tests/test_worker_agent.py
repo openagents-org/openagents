@@ -127,9 +127,10 @@ class TestMessageHandling:
         """Test direct message handling."""
         # Create a direct message
         message = Event(
-            sender_id="user1",
+            event_name="agent.direct_message.received",
+            source_id="user1",
             target_agent_id="test-agent",
-            content={"text": "Hello agent!"},
+            payload={"text": "Hello agent!"},
             text_representation="Hello agent!"
         )
         

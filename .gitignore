@@ -178,3 +178,4 @@ cython_debug/
 temp
 openagents_workspace/
 CLAUDE.md
+reports/

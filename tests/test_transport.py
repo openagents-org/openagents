@@ -23,7 +23,7 @@ class TestEvent:
     
     def test_create_transport_message(self):
         """Test creating a transport message."""
-        message = Event(
+        message = Message(
             source_id="agent1",
             target_id="agent2",
             message_type="direct",
@@ -31,10 +31,10 @@ class TestEvent:
         )
         
         assert message.source_id == "agent1"
-        assert message.target_id == "agent2"
-        assert message.message_type == "direct_message"
+        assert message.target_agent_id == "agent2"
+        assert message.event_name == "agent.direct_message.sent"
         assert message.payload["content"] == "Hello!"
-        assert message.message_id is not None
+        assert message.event_id is not None
         assert message.timestamp > 0
 
 
