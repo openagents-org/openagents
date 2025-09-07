@@ -158,15 +158,13 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
         # Create discovery request as broadcast message to reach all agents
         from openagents.models.messages import Event
         message = Event(
-            sender_id=self.agent_id,
-            mod=self.mod_name,
-            message_type="broadcast_message",
-            content={
+            event_name="discovery.conversion.request",
+            source_id=self.agent_id,
+            relevant_mod=self.mod_name,
+            payload={
                 "action": DISCOVER_CONVERSION_AGENTS,
                 "query": query
-            },
-            text_representation=None,
-            requires_response=False
+            }
         )
         
         # Clear any previous results
@@ -193,18 +191,18 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
         Returns:
             Optional[Event]: The processed message, or None for stopping the message from being processed further by other adapters
         """
-        if getattr(message, 'mod', None) != self.mod_name:
+        if getattr(message, 'relevant_mod', None) != self.mod_name:
             return message
         
         # Handle conversion discovery requests
-        if message.content.get("action") == DISCOVER_CONVERSION_AGENTS:
-            logger.info(f"Agent {self.agent_id} received conversion discovery request from {message.sender_id}")
+        if message.payload.get("action") == DISCOVER_CONVERSION_AGENTS:
+            logger.info(f"Agent {self.agent_id} received conversion discovery request from {message.source_id}")
             await self._handle_discovery_request(message)
             return None
         
         # Handle conversion discovery results
-        if message.content.get("action") == "conversion_discovery_results":
-            logger.info(f"Agent {self.agent_id} received conversion discovery results: {len(message.content.get('results', []))} agents")
+        if message.payload.get("action") == "conversion_discovery_results":
+            logger.info(f"Agent {self.agent_id} received conversion discovery results: {len(message.payload.get('results', []))} agents")
             # The results will be handled by the discover_conversion_agents method
             return None
         
@@ -219,23 +217,23 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
         Returns:
             Optional[Event]: The processed message, or None for stopping the message from being processed further by other adapters
         """
-        if getattr(message, 'mod', None) != self.mod_name:
+        if getattr(message, 'relevant_mod', None) != self.mod_name:
             return message
         
         # Handle conversion discovery requests
-        if message.content.get("action") == DISCOVER_CONVERSION_AGENTS:
-            logger.info(f"Agent {self.agent_id} received broadcast conversion discovery request from {message.sender_id}")
+        if message.payload.get("action") == DISCOVER_CONVERSION_AGENTS:
+            logger.info(f"Agent {self.agent_id} received broadcast conversion discovery request from {message.source_id}")
             await self._handle_discovery_request(message)
             return None
         
         # Handle conversion discovery results
-        if message.content.get("action") == "conversion_discovery_results":
+        if message.payload.get("action") == "conversion_discovery_results":
             # Only process if this response is meant for us
-            responding_to = message.content.get("responding_to")
+            responding_to = message.payload.get("responding_to")
             if responding_to == self.agent_id:
-                logger.info(f"Agent {self.agent_id} received discovery results broadcast from {message.sender_id}")
+                logger.info(f"Agent {self.agent_id} received discovery results broadcast from {message.source_id}")
                 # Store the results for the waiting discovery method
-                results = message.content.get("results", [])
+                results = message.payload.get("results", [])
                 self._pending_discovery_results.extend(results)
             return None
         
@@ -261,17 +259,14 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
             
         # Create announcement message with explicit direction=inbound
         message = Event(
-            direction="inbound",
-            sender_id=self.agent_id,
+            event_name="discovery.conversion.announce",
+            source_id=self.agent_id,
             relevant_mod=self.mod_name,
-            message_type="mod_message",
-            relevant_agent_id=self.agent_id,
-            content={
+            target_agent_id=self.agent_id,
+            payload={
                 "action": ANNOUNCE_CONVERSION_CAPABILITIES,
                 "conversion_capabilities": capabilities_copy
-            },
-            text_representation=None,
-            requires_response=False
+            }
         )
         
         logger.debug(f"Sending conversion capabilities message: {message.content}")
@@ -286,7 +281,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
             message: The discovery request message
         """
         # Don't respond to our own discovery requests
-        if message.sender_id == self.agent_id:
+        if message.source_id == self.agent_id:
             logger.debug(f"Agent {self.agent_id} ignoring its own discovery request")
             return
             
@@ -294,7 +289,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
             logger.debug(f"Agent {self.agent_id} cannot respond to discovery request: no capabilities or not connected")
             return
         
-        query = message.content.get("query", {})
+        query = message.payload.get("query", {})
         from_mime = query.get("from_mime")
         to_mime = query.get("to_mime")
         
@@ -330,16 +325,14 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
             
             # Send response as broadcast so it reaches all agents including the requester
             response_message = Event(
-                sender_id=self.agent_id,
-                mod=self.mod_name,
-                message_type="broadcast_message",
-                content={
+                event_name="discovery.conversion.response",
+                source_id=self.agent_id,
+                relevant_mod=self.mod_name,
+                payload={
                     "action": "conversion_discovery_results",
                     "results": [agent_info],
-                    "responding_to": message.sender_id  # Track which agent this responds to
-                },
-                text_representation=None,
-                requires_response=False
+                    "responding_to": message.source_id  # Track which agent this responds to
+                }
             )
             
             await self.connector.send_broadcast_message(response_message)

@@ -181,7 +181,7 @@ class OpenConvertDiscoveryMod(BaseMod):
             logger.error(f"Error processing broadcast message: {e}")
             return None
 
-    async def process_mod_message(self, message: Event) -> Optional[Event]:
+    async def process_system_message(self, message: Event) -> Optional[Event]:
         """Process a mod message.
         
         Args:
@@ -190,7 +190,7 @@ class OpenConvertDiscoveryMod(BaseMod):
         Returns:
             Optional response message
         """
-        logger.debug(f"process_mod_message called with message: {message}")
+        logger.debug(f"process_system_message called with message: {message}")
         
         if not message or not message.content:
             logger.warning("Received empty protocol message")
@@ -250,6 +250,7 @@ class OpenConvertDiscoveryMod(BaseMod):
                 logger.info(f"Sent conversion discovery results to agent {sender_id} for query: {query}")
             else:
                 logger.warning("Cannot send response: network not available")
+        return message
     
     def _update_agent_conversion_capabilities(self, agent_id: str, capabilities: Dict[str, Any]) -> None:
         """Update the conversion capabilities for an agent.

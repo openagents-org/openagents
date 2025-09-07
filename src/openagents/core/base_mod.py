@@ -124,35 +124,60 @@ class BaseMod(ABC):
         """
         self._config.update(config)
 
-    async def process_mod_message(self, message: Event) -> None:
-        """Process a message sent to this mod.
+    async def process_system_message(self, message: Event) -> Optional[Event]:
+        """Process a system message in the ordered mod pipeline.
+        
+        System messages are processed through all mods in order. This is called for:
+        - Inbound system messages (agent → system): processed by all mods, then network core
+        - Internal system messages (mod → network): processed by all mods, then network core
+        
+        If this mod handles the message and wants to stop further processing,
+        return None. Otherwise, return the original or modified message to continue
+        processing through the next mod in the pipeline.
         
         Args:
-            message: The message to handle
+            message: The system message to handle (event_name not starting with "agent.direct_message." or "agent.broadcast_message.")
         
         Returns:
-            None
+            Optional[Event]: Processed message to continue processing, or None to stop propagation
         """
+        return message
 
     async def process_direct_message(self, message: Event) -> Optional[Event]:
-        """Process a message received from an agent directed to another agent.
+        """Process a direct message in the ordered mod pipeline.
+        
+        Direct messages are processed through all mods in order before being delivered
+        to the target agent. This is called for messages with event_name starting with
+        "agent.direct_message."
+        
+        If this mod handles the message and wants to stop delivery to the target agent,
+        return None. Otherwise, return the original or modified message to continue
+        processing through the next mod in the pipeline.
         
         Args:
-            message: The message to handle
+            message: The direct message to handle (event_name starts with "agent.direct_message.")
         
         Returns:
-            Optional[Event]: Processed message to continue processing, or None if the message is handled and no further processing is needed    
+            Optional[Event]: Processed message to continue processing, or None to stop propagation
         """
         return message
     
     async def process_broadcast_message(self, message: Event) -> Optional[Event]:
-        """Process a broadcast message received from an agent.
+        """Process a broadcast message in the ordered mod pipeline.
+        
+        Broadcast messages are processed through all mods in order before being delivered
+        to all agents in the network. This is called for messages with event_name starting
+        with "agent.broadcast_message."
+        
+        If this mod handles the message and wants to stop delivery to all agents,
+        return None. Otherwise, return the original or modified message to continue
+        processing through the next mod in the pipeline.
         
         Args:
-            message: The broadcast message to handle
+            message: The broadcast message to handle (event_name starts with "agent.broadcast_message.")
         
         Returns:
-            Optional[Event]: Processed message to continue processing, or None if the message is handled and no further processing is needed
+            Optional[Event]: Processed message to continue processing, or None to stop propagation
         """
         return message
     

@@ -316,6 +316,7 @@ class TestEventBridge:
     def test_direct_message_to_event(self):
         """Test converting Event to Event."""
         message = Event(
+            event_name="agent.direct_message.sent",
             event_id="msg1",
             source_id="agent1",
             target_agent_id="agent2",
@@ -334,6 +335,7 @@ class TestEventBridge:
     def test_broadcast_message_to_event(self):
         """Test converting Event to Event."""
         message = Event(
+            event_name="network.broadcast.sent",
             event_id="msg1",
             source_id="agent1",
             payload={"announcement": "Server maintenance"},
@@ -351,9 +353,10 @@ class TestEventBridge:
     def test_mod_message_to_event(self):
         """Test converting Event to Event."""
         message = Event(
+            event_name="mod.generic.message_received",
             event_id="msg1",
             source_id="agent1",
-            mod="openagents.mods.project.default",
+            relevant_mod="openagents.mods.project.default",
             relevant_agent_id="agent1",
             payload={
                 "action": "project_creation",
@@ -364,7 +367,7 @@ class TestEventBridge:
         
         event = EventBridge.message_to_event(message)
         
-        assert event.event_name == "project.project_creation"  # Generated from mod name and message_type
+        assert event.event_name == "mod.generic.message_received"  # Pass-through since EventBridge is now unified
         assert event.source_id == "agent1"
         assert event.relevant_mod == "openagents.mods.project.default"
         assert event.payload["project_name"] == "Test Project"

@@ -30,25 +30,6 @@ class DefaultWorkspaceNetworkMod(BaseMod):
         self.workspaces: Dict[str, Dict[str, Any]] = {}
         self.agent_workspaces: Dict[str, str] = {}  # agent_id -> workspace_id
         
-    def handle_message(self, message: Event) -> Optional[Event]:
-        """
-        Handle incoming messages at the network level.
-        
-        Args:
-            message: The incoming message
-            
-        Returns:
-            Optional response message
-        """
-        if not isinstance(message, Event):
-            return None
-            
-        logger.info(f"Default workspace network mod received message: {message.message_type}")
-        
-        # For now, just log the message
-        # Future implementation will handle workspace coordination
-        return None
-    
     def get_supported_message_types(self) -> List[str]:
         """
         Get list of supported message types.

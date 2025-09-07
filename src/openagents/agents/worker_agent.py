@@ -369,10 +369,10 @@ class WorkerAgent(AgentRunner):
     async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: Event):
         """Route incoming messages to appropriate handlers."""
         # Skip our own messages if configured to do so
-        if self.ignore_own_messages and incoming_message.source_agent_id == self.client.agent_id:
+        if self.ignore_own_messages and incoming_message.source_id == self.client.agent_id:
             return
         
-        logger.debug(f"WorkerAgent '{self.default_agent_id}' processing message from {incoming_message.source_agent_id}")
+        logger.debug(f"WorkerAgent '{self.default_agent_id}' processing message from {incoming_message.source_id}")
         
         # Handle different message types
         if isinstance(incoming_message, Event):
@@ -387,10 +387,10 @@ class WorkerAgent(AgentRunner):
     async def _handle_direct_message(self, message: Event):
         """Handle direct messages."""
         context = EventContext(
-            message_id=message.message_id,
-            sender_id=message.sender_id,
+            message_id=message.event_id,
+            sender_id=message.source_id,
             timestamp=message.timestamp,
-            content=message.content,
+            content=message.payload,
             raw_message=message,
             target_agent_id=message.target_agent_id,
             quoted_message_id=getattr(message, 'quoted_message_id', None),
@@ -407,10 +407,10 @@ class WorkerAgent(AgentRunner):
         """Handle broadcast messages (treat as channel messages to 'general')."""
         # Convert broadcast to channel message context
         context = ChannelMessageContext(
-            message_id=message.message_id,
-            sender_id=message.sender_id,
+            message_id=message.event_id,
+            sender_id=message.source_id,
             timestamp=message.timestamp,
-            content=message.content,
+            content=message.payload,
             raw_message=message,
             channel="general"  # Default channel for broadcasts
         )
@@ -423,7 +423,7 @@ class WorkerAgent(AgentRunner):
 
     async def _handle_mod_message(self, message: Event):
         """Handle mod messages from thread messaging."""
-        if message.mod != 'thread_messaging':
+        if message.relevant_mod != 'thread_messaging':
             return
         
         # This will be handled by _handle_thread_mod_message
@@ -431,7 +431,7 @@ class WorkerAgent(AgentRunner):
 
     async def _handle_thread_mod_message(self, message: Event):
         """Handle thread messaging mod messages."""
-        action = message.content.get("action", "")
+        action = message.payload.get("action", "")
         
         if action == "channel_message_notification":
             await self._handle_channel_notification(message)
@@ -444,8 +444,8 @@ class WorkerAgent(AgentRunner):
 
     async def _handle_channel_notification(self, message: Event):
         """Handle channel message notifications."""
-        channel_msg_data = message.content.get("message", {})
-        channel = message.content.get("channel", "")
+        channel_msg_data = message.payload.get("message", {})
+        channel = message.payload.get("channel", "")
         
         # Extract message details
         msg_content = channel_msg_data.get("content", {})
@@ -493,10 +493,10 @@ class WorkerAgent(AgentRunner):
 
     async def _handle_reaction_notification(self, message: Event):
         """Handle reaction notifications."""
-        reaction_data = message.content.get("reaction", {})
+        reaction_data = message.payload.get("reaction", {})
         
         context = ReactionContext(
-            message_id=message.message_id,
+            message_id=message.event_id,
             target_message_id=reaction_data.get("target_message_id", ""),
             reactor_id=reaction_data.get("sender_id", ""),
             reaction_type=reaction_data.get("reaction_type", ""),
@@ -509,11 +509,11 @@ class WorkerAgent(AgentRunner):
 
     async def _handle_file_notification(self, message: Event):
         """Handle file upload notifications."""
-        file_data = message.content.get("file", {})
+        file_data = message.payload.get("file", {})
         
         context = FileContext(
-            message_id=message.message_id,
-            sender_id=message.sender_id,
+            message_id=message.event_id,
+            sender_id=message.source_id,
             filename=file_data.get("filename", ""),
             file_content=file_data.get("file_content", ""),
             mime_type=file_data.get("mime_type", "application/octet-stream"),
@@ -744,7 +744,7 @@ class WorkerAgent(AgentRunner):
             project_name=event.payload.get("project_name", ""),
             event_type=event.event_name,
             timestamp=event.timestamp,
-            source_agent_id=event.source_agent_id or "",
+            source_agent_id=event.source_id or "",
             data=event.payload,  # Use payload instead of data
             raw_event=event
         )
@@ -1320,11 +1320,11 @@ class WorkerAgent(AgentRunner):
             
             # Send through mod message system
             mod_message = Event(
-                sender_id=self.client.agent_id,
+                event_name="project.notification.sent",
+                source_id=self.client.agent_id,
                 relevant_mod="openagents.mods.project.default",
-                direction="outbound",
-                relevant_agent_id=self.client.agent_id,
-                content=notification.model_dump()
+                target_agent_id=self.client.agent_id,
+                payload=notification.model_dump()
             )
             
             await self.client.connector.send_mod_message(mod_message)

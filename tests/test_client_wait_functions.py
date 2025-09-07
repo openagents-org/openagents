@@ -11,11 +11,11 @@ import logging
 import random
 from typing import List, Dict, Any
 
-from src.openagents.core.network import AgentNetwork
-from src.openagents.core.client import AgentClient
-from src.openagents.models.network_config import NetworkConfig, NetworkMode
+from openagents.core.network import AgentNetwork
+from openagents.core.client import AgentClient
+from openagents.models.network_config import NetworkConfig, NetworkMode
 from openagents.models.messages import Event, EventNames
-from src.openagents.agents.simple_echo_agent import SimpleEchoAgentRunner
+from openagents.agents.simple_echo_agent import SimpleEchoAgentRunner
 
 # Configure logging for tests
 logger = logging.getLogger(__name__)

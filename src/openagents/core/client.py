@@ -64,6 +64,8 @@ class AgentClient:
             from grpc import aio
             from openagents.proto import agent_service_pb2_grpc, agent_service_pb2
             
+            logger.debug(f"Attempting gRPC detection on {host}:{port}")
+            
             # Create a temporary gRPC channel
             channel = aio.insecure_channel(f"{host}:{port}")
             stub = agent_service_pb2_grpc.AgentServiceStub(channel)
@@ -79,28 +81,12 @@ class AgentClient:
             )
             
             try:
-                await asyncio.wait_for(stub.Ping(ping_request), timeout=2.0)
+                logger.debug(f"Sending gRPC ping to {host}:{port}")
+                response = await asyncio.wait_for(stub.Ping(ping_request), timeout=3.0)
                 await channel.close()
-                logger.info(f"Detected gRPC transport at {host}:{port}")
+                logger.info(f"✅ Detected gRPC transport at {host}:{port} - success: {response.success}")
                 
-                # Check if WebSocket is available on agent port (port + 1)
-                agent_port = port + 1
-                try:
-                    import websockets
-                    from websockets.asyncio.client import connect
-                    
-                    # Try to connect to WebSocket on agent port
-                    try:
-                        ws = await asyncio.wait_for(connect(f"ws://{host}:{agent_port}"), timeout=1.0)
-                        await ws.close()
-                        logger.info(f"Detected WebSocket for agents at {host}:{agent_port}")
-                        return ("websocket", agent_port)
-                    except Exception:
-                        logger.debug(f"WebSocket not available at {host}:{agent_port}")
-                except ImportError:
-                    logger.debug("websockets library not available")
-                
-                # Check if HTTP adapter is available on port + 1000
+                # Check if HTTP adapter is available on port + 1000 for compatibility
                 http_port = port + 1000
                 try:
                     import aiohttp
@@ -109,19 +95,43 @@ class AgentClient:
                             if response.status in [200, 404]:  # 404 is expected for non-existent agent
                                 logger.info(f"Detected gRPC HTTP adapter at {host}:{http_port}")
                                 return ("grpc_http", http_port)
-                except Exception:
-                    logger.debug(f"gRPC HTTP adapter not available at {host}:{http_port}")
+                except Exception as http_e:
+                    logger.debug(f"gRPC HTTP adapter not available at {host}:{http_port}: {http_e}")
                 
+                # gRPC server is available, use it directly
                 return ("grpc", port)
-            except Exception:
+            except asyncio.TimeoutError:
+                logger.debug(f"gRPC ping timeout on {host}:{port}")
+                await channel.close()
+            except grpc.aio.AioRpcError as grpc_e:
+                logger.debug(f"gRPC RPC error on {host}:{port}: {grpc_e}")
+                await channel.close()
+            except Exception as ping_e:
+                logger.debug(f"gRPC ping failed on {host}:{port}: {ping_e}")
                 await channel.close()
                 
-        except ImportError:
-            logger.debug("gRPC libraries not available, skipping gRPC detection")
+        except ImportError as import_e:
+            logger.debug(f"gRPC libraries not available: {import_e}")
         except Exception as e:
-            logger.debug(f"gRPC detection failed: {e}")
+            logger.debug(f"gRPC detection setup failed: {e}")
         
-        # Default to WebSocket
+        # Try WebSocket detection before defaulting
+        try:
+            import websockets
+            from websockets.asyncio.client import connect
+            
+            logger.debug(f"Attempting WebSocket detection on {host}:{port}")
+            try:
+                ws = await asyncio.wait_for(connect(f"ws://{host}:{port}"), timeout=2.0)
+                await ws.close()
+                logger.info(f"✅ Detected WebSocket transport at {host}:{port}")
+                return ("websocket", port)
+            except Exception as ws_e:
+                logger.debug(f"WebSocket detection failed on {host}:{port}: {ws_e}")
+        except ImportError:
+            logger.debug("websockets library not available")
+        
+        # Default to WebSocket as final fallback
         logger.info(f"Defaulting to WebSocket transport at {host}:{port}")
         return ("websocket", port)
 
@@ -919,16 +929,19 @@ class AgentClient:
                     if message_data.get("message_type") == "mod_message":
                         # Reconstruct Event
                         mod_message = Event(
-                            sender_id=message_data.get("sender_id", ""),
-                            mod=message_data.get("mod", ""),
-                            relevant_agent_id=message_data.get("relevant_agent_id", ""),
-                            action=message_data.get("action", ""),
-                            content=message_data.get("content", {}),
-                            message_id=message_data.get("message_id", ""),
+                            event_name="mod.message.received",
+                            source_id=message_data.get("sender_id", ""),
+                            relevant_mod=message_data.get("mod", ""),
+                            target_agent_id=message_data.get("relevant_agent_id", ""),
+                            payload={
+                                "action": message_data.get("action", ""),
+                                **message_data.get("content", {})
+                            },
+                            event_id=message_data.get("message_id", ""),
                             timestamp=message_data.get("timestamp", 0)
                         )
                         
-                        logger.info(f"🔧 CLIENT: Processing polled Event: {mod_message.mod}, action: {mod_message.action}")
+                        logger.info(f"🔧 CLIENT: Processing polled Event: {mod_message.relevant_mod}, action: {mod_message.payload.get('action', 'unknown')}")
                         await self._handle_mod_message(mod_message)
                     else:
                         logger.debug(f"🔧 CLIENT: Skipping non-Event: {message_data.get('message_type')}")

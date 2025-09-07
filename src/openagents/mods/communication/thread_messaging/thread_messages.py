@@ -287,7 +287,7 @@ class ReplyMessage(Event):
             "timestamp": self.timestamp,
             "source_id": self.source_id,
             "source_type": self.source_type,
-            "target_agent_id": self.target_agent_id,
+            "target_agent_id": self.target_agent_id if self.target_agent_id else None,
             "target_channel": self.target_channel,
             "relevant_mod": self.relevant_mod,
             "requires_response": self.requires_response,

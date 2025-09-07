@@ -195,21 +195,15 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                 quoted_text = f"[Quoted message {quote}]"
         
         # Create direct message
-        direct_msg = Event(
-            sender_id=self.agent_id,
-            target_agent_id=target_agent_id,
-            content=content,
+        direct_msg = Event(event_name="agent.direct_message.sent", source_id=self.agent_id, target_agent_id=target_agent_id, payload=content,
             quoted_message_id=quoted_message_id,
             quoted_text=quoted_text
         )
         
         # Wrap in Event for proper transport
-        message = Event(
-            sender_id=self.agent_id,
-            relevant_mod="openagents.mods.communication.thread_messaging",
-            direction="outbound",
+        message = Event(event_name="thread.message", source_id=self.agent_id, relevant_mod="openagents.mods.communication.thread_messaging",
             relevant_agent_id=target_agent_id,
-            content=direct_msg.model_dump()
+            payload=direct_msg.model_dump()
         )
         
         await self.connector.send_mod_message(message)
@@ -240,21 +234,18 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         # Create and send the channel message
         # Create channel message
         channel_msg = ChannelMessage(
-            sender_id=self.agent_id,
+            source_id=self.agent_id,
             channel=channel,
             mentioned_agent_id=mentioned_agent_id,
-            content=content,
+            payload=content,
             quoted_message_id=quoted_message_id,
             quoted_text=quoted_text
         )
         
         # Wrap in Event for proper transport
-        message = Event(
-            sender_id=self.agent_id,
-            relevant_mod="openagents.mods.communication.thread_messaging",
-            direction="outbound",
+        message = Event(event_name="thread.message", source_id=self.agent_id, relevant_mod="openagents.mods.communication.thread_messaging",
             relevant_agent_id=self.agent_id,
-            content=channel_msg.model_dump()
+            payload=channel_msg.model_dump()
         )
         
         await self.connector.send_mod_message(message)
@@ -313,7 +304,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             
             # Create upload message
             upload_msg = FileUploadMessage(
-                sender_id=self.agent_id,
+                source_id=self.agent_id,
                 file_content=encoded_content,
                 filename=file_path.name,
                 mime_type=self._get_mime_type(file_path),
@@ -321,12 +312,9 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             )
             
             # Wrap in Event for proper transport
-            message = Event(
-                sender_id=self.agent_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                direction="outbound",
+            message = Event(event_name="thread.message", source_id=self.agent_id, relevant_mod="openagents.mods.communication.thread_messaging",
                 relevant_agent_id=self.agent_id,
-                content=upload_msg.model_dump()
+                payload=upload_msg.model_dump()
             )
             
             # Store pending operation
@@ -370,21 +358,18 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         
         # Create reply message
         reply_msg = ReplyMessage(
-            sender_id=self.agent_id,
+            source_id=self.agent_id,
             reply_to_id=reply_to_id,
             channel=channel,
-            content=content,
+            payload=content,
             quoted_message_id=quoted_message_id,
             quoted_text=quoted_text
         )
         
         # Wrap in Event for proper transport
-        message = Event(
-            sender_id=self.agent_id,
-            relevant_mod="openagents.mods.communication.thread_messaging",
-            direction="outbound",
+        message = Event(event_name="thread.message", source_id=self.agent_id, relevant_mod="openagents.mods.communication.thread_messaging",
             relevant_agent_id=self.agent_id,
-            content=reply_msg.model_dump()
+            payload=reply_msg.model_dump()
         )
         
         await self.connector.send_mod_message(message)
@@ -414,21 +399,18 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         
         # Create reply message
         reply_msg = ReplyMessage(
-            sender_id=self.agent_id,
+            source_id=self.agent_id,
             reply_to_id=reply_to_id,
             target_agent_id=target_agent_id,
-            content=content,
+            payload=content,
             quoted_message_id=quoted_message_id,
             quoted_text=quoted_text
         )
         
         # Wrap in Event for proper transport
-        message = Event(
-            sender_id=self.agent_id,
-            relevant_mod="openagents.mods.communication.thread_messaging",
-            direction="outbound",
+        message = Event(event_name="thread.message", source_id=self.agent_id, relevant_mod="openagents.mods.communication.thread_messaging",
             relevant_agent_id=self.agent_id,
-            content=reply_msg.model_dump()
+            payload=reply_msg.model_dump()
         )
         
         await self.connector.send_mod_message(message)
@@ -454,7 +436,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         
         # Create retrieval request
         retrieval_msg = MessageRetrievalMessage(
-            sender_id=self.agent_id,
+            source_id=self.agent_id,
             action="retrieve_channel_messages",
             channel=channel,
             limit=limit,
@@ -463,12 +445,9 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         )
         
         # Wrap in Event for proper transport
-        message = Event(
-            sender_id=self.agent_id,
-            relevant_mod="openagents.mods.communication.thread_messaging",
-            direction="outbound",
+        message = Event(event_name="thread.message", source_id=self.agent_id, relevant_mod="openagents.mods.communication.thread_messaging",
             relevant_agent_id=self.agent_id,
-            content=retrieval_msg.model_dump()
+            payload=retrieval_msg.model_dump()
         )
         
         # Store pending request
@@ -504,7 +483,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         
         # Create retrieval request
         retrieval_msg = MessageRetrievalMessage(
-            sender_id=self.agent_id,
+            source_id=self.agent_id,
             action="retrieve_direct_messages",
             target_agent_id=target_agent_id,
             limit=limit,
@@ -513,12 +492,9 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         )
         
         # Wrap in Event for proper transport
-        message = Event(
-            sender_id=self.agent_id,
-            relevant_mod="openagents.mods.communication.thread_messaging",
-            direction="outbound",
+        message = Event(event_name="thread.message", source_id=self.agent_id, relevant_mod="openagents.mods.communication.thread_messaging",
             relevant_agent_id=self.agent_id,
-            content=retrieval_msg.model_dump()
+            payload=retrieval_msg.model_dump()
         )
         
         # Store pending request
@@ -548,17 +524,14 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         
         # Create channel info request
         channel_info_msg = ChannelInfoMessage(
-            sender_id=self.agent_id,
+            source_id=self.agent_id,
             action="list_channels"
         )
         
         # Wrap in Event for proper transport
-        message = Event(
-            sender_id=self.agent_id,
-            relevant_mod="openagents.mods.communication.thread_messaging",
-            direction="outbound",
+        message = Event(event_name="thread.message", source_id=self.agent_id, relevant_mod="openagents.mods.communication.thread_messaging",
             relevant_agent_id=self.agent_id,
-            content=channel_info_msg.model_dump()
+            payload=channel_info_msg.model_dump()
         )
         
         # Store pending request
@@ -589,19 +562,16 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         
         # Create reaction message
         reaction_msg = ReactionMessage(
-            sender_id=self.agent_id,
+            source_id=self.agent_id,
             target_message_id=target_message_id,
             reaction_type=reaction_type,
             action=action
         )
         
         # Wrap in Event for proper transport
-        message = Event(
-            sender_id=self.agent_id,
-            relevant_mod="openagents.mods.communication.thread_messaging",
-            direction="outbound",
+        message = Event(event_name="thread.message", source_id=self.agent_id, relevant_mod="openagents.mods.communication.thread_messaging",
             relevant_agent_id=self.agent_id,
-            content=reaction_msg.model_dump()
+            payload=reaction_msg.model_dump()
         )
         
         await self.connector.send_mod_message(message)

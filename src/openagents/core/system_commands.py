@@ -146,6 +146,17 @@ async def handle_register_agent(command: str, data: Dict[str, Any], connection: 
     # Register agent metadata
     await network_instance.register_agent(agent_id, metadata)
     
+    # Update transport mapping to route messages by agent_id
+    transport = network_instance.topology.transport_manager.get_active_transport()
+    if transport and hasattr(transport, 'register_agent_connection'):
+        # Get the peer_id from network instance context
+        peer_id = getattr(network_instance, '_current_registration_peer_id', None)
+        if peer_id:
+            transport.register_agent_connection(agent_id, peer_id)
+            logger.info(f"🔧 REGISTRATION: Mapped agent {agent_id} to transport connection {peer_id}")
+        else:
+            logger.warning(f"Could not determine peer_id for agent {agent_id}")
+    
     # Send registration response
     await connection.send(json.dumps({
         "type": "system_response",

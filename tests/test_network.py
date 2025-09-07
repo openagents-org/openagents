@@ -157,6 +157,18 @@ class TestAgentNetwork:
     @pytest.mark.asyncio
     async def test_message_sending(self, network):
         """Test message sending through the unified Event system."""
+        # Mock the topology methods and register agents for testing
+        network.topology.register_agent = AsyncMock(return_value=True)
+        network.topology.route_message = AsyncMock(return_value=True)
+        
+        # Set up the network state to include registered agent clients
+        # This mimics what happens when agents connect to the network
+        mock_agent_client = MagicMock()
+        mock_agent_client._handle_mod_message = AsyncMock()
+        
+        network._registered_agent_clients = {"agent2": mock_agent_client}
+        network._queue_message_for_agent = MagicMock()
+        
         # With the unified Event system, messages are handled through events
         # and local delivery logic rather than direct topology routing
         message = Event(
@@ -170,8 +182,8 @@ class TestAgentNetwork:
         result = await network.send_message(message)
         assert result is True
         
-        # Verify the event was emitted through the event system
-        # (The event system logs show successful event emission and handling)
+        # Verify the message was delivered to the agent client
+        mock_agent_client._handle_mod_message.assert_called_once_with(message)
     
     @pytest.mark.asyncio
     async def test_agent_discovery(self, network):
@@ -362,21 +374,19 @@ class TestErrorHandling:
         )
         network = AgentNetwork(config)
         
-        # Create a malformed message that should cause sending to fail
-        # For example, a message with invalid event_name or missing required fields
+        # Create a message targeting a non-existent agent
+        # This should cause sending to fail because target validation is now enforced
         message = Event(
             event_name="invalid.event.type", 
             source_id="agent1", 
-            target_agent_id="agent2", 
+            target_agent_id="agent2",  # This agent doesn't exist
             payload={"text": "Hello!"}
         )
         
-        # Even with unified Event system, valid messages still succeed
-        # This test verifies the basic message sending works
+        # With the new MessageProcessor, messages to non-existent agents fail
+        # This is better than the old system which might have silently dropped messages
         result = await network.send_message(message)
-        # In the unified system, even "invalid" events succeed at the network level
-        # The validation happens at the mod level, so this should still return True
-        assert result is True
+        assert result is False  # Should fail because target agent doesn't exist
 
 
 if __name__ == "__main__":

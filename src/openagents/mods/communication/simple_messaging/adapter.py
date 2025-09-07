@@ -97,10 +97,10 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         if message.target_agent_id != self.agent_id:
             return
             
-        logger.debug(f"Received direct message from {message.sender_id}")
+        logger.debug(f"Received direct message from {message.source_id}")
         
         # Add message to the appropriate conversation thread
-        thread_id = get_direct_message_thread_id(message.sender_id)
+        thread_id = get_direct_message_thread_id(message.source_id)
         self.add_message_to_thread(thread_id, message, text_representation=message.content.get("text", ""))
         
         # Check if the message contains file references
@@ -111,7 +111,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         # Call registered message handlers
         for handler in self.message_handlers.values():
             try:
-                handler(message.content, message.sender_id)
+                handler(message.content, message.source_id)
             except Exception as e:
                 logger.error(f"Error in message handler: {e}")
     
@@ -121,7 +121,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         Args:
             message: The broadcast message to process
         """
-        logger.debug(f"Received broadcast message from {message.sender_id}")
+        logger.debug(f"Received broadcast message from {message.source_id}")
         
         # Add message to the broadcast conversation thread
         thread_id = get_broadcast_message_thread_id()
@@ -135,7 +135,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         # Call registered message handlers
         for handler in self.message_handlers.values():
             try:
-                handler(message.content, message.sender_id)
+                handler(message.content, message.source_id)
             except Exception as e:
                 logger.error(f"Error in message handler: {e}")
     
@@ -148,7 +148,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         Returns:
             Optional[Event]: None if the message was handled, or the message if not handled
         """
-        logger.debug(f"Received protocol message from {message.sender_id}")
+        logger.debug(f"Received protocol message from {message.source_id}")
         
         # Handle mod-specific messages
         action = message.content.get("action", "")
@@ -196,10 +196,10 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             
         # Create and send the message
         message = Event(
-            sender_id=self.agent_id,
+            event_name="agent.direct_message.sent",
+            source_id=self.agent_id,
             target_agent_id=target_agent_id,
-            content=content,
-            direction="outbound",
+            payload=content,
             relevant_mod="openagents.mods.communication.simple_messaging"
         )
         
@@ -221,14 +221,14 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             
         # Create and send the message
         message = Event(
-            sender_id=self.agent_id,
-            content=content,
-            direction="outbound"
+            event_name="agent.broadcast_message.sent",
+            source_id=self.agent_id,
+            payload=content
         )
         
         # Add message to the broadcast conversation thread
         thread_id = get_broadcast_message_thread_id()
-        self.add_message_to_thread(thread_id, message, requires_response=False, text_representation=message.content.get("text", ""))
+        self.add_message_to_thread(thread_id, message, requires_response=False, text_representation=message.payload.get("text", ""))
         
         await self.connector.send_broadcast_message(message)
         logger.debug("Sent broadcast message")
@@ -358,9 +358,10 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         
         # Create and send the protocol message
         message = Event(
-            sender_id=self.agent_id,
+            event_name="simple_messaging.get_file",
+            source_id=self.agent_id,
             relevant_mod="simple_messaging",
-            content={
+            payload={
                 "action": "get_file",
                 "file_id": file_id
             },
@@ -385,9 +386,10 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         """
         # Create and send the protocol message
         message = Event(
-            sender_id=self.agent_id,
+            event_name="simple_messaging.delete_file",
+            source_id=self.agent_id,
             relevant_mod="simple_messaging",
-            content={
+            payload={
                 "action": "delete_file",
                 "file_id": file_id
             },
@@ -491,7 +493,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
                 try:
                     # Get original request metadata
                     metadata = self.pending_file_downloads.get(request_id, {})
-                    handler(file_id, file_content, metadata, message.sender_id)
+                    handler(file_id, file_content, metadata, message.source_id)
                 except Exception as e:
                     logger.error(f"Error in file handler: {e}")
             

@@ -1073,10 +1073,11 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
         """
         try:
             mod_message = Event(
+                event_name="agent.mod_message.sent",
                 relevant_mod="shared_document",
                 content=message.model_dump(),
                 sender_id=self.agent_id,
-                relevant_agent_id=self.agent_id
+                target_agent_id=self.agent_id
             )
             
             await self.network_interface.send_mod_message(mod_message)

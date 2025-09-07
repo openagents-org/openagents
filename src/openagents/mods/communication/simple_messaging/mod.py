@@ -99,76 +99,95 @@ class SimpleMessagingNetworkMod(BaseMod):
             logger.info(f"Unregistered agent {agent_id} from Simple Messaging protocol")
     
     async def process_direct_message(self, message: Event) -> Optional[Event]:
-        """Process a direct message.
+        """Process a direct message in the mod pipeline.
         
         Args:
-            message: The direct message to process
+            message: The direct message to process (event_name starts with "agent.direct_message.")
             
         Returns:
-            Optional[Event]: The processed message, or None if the message was handled
+            Optional[Event]: The processed message, or None if processing should stop
         """
+        logger.debug(f"Simple messaging mod processing direct message from {message.source_id} to {message.target_agent_id}")
+        
         # Add the message to history
         self._add_to_history(message)
         
         # Check if the message contains file attachments
-        if "files" in message.content and message.content["files"]:
+        content = message.payload if hasattr(message, 'payload') else message.content
+        if hasattr(content, 'get') and "files" in content and content["files"]:
             # Process file attachments
             await self._process_file_attachments(message)
         
-        # Log the message
-        logger.debug(f"Processing direct message from {message.sender_id} to {message.target_agent_id}")
-        
-        # Continue processing the message
+        # Simple messaging doesn't interfere with direct messages, let them continue
         return message
     
     async def process_broadcast_message(self, message: Event) -> Optional[Event]:
-        """Process a broadcast message.
+        """Process a broadcast message in the mod pipeline.
         
         Args:
-            message: The broadcast message to process
+            message: The broadcast message to process (event_name starts with "agent.broadcast_message.")
             
         Returns:
-            Optional[Event]: The processed message, or None if the message was handled
+            Optional[Event]: The processed message, or None if processing should stop
         """
+        logger.debug(f"Simple messaging mod processing broadcast message from {message.source_id}")
+        
         # Add the message to history
         self._add_to_history(message)
         
         # Check if the message contains file attachments
-        if "files" in message.content and message.content["files"]:
+        content = message.payload if hasattr(message, 'payload') else message.content
+        if hasattr(content, 'get') and "files" in content and content["files"]:
             # Process file attachments
             await self._process_file_attachments(message)
         
-        # Log the message
-        logger.debug(f"Processing broadcast message from {message.sender_id}")
-        
-        # Continue processing the message
+        # Simple messaging doesn't interfere with broadcast messages, let them continue
         return message
     
-    async def process_mod_message(self, message: Event) -> None:
-        """Process a mod message.
+    async def process_system_message(self, message: Event) -> Optional[Event]:
+        """Process a system message in the mod pipeline.
         
         Args:
-            message: The mod message to process
+            message: The system message to process
+            
+        Returns:
+            Optional[Event]: The processed message, or None if the message was handled
         """
-        # Add the message to history
-        self._add_to_history(message)
+        # Prevent infinite loops - don't process messages we generated
+        if message.source_id == self.network.network_id and message.relevant_mod == "simple_messaging":
+            logger.debug("Skipping simple messaging response message to prevent infinite loop")
+            return message
         
-        # Log the message
-        logger.debug(f"Processing protocol message from {message.sender_id}")
+        logger.debug(f"Simple messaging processing system message: {message.event_name} from {message.source_id}")
         
-        # Handle protocol-specific messages
-        action = message.content.get("action", "")
+        # Check if this is a simple messaging specific event or file operation
+        event_name = message.event_name
+        content = message.payload if hasattr(message, 'payload') else message.content
         
-        if action == "get_file":
-            # Handle file download request
-            file_id = message.content.get("file_id")
-            if file_id:
-                await self._handle_file_download(message.sender_id, file_id, message)
-        elif action == "delete_file":
-            # Handle file deletion request
-            file_id = message.content.get("file_id")
-            if file_id:
-                await self._handle_file_deletion(message.sender_id, file_id, message)
+        # Handle simple messaging file operations
+        if hasattr(content, 'get'):
+            action = content.get("action", "")
+            
+            if action == "get_file":
+                # Handle file download request
+                logger.debug("Simple messaging handling file download request")
+                self._add_to_history(message)
+                file_id = content.get("file_id")
+                if file_id:
+                    await self._handle_file_download(message.source_id, file_id, message)
+                return None  # Simple messaging handled this
+                
+            elif action == "delete_file":
+                # Handle file deletion request
+                logger.debug("Simple messaging handling file deletion request")
+                self._add_to_history(message)
+                file_id = content.get("file_id")
+                if file_id:
+                    await self._handle_file_deletion(message.source_id, file_id, message)
+                return None  # Simple messaging handled this
+        
+        # Not a simple messaging event, let other mods process it
+        return message
     
     async def _process_file_attachments(self, message: Event) -> None:
         """Process file attachments in a message.

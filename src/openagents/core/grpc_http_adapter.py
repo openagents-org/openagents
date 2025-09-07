@@ -202,10 +202,10 @@ class GRPCHTTPAdapter:
                     }
                 
                 mod_message = Event(
+                    event_name="thread.message",
                     source_id=data.get('sender_id'),
                     relevant_mod="openagents.mods.communication.thread_messaging",
-                    direction="outbound",
-                    relevant_agent_id=data.get('sender_id'),
+                    target_agent_id=data.get('sender_id'),
                     payload=mod_content,
                     timestamp=int(time.time())
                 )
@@ -507,10 +507,10 @@ class GRPCHTTPAdapter:
             mod_content['request_id'] = request_id
             
             mod_message = Event(
+                event_name="thread.request",
                 source_id=agent_id,
                 relevant_mod="openagents.mods.communication.thread_messaging",
-                direction="outbound",
-                relevant_agent_id=agent_id,
+                target_agent_id=agent_id,
                 payload=mod_content,
                 timestamp=int(time.time())
             )
@@ -566,10 +566,10 @@ class GRPCHTTPAdapter:
             import uuid
             
             mod_message = Event(
+                event_name="shared_document.request",
                 source_id=agent_id,
                 relevant_mod="openagents.mods.work.shared_document",
-                direction="outbound",
-                relevant_agent_id=agent_id,
+                target_agent_id=agent_id,
                 payload=mod_content,
                 timestamp=int(time.time())
             )

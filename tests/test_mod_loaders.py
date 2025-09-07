@@ -79,47 +79,90 @@ class TestProtocolLoaders(unittest.TestCase):
     
     def test_load_mod_adapters_with_manifest(self):
         """Test loading mod adapters using manifest file."""
-        # Setup mock for find_spec
-        mock_spec = MagicMock()
-        mock_spec.origin = '/fake/path/to/mod/module.py'
-        self.mock_find_spec.return_value = mock_spec
+        # Create a proper mock class that inherits from BaseModAdapter
+        class TestAdapter(BaseModAdapter):
+            def __init__(self):
+                super().__init__(mod_name="test_mod")
+                
+            async def process_incoming_direct_message(self, message):
+                return message
+            
+            async def process_incoming_broadcast_message(self, message):
+                return message
+            
+            async def process_incoming_mod_message(self, message):
+                return message
+            
+            async def process_outgoing_direct_message(self, message):
+                return message
+            
+            async def process_outgoing_broadcast_message(self, message):
+                return message
+            
+            async def process_outgoing_mod_message(self, message):
+                return message
+            
+            async def get_tools(self):
+                return []
         
-        # Setup mock for open to return a manifest with adapter class name
-        manifest_content = '{"agent_adapter_class": "TestAdapter"}'
-        self.mock_open.return_value.__enter__.return_value.read.return_value = manifest_content
-        
-        # Setup mock for import_module
+        # Setup mock for import_module to return a module with TestAdapter
         mock_module = MagicMock()
-        mock_adapter = MockModAdapter()
-        mock_module.TestAdapter.return_value = mock_adapter
-        self.mock_import_module.return_value = mock_module
+        mock_module.TestAdapter = TestAdapter  # Actual class, not lambda
+        
+        def import_side_effect(name):
+            if name == 'openagents.mods.test.test_mod.adapter':
+                return mock_module
+            raise ImportError(f"Module {name} not found")
+        
+        self.mock_import_module.side_effect = import_side_effect
         
         # Call the function with a test mod name
         mod_names = ['openagents.mods.test.test_mod']
         adapters = load_mod_adapters(mod_names)
         
-        # Assertions
+        # Assertions - should successfully load one adapter
         self.assertEqual(len(adapters), 1)
-        self.mock_find_spec.assert_called_with('openagents.mods.test.test_mod')
+        self.assertIsInstance(adapters[0], TestAdapter)
         self.mock_import_module.assert_any_call('openagents.mods.test.test_mod.adapter')
     
     def test_load_mod_adapters_with_naming_pattern(self):
         """Test loading mod adapters using naming pattern."""
-        # Setup mock for find_spec
-        mock_spec = MagicMock()
-        mock_spec.origin = '/fake/path/to/mod/module.py'
-        self.mock_find_spec.return_value = mock_spec
+        # Create a proper mock class that inherits from BaseModAdapter  
+        class Adapter(BaseModAdapter):
+            def __init__(self):
+                super().__init__(mod_name="test_mod")
+                
+            async def process_incoming_direct_message(self, message):
+                return message
+            
+            async def process_incoming_broadcast_message(self, message):
+                return message
+            
+            async def process_incoming_mod_message(self, message):
+                return message
+            
+            async def process_outgoing_direct_message(self, message):
+                return message
+            
+            async def process_outgoing_broadcast_message(self, message):
+                return message
+            
+            async def process_outgoing_mod_message(self, message):
+                return message
+            
+            async def get_tools(self):
+                return []
         
-        # Setup mock for open to return an empty manifest (no adapter class specified)
-        manifest_content = '{}'
-        self.mock_open.return_value.__enter__.return_value.read.return_value = manifest_content
-        
-        # Setup mock for import_module
+        # Setup mock for import_module to return a module with standard Adapter class
         mock_module = MagicMock()
-        mock_adapter = MockModAdapter()
-        # Use one of the naming patterns: TestProtocolAgentClient
-        mock_module.TestProtocolAgentClient.return_value = mock_adapter
-        self.mock_import_module.return_value = mock_module
+        mock_module.Adapter = Adapter  # Standard "Adapter" class
+        
+        def import_side_effect(name):
+            if name == 'openagents.mods.test.test_mod.adapter':
+                return mock_module
+            raise ImportError(f"Module {name} not found")
+        
+        self.mock_import_module.side_effect = import_side_effect
         
         # Call the function with a test mod name
         mod_names = ['openagents.mods.test.test_mod']
@@ -127,44 +170,47 @@ class TestProtocolLoaders(unittest.TestCase):
         
         # Assertions
         self.assertEqual(len(adapters), 1)
-        self.mock_find_spec.assert_called_with('openagents.mods.test.test_mod')
+        self.assertIsInstance(adapters[0], Adapter)
         self.mock_import_module.assert_any_call('openagents.mods.test.test_mod.adapter')
     
     def test_load_mod_adapters_with_inheritance(self):
         """Test loading mod adapters by finding classes that inherit from BaseModAdapter."""
-        # Setup mock for find_spec
-        mock_spec = MagicMock()
-        mock_spec.origin = '/fake/path/to/mod/module.py'
-        self.mock_find_spec.return_value = mock_spec
-        
-        # Setup mock for open to return an empty manifest
-        manifest_content = '{}'
-        self.mock_open.return_value.__enter__.return_value.read.return_value = manifest_content
-        
-        # Create a mock adapter class that can be instantiated
-        class MockAdapter:
+        # Create a proper mock class that inherits from BaseModAdapter
+        class InheritanceAdapter(BaseModAdapter):
             def __init__(self):
-                self.protocol_name = "mock_mod"
-        
-        # Create a simple mock module object that doesn't cause recursion
-        class MockModule:
-            def __init__(self):
-                # Use the standard "Adapter" name that the loader looks for
-                self.Adapter = MockAdapter
+                super().__init__(mod_name="test_mod")
                 
-            def __getattr__(self, name):
-                if name == 'Adapter':
-                    return MockAdapter
-                raise AttributeError(f"module has no attribute '{name}'")
+            async def process_incoming_direct_message(self, message):
+                return message
+            
+            async def process_incoming_broadcast_message(self, message):
+                return message
+            
+            async def process_incoming_mod_message(self, message):
+                return message
+            
+            async def process_outgoing_direct_message(self, message):
+                return message
+            
+            async def process_outgoing_broadcast_message(self, message):
+                return message
+            
+            async def process_outgoing_mod_message(self, message):
+                return message
+            
+            async def get_tools(self):
+                return []
         
-        mock_module = MockModule()
+        # Setup mock for import_module to return a module with Adapter class
+        mock_module = MagicMock()
+        mock_module.Adapter = InheritanceAdapter
         
-        # Ensure the mock_import_module returns our controlled mock_module
-        def import_module_side_effect(module_name):
-            if module_name == 'openagents.mods.test.test_mod.adapter':
+        def import_side_effect(name):
+            if name == 'openagents.mods.test.test_mod.adapter':
                 return mock_module
-            return self.original_import_module(module_name)
-        self.mock_import_module.side_effect = import_module_side_effect
+            raise ImportError(f"Module {name} not found")
+        
+        self.mock_import_module.side_effect = import_side_effect
         
         # Call the function with a test mod name
         mod_names = ['openagents.mods.test.test_mod']
@@ -172,7 +218,7 @@ class TestProtocolLoaders(unittest.TestCase):
         
         # Assertions
         self.assertEqual(len(adapters), 1)
-        self.mock_find_spec.assert_called_with('openagents.mods.test.test_mod')
+        self.assertIsInstance(adapters[0], InheritanceAdapter)
         self.mock_import_module.assert_any_call('openagents.mods.test.test_mod.adapter')
     
     def test_load_mod_adapters_import_error(self):
@@ -210,21 +256,64 @@ class TestProtocolLoaders(unittest.TestCase):
         """Test loading multiple mod adapters."""
         # Reset mocks to ensure clean state
         self.mock_import_module.reset_mock()
-        self.mock_find_spec.reset_mock()
         
-        # Setup mocks for two different mods
-        mock_spec = MagicMock()
-        mock_spec.origin = '/fake/path/module.py'
-        self.mock_find_spec.return_value = mock_spec
+        # Create proper mock classes that inherit from BaseModAdapter
+        class Protocol1Adapter(BaseModAdapter):
+            def __init__(self):
+                super().__init__(mod_name="protocol1")
+                
+            async def process_incoming_direct_message(self, message):
+                return message
+            
+            async def process_incoming_broadcast_message(self, message):
+                return message
+            
+            async def process_incoming_mod_message(self, message):
+                return message
+            
+            async def process_outgoing_direct_message(self, message):
+                return message
+            
+            async def process_outgoing_broadcast_message(self, message):
+                return message
+            
+            async def process_outgoing_mod_message(self, message):
+                return message
+            
+            async def get_tools(self):
+                return []
+        
+        class Protocol2Adapter(BaseModAdapter):
+            def __init__(self):
+                super().__init__(mod_name="protocol2")
+                
+            async def process_incoming_direct_message(self, message):
+                return message
+            
+            async def process_incoming_broadcast_message(self, message):
+                return message
+            
+            async def process_incoming_mod_message(self, message):
+                return message
+            
+            async def process_outgoing_direct_message(self, message):
+                return message
+            
+            async def process_outgoing_broadcast_message(self, message):
+                return message
+            
+            async def process_outgoing_mod_message(self, message):
+                return message
+            
+            async def get_tools(self):
+                return []
         
         # Setup different modules for each protocol
         mock_module1 = MagicMock()
-        mock_adapter1 = MockModAdapter()
-        mock_module1.Adapter.return_value = mock_adapter1
+        mock_module1.Adapter = Protocol1Adapter
         
         mock_module2 = MagicMock()
-        mock_adapter2 = MockModAdapter()
-        mock_module2.TestProtocolAgentClient.return_value = mock_adapter2
+        mock_module2.Adapter = Protocol2Adapter
         
         # Make import_module return different modules based on the argument
         def side_effect(module_path):
@@ -232,7 +321,7 @@ class TestProtocolLoaders(unittest.TestCase):
                 return mock_module1
             elif module_path == 'openagents.mods.test.protocol2.adapter':
                 return mock_module2
-            return MagicMock()  # Return a default mock for other imports
+            raise ImportError(f"Module {module_path} not found")
         
         self.mock_import_module.side_effect = side_effect
         
@@ -245,6 +334,8 @@ class TestProtocolLoaders(unittest.TestCase):
         
         # Assertions
         self.assertEqual(len(adapters), 2)
+        self.assertIsInstance(adapters[0], Protocol1Adapter)
+        self.assertIsInstance(adapters[1], Protocol2Adapter)
         # Check that import_module was called with both adapter paths
         self.mock_import_module.assert_any_call('openagents.mods.test.protocol1.adapter')
         self.mock_import_module.assert_any_call('openagents.mods.test.protocol2.adapter')

@@ -207,16 +207,16 @@ class AgentDiscoveryMod(BaseMod):
             
         elif action == DISCOVER_AGENTS:
             # Agent is requesting to discover other agents with specific capabilities
-            query = message.content.get("query", {})
+            query = message.payload.get("query", {})
             results = self._discover_agents(query)
             
             # Send response back to the requesting agent
             response = Event(
-                direction="outbound",
-                sender_id=self.network.network_id,
-                mod=self.mod_name,
-                relevant_agent_id=sender_id,
-                content={
+                event_name="discovery.results",
+                source_id=self.network.network_id,
+                relevant_mod=self.mod_name,
+                target_agent_id=sender_id,
+                payload={
                     "action": "discovery_results",
                     "query": query,
                     "results": results

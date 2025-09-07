@@ -52,12 +52,18 @@ def parse_message_dict(message_dict: Dict[str, Any]) -> Event:
         if "source_id" not in merged_dict:
             merged_dict["source_id"] = merged_dict.get("sender_id", "unknown")
             
+        # Remove event_name from merged_dict to avoid duplicate parameter
+        merged_dict.pop("event_name", None)
         return Event(event_name=event_name, **merged_dict)
     
     # Ensure source_id is present for all events
     if "source_id" not in message_dict:
         message_dict = message_dict.copy()
         message_dict["source_id"] = message_dict.get("sender_id", "unknown")
+    
+    # Remove event_name from message_dict to avoid duplicate parameter
+    message_dict = message_dict.copy()
+    message_dict.pop("event_name", None)
     
     # Create unified Event regardless of original message type
     return Event(event_name=event_name, **message_dict)

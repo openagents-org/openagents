@@ -305,93 +305,143 @@ class ThreadMessagingNetworkMod(BaseMod):
             logger.info(f"Unregistered agent {agent_id} from Thread Messaging protocol")
     
     async def process_direct_message(self, message: Event) -> Optional[Event]:
-        """Process a direct message.
+        """Process a direct message in the mod pipeline.
         
         Args:
-            message: The direct message to process
+            message: The direct message to process (event_name starts with "agent.direct_message.")
             
         Returns:
-            Optional[Event]: The processed message, or None if the message was handled
+            Optional[Event]: The processed message, or None if processing should stop
         """
+        logger.debug(f"Thread messaging mod processing direct message from {message.source_id} to {message.target_agent_id}")
+        
+        # Add to history for thread messaging
         self._add_to_history(message)
-        logger.debug(f"Processing direct message from {message.sender_id} to {message.target_agent_id}")
+        
+        # Thread messaging mod doesn't interfere with direct messages, let them continue
         return message
     
-    async def process_broadcast_message(self, message) -> Optional[Event]:
-        """Process broadcast messages (channel messages in our case).
+    async def process_broadcast_message(self, message: Event) -> Optional[Event]:
+        """Process a broadcast message in the mod pipeline.
         
         Args:
-            message: The broadcast message to process
+            message: The broadcast message to process (event_name starts with "agent.broadcast_message.")
             
+        Returns:
+            Optional[Event]: The processed message, or None if processing should stop
+        """
+        logger.debug(f"Thread messaging mod processing broadcast message from {message.source_id}")
+        
+        # Add to history for thread messaging
+        self._add_to_history(message)
+        
+        # Check if this is a channel message that should be handled by thread messaging
+        if hasattr(message, 'target_channel') and message.target_channel:
+            # This is a channel broadcast - thread messaging should handle it
+            logger.debug(f"Thread messaging capturing channel broadcast to {message.target_channel}")
+            
+            # Convert to ChannelMessage and process it
+            channel_message = ChannelMessage(
+                sender_id=message.source_id,
+                channel=message.target_channel,
+                content=message.payload,
+                timestamp=message.timestamp,
+                message_id=message.event_id
+            )
+            
+            await self._process_channel_message(channel_message)
+            
+            # Return None to stop further processing - thread messaging handled this
+            return None
+        
+        # Not a channel message, let other mods process it
+        return message
+    
+    async def process_system_message(self, message: Event) -> Optional[Event]:
+        """Process a system message in the mod pipeline.
+        
+        Args:
+            message: The system message to process
+        
         Returns:
             Optional[Event]: The processed message, or None if the message was handled
         """
-        if isinstance(message, ChannelMessage):
-            await self._process_channel_message(message)
+        # Prevent infinite loops - don't process messages we generated
+        if message.source_id == self.network.network_id and message.relevant_mod == "openagents.mods.communication.thread_messaging":
+            logger.debug("Skipping thread messaging response message to prevent infinite loop")
+            return message
         
+        # Check if this is a message type that thread messaging should handle
+        event_name = message.event_name
+        
+        # Handle thread messaging specific events
+        if event_name.startswith("thread."):
+            logger.debug(f"Thread messaging processing system message: {event_name}")
+            
+            # Extract the inner message from the Event content
+            try:
+                content = message.payload if hasattr(message, 'payload') else message.content
+                message_type = content.get("message_type") if hasattr(content, 'get') else getattr(content, 'message_type', None)
+                
+                logger.debug(f"Processing thread system message of type: {message_type}")
+                logger.debug(f"Message content keys: {list(content.keys()) if hasattr(content, 'keys') else 'No keys'}")
+                
+                if message_type == "reply_message":
+                    # Populate quoted_text if quoted_message_id is provided
+                    if 'quoted_message_id' in content and content['quoted_message_id']:
+                        content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
+                    inner_message = ReplyMessage(**content)
+                    self._add_to_history(inner_message)
+                    await self._process_reply_message(inner_message)
+                elif message_type == "file_upload":
+                    inner_message = FileUploadMessage(**content)
+                    self._add_to_history(inner_message)
+                    await self._process_file_upload(inner_message)
+                elif message_type == "file_operation":
+                    inner_message = FileOperationMessage(**content)
+                    self._add_to_history(inner_message)
+                    await self._process_file_operation(inner_message)
+                elif message_type == "channel_info" or message_type == "channel_info_message":
+                    inner_message = ChannelInfoMessage(**content)
+                    self._add_to_history(inner_message)
+                    await self._process_channel_info_request(inner_message)
+                elif message_type == "message_retrieval":
+                    inner_message = MessageRetrievalMessage(**content)
+                    self._add_to_history(inner_message)
+                    await self._process_message_retrieval_request(inner_message)
+                elif message_type == "reaction":
+                    inner_message = ReactionMessage(**content)
+                    self._add_to_history(inner_message)
+                    await self._process_reaction_message(inner_message)
+                elif message_type == "direct_message":
+                    # Populate quoted_text if quoted_message_id is provided
+                    if 'quoted_message_id' in content and content['quoted_message_id']:
+                        content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
+                    inner_message = Event(**content)
+                    self._add_to_history(inner_message)
+                    await self._process_direct_message(inner_message)
+                elif message_type == "channel_message":
+                    # Populate quoted_text if quoted_message_id is provided
+                    if 'quoted_message_id' in content and content['quoted_message_id']:
+                        content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
+                    inner_message = ChannelMessage(**content)
+                    self._add_to_history(inner_message)
+                    await self._process_channel_message(inner_message)
+                else:
+                    logger.warning(f"Unknown message type in thread system message: {message_type}")
+                    return message  # Let other mods handle unknown message types
+                
+                # Thread messaging handled this message, stop further processing
+                return None
+                
+            except Exception as e:
+                logger.error(f"Error processing thread system message: {e}")
+                import traceback
+                traceback.print_exc()
+                return message  # Let other mods handle if there's an error
+        
+        # Not a thread messaging event, let other mods process it
         return message
-    
-    async def process_mod_message(self, message: Event) -> None:
-        """Process a mod message.
-        
-        Args:
-            message: The mod message to process
-        """
-        # Extract the inner message from the Event content
-        try:
-            content = message.content
-            message_type = content.get("message_type")
-            
-            logger.debug(f"Processing mod message of type: {message_type}")
-            logger.debug(f"Message content keys: {list(content.keys())}")
-            
-            if message_type == "reply_message":
-                # Populate quoted_text if quoted_message_id is provided
-                if 'quoted_message_id' in content and content['quoted_message_id']:
-                    content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
-                inner_message = ReplyMessage(**content)
-                self._add_to_history(inner_message)
-                await self._process_reply_message(inner_message)
-            elif message_type == "file_upload":
-                inner_message = FileUploadMessage(**content)
-                self._add_to_history(inner_message)
-                await self._process_file_upload(inner_message)
-            elif message_type == "file_operation":
-                inner_message = FileOperationMessage(**content)
-                self._add_to_history(inner_message)
-                await self._process_file_operation(inner_message)
-            elif message_type == "channel_info" or message_type == "channel_info_message":
-                inner_message = ChannelInfoMessage(**content)
-                self._add_to_history(inner_message)
-                await self._process_channel_info_request(inner_message)
-            elif message_type == "message_retrieval":
-                inner_message = MessageRetrievalMessage(**content)
-                self._add_to_history(inner_message)
-                await self._process_message_retrieval_request(inner_message)
-            elif message_type == "reaction":
-                inner_message = ReactionMessage(**content)
-                self._add_to_history(inner_message)
-                await self._process_reaction_message(inner_message)
-            elif message_type == "direct_message":
-                # Populate quoted_text if quoted_message_id is provided
-                if 'quoted_message_id' in content and content['quoted_message_id']:
-                    content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
-                inner_message = Event(**content)
-                self._add_to_history(inner_message)
-                await self._process_direct_message(inner_message)
-            elif message_type == "channel_message":
-                # Populate quoted_text if quoted_message_id is provided
-                if 'quoted_message_id' in content and content['quoted_message_id']:
-                    content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
-                inner_message = ChannelMessage(**content)
-                self._add_to_history(inner_message)
-                await self._process_channel_message(inner_message)
-            else:
-                logger.warning(f"Unknown message type in mod message: {message_type}")
-        except Exception as e:
-            logger.error(f"Error processing mod message content: {e}")
-            import traceback
-            traceback.print_exc()
     
     async def _process_channel_message(self, message: ChannelMessage) -> None:
         """Process a channel message.
@@ -476,7 +526,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         Args:
             message: The direct message to process
         """
-        logger.debug(f"Processing direct message from {message.sender_id} to {message.target_agent_id}")
+        logger.debug(f"Processing direct message from {message.source_id} to {message.target_agent_id}")
     
     async def _process_reply_message(self, message: ReplyMessage) -> None:
         """Process a reply message and manage thread creation/updates.
@@ -490,6 +540,9 @@ class ThreadMessagingNetworkMod(BaseMod):
         if reply_to_id not in self.message_history:
             logger.warning(f"Cannot create reply: original message {reply_to_id} not found")
             return
+        
+        # Add the reply message to history
+        self._add_to_history(message)
         
         original_message = self.message_history[reply_to_id]
         
@@ -888,11 +941,12 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Find direct messages between the two agents
         direct_messages = []
         for msg_id, msg in self.message_history.items():
-            # Check if this is a direct message between the agents
+            # Check if this is a direct message between the agents (check for target_agent_id field)
+            has_target_agent = hasattr(msg, 'target_agent_id') and msg.target_agent_id
             is_direct_msg_between_agents = (
-                isinstance(msg, Event) and 
-                ((msg.sender_id == agent_id and msg.target_agent_id == target_agent_id) or
-                 (msg.sender_id == target_agent_id and msg.target_agent_id == agent_id))
+                has_target_agent and 
+                ((msg.source_id == agent_id and msg.target_agent_id == target_agent_id) or
+                 (msg.source_id == target_agent_id and msg.target_agent_id == agent_id))
             )
             
             if is_direct_msg_between_agents:
@@ -923,8 +977,8 @@ class ThreadMessagingNetworkMod(BaseMod):
             # Also include replies if they're between these agents
             elif include_threads and isinstance(msg, ReplyMessage) and msg.target_agent_id:
                 is_reply_between_agents = (
-                    (msg.sender_id == agent_id and msg.target_agent_id == target_agent_id) or
-                    (msg.sender_id == target_agent_id and msg.target_agent_id == agent_id)
+                    (msg.source_id == agent_id and msg.target_agent_id == target_agent_id) or
+                    (msg.source_id == target_agent_id and msg.target_agent_id == agent_id)
                 )
                 
                 if is_reply_between_agents:

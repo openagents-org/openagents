@@ -128,7 +128,7 @@ class DefaultProjectNetworkMod(BaseMod):
         
         logger.info(f"Unregistered agent {agent_id} from Project mod")
     
-    async def process_mod_message(self, message: Event) -> None:
+    async def process_system_message(self, message: Event) -> None:
         """Process a mod message.
         
         Args:
@@ -168,6 +168,7 @@ class DefaultProjectNetworkMod(BaseMod):
             logger.error(f"Error processing project mod message: {e}")
             import traceback
             traceback.print_exc()
+        return message
     
     async def _process_project_creation(self, message: ProjectCreationMessage) -> None:
         """Process a project creation request.
@@ -593,14 +594,12 @@ class DefaultProjectNetworkMod(BaseMod):
                 
                 # Create a transport message for the thread messaging mod
                 transport_message = Message(
-                    message_id=f"project-goal-{project.project_id}",
-                    sender_id=project.creator_agent_id,
+                    source_id=project.creator_agent_id,
                     target_id="",  # Broadcast to mod
                     message_type="mod_message",
                     payload={
                         "mod": "openagents.mods.communication.thread_messaging",
                         "action": "channel_message",
-                        "direction": "outbound",
                         "relevant_agent_id": project.creator_agent_id,
                         "message_type": "channel_message",
                         "sender_id": project.creator_agent_id,
@@ -608,6 +607,7 @@ class DefaultProjectNetworkMod(BaseMod):
                         "content": {"text": goal_message},
                         "system_message": True  # Mark as system message
                     },
+                    message_id=f"project-goal-{project.project_id}",
                     timestamp=int(time.time())
                 )
                 
@@ -629,18 +629,18 @@ class DefaultProjectNetworkMod(BaseMod):
         """
         for agent_id in project.service_agents:
             notification = Event(
-                sender_id=self.network.network_id,
+                event_name="project.notification",
+                source_id=self.network.network_id,
                 relevant_mod="openagents.mods.project.default",
-                content={
+                target_agent_id=agent_id,
+                payload={
                     "action": "project_notification",
                     "notification_type": notification_type,
                     "project_id": project.project_id,
                     "project_name": project.name,
                     "project_goal": project.goal,
                     "channel_name": project.channel_name
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                }
             )
             
             try:
@@ -659,15 +659,15 @@ class DefaultProjectNetworkMod(BaseMod):
         # Forward to project creator
         if project.creator_agent_id and project.creator_agent_id != message.sender_id:
             notification = Event(
-                sender_id=self.network.network_id,
+                event_name="project.message_received",
+                source_id=self.network.network_id,
                 relevant_mod="openagents.mods.project.default",
-                content={
+                target_agent_id=project.creator_agent_id,
+                payload={
                     "action": "project_message_received",
                     "project_id": project.project_id,
                     "original_message": message.model_dump()
-                },
-                direction="outbound",
-                relevant_agent_id=project.creator_agent_id
+                }
             )
             
             try:
@@ -732,10 +732,11 @@ class DefaultProjectNetworkMod(BaseMod):
         }
         
         response = Event(
-            sender_id=self.network.network_id,
+            event_name="project.response",
+            source_id=self.network.network_id,
             relevant_mod="openagents.mods.project.default",
-            relevant_agent_id=agent_id,
-            content=response_content
+            target_agent_id=agent_id,
+            payload=response_content
         )
         
         try:

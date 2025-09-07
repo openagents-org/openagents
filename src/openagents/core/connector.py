@@ -360,7 +360,7 @@ class NetworkConnector:
         # Create a temporary handler that will resolve the future when the message arrives
         async def temp_direct_handler(msg: Event) -> None:
             # Check if this is the message we're waiting for
-            if msg.sender_id == sender_id:
+            if msg.source_id == sender_id:
                 response_future.set_result(msg)
         
         # Register the temporary handler

@@ -37,13 +37,13 @@ class SimpleEchoAgentRunner(AgentRunner):
             incoming_thread_id: ID of the thread containing the incoming message
             incoming_message: The incoming message to react to
         """
-        logger.info(f"🎯 Echo agent received message from {incoming_message.sender_id}")
+        logger.info(f"🎯 Echo agent received message from {incoming_message.source_id}")
         logger.info(f"   Message type: {type(incoming_message).__name__}")
-        logger.info(f"   Content: {incoming_message.content}")
+        logger.info(f"   Content: {incoming_message.payload}")
         
         self.message_count += 1
-        sender_id = incoming_message.sender_id
-        content = incoming_message.content
+        sender_id = incoming_message.source_id
+        content = incoming_message.payload
         
         # Extract text from content
         if isinstance(content, dict):

@@ -110,11 +110,11 @@ class AgentDiscoveryAdapter(BaseModAdapter):
         
         # Create discovery request message
         message = Event(
-            direction="inbound",
-            sender_id=self.agent_id,
-            mod=self.mod_name,
-            relevant_agent_id=self.agent_id,
-            content={
+            event_name="discovery.request",
+            source_id=self.agent_id,
+            relevant_mod=self.mod_name,
+            target_agent_id=self.agent_id,
+            payload={
                 "action": DISCOVER_AGENTS,
                 "query": query
             }
@@ -173,11 +173,11 @@ class AgentDiscoveryAdapter(BaseModAdapter):
         
         # Create announcement message with explicit direction=inbound
         message = Event(
-            direction="inbound",
-            sender_id=self.agent_id,
-            mod=self.mod_name,
-            relevant_agent_id=self.agent_id,
-            content={
+            event_name="discovery.announce",
+            source_id=self.agent_id,
+            relevant_mod=self.mod_name,
+            target_agent_id=self.agent_id,
+            payload={
                 "action": ANNOUNCE_CAPABILITIES,
                 "capabilities": capabilities_copy
             }

@@ -589,7 +589,7 @@ class SharedDocumentNetworkMod(BaseMod):
         logger.info("Shutting down SharedDocument network mod")
         return True
     
-    async def process_mod_message(self, message: Event) -> None:
+    async def process_system_message(self, message: Event) -> Optional[Event]:
         """Process incoming mod messages."""
         try:
             source_agent_id = message.sender_id or message.relevant_agent_id or "unknown"
@@ -656,12 +656,13 @@ class SharedDocumentNetworkMod(BaseMod):
         except Exception as e:
             logger.error(f"Error processing mod message from {source_agent_id}: {e}")
             await self._send_error_response(source_agent_id, str(e))
-
+        return message
+    
     async def process_message(self, message: Event, source_agent_id: str) -> None:
-        """Legacy process_message method - delegates to process_mod_message."""
+        """Legacy process_message method - delegates to process_system_message."""
         try:
             if isinstance(message, Event):
-                await self.process_mod_message(message)
+                await self.process_system_message(message)
             else:
                 logger.warning(f"Received non-mod message: {type(message)}")
                 
@@ -1170,10 +1171,11 @@ class SharedDocumentNetworkMod(BaseMod):
             if agent_id != source_agent_id:
                 try:
                     mod_message = Event(
+                        event_name="agent.mod_message.sent",
                         relevant_mod="shared_document",
                         content=operation_message.model_dump(),
                         sender_id=self.network.network_id,
-                        relevant_agent_id=agent_id
+                        target_agent_id=agent_id
                     )
                     await self.network.send_message(mod_message)
                 except Exception as e:
@@ -1199,10 +1201,11 @@ class SharedDocumentNetworkMod(BaseMod):
             if other_agent_id != agent_id:
                 try:
                     mod_message = Event(
+                        event_name="agent.mod_message.sent",
                         relevant_mod="shared_document",
                         content=presence_message.model_dump(),
                         sender_id=self.network.network_id,
-                        relevant_agent_id=other_agent_id
+                        target_agent_id=other_agent_id
                     )
                     await self.network.send_message(mod_message)
                 except Exception as e:
@@ -1224,10 +1227,11 @@ class SharedDocumentNetworkMod(BaseMod):
             logger.info(f"🔧 _send_response - Final content request_id: {content.get('request_id', 'NOT_FOUND')}")
             
             mod_message = Event(
+                event_name="agent.mod_message.sent",
                 relevant_mod="openagents.mods.work.shared_document",
                 content=content,
                 sender_id=self.network.network_id,
-                relevant_agent_id=target_agent_id
+                target_agent_id=target_agent_id
             )
             await self.network.send_message(mod_message)
         except Exception as e:

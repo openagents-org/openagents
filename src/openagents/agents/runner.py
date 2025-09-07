@@ -157,7 +157,7 @@ class AgentRunner(ABC):
                         total_messages += 1
                         # Check if message hasn't been processed (regardless of requires_response)
                         message_id = str(message.message_id)
-                        # print(f"     Message {message_id[:8]}... from {message.sender_id}, requires_response={message.requires_response}, processed={message_id in self._processed_message_ids}")
+                        # print(f"     Message {message_id[:8]}... from {message.source_id}, requires_response={message.requires_response}, processed={message_id in self._processed_message_ids}")
                         if message_id not in self._processed_message_ids:
                             unprocessed_count += 1
                             # Find the earliest unprocessed message by timestamp
@@ -170,13 +170,13 @@ class AgentRunner(ABC):
                 
                 # If we found an unprocessed message, process it
                 if unprocessed_message and unprocessed_thread_id:
-                    # print(f"🎯 Processing message {unprocessed_message.message_id[:8]}... from {unprocessed_message.sender_id}")
+                    # print(f"🎯 Processing message {unprocessed_message.message_id[:8]}... from {unprocessed_message.source_id}")
                     # Mark the message as processed to avoid processing it again
                     self._processed_message_ids.add(str(unprocessed_message.message_id))
 
                     # If the sender is in the ignored list, skip the message
-                    if unprocessed_message.sender_id in self._ignored_sender_ids:
-                        # print(f"⏭️  Skipping message from ignored sender {unprocessed_message.sender_id}")
+                    if unprocessed_message.source_id in self._ignored_sender_ids:
+                        # print(f"⏭️  Skipping message from ignored sender {unprocessed_message.source_id}")
                         continue
                     
                     # Create a copy of conversation threads that doesn't include future messages
@@ -213,6 +213,7 @@ class AgentRunner(ABC):
         
         This is the internal async implementation that should not be called directly.
         """
+        # verbose_print(f"🚀 Agent {self._agent_id} starting...")
         try:
             connected = await self.client.connect_to_server(host, port, network_id, metadata)
             if not connected:
@@ -299,6 +300,7 @@ class AgentRunner(ABC):
                 verbose_print(f"🔄 Using existing protocols: {self._supported_mods}")
             
             self._running = True
+            # Start the loop in a background task
             # Start the loop in a background task
             self._loop_task = asyncio.create_task(self._async_loop())
             # Setup the agent

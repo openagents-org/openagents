@@ -151,9 +151,9 @@ class TestMessageHandling:
         """Test broadcast message handling."""
         # Create a broadcast message
         message = Event(
-            sender_id="user1",
-            content={"text": "Hello everyone!"},
-            text_representation="Hello everyone!"
+            event_name="agent.broadcast_message.received",
+            source_id="user1",
+            payload={"text": "Hello everyone!"}
         )
         
         # Process the message
@@ -173,9 +173,9 @@ class TestMessageHandling:
         """Test broadcast message with mention."""
         # Create a broadcast message that mentions the agent
         message = Event(
-            sender_id="user1",
-            content={"text": "Hello @test-agent!"},
-            text_representation="Hello @test-agent!"
+            event_name="agent.broadcast_message.received",
+            source_id="user1",
+            payload={"text": "Hello @test-agent!"}
         )
         
         # Process the message
@@ -194,10 +194,10 @@ class TestMessageHandling:
         """Test that agent ignores its own messages."""
         # Create a message from the agent itself
         message = Event(
-            sender_id="test-agent",  # Same as agent ID
+            event_name="agent.direct_message.received",
+            source_id="test-agent",  # Same as agent ID
             target_agent_id="other-agent",
-            content={"text": "Self message"},
-            text_representation="Self message"
+            payload={"text": "Self message"}
         )
         
         # Process the message

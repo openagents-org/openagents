@@ -165,6 +165,15 @@ class Transport(ABC):
     def get_connections(self) -> Dict[str, ConnectionInfo]:
         """Get all connections."""
         return self.connections.copy()
+    
+    def register_agent_connection(self, agent_id: str, peer_id: str):
+        """Register an agent ID with its peer connection for routing.
+        
+        Args:
+            agent_id: The agent's registered ID
+            peer_id: The peer/connection ID in the transport
+        """
+        pass  # Default implementation does nothing
 
 
 class WebSocketTransport(Transport):
@@ -261,7 +270,7 @@ class WebSocketTransport(Transport):
     async def send(self, message: Message) -> bool:
         """Send message via WebSocket."""
         try:
-            # Convert message to JSON
+            # Convert message to JSON in client-expected format
             message_data = {
                 'event_name': message.event_name,
                 'source_id': message.source_id,
@@ -271,7 +280,13 @@ class WebSocketTransport(Transport):
                 'timestamp': message.timestamp,
                 'metadata': message.metadata
             }
-            message_json = json.dumps(message_data)
+            
+            # Wrap in the format expected by client (like connector.py line 169)
+            wrapped_data = {
+                "type": "message",
+                "data": message_data
+            }
+            message_json = json.dumps(wrapped_data)
             
             # Send to specific target or broadcast
             if hasattr(message, 'target_agent_id') and message.target_agent_id:
@@ -357,16 +372,28 @@ class WebSocketTransport(Transport):
             try:
                 message_data = json.loads(message_str)
                 
-                # Create Event from received data
-                message = Event(
-                    event_name=message_data.get('event_name', 'unknown'),
-                    source_id=message_data.get('source_id', peer_id),
-                    target_agent_id=message_data.get('target_agent_id'),
-                    payload=message_data.get('payload', {}),
-                    event_id=message_data.get('event_id', str(uuid.uuid4())),
-                    timestamp=message_data.get('timestamp'),
-                    metadata=message_data.get('metadata', {})
-                )
+                # Check if this is a system message (not an Event)
+                if message_data.get('type') == 'system_request':
+                    # Handle system message through system handlers
+                    await self._notify_system_message_handlers(peer_id, message_data, websocket)
+                    continue
+                
+                # Check if this is an event message with nested data
+                if message_data.get('type') == 'event':
+                    # Extract the event data from the nested structure
+                    event_data = message_data.get('data', {})
+                    message = Event.from_dict(event_data)
+                else:
+                    # Create Event from received data (backward compatibility)
+                    message = Event(
+                        event_name=message_data.get('event_name', 'transport.message.received'),
+                        source_id=message_data.get('source_id', peer_id),
+                        target_agent_id=message_data.get('target_agent_id'),
+                        payload=message_data.get('payload', {}),
+                        event_id=message_data.get('event_id', str(uuid.uuid4())),
+                        timestamp=message_data.get('timestamp'),
+                        metadata=message_data.get('metadata', {})
+                    )
                 
                 # Handle the message
                 await self.handle_message(message, peer_id)
@@ -375,6 +402,21 @@ class WebSocketTransport(Transport):
                 logger.error(f"Invalid JSON from {peer_id}: {e}")
             except Exception as e:
                 logger.error(f"Error handling message from {peer_id}: {e}")
+    
+    def register_agent_connection(self, agent_id: str, peer_id: str):
+        """Register an agent ID with its peer connection for routing.
+        
+        Args:
+            agent_id: The agent's registered ID  
+            peer_id: The peer/connection ID in the transport
+        """
+        if peer_id in self.websockets:
+            self.websockets[agent_id] = self.websockets[peer_id]
+            # Also add to client_connections for backward compatibility
+            self.client_connections[agent_id] = self.websockets[peer_id]
+            logger.debug(f"Mapped agent {agent_id} to WebSocket connection {peer_id}")
+        else:
+            logger.warning(f"Cannot map agent {agent_id}: peer {peer_id} not found in websockets")
 
 
 class GRPCTransport(Transport):
@@ -406,8 +448,9 @@ class GRPCTransport(Transport):
         """Shutdown gRPC transport."""
         try:
             if self.server:
-                await self.server.stop(5)  # 5 second grace period
+                await self.server.stop(grace=5)  # 5 second grace period
                 logger.info("gRPC server shutdown")
+                self.server = None
             
             if self.http_adapter:
                 await self.http_adapter.shutdown()
@@ -415,6 +458,7 @@ class GRPCTransport(Transport):
             
             self.connections.clear()
             self.is_initialized = False
+            self.is_listening = False
             return True
         except Exception as e:
             logger.error(f"Error shutting down gRPC transport: {e}")
@@ -462,14 +506,76 @@ class GRPCTransport(Transport):
     async def listen(self, address: str) -> bool:
         """Start gRPC server."""
         try:
+            import grpc
+            from grpc import aio
+            from openagents.proto import agent_service_pb2_grpc, agent_service_pb2
+            
             host, port = address.split(':') if ':' in address else (self.host, int(address))
             port = int(port) if isinstance(port, str) else port
             
-            # This would typically set up the gRPC server with servicers
-            # Simplified implementation
+            # Create a minimal AgentService servicer for basic functionality
+            class MinimalAgentServicer(agent_service_pb2_grpc.AgentServiceServicer):
+                def __init__(self, transport):
+                    self.transport = transport
+                
+                async def Ping(self, request, context):
+                    logger.debug(f"gRPC Ping received from {request.agent_id}")
+                    from google.protobuf.timestamp_pb2 import Timestamp
+                    timestamp = Timestamp()
+                    timestamp.GetCurrentTime()
+                    return agent_service_pb2.PingResponse(
+                        success=True,
+                        timestamp=timestamp
+                    )
+                
+                async def RegisterAgent(self, request, context):
+                    # Basic registration that just acknowledges
+                    logger.info(f"Agent registration: {request.agent_id}")
+                    return agent_service_pb2.RegisterAgentResponse(
+                        success=True,
+                        network_name="TestNetwork",
+                        network_id="grpc-network"
+                    )
+                
+                async def SendMessage(self, request, context):
+                    # Basic message handling - request is a Message, not a wrapper
+                    logger.debug(f"gRPC message from {request.sender_id}")
+                    return agent_service_pb2.MessageResponse(
+                        success=True,
+                        message_id=request.message_id
+                    )
+                
+                async def SendSystemCommand(self, request, context):
+                    # Basic system command handling
+                    logger.debug(f"gRPC system command: {request.command}")
+                    return agent_service_pb2.SystemCommandResponse(
+                        success=True,
+                        request_id=request.request_id
+                    )
+                
+                async def UnregisterAgent(self, request, context):
+                    # Basic agent unregistration
+                    logger.info(f"Agent unregistration: {request.agent_id}")
+                    return agent_service_pb2.UnregisterAgentResponse(
+                        success=True
+                    )
+            
+            # Create and start gRPC server
+            self.server = aio.server()
+            self.servicer = MinimalAgentServicer(self)
+            agent_service_pb2_grpc.add_AgentServiceServicer_to_server(self.servicer, self.server)
+            
+            listen_addr = f'{host}:{port}'
+            self.server.add_insecure_port(listen_addr)
+            
+            await self.server.start()
             self.is_listening = True
             logger.info(f"gRPC transport listening on {host}:{port}")
             return True
+            
+        except ImportError as e:
+            logger.error(f"gRPC libraries not available: {e}")
+            return False
         except Exception as e:
             logger.error(f"Failed to start gRPC server: {e}")
             return False

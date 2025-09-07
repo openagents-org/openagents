@@ -311,6 +311,26 @@ class Event:
         logger.warning(f"Setting message_type '{value}' on Event is deprecated. Use event_name instead.")
     
     @property
+    def mod(self) -> Optional[str]:
+        """Backward compatibility: mod maps to relevant_mod."""
+        return self.relevant_mod
+    
+    @mod.setter
+    def mod(self, value: Optional[str]):
+        """Backward compatibility: mod maps to relevant_mod."""
+        self.relevant_mod = value
+    
+    @property
+    def relevant_agent_id(self) -> Optional[str]:
+        """Backward compatibility: relevant_agent_id maps to target_agent_id."""
+        return self.target_agent_id
+    
+    @relevant_agent_id.setter
+    def relevant_agent_id(self, value: Optional[str]):
+        """Backward compatibility: relevant_agent_id maps to target_agent_id."""
+        self.target_agent_id = value
+    
+    @property
     def timestamp_float(self) -> float:
         """Get timestamp as float for backward compatibility."""
         return float(self.timestamp) / 1000.0
@@ -378,6 +398,45 @@ class Event:
             event_data['source_id'] = 'transport'
         
         return cls(**event_data)
+    
+    def is_direct_message(self) -> bool:
+        """Check if this event is a direct message.
+        
+        Returns:
+            bool: True if event_name starts with "agent.direct_message."
+        """
+        return self.event_name.startswith("agent.direct_message.")
+    
+    def is_broadcast_message(self) -> bool:
+        """Check if this event is a broadcast message.
+        
+        Returns:
+            bool: True if event_name starts with "agent.broadcast_message."
+        """
+        return self.event_name.startswith("agent.broadcast_message.")
+    
+    def is_system_message(self) -> bool:
+        """Check if this event is a system message.
+        
+        System messages are any events that are not direct or broadcast messages.
+        
+        Returns:
+            bool: True if this is a system message
+        """
+        return not (self.is_direct_message() or self.is_broadcast_message())
+    
+    def get_message_type(self) -> str:
+        """Get the message type classification for this event.
+        
+        Returns:
+            str: "direct_message", "broadcast_message", or "system_message"
+        """
+        if self.is_direct_message():
+            return "direct_message"
+        elif self.is_broadcast_message():
+            return "broadcast_message"
+        else:
+            return "system_message"
 
 
 @dataclass
