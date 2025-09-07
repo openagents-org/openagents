@@ -69,8 +69,8 @@ class ProjectEchoAgentRunner(AgentRunner):
     async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: Event):
         """React to incoming messages and handle project participation."""
         self.message_count += 1
-        sender_id = incoming_message.sender_id
-        content = incoming_message.content
+        sender_id = incoming_message.source_id
+        content = incoming_message.payload
         
         # Extract text content
         if isinstance(content, dict):
@@ -141,12 +141,12 @@ class ProjectEchoAgentRunner(AgentRunner):
 
     async def _handle_mod_message(self, message: Event):
         """Handle Event notifications, especially channel message notifications."""
-        logger.info(f"🔧 PROJECT ECHO AGENT: Received Event from {message.sender_id}")
-        logger.info(f"🔧 PROJECT ECHO AGENT: Event content: {message.content}")
+        logger.info(f"🔧 PROJECT ECHO AGENT: Received Event from {message.source_id}")
+        logger.info(f"🔧 PROJECT ECHO AGENT: Event content: {message.payload}")
         
         # Check if this is a channel message notification
-        if message.content.get("action") == "channel_message_notification":
-            channel_msg_data = message.content.get("message", {})
+        if message.payload.get("action") == "channel_message_notification":
+            channel_msg_data = message.payload.get("message", {})
             channel = message.content.get("channel", "")
             
             logger.info(f"🔧 PROJECT ECHO AGENT: Received channel message notification for {channel}")
@@ -239,8 +239,8 @@ class ProjectEchoAgentRunner(AgentRunner):
         await self._complete_project(project_id, text)
 
     async def _handle_project_task(self, project_id: str, message: Event, text: str):
-        """Handle a task in a project channel (legacy method)."""
-        sender_id = message.sender_id
+        """Handle a task in a project channel."""
+        sender_id = message.source_id
         
         # Skip our own messages
         if sender_id == self.client.agent_id:

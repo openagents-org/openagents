@@ -110,8 +110,7 @@ class TestClientWaitFunctions:
         await asyncio.sleep(0.5)
         
         # Send a message and wait for response
-        msg = Event(event_name="agent.direct_message.sent", source_id="test-client", target_agent_id="echo-agent", payload={"text": "Hello Echo!"}
-        )
+        msg = Event(event_name="agent.direct_message.sent", source_id="test-client", target_agent_id="echo-agent", payload={"text": "Hello Echo!", "message_type": "direct_message"})
         
         # Send message and immediately start waiting
         await client.send_direct_message(msg)
@@ -121,8 +120,8 @@ class TestClientWaitFunctions:
         
         # Verify response
         assert response is not None, "Should receive a response from echo agent"
-        assert response.sender_id == "echo-agent", f"Response should be from echo-agent, got {response.sender_id}"
-        assert "Echo: Hello Echo!" in response.content.get("text", ""), f"Response should contain echoed text, got {response.content}"
+        assert response.source_id == "echo-agent", f"Response should be from echo-agent, got {response.source_id}"
+        assert "Echo: Hello Echo!" in response.payload.get("text", ""), f"Response should contain echoed text, got {response.payload}"
         
         logger.info("✅ Basic wait_direct_message test passed")
 
@@ -140,20 +139,20 @@ class TestClientWaitFunctions:
         await asyncio.sleep(0.5)
         
         # Send a message
-        msg = Event(event_name="agent.direct_message.sent", source_id="test-client", target_agent_id="echo-agent", payload={"text": "Test condition filtering"}
+        msg = Event(event_name="agent.direct_message.sent", source_id="test-client", target_agent_id="echo-agent", payload={"text": "Test condition filtering", "message_type": "direct_message"}
         )
         await client.send_direct_message(msg)
         
         # Wait for response from specific sender with condition
         response = await client.wait_direct_message(
-            condition=lambda msg: msg.sender_id == "echo-agent" and "condition" in msg.content.get("text", ""),
+            condition=lambda msg: msg.source_id == "echo-agent" and "condition" in msg.payload.get("text", ""),
             timeout=5.0
         )
         
         # Verify response
         assert response is not None, "Should receive a response matching condition"
-        assert response.sender_id == "echo-agent", "Response should be from echo-agent"
-        assert "condition" in response.content.get("text", ""), "Response should contain 'condition'"
+        assert response.source_id == "echo-agent", "Response should be from echo-agent"
+        assert "condition" in response.payload.get("text", ""), "Response should contain 'condition'"
         
         logger.info("✅ Conditional wait_direct_message test passed")
 
@@ -203,7 +202,7 @@ class TestClientWaitFunctions:
         await asyncio.sleep(0.1)
         
         # Send broadcast message
-        broadcast_msg = Event(event_name="agent.broadcast_message.sent", source_id="sender-client", payload={"text": "Hello everyone!"}
+        broadcast_msg = Event(event_name="agent.broadcast_message.sent", source_id="sender-client", payload={"text": "Hello everyone!", "message_type": "broadcast_message"}
         )
         await sender_client.send_broadcast_message(broadcast_msg)
         
@@ -212,8 +211,8 @@ class TestClientWaitFunctions:
         
         # Verify response
         assert response is not None, "Should receive broadcast message"
-        assert response.sender_id == "sender-client", "Broadcast should be from sender-client"
-        assert "Hello everyone!" in response.content.get("text", ""), "Should contain broadcast text"
+        assert response.source_id == "sender-client", "Broadcast should be from sender-client"
+        assert "Hello everyone!" in response.payload.get("text", ""), "Should contain broadcast text"
         
         logger.info("✅ Broadcast message wait test passed")
 
@@ -258,13 +257,13 @@ class TestClientWaitFunctions:
         # Start both clients waiting
         wait_task1 = asyncio.create_task(
             client1.wait_direct_message(
-                condition=lambda msg: "client-1" in msg.content.get("text", ""),
+                condition=lambda msg: "client-1" in msg.payload.get("text", ""),
                 timeout=5.0
             )
         )
         wait_task2 = asyncio.create_task(
             client2.wait_direct_message(
-                condition=lambda msg: "client-2" in msg.content.get("text", ""),
+                condition=lambda msg: "client-2" in msg.payload.get("text", ""),
                 timeout=5.0
             )
         )
@@ -273,9 +272,9 @@ class TestClientWaitFunctions:
         await asyncio.sleep(0.1)
         
         # Send messages to trigger responses
-        msg1 = Event(event_name="agent.direct_message.sent", source_id="client-1", target_agent_id="echo-agent", payload={"text": "Message for client-1"}
+        msg1 = Event(event_name="agent.direct_message.sent", source_id="client-1", target_agent_id="echo-agent", payload={"text": "Message for client-1", "message_type": "direct_message"}
         )
-        msg2 = Event(event_name="agent.direct_message.sent", source_id="client-2", target_agent_id="echo-agent", payload={"text": "Message for client-2"}
+        msg2 = Event(event_name="agent.direct_message.sent", source_id="client-2", target_agent_id="echo-agent", payload={"text": "Message for client-2", "message_type": "direct_message"}
         )
         
         await client1.send_direct_message(msg1)
@@ -287,8 +286,8 @@ class TestClientWaitFunctions:
         # Verify both responses
         assert response1 is not None, "Client 1 should receive response"
         assert response2 is not None, "Client 2 should receive response"
-        assert "client-1" in response1.content.get("text", ""), "Response 1 should contain 'client-1'"
-        assert "client-2" in response2.content.get("text", ""), "Response 2 should contain 'client-2'"
+        assert "client-1" in response1.payload.get("text", ""), "Response 1 should contain 'client-1'"
+        assert "client-2" in response2.payload.get("text", ""), "Response 2 should contain 'client-2'"
         
         logger.info("✅ Multiple concurrent waiters test passed")
 

@@ -1074,9 +1074,9 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
         try:
             mod_message = Event(
                 event_name="agent.mod_message.sent",
+                source_id=self.agent_id,
                 relevant_mod="shared_document",
-                content=message.model_dump(),
-                sender_id=self.agent_id,
+                payload=message.model_dump(),
                 target_agent_id=self.agent_id
             )
             

@@ -62,7 +62,7 @@ class MessageThread:
             self.replies[parent_id] = []
         
         self.replies[parent_id].append(reply)
-        self.message_levels[reply.message_id] = parent_level + 1
+        self.message_levels[reply.event_id] = parent_level + 1
         reply.thread_level = parent_level + 1
         
         return True
@@ -77,7 +77,7 @@ class MessageThread:
                 # Find message in replies
                 for replies in self.replies.values():
                     for reply in replies:
-                        if reply.message_id == message_id:
+                        if reply.event_id == message_id:
                             message = reply
                             break
             
@@ -89,7 +89,7 @@ class MessageThread:
             
             if message_id in self.replies:
                 for reply in self.replies[message_id]:
-                    subtree["replies"].append(build_subtree(reply.message_id))
+                    subtree["replies"].append(build_subtree(reply.event_id))
             
             return subtree
         
@@ -151,7 +151,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             if request_id:
                 return request_id
         # Fallback to message_id
-        return message.message_id
+        return message.event_id
     
     def _initialize_default_channels(self) -> None:
         """Initialize default channels from configuration."""
@@ -466,7 +466,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                 self.agent_channels[agent_id].add(channel)
                 logger.info(f"Added agent {agent_id} to auto-created channel {channel}")
         
-        logger.debug(f"Processing channel message from {message.sender_id} in {channel}")
+        logger.debug(f"Processing channel message from {message.source_id} in {channel}")
         
         # Broadcast the message to all other agents in the channel
         await self._broadcast_channel_message(message)
@@ -483,14 +483,14 @@ class ThreadMessagingNetworkMod(BaseMod):
         channel_agents = self.channel_agents.get(channel, set())
         
         # Remove the sender from the notification list (they already know about their message)
-        notify_agents = channel_agents - {message.sender_id}
+        notify_agents = channel_agents - {message.source_id}
         
         logger.info(f"Channel {channel} has agents: {channel_agents}")
-        logger.info(f"Message sender: {message.sender_id}")
+        logger.info(f"Message sender: {message.source_id}")
         logger.info(f"Agents to notify: {notify_agents}")
         
         if not notify_agents:
-            logger.warning(f"No other agents to notify in channel {channel} - only sender {message.sender_id} present")
+            logger.warning(f"No other agents to notify in channel {channel} - only sender {message.source_id} present")
             return
         
         logger.info(f"Broadcasting channel message to {len(notify_agents)} agents in {channel}: {notify_agents}")
@@ -499,15 +499,14 @@ class ThreadMessagingNetworkMod(BaseMod):
         for agent_id in notify_agents:
             logger.info(f"🔧 THREAD MESSAGING: Creating notification for agent: {agent_id}")
             notification = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                source_id=self.network.network_id,
+                                payload={
                     "action": "channel_message_notification",
                     "message": message.model_dump(),
                     "channel": channel
                 },
                 direction="inbound",
-                relevant_agent_id=agent_id
+                target_agent_id=agent_id
             )
             logger.info(f"🔧 THREAD MESSAGING: Notification target_id will be: {notification.relevant_agent_id}")
             logger.info(f"🔧 THREAD MESSAGING: Notification content: {notification.content}")
@@ -552,7 +551,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             thread_id = self.message_to_thread[reply_to_id]
             thread = self.threads[thread_id]
             if thread.add_reply(message):
-                self.message_to_thread[message.message_id] = thread_id
+                self.message_to_thread[message.event_id] = thread_id
                 logger.debug(f"Added reply to existing thread {thread_id}")
             else:
                 logger.warning(f"Could not add reply - max nesting level reached")
@@ -562,7 +561,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             if thread.add_reply(message):
                 self.threads[thread.thread_id] = thread
                 self.message_to_thread[reply_to_id] = thread.thread_id
-                self.message_to_thread[message.message_id] = thread.thread_id
+                self.message_to_thread[message.event_id] = thread.thread_id
                 
                 # Track thread in channel if applicable
                 if hasattr(original_message, 'channel') and original_message.channel in self.channels:
@@ -595,24 +594,23 @@ class ThreadMessagingNetworkMod(BaseMod):
                 "filename": message.filename,
                 "mime_type": message.mime_type,
                 "size": message.file_size,
-                "uploaded_by": message.sender_id,
+                "uploaded_by": message.source_id,
                 "upload_timestamp": message.timestamp,
                 "path": str(file_path)
             }
             
             # Send response with file UUID
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                event_name="thread.file.upload_response",
+                source_id=self.network.network_id,
+                target_agent_id=message.source_id,
+                payload={
                     "action": "file_upload_response",
                     "success": True,
                     "file_id": file_id,
                     "filename": message.filename,
                     "request_id": self._get_request_id(message)
-                },
-                direction="outbound",
-                relevant_agent_id=message.sender_id
+                }
             )
             await self.network.send_message(response)
             
@@ -621,16 +619,15 @@ class ThreadMessagingNetworkMod(BaseMod):
         except Exception as e:
             # Send error response
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                event_name="thread.file.upload_response",
+                source_id=self.network.network_id,
+                target_agent_id=message.source_id,
+                payload={
                     "action": "file_upload_response",
                     "success": False,
                     "error": str(e),
                     "request_id": self._get_request_id(message)
-                },
-                direction="outbound",
-                relevant_agent_id=message.sender_id
+                }
             )
             await self.network.send_message(response)
             logger.error(f"File upload failed: {e}")
@@ -644,7 +641,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         action = message.action
         
         if action == "download":
-            await self._handle_file_download(message.sender_id, message.file_id, message)
+            await self._handle_file_download(message.source_id, message.file_id, message)
     
     async def _handle_file_download(self, agent_id: str, file_id: str, request_message: Event) -> None:
         """Handle a file download request.
@@ -657,16 +654,15 @@ class ThreadMessagingNetworkMod(BaseMod):
         if file_id not in self.files:
             # File not found
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                event_name="thread.file.download_response",
+                source_id=self.network.network_id,
+                target_agent_id=agent_id,
+                payload={
                     "action": "file_download_response",
                     "success": False,
                     "error": "File not found",
-                    "request_id": request_message.message_id
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                    "request_id": request_message.event_id
+                }
             )
             await self.network.send_message(response)
             return
@@ -677,16 +673,15 @@ class ThreadMessagingNetworkMod(BaseMod):
         if not file_path.exists():
             # File deleted from storage
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                event_name="thread.file.download_response",
+                source_id=self.network.network_id,
+                target_agent_id=agent_id,
+                payload={
                     "action": "file_download_response",
                     "success": False,
                     "error": "File no longer available",
-                    "request_id": request_message.message_id
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                    "request_id": request_message.event_id
+                }
             )
             await self.network.send_message(response)
             return
@@ -700,19 +695,18 @@ class ThreadMessagingNetworkMod(BaseMod):
             
             # Send file content
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                event_name="thread.file.download_response",
+                source_id=self.network.network_id,
+                target_agent_id=agent_id,
+                payload={
                     "action": "file_download_response",
                     "success": True,
                     "file_id": file_id,
                     "filename": file_info["filename"],
                     "mime_type": file_info["mime_type"],
                     "content": encoded_content,
-                    "request_id": request_message.message_id
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                    "request_id": request_message.event_id
+                }
             )
             await self.network.send_message(response)
             
@@ -721,16 +715,15 @@ class ThreadMessagingNetworkMod(BaseMod):
         except Exception as e:
             # Send error response
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                event_name="thread.file.download_response",
+                source_id=self.network.network_id,
+                target_agent_id=agent_id,
+                payload={
                     "action": "file_download_response",
                     "success": False,
                     "error": str(e),
-                    "request_id": request_message.message_id
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                    "request_id": request_message.event_id
+                }
             )
             await self.network.send_message(response)
             logger.error(f"File download failed: {e}")
@@ -755,16 +748,15 @@ class ThreadMessagingNetworkMod(BaseMod):
                 })
             
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                event_name="thread.channels.list_response",
+                source_id=self.network.network_id,
+                target_agent_id=message.source_id,
+                payload={
                     "action": "list_channels_response",
                     "success": True,
                     "channels": channels_data,
                     "request_id": self._get_request_id(message)
-                },
-                direction="outbound",
-                relevant_agent_id=message.sender_id
+                }
             )
             await self.network.send_message(response)
     
@@ -775,7 +767,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             message: The message retrieval request
         """
         action = message.action
-        agent_id = message.sender_id
+        agent_id = message.source_id
         
         if action == "retrieve_channel_messages":
             await self._handle_channel_messages_retrieval(message)
@@ -789,7 +781,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             message: The retrieval request message
         """
         channel = message.channel
-        agent_id = message.sender_id
+        agent_id = message.source_id
         limit = message.limit
         offset = message.offset
         include_threads = message.include_threads
@@ -797,16 +789,15 @@ class ThreadMessagingNetworkMod(BaseMod):
         if not channel:
             # Send error response
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                event_name="thread.channel_messages.retrieval_response",
+                source_id=self.network.network_id,
+                target_agent_id=agent_id,
+                payload={
                     "action": "retrieve_channel_messages_response",
                     "success": False,
                     "error": "Channel name is required",
                     "request_id": self._get_request_id(message)
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                }
             )
             await self.network.send_message(response)
             return
@@ -814,16 +805,15 @@ class ThreadMessagingNetworkMod(BaseMod):
         if channel not in self.channels:
             # Send error response
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                event_name="thread.channel_messages.retrieval_response",
+                source_id=self.network.network_id,
+                target_agent_id=agent_id,
+                payload={
                     "action": "retrieve_channel_messages_response",
                     "success": False,
                     "error": f"Channel '{channel}' not found",
                     "request_id": self._get_request_id(message)
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                }
             )
             await self.network.send_message(response)
             return
@@ -890,9 +880,10 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         # Send response
         response = Event(
-            sender_id=self.network.network_id,
-            relevant_mod="openagents.mods.communication.thread_messaging",
-            content={
+            event_name="thread.channel_messages.retrieval_response",
+            source_id=self.network.network_id,
+            target_agent_id=agent_id,
+            payload={
                 "action": "retrieve_channel_messages_response",
                 "success": True,
                 "channel": channel,
@@ -902,9 +893,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                 "limit": limit,
                 "has_more": (offset + limit) < total_count,
                 "request_id": self._get_request_id(message)
-            },
-            direction="outbound",
-            relevant_agent_id=agent_id
+            }
         )
         await self.network.send_message(response)
         logger.debug(f"Sent {len(paginated_messages)} channel messages for {channel} to {agent_id}")
@@ -916,7 +905,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             message: The retrieval request message
         """
         target_agent_id = message.target_agent_id
-        agent_id = message.sender_id
+        agent_id = message.source_id
         limit = message.limit
         offset = message.offset
         include_threads = message.include_threads
@@ -924,16 +913,15 @@ class ThreadMessagingNetworkMod(BaseMod):
         if not target_agent_id:
             # Send error response
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                event_name="thread.direct_messages.retrieval_response",
+                source_id=self.network.network_id,
+                target_agent_id=agent_id,
+                payload={
                     "action": "retrieve_direct_messages_response",
                     "success": False,
                     "error": "Target agent ID is required",
                     "request_id": self._get_request_id(message)
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                }
             )
             await self.network.send_message(response)
             return
@@ -1013,9 +1001,10 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         # Send response
         response = Event(
-            sender_id=self.network.network_id,
-            relevant_mod="openagents.mods.communication.thread_messaging",
-            content={
+            event_name="thread.direct_messages.retrieval_response",
+            source_id=self.network.network_id,
+            target_agent_id=agent_id,
+            payload={
                 "action": "retrieve_direct_messages_response",
                 "success": True,
                 "target_agent_id": target_agent_id,
@@ -1024,10 +1013,8 @@ class ThreadMessagingNetworkMod(BaseMod):
                 "offset": offset,
                 "limit": limit,
                 "has_more": (offset + limit) < total_count,
-                "request_id": message.message_id
-            },
-            direction="outbound",
-            relevant_agent_id=agent_id
+                "request_id": message.event_id
+            }
         )
         await self.network.send_message(response)
         logger.debug(f"Sent {len(paginated_messages)} direct messages with {target_agent_id} to {agent_id}")
@@ -1040,7 +1027,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         """
         target_message_id = message.target_message_id
         reaction_type = message.reaction_type
-        agent_id = message.sender_id
+        agent_id = message.source_id
         action = message.action
         
         # Check if the target message exists
@@ -1049,18 +1036,17 @@ class ThreadMessagingNetworkMod(BaseMod):
             
             # Send error response
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                event_name="thread.reaction.response",
+                source_id=self.network.network_id,
+                target_agent_id=agent_id,
+                payload={
                     "action": "reaction_response",
                     "success": False,
                     "error": f"Target message {target_message_id} not found",
                     "target_message_id": target_message_id,
                     "reaction_type": reaction_type,
                     "request_id": self._get_request_id(message)
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                }
             )
             await self.network.send_message(response)
             return
@@ -1103,19 +1089,18 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         # Send response
         response = Event(
-            sender_id=self.network.network_id,
-            relevant_mod="openagents.mods.communication.thread_messaging",
-            content={
+            event_name="thread.reaction.response",
+            source_id=self.network.network_id,
+            target_agent_id=agent_id,
+            payload={
                 "action": "reaction_response",
                 "success": success,
                 "target_message_id": target_message_id,
                 "reaction_type": reaction_type,
                 "action_taken": action,
                 "total_reactions": len(self.reactions.get(target_message_id, {}).get(reaction_type, set())),
-                "request_id": message.message_id
-            },
-            direction="outbound",
-            relevant_agent_id=agent_id
+                "request_id": message.event_id
+            }
         )
         await self.network.send_message(response)
         
@@ -1127,7 +1112,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         if isinstance(target_message, Event):
             # Notify both participants in the direct conversation
-            notify_agents.add(target_message.sender_id)
+            notify_agents.add(target_message.source_id)
             notify_agents.add(target_message.target_agent_id)
         elif isinstance(target_message, ChannelMessage):
             # Notify agents in the channel
@@ -1137,7 +1122,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             if target_message.channel:
                 notify_agents.update(self.channel_agents.get(target_message.channel, set()))
             elif target_message.target_agent_id:
-                notify_agents.add(target_message.sender_id)
+                notify_agents.add(target_message.source_id)
                 notify_agents.add(target_message.target_agent_id)
         
         # Remove the reacting agent from notifications (they already know)
@@ -1146,9 +1131,8 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Send notification to relevant agents
         for notify_agent in notify_agents:
             notification = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="openagents.mods.communication.thread_messaging",
-                content={
+                source_id=self.network.network_id,
+                                payload={
                     "action": "reaction_notification",
                     "target_message_id": target_message_id,
                     "reaction_type": reaction_type,
@@ -1156,8 +1140,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                     "action_taken": action,
                     "total_reactions": len(self.reactions.get(target_message_id, {}).get(reaction_type, set()))
                 },
-                direction="outbound",
-                relevant_agent_id=notify_agent
+                                relevant_agent_id=notify_agent
             )
             await self.network.send_message(notification)
     
@@ -1186,7 +1169,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         Args:
             message: The message to add
         """
-        self.message_history[message.message_id] = message
+        self.message_history[message.event_id] = message
         
         # Trim history if it exceeds the maximum size
         if len(self.message_history) > self.max_history_size:

@@ -141,6 +141,7 @@ class AgentRunner(ABC):
             while self._running:
                 # Get all message threads from the client
                 message_threads = self.client.get_messsage_threads()
+                # logger.info(f"🔧 AGENT_RUNNER: Checking for messages... Found {len(message_threads)} threads")
                 # print(f"🔍 Checking for messages... Found {len(message_threads)} threads")
                 
                 # Find the first unprocessed message across all threads
@@ -170,6 +171,7 @@ class AgentRunner(ABC):
                 
                 # If we found an unprocessed message, process it
                 if unprocessed_message and unprocessed_thread_id:
+                    # logger.info(f"🔧 AGENT_RUNNER: Found unprocessed message {unprocessed_message.message_id[:8]}... from {unprocessed_message.source_id}")
                     # print(f"🎯 Processing message {unprocessed_message.message_id[:8]}... from {unprocessed_message.source_id}")
                     # Mark the message as processed to avoid processing it again
                     self._processed_message_ids.add(str(unprocessed_message.message_id))
@@ -193,6 +195,7 @@ class AgentRunner(ABC):
                         filtered_threads[thread_id] = filtered_thread
                     
                     # Call react with the filtered threads and the unprocessed message
+                    # logger.info(f"🔧 AGENT_RUNNER: Calling react method for message {unprocessed_message.message_id[:8]}...")
                     await self.react(filtered_threads, unprocessed_thread_id, unprocessed_message)
                 else:
                     await asyncio.sleep(self._interval or 1)

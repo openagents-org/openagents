@@ -387,10 +387,10 @@ class TestEventBridge:
         message = EventBridge.event_to_message(event)
         
         assert isinstance(message, Event)
-        assert message.message_id == "evt1"
-        assert message.sender_id == "agent1"
+        assert message.event_id == "evt1"
+        assert message.source_id == "agent1"
         assert message.target_agent_id == "agent2"
-        assert message.content == {"text": "Hello!"}
+        assert message.payload == {"text": "Hello!"}
     
     def test_event_to_mod_message(self):
         """Test converting Event back to Event."""
@@ -409,10 +409,10 @@ class TestEventBridge:
         message = EventBridge.event_to_message(event)
         
         assert isinstance(message, Event)
-        assert message.message_id == "evt1"
-        assert message.sender_id == "agent1"
-        assert message.mod == "project.default"
-        assert message.content["project_name"] == "Test Project"
+        assert message.event_id == "evt1"
+        assert message.source_id == "agent1"
+        assert message.relevant_mod == "project.default"
+        assert message.payload["project_name"] == "Test Project"
 
 
 if __name__ == "__main__":

@@ -107,16 +107,16 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         if message.target_agent_id != self.agent_id:
             return
             
-        logger.debug(f"Received direct message from {message.sender_id}")
+        logger.debug(f"Received direct message from {message.source_id}")
         
         # Add message to the appropriate conversation thread
-        thread_id = get_direct_message_thread_id(message.sender_id)
-        self.add_message_to_thread(thread_id, message, text_representation=message.content.get("text", ""))
+        thread_id = get_direct_message_thread_id(message.source_id)
+        self.add_message_to_thread(thread_id, message, text_representation=message.payload.get("text", ""))
         
         # Call registered message handlers
         for handler in self.message_handlers.values():
             try:
-                handler(message.content, message.sender_id)
+                handler(message.payload, message.source_id)
             except Exception as e:
                 logger.error(f"Error in message handler: {e}")
     
@@ -127,16 +127,16 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             message: The broadcast message to process
         """
         if isinstance(message, ChannelMessage):
-            logger.debug(f"Received channel message from {message.sender_id} in {message.channel}")
+            logger.debug(f"Received channel message from {message.source_id} in {message.channel}")
             
             # Add message to the channel thread
             thread_id = f"channel_{message.channel}"
-            self.add_message_to_thread(thread_id, message, text_representation=message.content.get("text", ""))
+            self.add_message_to_thread(thread_id, message, text_representation=message.payload.get("text", ""))
             
             # Call registered message handlers
             for handler in self.message_handlers.values():
                 try:
-                    handler(message.content, message.sender_id)
+                    handler(message.payload, message.source_id)
                 except Exception as e:
                     logger.error(f"Error in message handler: {e}")
     
@@ -146,10 +146,10 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         Args:
             message: The mod message to process
         """
-        logger.debug(f"Received protocol message from {message.sender_id}")
+        logger.debug(f"Received protocol message from {message.source_id}")
         
         # Handle different response types
-        action = message.content.get("action", "")
+        action = message.payload.get("action", "")
         
         if action == "file_upload_response":
             await self._handle_file_upload_response(message)
@@ -194,17 +194,24 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                 # This is simplified - in practice you'd search through thread messages
                 quoted_text = f"[Quoted message {quote}]"
         
-        # Create direct message
-        direct_msg = Event(event_name="agent.direct_message.sent", source_id=self.agent_id, target_agent_id=target_agent_id, payload=content,
-            quoted_message_id=quoted_message_id,
-            quoted_text=quoted_text
-        )
+        # Create payload with all direct message data
+        payload = {
+            "message_type": "direct_message", 
+            "target_agent_id": target_agent_id,
+            "content": content,
+        }
+        if quoted_message_id:
+            payload["quoted_message_id"] = quoted_message_id
+        if quoted_text:
+            payload["quoted_text"] = quoted_text
+        
+        # Create direct message 
+        direct_msg = Event(event_name="agent.direct_message.sent", source_id=self.agent_id, target_agent_id=target_agent_id, payload=payload)
         
         # Wrap in Event for proper transport
-        message = Event(event_name="thread.message", source_id=self.agent_id, relevant_mod="openagents.mods.communication.thread_messaging",
-            relevant_agent_id=target_agent_id,
-            payload=direct_msg.model_dump()
-        )
+        wrapper_payload = direct_msg.model_dump()
+        wrapper_payload["relevant_agent_id"] = target_agent_id
+        message = Event(event_name="thread.message", source_id=self.agent_id, payload=wrapper_payload)
         
         await self.connector.send_mod_message(message)
         logger.debug(f"Sent direct message to {target_agent_id}")
@@ -231,22 +238,20 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             quoted_message_id = quote
             quoted_text = f"[Quoted message {quote}]"
         
-        # Create and send the channel message
         # Create channel message
         channel_msg = ChannelMessage(
             source_id=self.agent_id,
             channel=channel,
             mentioned_agent_id=mentioned_agent_id,
-            payload=content,
+            content=content,
             quoted_message_id=quoted_message_id,
             quoted_text=quoted_text
         )
         
         # Wrap in Event for proper transport
-        message = Event(event_name="thread.message", source_id=self.agent_id, relevant_mod="openagents.mods.communication.thread_messaging",
-            relevant_agent_id=self.agent_id,
-            payload=channel_msg.model_dump()
-        )
+        wrapper_payload = channel_msg.model_dump()
+        wrapper_payload["relevant_agent_id"] = self.agent_id
+        message = Event(event_name="thread.message", source_id=self.agent_id, payload=wrapper_payload)
         
         await self.connector.send_mod_message(message)
         logger.debug(f"Sent channel message to {channel}")
@@ -258,7 +263,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             message: The channel message notification
         """
         logger.info(f"🔧 THREAD MESSAGING ADAPTER: Received channel message notification")
-        logger.info(f"🔧 THREAD MESSAGING ADAPTER: Notification content: {message.content}")
+        logger.info(f"🔧 THREAD MESSAGING ADAPTER: Notification content: {message.payload}")
         
         # Forward the notification to the agent's Event handler
         # This allows agents like ProjectEchoAgent to process channel notifications
@@ -312,13 +317,12 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             )
             
             # Wrap in Event for proper transport
-            message = Event(event_name="thread.message", source_id=self.agent_id, relevant_mod="openagents.mods.communication.thread_messaging",
-                relevant_agent_id=self.agent_id,
-                payload=upload_msg.model_dump()
-            )
+            wrapper_payload = upload_msg.model_dump()
+            wrapper_payload["relevant_agent_id"] = self.agent_id
+            message = Event(event_name="thread.message", source_id=self.agent_id, payload=wrapper_payload)
             
             # Store pending operation
-            self.pending_file_operations[message.message_id] = {
+            self.pending_file_operations[message.event_id] = {
                 "action": "upload",
                 "filename": file_path.name,
                 "timestamp": message.timestamp
@@ -451,7 +455,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         )
         
         # Store pending request
-        self.pending_retrieval_requests[message.message_id] = {
+        self.pending_retrieval_requests[message.event_id] = {
             "action": "retrieve_channel_messages",
             "channel": channel,
             "limit": limit,
@@ -498,7 +502,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         )
         
         # Store pending request
-        self.pending_retrieval_requests[message.message_id] = {
+        self.pending_retrieval_requests[message.event_id] = {
             "action": "retrieve_direct_messages",
             "target_agent_id": target_agent_id,
             "limit": limit,
@@ -535,7 +539,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         )
         
         # Store pending request
-        self.pending_channel_requests[message.message_id] = {
+        self.pending_channel_requests[message.event_id] = {
             "action": "list_channels",
             "timestamp": message.timestamp
         }
@@ -623,12 +627,12 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         Args:
             message: The response message containing upload results
         """
-        request_id = message.content.get("request_id")
-        success = message.content.get("success", False)
+        request_id = message.payload.get("request_id")
+        success = message.payload.get("success", False)
         
         if success:
-            file_id = message.content.get("file_id")
-            filename = message.content.get("filename")
+            file_id = message.payload.get("file_id")
+            filename = message.payload.get("filename")
             logger.info(f"File uploaded successfully: {filename} -> {file_id}")
             
             # Call file handlers
@@ -638,7 +642,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                 except Exception as e:
                     logger.error(f"Error in file handler: {e}")
         else:
-            error = message.content.get("error", "Unknown error")
+            error = message.payload.get("error", "Unknown error")
             logger.error(f"File upload failed: {error}")
             
             # Call file handlers with error
@@ -658,13 +662,13 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         Args:
             message: The response message containing file data
         """
-        request_id = message.content.get("request_id")
-        success = message.content.get("success", False)
+        request_id = message.payload.get("request_id")
+        success = message.payload.get("success", False)
         
         if success:
-            file_id = message.content.get("file_id")
-            filename = message.content.get("filename")
-            encoded_content = message.content.get("content")
+            file_id = message.payload.get("file_id")
+            filename = message.payload.get("filename")
+            encoded_content = message.payload.get("content")
             
             try:
                 # Decode and save file locally
@@ -693,8 +697,8 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                     except Exception as e:
                         logger.error(f"Error in file handler: {e}")
         else:
-            error = message.content.get("error", "Unknown error")
-            file_id = message.content.get("file_id", "")
+            error = message.payload.get("error", "Unknown error")
+            file_id = message.payload.get("file_id", "")
             logger.error(f"File download failed: {error}")
             
             # Call file handlers with error
@@ -714,15 +718,15 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         Args:
             message: The response message containing channels data
         """
-        request_id = message.content.get("request_id")
-        success = message.content.get("success", False)
+        request_id = message.payload.get("request_id")
+        success = message.payload.get("success", False)
         
         if success:
-            channels = message.content.get("channels", [])
+            channels = message.payload.get("channels", [])
             self.available_channels = channels
             logger.info(f"Received channels list: {[ch['name'] for ch in channels]}")
         else:
-            error = message.content.get("error", "Unknown error")
+            error = message.payload.get("error", "Unknown error")
             logger.error(f"Failed to get channels list: {error}")
         
         # Clean up pending request
@@ -735,7 +739,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         Args:
             message: The response message
         """
-        content = message.content
+        content = message.payload
         request_id = content.get("request_id")
         
         if request_id in self.pending_retrieval_requests:
@@ -764,7 +768,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                             "limit": limit,
                             "has_more": has_more,
                             "request_info": request_info
-                        }, message.sender_id)
+                        }, message.source_id)
                     except Exception as e:
                         logger.error(f"Error in message handler {handler_id}: {e}")
             else:
@@ -779,7 +783,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                             "action": "channel_messages_retrieval_error",
                             "error": error,
                             "request_info": request_info
-                        }, message.sender_id)
+                        }, message.source_id)
                     except Exception as e:
                         logger.error(f"Error in message handler {handler_id}: {e}")
     
@@ -789,7 +793,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         Args:
             message: The response message
         """
-        content = message.content
+        content = message.payload
         request_id = content.get("request_id")
         
         if request_id in self.pending_retrieval_requests:
@@ -818,7 +822,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                             "limit": limit,
                             "has_more": has_more,
                             "request_info": request_info
-                        }, message.sender_id)
+                        }, message.source_id)
                     except Exception as e:
                         logger.error(f"Error in message handler {handler_id}: {e}")
             else:
@@ -833,7 +837,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                             "action": "direct_messages_retrieval_error",
                             "error": error,
                             "request_info": request_info
-                        }, message.sender_id)
+                        }, message.source_id)
                     except Exception as e:
                         logger.error(f"Error in message handler {handler_id}: {e}")
     
@@ -843,7 +847,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         Args:
             message: The reaction response message
         """
-        content = message.content
+        content = message.payload
         success = content.get("success", False)
         target_message_id = content.get("target_message_id")
         reaction_type = content.get("reaction_type")
@@ -867,7 +871,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                     "action_taken": action_taken,
                     "total_reactions": total_reactions,
                     "error": content.get("error") if not success else None
-                }, message.sender_id)
+                }, message.source_id)
             except Exception as e:
                 logger.error(f"Error in message handler {handler_id}: {e}")
     
@@ -877,7 +881,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         Args:
             message: The reaction notification message
         """
-        content = message.content
+        content = message.payload
         target_message_id = content.get("target_message_id")
         reaction_type = content.get("reaction_type")
         reacting_agent = content.get("reacting_agent")
@@ -896,7 +900,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                     "reacting_agent": reacting_agent,
                     "action_taken": action_taken,
                     "total_reactions": total_reactions
-                }, message.sender_id)
+                }, message.source_id)
             except Exception as e:
                 logger.error(f"Error in message handler {handler_id}: {e}")
     

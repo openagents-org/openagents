@@ -217,7 +217,7 @@ class TestSimpleAgentRunnerWithMockedAPI:
         mock_response = Mock()
         mock_response.choices = [Mock()]
         mock_response.choices[0].message = Mock()
-        mock_response.choices[0].message.content = "Hello! This is a test response."
+        mock_response.choices[0].message.payload = "Hello! This is a test response."
         mock_response.choices[0].message.tool_calls = None
         return mock_response
     
@@ -273,7 +273,7 @@ class TestSimpleAgentRunnerWithMockedAPI:
         mock_response = Mock()
         mock_response.choices = [Mock()]
         mock_response.choices[0].message = Mock()
-        mock_response.choices[0].message.content = None
+        mock_response.choices[0].message.payload = None
         
         # Mock tool call
         mock_tool_call = Mock()

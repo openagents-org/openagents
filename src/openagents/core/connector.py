@@ -217,7 +217,26 @@ class NetworkConnector:
         if message.relevant_mod:
             message.relevant_agent_id = self.agent_id
             
+        # Determine message type from payload or infer from message properties
         message_type = message.message_type
+        if not message_type:
+            # Auto-classify based on message properties
+            # Prioritize based on targeting: direct > channel > broadcast > mod
+            if message.target_agent_id:
+                message_type = "direct_message"
+            elif message.target_channel:
+                message_type = "channel_message"
+            elif message.relevant_mod and not message.target_agent_id and not message.target_channel:
+                # Could be either broadcast or mod message - check event_name for hint
+                if "broadcast" in message.event_name.lower():
+                    message_type = "broadcast_message"
+                else:
+                    message_type = "mod_message"
+            else:
+                message_type = "broadcast_message"
+            
+            logger.debug(f"Auto-classified message as {message_type} based on properties")
+        
         if message_type in self.message_handlers:
             # Call all handlers for this message type
             for handler in reversed(self.message_handlers[message_type]):

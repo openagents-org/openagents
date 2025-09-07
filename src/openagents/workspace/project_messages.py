@@ -19,17 +19,17 @@ class ProjectMessage(Event):
     
     def __init__(self, event_name: str = "project.message_received", source_id: str = "", **kwargs):
         """Initialize ProjectMessage with proper event name."""
-        # Extract project-specific fields
-        project_id = kwargs.pop('project_id', '')
-        message_type = kwargs.pop('message_type', '')  # For backward compatibility
-        
-        # Handle legacy sender_id for backward compatibility
-        if 'sender_id' in kwargs:
+        # Handle backward compatibility for sender_id -> source_id
+        if 'sender_id' in kwargs and not source_id:
             source_id = kwargs.pop('sender_id')
         
-        # Handle legacy message_id and timestamp
-        if 'message_id' in kwargs:
-            kwargs['event_id'] = kwargs.pop('message_id')
+        # Ensure source_id is not empty (required by modern Event)
+        if not source_id:
+            source_id = "system"  # Default for system-generated project messages
+            
+        # Extract project-specific fields
+        project_id = kwargs.pop('project_id', '')
+        
         if 'timestamp' not in kwargs:
             kwargs['timestamp'] = 1704067200  # Fixed timestamp for testing
         
@@ -39,25 +39,6 @@ class ProjectMessage(Event):
         # Set project-specific fields
         self.project_id = project_id
     
-    @property
-    def sender_id(self) -> str:
-        """Backward compatibility: sender_id maps to source_id."""
-        return self.source_id
-    
-    @sender_id.setter
-    def sender_id(self, value: str):
-        """Backward compatibility: sender_id maps to source_id."""
-        self.source_id = value
-    
-    @property
-    def message_id(self) -> str:
-        """Backward compatibility: message_id maps to event_id."""
-        return self.event_id
-    
-    @message_id.setter
-    def message_id(self, value: str):
-        """Backward compatibility: message_id maps to event_id."""
-        self.event_id = value
 
 
 class ProjectCreationMessage(ProjectMessage):

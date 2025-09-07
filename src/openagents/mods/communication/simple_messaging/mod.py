@@ -113,7 +113,7 @@ class SimpleMessagingNetworkMod(BaseMod):
         self._add_to_history(message)
         
         # Check if the message contains file attachments
-        content = message.payload if hasattr(message, 'payload') else message.content
+        content = message.payload
         if hasattr(content, 'get') and "files" in content and content["files"]:
             # Process file attachments
             await self._process_file_attachments(message)
@@ -136,7 +136,7 @@ class SimpleMessagingNetworkMod(BaseMod):
         self._add_to_history(message)
         
         # Check if the message contains file attachments
-        content = message.payload if hasattr(message, 'payload') else message.content
+        content = message.payload
         if hasattr(content, 'get') and "files" in content and content["files"]:
             # Process file attachments
             await self._process_file_attachments(message)
@@ -162,7 +162,7 @@ class SimpleMessagingNetworkMod(BaseMod):
         
         # Check if this is a simple messaging specific event or file operation
         event_name = message.event_name
-        content = message.payload if hasattr(message, 'payload') else message.content
+        content = message.payload
         
         # Handle simple messaging file operations
         if hasattr(content, 'get'):
@@ -195,7 +195,7 @@ class SimpleMessagingNetworkMod(BaseMod):
         Args:
             message: The message containing file attachments
         """
-        files = message.content.get("files", [])
+        files = message.payload.get("files", [])
         processed_files = []
         
         for file_data in files:
@@ -229,7 +229,7 @@ class SimpleMessagingNetworkMod(BaseMod):
         
         # Update the message with processed files
         if processed_files:
-            message.content["files"] = processed_files
+            message.payload["files"] = processed_files
     
     async def _handle_file_download(self, agent_id: str, file_id: str, request_message: Event) -> None:
         """Handle a file download request.

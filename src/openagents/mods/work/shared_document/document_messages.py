@@ -196,6 +196,10 @@ class OpenDocumentMessage(Event):
     
     def __init__(self, event_name: str = "document.open.requested", source_id: str = "", **kwargs):
         """Initialize OpenDocumentMessage with proper event name."""
+        # Handle backward compatibility for sender_id
+        if 'sender_id' in kwargs:
+            source_id = kwargs.pop('sender_id')
+        
         # Extract document open specific fields
         document_id = kwargs.pop('document_id', '')
         
@@ -228,7 +232,7 @@ class InsertLinesMessage(Event):
     # Document-specific fields
     document_id: str = field(default="")
     line_number: int = field(default=1)
-    content: List[str] = field(default_factory=list)
+    lines: List[str] = field(default_factory=list)  # Renamed from content to avoid conflict
     
     def __init__(self, event_name: str = "document.insert_lines.requested", source_id: str = "", **kwargs):
         """Initialize InsertLinesMessage with proper event name."""
@@ -255,10 +259,10 @@ class InsertLinesMessage(Event):
         # Call parent constructor
         super().__init__(event_name=event_name, source_id=source_id, **kwargs)
         
-        # Set document-specific fields
-        self.document_id = document_id
-        self.line_number = line_number
-        self.content = content
+        # Set document-specific fields manually (since they're dataclass fields)
+        object.__setattr__(self, 'document_id', document_id)
+        object.__setattr__(self, 'line_number', line_number)
+        object.__setattr__(self, 'lines', content)
     
     # Backward compatibility properties
     @property
@@ -275,6 +279,26 @@ class InsertLinesMessage(Event):
     def message_type(self) -> str:
         """Backward compatibility: message_type derived from class name."""
         return "insert_lines"
+    
+    @property
+    def message_id(self) -> str:
+        """Backward compatibility: message_id maps to event_id."""
+        return self.event_id
+    
+    @message_id.setter
+    def message_id(self, value: str):
+        """Backward compatibility: message_id maps to event_id."""
+        self.event_id = value
+    
+    @property
+    def content(self) -> List[str]:
+        """Backward compatibility: content maps to lines."""
+        return self.lines
+    
+    @content.setter
+    def content(self, value: List[str]):
+        """Backward compatibility: content maps to lines."""
+        self.lines = value
     
     def model_dump(self) -> Dict[str, Any]:
         """Pydantic-style model dump for backward compatibility."""
@@ -297,7 +321,7 @@ class InsertLinesMessage(Event):
             # Document-specific fields
             "document_id": self.document_id,
             "line_number": self.line_number,
-            "content": self.content,
+            "content": self.lines,  # Use internal lines field
             # Backward compatibility fields
             "message_id": self.event_id,
             "sender_id": self.source_id,
@@ -582,6 +606,29 @@ class DocumentOperationResponse(Event):
     error_message: Optional[str] = Field(None, description="Error message if operation failed")
     conflict_detected: bool = Field(False, description="Whether a conflict was detected")
     conflict_details: Optional[Dict[str, Any]] = Field(None, description="Conflict resolution details")
+    
+    def __init__(self, event_name: str = "document.operation.response", source_id: str = "", **kwargs):
+        """Initialize DocumentOperationResponse with proper event name."""
+        # Handle backward compatibility for sender_id
+        if 'sender_id' in kwargs:
+            source_id = kwargs.pop('sender_id')
+        
+        # Extract response specific fields
+        operation_id = kwargs.pop('operation_id', str(uuid.uuid4()))
+        success = kwargs.pop('success', False)
+        error_message = kwargs.pop('error_message', None)
+        conflict_detected = kwargs.pop('conflict_detected', False)
+        conflict_details = kwargs.pop('conflict_details', None)
+        
+        # Call parent constructor
+        super().__init__(event_name=event_name, source_id=source_id, **kwargs)
+        
+        # Set response specific fields
+        self.operation_id = operation_id
+        self.success = success
+        self.error_message = error_message
+        self.conflict_detected = conflict_detected
+        self.conflict_details = conflict_details
 
 class DocumentContentResponse(Event):
     """Response message containing document content."""

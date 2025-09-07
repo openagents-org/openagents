@@ -587,7 +587,23 @@ class AgentNetwork:
                     logger.warning(f"Failed to route message {message_id} to {target}")
             else:
                 # Handle broadcast messages or local messages
-                if message.message_type == "broadcast_message":
+                # Determine message type with smart classification
+                message_type = message.message_type
+                if not message_type:
+                    # Auto-classify based on message properties  
+                    if message.target_agent_id:
+                        message_type = "direct_message"
+                    elif message.target_channel:
+                        message_type = "channel_message"
+                    elif message.relevant_mod and not message.target_agent_id and not message.target_channel:
+                        if "broadcast" in message.event_name.lower():
+                            message_type = "broadcast_message"
+                        else:
+                            message_type = "mod_message"
+                    else:
+                        message_type = "broadcast_message"
+                        
+                if message_type == "broadcast_message":
                     # Only route broadcast messages if they're not from the network itself
                     # This prevents infinite routing loops
                     if sender_id != self.network_id:
@@ -597,11 +613,11 @@ class AgentNetwork:
                             logger.warning(f"Failed to route broadcast message {message_id}")
                     else:
                         logger.debug(f"Skipping re-routing of broadcast message {message_id} from network itself")
-                elif message.message_type == "mod_message":
+                elif message_type == "mod_message":
                     # Handle mod messages locally - do NOT route to other agents
                     logger.debug(f"Handling mod message {message_id} locally")
                     await self._handle_mod_message(message)
-                elif message.message_type == "transport":
+                elif message_type == "transport":
                     # Check if this transport message contains a mod message
                     payload = message.payload or {}
                     relevant_mod = payload.get('relevant_mod') if hasattr(payload, 'get') else getattr(payload, 'relevant_mod', None)
@@ -617,12 +633,12 @@ class AgentNetwork:
                         logger.debug(f"Transport message {message.message_id} has no relevant_mod, skipping direct processing")
                 
                 # Also notify local message handlers (for broadcast messages or local handling)
-                if message.message_type in self.message_handlers:
-                    logger.debug(f"Found {len(self.message_handlers[message.message_type])} handlers for {message.message_type}")
-                    for handler in self.message_handlers[message.message_type]:
+                if message_type in self.message_handlers:
+                    logger.debug(f"Found {len(self.message_handlers[message_type])} handlers for {message_type}")
+                    for handler in self.message_handlers[message_type]:
                         await handler(message)
                 else:
-                    logger.debug(f"No handlers found for message type {message.message_type}")
+                    logger.debug(f"No handlers found for message type {message_type}")
         except Exception as e:
             logger.error(f"Error handling transport message: {e}")
     

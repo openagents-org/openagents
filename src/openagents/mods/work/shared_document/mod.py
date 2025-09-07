@@ -592,11 +592,11 @@ class SharedDocumentNetworkMod(BaseMod):
     async def process_system_message(self, message: Event) -> Optional[Event]:
         """Process incoming mod messages."""
         try:
-            source_agent_id = message.sender_id or message.relevant_agent_id or "unknown"
+            source_agent_id = message.source_id or getattr(message, 'relevant_agent_id', 'unknown')
             logger.info(f"Processing mod message from {source_agent_id}: {type(message)} - {message}")
             
             # Extract the actual message content from the mod message
-            content = message.content if hasattr(message, 'content') else message
+            content = message.payload if hasattr(message, 'payload') else message
             message_type = content.get('message_type') if isinstance(content, dict) else getattr(content, 'message_type', None)
             
             # Extract request_id from the Event for response matching
@@ -731,7 +731,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=document_id,
                 success=True,
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -783,7 +783,7 @@ class SharedDocumentNetworkMod(BaseMod):
                 version=document.version,
                 line_authors=document.line_authors.copy(),
                 line_locks=document._get_active_line_locks(),
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -814,7 +814,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=str(uuid.uuid4()),
                 success=True,
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -850,7 +850,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=operation.operation_id,
                 success=True,
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -885,7 +885,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=operation.operation_id,
                 success=True,
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -920,7 +920,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=operation.operation_id,
                 success=True,
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -955,7 +955,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=comment.comment_id,
                 success=True,
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -986,7 +986,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = DocumentOperationResponse(
                 operation_id=message.comment_id,
                 success=success,
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -1053,7 +1053,7 @@ class SharedDocumentNetworkMod(BaseMod):
                 version=document.version,
                 line_authors=document.line_authors.copy(),
                 line_locks=document._get_active_line_locks(),
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -1090,7 +1090,7 @@ class SharedDocumentNetworkMod(BaseMod):
                 document_id=document_id,
                 operations=operations,
                 total_operations=total_operations,
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -1124,7 +1124,7 @@ class SharedDocumentNetworkMod(BaseMod):
             
             response = DocumentListResponse(
                 documents=documents,
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -1150,7 +1150,7 @@ class SharedDocumentNetworkMod(BaseMod):
             response = AgentPresenceResponse(
                 document_id=document_id,
                 agent_presence=list(document.agent_presence.values()),
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -1172,10 +1172,12 @@ class SharedDocumentNetworkMod(BaseMod):
                 try:
                     mod_message = Event(
                         event_name="agent.mod_message.sent",
-                        relevant_mod="shared_document",
-                        content=operation_message.model_dump(),
-                        sender_id=self.network.network_id,
-                        target_agent_id=agent_id
+                        source_id=self.network.network_id,
+                        target_agent_id=agent_id,
+                        payload={
+                            "relevant_mod": "shared_document",
+                            "content": operation_message.model_dump()
+                        }
                     )
                     await self.network.send_message(mod_message)
                 except Exception as e:
@@ -1193,7 +1195,7 @@ class SharedDocumentNetworkMod(BaseMod):
         
         presence_message = GetAgentPresenceMessage(
             document_id=document_id,
-            sender_id=self.network.network_id
+            source_id=self.network.network_id
         )
         
         # Send to all active agents except the one whose presence changed
@@ -1202,10 +1204,12 @@ class SharedDocumentNetworkMod(BaseMod):
                 try:
                     mod_message = Event(
                         event_name="agent.mod_message.sent",
-                        relevant_mod="shared_document",
-                        content=presence_message.model_dump(),
-                        sender_id=self.network.network_id,
-                        target_agent_id=other_agent_id
+                        source_id=self.network.network_id,
+                        target_agent_id=other_agent_id,
+                        payload={
+                            "relevant_mod": "shared_document",
+                            "content": presence_message.model_dump()
+                        }
                     )
                     await self.network.send_message(mod_message)
                 except Exception as e:
@@ -1228,10 +1232,12 @@ class SharedDocumentNetworkMod(BaseMod):
             
             mod_message = Event(
                 event_name="agent.mod_message.sent",
-                relevant_mod="openagents.mods.work.shared_document",
-                content=content,
-                sender_id=self.network.network_id,
-                target_agent_id=target_agent_id
+                source_id=self.network.network_id,
+                target_agent_id=target_agent_id,
+                payload={
+                    "relevant_mod": "openagents.mods.work.shared_document",
+                    "content": content
+                }
             )
             await self.network.send_message(mod_message)
         except Exception as e:
@@ -1244,7 +1250,7 @@ class SharedDocumentNetworkMod(BaseMod):
                 operation_id=str(uuid.uuid4()),
                 success=False,
                 error_message=error_message,
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             await self._send_response(target_agent_id, response)
         except Exception as e:
@@ -1304,7 +1310,7 @@ class SharedDocumentNetworkMod(BaseMod):
                 success=success,
                 locked_by=locked_by,
                 error_message=error_message,
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -1350,7 +1356,7 @@ class SharedDocumentNetworkMod(BaseMod):
                 success=success,
                 locked_by=None,
                 error_message=error_message,
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             await self._send_response(source_agent_id, response, request_id)
@@ -1380,7 +1386,7 @@ class SharedDocumentNetworkMod(BaseMod):
                 version=document.version,
                 line_authors=document.line_authors.copy(),
                 line_locks=document._get_active_line_locks(),
-                sender_id=self.network.network_id
+                source_id=self.network.network_id
             )
             
             # Send to all agents except the one who triggered the change

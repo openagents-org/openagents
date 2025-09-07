@@ -6,20 +6,25 @@ from openagents.models.event import Event
 from dataclasses import dataclass, field
 
 @dataclass
-class Event(Event):
-    """A direct message between two agents."""
+class ThreadMessageEvent(Event):
+    """A thread message event with additional threading fields."""
     
     # Thread messaging specific fields
     quoted_message_id: Optional[str] = field(default=None)
     quoted_text: Optional[str] = field(default=None)
     
     def __init__(self, event_name: str = "thread.direct_message.sent", source_id: str = "", **kwargs):
-        """Initialize Event with proper event name."""
-        # Handle backward compatibility for sender_id
+        """Initialize ThreadMessageEvent with proper event name."""
+        # Map old field names to modern API
         if 'sender_id' in kwargs:
             source_id = kwargs.pop('sender_id')
+        if 'content' in kwargs:
+            kwargs['payload'] = kwargs.pop('content')
         
-        # Extract direct message specific fields
+        # Remove mod field if present (not needed by Event)
+        kwargs.pop('mod', None)
+        
+        # Extract thread-specific fields
         target_agent_id = kwargs.pop('target_agent_id', '')
         quoted_message_id = kwargs.pop('quoted_message_id', None)
         quoted_text = kwargs.pop('quoted_text', None)
@@ -30,73 +35,9 @@ class Event(Event):
         # Call parent constructor
         super().__init__(event_name=event_name, source_id=source_id, **kwargs)
         
-        # Set direct message specific fields
+        # Set thread-specific fields
         self.quoted_message_id = quoted_message_id
         self.quoted_text = quoted_text
-    
-    # Backward compatibility properties
-    @property
-    def message_id(self) -> str:
-        """Backward compatibility: message_id maps to event_id."""
-        return self.event_id
-    
-    @message_id.setter
-    def message_id(self, value: str):
-        """Backward compatibility: message_id maps to event_id."""
-        self.event_id = value
-    
-    @property
-    def sender_id(self) -> str:
-        """Backward compatibility: sender_id maps to source_id."""
-        return self.source_id
-    
-    @sender_id.setter
-    def sender_id(self, value: str):
-        """Backward compatibility: sender_id maps to source_id."""
-        self.source_id = value
-    
-    @property
-    def content(self) -> Dict[str, Any]:
-        """Backward compatibility: content maps to payload."""
-        return self.payload
-    
-    @content.setter
-    def content(self, value: Dict[str, Any]):
-        """Backward compatibility: content maps to payload."""
-        self.payload = value
-    
-    @property
-    def message_type(self) -> str:
-        """Backward compatibility: message_type derived from class name."""
-        return "direct_message"
-    
-    def model_dump(self) -> Dict[str, Any]:
-        """Pydantic-style model dump for backward compatibility."""
-        return {
-            "event_id": self.event_id,
-            "event_name": self.event_name,
-            "timestamp": self.timestamp,
-            "source_id": self.source_id,
-            "source_type": self.source_type,
-            "target_agent_id": self.target_agent_id,
-            "target_channel": self.target_channel,
-            "relevant_mod": self.relevant_mod,
-            "requires_response": self.requires_response,
-            "response_to": self.response_to,
-            "payload": self.payload,
-            "metadata": self.metadata,
-            "text_representation": self.text_representation,
-            "visibility": self.visibility.value if hasattr(self.visibility, 'value') else self.visibility,
-            "allowed_agents": list(self.allowed_agents) if self.allowed_agents else None,
-            # Thread messaging specific fields
-            "quoted_message_id": self.quoted_message_id,
-            "quoted_text": self.quoted_text,
-            # Backward compatibility fields
-            "message_id": self.event_id,
-            "sender_id": self.source_id,
-            "message_type": self.message_type,
-            "content": self.payload  # Backward compatibility: content maps to payload
-        }
 
 @dataclass
 class ChannelMessage(Event):
@@ -110,9 +51,14 @@ class ChannelMessage(Event):
     
     def __init__(self, event_name: str = "thread.channel_message.posted", source_id: str = "", **kwargs):
         """Initialize ChannelMessage with proper event name."""
-        # Handle backward compatibility for sender_id
+        # Map old field names to modern API
         if 'sender_id' in kwargs:
             source_id = kwargs.pop('sender_id')
+        if 'content' in kwargs:
+            kwargs['payload'] = kwargs.pop('content')
+        
+        # Remove mod field if present (not needed by Event)
+        kwargs.pop('mod', None)
         
         # Extract channel message specific fields
         channel = kwargs.pop('channel', '')
@@ -211,9 +157,14 @@ class ReplyMessage(Event):
     
     def __init__(self, event_name: str = "thread.reply.posted", source_id: str = "", **kwargs):
         """Initialize ReplyMessage with proper event name."""
-        # Handle backward compatibility for sender_id
+        # Map old field names to modern API
         if 'sender_id' in kwargs:
             source_id = kwargs.pop('sender_id')
+        if 'content' in kwargs:
+            kwargs['payload'] = kwargs.pop('content')
+        
+        # Remove mod field if present (not needed by Event)
+        kwargs.pop('mod', None)
         
         # Extract reply message specific fields
         reply_to_id = kwargs.pop('reply_to_id', '')
@@ -230,6 +181,9 @@ class ReplyMessage(Event):
         # Set target fields in kwargs for Event
         if target_agent_id:
             kwargs['target_agent_id'] = target_agent_id
+        elif channel:
+            # Channel reply: target_agent_id should be empty string, not None
+            kwargs['target_agent_id'] = ''
         if channel:
             kwargs['target_channel'] = channel
         
@@ -330,9 +284,14 @@ class FileUploadMessage(Event):
 
     def __init__(self, event_name: str = "thread.file.uploaded", source_id: str = "", **kwargs):
         """Initialize FileUploadMessage with proper event name."""
-        # Handle backward compatibility for sender_id
+        # Map old field names to modern API
         if 'sender_id' in kwargs:
             source_id = kwargs.pop('sender_id')
+        if 'content' in kwargs:
+            kwargs['payload'] = kwargs.pop('content')
+        
+        # Remove mod field if present (not needed by Event)
+        kwargs.pop('mod', None)
         
         # Extract file upload specific fields
         file_content = kwargs.pop('file_content', '')
@@ -425,9 +384,14 @@ class FileOperationMessage(Event):
     
     def __init__(self, event_name: str = "", source_id: str = "", **kwargs):
         """Initialize FileOperationMessage with dynamic event name based on action."""
-        # Handle backward compatibility for sender_id
+        # Map old field names to modern API
         if 'sender_id' in kwargs:
             source_id = kwargs.pop('sender_id')
+        if 'content' in kwargs:
+            kwargs['payload'] = kwargs.pop('content')
+        
+        # Remove mod field if present (not needed by Event)
+        kwargs.pop('mod', None)
         
         # Extract file operation specific fields
         action = kwargs.pop('action', '')
@@ -533,9 +497,14 @@ class ChannelInfoMessage(Event):
     
     def __init__(self, event_name: str = "thread.channels.info_requested", source_id: str = "", **kwargs):
         """Initialize ChannelInfoMessage with proper event name."""
-        # Handle backward compatibility for sender_id
+        # Map old field names to modern API
         if 'sender_id' in kwargs:
             source_id = kwargs.pop('sender_id')
+        if 'content' in kwargs:
+            kwargs['payload'] = kwargs.pop('content')
+        
+        # Remove mod field if present (not needed by Event)
+        kwargs.pop('mod', None)
         
         # Extract channel info specific fields
         action = kwargs.pop('action', 'list_channels')
@@ -633,9 +602,14 @@ class MessageRetrievalMessage(Event):
     
     def __init__(self, event_name: str = "", source_id: str = "", **kwargs):
         """Initialize MessageRetrievalMessage with dynamic event name based on action."""
-        # Handle backward compatibility for sender_id
+        # Map old field names to modern API
         if 'sender_id' in kwargs:
             source_id = kwargs.pop('sender_id')
+        if 'content' in kwargs:
+            kwargs['payload'] = kwargs.pop('content')
+        
+        # Remove mod field if present (not needed by Event)
+        kwargs.pop('mod', None)
         
         # Extract message retrieval specific fields
         action = kwargs.pop('action', '')
@@ -671,6 +645,9 @@ class MessageRetrievalMessage(Event):
         # Set target fields in kwargs for Event
         if target_agent_id:
             kwargs['target_agent_id'] = target_agent_id
+        elif channel:
+            # Channel operations: target_agent_id should be empty string, not None
+            kwargs['target_agent_id'] = ''
         if channel:
             kwargs['target_channel'] = channel
         
@@ -778,9 +755,14 @@ class ReactionMessage(Event):
     
     def __init__(self, event_name: str = "", source_id: str = "", **kwargs):
         """Initialize ReactionMessage with dynamic event name based on action."""
-        # Handle backward compatibility for sender_id
+        # Map old field names to modern API
         if 'sender_id' in kwargs:
             source_id = kwargs.pop('sender_id')
+        if 'content' in kwargs:
+            kwargs['payload'] = kwargs.pop('content')
+        
+        # Remove mod field if present (not needed by Event)
+        kwargs.pop('mod', None)
         
         # Extract reaction specific fields
         target_message_id = kwargs.pop('target_message_id', '')

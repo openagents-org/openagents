@@ -51,8 +51,8 @@ class SimpleEchoAgentRunner(AgentRunner):
         else:
             text = str(content)
         
-        # Handle different message types
-        if isinstance(incoming_message, Event):
+        # Handle different message types based on event name
+        if "direct_message" in incoming_message.event_name:
             logger.info(f"Processing direct message from {sender_id}")
             
             # Create echo response
@@ -61,9 +61,11 @@ class SimpleEchoAgentRunner(AgentRunner):
                 event_name="agent.direct_message.sent",
                 source_id=self.client.agent_id,
                 target_agent_id=sender_id,
-                protocol="openagents.mods.communication.simple_messaging",
-                message_type="direct_message",
-                payload={"text": echo_text},
+                payload={
+                    "text": echo_text,
+                    "protocol": "openagents.mods.communication.simple_messaging",
+                    "message_type": "direct_message"
+                },
                 text_representation=echo_text,
                 requires_response=False
             )
@@ -72,7 +74,7 @@ class SimpleEchoAgentRunner(AgentRunner):
             await self.client.send_direct_message(echo_message)
             logger.info(f"✅ Sent echo message back to {sender_id}: {echo_text}")
             
-        elif isinstance(incoming_message, Event):
+        elif "broadcast_message" in incoming_message.event_name:
             logger.info(f"Processing broadcast message from {sender_id}")
             
             # Respond to greetings in broadcast messages
@@ -82,16 +84,18 @@ class SimpleEchoAgentRunner(AgentRunner):
                     event_name="agent.direct_message.sent",
                     source_id=self.client.agent_id,
                     target_agent_id=sender_id,
-                    protocol="openagents.mods.communication.simple_messaging",
-                    message_type="direct_message",
-                    payload={"text": greeting_text},
+                    payload={
+                        "text": greeting_text,
+                        "protocol": "openagents.mods.communication.simple_messaging",
+                        "message_type": "direct_message"
+                    },
                     text_representation=greeting_text,
                     requires_response=False
                 )
                 await self.client.send_direct_message(greeting_message)
                 logger.info(f"✅ Sent greeting message to {sender_id}")
         else:
-            logger.info(f"Received unknown message type: {type(incoming_message).__name__}")
+            logger.info(f"Received unknown message type: {incoming_message.event_name}")
 
     async def setup(self):
         """Setup the agent after connection.
@@ -106,9 +110,11 @@ class SimpleEchoAgentRunner(AgentRunner):
         greeting = Event(
             event_name="agent.broadcast_message.sent",
             source_id=self.client.agent_id,
-            relevant_mod="openagents.mods.communication.simple_messaging",
-            message_type="broadcast_message", 
-            payload={"text": announcement_text},
+            payload={
+                "text": announcement_text,
+                "relevant_mod": "openagents.mods.communication.simple_messaging",
+                "message_type": "broadcast_message"
+            },
             text_representation=announcement_text,
             requires_response=False
         )
@@ -127,9 +133,11 @@ class SimpleEchoAgentRunner(AgentRunner):
         goodbye = Event(
             event_name="agent.broadcast_message.sent",
             source_id=self.client.agent_id,
-            relevant_mod="openagents.mods.communication.simple_messaging",
-            message_type="broadcast_message",
-            payload={"text": goodbye_text},
+            payload={
+                "text": goodbye_text,
+                "relevant_mod": "openagents.mods.communication.simple_messaging",
+                "message_type": "broadcast_message"
+            },
             text_representation=goodbye_text,
             requires_response=False
         )

@@ -144,11 +144,21 @@ class DefaultProjectNetworkMod(BaseMod):
             
             if message_type == "project_creation":
                 logger.info(f"🔧 PROJECT MOD: Processing project creation")
+                # Extract request_id from content before creating the message
+                request_id = content.get('request_id', message.message_id)
+                logger.info(f"🔧 PROJECT MOD: Extracted request_id: {request_id}")
                 inner_message = ProjectCreationMessage(**content)
+                # Store request_id in the message for response correlation
+                inner_message.request_id = request_id
                 await self._process_project_creation(inner_message)
             elif message_type == "project_status":
                 logger.info(f"🔧 PROJECT MOD: Processing project status")
+                # Extract request_id from content before creating the message
+                request_id = content.get('request_id', message.message_id)
+                logger.info(f"🔧 PROJECT MOD: Extracted request_id: {request_id}")
                 inner_message = ProjectStatusMessage(**content)
+                # Store request_id in the message for response correlation
+                inner_message.request_id = request_id
                 await self._process_project_status(inner_message)
             elif message_type == "project_notification":
                 logger.info(f"🔧 PROJECT MOD: Processing project notification")
@@ -160,7 +170,12 @@ class DefaultProjectNetworkMod(BaseMod):
                 await self._process_project_channel(inner_message)
             elif message_type == "project_list":
                 logger.info(f"🔧 PROJECT MOD: Processing project list")
+                # Extract request_id from content before creating the message
+                request_id = content.get('request_id', message.message_id)
+                logger.info(f"🔧 PROJECT MOD: Extracted request_id: {request_id}")
                 inner_message = ProjectListMessage(**content)
+                # Store request_id in the message for response correlation
+                inner_message.request_id = request_id
                 await self._process_project_list(inner_message)
             else:
                 logger.warning(f"Unknown project message type: {message_type}")
@@ -236,9 +251,13 @@ class DefaultProjectNetworkMod(BaseMod):
         )
         
         # Send success response
+        # Use request_id from message for response correlation
+        request_id = getattr(message, 'request_id', message.message_id)
+        logger.info(f"🔧 PROJECT MOD: Sending response with request_id: {request_id}")
+        
         await self._send_project_response(
             message.sender_id,
-            message.message_id,
+            request_id,
             "project_creation_response",
             {
                 "success": True,
@@ -261,9 +280,10 @@ class DefaultProjectNetworkMod(BaseMod):
         action = message.action
         
         if project_id not in self.projects:
+            request_id = getattr(message, 'request_id', message.message_id)
             await self._send_error_response(
                 message.sender_id,
-                message.message_id,
+                request_id,
                 f"Project {project_id} not found"
             )
             return
@@ -334,9 +354,11 @@ class DefaultProjectNetworkMod(BaseMod):
             logger.info(f"Getting status for project {project_id}")
         
         # Send status response
+        request_id = getattr(message, 'request_id', message.message_id)
+        logger.info(f"🔧 PROJECT MOD: Sending status response with request_id: {request_id}")
         await self._send_project_response(
             message.sender_id,
-            message.message_id,
+            request_id,
             "project_status_response",
             {
                 "success": True,
@@ -546,9 +568,11 @@ class DefaultProjectNetworkMod(BaseMod):
                 })
         
         # Send response
+        request_id = getattr(message, 'request_id', message.message_id)
+        logger.info(f"🔧 PROJECT MOD: Sending list response with request_id: {request_id}")
         await self._send_project_response(
             message.sender_id,
-            message.message_id,
+            request_id,
             "project_list_response",
             {
                 "success": True,

@@ -16,11 +16,11 @@ import random
 import time
 from typing import List, Dict, Any
 
-from src.openagents.core.network import AgentNetwork
-from src.openagents.models.network_config import NetworkConfig, NetworkMode
-from src.openagents.agents.project_echo_agent import ProjectEchoAgentRunner
-from openagents.workspace import Project  # Use the correct import path
-from src.openagents.models.event import EventNames
+from openagents.core.network import AgentNetwork
+from openagents.models.network_config import NetworkConfig, NetworkMode
+from openagents.agents.project_echo_agent import ProjectEchoAgentRunner
+from openagents.workspace.project import Project
+from openagents.models.messages import EventNames
 
 # Configure logging for tests
 logger = logging.getLogger(__name__)
@@ -109,7 +109,7 @@ class TestProjectGRPC:
     async def _setup_network_with_project_support(self):
         """Set up a network with project, workspace, and thread messaging mods."""
         # Create a custom network config for testing with the random port
-        from src.openagents.models.network_config import NetworkConfig, NetworkMode, TransportType
+        from openagents.models.transport import TransportType
         
         config = NetworkConfig(
             name=f"TestNetwork-{self.port}",

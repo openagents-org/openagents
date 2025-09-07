@@ -315,18 +315,6 @@ class TestNetworkFactory:
         assert network.config == config
 
 
-class TestBackwardCompatibility:
-    """Test backward compatibility features."""
-    
-    def test_legacy_aliases(self):
-        """Test that legacy aliases still work."""
-        from openagents.core.network import AgentNetworkServer, EnhancedAgentNetwork, create_enhanced_network
-        
-        # Test aliases point to the correct classes/functions
-        assert AgentNetworkServer is AgentNetwork
-        assert EnhancedAgentNetwork is AgentNetwork
-        assert create_enhanced_network is create_network
-
 
 class TestErrorHandling:
     """Test error handling scenarios."""

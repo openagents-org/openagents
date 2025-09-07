@@ -828,9 +828,9 @@ class Workspace:
             is_project_response = False
             
             # Import here to avoid circular imports
-            from openagents.models.messages import Event, EventNames, Event
+            from openagents.models.messages import Event, EventNames
             
-            if isinstance(message, Event) and message.mod == "openagents.mods.project.default":
+            if isinstance(message, Event) and message.relevant_mod == "openagents.mods.project.default":
                 # Event from project mod
                 logger.info(f"🔧 WORKSPACE: Received Event from project mod")
                 content = message.payload
@@ -848,23 +848,36 @@ class Workspace:
             action = content.get("action")
             request_id = content.get("request_id")
             
+            logger.info(f"🔧 WORKSPACE: Processing response - action={action}, request_id={request_id}")
+            logger.info(f"🔧 WORKSPACE: Response content keys: {list(content.keys()) if isinstance(content, dict) else 'Not dict'}")
+            
             if not request_id:
+                logger.warning(f"🔧 WORKSPACE: No request_id in response content: {content}")
                 return
             
             # Find matching response future
             response_key = None
+            logger.info(f"🔧 WORKSPACE: Looking for response key containing: {request_id}")
+            logger.info(f"🔧 WORKSPACE: Available pending responses: {list(self._pending_responses.keys())}")
+            
             for key in self._pending_responses.keys():
                 if request_id in key:
                     response_key = key
                     break
             
             if response_key and response_key in self._pending_responses:
+                logger.info(f"🔧 WORKSPACE: Found matching response key: {response_key}")
                 future = self._pending_responses[response_key]
                 if not future.done():
+                    logger.info(f"🔧 WORKSPACE: Setting result for future")
                     future.set_result(content)
+                else:
+                    logger.warning(f"🔧 WORKSPACE: Future already done")
                 
                 # Clean up
                 del self._pending_responses[response_key]
+            else:
+                logger.warning(f"🔧 WORKSPACE: No matching response key found for {request_id}")
         except Exception as e:
             logger.error(f"Error handling project response: {e}")
     
@@ -1161,8 +1174,8 @@ class Workspace:
             mod_message = Event(
                 event_name="project.create",
                 source_id=self._client.agent_id,
-                relevant_mod="openagents.mods.project.default",
                 target_agent_id=self._client.agent_id,
+                relevant_mod="openagents.mods.project.default",
                 payload={
                     "action": "project_creation",
                     "message_type": "project_creation",

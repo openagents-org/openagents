@@ -55,9 +55,9 @@ class TestSimpleCentralizedNetwork:
         """Simple message handler that stores received messages."""
         logger.info(f"Received message: {message}")
         self.received_messages.append({
-            'type': message.message_type,
-            'content': message.content,
-            'sender': message.sender_id,
+            'type': message.event_name,
+            'content': message.payload,
+            'sender': message.source_id,
             'timestamp': time.time()
         })
 
@@ -137,10 +137,10 @@ class TestSimpleCentralizedNetwork:
         )
         
         # Verify message structure
-        assert direct_msg.sender_id == "agent-1"
+        assert direct_msg.source_id == "agent-1"
         assert direct_msg.target_agent_id == "agent-2"
-        assert direct_msg.content == {"text": "Hello Agent 2!"}
-        assert direct_msg.message_type == "direct_message"
+        assert direct_msg.payload == {"text": "Hello Agent 2!"}
+        assert "direct_message" in direct_msg.event_name
         
         # Create a broadcast message
         broadcast_msg = Event(
@@ -151,9 +151,9 @@ class TestSimpleCentralizedNetwork:
         )
         
         # Verify broadcast message structure
-        assert broadcast_msg.sender_id == "agent-1"
-        assert broadcast_msg.content == {"text": "Hello everyone!"}
-        assert broadcast_msg.message_type == "broadcast_message"
+        assert broadcast_msg.source_id == "agent-1"
+        assert broadcast_msg.payload == {"text": "Hello everyone!"}
+        assert "broadcast_message" in broadcast_msg.event_name
         
         logger.info("✅ Message creation and validation successful")
 

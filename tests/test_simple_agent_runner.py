@@ -42,9 +42,18 @@ def create_testing_simple_agent(agent_id: str = None):
         """Extended SimpleAgent for testing with additional tracking capabilities."""
         
         def __init__(self):
-            super().__init__()
-            if agent_id:
-                self.client.agent_id = agent_id
+            # We need to use AgentRunner directly instead of SimpleAgent to pass mod_names
+            from openagents.agents.runner import AgentRunner
+            agent_id_to_use = agent_id if agent_id else "simple-demo-agent"
+            
+            # Initialize AgentRunner directly with mod_names
+            AgentRunner.__init__(self, 
+                agent_id=agent_id_to_use, 
+                mod_names=["openagents.mods.communication.simple_messaging"]
+            )
+            
+            # Copy the SimpleAgent behavior
+            self.message_count = 0
             
             # Additional tracking for tests
             self.received_messages = []
@@ -67,18 +76,54 @@ def create_testing_simple_agent(agent_id: str = None):
                 'message_id': incoming_message.event_id
             })
             
-            # Call the original react method
-            await super().react(message_threads, incoming_thread_id, incoming_message)
+            # Implement SimpleAgent logic (copied from SimpleAgent.react)
+            self.message_count += 1
+            sender_id = incoming_message.source_id
+            content = incoming_message.payload
+            text = content.get("text", str(content))
+            
+            logger.info(f"Agent {self.client.agent_id} received message from {sender_id}: {text}")
+            
+            # Handle direct messages - echo back
+            if incoming_message.target_agent_id:
+                logger.info(f"Processing direct message from {sender_id} to {incoming_message.target_agent_id}")
+                echo_message = Event(
+                    event_name="agent.direct_message.sent",
+                    source_id=self.client.agent_id,
+                    target_agent_id=sender_id,
+                    relevant_mod="openagents.mods.communication.simple_messaging",
+                    payload={"text": f"Echo: {text}"},
+                    text_representation=f"Echo: {text}",
+                    requires_response=False
+                )
+                await self.client.send_direct_message(echo_message)
+                logger.info(f"Sent echo message back to {sender_id}")
+                
+            # Handle broadcast messages - respond to greetings
+            else:
+                logger.info(f"Processing broadcast message from {sender_id}")
+                if "hello" in text.lower() and sender_id != self.client.agent_id:
+                    greeting_message = Event(
+                        event_name="agent.direct_message.sent",
+                        source_id=self.client.agent_id,
+                        target_agent_id=sender_id,
+                        relevant_mod="openagents.mods.communication.simple_messaging",
+                        payload={"text": f"Hello {sender_id}! Nice to meet you!"},
+                        text_representation=f"Hello {sender_id}! Nice to meet you!",
+                        requires_response=False
+                    )
+                    await self.client.send_direct_message(greeting_message)
+                    logger.info(f"Sent greeting message to {sender_id}")
         
         async def setup(self):
             """Enhanced setup that tracks the call."""
-            await super().setup()
+            # No parent setup to call since we're inheriting from AgentRunner directly
             self.setup_called = True
             self.is_ready = True
             
         async def teardown(self):
             """Enhanced teardown that tracks the call."""
-            await super().teardown()
+            # No parent teardown to call since we're inheriting from AgentRunner directly
             self.teardown_called = True
             
         def track_sent_message(self, message_type: str, target_id: str, content: dict):

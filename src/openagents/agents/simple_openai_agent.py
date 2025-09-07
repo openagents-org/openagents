@@ -24,11 +24,11 @@ user_prompt_template = Template("""
         {% for thread_id, thread in message_threads.items() %}
         <thread id="{{ thread_id }}">
             {% for message in thread.messages[-10:] %}
-            <message sender="{{ message.sender_id }}">
+            <message sender="{{ message.source_id }}">
                 {% if message.text_representation %}
                 <content>{{ message.text_representation }}</content>
                 {% else %}
-                <content>{{ message.content }}</content>
+                <content>{{ message.payload }}</content>
                 {% endif %}
             </message>
             {% endfor %}
@@ -38,11 +38,11 @@ user_prompt_template = Template("""
     
     <current_interaction>
         <incoming_thread_id>{{ incoming_thread_id }}</incoming_thread_id>
-        <incoming_message sender="{{ incoming_message.sender_id }}">
+        <incoming_message sender="{{ incoming_message.source_id }}">
             {% if incoming_message.text_representation %}
             <content>{{ incoming_message.text_representation }}</content>
             {% else %}
-            <content>{{ incoming_message.content }}</content>
+            <content>{{ incoming_message.payload }}</content>
             {% endif %}
         </incoming_message>
     </current_interaction>

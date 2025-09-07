@@ -101,17 +101,17 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         
         # Add message to the appropriate conversation thread
         thread_id = get_direct_message_thread_id(message.source_id)
-        self.add_message_to_thread(thread_id, message, text_representation=message.content.get("text", ""))
+        self.add_message_to_thread(thread_id, message, text_representation=message.payload.get("text", ""))
         
         # Check if the message contains file references
-        if "files" in message.content and message.content["files"]:
+        if "files" in message.payload and message.payload["files"]:
             # Process file references
             await self._process_file_references(message)
         
         # Call registered message handlers
         for handler in self.message_handlers.values():
             try:
-                handler(message.content, message.source_id)
+                handler(message.payload, message.source_id)
             except Exception as e:
                 logger.error(f"Error in message handler: {e}")
     
@@ -125,17 +125,17 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         
         # Add message to the broadcast conversation thread
         thread_id = get_broadcast_message_thread_id()
-        self.add_message_to_thread(thread_id, message, text_representation=message.content.get("text", ""))
+        self.add_message_to_thread(thread_id, message, text_representation=message.payload.get("text", ""))
         
         # Check if the message contains file references
-        if "files" in message.content and message.content["files"]:
+        if "files" in message.payload and message.payload["files"]:
             # Process file references
             await self._process_file_references(message)
         
         # Call registered message handlers
         for handler in self.message_handlers.values():
             try:
-                handler(message.content, message.source_id)
+                handler(message.payload, message.source_id)
             except Exception as e:
                 logger.error(f"Error in message handler: {e}")
     
@@ -151,17 +151,17 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         logger.debug(f"Received protocol message from {message.source_id}")
         
         # Handle mod-specific messages
-        action = message.content.get("action", "")
+        action = message.payload.get("action", "")
         
         if action == "file_download_response":
             # Handle file download response
-            request_id = message.content.get("request_id")
+            request_id = message.payload.get("request_id")
             if request_id in self.pending_file_downloads:
                 await self._handle_file_download_response(message)
                 return None  # Message was handled
         elif action == "file_deletion_response":
             # Handle file deletion response
-            logger.debug(f"File deletion response: {message.content.get('success', False)}")
+            logger.debug(f"File deletion response: {message.payload.get('success', False)}")
             return None  # Message was handled
         
         # Return the message if we didn't handle it
@@ -182,6 +182,42 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
             logger.error(f"Error cleaning up temporary directory for agent {self.agent_id}: {e}")
         
         return True
+    
+    async def process_outgoing_direct_message(self, message: Event) -> Event:
+        """Process an outgoing direct message.
+        
+        Args:
+            message: The direct message to process
+            
+        Returns:
+            Event: The processed message (unchanged for simple messaging)
+        """
+        logger.debug(f"Processing outgoing direct message to {message.target_agent_id}")
+        return message
+    
+    async def process_outgoing_broadcast_message(self, message: Event) -> Event:
+        """Process an outgoing broadcast message.
+        
+        Args:
+            message: The broadcast message to process
+            
+        Returns:
+            Event: The processed message (unchanged for simple messaging)
+        """
+        logger.debug(f"Processing outgoing broadcast message")
+        return message
+    
+    async def process_outgoing_mod_message(self, message: Event) -> Event:
+        """Process an outgoing mod message.
+        
+        Args:
+            message: The mod message to process
+            
+        Returns:
+            Event: The processed message (unchanged for simple messaging)
+        """
+        logger.debug(f"Processing outgoing mod message")
+        return message
     
     async def send_direct_message(self, target_agent_id: str, content: Dict[str, Any]) -> None:
         """Send a direct message to a specific agent.
@@ -446,7 +482,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         Args:
             message: The message containing file references
         """
-        files = message.content.get("files", [])
+        files = message.payload.get("files", [])
         
         for file_data in files:
             if "file_id" in file_data and "filename" in file_data:
@@ -460,18 +496,18 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         Args:
             message: The protocol message containing the file download response
         """
-        request_id = message.content.get("request_id")
-        success = message.content.get("success", False)
+        request_id = message.payload.get("request_id")
+        success = message.payload.get("success", False)
         
         if not success:
-            logger.error(f"File download failed: {message.content.get('error', 'Unknown error')}")
+            logger.error(f"File download failed: {message.payload.get('error', 'Unknown error')}")
             # Clean up pending download
             if request_id in self.pending_file_downloads:
                 del self.pending_file_downloads[request_id]
             return
         
-        file_id = message.content.get("file_id")
-        encoded_content = message.content.get("content")
+        file_id = message.payload.get("file_id")
+        encoded_content = message.payload.get("content")
         
         if not file_id or not encoded_content:
             logger.error("Missing file ID or content in download response")

@@ -355,7 +355,11 @@ class GRPCNetworkConnector:
             if response.success and response.data:
                 try:
                     import json
-                    response_data = json.loads(response.data.value.decode('utf-8'))
+                    data_str = response.data.value.decode('utf-8')
+                    if not data_str.strip():
+                        logger.debug(f"Empty response data for gRPC system command: {command}")
+                        return response.success
+                    response_data = json.loads(data_str)
                     
                     # Call the registered system handler if available
                     if command in self.system_handlers:
@@ -655,7 +659,7 @@ class GRPCNetworkConnector:
         # Create a temporary handler that will resolve the future when the message arrives
         async def temp_direct_handler(msg: Event) -> None:
             # Check if this is the message we're waiting for
-            if msg.sender_id == sender_id:
+            if msg.source_id == sender_id:
                 response_future.set_result(msg)
         
         # Register the temporary handler

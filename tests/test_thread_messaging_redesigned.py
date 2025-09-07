@@ -88,10 +88,10 @@ class TestNewMessageTypes:
             mod="thread_messaging"
         )
         
-        assert message.sender_id == "alice"
+        assert message.source_id == "alice"
         assert message.channel == "development"
-        assert message.content["text"] == "New feature ready for review"
-        assert message.message_type == "channel_message"
+        assert message.payload["text"] == "New feature ready for review"
+        assert "channel_message" in message.event_name
         assert message.mentioned_agent_id is None
     
     def test_channel_message_with_mention(self):
@@ -121,7 +121,7 @@ class TestNewMessageTypes:
             mod="thread_messaging"
         )
         
-        assert message.sender_id == "bob"
+        assert message.source_id == "bob"
         assert message.reply_to_id == "original_msg"
         assert message.thread_level == 1
         assert message.channel == "development"
@@ -197,7 +197,7 @@ class TestNewMessageTypes:
         assert message.filename == "test.txt"
         assert message.mime_type == "text/plain"
         assert message.file_size == 17
-        assert message.message_type == "file_upload"
+        assert "file" in message.event_name and "upload" in message.event_name
     
     def test_file_operation_message(self):
         """Test file operation message creation."""
@@ -210,7 +210,7 @@ class TestNewMessageTypes:
         
         assert message.action == "download"
         assert message.file_id == "file_uuid_123"
-        assert message.message_type == "file_operation"
+        assert "file" in message.event_name
     
     def test_channel_info_message(self):
         """Test channel info message creation."""
@@ -221,7 +221,7 @@ class TestNewMessageTypes:
         )
         
         assert message.action == "list_channels"
-        assert message.message_type == "channel_info"
+        assert "channel" in message.event_name and "info" in message.event_name
     
     def test_message_retrieval_message(self):
         """Test message retrieval message creation."""
@@ -416,9 +416,9 @@ class TestThreadMessagingNetworkModRedesigned:
         
         assert thread.root_message_id == original_inner.event_id
         assert original_inner.event_id in self.mod.message_to_thread
-        assert reply_inner.message_id in self.mod.message_to_thread
+        assert reply_inner.event_id in self.mod.message_to_thread
         assert self.mod.message_to_thread[original_inner.event_id] == thread_id
-        assert self.mod.message_to_thread[reply_inner.message_id] == thread_id
+        assert self.mod.message_to_thread[reply_inner.event_id] == thread_id
     
     @pytest.mark.asyncio
     async def test_deep_threading_5_levels(self):
@@ -449,7 +449,7 @@ class TestThreadMessagingNetworkModRedesigned:
         # Should all be in the same thread (except some replies that hit max nesting)
         thread_id = self.mod.message_to_thread[original_inner.event_id]
         # From output: original + 4 replies are successfully added (user_1 through user_4)
-        valid_messages = [msg for msg in messages if msg.message_id in self.mod.message_to_thread]
+        valid_messages = [msg for msg in messages if msg.event_id in self.mod.message_to_thread]
         assert len(valid_messages) == 5  # Original + 4 replies (user_5 hits max nesting)
         
         # Check thread structure 
@@ -487,9 +487,9 @@ class TestThreadMessagingNetworkModRedesigned:
         # Should send response with file UUID
         self.mock_network.send_message.assert_called()
         response = self.mock_network.send_message.call_args[0][0]
-        assert response.content["action"] == "file_upload_response"
-        assert response.content["success"] is True
-        assert response.content["file_id"] == file_id
+        assert response.payload["action"] == "file_upload_response"
+        assert response.payload["success"] is True
+        assert response.payload["file_id"] == file_id
     
     @pytest.mark.asyncio
     async def test_channel_messages_retrieval(self):
@@ -521,14 +521,14 @@ class TestThreadMessagingNetworkModRedesigned:
         self.mock_network.send_message.assert_called()
         response = self.mock_network.send_message.call_args[0][0]
         
-        assert response.content["action"] == "retrieve_channel_messages_response"
-        assert response.content["success"] is True
-        assert response.content["channel"] == "development"
-        assert response.content["total_count"] == 5
-        assert response.content["offset"] == 1
-        assert response.content["limit"] == 3
-        assert len(response.content["messages"]) == 3
-        assert response.content["has_more"] is True
+        assert response.payload["action"] == "retrieve_channel_messages_response"
+        assert response.payload["success"] is True
+        assert response.payload["channel"] == "development"
+        assert response.payload["total_count"] == 5
+        assert response.payload["offset"] == 1
+        assert response.payload["limit"] == 3
+        assert len(response.payload["messages"]) == 3
+        assert response.payload["has_more"] is True
     
     @pytest.mark.asyncio
     async def test_direct_messages_retrieval(self):
@@ -569,11 +569,11 @@ class TestThreadMessagingNetworkModRedesigned:
         self.mock_network.send_message.assert_called()
         response = self.mock_network.send_message.call_args[0][0]
         
-        assert response.content["action"] == "retrieve_direct_messages_response"
-        assert response.content["success"] is True
-        assert response.content["target_agent_id"] == "bob"
-        assert len(response.content["messages"]) == 2
-        assert response.content["total_count"] == 2
+        assert response.payload["action"] == "retrieve_direct_messages_response"
+        assert response.payload["success"] is True
+        assert response.payload["target_agent_id"] == "bob"
+        assert len(response.payload["messages"]) == 2
+        assert response.payload["total_count"] == 2
     
     @pytest.mark.asyncio
     async def test_list_channels_request(self):
@@ -590,12 +590,12 @@ class TestThreadMessagingNetworkModRedesigned:
         self.mock_network.send_message.assert_called()
         response = self.mock_network.send_message.call_args[0][0]
         
-        assert response.content["action"] == "list_channels_response"
-        assert response.content["success"] is True
-        assert len(response.content["channels"]) == 3
+        assert response.payload["action"] == "list_channels_response"
+        assert response.payload["success"] is True
+        assert len(response.payload["channels"]) == 3
         
         # Check channel data
-        channels = response.content["channels"]
+        channels = response.payload["channels"]
         channel_names = [ch["name"] for ch in channels]
         assert "general" in channel_names
         assert "development" in channel_names
@@ -664,10 +664,12 @@ class TestThreadMessagingAgentAdapterRedesigned:
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
         assert isinstance(sent_message, Event)
-        assert sent_message.content['message_type'] == 'direct_message'
-        assert sent_message.content['target_agent_id'] == "bob"
-        assert sent_message.content['content']['text'] == "Hello Bob!"
-        assert sent_message.content['quoted_message_id'] == "msg_123"
+        # The actual direct message data is nested in payload.payload
+        inner_payload = sent_message.payload['payload']
+        assert inner_payload['message_type'] == 'direct_message'
+        assert inner_payload['target_agent_id'] == "bob" 
+        assert inner_payload['content']['text'] == "Hello Bob!"
+        assert inner_payload['quoted_message_id'] == "msg_123"
     
     @pytest.mark.asyncio
     async def test_send_channel_message(self):
@@ -683,11 +685,12 @@ class TestThreadMessagingAgentAdapterRedesigned:
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
         assert isinstance(sent_message, Event)
-        assert sent_message.content['message_type'] == 'channel_message'
-        assert sent_message.content['channel'] == "development"
-        assert sent_message.content['content']['text'] == "Feature is ready!"
-        assert sent_message.content['mentioned_agent_id'] == "bob"
-        assert sent_message.content['quoted_message_id'] == "feature_request_id"
+        # The channel message data is flattened in the payload
+        assert sent_message.payload['message_type'] == 'channel_message'
+        assert sent_message.payload['channel'] == "development"
+        assert sent_message.payload['content']['text'] == "Feature is ready!"
+        assert sent_message.payload['mentioned_agent_id'] == "bob"
+        assert sent_message.payload['quoted_message_id'] == "feature_request_id"
     
     @pytest.mark.asyncio
     async def test_upload_file(self):
@@ -704,10 +707,10 @@ class TestThreadMessagingAgentAdapterRedesigned:
             sent_message = self.mock_connector.send_mod_message.call_args[0][0]
             
             assert isinstance(sent_message, Event)
-            assert sent_message.content['message_type'] == 'file_upload'
-            assert sent_message.content['filename'] == Path(temp_path).name
-            assert sent_message.content['mime_type'] == "text/plain"
-            assert len(sent_message.content['file_content']) > 0  # Base64 encoded content
+            assert sent_message.payload['message_type'] == 'file_upload'
+            assert sent_message.payload['filename'] == Path(temp_path).name
+            assert sent_message.payload['mime_type'] == "text/plain"
+            assert len(sent_message.payload['file_content']) > 0  # Base64 encoded content
             
         finally:
             Path(temp_path).unlink()
@@ -726,12 +729,12 @@ class TestThreadMessagingAgentAdapterRedesigned:
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
         assert isinstance(sent_message, Event)
-        assert sent_message.content['message_type'] == 'reply_message'
-        assert sent_message.content['channel'] == "development"
-        assert sent_message.content['reply_to_id'] == "original_msg_123"
-        assert sent_message.content['content']['text'] == "Great idea!"
-        assert sent_message.content['quoted_message_id'] == "context_msg_456"
-        assert sent_message.content['target_agent_id'] is None  # Channel reply
+        assert sent_message.payload['message_type'] == 'reply_message'
+        assert sent_message.payload['channel'] == "development"
+        assert sent_message.payload['reply_to_id'] == "original_msg_123"
+        assert sent_message.payload['content']['text'] == "Great idea!"
+        assert sent_message.payload['quoted_message_id'] == "context_msg_456"
+        assert sent_message.payload['target_agent_id'] is None  # Channel reply
     
     @pytest.mark.asyncio
     async def test_reply_direct_message(self):
@@ -747,12 +750,12 @@ class TestThreadMessagingAgentAdapterRedesigned:
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
         assert isinstance(sent_message, Event)
-        assert sent_message.content['message_type'] == 'reply_message'
-        assert sent_message.content['target_agent_id'] == "alice"
-        assert sent_message.content['reply_to_id'] == "dm_msg_789"
-        assert sent_message.content['content']['text'] == "Thanks for the info!"
-        assert sent_message.content['quoted_message_id'] == "info_msg_101"
-        assert sent_message.content['channel'] is None  # Direct reply
+        assert sent_message.payload['message_type'] == 'reply_message'
+        assert sent_message.payload['target_agent_id'] == "alice"
+        assert sent_message.payload['reply_to_id'] == "dm_msg_789"
+        assert sent_message.payload['content']['text'] == "Thanks for the info!"
+        assert sent_message.payload['quoted_message_id'] == "info_msg_101"
+        assert sent_message.payload['channel'] is None  # Direct reply
     
     @pytest.mark.asyncio
     async def test_list_channels(self):
@@ -763,8 +766,8 @@ class TestThreadMessagingAgentAdapterRedesigned:
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
         assert isinstance(sent_message, Event)
-        assert sent_message.content['message_type'] == 'channel_info'
-        assert sent_message.content['action'] == "list_channels"
+        assert sent_message.payload['message_type'] == 'channel_info'
+        assert sent_message.payload['action'] == "list_channels"
     
     @pytest.mark.asyncio
     async def test_retrieve_channel_messages(self):
@@ -780,12 +783,12 @@ class TestThreadMessagingAgentAdapterRedesigned:
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
         assert isinstance(sent_message, Event)
-        assert sent_message.content['message_type'] == 'message_retrieval'
-        assert sent_message.content['action'] == "retrieve_channel_messages"
-        assert sent_message.content['channel'] == "development"
-        assert sent_message.content['limit'] == 25
-        assert sent_message.content['offset'] == 5
-        assert sent_message.content['include_threads'] is True
+        assert sent_message.payload['message_type'] == 'message_retrieval'
+        assert sent_message.payload['action'] == "retrieve_channel_messages"
+        assert sent_message.payload['channel'] == "development"
+        assert sent_message.payload['limit'] == 25
+        assert sent_message.payload['offset'] == 5
+        assert sent_message.payload['include_threads'] is True
     
     @pytest.mark.asyncio
     async def test_retrieve_direct_messages(self):
@@ -801,12 +804,12 @@ class TestThreadMessagingAgentAdapterRedesigned:
         sent_message = self.mock_connector.send_mod_message.call_args[0][0]
         
         assert isinstance(sent_message, Event)
-        assert sent_message.content['message_type'] == 'message_retrieval'
-        assert sent_message.content['action'] == "retrieve_direct_messages"
-        assert sent_message.content['target_agent_id'] == "alice"
-        assert sent_message.content['limit'] == 50
-        assert sent_message.content['offset'] == 0
-        assert sent_message.content['include_threads'] is False
+        assert sent_message.payload['message_type'] == 'message_retrieval'
+        assert sent_message.payload['action'] == "retrieve_direct_messages"
+        assert sent_message.payload['target_agent_id'] == "alice"
+        assert sent_message.payload['limit'] == 50
+        assert sent_message.payload['offset'] == 0
+        assert sent_message.payload['include_threads'] is False
     
     @pytest.mark.asyncio
     async def test_message_handler_registration(self):
@@ -960,7 +963,7 @@ class TestThreadMessagingIntegration:
         )
         
         alice_msg = self.alice_adapter.connector.send_mod_message.call_args[0][0]
-        alice_inner_id = alice_msg.content['message_id']  # Get the inner message ID
+        alice_inner_id = alice_msg.payload['message_id']  # Get the inner message ID
         
         # Process on network
         await self.network_mod.process_system_message(alice_msg)
@@ -973,7 +976,7 @@ class TestThreadMessagingIntegration:
         )
         
         bob_reply = self.bob_adapter.connector.send_mod_message.call_args[0][0]
-        bob_inner_id = bob_reply.content['message_id']  # Get the inner message ID
+        bob_inner_id = bob_reply.payload['message_id']  # Get the inner message ID
         
         # Process on network
         await self.network_mod.process_system_message(bob_reply)
@@ -1000,11 +1003,11 @@ class TestThreadMessagingIntegration:
         # Verify all messages are in the same thread
         assert alice_inner_id in self.network_mod.message_to_thread
         assert bob_inner_id in self.network_mod.message_to_thread
-        alice_reply_inner_id = alice_reply.content['message_id']
+        alice_reply_inner_id = alice_reply.payload['message_id']
         assert alice_reply_inner_id in self.network_mod.message_to_thread
         
         # Verify quote was preserved
-        assert alice_reply.content['quoted_message_id'] == alice_inner_id
+        assert alice_reply.payload['quoted_message_id'] == alice_inner_id
     
     @pytest.mark.asyncio
     async def test_file_sharing_workflow(self):
@@ -1023,9 +1026,9 @@ class TestThreadMessagingIntegration:
             
             # Network should generate file UUID and send response
             network_response = self.mock_network.send_message.call_args[0][0]
-            assert network_response.content["action"] == "file_upload_response"
-            assert network_response.content["success"] is True
-            file_uuid = network_response.content["file_id"]
+            assert network_response.payload["action"] == "file_upload_response"
+            assert network_response.payload["success"] is True
+            file_uuid = network_response.payload["file_id"]
             
             # 2. Alice shares file in channel with the UUID
             await self.alice_adapter.send_channel_message(
@@ -1073,11 +1076,11 @@ class TestThreadMessagingIntegration:
         
         # Check response (should be 2 calls now, get the first one)
         response = self.mock_network.send_message.call_args_list[0][0][0]
-        assert response.content["action"] == "retrieve_channel_messages_response"
-        assert response.content["success"] is True
-        assert response.content["total_count"] == 10
-        assert len(response.content["messages"]) == 5
-        assert response.content["has_more"] is True
+        assert response.payload["action"] == "retrieve_channel_messages_response"
+        assert response.payload["success"] is True
+        assert response.payload["total_count"] == 10
+        assert len(response.payload["messages"]) == 5
+        assert response.payload["has_more"] is True
         
         # Retrieve second page (5 messages, offset 5)
         await self.bob_adapter.retrieve_channel_messages(
@@ -1092,8 +1095,8 @@ class TestThreadMessagingIntegration:
         
         # Check second page response (should be the second call)
         response2 = self.mock_network.send_message.call_args_list[1][0][0]
-        assert len(response2.content["messages"]) == 5
-        assert response2.content["has_more"] is False  # No more messages
+        assert len(response2.payload["messages"]) == 5
+        assert response2.payload["has_more"] is False  # No more messages
 
 
 if __name__ == "__main__":

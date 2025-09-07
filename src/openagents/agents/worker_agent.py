@@ -46,17 +46,17 @@ logger = logging.getLogger(__name__)
 class MessageContext:
     """Base context class for all message types."""
     message_id: str
-    sender_id: str
+    source_id: str
     timestamp: int
-    content: Dict[str, Any]
+    payload: Dict[str, Any]
     raw_message: Event
     
     @property
     def text(self) -> str:
         """Extract text content from the message."""
-        if isinstance(self.content, dict):
-            return self.content.get('text', str(self.content))
-        return str(self.content)
+        if isinstance(self.payload, dict):
+            return self.payload.get('text', str(self.payload))
+        return str(self.payload)
 
 
 @dataclass
@@ -110,7 +110,7 @@ class ReactionContext:
 class FileContext:
     """Context for file messages."""
     message_id: str
-    sender_id: str
+    source_id: str
     filename: str
     file_content: str  # Base64 encoded
     mime_type: str
@@ -123,6 +123,11 @@ class FileContext:
         """Decode the base64 file content to bytes."""
         import base64
         return base64.b64decode(self.file_content)
+    
+    @property
+    def payload_bytes(self) -> bytes:
+        """Decode the base64 file content to bytes (modern API name)."""
+        return self.content_bytes
 
 
 # Project-related context classes (only available if project mod is enabled)
@@ -388,9 +393,9 @@ class WorkerAgent(AgentRunner):
         """Handle direct messages."""
         context = EventContext(
             message_id=message.event_id,
-            sender_id=message.source_id,
+            source_id=message.source_id,
             timestamp=message.timestamp,
-            content=message.payload,
+            payload=message.payload,
             raw_message=message,
             target_agent_id=message.target_agent_id,
             quoted_message_id=getattr(message, 'quoted_message_id', None),
@@ -408,9 +413,9 @@ class WorkerAgent(AgentRunner):
         # Convert broadcast to channel message context
         context = ChannelMessageContext(
             message_id=message.event_id,
-            sender_id=message.source_id,
+            source_id=message.source_id,
             timestamp=message.timestamp,
-            content=message.payload,
+            payload=message.payload,
             raw_message=message,
             channel="general"  # Default channel for broadcasts
         )
@@ -461,9 +466,9 @@ class WorkerAgent(AgentRunner):
         if message_type == "channel_message":
             context = ChannelMessageContext(
                 message_id=message_id,
-                sender_id=sender_id,
+                source_id=sender_id,
                 timestamp=timestamp,
-                content=msg_content,
+                payload=msg_content,
                 raw_message=message,
                 channel=channel,
                 mentioned_agent_id=channel_msg_data.get("mentioned_agent_id")
