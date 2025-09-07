@@ -552,9 +552,29 @@ class GRPCHTTPAdapter:
             
             network = self.transport.network_instance
             
+            # Map command to appropriate event name for the refactored mod
+            command_to_event = {
+                'create_document': 'document.create',
+                'list_documents': 'document.list',
+                'open_document': 'document.open',
+                'close_document': 'document.close',
+                'insert_lines': 'document.insert_lines',
+                'remove_lines': 'document.remove_lines',
+                'replace_lines': 'document.replace_lines',
+                'add_comment': 'document.add_comment',
+                'remove_comment': 'document.remove_comment',
+                'update_cursor_position': 'document.update_cursor',
+                'acquire_line_lock': 'document.acquire_lock',
+                'release_line_lock': 'document.release_lock',
+                'get_document_content': 'document.get_content',
+                'get_document_history': 'document.get_history',
+                'get_agent_presence': 'document.get_presence'
+            }
+            
+            event_name = command_to_event.get(command, f"document.{command}")
+            
             # Create appropriate mod message based on command
             # The content should match exactly what the shared document mod expects
-            # Event requires sender_id, and we need all the data fields
             mod_content = {
                 "message_type": command,
                 "sender_id": agent_id,  # Required by Event
@@ -566,7 +586,7 @@ class GRPCHTTPAdapter:
             import uuid
             
             mod_message = Event(
-                event_name="shared_document.request",
+                event_name=event_name,
                 source_id=agent_id,
                 relevant_mod="openagents.mods.work.shared_document",
                 target_agent_id=agent_id,
