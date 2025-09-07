@@ -136,49 +136,63 @@ class DefaultProjectNetworkMod(BaseMod):
         """
         try:
             content = message.content
-            message_type = content.get("message_type")
+            event_name = getattr(message, 'event_name', '')
             
-            logger.info(f"🔧 PROJECT MOD: Received message type: {message_type}")
+            # Try to determine action from event_name first, fallback to message_type in payload
+            message_type = content.get("message_type") if isinstance(content, dict) else None
+            
+            logger.info(f"🔧 PROJECT MOD: Received event: {event_name}")
             logger.info(f"🔧 PROJECT MOD: Message content keys: {list(content.keys())}")
             logger.info(f"🔧 PROJECT MOD: Sender: {message.sender_id}")
             
-            if message_type == "project_creation":
+            # Route based on event_name patterns first, then fallback to message_type
+            if event_name == "project.create" or event_name == "project.creation.request" or message_type == "project_creation":
                 logger.info(f"🔧 PROJECT MOD: Processing project creation")
                 # Extract request_id from content before creating the message
                 request_id = content.get('request_id', message.message_id)
                 logger.info(f"🔧 PROJECT MOD: Extracted request_id: {request_id}")
                 inner_message = ProjectCreationMessage(**content)
+                # Pass the original event_name for action determination
+                inner_message.event_name = event_name
                 # Store request_id in the message for response correlation
                 inner_message.request_id = request_id
                 await self._process_project_creation(inner_message)
-            elif message_type == "project_status":
+            elif event_name == "project.status" or event_name == "project.status.request" or message_type == "project_status":
                 logger.info(f"🔧 PROJECT MOD: Processing project status")
                 # Extract request_id from content before creating the message
                 request_id = content.get('request_id', message.message_id)
                 logger.info(f"🔧 PROJECT MOD: Extracted request_id: {request_id}")
                 inner_message = ProjectStatusMessage(**content)
+                # Pass the original event_name for action determination
+                inner_message.event_name = event_name
                 # Store request_id in the message for response correlation
                 inner_message.request_id = request_id
                 await self._process_project_status(inner_message)
-            elif message_type == "project_notification":
+            elif event_name == "project.notification" or event_name == "project.notify" or message_type == "project_notification":
                 logger.info(f"🔧 PROJECT MOD: Processing project notification")
                 inner_message = ProjectNotificationMessage(**content)
+                # Pass the original event_name for action determination
+                inner_message.event_name = event_name
                 await self._process_project_notification(inner_message)
-            elif message_type == "project_channel":
+            elif event_name == "project.channel" or event_name == "project.channel.request" or message_type == "project_channel":
                 logger.info(f"🔧 PROJECT MOD: Processing project channel")
                 inner_message = ProjectChannelMessage(**content)
+                # Pass the original event_name for action determination
+                inner_message.event_name = event_name
                 await self._process_project_channel(inner_message)
-            elif message_type == "project_list":
+            elif event_name == "project.list" or event_name == "project.list.request" or message_type == "project_list":
                 logger.info(f"🔧 PROJECT MOD: Processing project list")
                 # Extract request_id from content before creating the message
                 request_id = content.get('request_id', message.message_id)
                 logger.info(f"🔧 PROJECT MOD: Extracted request_id: {request_id}")
                 inner_message = ProjectListMessage(**content)
+                # Pass the original event_name for action determination
+                inner_message.event_name = event_name
                 # Store request_id in the message for response correlation
                 inner_message.request_id = request_id
                 await self._process_project_list(inner_message)
             else:
-                logger.warning(f"Unknown project message type: {message_type}")
+                logger.warning(f"Unknown project event: {event_name} / message_type: {message_type}")
         except Exception as e:
             logger.error(f"Error processing project mod message: {e}")
             import traceback
@@ -277,7 +291,22 @@ class DefaultProjectNetworkMod(BaseMod):
             message: The project status message
         """
         project_id = message.project_id
-        action = message.action
+        
+        # Determine action from event_name if possible, fallback to message.action
+        action = getattr(message, 'action', 'get_status')
+        
+        # Use event_name to determine action if available
+        if hasattr(message, 'event_name') and message.event_name:
+            if "start" in message.event_name:
+                action = "start"
+            elif "stop" in message.event_name:
+                action = "stop"
+            elif "pause" in message.event_name:
+                action = "pause"
+            elif "resume" in message.event_name:
+                action = "resume"
+            elif "status" in message.event_name or "get" in message.event_name:
+                action = "get_status"
         
         if project_id not in self.projects:
             request_id = getattr(message, 'request_id', message.message_id)
@@ -470,7 +499,16 @@ class DefaultProjectNetworkMod(BaseMod):
             message: The project channel message
         """
         project_id = message.project_id
-        action = message.action
+        
+        # Determine action from event_name if possible, fallback to message.action
+        action = getattr(message, 'action', 'join')
+        
+        # Use event_name to determine action if available
+        if hasattr(message, 'event_name') and message.event_name:
+            if "join" in message.event_name:
+                action = "join"
+            elif "leave" in message.event_name:
+                action = "leave"
         
         if project_id not in self.projects:
             await self._send_error_response(

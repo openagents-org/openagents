@@ -374,62 +374,123 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Check if this is a message type that thread messaging should handle
         event_name = message.event_name
         
-        # Handle thread messaging specific events
+        # Handle thread messaging specific events based on event_name
         if event_name.startswith("thread."):
             logger.debug(f"Thread messaging processing system message: {event_name}")
             
             # Extract the inner message from the Event content
             try:
                 content = message.payload if hasattr(message, 'payload') else message.content
-                message_type = content.get("message_type") if hasattr(content, 'get') else getattr(content, 'message_type', None)
-                
-                logger.debug(f"Processing thread system message of type: {message_type}")
+                logger.debug(f"Processing thread system message: {event_name}")
                 logger.debug(f"Message content keys: {list(content.keys()) if hasattr(content, 'keys') else 'No keys'}")
                 
-                if message_type == "reply_message":
+                # Route based on event_name instead of message_type in payload
+                if event_name == "thread.reply.sent" or event_name == "thread.reply.post":
                     # Populate quoted_text if quoted_message_id is provided
                     if 'quoted_message_id' in content and content['quoted_message_id']:
                         content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
                     inner_message = ReplyMessage(**content)
                     self._add_to_history(inner_message)
                     await self._process_reply_message(inner_message)
-                elif message_type == "file_upload":
+                elif event_name == "thread.file.upload" or event_name == "thread.file.upload_requested":
                     inner_message = FileUploadMessage(**content)
                     self._add_to_history(inner_message)
                     await self._process_file_upload(inner_message)
-                elif message_type == "file_operation":
+                elif event_name == "thread.file.download" or event_name == "thread.file.operation":
                     inner_message = FileOperationMessage(**content)
+                    # Pass the original event_name for action determination
+                    inner_message.event_name = event_name
                     self._add_to_history(inner_message)
                     await self._process_file_operation(inner_message)
-                elif message_type == "channel_info" or message_type == "channel_info_message":
+                elif event_name == "thread.channels.info" or event_name == "thread.channels.list":
                     inner_message = ChannelInfoMessage(**content)
+                    # Pass the original event_name for action determination
+                    inner_message.event_name = event_name
                     self._add_to_history(inner_message)
                     await self._process_channel_info_request(inner_message)
-                elif message_type == "message_retrieval":
+                elif event_name == "thread.messages.retrieve" or event_name == "thread.channel_messages.retrieve" or event_name == "thread.direct_messages.retrieve":
                     inner_message = MessageRetrievalMessage(**content)
+                    # Pass the original event_name for action determination
+                    inner_message.event_name = event_name
                     self._add_to_history(inner_message)
                     await self._process_message_retrieval_request(inner_message)
-                elif message_type == "reaction":
+                elif event_name == "thread.reaction.add" or event_name == "thread.reaction.remove" or event_name == "thread.reaction.toggle":
                     inner_message = ReactionMessage(**content)
+                    # Pass the original event_name for action determination
+                    inner_message.event_name = event_name
                     self._add_to_history(inner_message)
                     await self._process_reaction_message(inner_message)
-                elif message_type == "direct_message":
+                elif event_name == "thread.direct_message.sent" or event_name == "thread.direct_message.post":
                     # Populate quoted_text if quoted_message_id is provided
                     if 'quoted_message_id' in content and content['quoted_message_id']:
                         content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
                     inner_message = Event(**content)
                     self._add_to_history(inner_message)
                     await self._process_direct_message(inner_message)
-                elif message_type == "channel_message":
+                elif event_name == "thread.channel_message.sent" or event_name == "thread.channel_message.post":
                     # Populate quoted_text if quoted_message_id is provided
                     if 'quoted_message_id' in content and content['quoted_message_id']:
                         content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
                     inner_message = ChannelMessage(**content)
                     self._add_to_history(inner_message)
                     await self._process_channel_message(inner_message)
+                elif event_name == "thread.message":
+                    # Handle generic thread.message by examining message_type in payload
+                    message_type = content.get("message_type") if isinstance(content, dict) else None
+                    logger.debug(f"Processing generic thread.message with message_type: {message_type}")
+                    
+                    if message_type == "reply_message":
+                        # Populate quoted_text if quoted_message_id is provided
+                        if 'quoted_message_id' in content and content['quoted_message_id']:
+                            content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
+                        inner_message = ReplyMessage(**content)
+                        inner_message.event_name = event_name
+                        self._add_to_history(inner_message)
+                        await self._process_reply_message(inner_message)
+                    elif message_type == "channel_message":
+                        # Populate quoted_text if quoted_message_id is provided
+                        if 'quoted_message_id' in content and content['quoted_message_id']:
+                            content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
+                        inner_message = ChannelMessage(**content)
+                        inner_message.event_name = event_name
+                        self._add_to_history(inner_message)
+                        await self._process_channel_message(inner_message)
+                    elif message_type == "direct_message":
+                        # Populate quoted_text if quoted_message_id is provided
+                        if 'quoted_message_id' in content and content['quoted_message_id']:
+                            content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
+                        inner_message = Event(**content)
+                        inner_message.event_name = event_name
+                        self._add_to_history(inner_message)
+                        await self._process_direct_message(inner_message)
+                    elif message_type == "file_upload":
+                        inner_message = FileUploadMessage(**content)
+                        inner_message.event_name = event_name
+                        self._add_to_history(inner_message)
+                        await self._process_file_upload(inner_message)
+                    elif message_type == "file_operation":
+                        inner_message = FileOperationMessage(**content)
+                        inner_message.event_name = event_name
+                        self._add_to_history(inner_message)
+                        await self._process_file_operation(inner_message)
+                    elif message_type == "channel_info":
+                        inner_message = ChannelInfoMessage(**content)
+                        inner_message.event_name = event_name
+                        await self._process_channel_info_request(inner_message)
+                    elif message_type == "message_retrieval":
+                        inner_message = MessageRetrievalMessage(**content)
+                        inner_message.event_name = event_name
+                        await self._process_message_retrieval_request(inner_message)
+                    elif message_type == "reaction_message":
+                        inner_message = ReactionMessage(**content)
+                        inner_message.event_name = event_name
+                        self._add_to_history(inner_message)
+                        await self._process_reaction_message(inner_message)
+                    else:
+                        logger.warning(f"Unknown message_type in thread.message: {message_type}")
                 else:
-                    logger.warning(f"Unknown message type in thread system message: {message_type}")
-                    return message  # Let other mods handle unknown message types
+                    logger.warning(f"Unknown thread event name: {event_name}")
+                    return message  # Let other mods handle unknown event types
                 
                 # Thread messaging handled this message, stop further processing
                 return None
@@ -638,7 +699,14 @@ class ThreadMessagingNetworkMod(BaseMod):
         Args:
             message: The file operation message
         """
-        action = message.action
+        # Try to determine action from event_name first, fallback to message.action
+        action = getattr(message, 'action', 'download')
+        
+        # If we have the original event with the message, use its event_name to determine action
+        if hasattr(message, 'event_name'):
+            if "download" in message.event_name:
+                action = "download"
+            # Add other file operations as needed
         
         if action == "download":
             await self._handle_file_download(message.source_id, message.file_id, message)
@@ -734,7 +802,16 @@ class ThreadMessagingNetworkMod(BaseMod):
         Args:
             message: The channel info request message
         """
-        if message.action == "list_channels":
+        # Determine action from event_name if possible, fallback to message.action
+        action = getattr(message, 'action', 'list_channels')
+        
+        # Use event_name to determine action
+        if hasattr(message, 'event_name'):
+            if "list" in message.event_name or "info" in message.event_name:
+                action = "list_channels"
+            # Add other channel actions as needed
+            
+        if action == "list_channels":
             channels_data = []
             for channel_name, channel_info in self.channels.items():
                 agents_in_channel = list(self.channel_agents.get(channel_name, set()))
@@ -766,8 +843,19 @@ class ThreadMessagingNetworkMod(BaseMod):
         Args:
             message: The message retrieval request
         """
-        action = message.action
+        # Determine action from event_name if possible, fallback to message.action
+        action = getattr(message, 'action', 'retrieve_channel_messages')
         agent_id = message.source_id
+        
+        # Use event_name to determine action
+        if hasattr(message, 'event_name'):
+            if "channel_messages" in message.event_name:
+                action = "retrieve_channel_messages"
+            elif "direct_messages" in message.event_name:
+                action = "retrieve_direct_messages"
+            # Default to channel messages if just "messages.retrieve"
+            elif "messages.retrieve" in message.event_name:
+                action = "retrieve_channel_messages"
         
         if action == "retrieve_channel_messages":
             await self._handle_channel_messages_retrieval(message)
@@ -1028,7 +1116,24 @@ class ThreadMessagingNetworkMod(BaseMod):
         target_message_id = message.target_message_id
         reaction_type = message.reaction_type
         agent_id = message.source_id
-        action = message.action
+        
+        # Determine action from event_name if possible, fallback to message.action
+        action = getattr(message, 'action', 'add')
+        
+        # Use event_name to determine action
+        if hasattr(message, 'event_name'):
+            if "add" in message.event_name:
+                action = "add"
+            elif "remove" in message.event_name:
+                action = "remove"
+            elif "toggle" in message.event_name:
+                # For toggle, we need to check if the reaction already exists
+                if (target_message_id in self.reactions and 
+                    reaction_type in self.reactions[target_message_id] and
+                    agent_id in self.reactions[target_message_id][reaction_type]):
+                    action = "remove"
+                else:
+                    action = "add"
         
         # Check if the target message exists
         if target_message_id not in self.message_history:
@@ -1131,16 +1236,17 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Send notification to relevant agents
         for notify_agent in notify_agents:
             notification = Event(
+                event_name="thread.reaction.notification",
                 source_id=self.network.network_id,
-                                payload={
+                target_agent_id=notify_agent,
+                payload={
                     "action": "reaction_notification",
                     "target_message_id": target_message_id,
                     "reaction_type": reaction_type,
                     "reacting_agent": agent_id,
                     "action_taken": action,
                     "total_reactions": len(self.reactions.get(target_message_id, {}).get(reaction_type, set()))
-                },
-                                relevant_agent_id=notify_agent
+                }
             )
             await self.network.send_message(notification)
     
