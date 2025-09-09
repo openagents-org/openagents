@@ -13,7 +13,6 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
   documents: sharedDocuments,
   selectedDocumentId: sharedSelectedDocumentId,
   onDocumentSelect: sharedOnDocumentSelect,
-  documentsConnection: sharedConnection,
   onDocumentsChange: sharedOnDocumentsChange
 }) => {
   const { currentNetwork } = useNetwork();
@@ -27,12 +26,10 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
   // Use shared state if available, otherwise use local state
   const effectiveDocuments = sharedDocuments || documents;
   const effectiveSelectedDocument = sharedSelectedDocumentId || selectedDocument;
-  const effectiveConnection = sharedConnection || connection;
+  const effectiveConnection = connection;
 
-  // Initialize connection (only if not using shared connection)
+  // Initialize connection
   useEffect(() => {
-    // Skip initialization if using shared connection
-    if (sharedConnection) return;
 
     let isMounted = true;
     let currentConnection: OpenAgentsGRPCConnection | null = null;
@@ -42,7 +39,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
 
       try {
         // Use a consistent agent ID based on network to avoid multiple connections
-        const agentId = `studio_documents_${currentNetwork.host}_${currentNetwork.port}`;
+        const agentId = `studio_documents_${currentNetwork.port}`;
         const conn = new OpenAgentsGRPCConnection(agentId, currentNetwork);
         currentConnection = conn;
         
@@ -75,7 +72,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
         }
       }
     };
-  }, [currentNetwork, sharedConnection]);
+  }, [currentNetwork]);
 
   // Handle documents received from gRPC service
   const handleDocumentsReceived = useCallback((docs: DocumentInfo[]) => {
@@ -100,9 +97,11 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
       setIsLoading(true);
       setError(null);
       
-      // Send list_documents command - this will trigger 'documents' events
-      await effectiveConnection.sendSystemCommand('list_documents', { include_closed: false });
-      console.log('📤 Requested documents list');
+      // Request documents list using the public API
+      const docs = await effectiveConnection.listDocuments(false);
+      console.log('📤 Received documents list:', docs);
+      handleDocumentsReceived(docs || []);
+      setIsLoading(false);
     } catch (err) {
       console.error('Failed to request documents:', err);
       setError('Failed to load documents');

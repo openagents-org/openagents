@@ -140,6 +140,5 @@ export interface DocumentsViewProps {
   documents?: DocumentInfo[];
   selectedDocumentId?: string | null;
   onDocumentSelect?: (documentId: string | null) => void;
-  documentsConnection?: any; // OpenAgentsGRPCConnection type
   onDocumentsChange?: (documents: DocumentInfo[]) => void;
 } 

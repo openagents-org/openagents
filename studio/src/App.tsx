@@ -13,7 +13,6 @@ import { ConfirmProvider } from './context/ConfirmContext';
 import { NetworkProvider, useNetwork } from './context/NetworkContext';
 import { NewsSummaryExample } from './components/mcp_output/template';
 import { NetworkConnection } from './services/networkService';
-import { OpenAgentsGRPCConnection } from './services/grpcService';
 import { DocumentInfo } from './types';
 import { clearAllOpenAgentsData } from './utils/cookies';
 
@@ -33,7 +32,6 @@ const AppContent: React.FC = () => {
   // Documents state
   const [documents, setDocuments] = useState<DocumentInfo[]>([]);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
-  const [documentsConnection, setDocumentsConnection] = useState<OpenAgentsGRPCConnection | null>(null);
   const threadMessagingRef = useRef<{ 
     getState: () => ThreadState;
     selectChannel: (channel: string) => void;
@@ -153,130 +151,20 @@ const AppContent: React.FC = () => {
     setIsCheckingMods(false);
   };
 
-  // Check for thread messaging mod when connected
+  // Check for thread messaging mod when connected - delegate to ThreadMessagingView
   useEffect(() => {
-    const checkThreadMessagingMod = async (): Promise<void> => {
-      if (!currentNetwork || !isConnected || isCheckingMods) return;
-      
-      // Prevent repeated mod checks for the same network
-      if (hasThreadMessaging !== null && hasSharedDocuments !== null) {
-        console.log('Mods already detected, skipping re-check');
-        return;
-      }
-      
-      try {
-        setIsCheckingMods(true);
-        setHasThreadMessaging(null);
-        setHasSharedDocuments(null);
-        
-        console.log(`🔍 Checking mods for network at ${currentNetwork.host}:${currentNetwork.port}`);
-        
-        // Use a consistent agent ID to avoid creating multiple connections
-        const checkAgentId = `studio_mod_check_${currentNetwork.host}_${currentNetwork.port}`;
-        const connection = new OpenAgentsGRPCConnection(checkAgentId, currentNetwork);
-        
-        const connected = await connection.connect();
-        if (connected) {
-          console.log('✅ Connected for mod detection');
-          const hasThreadMod = await connection.hasThreadMessagingMod();
-          const hasSharedDocMod = await connection.hasSharedDocumentMod();
-          setHasThreadMessaging(hasThreadMod);
-          setHasSharedDocuments(hasSharedDocMod);
-          console.log(`📋 Thread messaging mod: ${hasThreadMod ? 'ENABLED' : 'disabled'}`);
-          console.log(`📄 Shared document mod: ${hasSharedDocMod ? 'ENABLED' : 'disabled'}`);
-          console.log('🎯 Interface mode:', hasThreadMod ? 'Thread Messaging' : 'Regular Chat');
-          if (hasSharedDocMod) {
-            console.log('📄 Documents tab will be available');
-          }
-          
-          // Properly disconnect
-          setTimeout(() => {
-            try {
-              connection.disconnect();
-              console.log('🔌 Mod detection connection closed');
-            } catch (e) {
-              console.warn('⚠️ Error closing mod detection connection:', e);
-            }
-          }, 100);
-        } else {
-          console.log('❌ Failed to connect for mod detection, defaulting to regular chat');
-          setHasThreadMessaging(false);
-          setHasSharedDocuments(false);
-        }
-      } catch (error) {
-        console.error('❌ Error checking for mods:', error);
-        setHasThreadMessaging(false);
-        setHasSharedDocuments(false);
-      } finally {
-        setIsCheckingMods(false);
-      }
-    };
-    
-    // Only check mods once when we have all required connection info
-    if (isConnected && currentNetwork && agentName && !isCheckingMods) {
-      checkThreadMessagingMod();
+    if (isConnected && currentNetwork && agentName && hasThreadMessaging === null) {
+      // Set default values - ThreadMessagingView will do the actual mod detection
+      console.log('🔍 Mod detection will be handled by ThreadMessagingView');
+      setHasThreadMessaging(true); // Assume thread messaging for now
+      setHasSharedDocuments(true); // Assume shared documents for now
     }
-  }, [currentNetwork, isConnected, agentName, hasThreadMessaging, hasSharedDocuments, isCheckingMods]);
+  }, [currentNetwork, isConnected, agentName, hasThreadMessaging]);
 
-  // Initialize documents connection when shared documents mod is available
-  useEffect(() => {
-    let isMounted = true;
-    let currentConnection: OpenAgentsGRPCConnection | null = null;
+  // Documents connection will be handled by reusing the main ThreadMessaging connection
+  // No separate connection needed
 
-    const initDocumentsConnection = async () => {
-      if (!currentNetwork || !hasSharedDocuments || !agentName || !isMounted) return;
-
-      try {
-        // Use a consistent agent ID based on network to avoid multiple connections
-        const agentId = `studio_documents_${currentNetwork.host}_${currentNetwork.port}`;
-        const conn = new OpenAgentsGRPCConnection(agentId, currentNetwork);
-        currentConnection = conn;
-        
-        const connected = await conn.connect();
-        if (connected && isMounted) {
-          setDocumentsConnection(conn);
-          console.log('📄 Connected for documents management');
-        }
-      } catch (err) {
-        console.error('Failed to initialize documents connection:', err);
-      }
-    };
-
-    if (hasSharedDocuments) {
-      initDocumentsConnection();
-    }
-
-    return () => {
-      isMounted = false;
-      if (currentConnection) {
-        try {
-          currentConnection.disconnect();
-          console.log('📄 Documents connection cleaned up');
-        } catch (e) {
-          console.warn('⚠️ Error cleaning up documents connection:', e);
-        }
-      }
-    };
-  }, [currentNetwork, hasSharedDocuments, agentName]);
-
-  // Load documents when connection is established
-  const loadDocuments = useCallback(async () => {
-    if (!documentsConnection) return;
-
-    try {
-      const docs = await documentsConnection.listDocuments(false); // Don't include closed documents by default
-      console.log('📋 Loaded documents:', docs);
-      setDocuments(docs || []);
-    } catch (err) {
-      console.error('Failed to load documents:', err);
-    }
-  }, [documentsConnection]);
-
-  useEffect(() => {
-    if (documentsConnection) {
-      loadDocuments();
-    }
-  }, [documentsConnection, loadDocuments]);
+  // Document loading will be handled by DocumentsView directly
 
   // Show network selection if no network is selected
   if (!selectedNetwork) {
@@ -371,7 +259,6 @@ const AppContent: React.FC = () => {
                 documents={documents}
                 selectedDocumentId={selectedDocumentId}
                 onDocumentSelect={handleDocumentSelect}
-                documentsConnection={documentsConnection}
                 onDocumentsChange={setDocuments}
               />
             ) : activeView === 'settings' ? (
@@ -434,7 +321,6 @@ const AppContent: React.FC = () => {
                     documents={documents}
                     selectedDocumentId={selectedDocumentId}
                     onDocumentSelect={handleDocumentSelect}
-                    documentsConnection={documentsConnection}
                     onDocumentsChange={setDocuments}
                   />
                 ) : activeView === 'chat' ? (

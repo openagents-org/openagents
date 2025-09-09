@@ -26,6 +26,7 @@ class GRPCHTTPAdapter:
     
     def setup_routes(self):
         """Setup HTTP routes."""
+        self.app.router.add_get('/api/health', self.health_check)
         self.app.router.add_post('/api/register', self.register_agent)
         self.app.router.add_post('/api/unregister', self.unregister_agent)
         self.app.router.add_get('/api/poll/{agent_id}', self.poll_messages)
@@ -47,6 +48,14 @@ class GRPCHTTPAdapter:
         
         # CORS middleware
         self.app.middlewares.append(self.cors_handler)
+    
+    async def health_check(self, request):
+        """Health check endpoint for network connectivity testing."""
+        return web.json_response({
+            'status': 'healthy',
+            'network_name': 'OpenAgents Network',
+            'version': '1.0'
+        })
     
     @web.middleware
     async def cors_handler(self, request, handler):

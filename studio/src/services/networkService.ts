@@ -39,17 +39,9 @@ export interface NetworkListResponse {
 // Check if a local OpenAgents network is running on localhost:8571
 export const detectLocalNetwork = async (): Promise<NetworkConnection | null> => {
   try {
-    // Test local gRPC network via HTTP adapter (port 9571)
-    const response = await fetch('http://localhost:9571/api/register', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        agent_id: 'local_network_test',
-        metadata: { test: true },
-        capabilities: []
-      }),
+    // Test local gRPC network via HTTP adapter health endpoint (port 9571)
+    const response = await fetch('http://localhost:9571/api/health', {
+      method: 'GET',
       signal: AbortSignal.timeout(3000) // 3 second timeout
     });
 
@@ -79,22 +71,14 @@ export const testNetworkConnection = async (host: string, port: number): Promise
   const startTime = Date.now();
   
   try {
-    // Test gRPC network via HTTP adapter (port + 1000)
+    // Test gRPC network via HTTP adapter health endpoint (port + 1000)
     const httpPort = port + 1000;
     const protocol = window.location.protocol === 'https:' ? 'https' : 'http';
-    const testUrl = `${protocol}://${host}:${httpPort}/api/register`;
+    const testUrl = `${protocol}://${host}:${httpPort}/api/health`;
     
-    // Try a simple HTTP request to test connectivity
+    // Use health check endpoint to test connectivity without creating agents
     const response = await fetch(testUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        agent_id: 'test_connection',
-        metadata: { test: true },
-        capabilities: []
-      }),
+      method: 'GET',
       signal: AbortSignal.timeout(5000) // 5 second timeout
     });
 
