@@ -5,6 +5,7 @@ import { Message, ToolSection } from '../../types';
 import useTheme from '../../hooks/useTheme';
 import CodeBlock from './CodeBlock';
 import ToolPanel from './ToolPanel';
+import AttachmentDisplay from './AttachmentDisplay';
 import { NewsSummaryExample } from '../mcp_output/template';
 
 interface MessageBubbleProps {
@@ -820,6 +821,14 @@ const MessageBubble: React.FC<MessageBubbleProps> = memo(({ message, isStreaming
             : 'system-message'
         }`}>
           {renderMessageContent()}
+          
+          {/* Attachment display */}
+          <AttachmentDisplay
+            attachment_file_id={message.attachment_file_id}
+            attachment_filename={message.attachment_filename}
+            attachment_size={message.attachment_size}
+            attachments={message.attachments}
+          />
         </div>
       </div>
 

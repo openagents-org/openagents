@@ -6,6 +6,7 @@ Provides REST endpoints that map to gRPC calls for web compatibility.
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Dict, Any, List, Optional
 from aiohttp import web, WSMsgType
@@ -200,7 +201,11 @@ class GRPCHTTPAdapter:
                         "content": data.get('content', {}),
                         "reply_to_id": data.get('reply_to_id'),
                         "quoted_message_id": data.get('quoted_message_id'),
-                        "quoted_text": data.get('quoted_text')
+                        "quoted_text": data.get('quoted_text'),
+                        # Include attachment fields
+                        "attachment_file_id": data.get('attachment_file_id'),
+                        "attachment_filename": data.get('attachment_filename'),
+                        "attachment_size": data.get('attachment_size')
                     }
                 else:
                     mod_content = {
@@ -210,7 +215,11 @@ class GRPCHTTPAdapter:
                         "content": data.get('content', {}),
                         "reply_to_id": data.get('reply_to_id'),
                         "quoted_message_id": data.get('quoted_message_id'),
-                        "quoted_text": data.get('quoted_text')
+                        "quoted_text": data.get('quoted_text'),
+                        # Include attachment fields
+                        "attachment_file_id": data.get('attachment_file_id'),
+                        "attachment_filename": data.get('attachment_filename'),
+                        "attachment_size": data.get('attachment_size')
                     }
                 
                 # Also handle the case where text is provided directly (for simple messages)
@@ -544,6 +553,14 @@ class GRPCHTTPAdapter:
                     "payload": {"text": message_text},  # The Event payload field
                     "timestamp": int(time.time())
                 }
+                
+                # Include attachment fields if present
+                if data.get('attachment_file_id'):
+                    mod_content["attachment_file_id"] = data.get('attachment_file_id')
+                if data.get('attachment_filename'):
+                    mod_content["attachment_filename"] = data.get('attachment_filename')
+                if data.get('attachment_size'):
+                    mod_content["attachment_size"] = data.get('attachment_size')
             else:
                 return {'success': False, 'error': f'Unknown thread messaging command: {command}'}
             
@@ -1168,16 +1185,32 @@ class GRPCHTTPAdapter:
                     'error': 'agent_id is required'
                 }, status=400)
             
-            # Check file storage (in real implementation, use database)
-            if not hasattr(self, 'file_storage') or file_id not in self.file_storage:
+            # Check file storage in HTTP adapter first
+            file_info = None
+            file_path = None
+            filename = None
+            
+            if hasattr(self, 'file_storage') and file_id in self.file_storage:
+                file_info = self.file_storage[file_id]
+                file_path = file_info['file_path']
+                filename = file_info['filename']
+            else:
+                # Check thread messaging mod file storage
+                if self.transport and self.transport.network_instance:
+                    network = self.transport.network_instance
+                    # Look for thread messaging mod
+                    for mod_instance in network.mods.values():
+                        if hasattr(mod_instance, 'files') and file_id in mod_instance.files:
+                            mod_file_info = mod_instance.files[file_id]
+                            file_path = mod_file_info['path']
+                            filename = mod_file_info['filename']
+                            break
+            
+            if not file_path or not filename:
                 return web.json_response({
                     'success': False,
                     'error': 'File not found'
                 }, status=404)
-            
-            file_info = self.file_storage[file_id]
-            file_path = file_info['file_path']
-            filename = file_info['filename']
             
             # Check if file exists on disk
             if not os.path.exists(file_path):

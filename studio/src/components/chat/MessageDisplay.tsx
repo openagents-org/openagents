@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ThreadMessage } from '../../services/grpcService';
 import MarkdownContent from './MarkdownContent';
+import AttachmentDisplay from './AttachmentDisplay';
 
 interface MessageDisplayProps {
   messages: ThreadMessage[];
@@ -532,6 +533,14 @@ const MessageDisplay: React.FC<MessageDisplayProps> = ({
             <MarkdownContent 
               content={message.content.text} 
               currentTheme={currentTheme} 
+            />
+            
+            {/* Attachment display */}
+            <AttachmentDisplay
+              attachment_file_id={message.attachment_file_id}
+              attachment_filename={message.attachment_filename}
+              attachment_size={message.attachment_size}
+              attachments={message.attachments}
             />
           </div>
 

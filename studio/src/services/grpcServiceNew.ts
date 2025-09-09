@@ -357,11 +357,15 @@ export class OpenAgentsGRPCConnection {
     return this.getDirectMessages(targetAgentId);
   }
 
-  async sendMessage(content: string, targetAgentId?: string, channel?: string, replyToId?: string): Promise<boolean> {
+  async sendMessage(content: string, targetAgentId?: string, channel?: string, replyToId?: string, attachmentData?: {
+    file_id: string;
+    filename: string;
+    size: number;
+  }): Promise<boolean> {
     try {
       if (channel) {
         // Send channel message
-        return await this.workspaceService.sendChannelMessage(channel, content, replyToId);
+        return await this.workspaceService.sendChannelMessage(channel, content, replyToId, attachmentData);
       } else {
         // Direct messages not implemented yet
         console.warn('Direct messages not implemented in workspace service yet');

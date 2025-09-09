@@ -37,6 +37,16 @@ export interface WorkspaceMessage {
   reactions?: {
     [reaction_type: string]: number;
   };
+  // File attachment fields
+  attachment_file_id?: string;
+  attachment_filename?: string;
+  attachment_size?: number | string;
+  attachments?: Array<{
+    file_id: string;
+    filename: string;
+    size: number;
+    file_type?: string;
+  }>;
 }
 
 export interface WorkspaceAgent {
@@ -415,7 +425,11 @@ export class WorkspaceService {
   /**
    * Send a message to a channel
    */
-  async sendChannelMessage(channelName: string, text: string, replyToId?: string): Promise<boolean> {
+  async sendChannelMessage(channelName: string, text: string, replyToId?: string, attachmentData?: {
+    file_id: string;
+    filename: string;
+    size: number;
+  }): Promise<boolean> {
     try {
       console.log(`📤 Sending message to ${channelName}: ${text.substring(0, 50)}...`);
       
@@ -429,7 +443,12 @@ export class WorkspaceService {
           message_type: 'channel_message',
           channel: channelName,
           content: { text: text },
-          reply_to_id: replyToId
+          reply_to_id: replyToId,
+          ...(attachmentData && {
+            attachment_file_id: attachmentData.file_id,
+            attachment_filename: attachmentData.filename,
+            attachment_size: attachmentData.size
+          })
         })
       });
 

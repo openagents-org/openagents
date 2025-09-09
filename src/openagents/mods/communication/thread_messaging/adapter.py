@@ -224,7 +224,9 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         await self.connector.send_mod_message(message)
         logger.debug(f"Sent direct message to {target_agent_id}")
     
-    async def send_channel_message(self, channel: str, text: str, mentioned_agent_id: Optional[str] = None, quote: Optional[str] = None) -> bool:
+    async def send_channel_message(self, channel: str, text: str, mentioned_agent_id: Optional[str] = None, quote: Optional[str] = None, 
+                                 attachment_file_id: Optional[str] = None, attachment_filename: Optional[str] = None, 
+                                 attachment_size: Optional[int] = None) -> bool:
         """Send a message into a channel, optionally mentioning an agent.
         
         Args:
@@ -232,6 +234,9 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             text: Message text content  
             mentioned_agent_id: Optional agent ID to mention/tag
             quote: Optional message ID to quote
+            attachment_file_id: Optional file ID for attachment
+            attachment_filename: Optional filename for attachment  
+            attachment_size: Optional file size for attachment
         """
         if self.connector is None:
             logger.error(f"Cannot send channel message: connector is None for agent {self.agent_id}")
@@ -260,7 +265,10 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             mentioned_agent_id=mentioned_agent_id,
             content=content,
             quoted_message_id=quoted_message_id,
-            quoted_text=quoted_text
+            quoted_text=quoted_text,
+            attachment_file_id=attachment_file_id,
+            attachment_filename=attachment_filename,
+            attachment_size=attachment_size
         )
         
         # Wrap in Event for proper transport

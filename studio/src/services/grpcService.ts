@@ -43,6 +43,16 @@ export interface ThreadMessage {
   reactions?: {
     [reaction_type: string]: number;
   };
+  // File attachment fields
+  attachment_file_id?: string;
+  attachment_filename?: string;
+  attachment_size?: number | string;
+  attachments?: Array<{
+    file_id: string;
+    filename: string;
+    size: number;
+    file_type?: string;
+  }>;
 }
 
 export interface AgentInfo {
@@ -403,14 +413,18 @@ export class OpenAgentsGRPCConnection {
     }
   }
 
-  async sendMessage(content: string, channel?: string, targetAgentId?: string, replyToId?: string, quotedMessageId?: string, quotedText?: string): Promise<boolean> {
+  async sendMessage(content: string, channel?: string, targetAgentId?: string, replyToId?: string, quotedMessageId?: string, quotedText?: string, attachmentData?: {
+    file_id: string;
+    filename: string;
+    size: number;
+  }): Promise<boolean> {
     if (!this.connected) {
       console.error('Cannot send message: not connected');
       return false;
     }
 
     try {
-      const messageData = {
+      const messageData: any = {
         sender_id: this.agentId,
         content: { text: content },
         message_type: channel ? 'channel_message' : 'direct_message',
@@ -421,6 +435,13 @@ export class OpenAgentsGRPCConnection {
         quoted_text: quotedText,
         timestamp: new Date().toISOString()
       };
+
+      // Add attachment data if provided
+      if (attachmentData) {
+        messageData.attachment_file_id = attachmentData.file_id;
+        messageData.attachment_filename = attachmentData.filename;
+        messageData.attachment_size = attachmentData.size;
+      }
 
       const response = await fetch(`${this.baseUrl}/api/send_message`, {
         method: 'POST',

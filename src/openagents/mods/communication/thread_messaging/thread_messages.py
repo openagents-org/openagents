@@ -50,6 +50,12 @@ class ChannelMessage(Event):
     quoted_text: Optional[str] = field(default=None)
     reply_to_id: Optional[str] = field(default=None)  # Fix: Add reply_to_id field
     
+    # File attachment fields
+    attachments: Optional[List[Dict[str, Any]]] = field(default=None)
+    attachment_file_id: Optional[str] = field(default=None)
+    attachment_filename: Optional[str] = field(default=None)
+    attachment_size: Optional[int] = field(default=None)
+    
     def __init__(self, event_name: str = "thread.channel_message.posted", source_id: str = "", **kwargs):
         """Initialize ChannelMessage with proper event name."""
         # Map old field names to modern API
@@ -68,6 +74,12 @@ class ChannelMessage(Event):
         quoted_text = kwargs.pop('quoted_text', None)
         reply_to_id = kwargs.pop('reply_to_id', None)  # Fix: Extract reply_to_id from kwargs
         
+        # Extract attachment fields
+        attachments = kwargs.pop('attachments', None)
+        attachment_file_id = kwargs.pop('attachment_file_id', None)
+        attachment_filename = kwargs.pop('attachment_filename', None)
+        attachment_size = kwargs.pop('attachment_size', None)
+        
         # Set target_channel in kwargs for Event
         kwargs['target_channel'] = channel
         
@@ -80,6 +92,12 @@ class ChannelMessage(Event):
         self.quoted_message_id = quoted_message_id
         self.quoted_text = quoted_text
         self.reply_to_id = reply_to_id  # Fix: Set reply_to_id field
+        
+        # Set attachment fields
+        self.attachments = attachments
+        self.attachment_file_id = attachment_file_id
+        self.attachment_filename = attachment_filename
+        self.attachment_size = attachment_size
     
     # Backward compatibility properties
     @property
@@ -141,6 +159,11 @@ class ChannelMessage(Event):
             "quoted_message_id": self.quoted_message_id,
             "quoted_text": self.quoted_text,
             "reply_to_id": self.reply_to_id,  # Fix: Include reply_to_id in model_dump
+            # Attachment fields
+            "attachments": self.attachments,
+            "attachment_file_id": self.attachment_file_id,
+            "attachment_filename": self.attachment_filename,
+            "attachment_size": self.attachment_size,
             # Backward compatibility fields
             "message_id": self.event_id,
             "sender_id": self.source_id,

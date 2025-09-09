@@ -7,7 +7,11 @@ interface AgentInfo {
 }
 
 interface ThreadMessageInputProps {
-  onSendMessage: (text: string, replyTo?: string, quotedMessageId?: string) => void;
+  onSendMessage: (text: string, replyTo?: string, quotedMessageId?: string, attachmentData?: {
+    file_id: string;
+    filename: string;
+    size: number;
+  }) => void;
   currentTheme: 'light' | 'dark';
   placeholder?: string;
   disabled?: boolean;
@@ -23,6 +27,8 @@ interface ThreadMessageInputProps {
     author: string;
   } | null;
   onCancelReply?: () => void;
+  currentChannel?: string;
+  currentAgentId?: string;
   onCancelQuote?: () => void;
 }
 
@@ -384,6 +390,65 @@ const styles = `
   .mention-name.dark {
     color: #f3f4f6;
   }
+  
+  .pending-attachment {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+  }
+  
+  .pending-attachment.dark {
+    background: #0f172a;
+    border-color: #334155;
+  }
+  
+  .attachment-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .attachment-icon {
+    font-size: 16px;
+  }
+  
+  .attachment-name {
+    font-size: 14px;
+    color: #374151;
+    flex: 1;
+  }
+  
+  .attachment-name.dark {
+    color: #f3f4f6;
+  }
+  
+  .remove-attachment {
+    background: none;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-size: 14px;
+    line-height: 1;
+    transition: all 0.15s ease;
+  }
+  
+  .remove-attachment:hover {
+    background: #f3f4f6;
+    color: #374151;
+  }
+  
+  .remove-attachment.dark {
+    color: #9ca3af;
+  }
+  
+  .remove-attachment.dark:hover {
+    background: #374151;
+    color: #f3f4f6;
+  }
 `;
 
 const MAX_MESSAGE_LENGTH = 2000;
@@ -397,9 +462,16 @@ const ThreadMessageInput: React.FC<ThreadMessageInputProps> = ({
   replyingTo,
   quotingMessage,
   onCancelReply,
+  currentChannel,
+  currentAgentId,
   onCancelQuote
 }) => {
   const [message, setMessage] = useState('');
+  const [pendingAttachment, setPendingAttachment] = useState<{
+    file_id: string;
+    filename: string;
+    size: number;
+  } | null>(null);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
@@ -412,9 +484,11 @@ const ThreadMessageInput: React.FC<ThreadMessageInputProps> = ({
       onSendMessage(
         message.trim(),
         replyingTo?.messageId,
-        quotingMessage?.messageId
+        quotingMessage?.messageId,
+        pendingAttachment || undefined
       );
       setMessage('');
+      setPendingAttachment(null);
       adjustTextareaHeight();
     }
   };
@@ -519,13 +593,57 @@ const ThreadMessageInput: React.FC<ThreadMessageInputProps> = ({
     insertMention(agent);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      // File upload logic would go here
-      console.log('File selected:', file.name);
-      // For now, just add file name to message
-      setMessage(prev => prev + ` [File: ${file.name}]`);
+    if (!file) return;
+    
+    if (!currentChannel || !currentAgentId) {
+      console.error('Missing channel or agent ID for file upload');
+      return;
+    }
+
+    try {
+      // Upload file using HTTP API
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('agent_id', currentAgentId);
+      formData.append('channel', currentChannel);
+      formData.append('message', message || `Uploading file: ${file.name}`);
+
+      const response = await fetch('http://cur2.acenta.ai:9572/api/workspace/upload', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          // Store attachment data for later sending
+          const attachmentData = {
+            file_id: result.file_id,
+            filename: result.filename,
+            size: result.size
+          };
+          
+          setPendingAttachment(attachmentData);
+          
+          // Show a visual indicator in the message input
+          if (!message.trim()) {
+            setMessage(`📎 ${result.filename} - `);
+          }
+        } else {
+          console.error('File upload failed:', result);
+        }
+      } else {
+        console.error('HTTP error during file upload:', response.status);
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error);
+    }
+    
+    // Reset file input
+    if (e.target) {
+      e.target.value = '';
     }
   };
 
@@ -586,6 +704,24 @@ const ThreadMessageInput: React.FC<ThreadMessageInputProps> = ({
               ? `${quotingMessage.text.substring(0, 100)}...` 
               : quotingMessage.text
             }
+          </div>
+        </div>
+      )}
+      
+      {/* Pending attachment indicator */}
+      {pendingAttachment && (
+        <div className={`pending-attachment ${currentTheme}`}>
+          <div className="attachment-info">
+            <span className="attachment-icon">📎</span>
+            <span className="attachment-name">{pendingAttachment.filename}</span>
+            <button
+              type="button"
+              onClick={() => setPendingAttachment(null)}
+              className={`remove-attachment ${currentTheme}`}
+              title="Remove attachment"
+            >
+              ✕
+            </button>
           </div>
         </div>
       )}

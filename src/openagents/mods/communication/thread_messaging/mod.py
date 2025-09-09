@@ -414,6 +414,25 @@ class ThreadMessagingNetworkMod(BaseMod):
                                 if hasattr(nested_value, 'string_value'):
                                     nested_dict[nested_name] = nested_value.string_value
                             content_dict[field_name] = nested_dict
+                        elif hasattr(field_value, 'number_value'):
+                            content_dict[field_name] = field_value.number_value
+                        elif hasattr(field_value, 'bool_value'):
+                            content_dict[field_name] = field_value.bool_value
+                        elif hasattr(field_value, 'null_value'):
+                            content_dict[field_name] = None
+                        else:
+                            logger.warning(f"🔧 PROTOBUF FIELD UNKNOWN TYPE: {field_name} has unhandled field type: {type(field_value)}")
+                            # Try to get the value anyway - protobuf fields have a WhichOneof method
+                            if hasattr(field_value, 'WhichOneof'):
+                                which = field_value.WhichOneof('kind')
+                                if which:
+                                    content_dict[field_name] = getattr(field_value, which)
+                                    logger.warning(f"🔧 PROTOBUF FIELD EXTRACTED: {field_name} = {content_dict[field_name]} (from {which})")
+                                else:
+                                    content_dict[field_name] = str(field_value)
+                                    logger.warning(f"🔧 PROTOBUF FIELD FALLBACK: {field_name} = {content_dict[field_name]} (str conversion)")
+                            else:
+                                content_dict[field_name] = str(field_value)
                     content = content_dict
                     logger.debug(f"Converted protobuf content to dict: {content}")
                 
@@ -495,9 +514,21 @@ class ThreadMessagingNetworkMod(BaseMod):
                                 logger.warning(f"🔧 NESTED STRUCT DEBUG: Final {field_name} = {nested_dict}")
                             elif hasattr(field_value, 'string_value'):
                                 content_dict[field_name] = field_value.string_value
+                            elif hasattr(field_value, 'number_value'):
+                                content_dict[field_name] = field_value.number_value
+                            elif hasattr(field_value, 'bool_value'):
+                                content_dict[field_name] = field_value.bool_value
+                            elif hasattr(field_value, 'null_value'):
+                                content_dict[field_name] = None
                             else:
-                                logger.warning(f"🔧 PROTOBUF DEBUG: Unknown field type for {field_name}: {type(field_value)}")
-                                content_dict[field_name] = str(field_value)
+                                # Use WhichOneof to get the actual field type
+                                field_type = field_value.WhichOneof('kind') if hasattr(field_value, 'WhichOneof') else None
+                                if field_type:
+                                    content_dict[field_name] = getattr(field_value, field_type)
+                                    logger.warning(f"🔧 PROTOBUF DEBUG: Handled {field_name} via WhichOneof: {field_type}")
+                                else:
+                                    logger.warning(f"🔧 PROTOBUF DEBUG: Unknown field type for {field_name}: {type(field_value)}")
+                                    content_dict[field_name] = str(field_value)
                         content = content_dict
                         logger.warning(f"🔧 THREAD.MESSAGE FIX: Converted to: {content}")
                     
@@ -519,8 +550,10 @@ class ThreadMessagingNetworkMod(BaseMod):
                         # Populate quoted_text if quoted_message_id is provided
                         if 'quoted_message_id' in content and content['quoted_message_id']:
                             content['quoted_text'] = self._get_quoted_text(content['quoted_message_id'])
+                        
                         inner_message = ChannelMessage(**content)
                         inner_message.event_name = event_name
+                        
                         self._add_to_history(inner_message)
                         await self._process_channel_message(inner_message)
                     elif message_type == "direct_message":

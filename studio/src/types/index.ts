@@ -19,6 +19,16 @@ export interface Message {
   toolMetadata?: {
     sections: ToolSection[];
   };
+  // File attachment fields
+  attachment_file_id?: string;
+  attachment_filename?: string;
+  attachment_size?: number | string;
+  attachments?: Array<{
+    file_id: string;
+    filename: string;
+    size: number;
+    file_type?: string;
+  }>;
 }
 
 export interface Conversation {

@@ -241,6 +241,14 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
   
   // Add periodic message checking
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Cache for pending attachment data to preserve it during message round-trips
+  const pendingAttachmentsRef = useRef<Map<string, {
+    file_id: string;
+    filename: string; 
+    size: number;
+    timestamp: number;
+  }>>(new Map());
   const connectionRef = useRef<OpenAgentsGRPCConnection | null>(null);
   const lastMessageTimeRef = useRef<number>(0); // Track last message time to reduce polling
   const [currentAgentId, setCurrentAgentId] = useState(agentName);
@@ -254,11 +262,7 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
 
   // Notify parent of state changes
   useEffect(() => {
-    console.log('🔍 ThreadMessagingView - state changed:', state);
-    console.log('🔍 ThreadMessagingView - agents count:', state.agents?.length);
-    console.log('🔍 ThreadMessagingView - onThreadStateChange exists:', !!onThreadStateChange);
     if (onThreadStateChange) {
-      console.log('🔍 ThreadMessagingView - calling onThreadStateChange with state:', state);
       // Always call, even if agents is empty, to ensure the parent gets updates
       onThreadStateChange(state);
     }
@@ -266,9 +270,7 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
 
   // Also notify parent when agents specifically change
   useEffect(() => {
-    console.log('🔍 ThreadMessagingView - agents array changed:', state.agents?.length);
     if (onThreadStateChange && state.agents?.length > 0) {
-      console.log('🔍 ThreadMessagingView - calling onThreadStateChange due to agents change');
       onThreadStateChange(state);
     }
   }, [state.agents, onThreadStateChange, state]);
@@ -428,6 +430,30 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
   }, [networkConnection, agentName]);
 
   const handleMessage = useCallback((message: ThreadMessage) => {
+    
+    // Check if this message is from the current user and is missing attachment data
+    if (message.sender_id === currentAgentId && 
+        !message.attachment_file_id && 
+        !message.attachment_filename && 
+        message.content?.text &&
+        pendingAttachmentsRef.current) {
+      
+      // Look for cached attachment data that matches this message text
+      const entries = Array.from(pendingAttachmentsRef.current.entries());
+      for (const [key, attachmentData] of entries) {
+        if (key.startsWith(message.content.text)) {
+          message.attachment_file_id = attachmentData.file_id;
+          message.attachment_filename = attachmentData.filename;
+          message.attachment_size = attachmentData.size;
+          // Remove from cache once applied
+          if (pendingAttachmentsRef.current) {
+            pendingAttachmentsRef.current.delete(key);
+          }
+          break;
+        }
+      }
+    }
+    
     setState(prev => {
       const newMessages = { ...prev.messages };
       
@@ -471,7 +497,6 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
     const shouldAutoSelect = !state.currentChannel && channels?.length > 0;
     const selectedChannel = shouldAutoSelect ? channels[0].name : state.currentChannel;
     
-    console.log(`🔍 Channel selection - current: ${state.currentChannel}, shouldAutoSelect: ${shouldAutoSelect}, selectedChannel: ${selectedChannel}`);
     
     setState(prev => ({ 
       ...prev, 
@@ -886,17 +911,49 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
     selectDirectMessage: selectDirectMessage
   }), [state, selectChannel, selectDirectMessage]);
 
-  const sendMessage = useCallback(async (text: string, replyTo?: string, quotedMessageId?: string) => {
+  const sendMessage = useCallback(async (text: string, replyTo?: string, quotedMessageId?: string, attachmentData?: {
+    file_id: string;
+    filename: string;
+    size: number;
+  }) => {
     if (!connection || !text.trim()) return;
+    
+    
+    // If we have attachment data, cache it temporarily with the message text as a key
+    if (attachmentData && pendingAttachmentsRef.current) {
+      const messageKey = `${text}_${Date.now()}`;
+      pendingAttachmentsRef.current.set(messageKey, {
+        file_id: attachmentData.file_id,
+        filename: attachmentData.filename,
+        size: attachmentData.size,
+        timestamp: Date.now()
+      });
+      
+      // Clean up old cached attachments (older than 30 seconds)
+      const cutoffTime = Date.now() - 30000;
+      const entriesToDelete: string[] = [];
+      Array.from(pendingAttachmentsRef.current.entries()).forEach(([key, data]) => {
+        if (data.timestamp < cutoffTime) {
+          entriesToDelete.push(key);
+        }
+      });
+      entriesToDelete.forEach(key => {
+        if (pendingAttachmentsRef.current) {
+          pendingAttachmentsRef.current.delete(key);
+        }
+      });
+    }
     
     if (state.currentChannel) {
       if (replyTo) {
+        // TODO: Update replyToMessage to support attachments when needed
         await connection.replyToMessage(replyTo, text, state.currentChannel, undefined, quotedMessageId);
       } else {
-        await connection.sendChannelMessage(state.currentChannel, text, undefined, quotedMessageId);
+        // Use the new sendMessage method that supports attachments
+        await connection.sendMessage(text, state.currentChannel, undefined, undefined, quotedMessageId, undefined, attachmentData);
       }
       
-      // Automatically refresh channel messages after sending
+      // Immediately refresh channel messages after sending to ensure attachment data is preserved
       setTimeout(() => {
         if (connection && state.currentChannel) {
           console.log('🔄 Auto-refreshing channel messages after sending');
@@ -905,7 +962,7 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
           // Hide refreshing indicator after a short delay
           setTimeout(() => setIsRefreshing(false), 1000);
         }
-      }, 500); // Small delay to ensure message is processed
+      }, 100); // Reduced delay to minimize time without attachment data
       
     } else if (state.currentDirectMessage) {
       if (replyTo) {
@@ -1196,6 +1253,8 @@ const ThreadMessagingView = React.forwardRef<{ getState: () => ThreadState }, Th
               quotingMessage={quotingMessage}
               onCancelReply={cancelReply}
               onCancelQuote={cancelQuote}
+              currentChannel={state.currentChannel || undefined}
+              currentAgentId={connection?.getAgentId()}
             />
           </>
         )}
