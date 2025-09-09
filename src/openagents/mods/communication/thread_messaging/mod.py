@@ -740,6 +740,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                 event_name="thread.file.upload_response",
                 source_id=self.network.network_id,
                 target_agent_id=message.source_id,
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 payload={
                     "action": "file_upload_response",
                     "success": True,
@@ -758,6 +759,7 @@ class ThreadMessagingNetworkMod(BaseMod):
                 event_name="thread.file.upload_response",
                 source_id=self.network.network_id,
                 target_agent_id=message.source_id,
+                relevant_mod="openagents.mods.communication.thread_messaging",
                 payload={
                     "action": "file_upload_response",
                     "success": False,

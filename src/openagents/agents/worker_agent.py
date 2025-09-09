@@ -18,6 +18,7 @@ from openagents.core.workspace import Workspace
 from openagents.models.message_thread import MessageThread
 from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
+from openagents.config.globals import DEFAULT_NETWORK_PORT
 from openagents.mods.communication.thread_messaging.thread_messages import (
     Event as ThreadEvent,
     ChannelMessage,
@@ -320,10 +321,30 @@ class WorkerAgent(AgentRunner):
         """Get the workspace client."""
         if self._workspace_client is None:
             self._workspace_client = self.client.workspace()
-        self._workspace_client._auto_connect_config = {
-            'host': 'localhost',
-            'port': 8572
-        }
+        
+        # Only set auto-connect config if not already configured and if we have connection info
+        if not self._workspace_client._auto_connect_config:
+            if hasattr(self.client, 'connector') and self.client.connector:
+                # Use the current agent's connection info
+                connector = self.client.connector
+                if hasattr(connector, 'host') and hasattr(connector, 'port'):
+                    self._workspace_client._auto_connect_config = {
+                        'host': connector.host,
+                        'port': connector.port
+                    }
+                else:
+                    # Default fallback
+                    self._workspace_client._auto_connect_config = {
+                        'host': 'localhost',
+                        'port': DEFAULT_NETWORK_PORT
+                    }
+            else:
+                # Default fallback
+                self._workspace_client._auto_connect_config = {
+                    'host': 'localhost',
+                    'port': DEFAULT_NETWORK_PORT
+                }
+        
         return self._workspace_client
 
     async def setup(self):

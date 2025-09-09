@@ -339,6 +339,11 @@ class Event:
     def source_agent_id(self) -> str:
         """Backward compatibility alias for source_id."""
         return self.source_id
+        
+    @property
+    def mod(self) -> Optional[str]:
+        """Backward compatibility alias for relevant_mod."""
+        return self.relevant_mod
 
 
 @dataclass

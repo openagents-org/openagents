@@ -37,6 +37,8 @@ class GRPCHTTPAdapter:
         self.app.router.add_post('/api/workspace/messages', self.workspace_messages)
         self.app.router.add_post('/api/workspace/agents', self.workspace_agents)
         self.app.router.add_post('/api/workspace/react', self.workspace_react)
+        self.app.router.add_post('/api/workspace/upload', self.workspace_upload)
+        self.app.router.add_get('/api/workspace/download/{file_id}', self.workspace_download)
         
         # Event subscription endpoints
         self.app.router.add_post('/api/events/subscribe', self.events_subscribe)
@@ -1045,6 +1047,158 @@ class GRPCHTTPAdapter:
             
         except Exception as e:
             logger.error(f"Error in events_unsubscribe: {e}")
+            return web.json_response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+    
+    async def workspace_upload(self, request):
+        """Handle workspace file upload requests."""
+        try:
+            import os
+            import tempfile
+            import uuid
+            
+            # Parse multipart form data
+            reader = await request.multipart()
+            
+            agent_id = None
+            channel = None
+            message = ""
+            file_data = None
+            filename = None
+            
+            # Process form fields and files
+            async for field in reader:
+                if field.name == 'agent_id':
+                    agent_id = await field.text()
+                elif field.name == 'channel':
+                    channel = await field.text()
+                elif field.name == 'message':
+                    message = await field.text()
+                elif field.name == 'file':
+                    filename = field.filename
+                    file_data = await field.read()
+            
+            if not agent_id:
+                return web.json_response({
+                    'success': False,
+                    'error': 'agent_id is required'
+                }, status=400)
+            
+            if not file_data or not filename:
+                return web.json_response({
+                    'success': False,
+                    'error': 'file is required'
+                }, status=400)
+            
+            # Generate unique file ID
+            file_id = f"file_{uuid.uuid4()}_{filename}"
+            
+            # Save file to temporary storage (in real implementation, use proper file storage)
+            temp_dir = tempfile.gettempdir()
+            file_path = os.path.join(temp_dir, file_id)
+            
+            with open(file_path, 'wb') as f:
+                f.write(file_data)
+            
+            # Store file metadata (in real implementation, use database)
+            if not hasattr(self, 'file_storage'):
+                self.file_storage = {}
+            
+            self.file_storage[file_id] = {
+                'filename': filename,
+                'file_path': file_path,
+                'size': len(file_data),
+                'uploaded_by': agent_id,
+                'channel': channel or 'general',
+                'upload_time': time.time()
+            }
+            
+            # Create file upload event through mod system
+            if self.transport and self.transport.network_instance:
+                from openagents.models.event import Event
+                
+                mod_message = Event(
+                    event_name="thread.file_upload",
+                    source_id=agent_id,
+                    relevant_mod="openagents.mods.communication.thread_messaging",
+                    target_agent_id=agent_id,
+                    payload={
+                        "message_type": "file_upload",
+                        "sender_id": agent_id,
+                        "channel": channel or "general",
+                        "file_id": file_id,
+                        "filename": filename,
+                        "file_size": len(file_data),
+                        "message": message
+                    }
+                )
+                
+                # Send through network's mod message handler
+                await self.transport.network_instance._handle_mod_message(mod_message)
+            
+            logger.info(f"File uploaded: {filename} -> {file_id} by {agent_id}")
+            
+            return web.json_response({
+                'success': True,
+                'file_id': file_id,
+                'filename': filename,
+                'size': len(file_data)
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in workspace_upload: {e}")
+            import traceback
+            traceback.print_exc()
+            return web.json_response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+    
+    async def workspace_download(self, request):
+        """Handle workspace file download requests."""
+        try:
+            file_id = request.match_info['file_id']
+            agent_id = request.query.get('agent_id')
+            
+            if not agent_id:
+                return web.json_response({
+                    'success': False,
+                    'error': 'agent_id is required'
+                }, status=400)
+            
+            # Check file storage (in real implementation, use database)
+            if not hasattr(self, 'file_storage') or file_id not in self.file_storage:
+                return web.json_response({
+                    'success': False,
+                    'error': 'File not found'
+                }, status=404)
+            
+            file_info = self.file_storage[file_id]
+            file_path = file_info['file_path']
+            filename = file_info['filename']
+            
+            # Check if file exists on disk
+            if not os.path.exists(file_path):
+                return web.json_response({
+                    'success': False,
+                    'error': 'File no longer available'
+                }, status=404)
+            
+            # Return file
+            response = web.FileResponse(
+                file_path,
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"'
+                }
+            )
+            
+            logger.info(f"File downloaded: {filename} ({file_id}) by {agent_id}")
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error in workspace_download: {e}")
             return web.json_response({
                 'success': False,
                 'error': str(e)

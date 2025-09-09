@@ -751,7 +751,7 @@ class AgentClient:
         Args:
             message: The message to handle
         """
-        logger.info(f"🔧 CLIENT: Handling Event from {message.sender_id}, mod={message.mod}, action={message.content.get('action')}")
+        logger.info(f"🔧 CLIENT: Handling Event from {message.sender_id}, mod={message.relevant_mod}, action={message.content.get('action')}")
         logger.info(f"🔧 CLIENT: Event content keys: {list(message.content.keys()) if message.content else 'None'}")
         logger.info(f"🔧 CLIENT: Agent ID: {self.agent_id}, Message relevant_agent_id: {message.relevant_agent_id}")
         
@@ -776,7 +776,7 @@ class AgentClient:
             logger.debug(f"Event not processed by adapters, adding to message threads for agent processing")
             
             # Create a thread ID for the Event
-            thread_id = f"mod_{message.mod}_{message.message_id[:8]}"
+            thread_id = f"mod_{message.relevant_mod}_{message.message_id[:8]}"
             
             # Try to add the message to any available mod adapter's message threads
             added_to_thread = False
