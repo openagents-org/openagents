@@ -13,6 +13,7 @@ import asyncio
 import pytest
 import logging
 import random
+import os
 import time
 from typing import List, Dict, Any
 
@@ -145,11 +146,35 @@ class TestProjectGRPC:
         
         await self.network.initialize()
         
-        # Give network time to fully start
-        await asyncio.sleep(2.0)
+        # Wait for network to be ready with retry logic
+        await self._wait_for_network_ready()
         
         logger.info(f"Network initialized on port {self.port} with mods: {list(self.network.mods.keys())}")
         return self.network
+
+    async def _wait_for_network_ready(self):
+        """Wait for network to be ready for connections with retry logic."""
+        import socket
+        
+        # More generous timeouts for CI environments
+        max_retries = 60 if os.getenv('CI') else 30  # 60 seconds in CI, 30 locally
+        retry_delay = 1.0
+        
+        for attempt in range(max_retries):
+            try:
+                # Test if the port is open and listening
+                with socket.create_connection((self.host, self.port), timeout=2.0) as sock:
+                    logger.debug(f"Network port {self.port} is accepting connections (attempt {attempt + 1})")
+                    # Give a bit more time for full gRPC initialization
+                    await asyncio.sleep(1.0)
+                    return True
+            except (ConnectionRefusedError, socket.timeout, OSError) as e:
+                logger.debug(f"Network not ready on attempt {attempt + 1}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error(f"Network failed to become ready after {max_retries} attempts")
+                    raise Exception(f"Network port {self.port} not accepting connections after {max_retries} seconds")
 
     async def _setup_project_echo_agent(self):
         """Set up a ProjectEchoAgent for testing."""
@@ -159,17 +184,35 @@ class TestProjectGRPC:
             protocol_names=["openagents.mods.communication.thread_messaging"]
         )
         
-        # Give the network more time to be fully ready for gRPC connections
-        await asyncio.sleep(3.0)
+        # Connect agent with retry logic
+        await self._connect_agent_with_retry()
         
-        # Start the agent - it should auto-detect gRPC transport
-        await self.echo_agent.async_start(self.host, self.port)
-        
-        # Give agent time to connect and register
-        await asyncio.sleep(3.0)
+        # Give agent time to fully register and settle
+        await asyncio.sleep(2.0)
         
         logger.info("ProjectEchoAgent started and connected")
         return self.echo_agent
+
+    async def _connect_agent_with_retry(self):
+        """Connect agent with retry logic for CI stability."""
+        # More generous retry for CI environments  
+        max_retries = 10 if os.getenv('CI') else 5
+        retry_delay = 2.0
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Attempting to connect agent (attempt {attempt + 1}/{max_retries})")
+                await self.echo_agent.async_start(self.host, self.port)
+                logger.info(f"Agent connected successfully on attempt {attempt + 1}")
+                return
+            except Exception as e:
+                logger.warning(f"Agent connection attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 1.5  # Exponential backoff
+                else:
+                    logger.error(f"Failed to connect agent after {max_retries} attempts")
+                    raise Exception(f"Failed to connect agent after {max_retries} attempts: {e}")
 
     async def _setup_workspace(self):
         """Set up workspace for project operations."""
