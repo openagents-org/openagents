@@ -13,8 +13,10 @@ import logging
 import os
 import base64
 import uuid
+import json
 import tempfile
 import time
+from datetime import datetime
 from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
 
@@ -129,9 +131,10 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Initialize default channels
         self._initialize_default_channels()
         
-        # Create a temporary directory for file storage
-        self.temp_dir = tempfile.TemporaryDirectory(prefix="openagents_threads_")
-        self.file_storage_path = Path(self.temp_dir.name)
+        # File storage setup - use workspace if available, otherwise temp
+        self.temp_dir = None
+        self.file_storage_path = None
+        self._setup_file_storage()
         
         logger.info(f"Initializing Thread Messaging network mod with file storage at {self.file_storage_path}")
     
@@ -152,6 +155,179 @@ class ThreadMessagingNetworkMod(BaseMod):
                 return request_id
         # Fallback to message_id
         return message.event_id
+    
+    def _setup_file_storage(self):
+        """Set up file storage - use workspace if available, otherwise temp directory."""
+        # Check if network has persistence manager
+        if hasattr(self, 'network') and self.network and hasattr(self.network, 'persistence_manager') and self.network.persistence_manager:
+            # Use mod-specific directory for file storage
+            mod_dir = self.network.persistence_manager.mod_data_dir("thread_messaging")
+            self.file_storage_path = mod_dir / "files"
+            self.file_storage_path.mkdir(exist_ok=True)
+            logger.info(f"Using persistent file storage at: {self.file_storage_path}")
+            
+            # Initialize persistence
+            self._init_persistence()
+        else:
+            # Fallback to temporary directory
+            self.temp_dir = tempfile.TemporaryDirectory(prefix="openagents_threads_")
+            self.file_storage_path = Path(self.temp_dir.name)
+            logger.info(f"Using temporary file storage at: {self.file_storage_path}")
+    
+    def _init_persistence(self):
+        """Initialize persistence for thread messaging."""
+        try:
+            from openagents.core.persistence import ModPersistenceHelper
+            
+            self.persistence = ModPersistenceHelper("thread_messaging", self.network.persistence_manager)
+            
+            # Initialize database schema for thread messaging
+            schema = """
+                CREATE TABLE IF NOT EXISTS channels (
+                    channel_name TEXT PRIMARY KEY,
+                    description TEXT,
+                    created_timestamp INTEGER,
+                    message_count INTEGER DEFAULT 0,
+                    thread_count INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                
+                CREATE TABLE IF NOT EXISTS channel_memberships (
+                    channel_name TEXT,
+                    agent_id TEXT,
+                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (channel_name, agent_id)
+                );
+                
+                CREATE TABLE IF NOT EXISTS messages (
+                    message_id TEXT PRIMARY KEY,
+                    channel_name TEXT,
+                    sender_id TEXT,
+                    content TEXT,
+                    timestamp INTEGER,
+                    thread_id TEXT,
+                    parent_message_id TEXT,
+                    message_type TEXT DEFAULT 'channel',
+                    reactions TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                
+                CREATE TABLE IF NOT EXISTS files (
+                    file_id TEXT PRIMARY KEY,
+                    filename TEXT,
+                    file_path TEXT,
+                    uploaded_by TEXT,
+                    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    size INTEGER,
+                    content_type TEXT
+                );
+            """
+            
+            self.persistence.init_database(schema)
+            
+            # Load existing channels and data
+            self._load_persistent_data()
+            
+            logger.info("Thread messaging persistence initialized")
+            
+        except Exception as e:
+            logger.warning(f"Failed to initialize persistence: {e}")
+            self.persistence = None
+    
+    def _load_persistent_data(self):
+        """Load persistent data from database."""
+        if not self.persistence:
+            return
+            
+        try:
+            # Load channels
+            channels_data = self.persistence.execute_query(
+                "SELECT channel_name, description, created_timestamp, message_count, thread_count FROM channels"
+            )
+            
+            for row in channels_data:
+                channel_name, description, created_timestamp, message_count, thread_count = row
+                self.channels[channel_name] = {
+                    'name': channel_name,
+                    'description': description,
+                    'created_timestamp': created_timestamp,
+                    'message_count': message_count,
+                    'thread_count': thread_count
+                }
+                
+                # Load channel memberships
+                memberships = self.persistence.execute_query(
+                    "SELECT agent_id FROM channel_memberships WHERE channel_name = ?",
+                    (channel_name,)
+                )
+                self.channel_agents[channel_name] = {row[0] for row in memberships}
+                
+            logger.info(f"Loaded {len(channels_data)} channels from persistence")
+            
+        except Exception as e:
+            logger.warning(f"Failed to load persistent data: {e}")
+    
+    def _save_channel(self, channel_name: str):
+        """Save channel data to persistence."""
+        if not self.persistence or channel_name not in self.channels:
+            return
+            
+        try:
+            channel = self.channels[channel_name]
+            self.persistence.execute_update("""
+                INSERT OR REPLACE INTO channels 
+                (channel_name, description, created_timestamp, message_count, thread_count)
+                VALUES (?, ?, ?, ?, ?)
+            """, (
+                channel_name,
+                channel['description'],
+                channel['created_timestamp'],
+                channel['message_count'],
+                channel['thread_count']
+            ))
+            
+            # Save channel memberships
+            # First clear existing memberships
+            self.persistence.execute_update(
+                "DELETE FROM channel_memberships WHERE channel_name = ?",
+                (channel_name,)
+            )
+            
+            # Then insert current memberships
+            for agent_id in self.channel_agents.get(channel_name, set()):
+                self.persistence.execute_update("""
+                    INSERT INTO channel_memberships (channel_name, agent_id)
+                    VALUES (?, ?)
+                """, (channel_name, agent_id))
+                
+        except Exception as e:
+            logger.warning(f"Failed to save channel {channel_name}: {e}")
+    
+    def _save_message(self, message_data: Dict[str, Any]):
+        """Save important messages to persistence."""
+        if not self.persistence:
+            return
+            
+        try:
+            self.persistence.execute_update("""
+                INSERT OR REPLACE INTO messages 
+                (message_id, channel_name, sender_id, content, timestamp, thread_id, 
+                 parent_message_id, message_type, reactions)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                message_data.get('message_id'),
+                message_data.get('channel'),
+                message_data.get('sender_id'),
+                message_data.get('content'),
+                message_data.get('timestamp'),
+                message_data.get('thread_id'),
+                message_data.get('parent_message_id'),
+                message_data.get('message_type', 'channel'),
+                json.dumps(message_data.get('reactions', {}))
+            ))
+            
+        except Exception as e:
+            logger.warning(f"Failed to save message: {e}")
     
     def _initialize_default_channels(self) -> None:
         """Initialize default channels from configuration."""
@@ -197,6 +373,9 @@ class ThreadMessagingNetworkMod(BaseMod):
                 'thread_count': 0
             }
             self.channel_agents[channel_name] = set()
+            
+            # Save channel to persistence
+            self._save_channel(channel_name)
             logger.info(f"Created channel: {channel_name}")
     
     def initialize(self) -> bool:
@@ -205,6 +384,12 @@ class ThreadMessagingNetworkMod(BaseMod):
         Returns:
             bool: True if initialization was successful, False otherwise
         """
+        # Set up file storage now that network is available
+        self._setup_file_storage()
+        
+        # Load persistent state
+        self._load_persistent_state()
+        
         return True
     
     def shutdown(self) -> bool:
@@ -213,6 +398,9 @@ class ThreadMessagingNetworkMod(BaseMod):
         Returns:
             bool: True if shutdown was successful, False otherwise
         """
+        # Save persistent state
+        self._save_persistent_state()
+        
         # Clear all state
         self.active_agents.clear()
         self.message_history.clear()
@@ -224,12 +412,13 @@ class ThreadMessagingNetworkMod(BaseMod):
         self.agent_channels.clear()
         self.files.clear()
         
-        # Clean up the temporary directory
-        try:
-            self.temp_dir.cleanup()
-            logger.info("Cleaned up temporary file storage directory")
-        except Exception as e:
-            logger.error(f"Error cleaning up temporary directory: {e}")
+        # Clean up the temporary directory only if we're using one
+        if self.temp_dir:
+            try:
+                self.temp_dir.cleanup()
+                logger.info("Cleaned up temporary file storage directory")
+            except Exception as e:
+                logger.error(f"Error cleaning up temporary directory: {e}")
         
         return True
     
@@ -263,6 +452,8 @@ class ThreadMessagingNetworkMod(BaseMod):
             
             if not was_in_channel:
                 logger.info(f"✅ AUTO-ADDED agent {agent_id} to channel '{channel_name}' (total agents: {len(self.channel_agents[channel_name])})")
+                # Save updated channel membership to persistence
+                self._save_channel(channel_name)
             else:
                 logger.info(f"ℹ️  Agent {agent_id} already in channel '{channel_name}'")
         
@@ -635,6 +826,25 @@ class ThreadMessagingNetworkMod(BaseMod):
                 logger.info(f"Added agent {agent_id} to auto-created channel {channel}")
         
         logger.debug(f"Processing channel message from {message.source_id} in {channel}")
+        
+        # Save important message to persistence
+        # Save important messages to persistence
+        if hasattr(self, 'persistence') and self.persistence:
+            try:
+                message_data = {
+                    'message_id': message.event_id,
+                    'channel': channel,
+                    'sender_id': message.source_id,
+                    'content': message.content if hasattr(message, 'content') else str(message.payload),
+                    'timestamp': message.timestamp if hasattr(message, 'timestamp') else int(time.time() * 1000),
+                    'message_type': 'channel',
+                    'thread_id': getattr(message, 'thread_id', None),
+                    'parent_message_id': getattr(message, 'parent_message_id', None),
+                    'reactions': {}
+                }
+                self._save_message(message_data)
+            except Exception as e:
+                logger.error(f"Error saving message to persistence: {e}")
         
         # Broadcast the message to all other agents in the channel
         await self._broadcast_channel_message(message)
@@ -1422,3 +1632,69 @@ class ThreadMessagingNetworkMod(BaseMod):
                 return "[Quoted message content unavailable]"
         else:
             return f"[Quoted message {quoted_message_id} not found]"
+    
+    def _load_persistent_state(self):
+        """Load persistent state from storage."""
+        persistence = self._get_persistence_manager()
+        if not persistence:
+            return
+        
+        try:
+            # Load channels
+            saved_channels = persistence.get_channels()
+            for channel_data in saved_channels:
+                channel_name = channel_data['channel_name']
+                self.channels[channel_name] = {
+                    'name': channel_name,
+                    'description': channel_data['description'],
+                    'created_timestamp': channel_data['created_at'],
+                    'message_count': channel_data['message_count'],
+                    'thread_count': channel_data['thread_count']
+                }
+                
+                # Load channel members
+                members = persistence.get_channel_members(channel_name)
+                self.channel_agents[channel_name] = set(members)
+                
+                # Update agent_channels mapping
+                for agent_id in members:
+                    if agent_id not in self.agent_channels:
+                        self.agent_channels[agent_id] = set()
+                    self.agent_channels[agent_id].add(channel_name)
+            
+            # Load recent important messages
+            for channel_name in self.channels.keys():
+                messages = persistence.get_channel_messages(channel_name, limit=50)  # Load last 50 messages per channel
+                for msg_data in messages:
+                    # Reconstruct message object (simplified)
+                    message_id = msg_data['message_id']
+                    self.message_history[message_id] = msg_data  # Store as dict for now
+            
+            logger.info(f"Loaded {len(self.channels)} channels and {len(self.message_history)} messages from persistent storage")
+            
+        except Exception as e:
+            logger.error(f"Error loading persistent state: {e}")
+    
+    def _save_persistent_state(self):
+        """Save current state to persistent storage."""
+        persistence = self._get_persistence_manager()
+        if not persistence:
+            return
+        
+        try:
+            # Save channels
+            for channel_name, channel_info in self.channels.items():
+                persistence.save_channel(
+                    channel_name,
+                    channel_info.get('description', ''),
+                    channel_info.get('creator_agent_id', 'system')
+                )
+                
+                # Save channel memberships
+                for agent_id in self.channel_agents.get(channel_name, set()):
+                    persistence.add_channel_member(channel_name, agent_id)
+            
+            logger.info(f"Saved {len(self.channels)} channels to persistent storage")
+            
+        except Exception as e:
+            logger.error(f"Error saving persistent state: {e}")

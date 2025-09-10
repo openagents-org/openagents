@@ -64,7 +64,27 @@ def launch_network_command(args: argparse.Namespace) -> None:
         args: Command-line arguments
     """
     # Use enhanced network launcher for all network launches
-    launch_network(args.config, args.runtime)
+    workspace_dir = getattr(args, 'workspace_dir', None)
+    config_path = args.config
+    
+    # If config is not provided but workspace_dir is, check for network.yaml in workspace
+    if not config_path and workspace_dir:
+        from pathlib import Path
+        workspace_path = Path(workspace_dir)
+        potential_config = workspace_path / "network.yaml"
+        
+        if potential_config.exists():
+            config_path = str(potential_config)
+            logging.info(f"Using network configuration from workspace: {config_path}")
+        else:
+            logging.error(f"No network.yaml found in workspace directory: {workspace_dir}")
+            logging.error("Either provide a config file or ensure network.yaml exists in the workspace directory")
+            return
+    elif not config_path:
+        logging.error("No configuration file provided. Use --workspace-dir with network.yaml or provide a config file.")
+        return
+    
+    launch_network(config_path, args.runtime, workspace_dir)
 
 
 def connect_command(args: argparse.Namespace) -> None:
@@ -820,8 +840,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     
     # Launch network command
     launch_network_parser = subparsers.add_parser("launch-network", help="Launch a network")
-    launch_network_parser.add_argument("config", help="Path to network configuration file")
+    launch_network_parser.add_argument("config", nargs='?', help="Path to network configuration file (optional if --workspace-dir is provided)")
     launch_network_parser.add_argument("--runtime", type=int, help="Runtime in seconds (default: run indefinitely)")
+    launch_network_parser.add_argument("--workspace-dir", help="Path to workspace directory for persistent storage")
     
     # Connect command
     connect_parser = subparsers.add_parser("connect", help="Connect to a network server")

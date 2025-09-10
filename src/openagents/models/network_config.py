@@ -57,7 +57,7 @@ class AgentConfig(BaseModel):
 class NetworkConfig(BaseModel):
     """Configuration for a network."""
     
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, extra='allow')
     
     name: str = Field(..., description="Name of the network")
     mode: NetworkMode = Field(NetworkMode.CENTRALIZED, description="Network operation mode")
@@ -143,6 +143,7 @@ class OpenAgentsConfig(BaseModel):
     # Global settings
     log_level: str = Field("INFO", description="Logging level")
     data_dir: Optional[str] = Field(None, description="Directory for persistent data")
+    workspace_dir: Optional[str] = Field(None, description="Workspace directory for persistent storage")
     
     # Runtime configuration
     runtime_limit: Optional[int] = Field(None, description="Runtime limit in seconds (None for unlimited)")

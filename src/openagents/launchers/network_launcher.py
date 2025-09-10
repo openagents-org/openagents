@@ -49,12 +49,13 @@ def load_network_config(config_path: str) -> OpenAgentsConfig:
         raise ValueError(f"Invalid configuration: {e}")
 
 
-async def async_launch_network(config_path: str, runtime: Optional[int] = None) -> None:
+async def async_launch_network(config_path: str, runtime: Optional[int] = None, workspace_dir: Optional[str] = None) -> None:
     """Launch a network asynchronously.
     
     Args:
         config_path: Path to the network configuration file
         runtime: Optional runtime limit in seconds
+        workspace_dir: Optional workspace directory for persistent storage
     """
     def signal_handler():
         logger.info("Received shutdown signal")
@@ -73,6 +74,15 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
         # Create enhanced network - pass the full config path to preserve metadata
         # Mods are automatically loaded and registered during network creation
         network = create_network(config_path)
+        
+        # Set workspace_dir if provided (after loading)
+        if workspace_dir:
+            # Manually set workspace_dir on the loaded network config
+            network.config.workspace_dir = workspace_dir
+            # Initialize persistence manager
+            from openagents.core.persistence import PersistenceManager
+            network.persistence_manager = PersistenceManager(workspace_dir)
+            logger.info(f"Enabled persistence with workspace: {workspace_dir}")
         logger.info(f"Created network: {network.network_name}")
         logger.info(f"Loaded {len(network.mods)} network mods: {list(network.mods.keys())}")
     
@@ -122,12 +132,13 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
             logger.error(f"Error during shutdown: {e}")
 
 
-def launch_network(config_path: str, runtime: Optional[int] = None) -> None:
+def launch_network(config_path: str, runtime: Optional[int] = None, workspace_dir: Optional[str] = None) -> None:
     """Launch a network.
     
     Args:
         config_path: Path to the network configuration file
         runtime: Optional runtime limit in seconds
+        workspace_dir: Optional workspace directory for persistent storage
     """
     # Set up logging
     logging.basicConfig(
@@ -136,7 +147,7 @@ def launch_network(config_path: str, runtime: Optional[int] = None) -> None:
     )
     
     try:
-        asyncio.run(async_launch_network(config_path, runtime))
+        asyncio.run(async_launch_network(config_path, runtime, workspace_dir))
     except KeyboardInterrupt:
         logger.info("Network launcher interrupted by user")
     except Exception as e:

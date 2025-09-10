@@ -29,7 +29,8 @@ from openagents.agents.worker_agent import (
     ChannelMessageContext,
     ReplyMessageContext
 )
-from openagents.config.globals import DEFAULT_NETWORK_PORT
+# Use the correct port for the Community Knowledge Base network
+COMMUNITY_NETWORK_PORT = 8572
 
 # Import the RedditFeeder class
 from reddit_util import RedditFeeder
@@ -115,7 +116,7 @@ class AINewsWorkerAgent(WorkerAgent):
             ws = self.workspace()
             ws._auto_connect_config = {
                 'host': 'localhost',
-                'port': DEFAULT_NETWORK_PORT
+                'port': COMMUNITY_NETWORK_PORT
             }
             channels_info = await ws.channels()
             logger.info(f"📺 Available channels: {channels_info}")
@@ -144,7 +145,7 @@ class AINewsWorkerAgent(WorkerAgent):
             ws = self.workspace()
             ws._auto_connect_config = {
                 'host': 'localhost',
-                'port': DEFAULT_NETWORK_PORT
+                'port': COMMUNITY_NETWORK_PORT
             }
             await ws.channel("general").post(startup_message)
             logger.info("✅ Successfully sent startup message to general channel")
@@ -608,7 +609,7 @@ async def main():
     try:
         # Connect to the network
         print("🔌 Connecting to Community Knowledge Base network...")
-        await agent.async_start(host="localhost", port=DEFAULT_NETWORK_PORT)
+        await agent.async_start(host="localhost", port=COMMUNITY_NETWORK_PORT)
         print("✅ Connected successfully!")
         
         # Keep the agent running

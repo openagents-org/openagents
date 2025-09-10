@@ -582,11 +582,19 @@ class SharedDocumentNetworkMod(BaseMod):
     def initialize(self) -> bool:
         """Initialize the mod."""
         logger.info("Initializing SharedDocument network mod")
+        
+        # Load persistent documents
+        self._load_persistent_documents()
+        
         return True
     
     def shutdown(self) -> bool:
         """Shutdown the mod."""
         logger.info("Shutting down SharedDocument network mod")
+        
+        # Save persistent documents
+        self._save_persistent_documents()
+        
         return True
     
     async def process_system_message(self, message: Event) -> Optional[Event]:
@@ -746,6 +754,9 @@ class SharedDocumentNetworkMod(BaseMod):
             # Store the document
             self.documents[document_id] = document
             
+            # Save to persistence
+            self._save_document_to_persistence(document)
+            
             # Track agent session
             if source_agent_id not in self.agent_sessions:
                 self.agent_sessions[source_agent_id] = set()
@@ -876,6 +887,9 @@ class SharedDocumentNetworkMod(BaseMod):
             # Perform the operation
             operation = document.insert_lines(source_agent_id, message.line_number, message.content)
             
+            # Save document to persistence
+            self._save_document_to_persistence(document)
+            
             # Send success response
             response = DocumentOperationResponse(
                 event_name="document.operation.response",
@@ -912,6 +926,9 @@ class SharedDocumentNetworkMod(BaseMod):
             # Perform the operation
             operation = document.remove_lines(source_agent_id, message.start_line, message.end_line)
             
+            # Save document to persistence
+            self._save_document_to_persistence(document)
+            
             # Send success response
             response = DocumentOperationResponse(
                 event_name="document.operation.response",
@@ -947,6 +964,9 @@ class SharedDocumentNetworkMod(BaseMod):
             
             # Perform the operation
             operation = document.replace_lines(source_agent_id, message.start_line, message.end_line, message.content)
+            
+            # Save document to persistence
+            self._save_document_to_persistence(document)
             
             # Send success response
             response = DocumentOperationResponse(
@@ -1440,3 +1460,85 @@ class SharedDocumentNetworkMod(BaseMod):
             
         except Exception as e:
             logger.error(f"Failed to broadcast line lock update: {e}")
+    
+    def _get_persistence_manager(self):
+        """Get persistence manager from network if available."""
+        if hasattr(self, 'network') and self.network and hasattr(self.network, 'persistence_manager'):
+            return self.network.persistence_manager
+        return None
+    
+    def _load_persistent_documents(self):
+        """Load persistent documents from storage."""
+        persistence = self._get_persistence_manager()
+        if not persistence:
+            return
+        
+        try:
+            # Load document metadata
+            saved_documents = persistence.get_documents()
+            for doc_data in saved_documents:
+                document_id = doc_data['document_id']
+                
+                # Load full document data
+                full_doc_data = persistence.get_document(document_id)
+                if full_doc_data:
+                    # Recreate document object
+                    document = SharedDocument(
+                        document_id=document_id,
+                        name=full_doc_data['name'],
+                        creator_agent_id=full_doc_data['creator_agent_id'],
+                        initial_content='\n'.join(full_doc_data['content'])
+                    )
+                    
+                    # Restore document state
+                    document.content = full_doc_data['content']
+                    document.version = full_doc_data['version']
+                    document.access_permissions = full_doc_data['permissions']
+                    
+                    self.documents[document_id] = document
+                    logger.info(f"Loaded document '{document.name}' (ID: {document_id})")
+            
+            logger.info(f"Loaded {len(self.documents)} documents from persistent storage")
+            
+        except Exception as e:
+            logger.error(f"Error loading persistent documents: {e}")
+    
+    def _save_persistent_documents(self):
+        """Save documents to persistent storage."""
+        persistence = self._get_persistence_manager()
+        if not persistence:
+            return
+        
+        try:
+            for document_id, document in self.documents.items():
+                persistence.save_document(
+                    document_id=document_id,
+                    name=document.name,
+                    creator_agent_id=document.creator_agent_id,
+                    content=document.content,
+                    permissions=document.access_permissions,
+                    version=document.version
+                )
+            
+            logger.info(f"Saved {len(self.documents)} documents to persistent storage")
+            
+        except Exception as e:
+            logger.error(f"Error saving persistent documents: {e}")
+    
+    def _save_document_to_persistence(self, document: SharedDocument):
+        """Save a single document to persistence immediately."""
+        persistence = self._get_persistence_manager()
+        if not persistence:
+            return
+        
+        try:
+            persistence.save_document(
+                document_id=document.document_id,
+                name=document.name,
+                creator_agent_id=document.creator_agent_id,
+                content=document.content,
+                permissions=document.access_permissions,
+                version=document.version
+            )
+        except Exception as e:
+            logger.error(f"Error saving document {document.document_id} to persistence: {e}")
