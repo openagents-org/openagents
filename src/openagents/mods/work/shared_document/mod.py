@@ -1462,16 +1462,12 @@ class SharedDocumentNetworkMod(BaseMod):
             logger.error(f"Failed to broadcast line lock update: {e}")
     
     def _get_persistence_manager(self):
-        """Get persistence manager from network if available."""
-        if hasattr(self, 'network') and self.network and hasattr(self.network, 'persistence_manager'):
-            return self.network.persistence_manager
-        return None
+        """Get persistence manager from network."""
+        return self.network.persistence_manager
     
     def _load_persistent_documents(self):
         """Load persistent documents from storage."""
         persistence = self._get_persistence_manager()
-        if not persistence:
-            return
         
         try:
             # Load document metadata
@@ -1506,8 +1502,6 @@ class SharedDocumentNetworkMod(BaseMod):
     def _save_persistent_documents(self):
         """Save documents to persistent storage."""
         persistence = self._get_persistence_manager()
-        if not persistence:
-            return
         
         try:
             for document_id, document in self.documents.items():
@@ -1528,8 +1522,6 @@ class SharedDocumentNetworkMod(BaseMod):
     def _save_document_to_persistence(self, document: SharedDocument):
         """Save a single document to persistence immediately."""
         persistence = self._get_persistence_manager()
-        if not persistence:
-            return
         
         try:
             persistence.save_document(

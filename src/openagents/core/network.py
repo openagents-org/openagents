@@ -99,13 +99,21 @@ class AgentNetwork:
         self.agent_timeout = config.agent_timeout if hasattr(config, 'agent_timeout') else 90  # seconds
         self.heartbeat_task: Optional[asyncio.Task] = None
         
-        # Persistence manager
-        self.persistence_manager = None
+        # Always initialize persistence manager
+        from openagents.core.persistence import PersistenceManager
         workspace_dir = getattr(config, 'workspace_dir', None)
         if workspace_dir:
-            from openagents.core.persistence import PersistenceManager
+            # Use provided workspace directory
             self.persistence_manager = PersistenceManager(workspace_dir)
-            logger.info(f"Enabled persistence with workspace: {workspace_dir}")
+            logger.info(f"Enabled persistence with user workspace: {workspace_dir}")
+        else:
+            # Create temporary workspace directory
+            import tempfile
+            temp_workspace = tempfile.mkdtemp(prefix="openagents_network_")
+            config.workspace_dir = temp_workspace  # Set it on config for consistency
+            self.persistence_manager = PersistenceManager(temp_workspace)
+            logger.info(f"Enabled persistence with temporary workspace: {temp_workspace}")
+            # Note: temporary workspace will be cleaned up when process exits
         
         # Agent identity management
         self.identity_manager = AgentIdentityManager()
@@ -331,9 +339,8 @@ class AgentNetwork:
             # Start heartbeat monitoring
             self.heartbeat_task = asyncio.create_task(self._heartbeat_monitor())
             
-            # Load persistent state if available
-            if self.persistence_manager:
-                await self._load_persistent_state()
+            # Load persistent state
+            await self._load_persistent_state()
             
             logger.info(f"Agent network '{self.network_name}' initialized successfully")
             return True
@@ -359,8 +366,7 @@ class AgentNetwork:
                     pass
             
             # Save persistent state before shutdown
-            if self.persistence_manager:
-                await self._save_persistent_state()
+            await self._save_persistent_state()
             
             # Shutdown topology
             await self.topology.shutdown()
@@ -404,8 +410,7 @@ class AgentNetwork:
             
             if success:
                 # Save to persistent storage
-                if self.persistence_manager:
-                    self.persistence_manager.register_agent(agent_id, metadata)
+                self.persistence_manager.register_agent(agent_id, metadata)
                 
                 # Notify mods about agent registration
                 for mod in self.mods.values():
@@ -437,8 +442,7 @@ class AgentNetwork:
             
             if success:
                 # Mark as inactive in persistent storage
-                if self.persistence_manager:
-                    self.persistence_manager.unregister_agent(agent_id)
+                self.persistence_manager.unregister_agent(agent_id)
                 
                 logger.info(f"Unregistered agent {agent_id} from network")
             
@@ -1098,9 +1102,6 @@ class AgentNetwork:
     
     async def _load_persistent_state(self):
         """Load persistent state from storage."""
-        if not self.persistence_manager:
-            return
-        
         try:
             # Load saved agents - this helps with agent discovery after restart
             saved_agents = self.persistence_manager.get_agents()
@@ -1119,9 +1120,6 @@ class AgentNetwork:
     
     async def _save_persistent_state(self):
         """Save current network state to persistent storage."""
-        if not self.persistence_manager:
-            return
-        
         try:
             # Save network metadata
             self.persistence_manager.set_network_metadata("last_shutdown", time.time())

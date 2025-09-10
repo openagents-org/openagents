@@ -75,14 +75,21 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None, 
         # Mods are automatically loaded and registered during network creation
         network = create_network(config_path)
         
-        # Set workspace_dir if provided (after loading)
+        # Always initialize persistence manager (with provided or temporary workspace)
+        from openagents.core.persistence import PersistenceManager
         if workspace_dir:
-            # Manually set workspace_dir on the loaded network config
+            # Use provided workspace directory
             network.config.workspace_dir = workspace_dir
-            # Initialize persistence manager
-            from openagents.core.persistence import PersistenceManager
             network.persistence_manager = PersistenceManager(workspace_dir)
-            logger.info(f"Enabled persistence with workspace: {workspace_dir}")
+            logger.info(f"Enabled persistence with user workspace: {workspace_dir}")
+        else:
+            # Create temporary workspace directory
+            import tempfile
+            temp_workspace = tempfile.mkdtemp(prefix="openagents_workspace_")
+            network.config.workspace_dir = temp_workspace
+            network.persistence_manager = PersistenceManager(temp_workspace)
+            logger.info(f"Enabled persistence with temporary workspace: {temp_workspace}")
+            # Note: temporary workspace will be cleaned up when process exits
         logger.info(f"Created network: {network.network_name}")
         logger.info(f"Loaded {len(network.mods)} network mods: {list(network.mods.keys())}")
     

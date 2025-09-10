@@ -157,28 +157,22 @@ class ThreadMessagingNetworkMod(BaseMod):
         return message.event_id
     
     def _setup_file_storage(self):
-        """Set up file storage - use workspace if available, otherwise temp directory."""
-        # Check if network has persistence manager
-        if hasattr(self, 'network') and self.network and hasattr(self.network, 'persistence_manager') and self.network.persistence_manager:
-            # Use mod-specific directory for file storage
-            mod_dir = self.network.persistence_manager.mod_data_dir("thread_messaging")
-            self.file_storage_path = mod_dir / "files"
-            self.file_storage_path.mkdir(exist_ok=True)
-            logger.info(f"Using persistent file storage at: {self.file_storage_path}")
-            
-            # Initialize persistence
-            self._init_persistence()
-        else:
-            # Fallback to temporary directory
-            self.temp_dir = tempfile.TemporaryDirectory(prefix="openagents_threads_")
-            self.file_storage_path = Path(self.temp_dir.name)
-            logger.info(f"Using temporary file storage at: {self.file_storage_path}")
+        """Set up file storage using the network's persistence manager."""
+        # Network always has persistence manager, use it for file storage
+        mod_dir = self.network.persistence_manager.mod_data_dir("thread_messaging")
+        self.file_storage_path = mod_dir / "files"
+        self.file_storage_path.mkdir(exist_ok=True)
+        logger.info(f"Using persistent file storage at: {self.file_storage_path}")
+        
+        # Initialize persistence
+        self._init_persistence()
     
     def _init_persistence(self):
         """Initialize persistence for thread messaging."""
         try:
             from openagents.core.persistence import ModPersistenceHelper
             
+            # Network always has persistence manager
             self.persistence = ModPersistenceHelper("thread_messaging", self.network.persistence_manager)
             
             # Initialize database schema for thread messaging
@@ -269,7 +263,7 @@ class ThreadMessagingNetworkMod(BaseMod):
     
     def _save_channel(self, channel_name: str):
         """Save channel data to persistence."""
-        if not hasattr(self, 'persistence') or not self.persistence or channel_name not in self.channels:
+        if not self.persistence or channel_name not in self.channels:
             return
             
         try:
@@ -305,7 +299,7 @@ class ThreadMessagingNetworkMod(BaseMod):
     
     def _save_message(self, message_data: Dict[str, Any]):
         """Save important messages to persistence."""
-        if not hasattr(self, 'persistence') or not self.persistence:
+        if not self.persistence:
             return
             
         try:

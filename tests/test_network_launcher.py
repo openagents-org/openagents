@@ -4,6 +4,7 @@ Unit tests for the network launcher.
 
 import pytest
 import asyncio
+import tempfile
 from unittest.mock import patch, MagicMock, AsyncMock
 from pathlib import Path
 
@@ -124,6 +125,88 @@ network:
             with pytest.raises(SystemExit) as exc_info:
                 launch_network(invalid_config_file)
             assert exc_info.value.code == 1
+
+    @pytest.mark.asyncio
+    async def test_persistence_always_enabled_with_workspace(self, valid_config_file):
+        """Test that persistence is always enabled when workspace_dir is provided."""
+        with patch('openagents.launchers.network_launcher.create_network') as mock_create, \
+             patch('openagents.launchers.network_launcher.load_network_config') as mock_load, \
+             patch('openagents.core.persistence.PersistenceManager') as mock_persistence:
+            
+            # Mock configuration
+            mock_config = MagicMock()
+            mock_config.network = MagicMock()
+            mock_config.network.mode = "centralized"
+            mock_load.return_value = mock_config
+            
+            # Mock network with proper async methods
+            mock_network = MagicMock()
+            mock_network.initialize = AsyncMock(return_value=True)
+            mock_network.shutdown = AsyncMock(return_value=True)
+            mock_network.is_running = True
+            mock_network.network_name = "TestNetwork"
+            mock_network.get_network_stats = MagicMock(return_value={"status": "running"})
+            mock_network.config = mock_config
+            mock_create.return_value = mock_network
+            
+            # Mock persistence manager
+            mock_persistence_instance = MagicMock()
+            mock_persistence.return_value = mock_persistence_instance
+            
+            # Test with workspace directory
+            workspace_dir = "/tmp/test_workspace"
+            await async_launch_network(valid_config_file, workspace_dir=workspace_dir)
+            
+            # Verify persistence manager was created with provided workspace
+            mock_persistence.assert_called_once_with(workspace_dir)
+            # Verify persistence manager was assigned to network
+            assert mock_network.persistence_manager == mock_persistence_instance
+            # Verify workspace_dir was set on config
+            assert mock_network.config.workspace_dir == workspace_dir
+
+    @pytest.mark.asyncio
+    async def test_persistence_always_enabled_without_workspace(self, valid_config_file):
+        """Test that persistence is always enabled with temporary workspace when none provided."""
+        with patch('openagents.launchers.network_launcher.create_network') as mock_create, \
+             patch('openagents.launchers.network_launcher.load_network_config') as mock_load, \
+             patch('openagents.core.persistence.PersistenceManager') as mock_persistence, \
+             patch('tempfile.mkdtemp') as mock_mkdtemp:
+            
+            # Mock configuration
+            mock_config = MagicMock()
+            mock_config.network = MagicMock()
+            mock_config.network.mode = "centralized"
+            mock_load.return_value = mock_config
+            
+            # Mock network with proper async methods
+            mock_network = MagicMock()
+            mock_network.initialize = AsyncMock(return_value=True)
+            mock_network.shutdown = AsyncMock(return_value=True)
+            mock_network.is_running = True
+            mock_network.network_name = "TestNetwork"
+            mock_network.get_network_stats = MagicMock(return_value={"status": "running"})
+            mock_network.config = mock_config
+            mock_create.return_value = mock_network
+            
+            # Mock persistence manager
+            mock_persistence_instance = MagicMock()
+            mock_persistence.return_value = mock_persistence_instance
+            
+            # Mock temporary directory creation
+            temp_workspace = "/tmp/openagents_workspace_12345"
+            mock_mkdtemp.return_value = temp_workspace
+            
+            # Test without workspace directory
+            await async_launch_network(valid_config_file, workspace_dir=None)
+            
+            # Verify temporary workspace was created
+            mock_mkdtemp.assert_called_once_with(prefix="openagents_workspace_")
+            # Verify persistence manager was created with temporary workspace
+            mock_persistence.assert_called_once_with(temp_workspace)
+            # Verify persistence manager was assigned to network
+            assert mock_network.persistence_manager == mock_persistence_instance
+            # Verify workspace_dir was set on config
+            assert mock_network.config.workspace_dir == temp_workspace
 
 
 if __name__ == "__main__":
