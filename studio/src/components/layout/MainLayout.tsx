@@ -30,6 +30,9 @@ interface MainLayoutProps {
   documents?: DocumentInfo[];
   onDocumentSelect?: (documentId: string | null) => void;
   selectedDocumentId?: string | null;
+  // Project props
+  hasProjectMod?: boolean;
+  onNewProject?: () => void;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({
@@ -52,7 +55,10 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   // Documents props
   documents = [],
   onDocumentSelect,
-  selectedDocumentId = null
+  selectedDocumentId = null,
+  // Project props
+  hasProjectMod = false,
+  onNewProject
 }) => {
   // Use passed thread state instead of hook
 
@@ -99,6 +105,9 @@ const MainLayout: React.FC<MainLayoutProps> = ({
         documents={documents}
         onDocumentSelect={onDocumentSelect}
         selectedDocumentId={selectedDocumentId}
+        // Project props
+        hasProjectMod={hasProjectMod}
+        onNewProject={onNewProject}
       />
 
       <main className={`flex-1 flex flex-col overflow-hidden m-1 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 dark:bg-gray-800 ${currentTheme === 'light' ? 'bg-gradient-to-br from-white via-blue-50 to-purple-50' : ''

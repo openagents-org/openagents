@@ -24,6 +24,7 @@ const AppContent: React.FC = () => {
   const [activeView, setActiveView] = useState<'chat' | 'settings' | 'profile' | 'mcp' | 'documents'>('chat');
   const [hasThreadMessaging, setHasThreadMessaging] = useState<boolean | null>(null);
   const [hasSharedDocuments, setHasSharedDocuments] = useState<boolean | null>(null);
+  const [hasProjectMod, setHasProjectMod] = useState<boolean | null>(null);
   const [isCheckingMods, setIsCheckingMods] = useState(false);
   const [selectedNetwork, setSelectedNetwork] = useState<NetworkConnection | null>(null);
   const [agentName, setAgentName] = useState<string | null>(null);
@@ -133,6 +134,56 @@ const AppContent: React.FC = () => {
     }
   }, []);
 
+  const handleNewProject = useCallback(async () => {
+    console.log('🚀 App - handleNewProject called');
+    
+    // Prompt user for project name and goal
+    const projectName = prompt('Enter project name:');
+    if (!projectName) return;
+    
+    const projectGoal = prompt('Enter project goal:');
+    if (!projectGoal) return;
+    
+    if (!currentNetwork || !agentName) {
+      console.error('❌ No network connection or agent name available');
+      return;
+    }
+    
+    try {
+      // Create a connection for project creation
+      const connection = new OpenAgentsGRPCConnection(agentName, currentNetwork);
+      const connected = await connection.connect();
+      
+      if (connected) {
+        console.log('🚀 Creating new project:', { projectName, projectGoal });
+        const result = await connection.createProject(projectName, projectGoal);
+        
+        if (result.success) {
+          console.log('✅ Project created successfully:', result);
+          alert(`Project "${projectName}" created successfully!\nChannel: ${result.channel_name}`);
+          
+          // Switch to the new project channel if we have thread messaging
+          if (result.channel_name && threadMessagingRef.current) {
+            // Remove the "project-" prefix to get the channel name
+            const channelName = result.channel_name.replace(/^#?project-/, '');
+            threadMessagingRef.current.selectChannel(channelName);
+          }
+        } else {
+          console.error('❌ Failed to create project:', result.error);
+          alert(`Failed to create project: ${result.error}`);
+        }
+        
+        connection.disconnect();
+      } else {
+        console.error('❌ Failed to connect for project creation');
+        alert('Failed to connect to network for project creation');
+      }
+    } catch (error) {
+      console.error('❌ Error creating project:', error);
+      alert(`Error creating project: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }, [currentNetwork, agentName]);
+
   const handleNetworkSelected = (network: NetworkConnection) => {
     setSelectedNetwork(network);
     // Don't set as current network yet - wait for agent name selection
@@ -180,13 +231,19 @@ const AppContent: React.FC = () => {
           console.log('✅ Connected for mod detection');
           const hasThreadMod = await connection.hasThreadMessagingMod();
           const hasSharedDocMod = await connection.hasSharedDocumentMod();
+          const hasProjectModEnabled = await connection.hasProjectMod();
           setHasThreadMessaging(hasThreadMod);
           setHasSharedDocuments(hasSharedDocMod);
+          setHasProjectMod(hasProjectModEnabled);
           console.log(`📋 Thread messaging mod: ${hasThreadMod ? 'ENABLED' : 'disabled'}`);
           console.log(`📄 Shared document mod: ${hasSharedDocMod ? 'ENABLED' : 'disabled'}`);
+          console.log(`🚀 Project mod: ${hasProjectModEnabled ? 'ENABLED' : 'disabled'}`);
           console.log('🎯 Interface mode:', hasThreadMod ? 'Thread Messaging' : 'Regular Chat');
           if (hasSharedDocMod) {
             console.log('📄 Documents tab will be available');
+          }
+          if (hasProjectModEnabled) {
+            console.log('🚀 New Project button will be available');
           }
           
           // Properly disconnect
@@ -202,11 +259,13 @@ const AppContent: React.FC = () => {
           console.log('❌ Failed to connect for mod detection, defaulting to regular chat');
           setHasThreadMessaging(false);
           setHasSharedDocuments(false);
+          setHasProjectMod(false);
         }
       } catch (error) {
         console.error('❌ Error checking for mods:', error);
         setHasThreadMessaging(false);
         setHasSharedDocuments(false);
+        setHasProjectMod(false);
       } finally {
         setIsCheckingMods(false);
       }
@@ -310,7 +369,7 @@ const AppContent: React.FC = () => {
   }
 
   // Show loading state while checking for mods
-  if (isCheckingMods || hasThreadMessaging === null || hasSharedDocuments === null) {
+  if (isCheckingMods || hasThreadMessaging === null || hasSharedDocuments === null || hasProjectMod === null) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div className="text-center">
@@ -351,6 +410,9 @@ const AppContent: React.FC = () => {
             documents={documents}
             onDocumentSelect={handleDocumentSelect}
             selectedDocumentId={selectedDocumentId}
+            // Project props
+            hasProjectMod={hasProjectMod || false}
+            onNewProject={handleNewProject}
           >
             {activeView === 'chat' ? (
               <ThreadMessagingView
@@ -417,6 +479,9 @@ const AppContent: React.FC = () => {
           documents={documents}
           onDocumentSelect={handleDocumentSelect}
           selectedDocumentId={selectedDocumentId}
+          // Project props
+          hasProjectMod={hasProjectMod || false}
+          onNewProject={handleNewProject}
         >
           {/* 新的布局：HTML结果在中间，聊天在右边 */}
           <div className="flex h-full">

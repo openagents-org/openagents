@@ -42,6 +42,10 @@ class GRPCHTTPAdapter:
         self.app.router.add_post('/api/events/subscribe', self.events_subscribe)
         self.app.router.add_post('/api/events/unsubscribe', self.events_unsubscribe)
         
+        # Project mod endpoints
+        self.app.router.add_post('/api/project_status', self.project_status)
+        self.app.router.add_post('/api/project_create', self.project_create)
+        
         # CORS middleware
         self.app.middlewares.append(self.cors_handler)
     
@@ -1045,6 +1049,136 @@ class GRPCHTTPAdapter:
             
         except Exception as e:
             logger.error(f"Error in events_unsubscribe: {e}")
+            return web.json_response({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+    
+    async def project_status(self, request):
+        """Handle project mod status requests."""
+        try:
+            # Check if network instance is available and has project mod
+            if not hasattr(self.transport, 'network_instance') or not self.transport.network_instance:
+                return web.json_response({
+                    'available': False,
+                    'error': 'Network instance not available'
+                }, status=500)
+            
+            network = self.transport.network_instance
+            
+            # Check if project mod is loaded
+            available_mods = getattr(network, 'mods', {})
+            project_mod_name = 'openagents.mods.project.default'
+            is_available = project_mod_name in available_mods
+            
+            logger.info(f"🔧 PROJECT STATUS: Available mods: {list(available_mods.keys())}")
+            logger.info(f"🔧 PROJECT STATUS: Project mod available: {is_available}")
+            
+            return web.json_response({
+                'available': is_available,
+                'mod_name': project_mod_name
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in project_status: {e}")
+            return web.json_response({
+                'available': False,
+                'error': str(e)
+            }, status=500)
+    
+    async def project_create(self, request):
+        """Handle project creation requests."""
+        try:
+            data = await request.json()
+            project_name = data.get('project_name', '')
+            project_goal = data.get('project_goal', '')
+            agent_id = data.get('agent_id', 'studio_user')
+            
+            if not project_name or not project_goal:
+                return web.json_response({
+                    'success': False,
+                    'error': 'project_name and project_goal are required'
+                }, status=400)
+            
+            # Check if network instance is available
+            if not hasattr(self.transport, 'network_instance') or not self.transport.network_instance:
+                return web.json_response({
+                    'success': False,
+                    'error': 'Network instance not available'
+                }, status=500)
+            
+            network = self.transport.network_instance
+            
+            # Check if project mod is loaded
+            available_mods = getattr(network, 'mods', {})
+            project_mod_name = 'openagents.mods.project.default'
+            if project_mod_name not in available_mods:
+                return web.json_response({
+                    'success': False,
+                    'error': 'Project mod not available'
+                }, status=500)
+            
+            # Create project creation event
+            from openagents.models.messages import Event
+            import uuid
+            import asyncio
+            
+            # Generate unique request ID for response correlation
+            request_id = str(uuid.uuid4())
+            
+            # Create project creation message content
+            project_content = {
+                "message_type": "project_creation",
+                "sender_id": agent_id,
+                "project_id": str(uuid.uuid4()),
+                "project_name": project_name,
+                "project_goal": project_goal,
+                "config": data.get('config', {}),
+                "request_id": request_id
+            }
+            
+            # Create the Event
+            mod_message = Event(
+                event_name="project.create",
+                source_id=agent_id,
+                relevant_mod=project_mod_name,
+                target_agent_id=agent_id,
+                payload=project_content,
+                timestamp=int(time.time())
+            )
+            
+            # Initialize pending requests dict if not exists
+            if not hasattr(self, '_pending_requests'):
+                self._pending_requests = {}
+            
+            # Create future to wait for response
+            response_future = asyncio.Future()
+            self._pending_requests[request_id] = response_future
+            
+            logger.info(f"🔧 PROJECT CREATE: Sending project creation event with request_id: {request_id}")
+            
+            # Send through network's mod message handler
+            await network._handle_mod_message(mod_message)
+            
+            # Wait for response with timeout
+            try:
+                response_data = await asyncio.wait_for(response_future, timeout=30.0)
+                logger.info(f"🔧 PROJECT CREATE: Received response: {response_data}")
+                return web.json_response(response_data)
+            except asyncio.TimeoutError:
+                logger.warning(f"🔧 PROJECT CREATE: Timeout waiting for project creation response")
+                return web.json_response({
+                    'success': False,
+                    'error': 'Request timeout - project mod did not respond'
+                }, status=500)
+            finally:
+                # Clean up pending request
+                self._pending_requests.pop(request_id, None)
+            
+        except Exception as e:
+            logger.error(f"Error in project_create: {e}")
+            import traceback
+            traceback.print_exc()
             return web.json_response({
                 'success': False,
                 'error': str(e)

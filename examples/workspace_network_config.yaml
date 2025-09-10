@@ -8,11 +8,8 @@ network:
   
   # Server settings
   host: "0.0.0.0"
-  port: 8570
+  port: 8532
   server_mode: true
-  
-  # Agent connection port (WebSocket for agent-to-network communication)
-  agent_port: 8571
   
   # Transport configuration
   transport: "grpc"

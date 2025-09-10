@@ -16,6 +16,8 @@ interface ChannelSidebarProps {
   unreadCounts?: Record<string, number>;
   hasSharedDocuments?: boolean;
   onDocumentsClick?: () => void;
+  hasProjectMod?: boolean;
+  onNewProject?: () => void;
 }
 
 const styles = `
@@ -423,6 +425,47 @@ const styles = `
     align-items: center;
     flex: 1;
   }
+
+  .new-project-button {
+    margin: 16px 16px 0px 16px;
+    padding: 12px 16px;
+    background: linear-gradient(45deg, #4f46e5, #7c3aed);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: calc(100% - 32px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  
+  .new-project-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    background: linear-gradient(45deg, #4338ca, #6d28d9);
+  }
+  
+  .new-project-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+  
+  .new-project-button.dark {
+    background: linear-gradient(45deg, #3b82f6, #8b5cf6);
+  }
+  
+  .new-project-button.dark:hover {
+    background: linear-gradient(45deg, #2563eb, #7c3aed);
+  }
+
+  .project-icon {
+    font-size: 16px;
+  }
 `;
 
 const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
@@ -438,7 +481,9 @@ const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
   toggleTheme,
   unreadCounts = {},
   hasSharedDocuments = false,
-  onDocumentsClick
+  onDocumentsClick,
+  hasProjectMod = false,
+  onNewProject
 }) => {
   const [channelsCollapsed, setChannelsCollapsed] = useState(false);
   const [agentsCollapsed, setAgentsCollapsed] = useState(false);
@@ -471,6 +516,18 @@ const ChannelSidebar: React.FC<ChannelSidebarProps> = ({
           <span className={`logo-text ${currentTheme}`}>OpenAgents Studio</span>
         </div>
       </div>
+      
+      {/* New Project Button */}
+      {hasProjectMod && onNewProject && (
+        <button
+          className={`new-project-button ${currentTheme}`}
+          onClick={onNewProject}
+          title="Create a new project with service agents"
+        >
+          <span className="project-icon">🚀</span>
+          New Project
+        </button>
+      )}
       
       <div className={`sidebar-header ${currentTheme}`}>
         <h2 className={`network-title ${currentTheme}`}>

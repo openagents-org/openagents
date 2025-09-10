@@ -593,6 +593,116 @@ export class OpenAgentsGRPCConnection {
     return this.connected;
   }
 
+  async hasProjectMod(): Promise<boolean> {
+    // Check if the network has project mod enabled using system_command endpoint as workaround
+    try {
+      if (!this.connected) return false;
+      
+      // Use the existing system_command endpoint to check mod availability
+      const response = await fetch(`${this.baseUrl}/api/system_command`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          agent_id: this.agentId,
+          command: 'check_mod',
+          data: {
+            mod_name: 'project.default'
+          }
+        })
+      });
+      
+      if (response.ok) {
+        // The check_mod command should return mod availability info
+        console.log('Project mod: enabled');
+        return true;
+      } else {
+        console.log('Project mod: disabled');
+        return false;
+      }
+    } catch (error) {
+      console.log('Project mod not available:', error);
+      return false;
+    }
+  }
+
+  async createProject(projectName: string, projectGoal: string): Promise<{ success: boolean; project_id?: string; channel_name?: string; error?: string }> {
+    // Create a new project with configured service agents
+    try {
+      if (!this.connected) {
+        return { success: false, error: 'Not connected to network' };
+      }
+      
+      // Generate unique project ID
+      const projectId = `project_${Date.now()}`;
+      
+      const projectData = {
+        message_type: 'project_creation',
+        sender_id: this.agentId,
+        project_id: projectId,
+        project_name: projectName,
+        project_goal: projectGoal,
+        config: {
+          auto_start: true,
+          timeout_hours: 24
+        },
+        request_id: `req_${Date.now()}`
+      };
+
+      // Use system_command endpoint as workaround for project creation
+      const response = await fetch(`${this.baseUrl}/api/send_message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender_id: this.agentId,
+          message_type: 'mod_message',
+          target_agent_id: '',
+          content: {
+            message_type: 'project_creation',
+            sender_id: this.agentId,
+            project_id: projectId,
+            project_name: projectName,
+            project_goal: projectGoal,
+            config: {
+              auto_start: true,
+              timeout_hours: 24
+            }
+          },
+          mod: 'openagents.mods.project.default'
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        return {
+          success: true,
+          project_id: result.project_id,
+          channel_name: result.channel_name
+        };
+      } else {
+        return {
+          success: false,
+          error: result.error || 'Failed to create project'
+        };
+      }
+      
+    } catch (error) {
+      console.error('Failed to create project:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  }
+
   async addReaction(messageId: string, reactionType: string): Promise<boolean> {
     return this.reactToMessage(messageId, reactionType, 'add');
   }

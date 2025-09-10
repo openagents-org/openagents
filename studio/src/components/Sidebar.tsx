@@ -19,6 +19,10 @@ interface ExtendedSidebarProps extends Omit<SidebarProps, 'isCollapsed' | 'toggl
   documents?: DocumentInfo[];
   onDocumentSelect?: (documentId: string | null) => void;
   selectedDocumentId?: string | null;
+  
+  // Project data
+  hasProjectMod?: boolean;
+  onNewProject?: () => void;
 }
 
 const Sidebar: React.FC<ExtendedSidebarProps> = ({
@@ -46,7 +50,10 @@ const Sidebar: React.FC<ExtendedSidebarProps> = ({
   // Documents props
   documents = [],
   onDocumentSelect,
-  selectedDocumentId = null
+  selectedDocumentId = null,
+  // Project props
+  hasProjectMod = false,
+  onNewProject
 }) => {
   // Helper function to format dates
   const formatDate = (dateString: string) => {
@@ -79,6 +86,18 @@ const Sidebar: React.FC<ExtendedSidebarProps> = ({
           <OpenAgentsLogo className="w-10 h-10 mr-2 text-gray-900 dark:text-white" />
           <span className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent dark:bg-none dark:text-white">OpenAgents Studio</span>
         </div>
+
+        {/* New Project Button */}
+        {hasProjectMod && onNewProject && showThreadMessaging && (
+          <button
+            onClick={onNewProject}
+            className="flex items-center justify-center gap-2 w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white px-4 py-2.5 rounded-lg font-medium transition-all duration-200 transform hover:scale-105 hover:shadow-lg mb-4"
+            title="Create a new project with service agents"
+          >
+            <span className="text-lg">🚀</span>
+            New Project
+          </button>
+        )}
 
 
       </div>
