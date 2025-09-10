@@ -269,7 +269,7 @@ class ThreadMessagingNetworkMod(BaseMod):
     
     def _save_channel(self, channel_name: str):
         """Save channel data to persistence."""
-        if not self.persistence or channel_name not in self.channels:
+        if not hasattr(self, 'persistence') or not self.persistence or channel_name not in self.channels:
             return
             
         try:
@@ -305,7 +305,7 @@ class ThreadMessagingNetworkMod(BaseMod):
     
     def _save_message(self, message_data: Dict[str, Any]):
         """Save important messages to persistence."""
-        if not self.persistence:
+        if not hasattr(self, 'persistence') or not self.persistence:
             return
             
         try:
@@ -387,8 +387,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Set up file storage now that network is available
         self._setup_file_storage()
         
-        # Load persistent state
-        self._load_persistent_state()
+        # Persistent state is already loaded in _init_persistence()
         
         return True
     
@@ -398,8 +397,7 @@ class ThreadMessagingNetworkMod(BaseMod):
         Returns:
             bool: True if shutdown was successful, False otherwise
         """
-        # Save persistent state
-        self._save_persistent_state()
+        # Persistence is handled automatically by individual operations
         
         # Clear all state
         self.active_agents.clear()
@@ -1633,68 +1631,3 @@ class ThreadMessagingNetworkMod(BaseMod):
         else:
             return f"[Quoted message {quoted_message_id} not found]"
     
-    def _load_persistent_state(self):
-        """Load persistent state from storage."""
-        persistence = self._get_persistence_manager()
-        if not persistence:
-            return
-        
-        try:
-            # Load channels
-            saved_channels = persistence.get_channels()
-            for channel_data in saved_channels:
-                channel_name = channel_data['channel_name']
-                self.channels[channel_name] = {
-                    'name': channel_name,
-                    'description': channel_data['description'],
-                    'created_timestamp': channel_data['created_at'],
-                    'message_count': channel_data['message_count'],
-                    'thread_count': channel_data['thread_count']
-                }
-                
-                # Load channel members
-                members = persistence.get_channel_members(channel_name)
-                self.channel_agents[channel_name] = set(members)
-                
-                # Update agent_channels mapping
-                for agent_id in members:
-                    if agent_id not in self.agent_channels:
-                        self.agent_channels[agent_id] = set()
-                    self.agent_channels[agent_id].add(channel_name)
-            
-            # Load recent important messages
-            for channel_name in self.channels.keys():
-                messages = persistence.get_channel_messages(channel_name, limit=50)  # Load last 50 messages per channel
-                for msg_data in messages:
-                    # Reconstruct message object (simplified)
-                    message_id = msg_data['message_id']
-                    self.message_history[message_id] = msg_data  # Store as dict for now
-            
-            logger.info(f"Loaded {len(self.channels)} channels and {len(self.message_history)} messages from persistent storage")
-            
-        except Exception as e:
-            logger.error(f"Error loading persistent state: {e}")
-    
-    def _save_persistent_state(self):
-        """Save current state to persistent storage."""
-        persistence = self._get_persistence_manager()
-        if not persistence:
-            return
-        
-        try:
-            # Save channels
-            for channel_name, channel_info in self.channels.items():
-                persistence.save_channel(
-                    channel_name,
-                    channel_info.get('description', ''),
-                    channel_info.get('creator_agent_id', 'system')
-                )
-                
-                # Save channel memberships
-                for agent_id in self.channel_agents.get(channel_name, set()):
-                    persistence.add_channel_member(channel_name, agent_id)
-            
-            logger.info(f"Saved {len(self.channels)} channels to persistent storage")
-            
-        except Exception as e:
-            logger.error(f"Error saving persistent state: {e}")
