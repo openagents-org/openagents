@@ -778,11 +778,13 @@ class GRPCHTTPAdapter:
             logger.info(f"🔧 HTTP_ADAPTER: Handling mod response for pending requests")
             self._handle_mod_response(message)
         
-        if agent_id in self.message_queues:
-            self.message_queues[agent_id].append(message)
-            logger.info(f"🔧 HTTP_ADAPTER: Message queued for {agent_id}. New queue size: {len(self.message_queues[agent_id])}")
-        else:
-            logger.error(f"🔧 HTTP_ADAPTER: Agent {agent_id} not found in message_queues! Available agents: {list(self.message_queues.keys())}")
+        # Auto-create missing message queues for gRPC agents
+        if agent_id not in self.message_queues:
+            self.message_queues[agent_id] = []
+            logger.info(f"🔧 HTTP_ADAPTER: Auto-created message queue for gRPC agent {agent_id}")
+        
+        self.message_queues[agent_id].append(message)
+        logger.info(f"🔧 HTTP_ADAPTER: Message queued for {agent_id}. New queue size: {len(self.message_queues[agent_id])}")
     
     def _handle_mod_response(self, message: Dict[str, Any]):
         """Handle responses from mods and resolve pending HTTP requests."""
