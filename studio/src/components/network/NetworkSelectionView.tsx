@@ -20,6 +20,11 @@ const NetworkSelectionView: React.FC<NetworkSelectionViewProps> = ({ onNetworkSe
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [savedConnection, setSavedConnection] = useState<{ host: string; port: string } | null>(null);
   const [savedAgentName, setSavedAgentName] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalNetworks, setTotalNetworks] = useState(0);
+  const [perPage] = useState(20);
+  const [connectingNetworkId, setConnectingNetworkId] = useState<string | null>(null);
 
   // Load saved connection and detect local network on component mount
   useEffect(() => {
@@ -53,6 +58,11 @@ const NetworkSelectionView: React.FC<NetworkSelectionViewProps> = ({ onNetworkSe
     checkLocal();
   }, []);
 
+  // Reset page when search/filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedTags]);
+
   // Fetch public networks
   useEffect(() => {
     const fetchNetworks = async () => {
@@ -61,19 +71,24 @@ const NetworkSelectionView: React.FC<NetworkSelectionViewProps> = ({ onNetworkSe
         const response = await fetchNetworksList({
           q: searchQuery,
           tags: selectedTags.length > 0 ? selectedTags : undefined,
-          page: 1,
-          perPage: 20
+          page: currentPage,
+          perPage
         });
         setPublicNetworks(response.items);
+        setTotalNetworks(response.total);
+        setTotalPages(Math.ceil(response.total / perPage));
       } catch (error) {
         console.error('Error fetching networks:', error);
+        setPublicNetworks([]);
+        setTotalNetworks(0);
+        setTotalPages(1);
       } finally {
         setIsLoadingPublic(false);
       }
     };
 
     fetchNetworks();
-  }, [searchQuery, selectedTags]);
+  }, [searchQuery, selectedTags, currentPage, perPage]);
 
   const handleManualConnect = async () => {
     if (!manualHost || !manualPort) return;
@@ -120,6 +135,23 @@ const NetworkSelectionView: React.FC<NetworkSelectionViewProps> = ({ onNetworkSe
     setSavedAgentName(null);
     setManualHost('');
     setManualPort('8571');
+  };
+
+  const handleNetworkConnect = async (network: Network) => {
+    setConnectingNetworkId(network.id);
+    try {
+      // Test connection to the real network
+      const connection = await testNetworkConnection(network.profile.host, network.profile.port);
+      if (connection.status === 'connected') {
+        onNetworkSelected(connection);
+      } else {
+        alert(`Failed to connect to ${network.profile.name}. The network might be offline or unreachable.`);
+      }
+    } catch (error) {
+      alert(`Error connecting to ${network.profile.name}: ${error}`);
+    } finally {
+      setConnectingNetworkId(null);
+    }
   };
 
   const availableTags = Array.from(
@@ -372,55 +404,136 @@ const NetworkSelectionView: React.FC<NetworkSelectionViewProps> = ({ onNetworkSe
                 <span className="ml-3 text-gray-600 dark:text-gray-400">Loading networks...</span>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {publicNetworks.map(network => (
-                  <div
-                    key={network.id}
-                    className="bg-gray-50 dark:bg-gray-700 rounded-lg p-6 hover:shadow-lg transition-shadow cursor-pointer border border-gray-200 dark:border-gray-600"
-                    onClick={() => {
-                      // For now, we'll simulate connecting to a public network
-                      // In reality, this would involve more complex connection logic
-                      const mockConnection: NetworkConnection = {
-                        host: `${network.id}.openagents.org`,
-                        port: 8571,
-                        status: 'connected'
-                      };
-                      onNetworkSelected(mockConnection);
-                    }}
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                        {network.profile.name}
-                      </h3>
-                      {network.profile.capacity && (
-                        <span className="text-sm text-gray-500 dark:text-gray-400">
-                          {network.profile.capacity} agents
-                        </span>
-                      )}
-                    </div>
-                    
-                    <p className="text-gray-600 dark:text-gray-400 mb-3">
-                      {network.profile.description}
-                    </p>
-                    
-                    <div className="flex flex-wrap gap-1 mb-3">
-                      {network.profile.tags.map(tag => (
-                        <span
-                          key={tag}
-                          className="px-2 py-1 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs rounded-full"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                    
-                    {network.profile.country && (
-                      <p className="text-sm text-gray-500 dark:text-gray-400">
-                        📍 {network.profile.country}
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {publicNetworks.map(network => (
+                    <div
+                      key={network.id}
+                      className="bg-gray-50 dark:bg-gray-700 rounded-lg p-6 hover:shadow-lg transition-shadow border border-gray-200 dark:border-gray-600"
+                    >
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
+                            {network.profile.name}
+                          </h3>
+                          {network.status && (
+                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                              network.status === 'online' 
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
+                                : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                            }`}>
+                              {network.status}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-col items-end text-sm text-gray-500 dark:text-gray-400">
+                          {network.stats && (
+                            <span>{network.stats.online_agents} agents online</span>
+                          )}
+                          {network.profile.capacity && (
+                            <span>Max: {network.profile.capacity}</span>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <p className="text-gray-600 dark:text-gray-400 mb-3">
+                        {network.profile.description}
                       </p>
-                    )}
+                      
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {network.profile.tags.map(tag => (
+                          <span
+                            key={tag}
+                            className="px-2 py-1 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 text-xs rounded-full"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                      
+                      <div className="flex justify-between items-center text-sm text-gray-500 dark:text-gray-400 mb-4">
+                        {network.profile.country && (
+                          <span>📍 {network.profile.country}</span>
+                        )}
+                        <span className="font-mono text-xs bg-gray-100 dark:bg-gray-600 px-2 py-1 rounded">
+                          {network.profile.host}:{network.profile.port}
+                        </span>
+                      </div>
+                      
+                      {/* Connect Button - Bottom of card */}
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => handleNetworkConnect(network)}
+                          disabled={connectingNetworkId === network.id}
+                          className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white px-3 py-1.5 text-sm rounded-md font-medium transition-colors flex items-center gap-1.5"
+                        >
+                          {connectingNetworkId === network.id ? (
+                            <>
+                              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
+                              Connecting...
+                            </>
+                          ) : (
+                            "Connect"
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Pagination Controls */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-600 pt-6">
+                    <div className="text-sm text-gray-700 dark:text-gray-300">
+                      Showing {((currentPage - 1) * perPage) + 1} to {Math.min(currentPage * perPage, totalNetworks)} of {totalNetworks} networks
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                        disabled={currentPage === 1}
+                        className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700"
+                      >
+                        Previous
+                      </button>
+                      
+                      {/* Page numbers */}
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum: number;
+                        if (totalPages <= 5) {
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          pageNum = currentPage - 2 + i;
+                        }
+                        
+                        return (
+                          <button
+                            key={pageNum}
+                            onClick={() => setCurrentPage(pageNum)}
+                            className={`px-3 py-2 text-sm font-medium rounded-md ${
+                              currentPage === pageNum
+                                ? 'bg-indigo-600 text-white'
+                                : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        );
+                      })}
+                      
+                      <button
+                        onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-gray-800 dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700"
+                      >
+                        Next
+                      </button>
+                    </div>
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
