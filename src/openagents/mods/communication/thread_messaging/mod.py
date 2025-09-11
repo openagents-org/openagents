@@ -128,6 +128,9 @@ class ThreadMessagingNetworkMod(BaseMod):
         # File management
         self.files: Dict[str, Dict[str, Any]] = {}  # file_id -> file_info
         
+        # Initialize persistence (will be None if no network/persistence manager)
+        self.persistence = None
+        
         # Initialize default channels
         self._initialize_default_channels()
         
@@ -158,21 +161,34 @@ class ThreadMessagingNetworkMod(BaseMod):
     
     def _setup_file_storage(self):
         """Set up file storage using the network's persistence manager."""
-        # Network always has persistence manager, use it for file storage
-        mod_dir = self.network.persistence_manager.mod_data_dir("thread_messaging")
-        self.file_storage_path = mod_dir / "files"
-        self.file_storage_path.mkdir(exist_ok=True)
-        logger.info(f"Using persistent file storage at: {self.file_storage_path}")
-        
-        # Initialize persistence
-        self._init_persistence()
+        if self.network and hasattr(self.network, 'persistence_manager'):
+            # Network has persistence manager, use it for file storage
+            mod_dir = self.network.persistence_manager.mod_data_dir("thread_messaging")
+            self.file_storage_path = mod_dir / "files"
+            self.file_storage_path.mkdir(exist_ok=True)
+            logger.info(f"Using persistent file storage at: {self.file_storage_path}")
+            
+            # Initialize persistence
+            self._init_persistence()
+        else:
+            # No network or persistence manager (testing scenario)
+            # Use a temporary directory for file storage
+            import tempfile
+            temp_dir = tempfile.mkdtemp(prefix="thread_messaging_files_")
+            self.file_storage_path = Path(temp_dir)
+            logger.warning(f"Using temporary file storage at: {self.file_storage_path} (no persistence manager available)")
     
     def _init_persistence(self):
         """Initialize persistence for thread messaging."""
+        if not (self.network and hasattr(self.network, 'persistence_manager')):
+            logger.warning("No persistence manager available, skipping persistence initialization")
+            self.persistence = None
+            return
+            
         try:
             from openagents.core.persistence import ModPersistenceHelper
             
-            # Network always has persistence manager
+            # Network has persistence manager
             self.persistence = ModPersistenceHelper("thread_messaging", self.network.persistence_manager)
             
             # Initialize database schema for thread messaging
