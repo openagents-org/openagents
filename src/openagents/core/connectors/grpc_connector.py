@@ -309,7 +309,7 @@ class GRPCNetworkConnector(NetworkConnector):
                         logger.warning(f"🔧 GRPC: Unexpected poll_messages response format: {type(response.data)} - {response.data}")
                         return []
                     
-                    logger.info(f"🔧 GRPC: Processing {len(response_messages)} polled messages for {self.agent_id}")
+                    logger.debug(f"🔧 GRPC: Processing {len(response_messages)} polled messages for {self.agent_id}")
                     
                     # Convert each message to Event object
                     for message_data in response_messages:
@@ -336,7 +336,7 @@ class GRPCNetworkConnector(NetworkConnector):
                             logger.error(f"🔧 GRPC: Error processing polled message: {e}")
                             logger.debug(f"🔧 GRPC: Problematic message data: {message_data}")
                     
-                    logger.info(f"🔧 GRPC: Successfully converted {len(messages)} messages to Events")
+                    logger.debug(f"🔧 GRPC: Successfully converted {len(messages)} messages to Events")
                     for event in messages:
                         await self.consume_message(event)
                     return messages

@@ -1,14 +1,14 @@
 // Common type definitions for the application
-import { NetworkConnection } from '../services/networkService';
+import { NetworkConnection } from "@/types/connection";
 
 export interface Message {
   id: string;
-  sender: 'user' | 'assistant' | 'system';
+  sender: "user" | "assistant" | "system";
   text: string;
   timestamp: string;
   // Optional metadata for tools
   toolData?: {
-    type: 'tool_start' | 'tool_execution' | 'tool_result' | 'tool_error';
+    type: "tool_start" | "tool_execution" | "tool_result" | "tool_error";
     name: string;
     id: string;
     input?: any;
@@ -45,7 +45,6 @@ export interface ChatViewProps {
   conversationId: string;
   onMessagesUpdate?: (messages: ConversationMessages) => void;
   onDeleteConversation?: () => void;
-  currentTheme: 'light' | 'dark';
 }
 
 export interface SidebarProps {
@@ -53,16 +52,12 @@ export interface SidebarProps {
   toggleSidebar: () => void;
   onSettingsClick: () => void;
   onProfileClick: () => void;
-  onMcpClick: () => void;
-  onDocumentsClick?: () => void;
-  activeView: 'chat' | 'settings' | 'profile' | 'mcp' | 'documents';
   onConversationChange: (conversationId: string) => void;
   activeConversationId: string;
   conversations: Conversation[];
   createNewConversation: () => void;
   toggleTheme: () => void;
-  currentTheme: 'light' | 'dark';
-  currentNetwork: NetworkConnection | null;
+  currentTheme: "light" | "dark";
   hasSharedDocuments?: boolean;
 }
 
@@ -73,7 +68,7 @@ export interface SettingsViewProps {
 // Tool section interface for the sliding panel
 export interface ToolSection {
   id: string;
-  type: 'tool_start' | 'tool_execution' | 'tool_result' | 'tool_error';
+  type: "tool_start" | "tool_execution" | "tool_result" | "tool_error";
   name: string;
   content: string;
   input?: any;
@@ -135,10 +130,9 @@ export interface DocumentContent {
 
 export interface DocumentsViewProps {
   onBackClick: () => void;
-  currentTheme: 'light' | 'dark';
   // Optional props for shared state management
   documents?: DocumentInfo[];
   selectedDocumentId?: string | null;
   onDocumentSelect?: (documentId: string | null) => void;
   onDocumentsChange?: (documents: DocumentInfo[]) => void;
-} 
+}

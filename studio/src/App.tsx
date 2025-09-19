@@ -1,22 +1,26 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import MainLayout from './components/layout/MainLayout';
-import ChatView from './components/chat/ChatView';
-import NetworkSelectionView from './components/network/NetworkSelectionView';
-import AgentNamePicker from './components/network/AgentNamePicker';
-import McpView from './components/mcp/McpView';
-import { DocumentsView } from './components';
-import useConversation from './hooks/useConversation';
-import useTheme from './hooks/useTheme';
-import { ToastProvider } from './context/ToastContext';
-import { ConfirmProvider } from './context/ConfirmContext';
-import { NetworkConnection } from './services/networkService';
-import { DocumentInfo } from './types';
-import { clearAllOpenAgentsData } from './utils/cookies';
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import MainLayout from "./components/layout/MainLayout";
+import ChatView from "./components/chat/ChatView";
+import NetworkSelectionView from "./components/network/NetworkSelectionView";
+import AgentNamePicker from "./components/network/AgentNamePicker";
+import McpView from "./components/mcp/McpView";
+import { DocumentsView } from "./components";
+import useConversation from "./hooks/useConversation";
+import { ToastProvider } from "./context/ToastContext";
+import { ConfirmProvider } from "./context/ConfirmContext";
+import { useThemeStore } from "@/stores/themeStore";
+import { DocumentInfo } from "./types";
 
 // Updated Thread Messaging with new event system
-import { useOpenAgents } from './hooks/useOpenAgents';
-import { ThreadChannel, AgentInfo } from './types/events';
-import ThreadMessagingViewEventBased from './components/chat/ThreadMessagingViewEventBased';
+import { ThreadChannel, AgentInfo } from "./types/events";
+import ThreadMessagingViewEventBased from "./components/chat/ThreadMessagingViewEventBased";
+
+import ConnectionLoadingPage from "@/pages/connection/ConnectionLoadingPage";
+import { useNetworkStore } from "@/stores/networkStore";
+import { clearAllOpenAgentsData } from "@/utils/cookies";
+import useConnectedStatus from "@/hooks/useConnectedStatus";
+import { PLUGIN_NAME_ENUM } from "@/types/plugins";
+import { useViewStore } from "@/stores/viewStore";
 
 // Thread state for compatibility with existing UI
 export interface ThreadState {
@@ -26,79 +30,65 @@ export interface ThreadState {
   currentDirectMessage?: string | null;
 }
 
-// App main component 
+// App main component
 const AppContent: React.FC = () => {
-  const [activeView, setActiveView] = useState<'chat' | 'settings' | 'profile' | 'mcp' | 'documents'>('chat');
-  const [selectedNetwork, setSelectedNetwork] = useState<NetworkConnection | null>(null);
-  const [agentName, setAgentName] = useState<string | null>(null);
+  const { selectedNetwork, agentName, clearAgentName, clearNetwork } =
+    useNetworkStore();
+  const { isConnected, channels, connectionStatus, openAgentsHook } =
+    useConnectedStatus();
+
+  const { activeView, setActiveView } = useViewStore();
+
   const [threadState, setThreadState] = useState<ThreadState | null>(null);
-  
-  // Documents state
-  const [documents, setDocuments] = useState<DocumentInfo[]>([]);
-  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
-  
-  // Debug agent name and network values
-  console.log('🔍 App Debug - agentName:', agentName, 'selectedNetwork:', selectedNetwork);
 
-  // Use the new event system when we have network connection
-  // Only initialize when we have real values, not fallbacks
-  const openAgentsHook = useOpenAgents({
-    agentId: agentName || 'studio_user',
-    host: selectedNetwork?.host,
-    port: selectedNetwork?.port,
-    autoConnect: !!selectedNetwork && !!agentName
-  });
-
-  const {
-    connectionStatus,
-    channels
-  } = openAgentsHook;
-
-  // Determine if we're connected
-  const isConnected = connectionStatus.status === 'connected';
-  
   // Determine if we have thread messaging (always true with new system)
   const hasThreadMessaging = true;
   const hasSharedDocuments = true; // Assume documents are available
-  
-  const threadMessagingRef = useRef<{
-    getState: () => ThreadState;
-    selectChannel: (channel: string) => void;
-    selectDirectMessage: (agentId: string) => void;
-  } | null>(null);
-  
+
   // Handle thread state changes
   const handleThreadStateChange = useCallback((newState: ThreadState) => {
     setThreadState(newState);
   }, []);
-  
+
   const {
     activeConversationId,
     conversations,
     handleConversationChange,
     createNewConversation,
-    deleteConversation
+    deleteConversation,
   } = useConversation();
-
-  const { theme, toggleTheme } = useTheme();
 
   // Add debug function to window for troubleshooting
   useEffect(() => {
+    clearNetwork();
+    clearAgentName();
+
     (window as any).clearOpenAgentsData = clearAllOpenAgentsData;
-    console.log('🔧 Debug: Run clearOpenAgentsData() in console to clear all saved data');
-  }, []);
+    console.log(
+      "🔧 Debug: Run clearOpenAgentsData() in console to clear all saved data"
+    );
+  }, [clearNetwork, clearAgentName]);
 
   // Enhanced createNewConversation function that always shows chat view
   const createNewConversationAndShowChat = useCallback(() => {
     createNewConversation();
-    setActiveView('chat');
-  }, [createNewConversation]);
+    setActiveView(PLUGIN_NAME_ENUM.CHAT);
+  }, [createNewConversation, setActiveView]);
 
-  // Enhanced conversation change function that always shows chat view 
-  const handleConversationChangeAndShowChat = useCallback((id: string) => {
-    handleConversationChange(id);
-    setActiveView('chat');
-  }, [handleConversationChange]);
+  // Enhanced conversation change function that always shows chat view
+  const handleConversationChangeAndShowChat = useCallback(
+    (id: string) => {
+      handleConversationChange(id);
+      setActiveView(PLUGIN_NAME_ENUM.CHAT);
+    },
+    [handleConversationChange, setActiveView]
+  );
+
+  const threadMessagingRef = useRef<{
+    getState: () => ThreadState;
+    selectChannel: (channel: string) => void;
+    selectDirectMessage: (agentId: string) => void;
+  } | null>(null);
 
   // Get current thread state from ref or fallback to basic state
   const getCurrentThreadState = useCallback((): ThreadState | null => {
@@ -109,7 +99,7 @@ const AppContent: React.FC = () => {
       channels: channels || [],
       agents: [],
       currentChannel: null,
-      currentDirectMessage: null
+      currentDirectMessage: null,
     };
   }, [channels]);
 
@@ -122,73 +112,36 @@ const AppContent: React.FC = () => {
     threadMessagingRef.current?.selectDirectMessage(agentId);
   }, []);
 
+  // Documents state
+  const [documents, setDocuments] = useState<DocumentInfo[]>([]);
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(
+    null
+  );
+
   // Document selection handler
-  const handleDocumentSelect = useCallback((documentId: string | null) => {
-    setSelectedDocumentId(documentId);
-    if (documentId) {
-      setActiveView('documents');
-    }
-  }, []);
+  const handleDocumentSelect = useCallback(
+    (documentId: string | null) => {
+      setSelectedDocumentId(documentId);
+      if (documentId) {
+        setActiveView(PLUGIN_NAME_ENUM.DOCUMENTS);
+      }
+    },
+    [setActiveView]
+  );
 
-  const handleNetworkSelected = useCallback((network: NetworkConnection) => {
-    setSelectedNetwork(network);
-    // Don't set as current network yet - wait for agent name selection
-  }, []);
-
-  const handleAgentNameSelected = useCallback((name: string) => {
-    setAgentName(name);
-  }, []);
-
-  const handleBackToNetworkSelection = useCallback(() => {
-    setSelectedNetwork(null);
-    setAgentName(null);
-  }, []);
-
-  // Show network selection if no network is selected
+  // Step One Page - Show network selection if no network is selected
   if (!selectedNetwork) {
-    return <NetworkSelectionView onNetworkSelected={handleNetworkSelected} />;
+    return <NetworkSelectionView />;
   }
 
-  // Show agent name picker if network is selected but no agent name
+  // Step Two Page - Show agent name picker if network is selected but no agent name
   if (selectedNetwork && !agentName) {
-    return (
-      <AgentNamePicker
-        networkConnection={selectedNetwork}
-        onAgentNameSelected={handleAgentNameSelected}
-        onBack={handleBackToNetworkSelection}
-        currentTheme={theme}
-      />
-    );
+    return <AgentNamePicker />;
   }
 
-  // Show loading if we have network and agent name but not yet connected
+  // Step Three Page - Show loading if we have network and agent name but not yet connected
   if (!isConnected) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">
-            Connecting as {agentName}...
-          </p>
-          <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
-            Status: {connectionStatus.status}
-          </p>
-          {connectionStatus.status === 'error' && (
-            <div className="mt-4">
-              <p className="text-red-600 dark:text-red-400 text-sm mb-2">
-                Connection failed. Please try again.
-              </p>
-              <button
-                onClick={() => window.location.reload()}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Retry
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    );
+    return <ConnectionLoadingPage connectionStatus={connectionStatus} />;
   }
 
   // Show the original UI with thread messaging
@@ -196,18 +149,12 @@ const AppContent: React.FC = () => {
     <ToastProvider>
       <ConfirmProvider>
         <MainLayout
-          activeView={activeView}
-          setActiveView={setActiveView}
           activeConversationId={activeConversationId}
           conversations={conversations}
           onConversationChange={handleConversationChangeAndShowChat}
           createNewConversation={createNewConversationAndShowChat}
-          currentNetwork={selectedNetwork}
-          currentTheme={theme}
-          toggleTheme={toggleTheme}
           hasSharedDocuments={hasSharedDocuments}
           hasThreadMessaging={hasThreadMessaging}
-          agentName={agentName}
           threadState={getCurrentThreadState()}
           onChannelSelect={handleChannelSelect}
           onDirectMessageSelect={handleDirectMessageSelect}
@@ -216,18 +163,18 @@ const AppContent: React.FC = () => {
           onDocumentSelect={handleDocumentSelect}
           selectedDocumentId={selectedDocumentId}
         >
-          {activeView === 'chat' ? (
+          {activeView === PLUGIN_NAME_ENUM.CHAT ? (
             hasThreadMessaging ? (
               // Use the new thread messaging with event system
               <ThreadMessagingViewEventBased
                 ref={threadMessagingRef}
                 openAgentsHook={openAgentsHook}
                 agentName={agentName!}
-                currentTheme={theme}
-                onProfileClick={() => setActiveView('profile')}
-                toggleTheme={toggleTheme}
+                onProfileClick={() => setActiveView(PLUGIN_NAME_ENUM.PROFILE)}
                 hasSharedDocuments={hasSharedDocuments}
-                onDocumentsClick={() => setActiveView('documents')}
+                onDocumentsClick={() =>
+                  setActiveView(PLUGIN_NAME_ENUM.DOCUMENTS)
+                }
                 onThreadStateChange={handleThreadStateChange}
               />
             ) : (
@@ -238,30 +185,28 @@ const AppContent: React.FC = () => {
                   deleteConversation(activeConversationId);
                   createNewConversation();
                 }}
-                currentTheme={theme}
               />
             )
-          ) : activeView === 'documents' ? (
-            <DocumentsView 
-              currentTheme={theme}
-              onBackClick={() => setActiveView('chat')}
+          ) : activeView === "documents" ? (
+            <DocumentsView
+              onBackClick={() => setActiveView(PLUGIN_NAME_ENUM.CHAT)}
               documents={documents}
               selectedDocumentId={selectedDocumentId}
               onDocumentSelect={handleDocumentSelect}
               onDocumentsChange={setDocuments}
             />
-          ) : activeView === 'settings' ? (
+          ) : activeView === "settings" ? (
             <div className="p-6">
               <h1 className="text-2xl font-bold mb-4">Settings</h1>
               <p>Settings panel coming soon...</p>
             </div>
-          ) : activeView === 'profile' ? (
+          ) : activeView === "profile" ? (
             <div className="p-6">
               <h1 className="text-2xl font-bold mb-4">Profile</h1>
               <p>Profile panel coming soon...</p>
             </div>
-          ) : activeView === 'mcp' ? (
-            <McpView onBackClick={() => setActiveView('chat')} />
+          ) : activeView === "mcp" ? (
+            <McpView onBackClick={() => setActiveView(PLUGIN_NAME_ENUM.CHAT)} />
           ) : null}
         </MainLayout>
       </ConfirmProvider>

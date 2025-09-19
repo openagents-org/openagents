@@ -1,9 +1,16 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { v4 as uuidv4 } from 'uuid';
-import MessageList from './MessageList';
-import MessageInput from './MessageInput';
-import { sendChatMessage, abortChatMessage } from '../../utils/api';
-import { Message, ConversationMessages, ChatViewProps, ToolSectionsMap, ToolSection } from '../../types';
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { v4 as uuidv4 } from "uuid";
+import MessageList from "./MessageList";
+import MessageInput from "./MessageInput";
+import { sendChatMessage, abortChatMessage } from "../../utils/api";
+import {
+  Message,
+  ConversationMessages,
+  ChatViewProps,
+  ToolSectionsMap,
+  ToolSection,
+} from "../../types";
+import { useThemeStore } from "@/stores/themeStore";
 // Remove Firebase import
 
 // 现代化简洁设计的CSS样式
@@ -132,33 +139,38 @@ const styles = `
   }
 `;
 
-const ChatView: React.FC<ChatViewProps> = ({ 
-  conversationId, 
+const ChatView: React.FC<ChatViewProps> = ({
+  conversationId,
   onMessagesUpdate,
   onDeleteConversation,
-  currentTheme
 }) => {
+  // Use theme from store
+  const { theme: currentTheme } = useThemeStore();
   const [messages, setMessages] = useState<ConversationMessages>({});
-  const [currentMessage, setCurrentMessage] = useState<string>('');
+  const [currentMessage, setCurrentMessage] = useState<string>("");
   const [isSending, setIsSending] = useState<boolean>(false);
   const [isSessionLoading, setIsSessionLoading] = useState<boolean>(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
-  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(
+    null
+  );
   const [toolSections, setToolSections] = useState<ToolSectionsMap>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+
   // 滚动相关状态和refs
   const isProgrammaticScrollRef = useRef<boolean>(false);
   const isAutoScrollingRef = useRef<boolean>(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
-  
+
   // 当前显示的会话ID - 简化为普通状态
-  const [displayedConversationId, setDisplayedConversationId] = useState<string | null>(null);
+  const [displayedConversationId, setDisplayedConversationId] = useState<
+    string | null
+  >(null);
 
   // 字符缓存池相关状态
-  const charPoolRef = useRef<string>('');
+  const charPoolRef = useRef<string>("");
   const displayIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const currentTextRef = useRef<string>('');
+  const currentTextRef = useRef<string>("");
   const isStreamingRef = useRef<boolean>(false);
   const assistantMessageIdRef = useRef<string | null>(null);
 
@@ -181,47 +193,51 @@ const ChatView: React.FC<ChatViewProps> = ({
       // 大部分时间显示1个字符，有时候显示2-3个字符，偶尔暂停一下
       const randomFactor = Math.random();
       let charsToShow = 1;
-      
-      if (randomFactor > 0.85) { // 15%的情况显示2-3个字符
+
+      if (randomFactor > 0.85) {
+        // 15%的情况显示2-3个字符
         charsToShow = randomFactor > 0.95 ? 3 : 2; // 10%显示2个，5%显示3个
-      } else if (randomFactor < 0.05) { // 5%的情况暂停一下，不显示字符
+      } else if (randomFactor < 0.05) {
+        // 5%的情况暂停一下，不显示字符
         charsToShow = 0;
       }
-      
+
       // 确保不超过可用字符数
       charsToShow = Math.min(charsToShow, charPoolRef.current.length);
-      
+
       if (charsToShow > 0) {
         // 提取要显示的字符
         const nextChars = charPoolRef.current.substring(0, charsToShow);
-        
+
         // 更新缓存池，移除已显示的字符
         charPoolRef.current = charPoolRef.current.substring(charsToShow);
-        
+
         // 更新当前显示的文本
         if (currentTextRef.current !== null) {
           currentTextRef.current += nextChars;
         }
-        
+
         // 更新UI上的消息文本
-        setMessages(prevMessages => {
+        setMessages((prevMessages) => {
           const currentMessages = [...(prevMessages[conversationId] || [])];
-          const msgId = assistantMessageIdRef.current || '';
-          const assistantMsgIndex = currentMessages.findIndex(m => m.id === msgId);
-          
+          const msgId = assistantMessageIdRef.current || "";
+          const assistantMsgIndex = currentMessages.findIndex(
+            (m) => m.id === msgId
+          );
+
           if (assistantMsgIndex >= 0 && currentTextRef.current !== null) {
             currentMessages[assistantMsgIndex] = {
               ...currentMessages[assistantMsgIndex],
-              text: currentTextRef.current
+              text: currentTextRef.current,
             };
           }
-          
+
           return {
             ...prevMessages,
-            [conversationId]: currentMessages
+            [conversationId]: currentMessages,
           };
         });
-        
+
         // 如果自动滚动启用，滚动到底部
         if (isAutoScrollingRef.current) {
           scrollToBottom(false);
@@ -231,54 +247,63 @@ const ChatView: React.FC<ChatViewProps> = ({
   }, [conversationId]);
 
   // 开始字符池处理
-  const startCharPoolProcessing = useCallback((messageId: string) => {
-    // 清空当前文本
-    currentTextRef.current = '';
-    
-    // 设置流式状态
-    isStreamingRef.current = true;
-    assistantMessageIdRef.current = messageId;
-    
-    // 清除可能存在的定时器
-    if (displayIntervalRef.current) {
-      clearInterval(displayIntervalRef.current);
-    }
-    
-    // 创建新的定时器，每18-20ms处理一次字符池（稍微随机化时间间隔）
-    // 这会让打字看起来更自然，不是机械的节奏
-    const interval = 18 + Math.floor(Math.random() * 3);
-    displayIntervalRef.current = setInterval(processCharPool, interval);
-  }, [processCharPool]);
+  const startCharPoolProcessing = useCallback(
+    (messageId: string) => {
+      // 清空当前文本
+      currentTextRef.current = "";
+
+      // 设置流式状态
+      isStreamingRef.current = true;
+      assistantMessageIdRef.current = messageId;
+
+      // 清除可能存在的定时器
+      if (displayIntervalRef.current) {
+        clearInterval(displayIntervalRef.current);
+      }
+
+      // 创建新的定时器，每18-20ms处理一次字符池（稍微随机化时间间隔）
+      // 这会让打字看起来更自然，不是机械的节奏
+      const interval = 18 + Math.floor(Math.random() * 3);
+      displayIntervalRef.current = setInterval(processCharPool, interval);
+    },
+    [processCharPool]
+  );
 
   // 停止字符池处理
   const stopCharPoolProcessing = useCallback(() => {
     isStreamingRef.current = false;
     assistantMessageIdRef.current = null;
-    
+
     // 强制显示剩余字符
-    if (charPoolRef.current && charPoolRef.current.length > 0 && currentTextRef.current !== null) {
+    if (
+      charPoolRef.current &&
+      charPoolRef.current.length > 0 &&
+      currentTextRef.current !== null
+    ) {
       currentTextRef.current += charPoolRef.current;
-      charPoolRef.current = '';
-      
-      setMessages(prevMessages => {
+      charPoolRef.current = "";
+
+      setMessages((prevMessages) => {
         const currentMessages = [...(prevMessages[conversationId] || [])];
-        const msgId = streamingMessageId || '';
-        const assistantMsgIndex = currentMessages.findIndex(m => m.id === msgId);
-        
+        const msgId = streamingMessageId || "";
+        const assistantMsgIndex = currentMessages.findIndex(
+          (m) => m.id === msgId
+        );
+
         if (assistantMsgIndex >= 0 && currentTextRef.current !== null) {
           currentMessages[assistantMsgIndex] = {
             ...currentMessages[assistantMsgIndex],
-            text: currentTextRef.current
+            text: currentTextRef.current,
           };
         }
-        
+
         return {
           ...prevMessages,
-          [conversationId]: currentMessages
+          [conversationId]: currentMessages,
         };
       });
     }
-    
+
     // 清除定时器
     if (displayIntervalRef.current) {
       clearInterval(displayIntervalRef.current);
@@ -298,124 +323,153 @@ const ChatView: React.FC<ChatViewProps> = ({
   // 处理会话切换 - 简化后不再使用动画效果
   useEffect(() => {
     if (!conversationId) return;
-    
+
     // 如果与当前显示的会话相同，不需要任何操作
     if (displayedConversationId === conversationId) return;
-    
+
     // 会话ID变化，直接加载新会话
     const switchSession = async () => {
-      console.log(`Switching session from ${displayedConversationId} to ${conversationId}`);
+      console.log(
+        `Switching session from ${displayedConversationId} to ${conversationId}`
+      );
       await loadSession(conversationId);
       setDisplayedConversationId(conversationId);
-      
+
       // Always ensure we scroll to bottom after switching sessions
       setTimeout(() => {
         scrollToBottom(true);
       }, 200);
     };
-    
+
     switchSession();
   }, [conversationId]);
 
   // 分离会话加载逻辑以便重用 - 修改以恢复工具部分信息
   const loadSession = async (sessionId: string) => {
-    if (!sessionId || sessionId.startsWith('__tmp')) {
+    if (!sessionId || sessionId.startsWith("__tmp")) {
       console.log("Invalid or temporary sessionId, skipping load.");
       return;
     }
-    
+
     console.log(`Loading messages for session: ${sessionId}`);
     setIsSessionLoading(true);
     setSessionError(null);
-    
+
     try {
       // Load session without authentication for now
       console.log(`Loading session: ${conversationId}`);
-      
+
       // For now, initialize with empty messages - this would be replaced with OpenAgents network API calls
-      setMessages(prev => ({
+      setMessages((prev) => ({
         ...prev,
-        [conversationId]: []
+        [conversationId]: [],
       }));
-      
+
       return; // Skip backend loading for now
-      
+
       // This would be the actual API call to OpenAgents network
       const response = await fetch(`/api/user/session/${sessionId}`, {
         headers: {
-          'Content-Type': 'application/json'
-        }
+          "Content-Type": "application/json",
+        },
       });
-      
+
       if (response.ok) {
         const sessionData = await response.json();
-        
+
         // 处理消息数组
         let messagesArray = sessionData.messages || [];
-        
+
         if (!Array.isArray(messagesArray)) {
-          console.warn(`Invalid messages format for ${sessionId}, expected array but got:`, typeof messagesArray);
+          console.warn(
+            `Invalid messages format for ${sessionId}, expected array but got:`,
+            typeof messagesArray
+          );
           messagesArray = [];
         }
-        
-        console.log(`Loaded ${messagesArray.length} messages for session ${sessionId}`);
-        
-        const validMessages = messagesArray.filter((msg: any) => 
-          msg && msg.id && typeof msg.text === 'string' && msg.sender && msg.timestamp
+
+        console.log(
+          `Loaded ${messagesArray.length} messages for session ${sessionId}`
         );
-        
+
+        const validMessages = messagesArray.filter(
+          (msg: any) =>
+            msg &&
+            msg.id &&
+            typeof msg.text === "string" &&
+            msg.sender &&
+            msg.timestamp
+        );
+
         if (validMessages.length !== messagesArray.length) {
-          console.warn(`Filtered out ${messagesArray.length - validMessages.length} invalid messages`);
+          console.warn(
+            `Filtered out ${
+              messagesArray.length - validMessages.length
+            } invalid messages`
+          );
         }
-        
+
         // 恢复工具部分信息
         const recoveredToolSections: ToolSectionsMap = {};
-        
+
         validMessages.forEach((msg: Message) => {
           if (msg.toolMetadata && Array.isArray(msg.toolMetadata.sections)) {
             recoveredToolSections[msg.id] = msg.toolMetadata.sections;
           }
         });
-        
+
         // 更新工具部分状态
         if (Object.keys(recoveredToolSections).length > 0) {
-          console.log('Recovered tool sections:', recoveredToolSections);
-          setToolSections(prev => ({
+          console.log("Recovered tool sections:", recoveredToolSections);
+          setToolSections((prev) => ({
             ...prev,
-            ...recoveredToolSections
+            ...recoveredToolSections,
           }));
         }
-        
+
         // 更新状态，保留其他会话的消息
-        setMessages(prevMessages => {
+        setMessages((prevMessages) => {
           const newMessages = { ...prevMessages, [sessionId]: validMessages };
-          
+
           if (onMessagesUpdate) {
             setTimeout(() => onMessagesUpdate(newMessages), 0);
           }
-          
+
           return newMessages;
         });
-        
+
         setSessionError(null);
       } else {
         if (response.status === 404) {
-          console.log(`Session ${sessionId} not found, treating as new conversation`);
-          setMessages(prevMessages => ({ ...prevMessages, [sessionId]: [] }));
+          console.log(
+            `Session ${sessionId} not found, treating as new conversation`
+          );
+          setMessages((prevMessages) => ({ ...prevMessages, [sessionId]: [] }));
         } else {
           const errorText = await response.text();
-          console.error(`Failed to load conversation: ${response.status} ${response.statusText} - ${errorText}`);
-          setSessionError(`Failed to load conversation: ${response.statusText || response.status}`);
-          setMessages(prevMessages => ({ ...prevMessages, [sessionId]: [] }));
+          console.error(
+            `Failed to load conversation: ${response.status} ${response.statusText} - ${errorText}`
+          );
+          setSessionError(
+            `Failed to load conversation: ${
+              response.statusText || response.status
+            }`
+          );
+          setMessages((prevMessages) => ({ ...prevMessages, [sessionId]: [] }));
         }
       }
     } catch (networkError: any) {
-      console.error(`Network error loading session ${sessionId}:`, networkError);
-      setSessionError(`Network error: ${networkError.message || "Failed to connect"}`);
-      setMessages(prevMessages => ({ ...prevMessages, [sessionId]: [] }));
+      console.error(
+        `Network error loading session ${sessionId}:`,
+        networkError
+      );
+      setSessionError(
+        `Network error: ${networkError.message || "Failed to connect"}`
+      );
+      setMessages((prevMessages) => ({ ...prevMessages, [sessionId]: [] }));
     } finally {
       setIsSessionLoading(false);
-      
+
       // 会话加载完成后，确保滚动到底部
       setTimeout(() => {
         scrollToBottom(true);
@@ -424,48 +478,58 @@ const ChatView: React.FC<ChatViewProps> = ({
   };
 
   // Save messages to backend - 保持不变
-  const saveMessages = useCallback(async (messagesData: ConversationMessages) => {
-    if (!conversationId || conversationId.startsWith('__tmp')) return;
-    
-    const currentConversationMessages = messagesData[conversationId] || [];
-    console.log(`Attempting to save ${currentConversationMessages.length} messages for conversation ${conversationId}`);
+  const saveMessages = useCallback(
+    async (messagesData: ConversationMessages) => {
+      if (!conversationId || conversationId.startsWith("__tmp")) return;
 
-    try {
-      // Save messages without authentication for now
-      console.log(`Saving messages for conversation: ${conversationId}`);
-        
-      const firstUserMessage = currentConversationMessages.find(msg => msg.sender === 'user');
-      let title = conversationId;
-      if (firstUserMessage) {
-        title = firstUserMessage.text.substring(0, 30).trim();
-        if (firstUserMessage.text.length > 30) title += '...';
-      }
-      if (!title) title = "New Chat";
-        
-      const sessionData = {
-        id: conversationId,
-        title: title,
-        messages: currentConversationMessages,
-      };
+      const currentConversationMessages = messagesData[conversationId] || [];
+      console.log(
+        `Attempting to save ${currentConversationMessages.length} messages for conversation ${conversationId}`
+      );
 
-      const response = await fetch(`/api/user/session/${conversationId}`, {
-        method: 'POST',
-                  headers: {
-            'Content-Type': 'application/json'
+      try {
+        // Save messages without authentication for now
+        console.log(`Saving messages for conversation: ${conversationId}`);
+
+        const firstUserMessage = currentConversationMessages.find(
+          (msg) => msg.sender === "user"
+        );
+        let title = conversationId;
+        if (firstUserMessage) {
+          title = firstUserMessage.text.substring(0, 30).trim();
+          if (firstUserMessage.text.length > 30) title += "...";
+        }
+        if (!title) title = "New Chat";
+
+        const sessionData = {
+          id: conversationId,
+          title: title,
+          messages: currentConversationMessages,
+        };
+
+        const response = await fetch(`/api/user/session/${conversationId}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        body: JSON.stringify(sessionData)
-      });
-      
-      if (response.ok) {
-        console.log(`Successfully saved conversation ${conversationId}`);
-      } else {
-        const errorText = await response.text();
-        console.error(`Error saving session ${conversationId}: ${response.status} ${response.statusText}`, errorText);
+          body: JSON.stringify(sessionData),
+        });
+
+        if (response.ok) {
+          console.log(`Successfully saved conversation ${conversationId}`);
+        } else {
+          const errorText = await response.text();
+          console.error(
+            `Error saving session ${conversationId}: ${response.status} ${response.statusText}`,
+            errorText
+          );
+        }
+      } catch (error: any) {
+        console.error(`Network error saving session ${conversationId}:`, error);
       }
-    } catch (error: any) {
-      console.error(`Network error saving session ${conversationId}:`, error);
-    }
-  }, [conversationId]);
+    },
+    [conversationId]
+  );
 
   // 滚动逻辑保持不变
   const scrollToBottom = (force = false) => {
@@ -483,7 +547,7 @@ const ChatView: React.FC<ChatViewProps> = ({
 
     // Scroll immediately with no animation
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    
+
     // Reset the flag after scroll would have completed
     setTimeout(() => {
       isProgrammaticScrollRef.current = false;
@@ -494,45 +558,45 @@ const ChatView: React.FC<ChatViewProps> = ({
   useEffect(() => {
     const messagesContainer = messagesEndRef.current?.parentElement;
     if (!messagesContainer) return;
-    
+
     const handleScroll = () => {
       // Skip processing if this was triggered by our own programmatic scroll
       if (isProgrammaticScrollRef.current) {
         return;
       }
-      
+
       const { scrollTop, scrollHeight, clientHeight } = messagesContainer;
       const scrollBottom = scrollTop + clientHeight;
       const isNearBottom = scrollHeight - scrollBottom < 100;
-      
+
       // If we're near the bottom (within 100px), enable auto-scrolling
       if (isNearBottom) {
         isAutoScrollingRef.current = true;
         setShowScrollButton(false);
-      } 
+      }
       // For any other scroll position, disable auto-scrolling
       else {
         isAutoScrollingRef.current = false;
         setShowScrollButton(true);
-        
+
         // Ensure this value persists during streaming
         if (streamingMessageId) {
-          console.log('User scrolled during streaming - disabling auto-scroll');
+          console.log("User scrolled during streaming - disabling auto-scroll");
         }
       }
     };
-    
-    messagesContainer.addEventListener('scroll', handleScroll);
-    return () => messagesContainer.removeEventListener('scroll', handleScroll);
+
+    messagesContainer.addEventListener("scroll", handleScroll);
+    return () => messagesContainer.removeEventListener("scroll", handleScroll);
   }, [streamingMessageId]);
 
   // Track streaming state changes
   useEffect(() => {
     // When streaming starts, we want to reset the auto-scrolling state
     if (streamingMessageId) {
-      console.log('Streaming started for message:', streamingMessageId);
+      console.log("Streaming started for message:", streamingMessageId);
     } else {
-      console.log('Streaming ended');
+      console.log("Streaming ended");
     }
   }, [streamingMessageId]);
 
@@ -549,61 +613,61 @@ const ChatView: React.FC<ChatViewProps> = ({
   // 处理发送消息事件
   const sendMessage = async (): Promise<void> => {
     if (!currentMessage.trim() || isSending) return;
-    
+
     try {
       setIsSending(true);
-      
+
       // Generate a unique ID for the message
       const userMessageId = uuidv4();
       const assistantMessageId = uuidv4();
-      
+
       // 添加用户消息，使用函数式更新
-      setMessages(prevMessages => {
+      setMessages((prevMessages) => {
         const currentSessionMessages = prevMessages[conversationId] || [];
-        
+
         const userMessage: Message = {
           id: userMessageId,
           text: currentMessage,
-          sender: 'user',
-          timestamp: new Date().toISOString()
+          sender: "user",
+          timestamp: new Date().toISOString(),
         };
-        
+
         return {
           ...prevMessages,
-          [conversationId]: [...currentSessionMessages, userMessage]
+          [conversationId]: [...currentSessionMessages, userMessage],
         };
       });
-      
+
       // 添加用户消息后强制滚动到底部
       setTimeout(() => scrollToBottom(true), 50);
-      
+
       // 添加助手消息，使用setTimeout分离状态更新
       setTimeout(() => {
-        setMessages(prevMessages => {
+        setMessages((prevMessages) => {
           const currentSessionMessages = prevMessages[conversationId] || [];
-          
+
           const assistantMessage: Message = {
             id: assistantMessageId,
-            text: '',
-            sender: 'assistant',
-            timestamp: new Date().toISOString()
+            text: "",
+            sender: "assistant",
+            timestamp: new Date().toISOString(),
           };
-          
+
           return {
             ...prevMessages,
-            [conversationId]: [...currentSessionMessages, assistantMessage]
+            [conversationId]: [...currentSessionMessages, assistantMessage],
           };
         });
-        
+
         setStreamingMessageId(assistantMessageId);
-        
+
         // 开始字符池处理
-        charPoolRef.current = ''; // 清空字符池
+        charPoolRef.current = ""; // 清空字符池
         startCharPoolProcessing(assistantMessageId);
-        
+
         // 助手消息添加后也滚动到底部
         setTimeout(() => scrollToBottom(true), 50);
-        
+
         // 重置自动滚动标志，以便在用户发送新消息时开始响应
         isAutoScrollingRef.current = true;
         setShowScrollButton(false);
@@ -612,65 +676,67 @@ const ChatView: React.FC<ChatViewProps> = ({
       try {
         // Send request without authentication for now
         console.log("Sending chat message to OpenAgents network");
-        
-        const response = await fetch('/api/chat', {
-          method: 'POST',
+
+        const response = await fetch("/api/chat", {
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json'
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             message: currentMessage,
             conversationId: conversationId,
             messageId: assistantMessageId,
-            streamOutput: true
-          })
+            streamOutput: true,
+          }),
         });
-        
+
         if (!response.ok) {
           const errorText = await response.text();
           throw new Error(`Server error: ${response.status} ${errorText}`);
         }
-        
+
         const reader = response.body?.getReader();
-        
+
         if (!reader) {
-          throw new Error('Stream response not available');
+          throw new Error("Stream response not available");
         }
-        
-        let accumulatedText = '';
-        let partialLine = '';
+
+        let accumulatedText = "";
+        let partialLine = "";
         let messageToolSections: ToolSection[] = [];
 
         while (true) {
           const { done, value } = await reader.read();
-          
+
           if (done) {
             break;
           }
-          
+
           const text = new TextDecoder().decode(value);
-          const lines = (partialLine + text).split('\n');
-          
+          const lines = (partialLine + text).split("\n");
+
           // 可能存在不完整的行，保留最后一行直到下一批数据到达
-          partialLine = lines.pop() || '';
-          
+          partialLine = lines.pop() || "";
+
           for (const line of lines) {
             if (!line.trim()) continue; // 跳过空行
-            
+
             try {
               const data = JSON.parse(line);
-              
-              if (data.type === 'start') {
+
+              if (data.type === "start") {
                 // 开始事件
-                console.log('Stream started for message:', assistantMessageId);
-              }
-              else if (data.type === 'chunk') {
-                const messageText = data.chunk || '';
-                
+                console.log("Stream started for message:", assistantMessageId);
+              } else if (data.type === "chunk") {
+                const messageText = data.chunk || "";
+
                 // 检查是否为工具相关的消息
-                const isToolMessage = data.metadata && data.metadata.type && 
-                  (data.metadata.type.startsWith('tool_') || data.metadata.type === 'tool_notice');
-                
+                const isToolMessage =
+                  data.metadata &&
+                  data.metadata.type &&
+                  (data.metadata.type.startsWith("tool_") ||
+                    data.metadata.type === "tool_notice");
+
                 // 只有非工具相关的消息才添加到主文本中
                 if (!isToolMessage) {
                   // 将收到的文本添加到字符池而不是直接更新文本
@@ -679,37 +745,53 @@ const ChatView: React.FC<ChatViewProps> = ({
                   }
                   accumulatedText += messageText;
                 }
-                
+
                 // 如果有工具元数据，处理它
-                if (data.metadata && data.metadata.type && data.metadata.type.startsWith('tool_')) {
-                  console.log('Tool metadata received:', data.metadata);
-                  
+                if (
+                  data.metadata &&
+                  data.metadata.type &&
+                  data.metadata.type.startsWith("tool_")
+                ) {
+                  console.log("Tool metadata received:", data.metadata);
+
                   // 创建或更新工具部分
                   const toolType = data.metadata.type;
-                  const toolId = data.metadata.tool?.id || `tool_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-                  const toolName = data.metadata.tool?.name || 'Unknown Tool';
-                  
-                  setToolSections(prev => {
+                  const toolId =
+                    data.metadata.tool?.id ||
+                    `tool_${Date.now()}_${Math.random()
+                      .toString(36)
+                      .substring(2, 7)}`;
+                  const toolName = data.metadata.tool?.name || "Unknown Tool";
+
+                  setToolSections((prev) => {
                     const messageSections = prev[assistantMessageId] || [];
                     let updatedSections = [...messageSections];
-                    
+
                     // 检查是否已有此工具的部分
                     const existingToolIndex = messageSections.findIndex(
-                      section => section.name === toolName
+                      (section) => section.name === toolName
                     );
-                    
+
                     // 创建工具部分
                     let newSection: ToolSection;
-                    
+
                     if (existingToolIndex >= 0) {
                       // 更新现有工具部分
                       newSection = {
                         ...updatedSections[existingToolIndex],
                         type: toolType,
-                        content: updatedSections[existingToolIndex].content + (data.chunk || ''),
-                        input: data.metadata.tool?.input || updatedSections[existingToolIndex].input,
-                        result: data.metadata.tool?.result || updatedSections[existingToolIndex].result,
-                        error: data.metadata.error || updatedSections[existingToolIndex].error
+                        content:
+                          updatedSections[existingToolIndex].content +
+                          (data.chunk || ""),
+                        input:
+                          data.metadata.tool?.input ||
+                          updatedSections[existingToolIndex].input,
+                        result:
+                          data.metadata.tool?.result ||
+                          updatedSections[existingToolIndex].result,
+                        error:
+                          data.metadata.error ||
+                          updatedSections[existingToolIndex].error,
                       };
                       updatedSections[existingToolIndex] = newSection;
                     } else {
@@ -718,44 +800,49 @@ const ChatView: React.FC<ChatViewProps> = ({
                         id: toolId,
                         type: toolType,
                         name: toolName,
-                        content: data.chunk || '',
+                        content: data.chunk || "",
                         input: data.metadata.tool?.input,
                         result: data.metadata.tool?.result,
                         error: data.metadata.error,
-                        isCollapsed: true
+                        isCollapsed: true,
                       };
                       updatedSections.push(newSection);
                     }
-                    
+
                     // 更新工具部分列表，用于最终保存
                     messageToolSections = updatedSections;
-                    
+
                     // 打印出来调试
-                    console.log(`Updated tool sections for message ${assistantMessageId}:`, updatedSections);
-                    
+                    console.log(
+                      `Updated tool sections for message ${assistantMessageId}:`,
+                      updatedSections
+                    );
+
                     return {
                       ...prev,
-                      [assistantMessageId]: updatedSections
+                      [assistantMessageId]: updatedSections,
                     };
                   });
                 }
-              }
-              else if (data.type === 'error') {
-                console.error('Stream error:', data.error);
-                throw new Error(data.error || 'Unknown stream error');
-              } 
-              else if (data.type === 'end') {
-                console.log('Stream ended with message:', data.message);
+              } else if (data.type === "error") {
+                console.error("Stream error:", data.error);
+                throw new Error(data.error || "Unknown stream error");
+              } else if (data.type === "end") {
+                console.log("Stream ended with message:", data.message);
                 setStreamingMessageId(null);
-                
+
                 // 停止字符池处理并显示剩余字符
                 stopCharPoolProcessing();
-                
+
                 // 更新最终消息，并包含工具部分信息
-                setMessages(prevMessages => {
-                  const currentMessages = [...(prevMessages[conversationId] || [])];
-                  const assistantMsgIndex = currentMessages.findIndex(m => m.id === assistantMessageId);
-                  
+                setMessages((prevMessages) => {
+                  const currentMessages = [
+                    ...(prevMessages[conversationId] || []),
+                  ];
+                  const assistantMsgIndex = currentMessages.findIndex(
+                    (m) => m.id === assistantMessageId
+                  );
+
                   if (assistantMsgIndex >= 0) {
                     // 使用已累积的文本，而不是从end事件获取的消息
                     // 这样可以避免重复内容
@@ -763,86 +850,89 @@ const ChatView: React.FC<ChatViewProps> = ({
                       ...currentMessages[assistantMsgIndex],
                       text: accumulatedText,
                       // 添加工具元数据到消息，确保页面刷新后仍然可以恢复
-                      toolMetadata: messageToolSections.length > 0 ? {
-                        sections: messageToolSections
-                      } : undefined
+                      toolMetadata:
+                        messageToolSections.length > 0
+                          ? {
+                              sections: messageToolSections,
+                            }
+                          : undefined,
                     };
                   }
-                  
+
                   const updatedMessages = {
                     ...prevMessages,
-                    [conversationId]: currentMessages
+                    [conversationId]: currentMessages,
                   };
-                  
+
                   // 保存消息
                   saveMessages(updatedMessages);
-                  
+
                   return updatedMessages;
                 });
-                
+
                 // Only auto-scroll to bottom if user hasn't manually scrolled up
                 if (isAutoScrollingRef.current) {
                   setTimeout(() => scrollToBottom(false), 100);
                 }
-                
+
                 break;
               }
             } catch (parseError) {
-              console.error('Error parsing stream data:', parseError, line);
+              console.error("Error parsing stream data:", parseError, line);
             }
           }
         }
       } catch (streamError: any) {
-        console.error('Error in message streaming:', streamError);
-        
+        console.error("Error in message streaming:", streamError);
+
         // 停止字符池处理
         stopCharPoolProcessing();
-        
+
         // 添加错误消息
         const errorMessage: Message = {
           id: uuidv4(),
-          text: `Error: ${streamError.message || 'Failed to get response'}`,
-          sender: 'system',
-          timestamp: new Date().toISOString()
+          text: `Error: ${streamError.message || "Failed to get response"}`,
+          sender: "system",
+          timestamp: new Date().toISOString(),
         };
-        
-        setMessages(currentMessages => {
-          const currentConversationMessages = currentMessages[conversationId] || [];
+
+        setMessages((currentMessages) => {
+          const currentConversationMessages =
+            currentMessages[conversationId] || [];
           return {
             ...currentMessages,
             [conversationId]: [
-              ...currentConversationMessages.filter(msg => msg.id !== assistantMessageId),
-              errorMessage
-            ]
+              ...currentConversationMessages.filter(
+                (msg) => msg.id !== assistantMessageId
+              ),
+              errorMessage,
+            ],
           };
         });
       }
-      
     } catch (error: any) {
-      console.error('Error sending message:', error);
-      
+      console.error("Error sending message:", error);
+
       // 停止字符池处理
       stopCharPoolProcessing();
-      
+
       // Add error message to conversation
       const errorMessage: Message = {
         id: uuidv4(),
-        text: `Error: ${error.message || 'Failed to send message'}`,
-        sender: 'system',
-        timestamp: new Date().toISOString()
+        text: `Error: ${error.message || "Failed to send message"}`,
+        sender: "system",
+        timestamp: new Date().toISOString(),
       };
-      
-      setMessages(currentMessages => {
-        const currentConversationMessages = currentMessages[conversationId] || [];
+
+      setMessages((currentMessages) => {
+        const currentConversationMessages =
+          currentMessages[conversationId] || [];
         return {
           ...currentMessages,
-          [conversationId]: [
-            ...currentConversationMessages,
-            errorMessage
-          ]
+          [conversationId]: [...currentConversationMessages, errorMessage],
         };
       });
-      
+
       setIsSending(false);
       setStreamingMessageId(null);
     } finally {
@@ -852,27 +942,27 @@ const ChatView: React.FC<ChatViewProps> = ({
 
   const handleStopGeneration = async (): Promise<void> => {
     if (!isSending || !streamingMessageId) return;
-    
-    console.log('Stop generation requested for conversation:', conversationId);
-    
+
+    console.log("Stop generation requested for conversation:", conversationId);
+
     try {
       await abortChatMessage(conversationId);
-      
+
       // 停止字符池处理
       stopCharPoolProcessing();
-      
+
       // Update UI state
       setIsSending(false);
       setStreamingMessageId(null);
-      
+
       // Save what we have so far
       setTimeout(() => {
-        saveMessages(messages).catch(err => {
-          console.error('Error saving messages after abort:', err);
+        saveMessages(messages).catch((err) => {
+          console.error("Error saving messages after abort:", err);
         });
       }, 500);
     } catch (error) {
-      console.error('Error during abort:', error);
+      console.error("Error during abort:", error);
     }
   };
 
@@ -880,22 +970,46 @@ const ChatView: React.FC<ChatViewProps> = ({
   return (
     <div className={`chat-view-container ${currentTheme} h-full flex flex-col`}>
       <style>{styles}</style>
-      
+
       {isSessionLoading && (
         <div className="loading-indicator fade-in">
-          <svg className="loading-spinner h-5 w-5 mr-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          <svg
+            className="loading-spinner h-5 w-5 mr-3"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            ></circle>
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            ></path>
           </svg>
           <span>连接中...</span>
         </div>
       )}
-      
+
       {sessionError && (
         <div className="error-message fade-in">
           <div className="flex items-start">
-            <svg className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            <svg
+              className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fillRule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                clipRule="evenodd"
+              />
             </svg>
             <div>
               <p className="font-medium">连接失败</p>
@@ -904,10 +1018,10 @@ const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
       )}
-      
+
       <div className="flex-1 flex flex-col overflow-hidden h-full relative min-h-0">
-        <MessageList 
-          messages={messages[conversationId] || []} 
+        <MessageList
+          messages={messages[conversationId] || []}
           streamingMessageId={streamingMessageId}
           toolSections={toolSections}
           isAutoScrollingDisabled={!isAutoScrollingRef.current}
@@ -915,16 +1029,18 @@ const ChatView: React.FC<ChatViewProps> = ({
             // 当用户滚动时，更新全局滚动状态
             isAutoScrollingRef.current = !hasScrolled;
             setShowScrollButton(hasScrolled);
-            
+
             if (hasScrolled && streamingMessageId) {
-              console.log("User scrolled during streaming - updating ChatView scroll state");
+              console.log(
+                "User scrolled during streaming - updating ChatView scroll state"
+              );
             }
           }}
         />
         <div ref={messagesEndRef} />
-        
+
         {showScrollButton && (
-          <button 
+          <button
             className="scroll-button fade-in"
             onClick={() => {
               isAutoScrollingRef.current = true;
@@ -933,15 +1049,26 @@ const ChatView: React.FC<ChatViewProps> = ({
             }}
             aria-label="滚动到底部"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M19 14l-7 7m0 0l-7-7m7 7V3"
+              />
             </svg>
           </button>
         )}
       </div>
-      
+
       <div className="chat-input-area flex-shrink-0">
-        <MessageInput 
+        <MessageInput
           value={currentMessage}
           onChange={(e) => setCurrentMessage(e.target.value)}
           onSend={sendMessage}
@@ -955,4 +1082,4 @@ const ChatView: React.FC<ChatViewProps> = ({
   );
 };
 
-export default ChatView; 
+export default ChatView;

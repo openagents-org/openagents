@@ -7,12 +7,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   OpenAgentsService,
-  ConnectionStatus,
   MessageSendResult,
   ThreadMessage,
   ThreadChannel,
   AgentInfo,
-} from "../services/openAgentsService";
+} from "@/services/openAgentsService";
+import { ConnectionStatus, ConnectionStatusEnum } from "@/types/connection";
 
 export interface UseOpenAgentsOptions {
   agentId: string;
@@ -82,7 +82,7 @@ export const useOpenAgents = (
 ): UseOpenAgentsReturn => {
   const [service, setService] = useState<OpenAgentsService | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
-    status: "disconnected",
+    status: ConnectionStatusEnum.DISCONNECTED,
   });
   const [channels, setChannels] = useState<ThreadChannel[]>([]);
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
@@ -92,134 +92,129 @@ export const useOpenAgents = (
   // Use ref to avoid recreating service on every render
   const serviceRef = useRef<OpenAgentsService | null>(null);
 
+  const cleanUpService = useCallback((isUnmount) => {
+    if (serviceRef.current) {
+      console.log(
+        `🔧 Cleaning up existing service for agent ${
+          isUnmount ? "mount" : "unmount"
+        }`,
+        serviceRef.current.getAgentId?.() || "unknown"
+      );
+      const serviceTemp = serviceRef.current;
+      serviceRef.current = null;
+      !isUnmount && setService(null);
+      serviceTemp.disconnect().catch((error) => {
+        console.warn(
+          `Error during service cleanup ${isUnmount ? "mount" : "unmount"} :`,
+          error
+        );
+      });
+    }
+  }, []);
+
+  const initializeService = useCallback(() => {
+    if (!options.agentId || !options.host || !options.port) return;
+    console.log("🔧 Initializing OpenAgents service...", {
+      agentId: options.agentId,
+      host: options.host,
+      port: options.port,
+      autoConnect: options.autoConnect,
+    });
+
+    const newService = new OpenAgentsService({
+      agentId: options.agentId,
+      host: options.host,
+      port: options.port,
+    });
+
+    const handleNewMessagePush = (
+      message: ThreadMessage,
+      type: "Channel" | "Direct"
+    ) => {
+      console.log(
+        `📨 New ${type} message received: `,
+        `message_id: ${message.message_id}`,
+        `channel: `,
+        message.channel
+      );
+      setMessages((prev) => {
+        // Check if message already exists (to avoid duplicates)
+        const exists = prev.some(
+          (existingMsg) => existingMsg.message_id === message.message_id
+        );
+        if (exists) {
+          console.log(
+            `📨 Duplicate ${type} message ignored: `,
+            message.message_id
+          );
+          return prev;
+        }
+        // Only add messages that belong to the currently loaded channel
+        // Note: This will be handled by the component's channel filtering logic
+        return [...prev, message];
+      });
+    };
+
+    // Setup event handlers
+    newService.on("connectionStatusChanged", (status: ConnectionStatus) => {
+      setConnectionStatus(status);
+    });
+
+    newService.on("connectionError", (data: any) => {
+      setLastError(data.error || "Connection error");
+    });
+
+    newService.on("newChannelMessage", (message: ThreadMessage) => {
+      handleNewMessagePush(message, "Channel");
+    });
+
+    newService.on("newDirectMessage", (message: ThreadMessage) => {
+      handleNewMessagePush(message, "Direct");
+    });
+
+    newService.on("newReaction", (reaction: any) => {
+      // Update reaction count in existing messages
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.message_id === reaction.message_id) {
+            const reactions = { ...(msg.reactions || {}) };
+            const reactionType = reaction.reaction_type;
+            reactions[reactionType] = Math.max(
+              (reactions[reactionType] || 0) +
+                (reaction.action === "add" ? +1 : -1),
+              0
+            );
+            return { ...msg, reactions };
+          }
+          return msg;
+        })
+      );
+    });
+
+    serviceRef.current = newService;
+    setService(newService);
+
+    // Auto-connect if requested
+    if (options.autoConnect) {
+      newService.connect().catch((error) => {
+        setLastError(`Auto-connect failed: ${error.message}`);
+      });
+    }
+  }, [options.agentId, options.host, options.port, options.autoConnect]);
+
   // Initialize service
   useEffect(() => {
     // Clean up any existing service first
-    if (serviceRef.current) {
-      console.log(
-        "🔧 Cleaning up existing service for agent:",
-        serviceRef.current.getAgentId?.() || "unknown"
-      );
-      serviceRef.current.disconnect().catch(console.warn);
-      serviceRef.current = null;
-      setService(null);
-    }
-
-    if (options.agentId && options.host && options.port) {
-      console.log("🔧 Initializing OpenAgents service...", {
-        agentId: options.agentId,
-        host: options.host,
-        port: options.port,
-        autoConnect: options.autoConnect,
-      });
-
-      const newService = new OpenAgentsService({
-        agentId: options.agentId,
-        host: options.host,
-        port: options.port,
-      });
-
-      // Setup event handlers
-      newService.on("connectionStatusChanged", (status: ConnectionStatus) => {
-        setConnectionStatus(status);
-      });
-
-      newService.on("connectionError", (data: any) => {
-        setLastError(data.error || "Connection error");
-      });
-
-      newService.on("newChannelMessage", (message: ThreadMessage) => {
-        console.log(
-          "📨 New channel message received:",
-          message.channel,
-          message.message_id
-        );
-        setMessages((prev) => {
-          // Check if message already exists (to avoid duplicates)
-          const exists = prev.some(
-            (existingMsg) => existingMsg.message_id === message.message_id
-          );
-          if (exists) {
-            console.log(
-              "📨 Duplicate channel message ignored:",
-              message.message_id
-            );
-            return prev;
-          }
-          // Only add messages that belong to the currently loaded channel
-          // Note: This will be handled by the component's channel filtering logic
-          return [...prev, message];
-        });
-      });
-
-      newService.on("newDirectMessage", (message: ThreadMessage) => {
-        setMessages((prev) => {
-          // Check if message already exists (to avoid duplicates)
-          const exists = prev.some(
-            (existingMsg) => existingMsg.message_id === message.message_id
-          );
-          if (exists) {
-            console.log(
-              "📨 Duplicate direct message ignored:",
-              message.message_id
-            );
-            return prev;
-          }
-          return [...prev, message];
-        });
-      });
-
-      newService.on("newReaction", (reaction: any) => {
-        // Update reaction count in existing messages
-        setMessages((prev) =>
-          prev.map((msg) => {
-            if (msg.message_id === reaction.message_id) {
-              const reactions = { ...(msg.reactions || {}) };
-              if (reaction.action === "add") {
-                reactions[reaction.reaction_type] =
-                  (reactions[reaction.reaction_type] || 0) + 1;
-              } else if (reaction.action === "remove") {
-                reactions[reaction.reaction_type] = Math.max(
-                  0,
-                  (reactions[reaction.reaction_type] || 0) - 1
-                );
-              }
-              return { ...msg, reactions };
-            }
-            return msg;
-          })
-        );
-      });
-
-      serviceRef.current = newService;
-      setService(newService);
-
-      // Auto-connect if requested
-      if (options.autoConnect) {
-        newService.connect().catch((error) => {
-          setLastError(`Auto-connect failed: ${error.message}`);
-        });
-      }
-    }
-
-    // Only disconnect on unmount, not on re-renders
-    return () => {
-      // Do nothing here - let the component cleanup handle disconnection
-    };
-  }, [options.agentId, options.host, options.port, options.autoConnect]);
+    cleanUpService(false);
+    initializeService();
+  }, [cleanUpService, initializeService]);
 
   // Cleanup on component unmount
   useEffect(() => {
     return () => {
-      if (serviceRef.current) {
-        console.log("🔌 Cleaning up OpenAgents service on unmount");
-        serviceRef.current.disconnect().catch((error) => {
-          console.warn("Error during service cleanup:", error);
-        });
-        serviceRef.current = null;
-      }
+      cleanUpService(true);
     };
-  }, []);
+  }, [cleanUpService]);
 
   // Connection methods
   const connect = useCallback(async (): Promise<boolean> => {

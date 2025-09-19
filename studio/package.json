@@ -23,9 +23,11 @@
     "rehype-highlight": "^7.0.2",
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@craco/craco": "^7.1.0",
     "@tailwindcss/typography": "^0.5.10",
     "@testing-library/jest-dom": "^5.17.0",
     "@testing-library/react": "^14.0.0",
@@ -45,9 +47,9 @@
     "typescript": "^4.9.5"
   },
   "scripts": {
-    "start": "PORT=8050 HOST=0.0.0.0 DANGEROUSLY_DISABLE_HOST_CHECK=true react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
+    "start": "PORT=8050 HOST=0.0.0.0 DANGEROUSLY_DISABLE_HOST_CHECK=true craco start",
+    "build": "craco build",
+    "test": "craco test",
     "eject": "react-scripts eject",
     "lint": "eslint src/**/*.{js,jsx,ts,tsx}",
     "typecheck": "tsc --noEmit"

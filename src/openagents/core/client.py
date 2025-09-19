@@ -61,6 +61,9 @@ class AgentClient:
         # Event handlers in the client level
         self._event_handlers: List[EventHandlerEntry] = []
 
+        # General message threads
+        self._general_message_threads: Dict[str, MessageThread] = {}
+
         # Register mod adapters if provided
         if mod_adapters:
             for mod_adapter in mod_adapters:
@@ -484,7 +487,7 @@ class AgentClient:
             logger.error(f"Error getting mod manifest for {mod_name}: {e}")
             return None
 
-    async def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentAdapterTool]:
         """Get all tools from registered mod adapters.
         
         Returns:
@@ -495,7 +498,7 @@ class AgentClient:
         # Collect tools from all registered mod adapters
         for mod_name, adapter in self.mod_adapters.items():
             try:
-                adapter_tools = await adapter.get_tools()
+                adapter_tools = adapter.get_tools()
                 if adapter_tools:
                     tools.extend(adapter_tools)
                     logger.debug(f"Added {len(adapter_tools)} tools from {mod_name}")
@@ -513,11 +516,11 @@ class AgentClient:
         threads = {}
         
         # Collect conversation threads from all registered mod adapters
-        print(f"🔧 CLIENT: get_messsage_threads called, found {len(self.mod_adapters)} adapters")
+        logger.debug(f"🔧 CLIENT: get_messsage_threads called, found {len(self.mod_adapters)} adapters")
         for mod_name, adapter in self.mod_adapters.items():
             try:
                 adapter_threads = adapter.message_threads
-                print(f"🔧 CLIENT: Adapter {mod_name} has {len(adapter_threads) if adapter_threads else 0} threads")
+                logger.debug(f"🔧 CLIENT: Adapter {mod_name} has {len(adapter_threads) if adapter_threads else 0} threads")
                 if adapter_threads:
                     # Merge the adapter's threads into our collection
                     for thread_id, thread in adapter_threads.items():
@@ -538,6 +541,12 @@ class AgentClient:
                     logger.debug(f"Added {len(adapter_threads)} conversation threads from {mod_name}")
             except Exception as e:
                 logger.error(f"Error getting message threads from mod adapter {mod_name}: {e}")
+        
+        for thread_id, thread in self._general_message_threads.items():
+            if thread_id not in threads:
+                threads[thread_id] = thread
+            else:
+                logger.warning(f"Thread {thread_id} already exists in general message threads")
         
         return threads
     
@@ -580,29 +589,21 @@ class AgentClient:
                 traceback.print_exc()
         
         # If no mod adapter processed the event, add it to message threads for agent processing
-        # if not processed_by_adapter:
-        #     logger.debug(f"Event not processed by adapters, adding to message threads for agent processing")
+        if not processed_by_adapter:
+            logger.debug(f"Event not processed by adapters, adding to message threads for agent processing")
             
-        #     # Create a thread ID for the Event
-        #     thread_id = f"event_{event.event_name.replace('.', '_')}_{event.message_id[:8]}"
+            # Create a thread ID for the Event
+            if "." in event.event_name:
+                thread_id = "client_thread:" + event.event_name.rsplit(".", 1)[0]
+            else:
+                thread_id = "client_thread:" + event.event_name
             
-        #     # Try to add the event to any available mod adapter's message threads
-        #     added_to_thread = False
-        #     for mod_name, mod_adapter in self.mod_adapters.items():
-        #         if hasattr(mod_adapter, 'message_threads') and mod_adapter.message_threads is not None:
-        #             if thread_id not in mod_adapter.message_threads:
-        #                 from openagents.models.message_thread import MessageThread
-        #                 mod_adapter.message_threads[thread_id] = MessageThread(thread_id=thread_id)
-                    
-        #             # Add the Event to the thread
-        #             mod_adapter.message_threads[thread_id].add_message(event)
-        #             print(f"🔧 CLIENT: Added Event {event.event_name} to thread {thread_id} in {mod_name} adapter for agent processing")
-        #             logger.debug(f"Added Event to thread {thread_id} in {mod_name} adapter for agent processing")
-        #             added_to_thread = True
-        #             break
+            # Try to add the event to any available mod adapter's message threads
+            if thread_id not in self._general_message_threads:
+                self._general_message_threads[thread_id] = MessageThread()
             
-        #     if not added_to_thread:
-        #         logger.warning("No mod adapter message_threads available to add Event")
+            # Add the Event to the thread
+            self._general_message_threads[thread_id].add_message(event)
     
     async def wait_event(self, 
                        condition: Optional[Callable[[Event], bool]] = None,

@@ -222,7 +222,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             visibility=EventVisibility.MOD_ONLY
         )
         
-        await self.connector.send_mod_message(message)
+        await self.connector.send_event(message)
         logger.debug(f"Sent direct message to {target_agent_id}")
     
     async def send_channel_message(self, channel: str, text: str, mentioned_agent_id: Optional[str] = None, quote: Optional[str] = None, 
@@ -288,7 +288,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         logger.info(f"🔧 ADAPTER: Created Event with visibility={message.visibility}, relevant_mod={message.relevant_mod}")
         logger.info(f"🔧 ADAPTER: Event destination_id={message.destination_id}")
         
-        await self.connector.send_mod_message(message)
+        await self.connector.send_event(message)
         logger.debug(f"Sent channel message to {channel}")
         return True
     
@@ -420,7 +420,11 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                 "timestamp": message.timestamp
             }
             
-            await self.connector.send_mod_message(message)
+            # Use send_event for gRPC or send_mod_message for websocket
+            if hasattr(self.connector, 'send_mod_message'):
+                await self.connector.send_mod_message(message)
+            else:
+                await self.connector.send_event(message)
             logger.debug(f"Initiated file upload for {file_path.name}")
             
             # Wait for response with timeout
@@ -497,7 +501,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             payload=reply_msg.model_dump()
         )
         
-        await self.connector.send_mod_message(message)
+        await self.connector.send_event(message)
         logger.debug(f"Sent reply to message {reply_to_id} in channel {channel}")
     
     async def reply_direct_message(self, target_agent_id: str, reply_to_id: str, text: str, quote: Optional[str] = None) -> None:
@@ -542,7 +546,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             payload=reply_msg.model_dump()
         )
         
-        await self.connector.send_mod_message(message)
+        await self.connector.send_event(message)
         logger.debug(f"Sent reply to message {reply_to_id} for agent {target_agent_id}")
     
     async def retrieve_channel_messages(self, channel: str, limit: int = 50, offset: int = 0, include_threads: bool = True) -> None:
@@ -592,7 +596,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             "timestamp": message.timestamp
         }
         
-        await self.connector.send_mod_message(message)
+        await self.connector.send_event(message)
         logger.debug(f"Requested channel messages for {channel} (limit={limit}, offset={offset})")
     
     async def retrieve_direct_messages(self, target_agent_id: str, limit: int = 50, offset: int = 0, include_threads: bool = True) -> None:
@@ -642,7 +646,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             "timestamp": message.timestamp
         }
         
-        await self.connector.send_mod_message(message)
+        await self.connector.send_event(message)
         logger.debug(f"Requested direct messages with {target_agent_id} (limit={limit}, offset={offset})")
     
     async def list_channels(self) -> List[Dict[str, Any]]:
@@ -686,7 +690,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             "timestamp": message.timestamp
         }
         
-        await self.connector.send_mod_message(message)
+        await self.connector.send_event(message)
         logger.debug("Requested channels list")
         
         # Wait for response with timeout
@@ -745,7 +749,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             payload=reaction_msg.model_dump()
         )
         
-        await self.connector.send_mod_message(message)
+        await self.connector.send_event(message)
         logger.debug(f"Sent {action} reaction {reaction_type} for message {target_message_id}")
     
     def register_message_handler(self, handler_id: str, handler: MessageHandler) -> None:

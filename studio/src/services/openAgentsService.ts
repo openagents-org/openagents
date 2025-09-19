@@ -1,13 +1,17 @@
 /**
  * Pure Event-based OpenAgents Service
- * 
+ *
  * This service implements the event-driven architecture using HTTP transport.
  * It provides immediate synchronous responses for all operations.
  */
 
-import { EventNetworkService } from './eventNetworkService';
-import { ThreadMessage, ThreadChannel, AgentInfo } from '../types/events';
-import { NetworkConnection } from './networkService';
+import { EventNetworkService } from "./eventNetworkService";
+import { ThreadMessage, ThreadChannel, AgentInfo } from "../types/events";
+import {
+  ConnectionStatusEnum,
+  ConnectionStatus,
+  NetworkConnection,
+} from "@/types/connection";
 
 export interface OpenAgentsServiceOptions {
   agentId: string;
@@ -22,32 +26,27 @@ export interface MessageSendResult {
   messageId?: string;
 }
 
-export interface ConnectionStatus {
-  status: 'connected' | 'connecting' | 'disconnected' | 'error';
-  agentId?: string;
-  isUsingModifiedId?: boolean;
-  latency?: number;
-}
-
 export class OpenAgentsService {
   private eventService: EventNetworkService;
-  private connectionStatus: ConnectionStatus = { status: 'disconnected' };
+  private connectionStatus: ConnectionStatus = {
+    status: ConnectionStatusEnum.DISCONNECTED,
+  };
   private eventHandlers: Map<string, Set<Function>> = new Map();
   private agentId: string;
 
   constructor(options: OpenAgentsServiceOptions) {
     this.agentId = options.agentId;
-    
+
     const connection: NetworkConnection = {
-      host: options.host || 'localhost',
+      host: options.host || "localhost",
       port: options.port || 8571,
-      status: 'disconnected'
+      status: ConnectionStatusEnum.DISCONNECTED,
     };
 
     this.eventService = new EventNetworkService({
       agentId: this.agentId,
       connection,
-      timeout: options.timeout
+      timeout: options.timeout,
     });
 
     this.setupEventHandlers();
@@ -57,81 +56,113 @@ export class OpenAgentsService {
    * Connection Management
    */
   async connect(): Promise<boolean> {
-    console.log('🔌 Connecting to OpenAgents network via pure event system...');
-    
-    this.connectionStatus.status = 'connecting';
-    this.emit('connectionStatusChanged', this.connectionStatus);
+    console.log("🔌 Connecting to OpenAgents network via pure event system...");
+
+    this.connectionStatus.status = ConnectionStatusEnum.CONNECTING;
+    this.emit("connectionStatusChanged", this.connectionStatus);
 
     const success = await this.eventService.connect();
-    
+
     if (success) {
       this.connectionStatus = {
-        status: 'connected',
+        status: ConnectionStatusEnum.CONNECTED,
         agentId: this.eventService.getAgentId(),
-        isUsingModifiedId: this.eventService.isUsingModifiedId()
+        isUsingModifiedId: this.eventService.isUsingModifiedId(),
       };
       console.log(`✅ Connected as ${this.connectionStatus.agentId}`);
     } else {
-      this.connectionStatus.status = 'error';
+      this.connectionStatus.status = ConnectionStatusEnum.ERROR;
     }
 
-    this.emit('connectionStatusChanged', this.connectionStatus);
+    this.emit("connectionStatusChanged", this.connectionStatus);
     return success;
   }
 
   async disconnect(): Promise<void> {
-    console.log('🔌 Disconnecting from OpenAgents network...');
+    console.log("🔌 Disconnecting from OpenAgents network...");
     await this.eventService.disconnect();
-    this.connectionStatus.status = 'disconnected';
-    this.emit('connectionStatusChanged', this.connectionStatus);
+    this.connectionStatus.status = ConnectionStatusEnum.DISCONNECTED;
+    this.emit("connectionStatusChanged", this.connectionStatus);
   }
 
   /**
    * Messaging Operations - All return immediate results
    */
-  async sendChannelMessage(channel: string, content: string, replyToId?: string): Promise<MessageSendResult> {
+  async sendChannelMessage(
+    channel: string,
+    content: string,
+    replyToId?: string
+  ): Promise<MessageSendResult> {
     console.log(`📤 Sending message to #${channel}: "${content}"`);
-    
-    const response = await this.eventService.sendChannelMessage(channel, content, replyToId);
-    
+
+    const response = await this.eventService.sendChannelMessage(
+      channel,
+      content,
+      replyToId
+    );
+
     return {
       success: response.success,
       message: response.message,
-      messageId: response.data?.message_id
+      messageId: response.data?.message_id,
     };
   }
 
-  async sendDirectMessage(targetAgentId: string, content: string): Promise<MessageSendResult> {
+  async sendDirectMessage(
+    targetAgentId: string,
+    content: string
+  ): Promise<MessageSendResult> {
     console.log(`📤 Sending direct message to ${targetAgentId}: "${content}"`);
-    
-    const response = await this.eventService.sendDirectMessage(targetAgentId, content);
-    
+
+    const response = await this.eventService.sendDirectMessage(
+      targetAgentId,
+      content
+    );
+
     return {
       success: response.success,
       message: response.message,
-      messageId: response.data?.message_id
+      messageId: response.data?.message_id,
     };
   }
 
-  async addReaction(messageId: string, reactionType: string, channel?: string): Promise<MessageSendResult> {
+  async addReaction(
+    messageId: string,
+    reactionType: string,
+    channel?: string
+  ): Promise<MessageSendResult> {
     console.log(`😀 Adding reaction ${reactionType} to message ${messageId}`);
-    
-    const response = await this.eventService.addReaction(messageId, reactionType, channel);
-    
+
+    const response = await this.eventService.addReaction(
+      messageId,
+      reactionType,
+      channel
+    );
+
     return {
       success: response.success,
-      message: response.message
+      message: response.message,
     };
   }
 
-  async removeReaction(messageId: string, reactionType: string, channel?: string): Promise<MessageSendResult> {
-    console.log(`😀 Removing reaction ${reactionType} from message ${messageId}`);
-    
-    const response = await this.eventService.removeReaction(messageId, reactionType, channel);
-    
+  async removeReaction(
+    messageId: string,
+    reactionType: string,
+    channel?: string
+  ): Promise<MessageSendResult> {
+    console.log(
+      `😀 Removing reaction ${reactionType} from message ${messageId}`
+    );
+
+    const response = await this.eventService.removeReaction(
+      messageId,
+      reactionType,
+      channel
+    );
+
     return {
       success: response.success,
-      message: response.message
+      message: response.message,
     };
   }
 
@@ -139,22 +170,38 @@ export class OpenAgentsService {
    * Data Retrieval - All return immediate results
    */
   async getChannels(): Promise<ThreadChannel[]> {
-    console.log('📋 Getting channels...');
+    console.log("📋 Getting channels...");
     return await this.eventService.getChannels();
   }
 
-  async getChannelMessages(channel: string, limit: number = 50, offset: number = 0): Promise<ThreadMessage[]> {
-    console.log(`📝 Getting messages for #${channel} (limit: ${limit}, offset: ${offset})`);
+  async getChannelMessages(
+    channel: string,
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<ThreadMessage[]> {
+    console.log(
+      `📝 Getting messages for #${channel} (limit: ${limit}, offset: ${offset})`
+    );
     return await this.eventService.getChannelMessages(channel, limit, offset);
   }
 
-  async getDirectMessages(targetAgentId: string, limit: number = 50, offset: number = 0): Promise<ThreadMessage[]> {
-    console.log(`📝 Getting direct messages with ${targetAgentId} (limit: ${limit}, offset: ${offset})`);
-    return await this.eventService.getDirectMessages(targetAgentId, limit, offset);
+  async getDirectMessages(
+    targetAgentId: string,
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<ThreadMessage[]> {
+    console.log(
+      `📝 Getting direct messages with ${targetAgentId} (limit: ${limit}, offset: ${offset})`
+    );
+    return await this.eventService.getDirectMessages(
+      targetAgentId,
+      limit,
+      offset
+    );
   }
 
   async getConnectedAgents(): Promise<AgentInfo[]> {
-    console.log('👥 Getting connected agents...');
+    console.log("👥 Getting connected agents...");
     return await this.eventService.getConnectedAgents();
   }
 
@@ -205,7 +252,7 @@ export class OpenAgentsService {
   private emit(eventName: string, data: any): void {
     const handlers = this.eventHandlers.get(eventName);
     if (handlers) {
-      handlers.forEach(handler => {
+      handlers.forEach((handler) => {
         try {
           handler(data);
         } catch (error) {
@@ -217,65 +264,74 @@ export class OpenAgentsService {
 
   private setupEventHandlers(): void {
     // Connection events
-    this.eventService.on('connected', (data: any) => {
+    this.eventService.on("connected", (data: any) => {
       this.connectionStatus = {
-        status: 'connected',
+        status: ConnectionStatusEnum.CONNECTED,
         agentId: data.agentId,
-        isUsingModifiedId: this.eventService.isUsingModifiedId()
+        isUsingModifiedId: this.eventService.isUsingModifiedId(),
       };
-      this.emit('connected', data);
-      this.emit('connectionStatusChanged', this.connectionStatus);
+      this.emit("connected", data);
+      this.emit("connectionStatusChanged", this.connectionStatus);
     });
 
-    this.eventService.on('disconnected', (data: any) => {
-      this.connectionStatus.status = 'disconnected';
-      this.emit('disconnected', data);
-      this.emit('connectionStatusChanged', this.connectionStatus);
+    this.eventService.on("disconnected", (data: any) => {
+      this.connectionStatus.status = ConnectionStatusEnum.DISCONNECTED;
+      this.emit("disconnected", data);
+      this.emit("connectionStatusChanged", this.connectionStatus);
     });
 
-    this.eventService.on('connectionError', (data: any) => {
-      this.connectionStatus.status = 'error';
-      this.emit('connectionError', data);
-      this.emit('connectionStatusChanged', this.connectionStatus);
+    this.eventService.on("connectionError", (data: any) => {
+      this.connectionStatus.status = ConnectionStatusEnum.ERROR;
+      this.emit("connectionError", data);
+      this.emit("connectionStatusChanged", this.connectionStatus);
     });
 
-    this.eventService.on('reconnecting', (data: any) => {
-      this.connectionStatus.status = 'connecting';
-      this.emit('reconnecting', data);
-      this.emit('connectionStatusChanged', this.connectionStatus);
+    this.eventService.on("reconnecting", (data: any) => {
+      this.connectionStatus.status = ConnectionStatusEnum.CONNECTING;
+      this.emit("reconnecting", data);
+      this.emit("connectionStatusChanged", this.connectionStatus);
     });
 
-    this.eventService.on('reconnected', (data: any) => {
-      this.connectionStatus.status = 'connected';
-      this.emit('reconnected', data);
-      this.emit('connectionStatusChanged', this.connectionStatus);
+    this.eventService.on("reconnected", (data: any) => {
+      this.connectionStatus.status = ConnectionStatusEnum.CONNECTED;
+      this.emit("reconnected", data);
+      this.emit("connectionStatusChanged", this.connectionStatus);
     });
 
     // Real-time message events
-    this.eventService.on('channelMessage', (message: ThreadMessage) => {
-      console.log(`📨 New channel message in #${message.channel} from ${message.sender_id}`);
-      this.emit('newChannelMessage', message);
-      this.emit('newMessage', message); // Generic event
+    this.eventService.on("channelMessage", (message: ThreadMessage) => {
+      console.log(
+        `📨 New channel message in #${message.channel} from ${message.sender_id}`
+      );
+      this.emit("newChannelMessage", message);
+      this.emit("newMessage", message); // Generic event
     });
 
-    this.eventService.on('directMessage', (message: ThreadMessage) => {
+    this.eventService.on("directMessage", (message: ThreadMessage) => {
       console.log(`📨 New direct message from ${message.sender_id}`);
-      this.emit('newDirectMessage', message);
-      this.emit('newMessage', message); // Generic event
+      this.emit("newDirectMessage", message);
+      this.emit("newMessage", message); // Generic event
     });
 
-    this.eventService.on('reaction', (reaction: any) => {
-      console.log(`😀 New reaction: ${reaction.reaction_type} on message ${reaction.message_id}`);
-      this.emit('newReaction', reaction);
+    this.eventService.on("reaction", (reaction: any) => {
+      console.log(
+        `😀 New reaction: ${reaction.reaction_type} on message ${reaction.message_id}`
+      );
+      this.emit("newReaction", reaction);
     });
 
     // Debug events
-    this.eventService.on('rawEvent', (event: any) => {
+    this.eventService.on("rawEvent", (event: any) => {
       console.log(`📨 Raw event: ${event.event_name}`, event);
-      this.emit('rawEvent', event);
+      this.emit("rawEvent", event);
     });
   }
 }
 
 // Export types for components
-export type { ThreadMessage, ThreadChannel, AgentInfo, EventResponse } from '../types/events';
+export type {
+  ThreadMessage,
+  ThreadChannel,
+  AgentInfo,
+  EventResponse,
+} from "../types/events";

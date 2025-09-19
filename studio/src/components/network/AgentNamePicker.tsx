@@ -1,478 +1,172 @@
-import React, { useState, useEffect } from 'react';
-import { NetworkConnection } from '../../services/networkService';
-import { getSavedAgentNameForNetwork, saveAgentNameForNetwork } from '../../utils/cookies';
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  getSavedAgentNameForNetwork,
+  saveAgentNameForNetwork,
+} from "@/utils/cookies";
+import {
+  generateRandomAgentName,
+  isValidName,
+  getAvatarInitials,
+} from "@/utils/utils";
+import { useNetworkStore } from "@/stores/networkStore";
 
-interface AgentNamePickerProps {
-  networkConnection: NetworkConnection;
-  onAgentNameSelected: (agentName: string) => void;
-  onBack: () => void;
-  currentTheme: 'light' | 'dark';
-}
+const AgentNamePicker: React.FC = () => {
+  const { selectedNetwork, setAgentName, clearAgentName, clearNetwork } =
+    useNetworkStore();
 
-const styles = `
-  .agent-name-picker {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 20px;
-  }
-  
-  .agent-name-picker.dark {
-    background: linear-gradient(135deg, #1e3a8a 0%, #3730a3 100%);
-  }
-  
-  .picker-card {
-    background: #ffffff;
-    border-radius: 16px;
-    padding: 40px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-    max-width: 500px;
-    width: 100%;
-    text-align: center;
-  }
-  
-  .picker-card.dark {
-    background: #1f2937;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-  }
-  
-  .picker-header {
-    margin-bottom: 32px;
-  }
-  
-  .picker-title {
-    font-size: 28px;
-    font-weight: 700;
-    color: #1f2937;
-    margin: 0 0 12px 0;
-  }
-  
-  .picker-title.dark {
-    color: #f9fafb;
-  }
-  
-  .picker-subtitle {
-    font-size: 16px;
-    color: #6b7280;
-    margin: 0;
-    line-height: 1.5;
-  }
-  
-  .picker-subtitle.dark {
-    color: #d1d5db;
-  }
-  
-  .network-info {
-    background: #f3f4f6;
-    border-radius: 12px;
-    padding: 16px;
-    margin: 24px 0;
-    text-align: left;
-  }
-  
-  .network-info.dark {
-    background: #374151;
-  }
-  
-  .network-label {
-    font-size: 12px;
-    font-weight: 600;
-    color: #6b7280;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 4px;
-  }
-  
-  .network-label.dark {
-    color: #9ca3af;
-  }
-  
-  .network-value {
-    font-size: 16px;
-    font-weight: 600;
-    color: #1f2937;
-  }
-  
-  .network-value.dark {
-    color: #f3f4f6;
-  }
-  
-  .agent-name-form {
-    margin: 32px 0;
-  }
-  
-  .form-group {
-    margin-bottom: 24px;
-    text-align: left;
-  }
-  
-  .form-label {
-    display: block;
-    font-size: 14px;
-    font-weight: 600;
-    color: #374151;
-    margin-bottom: 8px;
-  }
-  
-  .form-label.dark {
-    color: #d1d5db;
-  }
-  
-  .agent-name-input {
-    width: 100%;
-    padding: 12px 16px;
-    border: 2px solid #d1d5db;
-    border-radius: 8px;
-    font-size: 16px;
-    background: #ffffff;
-    color: #1f2937;
-    transition: all 0.15s ease;
-  }
-  
-  .agent-name-input:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-  }
-  
-  .agent-name-input.dark {
-    background: #4b5563;
-    border-color: #6b7280;
-    color: #f9fafb;
-  }
-  
-  .agent-name-input.dark:focus {
-    border-color: #60a5fa;
-    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
-  }
-  
-  .randomize-button {
-    background: #f3f4f6;
-    border: 1px solid #d1d5db;
-    color: #6b7280;
-    padding: 8px 12px;
-    border-radius: 6px;
-    font-size: 14px;
-    cursor: pointer;
-    margin-top: 8px;
-    transition: all 0.15s ease;
-  }
-  
-  .randomize-button:hover {
-    background: #e5e7eb;
-    color: #374151;
-  }
-  
-  .randomize-button.dark {
-    background: #6b7280;
-    border-color: #9ca3af;
-    color: #f3f4f6;
-  }
-  
-  .randomize-button.dark:hover {
-    background: #9ca3af;
-    color: #1f2937;
-  }
-  
-  .form-hint {
-    font-size: 12px;
-    color: #6b7280;
-    margin-top: 8px;
-    line-height: 1.4;
-  }
-  
-  .form-hint.dark {
-    color: #9ca3af;
-  }
-  
-  .button-group {
-    display: flex;
-    gap: 12px;
-    margin-top: 32px;
-  }
-  
-  .back-button {
-    flex: 1;
-    background: #f9fafb;
-    border: 1px solid #d1d5db;
-    color: #6b7280;
-    padding: 12px 24px;
-    border-radius: 8px;
-    font-size: 16px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  
-  .back-button:hover {
-    background: #f3f4f6;
-    color: #374151;
-  }
-  
-  .back-button.dark {
-    background: #4b5563;
-    border-color: #6b7280;
-    color: #d1d5db;
-  }
-  
-  .back-button.dark:hover {
-    background: #6b7280;
-    color: #f9fafb;
-  }
-  
-  .connect-button {
-    flex: 2;
-    background: #3b82f6;
-    border: none;
-    color: white;
-    padding: 12px 24px;
-    border-radius: 8px;
-    font-size: 16px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-  
-  .connect-button:hover {
-    background: #2563eb;
-    transform: translateY(-1px);
-    box-shadow: 0 10px 15px -3px rgba(59, 130, 246, 0.3);
-  }
-  
-  .connect-button:disabled {
-    background: #d1d5db;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-  }
-  
-  .connect-button.dark:disabled {
-    background: #6b7280;
-  }
-  
-  .avatar-preview {
-    width: 80px;
-    height: 80px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 32px;
-    font-weight: 700;
-    margin: 0 auto 16px;
-    border: 4px solid #ffffff;
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
-  }
-  
-  .avatar-preview.dark {
-    border-color: #1f2937;
-  }
-  
-  .feature-list {
-    text-align: left;
-    background: #f8fafc;
-    border-radius: 8px;
-    padding: 16px;
-    margin: 24px 0;
-  }
-  
-  .feature-list.dark {
-    background: #0f172a;
-  }
-  
-  .feature-list h4 {
-    font-size: 14px;
-    font-weight: 600;
-    color: #374151;
-    margin: 0 0 12px 0;
-  }
-  
-  .feature-list.dark h4 {
-    color: #e5e7eb;
-  }
-  
-  .feature-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: #6b7280;
-    margin-bottom: 6px;
-  }
-  
-  .feature-item.dark {
-    color: #9ca3af;
-  }
-  
-  .feature-item:last-child {
-    margin-bottom: 0;
-  }
-  
-  .feature-icon {
-    color: #10b981;
-    font-weight: bold;
-  }
-`;
-
-const generateRandomAgentName = (): string => {
-  const adjectives = ['Swift', 'Bright', 'Quick', 'Smart', 'Clever', 'Sharp', 'Keen', 'Wise', 'Fast', 'Bold'];
-  const nouns = ['Agent', 'Bot', 'Assistant', 'Helper', 'Worker', 'Studio', 'Mind', 'Core', 'Node', 'Unit'];
-  const randomNum = Math.floor(Math.random() * 9999) + 1;
-  
-  const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
-  const noun = nouns[Math.floor(Math.random() * nouns.length)];
-  
-  return `${adjective}${noun}${randomNum.toString().padStart(4, '0')}`;
-};
-
-const AgentNamePicker: React.FC<AgentNamePickerProps> = ({
-  networkConnection,
-  onAgentNameSelected,
-  onBack,
-  currentTheme
-}) => {
-  const [agentName, setAgentName] = useState('');
+  const [pageAgentName, setPageAgentName] = useState<string | null>(null);
   const [savedAgentName, setSavedAgentName] = useState<string | null>(null);
 
+  const handleRandomize = useCallback(() => {
+    setPageAgentName(generateRandomAgentName());
+  }, [setPageAgentName]);
+
   useEffect(() => {
+    if (!selectedNetwork) return;
     // Check for saved agent name for this network
-    const savedName = getSavedAgentNameForNetwork(networkConnection.host, networkConnection.port);
-    
+    const savedName = getSavedAgentNameForNetwork(
+      selectedNetwork.host,
+      selectedNetwork.port
+    );
+
     if (savedName) {
       setSavedAgentName(savedName);
-      setAgentName(savedName);
+      setPageAgentName(savedName);
     } else {
-      // Generate a random name if no saved name
-      setAgentName(generateRandomAgentName());
+      handleRandomize();
     }
-  }, [networkConnection]);
+  }, [selectedNetwork, handleRandomize, setPageAgentName]);
 
-  const handleRandomize = () => {
-    setAgentName(generateRandomAgentName());
-  };
+  const onBack = useCallback(() => {
+    clearAgentName();
+    clearNetwork();
+  }, [clearAgentName, clearNetwork]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (agentName.trim()) {
-      // Save the agent name for this network
-      saveAgentNameForNetwork(networkConnection.host, networkConnection.port, agentName.trim());
-      onAgentNameSelected(agentName.trim());
-    }
-  };
-
-  const getAvatarInitials = (name: string): string => {
-    return name
-      .replace(/[0-9]/g, '')
-      .split(/(?=[A-Z])/)
-      .slice(0, 2)
-      .map(part => part.charAt(0))
-      .join('')
-      .toUpperCase();
-  };
-
-  const isValidName = (name: string): boolean => {
-    return name.trim().length >= 3 && name.trim().length <= 32 && /^[a-zA-Z0-9_-]+$/.test(name.trim());
+    const agentNameTrimmed = pageAgentName?.trim();
+    if (!agentNameTrimmed || !selectedNetwork) return;
+    // Save the agent name for this network
+    saveAgentNameForNetwork(
+      selectedNetwork.host,
+      selectedNetwork.port,
+      agentNameTrimmed
+    );
+    setAgentName(agentNameTrimmed);
   };
 
   return (
-    <div className={`agent-name-picker ${currentTheme}`}>
-      <style>{styles}</style>
-      
-      <div className={`picker-card ${currentTheme}`}>
-        <div className="picker-header">
-          <div className="avatar-preview">
-            {getAvatarInitials(agentName)}
+    <div className="min-h-screen flex items-center justify-center p-5 bg-gradient-to-br from-indigo-400 to-purple-500 dark:from-blue-800 dark:to-violet-800">
+      <div className="max-w-lg w-full text-center rounded-2xl p-10 bg-white shadow-2xl shadow-black/25 dark:bg-gray-800 dark:shadow-black/50">
+        {/* Header */}
+        <div className="mb-8">
+          {/* Avatar */}
+          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-3xl font-bold mx-auto mb-4 shadow-lg border-4 border-white dark:border-gray-800">
+            {getAvatarInitials(pageAgentName)}
           </div>
-          
-          <h1 className={`picker-title ${currentTheme}`}>
+
+          <h1 className="text-3xl font-bold mb-3 text-gray-800 dark:text-gray-50">
             Join OpenAgents Network
           </h1>
-          <p className={`picker-subtitle ${currentTheme}`}>
-            Choose your agent name to connect to the network and start collaborating with other agents.
+          <p className="text-base leading-relaxed text-gray-500 dark:text-gray-300">
+            Choose your agent name to connect to the network and start
+            collaborating with other agents.
           </p>
         </div>
 
-        <div className={`network-info ${currentTheme}`}>
-          <div className={`network-label ${currentTheme}`}>Connecting to</div>
-          <div className={`network-value ${currentTheme}`}>
-            {networkConnection.host}:{networkConnection.port}
+        {/* Network Info */}
+        <div className="rounded-xl p-4 my-6 text-left bg-gray-100 dark:bg-gray-700">
+          <div className="text-xs font-semibold uppercase tracking-wide mb-1 text-gray-500 dark:text-gray-400">
+            Connecting to
           </div>
+          {selectedNetwork && (
+            <div className="text-base font-semibold text-gray-800 dark:text-gray-100">
+              {selectedNetwork.host}:{selectedNetwork.port}
+            </div>
+          )}
         </div>
 
+        {/* Saved Agent Name Info */}
         {savedAgentName && (
-          <div className={`network-info ${currentTheme}`} style={{ background: '#f0f9ff', borderColor: '#0ea5e9' }}>
-            <div className={`network-label ${currentTheme}`} style={{ color: '#0369a1' }}>
+          <div className="bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 rounded-xl p-4 my-6 text-left">
+            <div className="text-xs font-semibold uppercase tracking-wide mb-1 text-sky-700 dark:text-sky-400">
               Previously used name
             </div>
-            <div className={`network-value ${currentTheme}`} style={{ color: '#0c4a6e' }}>
+            <div className="text-base font-semibold text-sky-900 dark:text-sky-100">
               {savedAgentName}
             </div>
-            <p style={{ fontSize: '12px', color: '#0369a1', margin: '4px 0 0 0' }}>
+            <p className="text-xs text-sky-700 dark:text-sky-400 mt-1">
               You can use your previous name or create a new one
             </p>
           </div>
         )}
 
-        <div className={`feature-list ${currentTheme}`}>
-          <h4>Available Features:</h4>
-          <div className={`feature-item ${currentTheme}`}>
-            <span className="feature-icon">✓</span>
+        {/* Features List */}
+        <div className="text-left rounded-lg p-4 my-6 bg-slate-50 dark:bg-slate-900">
+          <h4 className="text-sm font-semibold mb-3 text-gray-700 dark:text-gray-200">
+            Available Features:
+          </h4>
+          <div className="flex items-center gap-2 text-xs mb-1.5 text-gray-500 dark:text-gray-400">
+            <span className="text-emerald-500 font-bold">✓</span>
             <span>Thread messaging with 5-level nesting</span>
           </div>
-          <div className={`feature-item ${currentTheme}`}>
-            <span className="feature-icon">✓</span>
+          <div className="flex items-center gap-2 text-xs mb-1.5 text-gray-500 dark:text-gray-400">
+            <span className="text-emerald-500 font-bold">✓</span>
             <span>Channel-based communication</span>
           </div>
-          <div className={`feature-item ${currentTheme}`}>
-            <span className="feature-icon">✓</span>
+          <div className="flex items-center gap-2 text-xs mb-1.5 text-gray-500 dark:text-gray-400">
+            <span className="text-emerald-500 font-bold">✓</span>
             <span>Direct messaging with other agents</span>
           </div>
-          <div className={`feature-item ${currentTheme}`}>
-            <span className="feature-icon">✓</span>
+          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <span className="text-emerald-500 font-bold">✓</span>
             <span>File sharing and reactions</span>
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="agent-name-form">
-          <div className="form-group">
-            <label htmlFor="agentName" className={`form-label ${currentTheme}`}>
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="my-8">
+          <div className="mb-6 text-left">
+            <label
+              htmlFor="agentName"
+              className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300"
+            >
               Agent Name
             </label>
             <input
               id="agentName"
               type="text"
-              value={agentName}
-              onChange={(e) => setAgentName(e.target.value)}
-              className={`agent-name-input ${currentTheme}`}
+              value={pageAgentName || ""}
+              onChange={(e) => setPageAgentName(e.target.value)}
+              className="w-full px-4 py-3 border-2 rounded-lg text-base transition-all duration-150 focus:outline-none focus:ring-3 bg-white border-gray-300 text-gray-800 focus:border-blue-500 focus:ring-blue-500/10 dark:bg-gray-600 dark:border-gray-500 dark:text-gray-50 dark:focus:border-blue-400 dark:focus:ring-blue-400/10"
               placeholder="Enter your agent name..."
               maxLength={32}
               autoComplete="off"
             />
-            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+
+            {/* Action Buttons */}
+            <div className="flex gap-2 mt-2">
               <button
                 type="button"
                 onClick={handleRandomize}
-                className={`randomize-button ${currentTheme}`}
+                className="px-3 py-2 rounded-md text-sm cursor-pointer transition-all duration-150 bg-gray-100 border border-gray-300 text-gray-500 hover:bg-gray-200 hover:text-gray-700 dark:bg-gray-500 dark:border-gray-400 dark:text-gray-100 dark:hover:bg-gray-400 dark:hover:text-gray-800"
               >
                 🎲 Generate Random Name
               </button>
-              {savedAgentName && agentName !== savedAgentName && (
+              {savedAgentName && pageAgentName !== savedAgentName && (
                 <button
                   type="button"
-                  onClick={() => setAgentName(savedAgentName)}
-                  className={`randomize-button ${currentTheme}`}
-                  style={{ background: '#3b82f6', color: 'white', border: 'none' }}
+                  onClick={() => setPageAgentName(savedAgentName)}
+                  className="px-3 py-2 rounded-md text-sm cursor-pointer transition-all duration-150 bg-blue-500 text-white border-none hover:bg-blue-600"
                 >
                   ↶ Use Previous: {savedAgentName}
                 </button>
               )}
             </div>
-            <div className={`form-hint ${currentTheme}`}>
-              Agent names must be 3-32 characters and contain only letters, numbers, underscores, and hyphens.
+
+            <div className="text-xs mt-2 leading-relaxed text-gray-500 dark:text-gray-400">
+              Agent names must be 3-32 characters and contain only letters,
+              numbers, underscores, and hyphens.
               {savedAgentName && (
                 <>
                   <br />
@@ -482,20 +176,27 @@ const AgentNamePicker: React.FC<AgentNamePickerProps> = ({
             </div>
           </div>
 
-          <div className="button-group">
+          <div className="flex gap-3 mt-8">
             <button
               type="button"
               onClick={onBack}
-              className={`back-button ${currentTheme}`}
+              className="flex-1 px-6 py-3 border rounded-lg text-base font-semibold cursor-pointer transition-all duration-150 bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-600 dark:border-gray-500 dark:text-gray-300 dark:hover:bg-gray-500 dark:hover:text-gray-50"
             >
               ← Back
             </button>
             <button
               type="submit"
-              disabled={!isValidName(agentName)}
-              className={`connect-button ${currentTheme}`}
+              disabled={!isValidName(pageAgentName)}
+              className={`flex-[2] px-6 py-3 border-none rounded-lg text-base font-semibold cursor-pointer transition-all duration-150 text-white ${
+                !isValidName(pageAgentName)
+                  ? "bg-gray-300 dark:bg-gray-500 cursor-not-allowed"
+                  : "bg-blue-500 hover:bg-blue-600 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-500/30"
+              }`}
             >
-              Connect as {agentName || 'Agent'} →
+              <div className="flex flex-wrap justify-center">
+                Connect as&nbsp;
+                <span>{pageAgentName || "Agent"} →</span>
+              </div>
             </button>
           </div>
         </form>

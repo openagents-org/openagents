@@ -143,7 +143,7 @@ class BaseModAdapter(ABC):
         """
         return event
 
-    async def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentAdapterTool]:
         """Get the tools for the mod adapter.
         
         Returns:

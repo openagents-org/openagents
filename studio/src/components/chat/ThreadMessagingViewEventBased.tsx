@@ -12,6 +12,7 @@ import React, {
   useImperativeHandle,
   forwardRef,
   useCallback,
+  useMemo,
 } from "react";
 import { AgentInfo, ThreadMessage } from "../../types/events";
 import { UseOpenAgentsReturn } from "../../hooks/useOpenAgents";
@@ -21,14 +22,13 @@ import MessageDisplay from "./MessageDisplay";
 import ThreadMessageInput from "./ThreadMessageInput";
 import DocumentsView from "../documents/DocumentsView";
 import { ReadMessageStore } from "../../utils/readMessageStore";
-import { timeStamp } from "console";
+import { ConnectionStatusEnum } from "@/types/connection";
+import { useThemeStore } from "@/stores/themeStore";
 
 interface ThreadMessagingViewEventBasedProps {
   openAgentsHook: UseOpenAgentsReturn;
   agentName: string;
-  currentTheme: "light" | "dark";
   onProfileClick?: () => void;
-  toggleTheme?: () => void;
   hasSharedDocuments?: boolean;
   onDocumentsClick?: () => void;
   onThreadStateChange?: (state: ThreadState) => void;
@@ -40,6 +40,14 @@ export interface ThreadMessagingViewEventBasedRef {
   selectDirectMessage: (agentId: string) => void;
 }
 
+const CONNECTED_STATUS_COLOR = {
+  [ConnectionStatusEnum.CONNECTED]: "#10b981",
+  [ConnectionStatusEnum.CONNECTING]: "#f59e0b",
+  [ConnectionStatusEnum.DISCONNECTED]: "#6b7280",
+  [ConnectionStatusEnum.ERROR]: "#ef4444",
+  default: "#6b7280",
+};
+
 const ThreadMessagingViewEventBased = forwardRef<
   ThreadMessagingViewEventBasedRef,
   ThreadMessagingViewEventBasedProps
@@ -48,15 +56,15 @@ const ThreadMessagingViewEventBased = forwardRef<
     {
       openAgentsHook,
       agentName,
-      currentTheme,
       onProfileClick,
-      toggleTheme,
       hasSharedDocuments,
       onDocumentsClick,
       onThreadStateChange,
     },
     ref
   ) => {
+    // Use theme from store
+    const { theme: currentTheme, toggleTheme } = useThemeStore();
     // Destructure the event system hook
     const {
       connectionStatus,
@@ -420,26 +428,20 @@ const ThreadMessagingViewEventBased = forwardRef<
     ]);
 
     // Get connection status color
-    const getConnectionStatusColor = () => {
-      switch (connectionStatus.status) {
-        case "connected":
-          return "#10b981";
-        case "connecting":
-          return "#f59e0b";
-        case "error":
-          return "#ef4444";
-        default:
-          return "#6b7280";
-      }
-    };
+    const getConnectionStatusColor = useMemo(() => {
+      return (
+        CONNECTED_STATUS_COLOR[connectionStatus.status] ||
+        CONNECTED_STATUS_COLOR["default"]
+      );
+    }, [connectionStatus.status]);
 
     // Get current view title
-    const getCurrentViewTitle = () => {
+    const getCurrentViewTitle = useMemo(() => {
       if (showDocuments) return "Documents";
       if (currentChannel) return `#${currentChannel}`;
       if (currentDirectMessage) return `@${currentDirectMessage}`;
       return "Select a channel";
-    };
+    }, [showDocuments, currentChannel, currentDirectMessage]);
 
     return (
       <div className="thread-messaging-view h-full flex flex-col bg-white dark:bg-gray-900">
@@ -448,11 +450,11 @@ const ThreadMessagingViewEventBased = forwardRef<
           <div className="flex items-center space-x-3">
             <div
               className="w-3 h-3 rounded-full"
-              style={{ backgroundColor: getConnectionStatusColor() }}
+              style={{ backgroundColor: getConnectionStatusColor }}
               title={`Connection: ${connectionStatus.status}`}
             />
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              {getCurrentViewTitle()}
+              {getCurrentViewTitle}
             </h2>
             {isLoading && (
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
@@ -507,10 +509,7 @@ const ThreadMessagingViewEventBased = forwardRef<
         {/* Content Area */}
         <div className="flex-1 flex flex-col min-h-0">
           {showDocuments ? (
-            <DocumentsView
-              currentTheme={currentTheme}
-              onBackClick={() => setShowDocuments(false)}
-            />
+            <DocumentsView onBackClick={() => setShowDocuments(false)} />
           ) : (
             <>
               {/* Messages */}

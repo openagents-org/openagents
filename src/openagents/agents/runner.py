@@ -141,9 +141,7 @@ class AgentRunner(ABC):
             while self._running:
                 # Get all message threads from the client
                 message_threads = self.client.get_messsage_threads()
-                print(f"🔍 AGENT_RUNNER: Checking for messages... Found {len(message_threads)} threads")
-                # logger.info(f"🔧 AGENT_RUNNER: Checking for messages... Found {len(message_threads)} threads")
-                # print(f"🔍 Checking for messages... Found {len(message_threads)} threads")
+                logger.debug(f"🔍 AGENT_RUNNER: Checking for messages... Found {len(message_threads)} threads")
                 
                 # Find the first unprocessed message across all threads
                 unprocessed_message = None
