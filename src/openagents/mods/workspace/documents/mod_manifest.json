@@ -14,7 +14,13 @@
         "agent_presence_tracking",
         "conflict_resolution",
         "document_versioning",
-        "operation_history"
+        "operation_history",
+        "operational_transformation",
+        "real_time_collaborative_editing",
+        "cursor_synchronization",
+        "user_identity_management",
+        "language_syntax_highlighting",
+        "error_handling_and_recovery"
     ],
     "requires_adapter": true,
     "studio_interface": true,
@@ -55,7 +61,14 @@
             "get_document_content",
             "get_document_history",
             "list_documents",
-            "get_agent_presence"
+            "get_agent_presence",
+            "submit_edit_operation",
+            "request_document_history",
+            "request_user_identity",
+            "join_collaborative_session",
+            "leave_collaborative_session",
+            "update_cursor_position_ot",
+            "set_document_language"
         ],
         "document_operations": {
             "insert_lines": {
@@ -101,7 +114,14 @@
         "get_document_history",
         "get_agent_presence",
         "agent.connected",
-        "agent.disconnected"
+        "agent.disconnected",
+        "document.edit",
+        "document.history",
+        "document.identity",
+        "document.user_info",
+        "document.user_cursor",
+        "document.language",
+        "document.error"
     ],
     "generate_events": [
         "DocumentOperationResponse",
@@ -109,6 +129,13 @@
         "DocumentListResponse",
         "DocumentHistoryResponse",
         "AgentPresenceResponse",
-        "LineLockResponse"
+        "LineLockResponse",
+        "HistoryDocumentMessage",
+        "IdentityDocumentMessage",
+        "UserInfoMessage",
+        "UserCursorMessage",
+        "LanguageDocumentMessage",
+        "ErrorDocumentMessage",
+        "EditDocumentMessage"
     ]
 }

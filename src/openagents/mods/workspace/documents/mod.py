@@ -12,7 +12,7 @@ This standalone mod enables collaborative document editing with:
 import logging
 import uuid
 import copy
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional, Set, Union
 from datetime import datetime, timedelta
 
 from openagents.core.base_mod import BaseMod
@@ -45,10 +45,273 @@ from .document_messages import (
     DocumentComment,
     AgentPresence,
     CursorPosition,
-    LineRange
+    LineRange,
+    # OT Collaborative Editing Messages
+    HistoryDocumentMessage,
+    IdentityDocumentMessage,
+    UserInfoMessage,
+    UserCursorMessage,
+    LanguageDocumentMessage,
+    ErrorDocumentMessage,
+    EditDocumentMessage,
+    # OT Operation Types
+    OTOperation,
+    OTRetain,
+    OTInsert,
+    OTDelete,
+    OTCompositeOperation,
+    CursorInfo,
+    SelectionInfo,
+    UserInfo
 )
 
 logger = logging.getLogger(__name__)
+
+class OTEngine:
+    """Operational Transformation engine for collaborative editing."""
+    
+    @staticmethod
+    def apply_operation(content: str, operation: List[Union[int, str]]) -> str:
+        """Apply an operation to content and return the new content.
+        
+        Args:
+            content: The current document content
+            operation: Operation in simple format [retain, "insert", -delete, ...]
+            
+        Returns:
+            The new content after applying the operation
+        """
+        result = []
+        pos = 0
+        
+        for op in operation:
+            if isinstance(op, int):
+                if op > 0:
+                    # Retain: keep 'op' characters
+                    result.append(content[pos:pos + op])
+                    pos += op
+                elif op < 0:
+                    # Delete: skip 'abs(op)' characters
+                    pos += abs(op)
+            elif isinstance(op, str):
+                # Insert: add the string
+                result.append(op)
+        
+        # Add any remaining content
+        if pos < len(content):
+            result.append(content[pos:])
+        
+        return ''.join(result)
+    
+    @staticmethod
+    def transform_operation(op1: List[Union[int, str]], op2: List[Union[int, str]], priority: bool = False) -> List[Union[int, str]]:
+        """Transform operation op1 against operation op2.
+        
+        This is the core of Operational Transformation. When two operations are applied
+        concurrently, we need to transform one against the other to maintain consistency.
+        
+        Args:
+            op1: First operation to transform
+            op2: Second operation (already applied)
+            priority: Whether op1 has priority in case of conflicts
+            
+        Returns:
+            Transformed version of op1 that can be applied after op2
+        """
+        result = []
+        i1 = i2 = 0
+        pos1 = pos2 = 0
+        
+        while i1 < len(op1) or i2 < len(op2):
+            # Get current operations
+            curr1 = op1[i1] if i1 < len(op1) else None
+            curr2 = op2[i2] if i2 < len(op2) else None
+            
+            # Handle end of operations
+            if curr1 is None:
+                # op1 is finished, we're done
+                break
+            if curr2 is None:
+                # op2 is finished, add remaining op1 operations
+                result.extend(op1[i1:])
+                break
+            
+            # Both operations exist
+            if isinstance(curr1, int) and curr1 > 0:  # op1 is retain
+                if isinstance(curr2, int) and curr2 > 0:  # op2 is retain
+                    # Both retain: take minimum
+                    min_retain = min(curr1, curr2)
+                    result.append(min_retain)
+                    
+                    # Update operations
+                    op1[i1] -= min_retain
+                    op2[i2] -= min_retain
+                    if op1[i1] == 0:
+                        i1 += 1
+                    if op2[i2] == 0:
+                        i2 += 1
+                        
+                elif isinstance(curr2, int) and curr2 < 0:  # op2 is delete
+                    # op1 retain, op2 delete: skip the deleted part
+                    delete_len = abs(curr2)
+                    if curr1 >= delete_len:
+                        op1[i1] -= delete_len
+                        if op1[i1] == 0:
+                            i1 += 1
+                    else:
+                        op2[i2] = -(delete_len - curr1)
+                        i1 += 1
+                    i2 += 1
+                    
+                elif isinstance(curr2, str):  # op2 is insert
+                    # op1 retain, op2 insert: retain the inserted text
+                    result.append(len(curr2))
+                    i2 += 1
+                    
+            elif isinstance(curr1, int) and curr1 < 0:  # op1 is delete
+                if isinstance(curr2, int) and curr2 > 0:  # op2 is retain
+                    # op1 delete, op2 retain: keep the delete
+                    delete_len = abs(curr1)
+                    if curr2 >= delete_len:
+                        result.append(curr1)
+                        op2[i2] -= delete_len
+                        if op2[i2] == 0:
+                            i2 += 1
+                    else:
+                        result.append(-curr2)
+                        op1[i1] = -(delete_len - curr2)
+                        i2 += 1
+                    i1 += 1
+                    
+                elif isinstance(curr2, int) and curr2 < 0:  # op2 is delete
+                    # Both delete: skip both (they cancel out)
+                    delete1 = abs(curr1)
+                    delete2 = abs(curr2)
+                    min_delete = min(delete1, delete2)
+                    
+                    op1[i1] = -(delete1 - min_delete) if delete1 > min_delete else 0
+                    op2[i2] = -(delete2 - min_delete) if delete2 > min_delete else 0
+                    
+                    if op1[i1] == 0:
+                        i1 += 1
+                    if op2[i2] == 0:
+                        i2 += 1
+                        
+                elif isinstance(curr2, str):  # op2 is insert
+                    # op1 delete, op2 insert: skip the insert
+                    i2 += 1
+                    
+            elif isinstance(curr1, str):  # op1 is insert
+                if isinstance(curr2, int) and curr2 > 0:  # op2 is retain
+                    # op1 insert, op2 retain: keep the insert
+                    result.append(curr1)
+                    i1 += 1
+                    
+                elif isinstance(curr2, int) and curr2 < 0:  # op2 is delete
+                    # op1 insert, op2 delete: keep the insert
+                    result.append(curr1)
+                    i1 += 1
+                    
+                elif isinstance(curr2, str):  # op2 is insert
+                    # Both insert: use priority to decide order
+                    if priority:
+                        result.append(curr1)
+                        i1 += 1
+                    else:
+                        result.append(len(curr2))  # Retain the other insert
+                        i2 += 1
+        
+        # Clean up zero retains and empty operations
+        return [op for op in result if op != 0]
+    
+    @staticmethod
+    def compose_operations(op1: List[Union[int, str]], op2: List[Union[int, str]]) -> List[Union[int, str]]:
+        """Compose two operations into a single operation.
+        
+        Args:
+            op1: First operation
+            op2: Second operation (applied after op1)
+            
+        Returns:
+            Single operation equivalent to applying op1 then op2
+        """
+        result = []
+        i1 = i2 = 0
+        
+        while i1 < len(op1) or i2 < len(op2):
+            curr1 = op1[i1] if i1 < len(op1) else None
+            curr2 = op2[i2] if i2 < len(op2) else None
+            
+            if curr1 is None:
+                # op1 finished, add remaining op2
+                result.extend(op2[i2:])
+                break
+            if curr2 is None:
+                # op2 finished, add remaining op1
+                result.extend(op1[i1:])
+                break
+            
+            # Compose operations based on types
+            if isinstance(curr1, int) and curr1 > 0:  # op1 retain
+                if isinstance(curr2, int) and curr2 > 0:  # op2 retain
+                    min_retain = min(curr1, curr2)
+                    result.append(min_retain)
+                    op1[i1] -= min_retain
+                    op2[i2] -= min_retain
+                    if op1[i1] == 0:
+                        i1 += 1
+                    if op2[i2] == 0:
+                        i2 += 1
+                elif isinstance(curr2, str):  # op2 insert
+                    result.append(curr2)
+                    i2 += 1
+                elif isinstance(curr2, int) and curr2 < 0:  # op2 delete
+                    result.append(curr2)
+                    delete_len = abs(curr2)
+                    if curr1 >= delete_len:
+                        op1[i1] -= delete_len
+                        if op1[i1] == 0:
+                            i1 += 1
+                    else:
+                        op2[i2] = -(delete_len - curr1)
+                        i1 += 1
+                    i2 += 1
+            elif isinstance(curr1, str):  # op1 insert
+                if isinstance(curr2, int) and curr2 > 0:  # op2 retain
+                    insert_len = len(curr1)
+                    if curr2 >= insert_len:
+                        result.append(curr1)
+                        op2[i2] -= insert_len
+                        if op2[i2] == 0:
+                            i2 += 1
+                    else:
+                        result.append(curr1[:curr2])
+                        op1[i1] = curr1[curr2:]
+                        i2 += 1
+                    i1 += 1
+                elif isinstance(curr2, int) and curr2 < 0:  # op2 delete
+                    # Insert then delete: they might cancel out
+                    insert_len = len(curr1)
+                    delete_len = abs(curr2)
+                    if insert_len <= delete_len:
+                        # Insert is completely deleted
+                        op2[i2] = -(delete_len - insert_len) if delete_len > insert_len else 0
+                        if op2[i2] == 0:
+                            i2 += 1
+                        i1 += 1
+                    else:
+                        # Partial delete of insert
+                        result.append(curr1[delete_len:])
+                        i1 += 1
+                        i2 += 1
+                elif isinstance(curr2, str):  # op2 insert
+                    result.append(curr1)
+                    i1 += 1
+            elif isinstance(curr1, int) and curr1 < 0:  # op1 delete
+                result.append(curr1)
+                i1 += 1
+        
+        return [op for op in result if op != 0]
 
 class SharedDocument:
     """Represents a shared document with version control and collaboration features."""
@@ -62,12 +325,29 @@ class SharedDocument:
         self.last_modified = datetime.now()
         self.version = 1
         
-        # Document content (list of lines)
-        self.content: List[str] = initial_content.split('\n') if initial_content else [""]
+        # OT-based document content (single string instead of lines)
+        self.content: str = initial_content
+        
+        # OT operation history and revision tracking
+        self.revision = 0  # Current document revision
+        self.ot_history: List[Dict[str, Any]] = []  # List of {id, operation, revision, author_id}
+        self.next_operation_id = 1
+        
+        # User management for collaborative editing
+        self.connected_users: Dict[str, Dict[str, Any]] = {}  # user_id -> user_info
+        self.user_cursors: Dict[str, int] = {}  # user_id -> cursor_position
+        self.user_selections: Dict[str, List[int]] = {}  # user_id -> [start, end]
+        self.user_colors: Dict[str, str] = {}  # user_id -> color
+        
+        # Document language/syntax highlighting
+        self.language = "text"
+        
+        # Legacy line-based content (for backward compatibility)
+        self.line_content: List[str] = initial_content.split('\n') if initial_content else [""]
         
         # Line authorship tracking (line_number -> agent_id)
         self.line_authors: Dict[int, str] = {}
-        initial_lines = len(self.content)
+        initial_lines = len(self.line_content)
         for i in range(1, initial_lines + 1):
             self.line_authors[i] = creator_agent_id  # Creator owns all initial lines
         
@@ -86,6 +366,269 @@ class SharedDocument:
         
         # Conflict tracking
         self.pending_operations: Dict[str, DocumentOperation] = {}
+    
+    # OT Collaborative Editing Methods
+    
+    def add_user(self, user_id: str, user_name: str, user_color: str) -> Dict[str, Any]:
+        """Add a user to the collaborative editing session.
+        
+        Args:
+            user_id: Unique user identifier
+            user_name: Display name for the user
+            user_color: Color for cursor/selection display
+            
+        Returns:
+            User info dictionary
+        """
+        user_info = {
+            "user_id": user_id,
+            "name": user_name,
+            "color": user_color,
+            "is_active": True,
+            "joined_at": datetime.now()
+        }
+        
+        self.connected_users[user_id] = user_info
+        self.user_colors[user_id] = user_color
+        self.user_cursors[user_id] = 0  # Start at beginning
+        self.user_selections[user_id] = [0, 0]  # No selection initially
+        
+        return user_info
+    
+    def remove_user(self, user_id: str) -> bool:
+        """Remove a user from the collaborative editing session.
+        
+        Args:
+            user_id: User identifier to remove
+            
+        Returns:
+            True if user was removed, False if user was not found
+        """
+        if user_id in self.connected_users:
+            del self.connected_users[user_id]
+            self.user_colors.pop(user_id, None)
+            self.user_cursors.pop(user_id, None)
+            self.user_selections.pop(user_id, None)
+            return True
+        return False
+    
+    def apply_operation(self, operation: List[Union[int, str]], author_id: str) -> Dict[str, Any]:
+        """Apply an OT operation to the document.
+        
+        Args:
+            operation: Operation in simple format [retain, "insert", -delete, ...]
+            author_id: ID of the user who created the operation
+            
+        Returns:
+            Dictionary with operation result and metadata
+        """
+        try:
+            # Apply the operation to the content
+            new_content = OTEngine.apply_operation(self.content, operation)
+            
+            # Create operation record
+            operation_record = {
+                "id": self.next_operation_id,
+                "operation": operation,
+                "revision": self.revision,
+                "author_id": author_id,
+                "timestamp": datetime.now()
+            }
+            
+            # Update document state
+            self.content = new_content
+            self.revision += 1
+            self.ot_history.append(operation_record)
+            self.next_operation_id += 1
+            self.last_modified = datetime.now()
+            
+            # Update legacy line-based content for backward compatibility
+            self.line_content = self.content.split('\n') if self.content else [""]
+            
+            # Transform cursors for all users
+            self._transform_cursors_after_operation(operation, author_id)
+            
+            return {
+                "success": True,
+                "operation_id": operation_record["id"],
+                "new_revision": self.revision,
+                "new_content": self.content
+            }
+            
+        except Exception as e:
+            logger.error(f"Error applying operation: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    def get_history_since(self, start_revision: int) -> Dict[str, Any]:
+        """Get operation history since a specific revision.
+        
+        Args:
+            start_revision: Starting revision number
+            
+        Returns:
+            Dictionary with history data
+        """
+        operations = []
+        for op_record in self.ot_history:
+            if op_record["revision"] >= start_revision:
+                operations.append({
+                    "id": op_record["id"],
+                    "operation": op_record["operation"]
+                })
+        
+        return {
+            "start": start_revision,
+            "operations": operations
+        }
+    
+    def get_full_history(self) -> Dict[str, Any]:
+        """Get complete operation history.
+        
+        Returns:
+            Dictionary with complete history
+        """
+        operations = []
+        for op_record in self.ot_history:
+            operations.append({
+                "id": op_record["id"],
+                "operation": op_record["operation"]
+            })
+        
+        return {
+            "start": 0,
+            "operations": operations
+        }
+    
+    def update_cursor(self, user_id: str, position: int) -> bool:
+        """Update a user's cursor position.
+        
+        Args:
+            user_id: User identifier
+            position: New cursor position
+            
+        Returns:
+            True if updated successfully
+        """
+        if user_id in self.connected_users:
+            self.user_cursors[user_id] = position
+            return True
+        return False
+    
+    def update_selection(self, user_id: str, start: int, end: int) -> bool:
+        """Update a user's selection range.
+        
+        Args:
+            user_id: User identifier
+            start: Selection start position
+            end: Selection end position
+            
+        Returns:
+            True if updated successfully
+        """
+        if user_id in self.connected_users:
+            self.user_selections[user_id] = [start, end]
+            return True
+        return False
+    
+    def get_cursor_data(self) -> Dict[str, Any]:
+        """Get current cursor and selection data for all users.
+        
+        Returns:
+            Dictionary with cursor and selection data
+        """
+        cursors = []
+        selections = []
+        
+        for user_id in self.connected_users:
+            if user_id in self.user_cursors:
+                cursors.append(self.user_cursors[user_id])
+            if user_id in self.user_selections:
+                selections.append(self.user_selections[user_id])
+        
+        return {
+            "cursors": cursors,
+            "selections": selections
+        }
+    
+    def set_language(self, language: str) -> bool:
+        """Set the document language for syntax highlighting.
+        
+        Args:
+            language: Programming language identifier
+            
+        Returns:
+            True if set successfully
+        """
+        self.language = language
+        return True
+    
+    def _transform_cursors_after_operation(self, operation: List[Union[int, str]], author_id: str):
+        """Transform all user cursors after an operation is applied.
+        
+        Args:
+            operation: The operation that was applied
+            author_id: ID of the user who created the operation (skip transforming their cursor)
+        """
+        for user_id in self.connected_users:
+            if user_id == author_id:
+                continue  # Don't transform the author's cursor
+            
+            # Transform cursor position
+            if user_id in self.user_cursors:
+                self.user_cursors[user_id] = self._transform_position(
+                    self.user_cursors[user_id], operation
+                )
+            
+            # Transform selection
+            if user_id in self.user_selections:
+                start, end = self.user_selections[user_id]
+                self.user_selections[user_id] = [
+                    self._transform_position(start, operation),
+                    self._transform_position(end, operation)
+                ]
+    
+    def _transform_position(self, position: int, operation: List[Union[int, str]]) -> int:
+        """Transform a cursor position based on an operation.
+        
+        Args:
+            position: Original cursor position
+            operation: Operation that was applied
+            
+        Returns:
+            New cursor position after transformation
+        """
+        new_position = position
+        current_pos = 0
+        
+        for op in operation:
+            if isinstance(op, int):
+                if op > 0:
+                    # Retain: advance current position
+                    if current_pos + op <= position:
+                        current_pos += op
+                    else:
+                        # Position is within this retain block
+                        break
+                elif op < 0:
+                    # Delete: adjust position if it's after the deletion
+                    delete_len = abs(op)
+                    if current_pos < position:
+                        if current_pos + delete_len <= position:
+                            # Deletion is before cursor, move cursor back
+                            new_position -= delete_len
+                        else:
+                            # Deletion includes cursor position, move to deletion start
+                            new_position = current_pos
+                    # Don't advance current_pos for deletes
+            elif isinstance(op, str):
+                # Insert: adjust position if it's at or after the insertion
+                if current_pos <= position:
+                    new_position += len(op)
+        
+        return max(0, new_position)
     
     def add_agent(self, agent_id: str, permission: str = "read_write") -> bool:
         """Add an agent to the document with specified permissions."""
@@ -591,6 +1134,14 @@ class SharedDocumentNetworkMod(BaseMod):
         self.register_event_handler(self._handle_document_list, "document.list")
         self.register_event_handler(self._handle_document_get_presence, "document.get_presence")
         
+        # OT Collaborative Editing Event Handlers
+        self.register_event_handler(self._handle_document_edit, "document.edit")
+        self.register_event_handler(self._handle_document_history_request, "document.history")
+        self.register_event_handler(self._handle_document_identity_request, "document.identity")
+        self.register_event_handler(self._handle_document_user_info, "document.user_info")
+        self.register_event_handler(self._handle_document_user_cursor, "document.user_cursor")
+        self.register_event_handler(self._handle_document_language, "document.language")
+        
         # Document storage
         self.documents: Dict[str, SharedDocument] = {}
         
@@ -1033,3 +1584,511 @@ class SharedDocumentNetworkMod(BaseMod):
                 success=False,
                 message=f"Failed to get agent presence: {str(e)}"
             )
+    
+    # OT Collaborative Editing Event Handlers
+    
+    async def _handle_document_edit(self, event: Event) -> Optional[EventResponse]:
+        """Handle OT edit operations for collaborative editing.
+        
+        This is the core of the collaborative editing system. It processes
+        edit operations using Operational Transformation to maintain consistency.
+        """
+        try:
+            source_agent_id = event.source_id.replace("agent:", "") if event.source_id.startswith("agent:") else event.source_id
+            logger.info(f"Processing OT edit operation from {source_agent_id}")
+            
+            # Extract payload
+            payload = event.payload
+            document_id = payload.get("document_id")
+            client_revision = payload.get("revision", 0)
+            operation = payload.get("operation", [])
+            
+            if not document_id or not operation:
+                return await self._send_error_event(
+                    source_agent_id, document_id, "INVALID_OPERATION", 
+                    "Missing document_id or operation"
+                )
+            
+            # Check if document exists
+            if document_id not in self.documents:
+                return await self._send_error_event(
+                    source_agent_id, document_id, "DOCUMENT_NOT_FOUND", 
+                    f"Document {document_id} not found"
+                )
+            
+            document = self.documents[document_id]
+            
+            # Check access permissions
+            if not document.can_access(source_agent_id, "write"):
+                return await self._send_error_event(
+                    source_agent_id, document_id, "ACCESS_DENIED", 
+                    "Write access denied"
+                )
+            
+            # Check revision mismatch
+            if client_revision != document.revision:
+                return await self._send_error_event(
+                    source_agent_id, document_id, "REVISION_MISMATCH", 
+                    f"Client revision {client_revision} does not match server revision {document.revision}",
+                    {"client_revision": client_revision, "server_revision": document.revision}
+                )
+            
+            # Apply the operation
+            result = document.apply_operation(operation, source_agent_id)
+            
+            if not result["success"]:
+                return await self._send_error_event(
+                    source_agent_id, document_id, "OPERATION_FAILED", 
+                    result.get("error", "Unknown error")
+                )
+            
+            # Broadcast the operation to all other connected users
+            await self._broadcast_operation_history(document_id, document.revision - 1, [result["operation_id"]])
+            
+            # Broadcast cursor updates
+            await self._broadcast_cursor_data(document_id, document.get_cursor_data())
+            
+            logger.info(f"Applied OT operation {result['operation_id']} to document {document_id}, new revision: {result['new_revision']}")
+            
+            return EventResponse(
+                success=True,
+                message="Operation applied successfully",
+                data={
+                    "operation_id": result["operation_id"],
+                    "new_revision": result["new_revision"]
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to process edit operation: {e}")
+            return await self._send_error_event(
+                source_agent_id, document_id, "INTERNAL_ERROR", 
+                f"Internal server error: {str(e)}"
+            )
+    
+    async def _handle_document_history_request(self, event: Event) -> Optional[EventResponse]:
+        """Handle requests for document operation history."""
+        try:
+            source_agent_id = event.source_id.replace("agent:", "") if event.source_id.startswith("agent:") else event.source_id
+            
+            # Extract payload
+            payload = event.payload
+            document_id = payload.get("document_id")
+            
+            if not document_id:
+                return EventResponse(
+                    success=False,
+                    message="Missing document_id"
+                )
+            
+            # Check if document exists
+            if document_id not in self.documents:
+                return EventResponse(
+                    success=False,
+                    message=f"Document {document_id} not found"
+                )
+            
+            document = self.documents[document_id]
+            
+            # Check access permissions
+            if not document.can_access(source_agent_id, "read"):
+                return EventResponse(
+                    success=False,
+                    message="Access denied"
+                )
+            
+            # Send complete history to the requesting agent
+            await self._send_history_event(source_agent_id, document_id, document.get_full_history(), document.content)
+            
+            return EventResponse(
+                success=True,
+                message="History sent"
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to handle history request: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Failed to get history: {str(e)}"
+            )
+    
+    async def _handle_document_identity_request(self, event: Event) -> Optional[EventResponse]:
+        """Handle requests for user identity assignment."""
+        try:
+            source_agent_id = event.source_id.replace("agent:", "") if event.source_id.startswith("agent:") else event.source_id
+            
+            # Generate a unique color for the user
+            import random
+            colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F"]
+            user_color = random.choice(colors)
+            
+            # Send identity assignment
+            await self._send_identity_event(source_agent_id, source_agent_id, user_color)
+            
+            return EventResponse(
+                success=True,
+                message="Identity assigned"
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to handle identity request: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Failed to assign identity: {str(e)}"
+            )
+    
+    async def _handle_document_user_info(self, event: Event) -> Optional[EventResponse]:
+        """Handle user info updates (join/leave/update)."""
+        try:
+            source_agent_id = event.source_id.replace("agent:", "") if event.source_id.startswith("agent:") else event.source_id
+            
+            # Extract payload
+            payload = event.payload
+            document_id = payload.get("document_id")
+            user_info = payload.get("user_info", {})
+            action = payload.get("action", "")
+            
+            if not document_id:
+                return EventResponse(
+                    success=False,
+                    message="Missing document_id"
+                )
+            
+            # Check if document exists
+            if document_id not in self.documents:
+                return EventResponse(
+                    success=False,
+                    message=f"Document {document_id} not found"
+                )
+            
+            document = self.documents[document_id]
+            
+            if action == "join":
+                # Add user to collaborative session
+                user_name = user_info.get("name", source_agent_id)
+                user_color = user_info.get("color", "#000000")
+                document.add_user(source_agent_id, user_name, user_color)
+                
+                # Broadcast user join to all other users
+                await self._broadcast_user_info(document_id, user_info, "join", exclude_agent=source_agent_id)
+                
+            elif action == "leave":
+                # Remove user from collaborative session
+                document.remove_user(source_agent_id)
+                
+                # Broadcast user leave to all other users
+                await self._broadcast_user_info(document_id, user_info, "leave", exclude_agent=source_agent_id)
+            
+            return EventResponse(
+                success=True,
+                message=f"User {action} processed"
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to handle user info: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Failed to process user info: {str(e)}"
+            )
+    
+    async def _handle_document_user_cursor(self, event: Event) -> Optional[EventResponse]:
+        """Handle user cursor and selection updates."""
+        try:
+            source_agent_id = event.source_id.replace("agent:", "") if event.source_id.startswith("agent:") else event.source_id
+            
+            # Extract payload
+            payload = event.payload
+            document_id = payload.get("document_id")
+            cursor_data = payload.get("cursor_data", {})
+            
+            if not document_id:
+                return EventResponse(
+                    success=False,
+                    message="Missing document_id"
+                )
+            
+            # Check if document exists
+            if document_id not in self.documents:
+                return EventResponse(
+                    success=False,
+                    message=f"Document {document_id} not found"
+                )
+            
+            document = self.documents[document_id]
+            
+            # Update cursor position
+            cursors = cursor_data.get("cursors", [])
+            selections = cursor_data.get("selections", [])
+            
+            if cursors and len(cursors) > 0:
+                document.update_cursor(source_agent_id, cursors[0])
+            
+            if selections and len(selections) > 0:
+                selection = selections[0]
+                if len(selection) >= 2:
+                    document.update_selection(source_agent_id, selection[0], selection[1])
+            
+            # Broadcast cursor update to all other users
+            await self._broadcast_cursor_data(document_id, document.get_cursor_data(), exclude_agent=source_agent_id)
+            
+            return EventResponse(
+                success=True,
+                message="Cursor updated"
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to handle cursor update: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Failed to update cursor: {str(e)}"
+            )
+    
+    async def _handle_document_language(self, event: Event) -> Optional[EventResponse]:
+        """Handle document language/syntax highlighting changes."""
+        try:
+            source_agent_id = event.source_id.replace("agent:", "") if event.source_id.startswith("agent:") else event.source_id
+            
+            # Extract payload
+            payload = event.payload
+            document_id = payload.get("document_id")
+            language = payload.get("language", "")
+            
+            if not document_id:
+                return EventResponse(
+                    success=False,
+                    message="Missing document_id"
+                )
+            
+            # Check if document exists
+            if document_id not in self.documents:
+                return EventResponse(
+                    success=False,
+                    message=f"Document {document_id} not found"
+                )
+            
+            document = self.documents[document_id]
+            
+            # Check access permissions
+            if not document.can_access(source_agent_id, "write"):
+                return EventResponse(
+                    success=False,
+                    message="Write access denied"
+                )
+            
+            # Update document language
+            document.set_language(language)
+            
+            # Broadcast language change to all other users
+            await self._broadcast_language_change(document_id, language, exclude_agent=source_agent_id)
+            
+            return EventResponse(
+                success=True,
+                message="Language updated"
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to handle language change: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Failed to update language: {str(e)}"
+            )
+    
+    # Helper methods for OT collaborative editing
+    
+    async def _send_history_event(self, target_agent_id: str, document_id: str, history: Dict[str, Any], current_content: str):
+        """Send operation history to a specific agent."""
+        try:
+            history_event = HistoryDocumentMessage(
+                source_id=self.network.network_id,
+                target_agent_id=target_agent_id,
+                document_id=document_id,
+                start_revision=history["start"],
+                operations=history["operations"],
+                current_content=current_content,
+                payload={
+                    "History": {
+                        "start": history["start"],
+                        "operations": history["operations"]
+                    }
+                }
+            )
+            
+            await self.network.send_message(history_event)
+            logger.debug(f"Sent history to agent {target_agent_id} for document {document_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send history event: {e}")
+    
+    async def _send_identity_event(self, target_agent_id: str, assigned_user_id: str, user_color: str):
+        """Send identity assignment to a specific agent."""
+        try:
+            identity_event = IdentityDocumentMessage(
+                source_id=self.network.network_id,
+                target_agent_id=target_agent_id,
+                assigned_user_id=assigned_user_id,
+                user_color=user_color,
+                payload={
+                    "Identity": {
+                        "user_id": assigned_user_id,
+                        "color": user_color
+                    }
+                }
+            )
+            
+            await self.network.send_message(identity_event)
+            logger.debug(f"Sent identity to agent {target_agent_id}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send identity event: {e}")
+    
+    async def _send_error_event(self, target_agent_id: str, document_id: str, error_type: str, error_message: str, error_details: Dict[str, Any] = None) -> EventResponse:
+        """Send error event to a specific agent."""
+        try:
+            error_event = ErrorDocumentMessage(
+                source_id=self.network.network_id,
+                target_agent_id=target_agent_id,
+                document_id=document_id,
+                error_type=error_type,
+                error_message=error_message,
+                error_details=error_details or {},
+                payload={
+                    "Error": {
+                        "type": error_type,
+                        "message": error_message,
+                        "details": error_details or {}
+                    }
+                }
+            )
+            
+            await self.network.send_message(error_event)
+            logger.debug(f"Sent error {error_type} to agent {target_agent_id}")
+            
+            return EventResponse(
+                success=False,
+                message=error_message,
+                data={"error_type": error_type, "error_details": error_details}
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to send error event: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Failed to send error: {str(e)}"
+            )
+    
+    async def _broadcast_operation_history(self, document_id: str, start_revision: int, operation_ids: List[int], exclude_agent: str = None):
+        """Broadcast operation history to all connected agents."""
+        try:
+            if document_id not in self.documents:
+                return
+            
+            document = self.documents[document_id]
+            history = document.get_history_since(start_revision)
+            
+            # Filter history to only include the specified operation IDs
+            filtered_operations = []
+            for op in history["operations"]:
+                if op["id"] in operation_ids:
+                    filtered_operations.append(op)
+            
+            history["operations"] = filtered_operations
+            
+            # Send to all connected agents except the excluded one
+            for agent_id in document.connected_users:
+                if exclude_agent and agent_id == exclude_agent:
+                    continue
+                
+                await self._send_history_event(agent_id, document_id, history, document.content)
+            
+        except Exception as e:
+            logger.error(f"Failed to broadcast operation history: {e}")
+    
+    async def _broadcast_cursor_data(self, document_id: str, cursor_data: Dict[str, Any], exclude_agent: str = None):
+        """Broadcast cursor data to all connected agents."""
+        try:
+            if document_id not in self.documents:
+                return
+            
+            document = self.documents[document_id]
+            
+            # Send to all connected agents except the excluded one
+            for agent_id in document.connected_users:
+                if exclude_agent and agent_id == exclude_agent:
+                    continue
+                
+                cursor_event = UserCursorMessage(
+                    source_id=self.network.network_id,
+                    target_agent_id=agent_id,
+                    document_id=document_id,
+                    cursor_data=cursor_data,
+                    payload={
+                        "CursorData": cursor_data
+                    }
+                )
+                
+                await self.network.send_message(cursor_event)
+            
+        except Exception as e:
+            logger.error(f"Failed to broadcast cursor data: {e}")
+    
+    async def _broadcast_user_info(self, document_id: str, user_info: Dict[str, Any], action: str, exclude_agent: str = None):
+        """Broadcast user info changes to all connected agents."""
+        try:
+            if document_id not in self.documents:
+                return
+            
+            document = self.documents[document_id]
+            
+            # Send to all connected agents except the excluded one
+            for agent_id in document.connected_users:
+                if exclude_agent and agent_id == exclude_agent:
+                    continue
+                
+                user_info_event = UserInfoMessage(
+                    source_id=self.network.network_id,
+                    target_agent_id=agent_id,
+                    document_id=document_id,
+                    user_info=user_info,
+                    action=action,
+                    payload={
+                        "UserInfo": {
+                            "action": action,
+                            "user_info": user_info
+                        }
+                    }
+                )
+                
+                await self.network.send_message(user_info_event)
+            
+        except Exception as e:
+            logger.error(f"Failed to broadcast user info: {e}")
+    
+    async def _broadcast_language_change(self, document_id: str, language: str, exclude_agent: str = None):
+        """Broadcast language change to all connected agents."""
+        try:
+            if document_id not in self.documents:
+                return
+            
+            document = self.documents[document_id]
+            
+            # Send to all connected agents except the excluded one
+            for agent_id in document.connected_users:
+                if exclude_agent and agent_id == exclude_agent:
+                    continue
+                
+                language_event = LanguageDocumentMessage(
+                    source_id=self.network.network_id,
+                    target_agent_id=agent_id,
+                    document_id=document_id,
+                    language=language,
+                    payload={
+                        "Language": {
+                            "language": language
+                        }
+                    }
+                )
+                
+                await self.network.send_message(language_event)
+            
+        except Exception as e:
+            logger.error(f"Failed to broadcast language change: {e}")

@@ -39,7 +39,24 @@ from .document_messages import (
     AgentPresenceResponse,
     CursorPosition,
     DocumentComment,
-    AgentPresence
+    AgentPresence,
+    # OT Collaborative Editing Messages
+    HistoryDocumentMessage,
+    IdentityDocumentMessage,
+    UserInfoMessage,
+    UserCursorMessage,
+    LanguageDocumentMessage,
+    ErrorDocumentMessage,
+    EditDocumentMessage,
+    # OT Operation Types
+    OTOperation,
+    OTRetain,
+    OTInsert,
+    OTDelete,
+    OTCompositeOperation,
+    CursorInfo,
+    SelectionInfo,
+    UserInfo
 )
 
 logger = logging.getLogger(__name__)
@@ -74,6 +91,12 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
         # Document state tracking
         self.open_documents: Dict[str, Dict[str, Any]] = {}  # document_id -> document_state
         self.pending_operations: Dict[str, Dict[str, Any]] = {}  # operation_id -> operation_metadata
+        
+        # OT Collaborative Editing State
+        self.ot_documents: Dict[str, Dict[str, Any]] = {}  # document_id -> ot_state
+        self.user_identity: Optional[Dict[str, Any]] = None  # Current user identity
+        self.document_revisions: Dict[str, int] = {}  # document_id -> current_revision
+        self.pending_edits: Dict[str, Dict[str, Any]] = {}  # edit_id -> edit_metadata
         
         # Presence tracking
         self.agent_cursors: Dict[str, CursorPosition] = {}  # document_id -> cursor_position
@@ -397,6 +420,146 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                     "required": ["document_id"]
                 },
                 func=self.get_agent_presence
+            ),
+            # OT Collaborative Editing Tools
+            AgentAdapterTool(
+                name="submit_edit_operation",
+                description="Submit an OT edit operation for collaborative editing",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "document_id": {
+                            "type": "string",
+                            "description": "ID of the document"
+                        },
+                        "revision": {
+                            "type": "integer",
+                            "description": "Document revision this operation is based on"
+                        },
+                        "operation": {
+                            "type": "array",
+                            "items": {
+                                "oneOf": [
+                                    {"type": "integer"},
+                                    {"type": "string"}
+                                ]
+                            },
+                            "description": "OT operation in simple format [retain, 'insert', -delete, ...]"
+                        }
+                    },
+                    "required": ["document_id", "revision", "operation"]
+                },
+                func=self.submit_edit_operation
+            ),
+            AgentAdapterTool(
+                name="request_document_history",
+                description="Request complete operation history for a document",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "document_id": {
+                            "type": "string",
+                            "description": "ID of the document"
+                        }
+                    },
+                    "required": ["document_id"]
+                },
+                func=self.request_document_history
+            ),
+            AgentAdapterTool(
+                name="request_user_identity",
+                description="Request user identity assignment for collaborative editing",
+                parameters={
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                },
+                func=self.request_user_identity
+            ),
+            AgentAdapterTool(
+                name="join_collaborative_session",
+                description="Join a collaborative editing session for a document",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "document_id": {
+                            "type": "string",
+                            "description": "ID of the document"
+                        },
+                        "user_name": {
+                            "type": "string",
+                            "description": "Display name for the user"
+                        },
+                        "user_color": {
+                            "type": "string",
+                            "description": "Color for cursor/selection display",
+                            "default": "#000000"
+                        }
+                    },
+                    "required": ["document_id", "user_name"]
+                },
+                func=self.join_collaborative_session
+            ),
+            AgentAdapterTool(
+                name="leave_collaborative_session",
+                description="Leave a collaborative editing session for a document",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "document_id": {
+                            "type": "string",
+                            "description": "ID of the document"
+                        }
+                    },
+                    "required": ["document_id"]
+                },
+                func=self.leave_collaborative_session
+            ),
+            AgentAdapterTool(
+                name="update_cursor_position",
+                description="Update cursor position and selection in collaborative editing",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "document_id": {
+                            "type": "string",
+                            "description": "ID of the document"
+                        },
+                        "cursor_position": {
+                            "type": "integer",
+                            "description": "Cursor position in the document"
+                        },
+                        "selection_start": {
+                            "type": "integer",
+                            "description": "Selection start position (optional)"
+                        },
+                        "selection_end": {
+                            "type": "integer",
+                            "description": "Selection end position (optional)"
+                        }
+                    },
+                    "required": ["document_id", "cursor_position"]
+                },
+                func=self.update_cursor_position_ot
+            ),
+            AgentAdapterTool(
+                name="set_document_language",
+                description="Set the programming language for syntax highlighting",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "document_id": {
+                            "type": "string",
+                            "description": "ID of the document"
+                        },
+                        "language": {
+                            "type": "string",
+                            "description": "Programming language identifier (e.g., 'python', 'javascript', 'markdown')"
+                        }
+                    },
+                    "required": ["document_id", "language"]
+                },
+                func=self.set_document_language
             )
         ]
     
@@ -1050,3 +1213,598 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 "status": "error",
                 "message": str(e)
             }
+    
+    # OT Collaborative Editing Tool Implementation Methods
+    
+    async def submit_edit_operation(self, document_id: str, revision: int, operation: List[Union[int, str]]) -> Dict[str, Any]:
+        """Submit an OT edit operation for collaborative editing.
+        
+        Args:
+            document_id: ID of the document
+            revision: Document revision this operation is based on
+            operation: OT operation in simple format [retain, "insert", -delete, ...]
+            
+        Returns:
+            Dict with operation result
+        """
+        try:
+            if self.connector is None:
+                return {
+                    "status": "error",
+                    "message": "Agent is not connected to network"
+                }
+            
+            # Create edit message
+            edit_message = EditMessage(
+                source_id=self.agent_id,
+                document_id=document_id,
+                revision=revision,
+                operation=operation,
+                payload={
+                    "document_id": document_id,
+                    "revision": revision,
+                    "operation": operation
+                }
+            )
+            
+            # Send to network
+            await self.connector.send_mod_message(edit_message)
+            
+            # Track pending edit
+            edit_id = edit_message.event_id
+            self.pending_edits[edit_id] = {
+                "document_id": document_id,
+                "revision": revision,
+                "operation": operation,
+                "timestamp": datetime.now()
+            }
+            
+            logger.info(f"Submitted edit operation for document {document_id} at revision {revision}")
+            
+            return {
+                "status": "success",
+                "message": "Edit operation submitted",
+                "edit_id": edit_id
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to submit edit operation: {e}")
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+    
+    async def request_document_history(self, document_id: str) -> Dict[str, Any]:
+        """Request complete operation history for a document.
+        
+        Args:
+            document_id: ID of the document
+            
+        Returns:
+            Dict with request result
+        """
+        try:
+            if self.connector is None:
+                return {
+                    "status": "error",
+                    "message": "Agent is not connected to network"
+                }
+            
+            # Create history request message
+            history_message = HistoryMessage(
+                source_id=self.agent_id,
+                document_id=document_id,
+                payload={
+                    "document_id": document_id
+                }
+            )
+            
+            # Send to network
+            await self.connector.send_mod_message(history_message)
+            
+            logger.info(f"Requested history for document {document_id}")
+            
+            return {
+                "status": "success",
+                "message": "History request sent"
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to request document history: {e}")
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+    
+    async def request_user_identity(self) -> Dict[str, Any]:
+        """Request user identity assignment for collaborative editing.
+        
+        Returns:
+            Dict with request result
+        """
+        try:
+            if self.connector is None:
+                return {
+                    "status": "error",
+                    "message": "Agent is not connected to network"
+                }
+            
+            # Create identity request message
+            identity_message = IdentityMessage(
+                source_id=self.agent_id,
+                payload={}
+            )
+            
+            # Send to network
+            await self.connector.send_mod_message(identity_message)
+            
+            logger.info("Requested user identity assignment")
+            
+            return {
+                "status": "success",
+                "message": "Identity request sent"
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to request user identity: {e}")
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+    
+    async def join_collaborative_session(self, document_id: str, user_name: str, user_color: str = "#000000") -> Dict[str, Any]:
+        """Join a collaborative editing session for a document.
+        
+        Args:
+            document_id: ID of the document
+            user_name: Display name for the user
+            user_color: Color for cursor/selection display
+            
+        Returns:
+            Dict with join result
+        """
+        try:
+            if self.connector is None:
+                return {
+                    "status": "error",
+                    "message": "Agent is not connected to network"
+                }
+            
+            # Create user info message for joining
+            user_info = {
+                "user_id": self.agent_id,
+                "name": user_name,
+                "color": user_color,
+                "is_active": True
+            }
+            
+            user_info_message = UserInfoMessage(
+                source_id=self.agent_id,
+                document_id=document_id,
+                user_info=user_info,
+                action="join",
+                payload={
+                    "document_id": document_id,
+                    "user_info": user_info,
+                    "action": "join"
+                }
+            )
+            
+            # Send to network
+            await self.connector.send_mod_message(user_info_message)
+            
+            # Update local state
+            if document_id not in self.ot_documents:
+                self.ot_documents[document_id] = {}
+            
+            self.ot_documents[document_id]["user_info"] = user_info
+            
+            logger.info(f"Joined collaborative session for document {document_id} as {user_name}")
+            
+            return {
+                "status": "success",
+                "message": f"Joined collaborative session as {user_name}",
+                "user_info": user_info
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to join collaborative session: {e}")
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+    
+    async def leave_collaborative_session(self, document_id: str) -> Dict[str, Any]:
+        """Leave a collaborative editing session for a document.
+        
+        Args:
+            document_id: ID of the document
+            
+        Returns:
+            Dict with leave result
+        """
+        try:
+            if self.connector is None:
+                return {
+                    "status": "error",
+                    "message": "Agent is not connected to network"
+                }
+            
+            # Get current user info
+            user_info = {}
+            if document_id in self.ot_documents and "user_info" in self.ot_documents[document_id]:
+                user_info = self.ot_documents[document_id]["user_info"]
+            
+            # Create user info message for leaving
+            user_info_message = UserInfoMessage(
+                source_id=self.agent_id,
+                document_id=document_id,
+                user_info=user_info,
+                action="leave",
+                payload={
+                    "document_id": document_id,
+                    "user_info": user_info,
+                    "action": "leave"
+                }
+            )
+            
+            # Send to network
+            await self.connector.send_mod_message(user_info_message)
+            
+            # Clean up local state
+            if document_id in self.ot_documents:
+                del self.ot_documents[document_id]
+            
+            logger.info(f"Left collaborative session for document {document_id}")
+            
+            return {
+                "status": "success",
+                "message": "Left collaborative session"
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to leave collaborative session: {e}")
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+    
+    async def update_cursor_position_ot(self, document_id: str, cursor_position: int, selection_start: Optional[int] = None, selection_end: Optional[int] = None) -> Dict[str, Any]:
+        """Update cursor position and selection in collaborative editing.
+        
+        Args:
+            document_id: ID of the document
+            cursor_position: Cursor position in the document
+            selection_start: Selection start position (optional)
+            selection_end: Selection end position (optional)
+            
+        Returns:
+            Dict with update result
+        """
+        try:
+            if self.connector is None:
+                return {
+                    "status": "error",
+                    "message": "Agent is not connected to network"
+                }
+            
+            # Prepare cursor data
+            cursor_data = {
+                "cursors": [cursor_position],
+                "selections": []
+            }
+            
+            # Add selection if provided
+            if selection_start is not None and selection_end is not None:
+                cursor_data["selections"] = [[selection_start, selection_end]]
+            
+            # Create cursor message
+            cursor_message = UserCursorMessage(
+                source_id=self.agent_id,
+                document_id=document_id,
+                cursor_data=cursor_data,
+                payload={
+                    "document_id": document_id,
+                    "cursor_data": cursor_data
+                }
+            )
+            
+            # Send to network
+            await self.connector.send_mod_message(cursor_message)
+            
+            logger.debug(f"Updated cursor position for document {document_id}: {cursor_position}")
+            
+            return {
+                "status": "success",
+                "message": "Cursor position updated",
+                "cursor_data": cursor_data
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to update cursor position: {e}")
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+    
+    async def set_document_language(self, document_id: str, language: str) -> Dict[str, Any]:
+        """Set the programming language for syntax highlighting.
+        
+        Args:
+            document_id: ID of the document
+            language: Programming language identifier
+            
+        Returns:
+            Dict with update result
+        """
+        try:
+            if self.connector is None:
+                return {
+                    "status": "error",
+                    "message": "Agent is not connected to network"
+                }
+            
+            # Create language message
+            language_message = LanguageMessage(
+                source_id=self.agent_id,
+                document_id=document_id,
+                language=language,
+                payload={
+                    "document_id": document_id,
+                    "language": language
+                }
+            )
+            
+            # Send to network
+            await self.connector.send_mod_message(language_message)
+            
+            logger.info(f"Set language for document {document_id}: {language}")
+            
+            return {
+                "status": "success",
+                "message": f"Document language set to {language}",
+                "language": language
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to set document language: {e}")
+            return {
+                "status": "error",
+                "message": str(e)
+            }
+    
+    # OT Event Processing Methods
+    
+    async def process_incoming_mod_message(self, message: Event) -> Optional[Event]:
+        """Process incoming mod messages including OT collaborative editing events.
+        
+        Args:
+            message: The mod message to process
+            
+        Returns:
+            Optional[Event]: None if message was handled, message if not handled
+        """
+        try:
+            event_name = message.event_name
+            
+            # Handle OT collaborative editing events
+            if event_name == "document.history":
+                await self._handle_history_message(message)
+                return None
+            elif event_name == "document.identity":
+                await self._handle_identity_message(message)
+                return None
+            elif event_name == "document.user_info":
+                await self._handle_user_info_message(message)
+                return None
+            elif event_name == "document.user_cursor":
+                await self._handle_user_cursor_message(message)
+                return None
+            elif event_name == "document.language":
+                await self._handle_language_message(message)
+                return None
+            elif event_name == "document.error":
+                await self._handle_error_message(message)
+                return None
+            
+            # Let parent class handle other messages
+            return message
+            
+        except Exception as e:
+            logger.error(f"Error processing incoming mod message: {e}")
+            return message
+    
+    async def _handle_history_message(self, message: Event):
+        """Handle incoming history messages."""
+        try:
+            payload = message.payload
+            document_id = payload.get("document_id", "")
+            
+            # Extract history data from payload
+            history_data = payload.get("History", {})
+            start_revision = history_data.get("start", 0)
+            operations = history_data.get("operations", [])
+            current_content = payload.get("current_content", "")
+            
+            # Update local document state
+            if document_id not in self.ot_documents:
+                self.ot_documents[document_id] = {}
+            
+            self.ot_documents[document_id].update({
+                "history": {
+                    "start": start_revision,
+                    "operations": operations
+                },
+                "content": current_content,
+                "last_updated": datetime.now()
+            })
+            
+            # Update revision tracking
+            if operations:
+                latest_operation = max(operations, key=lambda op: op.get("id", 0))
+                self.document_revisions[document_id] = latest_operation.get("id", start_revision)
+            else:
+                self.document_revisions[document_id] = start_revision
+            
+            # Call registered handlers
+            for handler in self.document_handlers.values():
+                try:
+                    handler({
+                        "event": "history_received",
+                        "document_id": document_id,
+                        "history": history_data,
+                        "content": current_content
+                    })
+                except Exception as e:
+                    logger.error(f"Error in document handler: {e}")
+            
+            logger.info(f"Received history for document {document_id}: {len(operations)} operations")
+            
+        except Exception as e:
+            logger.error(f"Error handling history message: {e}")
+    
+    async def _handle_identity_message(self, message: Event):
+        """Handle incoming identity assignment messages."""
+        try:
+            payload = message.payload
+            
+            # Extract identity data from payload
+            identity_data = payload.get("Identity", {})
+            user_id = identity_data.get("user_id", "")
+            color = identity_data.get("color", "#000000")
+            
+            # Update local identity
+            self.user_identity = {
+                "user_id": user_id,
+                "color": color,
+                "assigned_at": datetime.now()
+            }
+            
+            # Call registered handlers
+            for handler in self.document_handlers.values():
+                try:
+                    handler({
+                        "event": "identity_assigned",
+                        "user_id": user_id,
+                        "color": color
+                    })
+                except Exception as e:
+                    logger.error(f"Error in document handler: {e}")
+            
+            logger.info(f"Received identity assignment: {user_id} with color {color}")
+            
+        except Exception as e:
+            logger.error(f"Error handling identity message: {e}")
+    
+    async def _handle_user_info_message(self, message: Event):
+        """Handle incoming user info messages."""
+        try:
+            payload = message.payload
+            document_id = payload.get("document_id", "")
+            
+            # Extract user info data from payload
+            user_info_data = payload.get("UserInfo", {})
+            action = user_info_data.get("action", "")
+            user_info = user_info_data.get("user_info", {})
+            
+            # Call registered handlers
+            for handler in self.document_handlers.values():
+                try:
+                    handler({
+                        "event": "user_info_updated",
+                        "document_id": document_id,
+                        "action": action,
+                        "user_info": user_info
+                    })
+                except Exception as e:
+                    logger.error(f"Error in document handler: {e}")
+            
+            logger.debug(f"Received user info update for document {document_id}: {action}")
+            
+        except Exception as e:
+            logger.error(f"Error handling user info message: {e}")
+    
+    async def _handle_user_cursor_message(self, message: Event):
+        """Handle incoming user cursor messages."""
+        try:
+            payload = message.payload
+            document_id = payload.get("document_id", "")
+            
+            # Extract cursor data from payload
+            cursor_data = payload.get("CursorData", {})
+            
+            # Call registered handlers
+            for handler in self.document_handlers.values():
+                try:
+                    handler({
+                        "event": "cursor_updated",
+                        "document_id": document_id,
+                        "cursor_data": cursor_data
+                    })
+                except Exception as e:
+                    logger.error(f"Error in document handler: {e}")
+            
+            logger.debug(f"Received cursor update for document {document_id}")
+            
+        except Exception as e:
+            logger.error(f"Error handling user cursor message: {e}")
+    
+    async def _handle_language_message(self, message: Event):
+        """Handle incoming language change messages."""
+        try:
+            payload = message.payload
+            document_id = payload.get("document_id", "")
+            
+            # Extract language data from payload
+            language_data = payload.get("Language", {})
+            language = language_data.get("language", "")
+            
+            # Update local document state
+            if document_id in self.ot_documents:
+                self.ot_documents[document_id]["language"] = language
+            
+            # Call registered handlers
+            for handler in self.document_handlers.values():
+                try:
+                    handler({
+                        "event": "language_changed",
+                        "document_id": document_id,
+                        "language": language
+                    })
+                except Exception as e:
+                    logger.error(f"Error in document handler: {e}")
+            
+            logger.info(f"Received language change for document {document_id}: {language}")
+            
+        except Exception as e:
+            logger.error(f"Error handling language message: {e}")
+    
+    async def _handle_error_message(self, message: Event):
+        """Handle incoming error messages."""
+        try:
+            payload = message.payload
+            document_id = payload.get("document_id", "")
+            
+            # Extract error data from payload
+            error_data = payload.get("Error", {})
+            error_type = error_data.get("type", "")
+            error_message = error_data.get("message", "")
+            error_details = error_data.get("details", {})
+            
+            # Call registered handlers
+            for handler in self.document_handlers.values():
+                try:
+                    handler({
+                        "event": "error_occurred",
+                        "document_id": document_id,
+                        "error_type": error_type,
+                        "error_message": error_message,
+                        "error_details": error_details
+                    })
+                except Exception as e:
+                    logger.error(f"Error in document handler: {e}")
+            
+            logger.warning(f"Received error for document {document_id}: {error_type} - {error_message}")
+            
+        except Exception as e:
+            logger.error(f"Error handling error message: {e}")
