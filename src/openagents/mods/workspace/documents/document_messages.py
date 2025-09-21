@@ -7,9 +7,89 @@ from pydantic import BaseModel, Field, field_validator
 from openagents.models.event import Event
 from dataclasses import dataclass, field
 
+# OT (Operational Transformation) Operation Types
+class OTOperation(BaseModel):
+    """Base class for OT operations."""
+
+    operation_type: str = Field(..., description="Type of operation: 'retain', 'insert', 'delete'")
+
+class OTRetain(OTOperation):
+    """Retain operation - keep N characters unchanged."""
+    operation_type: str = Field(default="retain", description="Operation type")
+    length: int = Field(..., description="Number of characters to retain")
+
+class OTInsert(OTOperation):
+    """Insert operation - insert text at current position."""
+    operation_type: str = Field(default="insert", description="Operation type")
+    text: str = Field(..., description="Text to insert")
+
+class OTDelete(OTOperation):
+    """Delete operation - delete N characters at current position."""
+    operation_type: str = Field(default="delete", description="Operation type")
+    length: int = Field(..., description="Number of characters to delete")
+
+class OTCompositeOperation(BaseModel):
+    """A composite OT operation consisting of multiple atomic operations."""
+
+    operations: List[Union[OTRetain, OTInsert, OTDelete]] = Field(default_factory=list, description="List of atomic operations")
+    revision: int = Field(..., description="Document revision this operation is based on")
+    author_id: str = Field(..., description="ID of the agent who created this operation")
+    timestamp: datetime = Field(default_factory=datetime.now, description="When the operation was created")
+
+    def to_simple_format(self) -> List[Union[int, str]]:
+        """Convert to simple format: [retain_count, "insert_text", -delete_count, ...]"""
+        result = []
+        for op in self.operations:
+            if op.operation_type == "retain":
+                result.append(op.length)
+            elif op.operation_type == "insert":
+                result.append(op.text)
+            elif op.operation_type == "delete":
+                result.append(-op.length)
+        return result
+
+    @classmethod
+    def from_simple_format(cls, simple_ops: List[Union[int, str]], revision: int, author_id: str) -> 'OTCompositeOperation':
+        """Create from simple format: [retain_count, "insert_text", -delete_count, ...]"""
+        operations = []
+        for op in simple_ops:
+            if isinstance(op, int):
+                if op > 0:
+                    operations.append(OTRetain(length=op))
+                elif op < 0:
+                    operations.append(OTDelete(length=-op))
+            elif isinstance(op, str):
+                operations.append(OTInsert(text=op))
+
+        return cls(operations=operations, revision=revision, author_id=author_id)
+
+# Cursor and Selection Information
+class CursorInfo(BaseModel):
+    """Cursor position information."""
+
+    position: int = Field(..., description="Cursor position in document")
+    agent_id: str = Field(..., description="Agent ID")
+    color: Optional[str] = Field(None, description="Cursor color for display")
+
+class SelectionInfo(BaseModel):
+    """Selection range information."""
+
+    start: int = Field(..., description="Selection start position")
+    end: int = Field(..., description="Selection end position")
+    agent_id: str = Field(..., description="Agent ID")
+
+# User Information for Collaboration
+class UserInfo(BaseModel):
+    """User information for collaborative editing."""
+
+    user_id: str = Field(..., description="User/Agent ID")
+    name: str = Field(..., description="Display name")
+    color: str = Field(..., description="User color for cursors/selections")
+    is_active: bool = Field(True, description="Whether user is currently active")
+
 class DocumentOperation(BaseModel):
     """Base class for document operations."""
-    
+
     operation_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique operation ID")
     document_id: str = Field(..., description="Document ID")
     agent_id: str = Field(..., description="Agent performing the operation")
@@ -18,10 +98,10 @@ class DocumentOperation(BaseModel):
 
 class LineRange(BaseModel):
     """Represents a range of lines in a document."""
-    
+
     start_line: int = Field(..., description="Start line number (1-based)")
     end_line: int = Field(..., description="End line number (1-based, inclusive)")
-    
+
     @field_validator('start_line', 'end_line')
     @classmethod
     def validate_line_numbers(cls, v):
@@ -29,7 +109,7 @@ class LineRange(BaseModel):
         if v < 1:
             raise ValueError('Line numbers must be 1 or greater')
         return v
-    
+
     def model_post_init(self, __context):
         """Validate that start_line <= end_line."""
         if self.start_line > self.end_line:
@@ -37,10 +117,10 @@ class LineRange(BaseModel):
 
 class CursorPosition(BaseModel):
     """Represents a cursor position in a document."""
-    
+
     line_number: int = Field(..., description="Line number (1-based)")
     column_number: int = Field(1, description="Column number (1-based)")
-    
+
     @field_validator('line_number', 'column_number')
     @classmethod
     def validate_position(cls, v):
@@ -51,13 +131,13 @@ class CursorPosition(BaseModel):
 
 class DocumentComment(BaseModel):
     """Represents a comment on a document line."""
-    
+
     comment_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique comment ID")
     line_number: int = Field(..., description="Line number the comment is attached to")
     agent_id: str = Field(..., description="Agent who created the comment")
     comment_text: str = Field(..., description="Comment content")
     timestamp: datetime = Field(default_factory=datetime.now, description="Comment timestamp")
-    
+
     @field_validator('line_number')
     @classmethod
     def validate_line_number(cls, v):
@@ -65,7 +145,7 @@ class DocumentComment(BaseModel):
         if v < 1:
             raise ValueError('Line number must be 1 or greater')
         return v
-    
+
     @field_validator('comment_text')
     @classmethod
     def validate_comment_text(cls, v):
@@ -78,7 +158,7 @@ class DocumentComment(BaseModel):
 
 class AgentPresence(BaseModel):
     """Represents an agent's presence in a document."""
-    
+
     agent_id: str = Field(..., description="Agent ID")
     cursor_position: Optional[CursorPosition] = Field(None, description="Agent's current cursor position")
     last_activity: datetime = Field(default_factory=datetime.now, description="Last activity timestamp")
@@ -89,67 +169,67 @@ class AgentPresence(BaseModel):
 @dataclass
 class CreateDocumentMessage(Event):
     """Message for creating a new shared document."""
-    
+
     # Document creation specific fields
     document_name: str = field(default="")
     initial_content: Optional[str] = field(default="")
     access_permissions: Dict[str, str] = field(default_factory=dict)
-    
+
     def __init__(self, event_name: str = "document.creation.requested", source_id: str = "", **kwargs):
         """Initialize CreateDocumentMessage with proper event name."""
         # Handle backward compatibility for sender_id
         if 'sender_id' in kwargs:
             source_id = kwargs.pop('sender_id')
-        
+
         # Extract document creation specific fields
         document_name = kwargs.pop('document_name', '')
         initial_content = kwargs.pop('initial_content', '')
         access_permissions = kwargs.pop('access_permissions', {})
-        
+
         # Call parent constructor with required positional arguments
         super().__init__(event_name, source_id, **kwargs)
-        
+
         # Set document creation specific fields
         self.document_name = document_name
         self.initial_content = initial_content
         self.access_permissions = access_permissions
-    
+
     # Backward compatibility properties
     @property
     def message_id(self) -> str:
         """Backward compatibility: message_id maps to event_id."""
         return self.event_id
-    
+
     @message_id.setter
     def message_id(self, value: str):
         """Backward compatibility: message_id maps to event_id."""
         self.event_id = value
-    
+
     @property
     def sender_id(self) -> str:
         """Backward compatibility: sender_id maps to source_id."""
         return self.source_id
-    
+
     @sender_id.setter
     def sender_id(self, value: str):
         """Backward compatibility: sender_id maps to source_id."""
         self.source_id = value
-    
+
     @property
     def content(self) -> Dict[str, Any]:
         """Backward compatibility: content maps to payload."""
         return self.payload
-    
+
     @content.setter
     def content(self, value: Dict[str, Any]):
         """Backward compatibility: content maps to payload."""
         self.payload = value
-    
+
     @property
     def message_type(self) -> str:
         """Backward compatibility: message_type derived from class name."""
         return "create_document"
-    
+
     def model_dump(self) -> Dict[str, Any]:
         """Pydantic-style model dump for backward compatibility."""
         return {
@@ -178,7 +258,7 @@ class CreateDocumentMessage(Event):
             "message_type": self.message_type,
             "content": self.payload  # Backward compatibility: content maps to payload
         }
-    
+
     @field_validator('document_name')
     @classmethod
     def validate_document_name(cls, v):
@@ -188,6 +268,661 @@ class CreateDocumentMessage(Event):
         if len(v) > 255:
             raise ValueError('Document name cannot exceed 255 characters')
         return v.strip()
+
+# OT Collaborative Editing Event Messages
+
+@dataclass
+class HistoryDocumentMessage(Event):
+    """Message containing document operation history for new connections."""
+
+    # History specific fields
+    document_id: str = field(default="")
+    start_revision: int = field(default=0)
+    operations: List[Dict[str, Any]] = field(default_factory=list)  # List of {id, operation} pairs
+    current_content: str = field(default="")
+
+    def __init__(self, event_name: str = "document.history", source_id: str = "", **kwargs):
+        """Initialize HistoryMessage with proper event name."""
+        if 'sender_id' in kwargs:
+            source_id = kwargs.pop('sender_id')
+
+        # Extract history specific fields
+        document_id = kwargs.pop('document_id', '')
+        start_revision = kwargs.pop('start_revision', 0)
+        operations = kwargs.pop('operations', [])
+        current_content = kwargs.pop('current_content', '')
+
+        # Call parent constructor
+        super().__init__(event_name=event_name, source_id=source_id, **kwargs)
+
+        # Set history specific fields
+        self.document_id = document_id
+        self.start_revision = start_revision
+        self.operations = operations
+        self.current_content = current_content
+
+    # Backward compatibility properties
+    @property
+    def message_id(self) -> str:
+        """Backward compatibility: message_id maps to event_id."""
+        return self.event_id
+
+    @message_id.setter
+    def message_id(self, value: str):
+        """Backward compatibility: message_id maps to event_id."""
+        self.event_id = value
+
+    @property
+    def sender_id(self) -> str:
+        """Backward compatibility: sender_id maps to source_id."""
+        return self.source_id
+
+    @sender_id.setter
+    def sender_id(self, value: str):
+        """Backward compatibility: sender_id maps to source_id."""
+        self.source_id = value
+
+    @property
+    def content(self) -> Dict[str, Any]:
+        """Backward compatibility: content maps to payload."""
+        return self.payload
+
+    @content.setter
+    def content(self, value: Dict[str, Any]):
+        """Backward compatibility: content maps to payload."""
+        self.payload = value
+
+    @property
+    def message_type(self) -> str:
+        """Backward compatibility: message_type derived from class name."""
+        return "channel_info"
+
+    def model_dump(self) -> Dict[str, Any]:
+        """Pydantic-style model dump for backward compatibility."""
+        return {
+            "event_id": self.event_id,
+            "event_name": self.event_name,
+            "timestamp": self.timestamp,
+            "source_id": self.source_id,
+            "source_type": self.source_type,
+            "target_agent_id": self.destination_id,
+            "target_channel": getattr(self, 'channel', None),
+            "relevant_mod": self.relevant_mod,
+            "requires_response": self.requires_response,
+            "response_to": self.response_to,
+            "payload": self.payload,
+            "metadata": self.metadata,
+            "text_representation": self.text_representation,
+            "visibility": self.visibility.value if hasattr(self.visibility, 'value') else self.visibility,
+            "allowed_agents": list(self.allowed_agents) if self.allowed_agents else None,
+            # Channel info specific fields
+            "document_id": self.document_id,
+            "start_revision": self.start_revision,
+            "operations": self.operations,
+            "current_content": self.current_content,
+            # Backward compatibility fields
+            "message_id": self.event_id,
+            "sender_id": self.source_id,
+            "message_type": self.message_type,
+            "content": self.payload  # Backward compatibility: content maps to payload
+        }
+
+
+@dataclass
+class IdentityDocumentMessage(Event):
+    """Message assigning user ID to a client."""
+
+    # Identity specific fields
+    assigned_user_id: str = field(default="")
+    user_color: str = field(default="#000000")
+
+    def __init__(self, event_name: str = "document.identity", source_id: str = "", **kwargs):
+        """Initialize IdentityMessage with proper event name."""
+        if 'sender_id' in kwargs:
+            source_id = kwargs.pop('sender_id')
+
+        # Extract identity specific fields
+        assigned_user_id = kwargs.pop('assigned_user_id', '')
+        user_color = kwargs.pop('user_color', '#000000')
+
+        # Call parent constructor
+        super().__init__(event_name=event_name, source_id=source_id, **kwargs)
+
+        # Set identity specific fields
+        self.assigned_user_id = assigned_user_id
+        self.user_color = user_color
+
+    # Backward compatibility properties
+    @property
+    def message_id(self) -> str:
+        """Backward compatibility: message_id maps to event_id."""
+        return self.event_id
+
+    @message_id.setter
+    def message_id(self, value: str):
+        """Backward compatibility: message_id maps to event_id."""
+        self.event_id = value
+
+    @property
+    def sender_id(self) -> str:
+        """Backward compatibility: sender_id maps to source_id."""
+        return self.source_id
+
+    @sender_id.setter
+    def sender_id(self, value: str):
+        """Backward compatibility: sender_id maps to source_id."""
+        self.source_id = value
+
+    @property
+    def content(self) -> Dict[str, Any]:
+        """Backward compatibility: content maps to payload."""
+        return self.payload
+
+    @content.setter
+    def content(self, value: Dict[str, Any]):
+        """Backward compatibility: content maps to payload."""
+        self.payload = value
+
+    @property
+    def message_type(self) -> str:
+        """Backward compatibility: message_type derived from class name."""
+        return "channel_info"
+
+    def model_dump(self) -> Dict[str, Any]:
+        """Pydantic-style model dump for backward compatibility."""
+        return {
+            "event_id": self.event_id,
+            "event_name": self.event_name,
+            "timestamp": self.timestamp,
+            "source_id": self.source_id,
+            "source_type": self.source_type,
+            "target_agent_id": self.destination_id,
+            "target_channel": getattr(self, 'channel', None),
+            "relevant_mod": self.relevant_mod,
+            "requires_response": self.requires_response,
+            "response_to": self.response_to,
+            "payload": self.payload,
+            "metadata": self.metadata,
+            "text_representation": self.text_representation,
+            "visibility": self.visibility.value if hasattr(self.visibility, 'value') else self.visibility,
+            "allowed_agents": list(self.allowed_agents) if self.allowed_agents else None,
+            # Channel info specific fields
+            "assigned_user_id": self.assigned_user_id,
+            "user_color": self.user_color,
+            # Backward compatibility fields
+            "message_id": self.event_id,
+            "sender_id": self.source_id,
+            "message_type": self.message_type,
+            "content": self.payload  # Backward compatibility: content maps to payload
+        }
+
+
+@dataclass
+class UserInfoMessage(Event):
+    """Message broadcasting user information changes."""
+
+    # User info specific fields
+    document_id: str = field(default="")
+    user_info: Dict[str, Any] = field(default_factory=dict)
+    action: str = field(default="")  # "join", "leave", "update"
+
+    def __init__(self, event_name: str = "document.user_info", source_id: str = "", **kwargs):
+        """Initialize UserInfoMessage with proper event name."""
+        if 'sender_id' in kwargs:
+            source_id = kwargs.pop('sender_id')
+
+        # Extract user info specific fields
+        document_id = kwargs.pop('document_id', '')
+        user_info = kwargs.pop('user_info', {})
+        action = kwargs.pop('action', '')
+
+        # Call parent constructor
+        super().__init__(event_name=event_name, source_id=source_id, **kwargs)
+
+        # Set user info specific fields
+        self.document_id = document_id
+        self.user_info = user_info
+        self.action = action
+
+    # Backward compatibility properties
+    @property
+    def message_id(self) -> str:
+        """Backward compatibility: message_id maps to event_id."""
+        return self.event_id
+
+    @message_id.setter
+    def message_id(self, value: str):
+        """Backward compatibility: message_id maps to event_id."""
+        self.event_id = value
+
+    @property
+    def sender_id(self) -> str:
+        """Backward compatibility: sender_id maps to source_id."""
+        return self.source_id
+
+    @sender_id.setter
+    def sender_id(self, value: str):
+        """Backward compatibility: sender_id maps to source_id."""
+        self.source_id = value
+
+    @property
+    def content(self) -> Dict[str, Any]:
+        """Backward compatibility: content maps to payload."""
+        return self.payload
+
+    @content.setter
+    def content(self, value: Dict[str, Any]):
+        """Backward compatibility: content maps to payload."""
+        self.payload = value
+
+    @property
+    def message_type(self) -> str:
+        """Backward compatibility: message_type derived from class name."""
+        return "channel_info"
+
+    def model_dump(self) -> Dict[str, Any]:
+        """Pydantic-style model dump for backward compatibility."""
+        return {
+            "event_id": self.event_id,
+            "event_name": self.event_name,
+            "timestamp": self.timestamp,
+            "source_id": self.source_id,
+            "source_type": self.source_type,
+            "target_agent_id": self.destination_id,
+            "target_channel": getattr(self, 'channel', None),
+            "relevant_mod": self.relevant_mod,
+            "requires_response": self.requires_response,
+            "response_to": self.response_to,
+            "payload": self.payload,
+            "metadata": self.metadata,
+            "text_representation": self.text_representation,
+            "visibility": self.visibility.value if hasattr(self.visibility, 'value') else self.visibility,
+            "allowed_agents": list(self.allowed_agents) if self.allowed_agents else None,
+            # Channel info specific fields
+            "document_id": self.document_id,
+            "user_info": self.user_info,
+            "action": self.action,
+            # Backward compatibility fields
+            "message_id": self.event_id,
+            "sender_id": self.source_id,
+            "message_type": self.message_type,
+            "content": self.payload  # Backward compatibility: content maps to payload
+        }
+
+    @field_validator('action')
+    @classmethod
+    def validate_action(cls, v):
+        """Validate file operation action."""
+        valid_actions = ["join", "leave", "update"]
+        if v not in valid_actions:
+            raise ValueError(f'action must be one of: {", ".join(valid_actions)}')
+        return v
+
+@dataclass
+class UserCursorMessage(Event):
+    """Message broadcasting cursor and selection changes."""
+
+    # Cursor specific fields
+    document_id: str = field(default="")
+    cursor_data: Dict[str, Any] = field(default_factory=dict)  # {cursors: [pos], selections: [[start, end]]}
+
+    def __init__(self, event_name: str = "document.user_cursor", source_id: str = "", **kwargs):
+        """Initialize UserCursorMessage with proper event name."""
+        if 'sender_id' in kwargs:
+            source_id = kwargs.pop('sender_id')
+
+        # Extract cursor specific fields
+        document_id = kwargs.pop('document_id', '')
+        cursor_data = kwargs.pop('cursor_data', {})
+
+        # Call parent constructor
+        super().__init__(event_name=event_name, source_id=source_id, **kwargs)
+
+        # Set cursor specific fields
+        self.document_id = document_id
+        self.cursor_data = cursor_data
+
+    # Backward compatibility properties
+    @property
+    def message_id(self) -> str:
+        """Backward compatibility: message_id maps to event_id."""
+        return self.event_id
+
+    @message_id.setter
+    def message_id(self, value: str):
+        """Backward compatibility: message_id maps to event_id."""
+        self.event_id = value
+
+    @property
+    def sender_id(self) -> str:
+        """Backward compatibility: sender_id maps to source_id."""
+        return self.source_id
+
+    @sender_id.setter
+    def sender_id(self, value: str):
+        """Backward compatibility: sender_id maps to source_id."""
+        self.source_id = value
+
+    @property
+    def content(self) -> Dict[str, Any]:
+        """Backward compatibility: content maps to payload."""
+        return self.payload
+
+    @content.setter
+    def content(self, value: Dict[str, Any]):
+        """Backward compatibility: content maps to payload."""
+        self.payload = value
+
+    @property
+    def message_type(self) -> str:
+        """Backward compatibility: message_type derived from class name."""
+        return "channel_info"
+
+    def model_dump(self) -> Dict[str, Any]:
+        """Pydantic-style model dump for backward compatibility."""
+        return {
+            "event_id": self.event_id,
+            "event_name": self.event_name,
+            "timestamp": self.timestamp,
+            "source_id": self.source_id,
+            "source_type": self.source_type,
+            "target_agent_id": self.destination_id,
+            "target_channel": getattr(self, 'channel', None),
+            "relevant_mod": self.relevant_mod,
+            "requires_response": self.requires_response,
+            "response_to": self.response_to,
+            "payload": self.payload,
+            "metadata": self.metadata,
+            "text_representation": self.text_representation,
+            "visibility": self.visibility.value if hasattr(self.visibility, 'value') else self.visibility,
+            "allowed_agents": list(self.allowed_agents) if self.allowed_agents else None,
+            # Channel info specific fields
+            "document_id": self.document_id,
+            "cursor_data": self.cursor_data,
+            # Backward compatibility fields
+            "message_id": self.event_id,
+            "sender_id": self.source_id,
+            "message_type": self.message_type,
+            "content": self.payload  # Backward compatibility: content maps to payload
+        }
+
+@dataclass
+class LanguageDocumentMessage(Event):
+    """Message broadcasting language/syntax highlighting changes."""
+
+    # Language specific fields
+    document_id: str = field(default="")
+    language: str = field(default="")
+
+    def __init__(self, event_name: str = "document.language", source_id: str = "", **kwargs):
+        """Initialize LanguageMessage with proper event name."""
+        if 'sender_id' in kwargs:
+            source_id = kwargs.pop('sender_id')
+
+        # Extract language specific fields
+        document_id = kwargs.pop('document_id', '')
+        language = kwargs.pop('language', '')
+
+        # Call parent constructor
+        super().__init__(event_name=event_name, source_id=source_id, **kwargs)
+
+        # Set language specific fields
+        self.document_id = document_id
+        self.language = language
+
+    # Backward compatibility properties
+    @property
+    def message_id(self) -> str:
+        """Backward compatibility: message_id maps to event_id."""
+        return self.event_id
+
+    @message_id.setter
+    def message_id(self, value: str):
+        """Backward compatibility: message_id maps to event_id."""
+        self.event_id = value
+
+    @property
+    def sender_id(self) -> str:
+        """Backward compatibility: sender_id maps to source_id."""
+        return self.source_id
+
+    @sender_id.setter
+    def sender_id(self, value: str):
+        """Backward compatibility: sender_id maps to source_id."""
+        self.source_id = value
+
+    @property
+    def content(self) -> Dict[str, Any]:
+        """Backward compatibility: content maps to payload."""
+        return self.payload
+
+    @content.setter
+    def content(self, value: Dict[str, Any]):
+        """Backward compatibility: content maps to payload."""
+        self.payload = value
+
+    @property
+    def message_type(self) -> str:
+        """Backward compatibility: message_type derived from class name."""
+        return "channel_info"
+
+    def model_dump(self) -> Dict[str, Any]:
+        """Pydantic-style model dump for backward compatibility."""
+        return {
+            "event_id": self.event_id,
+            "event_name": self.event_name,
+            "timestamp": self.timestamp,
+            "source_id": self.source_id,
+            "source_type": self.source_type,
+            "target_agent_id": self.destination_id,
+            "target_channel": getattr(self, 'channel', None),
+            "relevant_mod": self.relevant_mod,
+            "requires_response": self.requires_response,
+            "response_to": self.response_to,
+            "payload": self.payload,
+            "metadata": self.metadata,
+            "text_representation": self.text_representation,
+            "visibility": self.visibility.value if hasattr(self.visibility, 'value') else self.visibility,
+            "allowed_agents": list(self.allowed_agents) if self.allowed_agents else None,
+            # Channel info specific fields
+            "document_id": self.document_id,
+            "language": self.language,
+            # Backward compatibility fields
+            "message_id": self.event_id,
+            "sender_id": self.source_id,
+            "message_type": self.message_type,
+            "content": self.payload  # Backward compatibility: content maps to payload
+        }
+
+
+@dataclass
+class ErrorDocumentMessage(Event):
+    """Message for broadcasting errors in collaborative editing."""
+
+    # Error specific fields
+    document_id: str = field(default="")
+    error_type: str = field(default="")  # "INVALID_OPERATION", "REVISION_MISMATCH", etc.
+    error_message: str = field(default="")
+    error_details: Dict[str, Any] = field(default_factory=dict)
+
+    def __init__(self, event_name: str = "document.error", source_id: str = "", **kwargs):
+        """Initialize ErrorMessage with proper event name."""
+        if 'sender_id' in kwargs:
+            source_id = kwargs.pop('sender_id')
+
+        # Extract error specific fields
+        document_id = kwargs.pop('document_id', '')
+        error_type = kwargs.pop('error_type', '')
+        error_message = kwargs.pop('error_message', '')
+        error_details = kwargs.pop('error_details', {})
+
+        # Call parent constructor
+        super().__init__(event_name=event_name, source_id=source_id, **kwargs)
+
+        # Set error specific fields
+        self.document_id = document_id
+        self.error_type = error_type
+        self.error_message = error_message
+        self.error_details = error_details
+
+    # Backward compatibility properties
+    @property
+    def message_id(self) -> str:
+        """Backward compatibility: message_id maps to event_id."""
+        return self.event_id
+
+    @message_id.setter
+    def message_id(self, value: str):
+        """Backward compatibility: message_id maps to event_id."""
+        self.event_id = value
+
+    @property
+    def sender_id(self) -> str:
+        """Backward compatibility: sender_id maps to source_id."""
+        return self.source_id
+
+    @sender_id.setter
+    def sender_id(self, value: str):
+        """Backward compatibility: sender_id maps to source_id."""
+        self.source_id = value
+
+    @property
+    def content(self) -> Dict[str, Any]:
+        """Backward compatibility: content maps to payload."""
+        return self.payload
+
+    @content.setter
+    def content(self, value: Dict[str, Any]):
+        """Backward compatibility: content maps to payload."""
+        self.payload = value
+
+    @property
+    def message_type(self) -> str:
+        """Backward compatibility: message_type derived from class name."""
+        return "channel_info"
+
+    def model_dump(self) -> Dict[str, Any]:
+        """Pydantic-style model dump for backward compatibility."""
+        return {
+            "event_id": self.event_id,
+            "event_name": self.event_name,
+            "timestamp": self.timestamp,
+            "source_id": self.source_id,
+            "source_type": self.source_type,
+            "target_agent_id": self.destination_id,
+            "target_channel": getattr(self, 'channel', None),
+            "relevant_mod": self.relevant_mod,
+            "requires_response": self.requires_response,
+            "response_to": self.response_to,
+            "payload": self.payload,
+            "metadata": self.metadata,
+            "text_representation": self.text_representation,
+            "visibility": self.visibility.value if hasattr(self.visibility, 'value') else self.visibility,
+            "allowed_agents": list(self.allowed_agents) if self.allowed_agents else None,
+            # Channel info specific fields
+            "document_id": self.document_id,
+            "error_type": self.error_type,
+            "error_message": self.error_message,
+            "error_details": self.error_details,
+            # Backward compatibility fields
+            "message_id": self.event_id,
+            "sender_id": self.source_id,
+            "message_type": self.message_type,
+            "content": self.payload  # Backward compatibility: content maps to payload
+        }
+
+
+@dataclass
+class EditDocumentMessage(Event):
+    """Message for submitting edit operations in collaborative editing."""
+
+    # Edit specific fields
+    document_id: str = field(default="")
+    revision: int = field(default=0)
+    operation: List[Union[int, str]] = field(default_factory=list)  # Simple format: [6, "G", -9, 5]
+
+    def __init__(self, event_name: str = "document.edit", source_id: str = "", **kwargs):
+        """Initialize EditMessage with proper event name."""
+        if 'sender_id' in kwargs:
+            source_id = kwargs.pop('sender_id')
+
+        # Extract edit specific fields
+        document_id = kwargs.pop('document_id', '')
+        revision = kwargs.pop('revision', 0)
+        operation = kwargs.pop('operation', [])
+
+        # Call parent constructor
+        super().__init__(event_name=event_name, source_id=source_id, **kwargs)
+
+        # Set edit specific fields
+        self.document_id = document_id
+        self.revision = revision
+        self.operation = operation
+
+    # Backward compatibility properties
+    @property
+    def message_id(self) -> str:
+        """Backward compatibility: message_id maps to event_id."""
+        return self.event_id
+
+    @message_id.setter
+    def message_id(self, value: str):
+        """Backward compatibility: message_id maps to event_id."""
+        self.event_id = value
+
+    @property
+    def sender_id(self) -> str:
+        """Backward compatibility: sender_id maps to source_id."""
+        return self.source_id
+
+    @sender_id.setter
+    def sender_id(self, value: str):
+        """Backward compatibility: sender_id maps to source_id."""
+        self.source_id = value
+
+    @property
+    def content(self) -> Dict[str, Any]:
+        """Backward compatibility: content maps to payload."""
+        return self.payload
+
+    @content.setter
+    def content(self, value: Dict[str, Any]):
+        """Backward compatibility: content maps to payload."""
+        self.payload = value
+
+    @property
+    def message_type(self) -> str:
+        """Backward compatibility: message_type derived from class name."""
+        return "channel_info"
+
+    def model_dump(self) -> Dict[str, Any]:
+        """Pydantic-style model dump for backward compatibility."""
+        return {
+            "event_id": self.event_id,
+            "event_name": self.event_name,
+            "timestamp": self.timestamp,
+            "source_id": self.source_id,
+            "source_type": self.source_type,
+            "target_agent_id": self.destination_id,
+            "target_channel": getattr(self, 'channel', None),
+            "relevant_mod": self.relevant_mod,
+            "requires_response": self.requires_response,
+            "response_to": self.response_to,
+            "payload": self.payload,
+            "metadata": self.metadata,
+            "text_representation": self.text_representation,
+            "visibility": self.visibility.value if hasattr(self.visibility, 'value') else self.visibility,
+            "allowed_agents": list(self.allowed_agents) if self.allowed_agents else None,
+            # Channel info specific fields
+            "document_id": self.document_id,
+            "revision": self.revision,
+            "operation": self.operation,
+            # Backward compatibility fields
+            "message_id": self.event_id,
+            "sender_id": self.source_id,
+            "message_type": self.message_type,
+            "content": self.payload  # Backward compatibility: content maps to payload
+        }
 
 class OpenDocumentMessage(Event):
     """Message for opening an existing document."""
