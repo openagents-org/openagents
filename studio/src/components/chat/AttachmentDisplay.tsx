@@ -1,10 +1,19 @@
 import React from 'react';
 
 interface AttachmentDisplayProps {
+  // 新的统一附件格式
+  attachments?: Array<{
+    fileId: string;
+    filename: string;
+    size: number;
+    fileType?: string;
+  }>;
+  // 兼容旧格式（可选）
   attachment_file_id?: string;
   attachment_filename?: string;
   attachment_size?: number | string;
-  attachments?: Array<{
+  // 兼容旧格式数组（可选）
+  legacyAttachments?: Array<{
     file_id: string;
     filename: string;
     size: number;
@@ -13,10 +22,11 @@ interface AttachmentDisplayProps {
 }
 
 const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
+  attachments,
   attachment_file_id,
   attachment_filename,
   attachment_size,
-  attachments
+  legacyAttachments
 }) => {
   // Handle download for a single attachment
   const handleDownload = (fileId: string, filename: string) => {
@@ -127,32 +137,45 @@ const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
     </div>
   );
 
-  // Check if there are any attachments to display
-  const hasAttachments = (attachments && attachments.length > 0) || (attachment_file_id && attachment_filename);
-  
-  if (!hasAttachments) {
+  // 合并所有附件到统一格式
+  const allAttachments: Array<{fileId: string, filename: string, size: number}> = [];
+
+  // 新格式附件
+  if (attachments && attachments.length > 0) {
+    allAttachments.push(...attachments);
+  }
+
+  // 兼容旧格式数组
+  if (legacyAttachments && legacyAttachments.length > 0) {
+    allAttachments.push(...legacyAttachments.map(att => ({
+      fileId: att.file_id,
+      filename: att.filename,
+      size: att.size,
+    })));
+  }
+
+  // 兼容旧格式单个附件
+  if (attachment_file_id && attachment_filename && allAttachments.length === 0) {
+    allAttachments.push({
+      fileId: attachment_file_id,
+      filename: attachment_filename,
+      size: typeof attachment_size === 'string' ? parseInt(attachment_size) || 0 : attachment_size || 0,
+    });
+  }
+
+  if (allAttachments.length === 0) {
     return null;
   }
 
   return (
     <div className="mt-3 space-y-2">
-      {/* Render attachments array if present */}
-      {attachments && attachments.length > 0 && (
-        <>
-          {attachments.length > 1 && (
-            <div className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-              {attachments.length} files attached:
-            </div>
-          )}
-          {attachments.map(attachment => 
-            renderAttachmentItem(attachment.file_id, attachment.filename, attachment.size)
-          )}
-        </>
+      {allAttachments.length > 1 && (
+        <div className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+          {allAttachments.length} files attached:
+        </div>
       )}
-      
-      {/* Render single attachment if present and no attachments array */}
-      {(!attachments || attachments.length === 0) && attachment_file_id && attachment_filename && (
-        renderAttachmentItem(attachment_file_id, attachment_filename, attachment_size || 0)
+      {allAttachments.map(attachment =>
+        renderAttachmentItem(attachment.fileId, attachment.filename, attachment.size)
       )}
     </div>
   );

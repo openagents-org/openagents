@@ -167,6 +167,29 @@ export class OpenAgentsService {
   }
 
   /**
+   * Send a generic event (for Forum and other custom functionality)
+   */
+  async sendEvent(event: Omit<import("../types/events").Event, 'event_id' | 'source_id'>): Promise<{
+    success: boolean;
+    message?: string;
+    data?: any;
+  }> {
+    const fullEvent: import("../types/events").Event = {
+      ...event,
+      event_id: `${this.agentId}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+      source_id: this.agentId,
+    };
+
+    const response = await this.eventService.sendEvent(fullEvent);
+
+    return {
+      success: response.success,
+      message: response.message,
+      data: response.data,
+    };
+  }
+
+  /**
    * Data Retrieval - All return immediate results
    */
   async getChannels(): Promise<ThreadChannel[]> {

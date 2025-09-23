@@ -1,6 +1,20 @@
 // Common type definitions for the application
 import { NetworkConnection } from "@/types/connection";
 
+// 导出新的统一消息类型
+export type {
+  UnifiedMessage,
+  RawThreadMessage,
+  LegacyMessage
+} from "./message";
+
+export {
+  MessageAdapter,
+  MessageUtils,
+} from "./message";
+
+// 注意：这个接口保留用于工具相关的消息处理，新的消息应使用 types/message.ts 中的 UnifiedMessage
+// @deprecated 对于普通消息，请使用 UnifiedMessage from types/message.ts
 export interface Message {
   id: string;
   sender: "user" | "assistant" | "system";

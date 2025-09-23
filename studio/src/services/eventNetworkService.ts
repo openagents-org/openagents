@@ -135,13 +135,24 @@ export class EventNetworkService {
       channel
     );
 
-    if (response.success) {
+    // 检查外层success和内层data.success
+    const isSuccess = response.success && response.data?.success !== false;
+
+    if (isSuccess) {
       console.log(`✅ Reaction ${reactionType} added to message ${messageId}`);
     } else {
-      console.error(`❌ Failed to add reaction: ${response.message}`);
+      console.error(
+        `❌ Failed to add reaction: ${
+          response.message || response.data?.message || "Unknown error"
+        }`
+      );
     }
 
-    return response;
+    // 返回修正后的success状态
+    return {
+      ...response,
+      success: isSuccess,
+    };
   }
 
   async removeReaction(
@@ -155,15 +166,26 @@ export class EventNetworkService {
       channel
     );
 
-    if (response.success) {
+    // 检查外层success和内层data.success
+    const isSuccess = response.success && response.data?.success !== false;
+
+    if (isSuccess) {
       console.log(
         `✅ Reaction ${reactionType} removed from message ${messageId}`
       );
     } else {
-      console.error(`❌ Failed to remove reaction: ${response.message}`);
+      console.error(
+        `❌ Failed to remove reaction: ${
+          response.message || response.data?.message || "Unknown error"
+        }`
+      );
     }
 
-    return response;
+    // 返回修正后的success状态
+    return {
+      ...response,
+      success: isSuccess,
+    };
   }
 
   /**
@@ -235,7 +257,89 @@ export class EventNetworkService {
         console.log(
           `✅ Retrieved ${response.data.messages.length} direct messages with ${targetAgentId}`
         );
-        return response.data.messages;
+
+        // 标准化 direct messages 数据格式（区别于 channel messages）
+        const standardizedMessages = response.data.messages.map((msg: any) => {
+          // 检查是否已经是标准 ThreadMessage 格式
+          if (msg.sender_id && msg.content && msg.message_type) {
+            return msg as ThreadMessage;
+          }
+
+          // 转换原始事件格式为标准 ThreadMessage 格式
+          console.log(`🔄 Converting raw direct message event to ThreadMessage:`, msg);
+
+          // 安全提取 reactions，检查多个可能的位置和嵌套结构
+          const rawReactions = msg.payload?.reactions ||
+                               msg.reactions ||
+                               msg.payload?.metadata?.reactions ||
+                               msg.metadata?.reactions ||
+                               {};
+
+          // 转换 reactions 格式：数组 -> 数字计数
+          const reactions: { [key: string]: number } = {};
+          if (rawReactions && typeof rawReactions === 'object') {
+            Object.entries(rawReactions).forEach(([type, value]) => {
+              if (Array.isArray(value)) {
+                // 如果是数组格式（如 {laugh: ['SharpUnit2379', 'Krane']}），转换为计数
+                reactions[type] = value.length;
+              } else if (typeof value === 'number') {
+                // 如果已经是数字格式，直接使用
+                reactions[type] = value;
+              } else if (typeof value === 'string') {
+                // 如果是字符串，尝试解析为数字
+                const numValue = parseInt(value, 10);
+                reactions[type] = isNaN(numValue) ? 1 : numValue;
+              }
+            });
+          }
+
+          // 调试 reactions 数据转换
+          if (Object.keys(rawReactions).length > 0) {
+            console.log(`🎭 Converting reactions for message ${msg.event_id}:`);
+            console.log(`  Raw reactions:`, rawReactions);
+            console.log(`  Converted reactions:`, reactions);
+          }
+
+          // 调试完整消息结构（仅在有 reactions 时）
+          if (Object.keys(rawReactions).length > 0) {
+            console.log(`🔍 Full message structure for ${msg.event_id}:`, {
+              hasPayload: !!msg.payload,
+              hasReactions: !!msg.reactions,
+              payloadReactions: msg.payload?.reactions,
+              directReactions: msg.reactions,
+            });
+          }
+
+          return {
+            message_id: msg.event_id || msg.message_id || `dm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            sender_id: msg.source_id || msg.sender_id || 'unknown',
+            timestamp: msg.timestamp
+              ? (typeof msg.timestamp === 'number' ?
+                  (msg.timestamp < 10000000000 ? msg.timestamp * 1000 : msg.timestamp).toString()
+                  : msg.timestamp)
+              : Date.now().toString(),
+            content: {
+              text: msg.payload?.text || msg.payload?.content?.text || msg.text || msg.content?.text || ''
+            },
+            message_type: 'direct_message' as const,
+            target_agent_id: msg.payload?.target_agent_id || msg.target_agent_id || targetAgentId,
+            reply_to_id: msg.payload?.reply_to_id || msg.reply_to_id,
+            thread_level: msg.payload?.thread_level || msg.thread_level || 1,
+            quoted_message_id: msg.payload?.quoted_message_id || msg.quoted_message_id,
+            quoted_text: msg.payload?.quoted_text || msg.quoted_text,
+            reactions: reactions,
+            attachment_file_id: msg.payload?.attachment_file_id || msg.attachment_file_id,
+            attachment_filename: msg.payload?.attachment_filename || msg.attachment_filename,
+            attachment_size: msg.payload?.attachment_size || msg.attachment_size,
+            attachments: msg.payload?.attachments || msg.attachments,
+            // 保留原始数据用于调试
+            payload: msg.payload,
+            source_id: msg.source_id
+          } as ThreadMessage;
+        });
+
+        console.log(`🔄 Standardized ${standardizedMessages.length} direct messages`);
+        return standardizedMessages;
       } else {
         console.warn(`No direct messages found with ${targetAgentId}`);
         return [];
@@ -307,6 +411,14 @@ export class EventNetworkService {
       console.error("Error reacting to message:", error);
       return false;
     }
+  }
+
+  /**
+   * Send a generic event (for Forum and other custom functionality)
+   */
+  async sendEvent(event: Event): Promise<EventResponse> {
+    console.log(`📤 Sending custom event: ${event.event_name}`);
+    return await this.connector.sendEvent(event);
   }
 
   // Legacy methods that emit events (for backward compatibility)
@@ -423,27 +535,26 @@ export class EventNetworkService {
       }
     );
 
-    this.connector.on(
-      EventNames.THREAD_REPLY_NOTIFICATION,
-      (event: Event) => {
-        const message = this.parseThreadMessage(event);
-        if (message) {
-          // Only emit as replyMessage to prevent duplicate processing
-          // The openAgentsService will handle converting this to channelMessage for UI
-          this.emit("replyMessage", message);
-        }
+    this.connector.on(EventNames.THREAD_REPLY_NOTIFICATION, (event: Event) => {
+      const message = this.parseThreadMessage(event);
+      if (message) {
+        // Only emit as replyMessage to prevent duplicate processing
+        // The openAgentsService will handle converting this to channelMessage for UI
+        this.emit("replyMessage", message);
       }
-    );
+    });
 
     this.connector.on(
       EventNames.THREAD_REACTION_NOTIFICATION,
       (event: Event) => {
-        if (event.payload?.reaction) {
+        console.log(`📨 THREAD_REACTION_NOTIFICATION: `, event);
+        if (event.payload) {
           this.emit("reaction", {
-            message_id: event.payload.reaction.target_message_id,
-            reaction_type: event.payload.reaction.reaction_type,
-            action: event.payload.reaction.action,
-            user_id: event.source_id,
+            message_id: event.payload.target_message_id,
+            reaction_type: event.payload.reaction_type,
+            action: event.payload.action,
+            user_id: event.payload.reacting_agent,
+            total_reactions: event.payload.total_reactions,
           });
         }
       }
@@ -475,11 +586,13 @@ export class EventNetworkService {
 
       // Extract text content from the payload
       const textContent = payload.text || payload.content?.text || "";
-      
+
       return {
         message_id: event.event_id || "",
         sender_id: event.source_id,
-        timestamp: event.timestamp ? new Date(event.timestamp * 1000).toISOString() : new Date().toISOString(),
+        timestamp: event.timestamp
+          ? new Date(event.timestamp * 1000).toISOString()
+          : new Date().toISOString(),
         content: { text: textContent },
         message_type: payload.message_type || "channel_message",
         channel: payload.channel,

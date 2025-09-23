@@ -1,9 +1,8 @@
 // Layout components
 
 // Chat components
-export { default as MessageBubble } from "./chat/MessageBubble";
 export { default as MessageInput } from "./chat/MessageInput";
-export { default as MessageList } from "./chat/MessageList";
+// export { default as MessageList } from "./chat/MessageList"; // 已删除
 export { default as CodeBlock } from "./chat/CodeBlock";
 
 // Documents components

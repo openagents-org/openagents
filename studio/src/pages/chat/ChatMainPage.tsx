@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
-import ThreadMessagingViewEventBased from "@/components/chat/ThreadMessagingViewEventBased";
+import ThreadMessagingView from "@/components/chat/ThreadMessagingView";
 import { useThreadStore } from "@/stores/threadStore";
 import { useNetworkStore } from "@/stores/networkStore";
 import { ThreadState } from "@/types/thread";
@@ -27,9 +27,9 @@ const ChatMainPage: React.FC = () => {
     [setThreadState]
   );
 
-  // 注意：自动选择第一个channel的逻辑现在由ThreadMessagingViewEventBased负责
+  // 注意：自动选择第一个channel的逻辑现在由ThreadMessagingView负责
 
-  // 监听 threadStore 状态变化，同步到 ThreadMessagingViewEventBased
+  // 监听 threadStore 状态变化，同步到 ThreadMessagingView
   useEffect(() => {
     const currentChannel = threadState?.currentChannel;
     const currentDirectMessage = threadState?.currentDirectMessage;
@@ -51,7 +51,7 @@ const ChatMainPage: React.FC = () => {
       <Route
         index
         element={
-          <ThreadMessagingViewEventBased
+          <ThreadMessagingView
             ref={threadMessagingRef}
             agentName={agentName!}
             onThreadStateChange={handleThreadStateChange}

@@ -159,19 +159,20 @@ export const useOpenAgentsData = (
   const handleNewReaction = useCallback(
     (reaction: any) => {
       console.log(
-        `📨 New reaction received: ${reaction.message_id}, type: ${reaction.reaction_type}`
+        `📨 handleNewReaction: ${reaction.message_id}, type: ${reaction.reaction_type}, total: ${reaction.total_reactions}`
       );
 
       updateMessage(reaction.message_id, {
         reactions: {
           ...messages.find((msg) => msg.message_id === reaction.message_id)
             ?.reactions,
-          [reaction.reaction_type]: Math.max(
-            (messages.find((msg) => msg.message_id === reaction.message_id)
-              ?.reactions?.[reaction.reaction_type] || 0) +
-              (reaction.action === "add" ? 1 : -1),
-            0
-          ),
+          // [reaction.reaction_type]: Math.max(
+          //   (messages.find((msg) => msg.message_id === reaction.message_id)
+          //     ?.reactions?.[reaction.reaction_type] || 0) +
+          //     (reaction.action === "add" ? 1 : -1),
+          //   0
+          // ),
+          [reaction.reaction_type]: reaction.total_reactions,
         },
       });
     },

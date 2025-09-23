@@ -6,7 +6,7 @@ import { useThreadStore } from "@/stores/threadStore";
 import { useConversationStore } from "@/stores/conversationStore";
 import { clearAllOpenAgentsDataForLogout } from "@/utils/cookies";
 import { useConfirm } from "@/context/ConfirmContext";
-import { getVisibleQuickActions } from "@/config/routeConfig";
+// import { getVisibleQuickActions } from "@/config/routeConfig";
 import { useThemeStore } from "@/stores/themeStore";
 import SidebarContent from "./SidebarContent";
 
@@ -23,60 +23,60 @@ const SidebarHeader: React.FC = React.memo(() => (
 ));
 SidebarHeader.displayName = "SidebarHeader";
 
-// Quick Action Button Component - 缓存组件，避免不必要的重新渲染
-const QuickActionButton: React.FC<{
-  isActive: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  title: string;
-  subtitle: string;
-  gradient: string;
-  hoverGradient: string;
-  backgroundImage?: string;
-}> = React.memo(
-  ({
-    isActive,
-    onClick,
-    icon,
-    title,
-    subtitle,
-    gradient,
-    hoverGradient,
-    backgroundImage,
-  }) => (
-    <button
-      onClick={onClick}
-      className={`relative group flex items-center w-full rounded-lg px-4 py-3.5 text-sm transition-all overflow-hidden
-      ${isActive ? gradient : hoverGradient}
-    `}
-      style={{ backgroundImage: !isActive ? backgroundImage : undefined }}
-    >
-      <div className="flex items-center">
-        <div className="mr-3 p-1.5 rounded-md bg-white/20">{icon}</div>
-        <div className="flex flex-col items-start">
-          <span className="font-medium">{title}</span>
-          <span className="text-xs opacity-75">{subtitle}</span>
-        </div>
-      </div>
-      <div className="ml-auto">
-        <svg
-          className="w-4 h-4 opacity-50 group-hover:opacity-75 transition-opacity"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9 5l7 7-7 7"
-          />
-        </svg>
-      </div>
-    </button>
-  )
-);
-QuickActionButton.displayName = "QuickActionButton";
+// // Quick Action Button Component - 缓存组件，避免不必要的重新渲染
+// const QuickActionButton: React.FC<{
+//   isActive: boolean;
+//   onClick: () => void;
+//   icon: React.ReactNode;
+//   title: string;
+//   subtitle: string;
+//   gradient: string;
+//   hoverGradient: string;
+//   backgroundImage?: string;
+// }> = React.memo(
+//   ({
+//     isActive,
+//     onClick,
+//     icon,
+//     title,
+//     subtitle,
+//     gradient,
+//     hoverGradient,
+//     backgroundImage,
+//   }) => (
+//     <button
+//       onClick={onClick}
+//       className={`relative group flex items-center w-full rounded-lg px-4 py-3.5 text-sm transition-all overflow-hidden
+//       ${isActive ? gradient : hoverGradient}
+//     `}
+//       style={{ backgroundImage: !isActive ? backgroundImage : undefined }}
+//     >
+//       <div className="flex items-center">
+//         <div className="mr-3 p-1.5 rounded-md bg-white/20">{icon}</div>
+//         <div className="flex flex-col items-start">
+//           <span className="font-medium">{title}</span>
+//           <span className="text-xs opacity-75">{subtitle}</span>
+//         </div>
+//       </div>
+//       <div className="ml-auto">
+//         <svg
+//           className="w-4 h-4 opacity-50 group-hover:opacity-75 transition-opacity"
+//           fill="none"
+//           stroke="currentColor"
+//           viewBox="0 0 24 24"
+//         >
+//           <path
+//             strokeLinecap="round"
+//             strokeLinejoin="round"
+//             strokeWidth={2}
+//             d="M9 5l7 7-7 7"
+//           />
+//         </svg>
+//       </div>
+//     </button>
+//   )
+// );
+// QuickActionButton.displayName = "QuickActionButton";
 
 // Footer Component - 缓存组件，只有主题改变时才重新渲染
 const SidebarFooter: React.FC<{
@@ -230,11 +230,11 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ className }) => {
-  const navigate = useNavigate();
+  // const navigate = useNavigate();
   const { theme, toggleTheme } = useThemeStore();
 
   // 获取动态的快捷操作配置
-  const quickActions = getVisibleQuickActions();
+  // const quickActions = getVisibleQuickActions();
 
   return (
     <div
@@ -252,7 +252,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className }) => {
       </div>
 
       {/* Quick Actions - 动态渲染 */}
-      {quickActions.map((action) => (
+      {/* {quickActions.map((action) => (
         <div key={action.id} className="px-4 pt-2">
           <QuickActionButton
             isActive={false}
@@ -265,7 +265,7 @@ const Sidebar: React.FC<SidebarProps> = ({ className }) => {
             backgroundImage={action.style.backgroundImage}
           />
         </div>
-      ))}
+      ))} */}
 
       {/* 下：Footer */}
       <SidebarFooter toggleTheme={toggleTheme} theme={theme} />

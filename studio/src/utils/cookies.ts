@@ -305,14 +305,13 @@ export const clearAllOpenAgentsData = (): void => {
 };
 
 /**
- * Clear all OpenAgents data for logout (preserves theme preference and saved agent names)
+ * Clear all OpenAgents data for logout (preserves theme preference, saved agent names, and network connection info)
  */
 export const clearAllOpenAgentsDataForLogout = (): void => {
   console.log("🚪 Starting logout data cleanup...");
 
-  // Clear manual connection but keep saved agent names for easier reconnection
-  clearSavedManualConnection();
-  console.log("🍪 Manual connection data cleared (agent names preserved)");
+  // Keep manual connection info for easier reconnection (just like agent names)
+  console.log("🍪 Network connection data preserved for easier reconnection");
 
   // Clear all OpenAgents related localStorage except theme
   try {
@@ -358,5 +357,5 @@ export const clearAllOpenAgentsDataForLogout = (): void => {
     console.warn("Failed to clear some localStorage data:", error);
   }
 
-  console.log("🚪 Cleared OpenAgents session data (theme + agent names preserved)");
+  console.log("🚪 Cleared OpenAgents session data (theme + agent names + network connection preserved)");
 };

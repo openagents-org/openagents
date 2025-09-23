@@ -54,6 +54,10 @@ export enum EventNames {
   SYSTEM_POLL_MESSAGES = 'system.poll_messages'
 }
 
+/**
+ * @deprecated 请使用 RawThreadMessage from types/message.ts
+ * 这个接口保留用于后端兼容性，新代码应使用统一的消息类型系统
+ */
 export interface ThreadMessage {
   message_id: string;
   sender_id: string;
@@ -86,6 +90,9 @@ export interface ThreadMessage {
     file_type?: string;
   }>;
 }
+
+// 重新导出 RawThreadMessage 作为主要类型
+export type { RawThreadMessage as ThreadMessageNew } from './message';
 
 export interface ThreadChannel {
   name: string;

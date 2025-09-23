@@ -4,7 +4,7 @@ import { DocumentInfo } from "@/types";
 import { ThreadState } from "@/types/thread";
 
 interface ThreadStoreState {
-  // 线程状态 - 基于App.tsx中的ThreadState
+  // 简化的线程状态 - 只存储当前选择
   threadState: ThreadState | null;
 
   // 文档相关状态
@@ -25,6 +25,7 @@ interface ThreadStoreState {
   // 便捷方法
   getCurrentChannel: () => string | null;
   getCurrentDirectMessage: () => string | null;
+  // 兼容方法 - 返回空数组，实际数据由hooks管理
   getChannels: () => any[];
   getAgents: () => any[];
 }
@@ -48,8 +49,6 @@ export const useThreadStore = create<ThreadStoreState>()(
           threadState: state.threadState
             ? { ...state.threadState, ...updates }
             : {
-                channels: [],
-                agents: [],
                 currentChannel: null,
                 currentDirectMessage: null,
                 ...updates,
@@ -107,14 +106,14 @@ export const useThreadStore = create<ThreadStoreState>()(
         return get().threadState?.currentDirectMessage || null;
       },
 
-      // 便捷方法：获取频道列表
+      // 兼容方法：获取频道列表（现在返回空数组，实际数据由hooks管理）
       getChannels: () => {
-        return get().threadState?.channels || [];
+        return [];
       },
 
-      // 便捷方法：获取代理列表
+      // 兼容方法：获取代理列表（现在返回空数组，实际数据由hooks管理）
       getAgents: () => {
-        return get().threadState?.agents || [];
+        return [];
       },
     }),
     {

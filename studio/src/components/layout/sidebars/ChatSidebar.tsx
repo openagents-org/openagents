@@ -1,6 +1,10 @@
 import React from "react";
 import { ThreadChannel, AgentInfo } from "@/types/events";
 import { useThreadStore } from "@/stores/threadStore";
+import { useChannelMessages } from "@/hooks/useChannelMessages";
+import { useDirectMessages } from "@/hooks/useDirectMessages";
+import { useOpenAgentsService } from "@/contexts/OpenAgentsServiceContext";
+import { useNetworkStore } from "@/stores/networkStore";
 
 // Section Header Component
 const SectionHeader: React.FC<{ title: string }> = React.memo(({ title }) => (
@@ -93,20 +97,47 @@ const AgentItem: React.FC<{
 ));
 AgentItem.displayName = "AgentItem";
 
-// Chat Sidebar Content Component - 自己管理数据
+// Chat Sidebar Content Component - 使用新的hooks获取数据
 const ChatSidebar: React.FC = () => {
-  // 使用 threadStore 获取实际数据
   const {
     getCurrentChannel,
     getCurrentDirectMessage,
-    getChannels,
-    getAgents,
     updateThreadState,
   } = useThreadStore();
 
+  const { connectionStatus, isConnected } = useOpenAgentsService();
+  const { agentName } = useNetworkStore();
+
+  // 使用agentName作为fallback，如果connectionStatus.agentId不可用
+  const currentUserId = connectionStatus.agentId || agentName || undefined;
+
+  // 使用新的hooks获取数据
+  const channelMessages = useChannelMessages({
+    autoLoadChannels: true,
+    currentUserId,
+  });
+
+  const directMessages = useDirectMessages({
+    autoLoadAgents: true,
+    currentUserId,
+  });
+
+  // 调试信息
+  console.log('ChatSidebar Debug:', {
+    connectionStatus: connectionStatus.status,
+    connectionAgentId: connectionStatus.agentId,
+    networkAgentName: agentName,
+    currentUserId,
+    isConnected,
+    channelsCount: channelMessages.channels.length,
+    agentsCount: directMessages.agents.length,
+    isChannelLoading: channelMessages.isLoading,
+    isDirectLoading: directMessages.isLoading,
+  });
+
   // 获取数据
-  const channels: ThreadChannel[] = getChannels();
-  const agents: AgentInfo[] = getAgents();
+  const channels: ThreadChannel[] = channelMessages.channels;
+  const agents: AgentInfo[] = directMessages.agents;
   const currentChannel: string | null = getCurrentChannel();
   const currentDirectMessage: string | null = getCurrentDirectMessage();
 
@@ -119,6 +150,8 @@ const ChatSidebar: React.FC = () => {
       currentChannel: channel,
       currentDirectMessage: null, // 切换到频道时清除私信选择
     });
+    // 触发频道消息的加载
+    channelMessages.setCurrentChannel(channel);
   };
 
   // 私信选择处理
@@ -127,6 +160,8 @@ const ChatSidebar: React.FC = () => {
       currentDirectMessage: agentId,
       currentChannel: null, // 切换到私信时清除频道选择
     });
+    // 触发私信的加载
+    directMessages.setTargetUser(agentId);
   };
 
   return (
@@ -134,33 +169,47 @@ const ChatSidebar: React.FC = () => {
       {/* Channels Section */}
       <SectionHeader title="CHANNELS" />
       <div className="px-3">
-        <ul className="flex flex-col gap-1">
-          {channels.map((channel) => (
-            <ChannelItem
-              key={channel.name}
-              channel={channel}
-              isActive={currentChannel === channel.name}
-              unreadCount={unreadCounts[channel.name] || 0}
-              onClick={() => onChannelSelect?.(channel.name)}
-            />
-          ))}
-        </ul>
+        {channelMessages.isLoading && channels.length === 0 ? (
+          <div className="text-gray-500 text-sm px-2 py-2">Loading channels...</div>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {channels.map((channel) => (
+              <ChannelItem
+                key={channel.name}
+                channel={channel}
+                isActive={currentChannel === channel.name}
+                unreadCount={unreadCounts[channel.name] || 0}
+                onClick={() => onChannelSelect(channel.name)}
+              />
+            ))}
+            {channels.length === 0 && !channelMessages.isLoading && (
+              <div className="text-gray-500 text-sm px-2 py-2">No channels available</div>
+            )}
+          </ul>
+        )}
       </div>
 
       {/* Direct Messages Section */}
       <SectionHeader title="DIRECT MESSAGES" />
       <div className="flex-1 overflow-y-auto px-3 custom-scrollbar">
-        <ul className="flex flex-col gap-1">
-          {agents.map((agent) => (
-            <AgentItem
-              key={agent.agent_id}
-              agent={agent}
-              isActive={currentDirectMessage === agent.agent_id}
-              unreadCount={unreadCounts[agent.agent_id] || 0}
-              onClick={() => onDirectMessageSelect?.(agent.agent_id)}
-            />
-          ))}
-        </ul>
+        {directMessages.isLoading && agents.length === 0 ? (
+          <div className="text-gray-500 text-sm px-2 py-2">Loading agents...</div>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {agents.map((agent) => (
+              <AgentItem
+                key={agent.agent_id}
+                agent={agent}
+                isActive={currentDirectMessage === agent.agent_id}
+                unreadCount={unreadCounts[agent.agent_id] || 0}
+                onClick={() => onDirectMessageSelect(agent.agent_id)}
+              />
+            ))}
+            {agents.length === 0 && !directMessages.isLoading && (
+              <div className="text-gray-500 text-sm px-2 py-2">No agents online</div>
+            )}
+          </ul>
+        )}
       </div>
     </div>
   );
