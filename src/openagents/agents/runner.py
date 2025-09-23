@@ -4,7 +4,10 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from openagents.agents.orchestrator import orchestrate_agent
 from openagents.core.base_mod_adapter import BaseModAdapter
+from openagents.models.agent_actions import AgentTrajectory
+from openagents.models.agent_config import AgentConfig
 from openagents.models.event_thread import EventThread
 from openagents.models.event import Event
 from openagents.models.event_context import EventContext
@@ -23,7 +26,16 @@ class AgentRunner(ABC):
     agent should respond to messages and interact with protocols.
     """
 
-    def __init__(self, agent_id: Optional[str] = None, mod_names: Optional[List[str]] = None, mod_adapters: Optional[List[BaseModAdapter]] = None, client: Optional[AgentClient] = None, interval: Optional[int] = 1, ignored_sender_ids: Optional[List[str]] = None):
+    def __init__(
+        self,
+        agent_id: Optional[str] = None,
+        mod_names: Optional[List[str]] = None,
+        mod_adapters: Optional[List[BaseModAdapter]] = None,
+        agent_config: Optional[AgentConfig] = None,
+        client: Optional[AgentClient] = None,
+        interval: Optional[int] = 1,
+        ignored_sender_ids: Optional[List[str]] = None,
+    ):
         """Initialize the agent runner.
         
         Args:
@@ -45,6 +57,7 @@ class AgentRunner(ABC):
         self._running = False
         self._processed_message_ids = set()
         self._interval = interval
+        self._agent_config = agent_config
         self._ignored_sender_ids = set(ignored_sender_ids) if ignored_sender_ids is not None else set()
         
         # Validate that mod_names and mod_adapters are not both provided
@@ -78,6 +91,43 @@ class AgentRunner(ABC):
         tool_names = [tool.name for tool in tools]
         logger.info(f"Updated available tools for agent {self._agent_id}: {tool_names}")
         self._tools = tools
+    
+    @staticmethod
+    def from_yaml(yaml_path: str) -> 'AgentRunner':
+        """Create an agent runner from a YAML file.
+        
+        This method loads a WorkerAgent (which is a type of AgentRunner) from a YAML
+        configuration file using the agent_loader utility function.
+        
+        Args:
+            yaml_path: The path to the YAML configuration file
+            
+        Returns:
+            AgentRunner: A configured WorkerAgent instance (subclass of AgentRunner)
+            
+        Raises:
+            FileNotFoundError: If YAML file doesn't exist
+            ValueError: If configuration is invalid
+            ImportError: If specified agent class cannot be imported
+            
+        Example:
+            agent = AgentRunner.from_yaml("my_worker_config.yaml")
+            await agent.async_start(host="localhost", port=8570)
+        """
+        from openagents.utils.agent_loader import load_agent_from_yaml
+        
+        # Load the agent using our utility function (ignore connection settings here)
+        agent, _ = load_agent_from_yaml(yaml_path)
+        return agent
+
+    @property
+    def agent_config(self) -> AgentConfig:
+        """Get the agent config.
+        
+        Returns:
+            AgentConfig: The agent config used by this runner.
+        """
+        return self._agent_config
     
     @property
     def client(self) -> AgentClient:
@@ -115,6 +165,28 @@ class AgentRunner(ABC):
         Args:
             context: The event context containing the incoming event, event threads, and thread ID.
         """
+    
+    def run_agent(
+        self,
+        context: EventContext,
+        user_instruction: Optional[str] = None,
+        max_iterations: Optional[int] = None,
+    ) -> AgentTrajectory:
+        """
+        Let the agent respond to the context and decide it's action automatically.
+
+        Args:
+            context: The event context containing incoming event, threads, and thread ID
+            user_instruction: The instruction for the agent to respond to the context
+            max_iterations: The maximum number of iterations for the agent to respond to the context
+        """
+        return orchestrate_agent(
+            context=context,
+            agent_config=self.agent_config,
+            tools=self.tools,
+            user_instruction=user_instruction,
+            max_iterations=max_iterations
+        )
     
     async def setup(self):
         """Setup the agent runner.

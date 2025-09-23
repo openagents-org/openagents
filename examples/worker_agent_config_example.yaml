@@ -1,0 +1,40 @@
+# Example WorkerAgent configuration using the agent_loader utility
+agent_id: "helpful_assistant"
+type: "openagents.agents.worker_agent.WorkerAgent"
+
+# AgentConfig fields - configure the LLM behavior
+config:
+  instruction: |
+    You are a helpful assistant agent in the OpenAgents network.
+    You can communicate with other agents and help users with various tasks.
+    Be helpful, harmless, and honest in your responses.
+  model_name: "gpt-4o-mini"
+  provider: "openai"
+  api_base: "https://api.openai.com/v1"
+  triggers:
+    - event: "thread.channel_message.notification"
+      instruction: "Respond helpfully to channel messages when mentioned"
+    - event: "thread.direct_message.notification"
+      instruction: "Handle direct messages with care and provide assistance"
+  react_to_all_messages: false
+  max_iterations: 10
+
+# Mod configuration - specify agent capabilities
+mods:
+  - name: "openagents.mods.workspace.messaging"
+    enabled: true
+    config:
+      max_message_history: 1000
+      message_retention_days: 30
+      max_thread_depth: 10
+  - name: "openagents.mods.discovery.agent_discovery"
+    enabled: true
+    config:
+      announce_interval: 60
+      cleanup_interval: 120
+
+# Optional connection settings (can be overridden at runtime)
+connection:
+  host: "localhost"
+  port: 8700
+  network_id: "openagents-network"

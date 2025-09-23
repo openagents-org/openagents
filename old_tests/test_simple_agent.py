@@ -9,7 +9,7 @@ import asyncio
 from unittest.mock import Mock, patch, AsyncMock, MagicMock
 from typing import Dict, Any
 
-from openagents.agents.simple_agent import SimpleAgentRunner
+from openagents.agents.simple_agent import SimpleAutoAgent
 from openagents.lms import (
     OpenAIProvider, 
     AnthropicProvider,
@@ -27,7 +27,7 @@ class TestSimpleAgentRunner:
     def test_provider_detection_logic_only(self):
         """Test provider detection logic without creating actual providers."""
         # Test the _determine_provider method directly
-        agent = SimpleAgentRunner.__new__(SimpleAgentRunner)  # Create instance without calling __init__
+        agent = SimpleAutoAgent.__new__(SimpleAutoAgent)  # Create instance without calling __init__
         
         # Test model name based detection
         assert agent._determine_provider(None, "gpt-4o-mini", None) == "openai"
@@ -51,18 +51,18 @@ class TestSimpleAgentRunner:
         """Test configuration validation without creating API clients."""
         # Test missing required parameters
         with pytest.raises(TypeError):
-            SimpleAgentRunner()  # Missing all required parameters
+            SimpleAutoAgent()  # Missing all required parameters
             
         with pytest.raises(TypeError):
-            SimpleAgentRunner(agent_id="test")  # Missing model_name and instruction
+            SimpleAutoAgent(agent_id="test")  # Missing model_name and instruction
             
         with pytest.raises(TypeError):
-            SimpleAgentRunner(agent_id="test", model_name="test")  # Missing instruction
+            SimpleAutoAgent(agent_id="test", model_name="test")  # Missing instruction
     
     def test_invalid_provider_validation(self):
         """Test invalid provider handling."""
         # This will fail at the provider creation stage, which is expected
-        agent = SimpleAgentRunner.__new__(SimpleAgentRunner)
+        agent = SimpleAutoAgent.__new__(SimpleAutoAgent)
         agent.provider = "invalid-provider"
         
         with pytest.raises(ValueError, match="Unsupported provider"):
@@ -77,7 +77,7 @@ class TestSimpleAgentRunner:
             mock_openai.return_value = Mock()
             mock_azure.return_value = Mock()
             
-            agent = SimpleAgentRunner(
+            agent = SimpleAutoAgent(
                 agent_id="test-agent",
                 model_name="gpt-4o-mini",
                 instruction="Test instruction"
@@ -93,7 +93,7 @@ class TestSimpleAgentRunner:
         mock_anthropic_module.Anthropic.return_value = mock_anthropic_client
         
         with patch.dict('sys.modules', {'anthropic': mock_anthropic_module}):
-            agent = SimpleAgentRunner(
+            agent = SimpleAutoAgent(
                 agent_id="test-agent",
                 model_name="claude-3-5-sonnet-20241022",
                 instruction="Test instruction"
@@ -109,7 +109,7 @@ class TestSimpleAgentRunner:
         mock_genai_module.GenerativeModel.return_value = Mock()
         
         with patch.dict('sys.modules', {'google.generativeai': mock_genai_module}):
-            agent = SimpleAgentRunner(
+            agent = SimpleAutoAgent(
                 agent_id="test-agent",
                 model_name="gemini-1.5-pro",
                 instruction="Test instruction"
@@ -123,7 +123,7 @@ class TestSimpleAgentRunner:
         with patch('openai.OpenAI') as mock_openai:
             mock_openai.return_value = Mock()
             
-            agent = SimpleAgentRunner(
+            agent = SimpleAutoAgent(
                 agent_id="test-agent",
                 model_name="deepseek-chat",
                 instruction="Test instruction"
@@ -137,7 +137,7 @@ class TestSimpleAgentRunner:
         with patch('openai.AzureOpenAI') as mock_azure:
             mock_azure.return_value = Mock()
             
-            agent = SimpleAgentRunner(
+            agent = SimpleAutoAgent(
                 agent_id="test-agent",
                 model_name="gpt-4",
                 provider="azure",
@@ -153,7 +153,7 @@ class TestSimpleAgentRunner:
         with patch('openai.AzureOpenAI') as mock_azure:
             mock_azure.return_value = Mock()
             
-            agent = SimpleAgentRunner(
+            agent = SimpleAutoAgent(
                 agent_id="test-agent",
                 model_name="custom-model",
                 api_base="https://example.azure.com/",
@@ -168,7 +168,7 @@ class TestSimpleAgentRunner:
             mock_client = Mock()
             mock_openai.return_value = mock_client
             
-            agent = SimpleAgentRunner(
+            agent = SimpleAutoAgent(
                 agent_id="test-agent",
                 model_name="gpt-4o-mini",
                 provider="openai",
@@ -185,7 +185,7 @@ class TestSimpleAgentRunner:
             mock_client = Mock()
             mock_azure_openai.return_value = mock_client
             
-            agent = SimpleAgentRunner(
+            agent = SimpleAutoAgent(
                 agent_id="test-agent",
                 model_name="gpt-4",
                 provider="azure",
@@ -200,7 +200,7 @@ class TestSimpleAgentRunner:
         """Test that missing API key raises appropriate error."""
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(Exception):  # Should fail due to missing API key
-                SimpleAgentRunner(
+                SimpleAutoAgent(
                     agent_id="test-agent",
                     model_name="gpt-4o-mini",
                     provider="openai",
@@ -242,7 +242,7 @@ class TestSimpleAgentRunnerWithMockedAPI:
             mock_openai_class.return_value = mock_client
             
             # Create agent
-            agent = SimpleAgentRunner(
+            agent = SimpleAutoAgent(
                 agent_id="test-agent",
                 model_name="gpt-4o-mini",
                 provider="openai",
@@ -287,7 +287,7 @@ class TestSimpleAgentRunnerWithMockedAPI:
         mock_openai_class.return_value = mock_client
         
         # Create agent
-        agent = SimpleAgentRunner(
+        agent = SimpleAutoAgent(
             agent_id="test-agent",
             model_name="gpt-4o-mini",
             provider="openai",
@@ -314,7 +314,7 @@ class TestSimpleAgentRunnerWithMockedAPI:
         """Test that the finish tool is created correctly."""
         mock_openai_class.return_value = Mock()
         
-        agent = SimpleAgentRunner(
+        agent = SimpleAutoAgent(
             agent_id="test-agent",
             model_name="gpt-4o-mini",
             provider="openai",
@@ -389,12 +389,12 @@ class TestConfigurationValidation:
     def test_missing_required_params(self):
         """Test that missing required parameters raise errors."""
         with pytest.raises(TypeError):
-            SimpleAgentRunner()  # Missing required parameters
+            SimpleAutoAgent()  # Missing required parameters
     
     def test_invalid_provider(self):
         """Test handling of invalid provider."""
         with pytest.raises(ValueError, match="Unsupported provider"):
-            SimpleAgentRunner(
+            SimpleAutoAgent(
                 agent_id="test-agent",
                 model_name="test-model",
                 provider="invalid-provider",
@@ -404,7 +404,7 @@ class TestConfigurationValidation:
     def test_missing_api_base_for_generic_provider(self):
         """Test that generic providers require API base."""
         with pytest.raises(KeyError):  # Expect KeyError when api_base is missing from config
-            agent = SimpleAgentRunner.__new__(SimpleAgentRunner)
+            agent = SimpleAutoAgent.__new__(SimpleAutoAgent)
             agent.provider = "perplexity"  # Use a provider in the list
             agent.model_name = "custom-model"
             # Temporarily remove the api_base from MODEL_CONFIGS
@@ -430,7 +430,7 @@ class TestIntegrationWithoutAPIKey:
         mock_openai.return_value = Mock()
         
         # Test agent creation
-        agent = SimpleAgentRunner(
+        agent = SimpleAutoAgent(
             agent_id="integration-test-agent",
             model_name="gpt-4o-mini",
             provider="openai",
@@ -456,14 +456,14 @@ class TestIntegrationWithoutAPIKey:
         mock_openai.return_value = Mock()
         
         # Create multiple agents
-        openai_agent = SimpleAgentRunner(
+        openai_agent = SimpleAutoAgent(
             agent_id="openai-agent",
             model_name="gpt-4o-mini",
             provider="openai",
             instruction="OpenAI assistant"
         )
         
-        deepseek_agent = SimpleAgentRunner(
+        deepseek_agent = SimpleAutoAgent(
             agent_id="deepseek-agent",
             model_name="deepseek-chat",
             provider="deepseek",

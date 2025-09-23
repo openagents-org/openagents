@@ -6,12 +6,11 @@ to the network and for other agents to discover agents that can perform specific
 MIME format conversions.
 """
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 import logging
 from openagents.core.base_mod_adapter import BaseModAdapter
-from openagents.models.messages import Event, EventNames, Event
+from openagents.models.messages import Event
 from openagents.models.tool import AgentAdapterTool
-from openagents.utils.message_util import get_mod_event_thread_id
 import copy
 
 logger = logging.getLogger(__name__)
@@ -339,7 +338,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
         else:
             logger.debug(f"Agent {self.agent_id} has no matching conversion capabilities for {from_mime} -> {to_mime}")
     
-    async def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentAdapterTool]:
         """Get the tools for the mod adapter.
         
         Returns:

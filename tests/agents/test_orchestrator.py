@@ -107,7 +107,8 @@ def test_orchestrate_agent_with_openai_gpt4o_mini(mock_event_context, test_tools
         model_name="gpt-4o-mini",
         instruction="You are a helpful assistant. When users ask you to echo something, use the echo tool. When they ask you to add numbers, use the add_numbers tool.",
         provider="openai",
-        api_key=os.getenv("OPENAI_API_KEY")
+        api_key=os.getenv("OPENAI_API_KEY"),
+        triggers=[]
     )
     
     # Run orchestration
@@ -185,7 +186,8 @@ def test_orchestrate_agent_tool_usage(test_tools):
         model_name="gpt-4o-mini",
         instruction="You are a helpful assistant. When users ask you to echo something, use the echo tool with the exact message they want echoed.",
         provider="openai",
-        api_key=os.getenv("OPENAI_API_KEY")
+        api_key=os.getenv("OPENAI_API_KEY"),
+        triggers=[]
     )
     
     trajectory = orchestrate_agent(
@@ -248,7 +250,8 @@ def test_orchestrate_agent_no_api_key(mock_event_context, test_tools):
     agent_config = AgentConfig(
         model_name="gpt-4o-mini",
         instruction="You are a helpful assistant.",
-        provider="openai"
+        provider="openai",
+        triggers=[]
         # No API key provided - AgentConfig sets api_key=None by default
     )
     
@@ -284,7 +287,8 @@ def test_orchestrate_agent_max_iterations(mock_event_context, test_tools):
         model_name="gpt-4o-mini",
         instruction="You are a helpful assistant.",
         provider="openai",
-        api_key="fake_key"  # This will cause an error, which is expected
+        api_key="fake_key",  # This will cause an error, which is expected
+        triggers=[]
     )
     
     # Should not exceed max_iterations even if there are errors

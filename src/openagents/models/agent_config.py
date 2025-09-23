@@ -8,6 +8,11 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 from openagents.config.llm_configs import MODEL_CONFIGS, LLMProviderType
 from openagents.config.prompt_templates import DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_USER_PROMPT_TEMPLATE
 
+class AgentTriggerConfigItem(BaseModel):
+    """Trigger for an agent."""
+    event: str = Field(..., description="Event name to trigger the agent")
+    instruction: Optional[str] = Field(default=None, description="Instruction on how to respond to the event")
+
 
 class AgentConfig(BaseModel):
     """Configuration for a SimpleAgentRunner instance.
@@ -40,15 +45,15 @@ class AgentConfig(BaseModel):
     provider: Optional[LLMProviderType] = Field(None, description="Model provider (auto-detected if not specified)")
     api_base: Optional[str] = Field(None, description="Custom API base URL (overrides provider defaults)")
     api_key: Optional[str] = Field(None, description="API key (if not provided, will use environment variables)")
-    
-    # Network configuration
-    ignored_sender_ids: Optional[List[str]] = Field(
-        default_factory=list,
-        description="List of sender IDs to ignore"
-    )
-    
-    # Runtime configuration
-    interval: int = Field(1, description="Interval in seconds between checking for new messages")
+
+    # Triggers
+    triggers: List[AgentTriggerConfigItem] = Field(..., description="Triggers for the agent")
+
+    # React to all messages
+    react_to_all_messages: bool = Field(default=False, description="Whether to react to all messages")
+
+    # Maximum iterations
+    max_iterations: int = Field(default=10, description="Maximum number of iterations for the agent to respond to the context")
     
     # Prompt templates
     system_prompt_template: Optional[str] = Field(
@@ -85,14 +90,6 @@ class AgentConfig(BaseModel):
                 raise ValueError('API base must be a valid HTTP/HTTPS URL')
         return v
     
-    
-    @field_validator('interval')
-    @classmethod
-    def validate_interval(cls, v):
-        """Validate interval is positive integer."""
-        if v <= 0:
-            raise ValueError('Interval must be a positive integer')
-        return v
     
     @field_validator('system_prompt_template')
     @classmethod

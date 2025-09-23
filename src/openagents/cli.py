@@ -721,8 +721,8 @@ def launch_agent_command(args: argparse.Namespace) -> None:
             if agent_type.lower() == 'openai':
                 agent_class = SimpleOpenAIAgentRunner
             elif agent_type.lower() == 'simple':
-                from openagents.agents.simple_agent import SimpleAgentRunner
-                agent_class = SimpleAgentRunner
+                from openagents.agents.simple_agent import SimpleAutoAgent
+                agent_class = SimpleAutoAgent
             elif agent_type.lower() == 'echo':
                 agent_class = SimpleEchoAgentRunner
             else:
