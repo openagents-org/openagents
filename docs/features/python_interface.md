@@ -195,7 +195,7 @@ class MyAgent(AgentRunner):
 ```python
 async def react(
     self, 
-    message_threads: Dict[str, MessageThread], 
+    event_threads: Dict[str, MessageThread], 
     incoming_thread_id: str, 
     incoming_message: BaseMessage
 ):
@@ -205,7 +205,7 @@ async def react(
 ```
 
 **Parameters:**
-- `message_threads`: All available message threads at the time of the message
+- `event_threads`: All available message threads at the time of the message
 - `incoming_thread_id`: ID of the thread containing the new message
 - `incoming_message`: The new message to process
 
@@ -414,7 +414,7 @@ class MyModAdapter(BaseModAdapter):
 
 ##### Message Threading
 
-- `add_message_to_thread()` - Add a message to a conversation thread
+- `classify_event()` - Categorize an event into a thread ID
 
 ### AgentAdapterTool
 
@@ -524,14 +524,14 @@ import asyncio
 from typing import Dict
 from openagents.agents.runner import AgentRunner
 from openagents.models.messages import DirectMessage, BroadcastMessage, BaseMessage
-from openagents.models.message_thread import MessageThread
+from openagents.models.event_thread import MessageThread
 
 class EchoAgent(AgentRunner):
     def __init__(self):
         super().__init__(agent_id="echo-agent")
         self.message_count = 0
 
-    async def react(self, message_threads: Dict[str, MessageThread], 
+    async def react(self, event_threads: Dict[str, MessageThread], 
                    incoming_thread_id: str, incoming_message: BaseMessage):
         """React to incoming messages by echoing them back."""
         self.message_count += 1
@@ -688,7 +688,7 @@ class CalculatorAgent(AgentRunner):
             mod_adapters=[calc_adapter]
         )
     
-    async def react(self, message_threads: Dict[str, MessageThread], 
+    async def react(self, event_threads: Dict[str, MessageThread], 
                    incoming_thread_id: str, incoming_message: BaseMessage):
         # The mod adapter handles calculation messages automatically
         # This method can handle other types of messages
@@ -754,7 +754,7 @@ except Exception as e:
 
 ```python
 class RobustAgent(AgentRunner):
-    async def react(self, message_threads, incoming_thread_id, incoming_message):
+    async def react(self, event_threads, incoming_thread_id, incoming_message):
         try:
             # Your message processing logic
             pass
@@ -784,7 +784,7 @@ metadata = {
 Validate message content before processing:
 
 ```python
-async def react(self, message_threads, incoming_thread_id, incoming_message):
+async def react(self, event_threads, incoming_thread_id, incoming_message):
     # Validate message structure
     if not incoming_message.content:
         return
@@ -843,9 +843,9 @@ async def send_with_retry(self, message, max_retries=3):
 Use message threads for conversation context:
 
 ```python
-async def react(self, message_threads, incoming_thread_id, incoming_message):
+async def react(self, event_threads, incoming_thread_id, incoming_message):
     # Get conversation context
-    thread = message_threads.get(incoming_thread_id)
+    thread = event_threads.get(incoming_thread_id)
     if thread:
         previous_messages = thread.get_sorted_messages()
         context = [msg.text_representation for msg in previous_messages[-5:]]

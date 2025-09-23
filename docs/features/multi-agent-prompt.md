@@ -14,7 +14,7 @@ The multi-agent prompt template is implemented using Jinja2 templating and is de
 user_prompt_template = Template("""
 <conversation>
     <threads>
-        {% for thread_id, thread in message_threads.items() %}
+        {% for thread_id, thread in event_threads.items() %}
         <thread id="{{ thread_id }}">
             {% for message in thread.messages[-10:] %}
             <message sender="{{ message.sender_id }}">
@@ -111,7 +111,7 @@ The template is rendered with the following variables:
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `message_threads` | `Dict[str, MessageThread]` | Dictionary of all active conversation threads |
+| `event_threads` | `Dict[str, MessageThread]` | Dictionary of all active conversation threads |
 | `incoming_thread_id` | `str` | ID of the thread containing the message to respond to |
 | `incoming_message` | `BaseMessage` | The specific message that triggered this agent response |
 
@@ -144,11 +144,11 @@ The template prioritizes `text_representation` over `content` for better human-r
 The template is rendered in the `react` method of `SimpleAgentRunner`:
 
 ```python
-async def react(self, message_threads: Dict[str, MessageThread], 
+async def react(self, event_threads: Dict[str, MessageThread], 
                 incoming_thread_id: str, incoming_message: BaseMessage):
     # Generate the prompt using the template
     prompt_content = user_prompt_template.render(
-        message_threads=message_threads,
+        event_threads=event_threads,
         incoming_thread_id=incoming_thread_id,
         incoming_message=incoming_message
     )

@@ -47,7 +47,7 @@ network:
   # Mod configuration - Thread messaging, workspace functionality, and shared documents
   mods:
     # Thread Messaging for Discord/Slack-like communication
-    - name: "openagents.mods.communication.thread_messaging"
+    - name: "openagents.mods.workspace.messaging"
       enabled: true
       config:
         # Configure channels for knowledge sharing
@@ -78,7 +78,7 @@ network:
         thread_collapse_threshold: 25
     
     # Shared Document collaborative editing
-    - name: "openagents.mods.work.shared_document"
+    - name: "openagents.mods.workspace.documents"
       enabled: true
       config:
         # Document storage settings

@@ -197,7 +197,7 @@ Use the AgentRunner base class for more sophisticated agents:
 from openagents.agents.runner import AgentRunner
 
 class MyAgent(AgentRunner):
-    async def react(self, message_threads, incoming_thread_id, incoming_message):
+    async def react(self, event_threads, incoming_thread_id, incoming_message):
         # Handle incoming messages
         pass
 

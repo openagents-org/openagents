@@ -16,7 +16,7 @@ def parse_message_dict(message_dict: Dict[str, Any]) -> Event:
     
     # Map legacy message_type to proper event_name
     event_name_map = {
-        "direct_message": "agent.direct_message.sent",
+        "direct_message": "agent.message",
         "broadcast_message": "agent.broadcast_message.sent", 
         "mod_message": "mod.generic.message_received",
         "channel_message": "channel.message.posted"
@@ -68,19 +68,19 @@ def parse_message_dict(message_dict: Dict[str, Any]) -> Event:
     # Create unified Event regardless of original message type
     return Event(event_name=event_name, **message_dict)
 
-def get_direct_message_thread_id(opponent_id: str) -> str:
+def get_direct_event_thread_id(opponent_id: str) -> str:
     """
     Get the thread ID for a direct message.
     """
     return f"direct_message:{opponent_id}"
 
-def get_broadcast_message_thread_id() -> str:
+def get_broadcast_event_thread_id() -> str:
     """
     Get the thread ID for a broadcast message.
     """
     return "broadcast_message"
 
-def get_mod_message_thread_id(mod_name: str) -> str:
+def get_mod_event_thread_id(mod_name: str) -> str:
     """
     Get the thread ID for a mod message.
     """

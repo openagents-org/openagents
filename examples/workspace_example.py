@@ -55,7 +55,7 @@ async def main():
             
             # Send direct message to agent
             print(f"📤 Sending direct message to {agent_id}...")
-            success = await agent_conn.send_direct_message("Hello from workspace!")
+            success = await agent_conn.send_message("Hello from workspace!")
             print(f"Direct message sent successfully: {success}")
             
             # Get agent info
@@ -138,7 +138,7 @@ async def main():
             await asyncio.sleep(0.5)
             
             # Send a message to trigger echo response
-            await agent_conn.send_direct_message("Test wait function")
+            await agent_conn.send_message("Test wait function")
             
             # Wait for the response
             message = await wait_task
@@ -188,15 +188,15 @@ async def main():
             # Subscribe to various events using network-level event system
             print("📡 Subscribing to network events...")
             event_sub = network.events.subscribe(
-                agent_id="workspace-demo-agent",
-                event_patterns=[
+                "workspace-demo-agent",
+                [
                     "channel.message.*",
                     "agent.direct_message.*"
                 ]
             )
             
             # Create event queue for polling
-            event_queue = network.events.create_agent_event_queue("workspace-demo-agent")
+            network.events.register_agent("workspace-demo-agent")
             
             print("✅ Network event subscription created!")
             
@@ -217,7 +217,7 @@ async def main():
                 target_channel="#test",
                 payload={"text": "Direct emission test"}
             )
-            await network.emit_event(test_event)
+            await network.emit_to_event_bus(test_event)
             print(f"   Direct event emitted: {test_event.event_name}")
             
             # Test posting with mention
@@ -240,7 +240,7 @@ async def main():
             # Send direct message to trigger events
             if agents:
                 print(f"   Sending direct message to {agents[0]}...")
-                await agent_conn.send_direct_message("Test message for event system!")
+                await agent_conn.send_message("Test message for event system!")
             
             # Give events time to propagate
             await asyncio.sleep(1.0)

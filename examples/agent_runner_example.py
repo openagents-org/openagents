@@ -9,7 +9,7 @@ from typing import Dict
 
 from openagents.agents.runner import AgentRunner
 from openagents.models.messages import Event, EventNames
-from openagents.models.message_thread import MessageThread
+from openagents.models.event_thread import EventThread
 from openagents.models.event import Event
 
 # Set up logging
@@ -23,7 +23,7 @@ class SimpleAgent(AgentRunner):
         super().__init__(agent_id="simple-demo-agent")
         self.message_count = 0
 
-    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message):
+    async def react(self, event_threads: Dict[str, EventThread], incoming_thread_id: str, incoming_message):
         """React to an incoming message."""
         print(f"🎯 REACT CALLED! Processing message from {incoming_message.source_id}")
         print(f"   Message type: {type(incoming_message).__name__}")
@@ -40,13 +40,13 @@ class SimpleAgent(AgentRunner):
         
         # Handle different message types
         if isinstance(incoming_message, Event):
-            logger.info(f"Processing direct message from {sender_id} to {incoming_message.target_agent_id}")
+            logger.info(f"Processing direct message from {sender_id} to {incoming_message.destination_id}")
             print(f"📨 Sending echo response to {sender_id}")
             # Echo direct messages back
             echo_message = Event(
-                event_name="agent.direct_message.sent",
+                event_name="agent.message",
                 source_id=self.client.agent_id,
-                target_agent_id=sender_id,
+                destination_id=sender_id,
                 relevant_mod="openagents.mods.communication.simple_messaging",
                 payload={"text": f"Echo: {text}"},
                 text_representation=f"Echo: {text}",
@@ -61,9 +61,9 @@ class SimpleAgent(AgentRunner):
             # Respond to greetings in broadcast messages
             if "hello" in text.lower() and sender_id != self.client.agent_id:
                 greeting_message = Event(
-                    event_name="agent.direct_message.sent",
+                    event_name="agent.message",
                     source_id=self.client.agent_id,
-                    target_agent_id=sender_id,
+                    destination_id=sender_id,
                     relevant_mod="openagents.mods.communication.simple_messaging",
                     payload={"text": f"Hello {sender_id}! Nice to meet you!"},
                     text_representation=f"Hello {sender_id}! Nice to meet you!",

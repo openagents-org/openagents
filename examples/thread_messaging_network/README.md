@@ -189,7 +189,7 @@ network:
   port: 8571
 
 mods:
-  - mod_name: "thread_messaging"
+  - mod_name: "messaging"
     config:
       default_channels:
         - name: "general"
@@ -211,7 +211,7 @@ agent:
   name: "Project Manager Bot"
 
 mod_adapters:
-  - mod_name: "thread_messaging"
+  - mod_name: "messaging"
     mod_adapter_class: "ThreadMessagingAgentAdapter"
     config:
       auto_download_files: true

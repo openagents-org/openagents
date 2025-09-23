@@ -6,658 +6,748 @@ System commands are used for network operations like registration, listing agent
 """
 
 import logging
-import json
 import time
-from typing import Dict, Any, List, Optional, Callable, Awaitable, Union
-import asyncio
-from websockets.asyncio.server import ServerConnection
+from typing import TYPE_CHECKING, Dict, Any, List, Optional, Callable, Awaitable, Union
+from openagents.config.globals import (
+    SYSTEM_EVENT_REGISTER_AGENT,
+    SYSTEM_EVENT_UNREGISTER_AGENT,
+    SYSTEM_EVENT_LIST_AGENTS,
+    SYSTEM_EVENT_LIST_MODS,
+    SYSTEM_EVENT_GET_MOD_MANIFEST,
+    SYSTEM_EVENT_GET_NETWORK_INFO,
+    SYSTEM_EVENT_CLAIM_AGENT_ID,
+    SYSTEM_EVENT_VALIDATE_CERTIFICATE,
+    SYSTEM_EVENT_POLL_MESSAGES,
+    SYSTEM_EVENT_SUBSCRIBE_EVENTS,
+    SYSTEM_EVENT_UNSUBSCRIBE_EVENTS,
+    SYSTEM_EVENT_HEALTH_CHECK,
+    SYSTEM_EVENT_HEARTBEAT,
+    SYSTEM_EVENT_PING_AGENT,
+    SYSTEM_EVENT_ADD_CHANNEL_MEMBER,
+    SYSTEM_EVENT_REMOVE_CHANNEL_MEMBER,
+    SYSTEM_EVENT_GET_CHANNEL_MEMBERS,
+    SYSTEM_EVENT_REMOVE_CHANNEL,
+    SYSTEM_EVENT_LIST_CHANNELS
+)
+from openagents.models.event import Event
+from openagents.models.event_response import EventResponse
+from openagents.models.transport import TransportType
+if TYPE_CHECKING:
+    from openagents.core.network import AgentNetwork
 
 logger = logging.getLogger(__name__)
 
 # Type definitions
-SystemCommandHandler = Callable[[str, Dict[str, Any], ServerConnection], Awaitable[None]]
-SystemResponseHandler = Callable[[Dict[str, Any]], Awaitable[None]]
+SystemCommandHandler = Callable[["SystemCommandProcessor", Event], Awaitable[EventResponse]]
 
+class SystemCommandProcessor:
+    """Centralized processor for all system commands."""
 
-class SystemCommandRegistry:
-    """Registry for system commands and their handlers."""
-    
-    def __init__(self):
-        """Initialize the system command registry."""
-        self.command_handlers: Dict[str, SystemCommandHandler] = {}
-    
-    def register_handler(self, command: str, handler: SystemCommandHandler) -> None:
-        """Register a handler for a system command.
+    def __init__(self, network: "AgentNetwork"):
+        self.network = network
+        self.logger = logging.getLogger(f"{__name__}.{network.network_id}")
         
-        Args:
-            command: The command to handle
-            handler: The handler function
+        # Register all command handlers using event names from globals
+        self.command_handlers: Dict[str, SystemCommandHandler] = {
+            SYSTEM_EVENT_REGISTER_AGENT: self.handle_register_agent,
+            SYSTEM_EVENT_UNREGISTER_AGENT: self.handle_unregister_agent,
+            SYSTEM_EVENT_LIST_AGENTS: self.handle_list_agents,
+            SYSTEM_EVENT_LIST_MODS: self.handle_list_mods,
+            SYSTEM_EVENT_GET_MOD_MANIFEST: self.handle_get_mod_manifest,
+            SYSTEM_EVENT_GET_NETWORK_INFO: self.handle_get_network_info,
+            SYSTEM_EVENT_PING_AGENT: self.handle_heartbeat,
+            SYSTEM_EVENT_CLAIM_AGENT_ID: self.handle_claim_agent_id,
+            SYSTEM_EVENT_VALIDATE_CERTIFICATE: self.handle_validate_certificate,
+            SYSTEM_EVENT_POLL_MESSAGES: self.handle_poll_messages,
+            SYSTEM_EVENT_SUBSCRIBE_EVENTS: self.handle_subscribe_events,
+            SYSTEM_EVENT_UNSUBSCRIBE_EVENTS: self.handle_unsubscribe_events,
+            SYSTEM_EVENT_HEALTH_CHECK: self.handle_health_check,  # Health check uses same logic as ping
+            SYSTEM_EVENT_HEARTBEAT: self.handle_heartbeat,  # Heartbeat uses same logic as ping
+            SYSTEM_EVENT_ADD_CHANNEL_MEMBER: self.handle_add_channel_member,
+            SYSTEM_EVENT_REMOVE_CHANNEL_MEMBER: self.handle_remove_channel_member,
+            SYSTEM_EVENT_GET_CHANNEL_MEMBERS: self.handle_get_channel_members,
+            SYSTEM_EVENT_REMOVE_CHANNEL: self.handle_remove_channel,
+            SYSTEM_EVENT_LIST_CHANNELS: self.handle_list_channels,
+        }
+
+    async def process_command(self, system_event: Event) -> Optional[EventResponse]:
         """
-        self.command_handlers[command] = handler
-        logger.debug(f"Registered handler for system command: {command}")
-    
-    async def handle_command(self, command: str, data: Dict[str, Any], connection: ServerConnection) -> bool:
-        """Handle a system command.
+        Process a system event and return the response.
         
         Args:
-            command: The command to handle
-            data: The command data
-            connection: The WebSocket connection
+            system_event: The system event to process
             
         Returns:
-            bool: True if the command was handled, False otherwise
+            Optional[EventResponse]: The response to the event, or None if the event is not processed
         """
-        if command in self.command_handlers:
-            await self.command_handlers[command](command, data, connection)
-            return True
-        return False
-
-
-# Server-side command handlers
-
-async def handle_register_agent(command: str, data: Dict[str, Any], connection: ServerConnection, 
-                               network_instance: Any) -> None:
-    """Handle the register_agent command.
-    
-    Args:
-        command: The command name
-        data: The command data
-        connection: The WebSocket connection
-        network_instance: The network instance
-    """
-    agent_id = data.get("agent_id")
-    metadata = data.get("metadata", {})
-    certificate_data = data.get("certificate")
-    force_reconnect = data.get("force_reconnect", False)
-    
-    if metadata is None:
-        metadata = {}
-    
-    if not agent_id:
-        logger.error("Registration message missing agent_id")
-        await connection.send(json.dumps({
-            "type": "system_response",
-            "command": "register_agent",
-            "success": False,
-            "error": "Missing agent_id"
-        }))
-        return
-    
-    # Check if agent is already registered
-    if agent_id in network_instance.connections:
-        # Check if we can override the connection
-        can_override = False
+        # Use the full event name for command matching
+        event_name = system_event.event_name
+        self.logger.debug(f"Processing system event: {event_name}")
         
-        if certificate_data:
-            # Validate certificate for override
-            if network_instance.identity_manager.validate_certificate(certificate_data):
-                can_override = True
-                logger.info(f"Agent {agent_id} provided valid certificate for override")
-            else:
-                logger.warning(f"Agent {agent_id} provided invalid certificate")
-        elif force_reconnect:
-            # Allow force reconnect without certificate (less secure)
-            can_override = True
-            logger.info(f"Agent {agent_id} using force_reconnect override")
+        # Execute the command
+        if event_name in self.command_handlers:
+            try:
+                return await self.command_handlers[event_name](system_event)
+            except Exception as e:
+                self.logger.error(f"Error processing system event {event_name}: {e}")
+                import traceback
+                self.logger.error(f"Traceback: {traceback.format_exc()}")
+                return EventResponse(
+                    success=False,
+                    message=f"Internal error processing event {event_name}: {str(e)}"
+                )
+        return None
+    
+    async def handle_health_check(self, event: Event) -> EventResponse:
+        """Handle the health_check command.
         
-        if can_override:
-            # Clean up existing connection
-            logger.info(f"Overriding existing connection for agent {agent_id}")
-            await network_instance.cleanup_agent(agent_id)
-        else:
-            # Reject registration
-            error_msg = "Agent with this ID is already connected to the network"
-            if certificate_data:
-                error_msg += ". Certificate validation failed."
-            else:
-                error_msg += ". Use force_reconnect=true or provide valid certificate to override."
+        Returns comprehensive network health information including:
+        - Network configuration and status
+        - Agent statistics (count, online status)
+        - Event gateway statistics
+        - System uptime and performance metrics
+        """
+        # Get network statistics
+        network_stats = self.network.get_network_stats()
+        
+        return EventResponse(
+            success=True,
+            message="Health check completed successfully",
+            data=network_stats
+        )
             
-            logger.warning(f"Agent {agent_id} registration rejected: {error_msg}")
-            await connection.send(json.dumps({
-                "type": "system_response",
-                "command": "register_agent",
-                "success": False,
-                "error": error_msg
-            }))
-            return
     
-    logger.info(f"Received registration from agent {agent_id}")
-    
-    # Store connection
-    from .network import AgentConnection
-    agent_connection = AgentConnection(
-        agent_id=agent_id,
-        connection=connection,
-        metadata=metadata,
-        last_activity=asyncio.get_event_loop().time()
-    )
-    network_instance.connections[agent_id] = agent_connection
-    
-    # Store agent client reference for direct delivery (if available)
-    # This is a workaround for gRPC transport not supporting bidirectional messaging
-    if hasattr(connection, 'agent_client'):
-        if hasattr(network_instance, '_register_agent_client'):
-            network_instance._register_agent_client(agent_id, connection.agent_client)
-            logger.info(f"🔧 REGISTRATION: Registered agent client {agent_id} for direct delivery")
-    
-    logger.info(f"🔧 REGISTRATION: Added agent {agent_id} to connections. Total connections: {len(network_instance.connections)}")
-    logger.info(f"🔧 REGISTRATION: Current connections: {list(network_instance.connections.keys())}")
-    
-    # Register agent metadata
-    await network_instance.register_agent(agent_id, metadata)
-    
-    # Update transport mapping to route messages by agent_id
-    transport = network_instance.topology.transport_manager.get_active_transport()
-    if transport and hasattr(transport, 'register_agent_connection'):
-        # Get the peer_id from network instance context
-        peer_id = getattr(network_instance, '_current_registration_peer_id', None)
-        if peer_id:
-            transport.register_agent_connection(agent_id, peer_id)
-            logger.info(f"🔧 REGISTRATION: Mapped agent {agent_id} to transport connection {peer_id}")
+    def _format_uptime(self, uptime_seconds: float) -> str:
+        """Format uptime in a human-readable format.
+        
+        Args:
+            uptime_seconds: Uptime in seconds
+            
+        Returns:
+            str: Formatted uptime string
+        """
+        if uptime_seconds < 60:
+            return f"{uptime_seconds:.1f} seconds"
+        elif uptime_seconds < 3600:
+            minutes = uptime_seconds / 60
+            return f"{minutes:.1f} minutes"
+        elif uptime_seconds < 86400:
+            hours = uptime_seconds / 3600
+            return f"{hours:.1f} hours"
         else:
-            logger.warning(f"Could not determine peer_id for agent {agent_id}")
+            days = uptime_seconds / 86400
+            return f"{days:.1f} days"
     
-    # Send registration response
-    await connection.send(json.dumps({
-        "type": "system_response",
-        "command": "register_agent",
-        "success": True,
-        "network_name": network_instance.network_name,
-        "network_id": network_instance.network_id,
-        "metadata": network_instance.metadata
-    }))
+    async def handle_register_agent(self, event: Event) -> EventResponse:
+        """Handle the register_agent command."""
+        agent_id = event.payload.get("agent_id", event.source_id)
+        transport_type = event.payload.get("transport_type", TransportType.GRPC)
+        metadata = event.payload.get("metadata", {})
+        certificate = event.payload.get("certificate", None)
+        force_reconnect = event.payload.get("force_reconnect", False)
 
+        return await self.network.register_agent(agent_id, transport_type, metadata, certificate, force_reconnect)
+    
+    async def handle_unregister_agent(self, event: Event) -> EventResponse:
+        """Handle the unregister_agent command."""
+        agent_id = event.payload.get("agent_id", event.source_id)
+        return await self.network.unregister_agent(agent_id)
+        
+    async def handle_list_agents(self, event: Event) -> EventResponse:
+        """Handle the list_agents command."""
+        requesting_agent_id = event.payload.get("agent_id", event.source_id)
+        
+        agent_registry = self.network.get_agent_registry()
+        if requesting_agent_id not in agent_registry:
+            self.logger.warning(f"Agent {requesting_agent_id} not registered")
+            return EventResponse(
+                success=False,
+                message="Agent not registered"
+            )
+            
+        # Prepare agent list with relevant information
+        agent_list = []
+        for agent_id, info in agent_registry.items():
+            metadata = info.metadata
+            agent_info = {
+                "agent_id": agent_id,
+                "name": metadata.get("name", agent_id),
+                "connected": True,  # All agents in deprecated_agents are considered connected
+                "metadata": metadata
+            }
+            agent_list.append(agent_info)
+            
+        return EventResponse(
+            success=True,
+            message="Agent list retrieved successfully",
+            data={
+                "type": "system_response",
+                "command": "list_agents",
+                "agents": agent_list
+            }
+        )
 
-async def handle_list_agents(command: str, data: Dict[str, Any], connection: ServerConnection,
-                            network_instance: Any) -> None:
-    """Handle the list_agents command.
-    
-    Args:
-        command: The command name
-        data: The command data
-        connection: The WebSocket connection
-        network_instance: The network instance
-    """
-    requesting_agent_id = data.get("agent_id")
-    
-    if requesting_agent_id not in network_instance.connections:
-        logger.warning(f"Agent {requesting_agent_id} not connected")
-        return
+    async def handle_list_mods(self, event: Event) -> EventResponse:
+        """Handle the list_mods command."""
+        requesting_agent_id = event.payload.get("agent_id", event.source_id)
         
-    # Prepare agent list with relevant information
-    agent_list = []
-    for agent_id, metadata in network_instance.agents.items():
-        agent_info = {
-            "agent_id": agent_id,
-            "name": metadata.get("name", agent_id),
-            "connected": agent_id in network_instance.connections,
-            "metadata": metadata
-        }
-        agent_list.append(agent_info)
+        self.logger.info(f"🔧 LIST_MODS: Request from agent_id: {requesting_agent_id}")
         
-    # Send response
-    try:
-        await connection.send(json.dumps({
-            "type": "system_response",
-            "command": "list_agents",
-            "success": True,
-            "agents": agent_list
-        }))
-        logger.debug(f"Sent agent list to {requesting_agent_id}")
-    except Exception as e:
-        logger.error(f"Failed to send agent list to {requesting_agent_id}: {e}")
-
-
-async def handle_list_mods(command: str, data: Dict[str, Any], connection: ServerConnection,
-                               network_instance: Any) -> None:
-    """Handle the list_mods command.
-    
-    Args:
-        command: The command name
-        data: The command data
-        connection: The WebSocket connection
-        network_instance: The network instance
-    """
-    requesting_agent_id = data.get("agent_id")
-    
-    logger.info(f"🔧 LIST_MODS: Request from agent_id: {requesting_agent_id}")
-    logger.info(f"🔧 LIST_MODS: Available connections: {list(network_instance.connections.keys())}")
-    
-    if requesting_agent_id not in network_instance.connections:
-        logger.warning(f"Agent {requesting_agent_id} not connected")
-        return
-    
-    # Try to register agent client for direct message delivery (workaround for gRPC)
-    # This is a best-effort attempt to enable direct delivery for agents using gRPC
-    try:
-        if hasattr(network_instance, '_register_agent_client') and requesting_agent_id:
-            # We don't have direct access to the agent client here, but we can try to find it
-            # This is a workaround - in a proper implementation, the agent would register itself
-            logger.debug(f"🔧 LIST_MODS: Attempting to enable direct delivery for {requesting_agent_id}")
-    except Exception as e:
-        logger.debug(f"Could not enable direct delivery for {requesting_agent_id}: {e}")
-    
-    # Get all unique mod names from both mods and mod_manifests
-    all_mod_names = set(network_instance.mods.keys())
-    
-    # Add mod names from manifests if they exist
-    if hasattr(network_instance, "mod_manifests"):
-        all_mod_names.update(network_instance.mod_manifests.keys())
-    
-    # Prepare mod list with relevant information
-    mod_list = []
-    
-    for mod_name in all_mod_names:
-        mod_info = {
-            "name": mod_name,
-            "description": "No description available",
-            "version": "1.0.0",
-            "requires_adapter": False,
-            "capabilities": []
-        }
+        agent_registry = self.network.get_agent_registry()
+        if requesting_agent_id not in agent_registry:
+            self.logger.warning(f"Agent {requesting_agent_id} not registered")
+            return EventResponse(
+                success=False,
+                message="Agent not registered"
+            )
         
-        # Add implementation-specific information if available
-        if mod_name in network_instance.mods:
-            mod = network_instance.mods[mod_name]
-            mod_info.update({
-                "description": getattr(mod, "description", mod_info["description"]),
-                "version": getattr(mod, "version", mod_info["version"]),
-                "requires_adapter": getattr(mod, "requires_adapter", mod_info["requires_adapter"]),
-                "capabilities": getattr(mod, "capabilities", mod_info["capabilities"]),
-                "implementation": mod.__class__.__module__ + "." + mod.__class__.__name__
-            })
+        # Get all unique mod names from both mods and mod_manifests
+        all_mod_names = set(self.network.mods.keys())
         
-        # Add manifest information if available (overriding implementation info)
-        if mod_name in network_instance.mod_manifests:
-            manifest = network_instance.mod_manifests[mod_name]
-            mod_info.update({
-                "version": manifest.version,
-                "description": manifest.description,
-                "capabilities": manifest.capabilities,
-                "authors": manifest.authors,
-                "license": manifest.license,
-                "requires_adapter": manifest.requires_adapter,
-                "network_mod_class": manifest.network_mod_class
-            })
+        # Add mod names from manifests if they exist
+        if hasattr(self.network, "mod_manifests"):
+            all_mod_names.update(self.network.mod_manifests.keys())
         
-        mod_list.append(mod_info)
-    
-    # Send response
-    try:
-        response = {
+        # Prepare mod list with relevant information
+        mod_list = []
+        
+        for mod_name in all_mod_names:
+            mod_info = {
+                "name": mod_name,
+                "description": "No description available",
+                "version": "1.0.0",
+                "requires_adapter": False,
+                "capabilities": []
+            }
+            
+            # Add implementation-specific information if available
+            if mod_name in self.network.mods:
+                mod = self.network.mods[mod_name]
+                mod_info.update({
+                    "description": getattr(mod, "description", mod_info["description"]),
+                    "version": getattr(mod, "version", mod_info["version"]),
+                    "requires_adapter": getattr(mod, "requires_adapter", mod_info["requires_adapter"]),
+                    "capabilities": getattr(mod, "capabilities", mod_info["capabilities"]),
+                    "implementation": mod.__class__.__module__ + "." + mod.__class__.__name__
+                })
+            
+            # Add manifest information if available (overriding implementation info)
+            if hasattr(self.network, "mod_manifests") and mod_name in self.network.mod_manifests:
+                manifest = self.network.mod_manifests[mod_name]
+                mod_info.update({
+                    "version": manifest.version,
+                    "description": manifest.description,
+                    "capabilities": manifest.capabilities,
+                    "authors": manifest.authors,
+                    "license": manifest.license,
+                    "requires_adapter": manifest.requires_adapter,
+                    "network_mod_class": manifest.network_mod_class
+                })
+            
+            mod_list.append(mod_info)
+        
+        response_data = {
             "type": "system_response",
             "command": "list_mods",
-            "success": True,
             "mods": mod_list
         }
         
         # Include request_id if it was provided in the original request
-        if "request_id" in data:
-            response["request_id"] = data["request_id"]
+        if "request_id" in event.payload:
+            response_data["request_id"] = event.payload["request_id"]
             
-        await connection.send(json.dumps(response))
-        logger.debug(f"Sent mod list to {requesting_agent_id}")
-    except Exception as e:
-        logger.error(f"Failed to send mod list to {requesting_agent_id}: {e}")
+        return EventResponse(
+            success=True,
+            message="Mod list retrieved successfully",
+            data=response_data
+        )
 
-
-async def handle_get_mod_manifest(command: str, data: Dict[str, Any], connection: ServerConnection,
-                                     network_instance: Any) -> None:
-    """Handle the get_mod_manifest command.
-    
-    Args:
-        command: The command name
-        data: The command data
-        connection: The WebSocket connection
-        network_instance: The network instance
-    """
-    requesting_agent_id = data.get("agent_id")
-    mod_name = data.get("mod_name")
-    
-    if requesting_agent_id not in network_instance.connections:
-        logger.warning(f"Agent {requesting_agent_id} not connected")
-        return
-    
-    if not mod_name:
-        await connection.send(json.dumps({
-            "type": "system_response",
-            "command": "get_mod_manifest",
-            "success": False,
-            "error": "Missing mod_name parameter"
-        }))
-        return
-    
-    # Check if we have a manifest for this mod
-    if mod_name in network_instance.mod_manifests:
-        manifest = network_instance.mod_manifests[mod_name]
+    async def handle_get_mod_manifest(self, event: Event) -> EventResponse:
+        """Handle the get_mod_manifest command."""
+        requesting_agent_id = event.payload.get("agent_id", event.source_id)
+        mod_name = event.payload.get("mod_name")
         
-        # Convert manifest to dict for JSON serialization
-        manifest_dict = manifest.model_dump()
+        agent_registry = self.network.get_agent_registry()
+        if requesting_agent_id not in agent_registry:
+            self.logger.warning(f"Agent {requesting_agent_id} not registered")
+            return EventResponse(
+                success=False,
+                message="Agent not registered"
+            )
         
-        await connection.send(json.dumps({
-            "type": "system_response",
-            "command": "get_mod_manifest",
-            "success": True,
-            "mod_name": mod_name,
-            "manifest": manifest_dict
-        }))
-        logger.debug(f"Sent mod manifest for {mod_name} to {requesting_agent_id}")
-    else:
-        # Try to load the manifest if it's not already loaded
-        manifest = network_instance.load_mod_manifest(mod_name)
+        if not mod_name:
+            return EventResponse(
+                success=False,
+                message="Missing mod_name parameter"
+            )
         
-        if manifest:
+        # Check if we have a manifest for this mod
+        if hasattr(self.network, "mod_manifests") and mod_name in self.network.mod_manifests:
+            manifest = self.network.mod_manifests[mod_name]
+            
             # Convert manifest to dict for JSON serialization
             manifest_dict = manifest.model_dump()
             
-            await connection.send(json.dumps({
-                "type": "system_response",
-                "command": "get_mod_manifest",
-                "success": True,
-                "mod_name": mod_name,
-                "manifest": manifest_dict
-            }))
-            logger.debug(f"Loaded and sent mod manifest for {mod_name} to {requesting_agent_id}")
+            return EventResponse(
+                success=True,
+                message="Mod manifest retrieved successfully",
+                data={
+                    "type": "system_response",
+                    "command": "get_mod_manifest",
+                    "mod_name": mod_name,
+                    "manifest": manifest_dict
+                }
+            )
         else:
-            await connection.send(json.dumps({
-                "type": "system_response",
-                "command": "get_mod_manifest",
-                "success": False,
-                "mod_name": mod_name,
-                "error": f"No manifest found for mod {mod_name}"
-            }))
-            logger.warning(f"No manifest found for mod {mod_name}")
+            # Try to load the manifest if it's not already loaded
+            if hasattr(self.network, "load_mod_manifest"):
+                manifest = self.network.load_mod_manifest(mod_name)
+                
+                if manifest:
+                    # Convert manifest to dict for JSON serialization
+                    manifest_dict = manifest.model_dump()
+                    
+                    return EventResponse(
+                        success=True,
+                        message="Mod manifest retrieved successfully",
+                        data={
+                            "type": "system_response",
+                            "command": "get_mod_manifest",
+                            "mod_name": mod_name,
+                            "manifest": manifest_dict
+                        }
+                    )
+            
+            return EventResponse(
+                success=False,
+                message=f"No manifest found for mod {mod_name}",
+                data={
+                    "type": "system_response",
+                    "command": "get_mod_manifest",
+                    "mod_name": mod_name
+                }
+            )
 
-
-async def handle_get_network_info(command: str, data: Dict[str, Any], connection: ServerConnection,
-                                 network_instance: Any) -> None:
-    """Handle the get_network_info command.
-    
-    Args:
-        command: The command name
-        data: The command data
-        connection: The WebSocket connection
-        network_instance: The network instance
-    """
-    requesting_agent_id = data.get("agent_id")
-    
-    # Allow temporary studio connections to fetch network info without being registered
-    is_studio_temp = requesting_agent_id and requesting_agent_id.startswith("studio_temp_")
-    
-    if is_studio_temp:
-        logger.debug(f"Studio frontend requesting network info via temporary connection: {requesting_agent_id}")
-    elif requesting_agent_id not in network_instance.connections:
-        logger.warning(f"Agent {requesting_agent_id} not connected")
-        return
-    
-    # Prepare network info
-    network_info = {
-        "name": network_instance.network_name,
-        "node_id": network_instance.network_id,
-        "mode": "centralized" if hasattr(network_instance.topology, 'server_mode') else "decentralized",
-        "mods": list(network_instance.mods.keys()),
-        "agent_count": len(network_instance.connections)
-    }
-    
-    # Include workspace path if available in metadata
-    if hasattr(network_instance, 'metadata') and 'workspace_path' in network_instance.metadata:
-        network_info["workspace_path"] = network_instance.metadata['workspace_path']
-    
-    # Send response
-    try:
-        response = {
+    async def handle_get_network_info(self, event: Event) -> EventResponse:
+        """Handle the get_network_info command."""
+        requesting_agent_id = event.payload.get("agent_id", event.source_id)
+        
+        # Allow temporary studio connections to fetch network info without being registered
+        is_studio_temp = requesting_agent_id and requesting_agent_id.startswith("studio_temp_")
+        
+        if is_studio_temp:
+            self.logger.debug(f"Studio frontend requesting network info via temporary connection: {requesting_agent_id}")
+        elif requesting_agent_id not in self.network.deprecated_agents:
+            self.logger.warning(f"Agent {requesting_agent_id} not registered")
+            return EventResponse(
+                success=False,
+                message="Agent not registered"
+            )
+        
+        # Prepare network info
+        network_info = {
+            "name": self.network.network_name,
+            "node_id": self.network.network_id,
+            "mode": "centralized" if hasattr(self.network.topology, 'server_mode') else "decentralized",
+            "mods": list(self.network.mods.keys()),
+            "agent_count": len(self.network.get_agent_registry())
+        }
+        
+        # Include workspace path if available in metadata
+        if hasattr(self.network, 'metadata') and 'workspace_path' in self.network.metadata:
+            network_info["workspace_path"] = self.network.metadata['workspace_path']
+        
+        response_data = {
             "type": "system_response",
             "command": "get_network_info",
-            "success": True,
             "network_info": network_info
         }
         
         # Include request_id if it was provided in the original request
-        if "request_id" in data:
-            response["request_id"] = data["request_id"]
+        if "request_id" in event.payload:
+            response_data["request_id"] = event.payload["request_id"]
             
-        await connection.send(json.dumps(response))
-        logger.debug(f"Sent network info to {requesting_agent_id}")
-    except Exception as e:
-        logger.error(f"Failed to send network info to {requesting_agent_id}: {e}")
+        return EventResponse(
+            success=True,
+            message="Network info retrieved successfully",
+            data=response_data
+        )
 
+    async def handle_heartbeat(self, event: Event) -> EventResponse:
+        """Handle the ping_agent command."""
+        # Record heartbeat
+        await self.network.topology.record_heartbeat(event.parse_source().source_id)
+        return EventResponse(
+            success=True,
+            message="Ping successful",
+            data={
+                "type": "system_response",
+                "command": "ping_agent",
+                "timestamp": event.payload.get("timestamp", time.time())
+            }
+        )
 
-async def handle_ping_agent(command: str, data: Dict[str, Any], connection: ServerConnection,
-                           network_instance: Any) -> None:
-    """Handle the ping_agent command.
-    
-    Args:
-        command: The command name
-        data: The command data
-        connection: The WebSocket connection
-        network_instance: The network instance
-    """
-    try:
-        # Send pong response
-        await connection.send(json.dumps({
-            "type": "system_response",
-            "command": "ping_agent",
-            "success": True,
-            "timestamp": data.get("timestamp", time.time())
-        }))
-        logger.debug("Responded to ping")
-    except Exception as e:
-        logger.error(f"Error handling ping: {e}")
-
-
-async def handle_claim_agent_id(command: str, data: Dict[str, Any], connection: ServerConnection,
-                              network_instance: Any) -> None:
-    """Handle the claim_agent_id command.
-    
-    Args:
-        command: The command name
-        data: The command data
-        connection: The WebSocket connection
-        network_instance: The network instance
-    """
-    agent_id = data.get("agent_id")
-    force = data.get("force", False)
-    
-    if not agent_id:
-        await connection.send(json.dumps({
-            "type": "system_response",
-            "command": "claim_agent_id",
-            "success": False,
-            "error": "Missing agent_id"
-        }))
-        return
-    
-    try:
-        # Try to claim the agent ID
-        certificate = network_instance.identity_manager.claim_agent_id(agent_id, force=force)
+    async def handle_claim_agent_id(self, event: Event) -> EventResponse:
+        """Handle the claim_agent_id command."""
+        agent_id = event.payload.get("agent_id", event.source_id)
+        force = event.payload.get("force", False)
         
-        if certificate:
-            await connection.send(json.dumps({
-                "type": "system_response",
-                "command": "claim_agent_id",
-                "success": True,
-                "agent_id": agent_id,
-                "certificate": certificate.to_dict()
-            }))
-            logger.info(f"Issued certificate for agent ID {agent_id}")
-        else:
-            await connection.send(json.dumps({
-                "type": "system_response",
-                "command": "claim_agent_id",
-                "success": False,
-                "error": f"Agent ID {agent_id} is already claimed"
-            }))
-            logger.warning(f"Failed to claim agent ID {agent_id} - already claimed")
-    
-    except Exception as e:
-        logger.error(f"Error claiming agent ID {agent_id}: {e}")
-        await connection.send(json.dumps({
-            "type": "system_response",
-            "command": "claim_agent_id",
-            "success": False,
-            "error": f"Internal error: {str(e)}"
-        }))
-
-
-async def handle_poll_messages(command: str, data: Dict[str, Any], connection: ServerConnection,
-                              network_instance: Any) -> None:
-    """Handle the poll_messages command for gRPC agents.
-    
-    Args:
-        command: The command name
-        data: The command data
-        connection: The connection
-        network_instance: The network instance
-    """
-    logger.info(f"🔧 POLL_MESSAGES: Handler called for command: {command}")
-    requesting_agent_id = data.get("agent_id")
-    logger.info(f"🔧 POLL_MESSAGES: Requesting agent: {requesting_agent_id}")
-    
-    if not requesting_agent_id:
-        logger.warning("poll_messages command missing agent_id")
-        return
-    
-    if requesting_agent_id not in network_instance.connections:
-        logger.warning(f"Agent {requesting_agent_id} not connected")
-        return
-    
-    # Get queued messages for the agent
-    messages = network_instance._get_queued_messages(requesting_agent_id)
-    logger.info(f"🔧 POLL_MESSAGES: Retrieved {len(messages)} messages for {requesting_agent_id}")
-    
-    # Convert messages to serializable format
-    serialized_messages = []
-    for message in messages:
+        if not agent_id:
+            return EventResponse(
+                success=False,
+                message="Missing agent_id"
+            )
+        
         try:
-            if hasattr(message, 'model_dump'):
-                serialized_messages.append(message.model_dump())
-            elif hasattr(message, 'to_dict'):
-                serialized_messages.append(message.to_dict())
-            elif hasattr(message, 'dict'):
-                serialized_messages.append(message.dict())
+            # Try to claim the agent ID
+            certificate = self.network.identity_manager.claim_agent_id(agent_id, force=force)
+            
+            if certificate:
+                self.logger.info(f"Issued certificate for agent ID {agent_id}")
+                return EventResponse(
+                    success=True,
+                    message=f"Agent ID {agent_id} claimed successfully",
+                    data={
+                        "type": "system_response",
+                        "command": "claim_agent_id",
+                        "agent_id": agent_id,
+                        "certificate": certificate.to_dict()
+                    }
+                )
             else:
-                # Fallback: convert to dict manually for Event-based objects
-                if hasattr(message, '__dict__'):
-                    serialized_messages.append(message.__dict__)
-                else:
-                    serialized_messages.append(str(message))
+                self.logger.warning(f"Failed to claim agent ID {agent_id} - already claimed")
+                return EventResponse(
+                    success=False,
+                    message=f"Agent ID {agent_id} is already claimed"
+                )
+        
         except Exception as e:
-            logger.error(f"Error serializing message: {e}")
-            # Add empty dict to maintain message count
-            serialized_messages.append({})
-    
-    logger.info(f"🔧 POLL_MESSAGES: Serialized {len(serialized_messages)} messages")
-    
-    # Send response
-    try:
-        response = {
+            self.logger.error(f"Error claiming agent ID {agent_id}: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Internal error: {str(e)}"
+            )
+
+    async def handle_validate_certificate(self, event: Event) -> EventResponse:
+        """Handle the validate_certificate command."""
+        certificate_data = event.payload.get("certificate")
+        
+        if not certificate_data:
+            return EventResponse(
+                success=False,
+                message="Missing certificate data"
+            )
+        
+        try:
+            # Validate the certificate
+            is_valid = self.network.identity_manager.validate_certificate(certificate_data)
+            
+            self.logger.debug(f"Certificate validation result for {certificate_data.get('agent_id')}: {is_valid}")
+            return EventResponse(
+                success=True,
+                message=f"Certificate validation completed: {'valid' if is_valid else 'invalid'}",
+                data={
+                    "type": "system_response",
+                    "command": "validate_certificate",
+                    "valid": is_valid,
+                    "agent_id": certificate_data.get("agent_id")
+                }
+            )
+        
+        except Exception as e:
+            self.logger.error(f"Error validating certificate: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Internal error: {str(e)}"
+            )
+
+    async def handle_poll_messages(self, event: Event) -> EventResponse:
+        """Handle the poll_messages command for gRPC agents."""
+        self.logger.info(f"🔧 POLL_MESSAGES: Handler called for event: {event.event_name}")
+        
+        requesting_agent_id = event.payload.get("agent_id", event.source_id)
+        self.logger.info(f"🔧 POLL_MESSAGES: Requesting agent: {requesting_agent_id}")
+        
+        if not requesting_agent_id:
+            self.logger.warning("poll_messages command missing agent_id")
+            return EventResponse(
+                success=False,
+                message="Missing agent_id"
+            )
+        
+        agent_registry = self.network.get_agent_registry()
+        if requesting_agent_id not in agent_registry:
+            self.logger.warning(f"Agent {requesting_agent_id} not registered")
+            return EventResponse(
+                success=False,
+                message="Agent not registered"
+            )
+        
+        # Get queued messages for the agent from event gateway
+        messages = await self.network.event_gateway.poll_events(requesting_agent_id)
+        
+        # Convert messages to serializable format
+        serialized_messages = []
+        for i, message in enumerate(messages):
+            self.logger.debug(f"🔧 POLL_MESSAGES: Serializing message {i}: {type(message)}")
+            serialized_msg = None
+            
+            # Try to_dict() first (works for Event objects)
+            if hasattr(message, 'to_dict'):
+                try:
+                    serialized_msg = message.to_dict()
+                    self.logger.info(f"🔧 POLL_MESSAGES: Used to_dict() for message {i}")
+                except Exception as to_dict_error:
+                    self.logger.error(f"🔧 POLL_MESSAGES: to_dict() failed for message {i}: {to_dict_error}")
+                    serialized_msg = None
+            elif hasattr(message, 'model_dump'):
+                try:
+                    serialized_msg = message.model_dump()
+                    self.logger.info(f"🔧 POLL_MESSAGES: Used model_dump() for message {i}")
+                except Exception as model_dump_error:
+                    self.logger.warning(f"🔧 POLL_MESSAGES: model_dump failed for message {i}: {model_dump_error}")
+                    serialized_msg = None
+            elif hasattr(message, 'dict'):
+                serialized_msg = message.dict()
+                self.logger.info(f"🔧 POLL_MESSAGES: Used dict() for message {i}")
+            elif hasattr(message, '__dict__'):
+                import datetime
+                serialized_msg = {}
+                for key, value in message.__dict__.items():
+                    # Handle datetime objects
+                    if isinstance(value, datetime.datetime):
+                        serialized_msg[key] = value.isoformat()
+                    else:
+                        serialized_msg[key] = value
+                self.logger.info(f"🔧 POLL_MESSAGES: Used __dict__ with datetime handling for message {i}")
+            else:
+                serialized_msg = str(message)
+                self.logger.info(f"🔧 POLL_MESSAGES: Used str() for message {i}")
+            
+            if serialized_msg is not None:
+                serialized_messages.append(serialized_msg)
+            else:
+                self.logger.error(f"🔧 POLL_MESSAGES: Failed to serialize message {i} - all methods failed")
+                serialized_messages.append({})
+        
+        self.logger.info(f"🔧 POLL_MESSAGES: Serialized {len(serialized_messages)} messages")
+        
+        response_data = {
             "type": "system_response",
             "command": "poll_messages",
-            "success": True,
             "messages": serialized_messages
         }
         
         # Include request_id if it was provided in the original request
-        if "request_id" in data:
-            response["request_id"] = data["request_id"]
-            
-        await connection.send(json.dumps(response))
-        logger.info(f"🔧 POLL_MESSAGES: Sent {len(serialized_messages)} queued messages to {requesting_agent_id}")
-    except Exception as e:
-        logger.error(f"Failed to send queued messages to {requesting_agent_id}: {e}")
-
-
-async def handle_validate_certificate(command: str, data: Dict[str, Any], connection: ServerConnection,
-                                    network_instance: Any) -> None:
-    """Handle the validate_certificate command.
-    
-    Args:
-        command: The command name
-        data: The command data
-        connection: The WebSocket connection
-        network_instance: The network instance
-    """
-    certificate_data = data.get("certificate")
-    
-    if not certificate_data:
-        await connection.send(json.dumps({
-            "type": "system_response",
-            "command": "validate_certificate",
-            "success": False,
-            "error": "Missing certificate data"
-        }))
-        return
-    
-    try:
-        # Validate the certificate
-        is_valid = network_instance.identity_manager.validate_certificate(certificate_data)
+        if "request_id" in event.payload:
+            response_data["request_id"] = event.payload["request_id"]
         
-        await connection.send(json.dumps({
-            "type": "system_response",
-            "command": "validate_certificate",
-            "success": True,
-            "valid": is_valid,
-            "agent_id": certificate_data.get("agent_id")
-        }))
+        self.logger.info(f"🔧 POLL_MESSAGES: Sending response with {len(serialized_messages)} messages to {requesting_agent_id}")
+        return EventResponse(
+            success=True,
+            message=f"Retrieved {len(serialized_messages)} messages",
+            data=response_data
+        )
+
+    async def handle_subscribe_events(self, event: Event) -> EventResponse:
+        """Handle the subscribe_events command."""
+        requesting_agent_id = event.payload.get("agent_id", event.source_id)
+        event_patterns = event.payload.get("event_patterns", [])
+        channels = event.payload.get("channels", [])
         
-        logger.debug(f"Certificate validation result for {certificate_data.get('agent_id')}: {is_valid}")
-    
-    except Exception as e:
-        logger.error(f"Error validating certificate: {e}")
-        await connection.send(json.dumps({
-            "type": "system_response",
-            "command": "validate_certificate",
-            "success": False,
-            "error": f"Internal error: {str(e)}"
-        }))
-
-
-# Client-side command handling
-
-async def send_system_request(connection: ServerConnection, command: str, **kwargs) -> bool:
-    """Send a system request to the server.
-    
-    Args:
-        connection: The WebSocket connection
-        command: The command to send
-        **kwargs: Additional parameters for the command
+        self.logger.info(f"🔧 SUBSCRIBE_EVENTS: Request from agent_id: {requesting_agent_id}")
         
-    Returns:
-        bool: True if the request was sent successfully
-    """
-    try:
-        request_data = {
-            "type": "system_request",
-            "command": command,
-            "data": kwargs
+        agent_registry = self.network.get_agent_registry()
+        if requesting_agent_id not in agent_registry:
+            self.logger.warning(f"Agent {requesting_agent_id} not registered")
+            return EventResponse(
+                success=False,
+                message="Agent not registered"
+            )
+        
+        if not event_patterns:
+            return EventResponse(
+                success=False,
+                message="Missing event_patterns parameter"
+            )
+        
+        subscription = self.network.event_gateway.subscribe(
+            agent_id=requesting_agent_id,
+            event_patterns=event_patterns,
+            channels=channels if channels else []
+        )
+        
+        response_data = {
+            "type": "system_response",
+            "command": "subscribe_events",
+            "subscription_id": subscription.subscription_id,
+            "agent_id": requesting_agent_id,
+            "event_patterns": event_patterns,
+            "channels": list(channels) if channels else []
         }
-        await connection.send(json.dumps(request_data))
-        logger.debug(f"Sent system request: {command}")
-        return True
-    except Exception as e:
-        logger.error(f"Failed to send system request {command}: {e}")
-        return False
+        
+        # Include request_id if it was provided in the original request
+        if "request_id" in event.payload:
+            response_data["request_id"] = event.payload["request_id"]
+        
+        self.logger.info(f"🔧 SUBSCRIBE_EVENTS: Created subscription {subscription.subscription_id} for {requesting_agent_id}")
+        return EventResponse(
+            success=True,
+            message=f"Successfully subscribed to {len(event_patterns)} event patterns",
+            data=response_data
+        )
 
+    async def handle_unsubscribe_events(self, event: Event) -> EventResponse:
+        """Handle the unsubscribe_events command."""
+        requesting_agent_id = event.payload.get("agent_id", event.source_id)
+        subscription_id = event.payload.get("subscription_id")
+        
+        self.logger.info(f"🔧 UNSUBSCRIBE_EVENTS: Request from agent_id: {requesting_agent_id}")
+        
+        agent_registry = self.network.get_agent_registry()
+        if requesting_agent_id not in agent_registry:
+            self.logger.warning(f"Agent {requesting_agent_id} not registered")
+            return EventResponse(
+                success=False,
+                message="Agent not registered"
+            )
+        
+        if subscription_id:
+            # Unsubscribe specific subscription
+            success = self.network.event_gateway.unsubscribe(subscription_id)
+            if success:
+                response_data = {
+                    "type": "system_response",
+                    "command": "unsubscribe_events",
+                    "subscription_id": subscription_id,
+                    "agent_id": requesting_agent_id
+                }
+                
+                # Include request_id if it was provided in the original request
+                if "request_id" in event.payload:
+                    response_data["request_id"] = event.payload["request_id"]
+                
+                self.logger.info(f"🔧 UNSUBSCRIBE_EVENTS: Removed subscription {subscription_id} for {requesting_agent_id}")
+                return EventResponse(
+                    success=True,
+                    message=f"Successfully unsubscribed from subscription {subscription_id}",
+                    data=response_data
+                )
+            else:
+                return EventResponse(
+                    success=False,
+                    message=f"Subscription {subscription_id} not found"
+                )
+        else:
+            # Unsubscribe all subscriptions for the agent
+            self.network.event_gateway.unsubscribe_agent(requesting_agent_id)
+            
+            response_data = {
+                "type": "system_response",
+                "command": "unsubscribe_events",
+                "agent_id": requesting_agent_id
+            }
+            
+            # Include request_id if it was provided in the original request
+            if "request_id" in event.payload:
+                response_data["request_id"] = event.payload["request_id"]
+            
+            self.logger.info(f"🔧 UNSUBSCRIBE_EVENTS: Removed all subscriptions for {requesting_agent_id}")
+            return EventResponse(
+                success=True,
+                message=f"Successfully unsubscribed from all events",
+                data=response_data
+            )
+    
+    async def handle_add_channel_member(self, event: Event) -> EventResponse:
+        """Handle the add_channel_member command."""
+        channel_id = event.payload.get("channel_id")
+        agent_id = event.payload.get("agent_id")
+        
+        self.logger.info(f"🔧 ADD_CHANNEL_MEMBER: Request from agent_id: {agent_id}")
+        
+        self.network.event_gateway.add_channel_member(channel_id, agent_id)
+        
+        return EventResponse(
+            success=True,
+            message=f"Successfully added {agent_id} to channel {channel_id}",
+            data={
+                "type": "system_response",
+                "command": "add_channel_member",
+                "channel_id": channel_id,
+                "agent_id": agent_id
+            }
+        )
 
-# Command constants
-REGISTER_AGENT = "register_agent"
-LIST_AGENTS = "list_agents"
-LIST_MODS = "list_mods"
-GET_MOD_MANIFEST = "get_mod_manifest"
-PING_AGENT = "ping_agent"
-CLAIM_AGENT_ID = "claim_agent_id"
-VALIDATE_CERTIFICATE = "validate_certificate"
-GET_NETWORK_INFO = "get_network_info"
-POLL_MESSAGES = "poll_messages"
+    async def handle_remove_channel_member(self, event: Event) -> EventResponse:
+        """Handle the remove_channel_member command."""
+        channel_id = event.payload.get("channel_id")
+        agent_id = event.payload.get("agent_id")
+        
+        self.logger.info(f"🔧 REMOVE_CHANNEL_MEMBER: Request from agent_id: {agent_id}")
+        
+        self.network.event_gateway.remove_channel_member(channel_id, agent_id)
+        
+        return EventResponse(
+            success=True,
+            message=f"Successfully removed {agent_id} from channel {channel_id}",
+            data={
+                "type": "system_response",
+                "command": "remove_channel_member",
+                "channel_id": channel_id,
+                "agent_id": agent_id
+            }
+        )
+    
+    async def handle_get_channel_members(self, event: Event) -> EventResponse:
+        """Handle the get_channel_members command."""
+        channel_id = event.payload.get("channel_id")
+        
+        self.logger.info(f"🔧 GET_CHANNEL_MEMBERS: Request from agent_id: {channel_id}")
+        
+        members = self.network.event_gateway.get_channel_members(channel_id)
+        
+        return EventResponse(
+            success=True,
+            message=f"Successfully retrieved members of channel {channel_id}",
+            data={
+                "type": "system_response",
+                "command": "get_channel_members",
+                "channel_id": channel_id,
+                "members": members
+            }
+        )
 
-# Default system command registry
-default_registry = SystemCommandRegistry()
-default_registry.register_handler(REGISTER_AGENT, handle_register_agent)
-default_registry.register_handler(LIST_AGENTS, handle_list_agents)
-default_registry.register_handler(LIST_MODS, handle_list_mods)
-default_registry.register_handler(GET_MOD_MANIFEST, handle_get_mod_manifest)
-default_registry.register_handler(PING_AGENT, handle_ping_agent)
-default_registry.register_handler(CLAIM_AGENT_ID, handle_claim_agent_id)
-default_registry.register_handler(VALIDATE_CERTIFICATE, handle_validate_certificate)
-default_registry.register_handler(GET_NETWORK_INFO, handle_get_network_info)
-default_registry.register_handler(POLL_MESSAGES, handle_poll_messages) 
+    async def handle_remove_channel(self, event: Event) -> EventResponse:
+        """Handle the remove_channel command."""
+        channel_id = event.payload.get("channel_id")
+        
+        self.logger.info(f"🔧 REMOVE_CHANNEL: Request from agent_id: {channel_id}")
+        
+        self.network.event_gateway.remove_channel(channel_id)
+        
+        return EventResponse(
+            success=True,
+            message=f"Successfully removed channel {channel_id}",
+            data={
+                "type": "system_response",
+                "command": "remove_channel",
+                "channel_id": channel_id
+            }
+        )
+
+    async def handle_list_channels(self, event: Event) -> EventResponse:
+        """Handle the list_channels command."""
+        self.logger.info(f"🔧 LIST_CHANNELS: Request from agent_id: {event.source_id}")
+        
+        channels = self.network.event_gateway.list_channels()
+        
+        return EventResponse(
+            success=True,
+            message=f"Successfully retrieved list of channels",
+            data={
+                "type": "system_response",
+                "command": "list_channels",
+                "channels": channels
+            }
+        )

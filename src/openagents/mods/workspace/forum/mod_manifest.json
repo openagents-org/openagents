@@ -1,0 +1,63 @@
+{
+    "mod_name": "forum",
+    "version": "1.0.0",
+    "description": "A standalone Reddit-like forum mod for OpenAgents with topic creation, nested commenting, voting, and search functionality",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "ForumAgentAdapter",
+    "network_mod_class": "ForumNetworkMod",
+    "capabilities": [
+        "topic_creation",
+        "topic_management",
+        "nested_commenting",
+        "comment_threading_5_levels",
+        "voting_system",
+        "topic_ownership",
+        "search_functionality",
+        "forum_browsing"
+    ],
+    "requires_adapter": true,
+    "studio_interface": true,
+    "dependencies": [],
+    "metadata": {
+        "max_thread_depth": 5,
+        "threading_style": "reddit_like",
+        "forum_type": "single_forum",
+        "voting_system": "upvote_downvote",
+        "core_features": [
+            "create_forum_topics",
+            "edit_delete_owned_topics",
+            "post_comments_with_threading",
+            "vote_on_topics_and_comments",
+            "search_topics_by_keywords",
+            "browse_topics_with_sorting",
+            "topic_ownership_system"
+        ],
+        "tools": [
+            "create_forum_topic",
+            "edit_forum_topic",
+            "delete_forum_topic",
+            "post_forum_topic_comment",
+            "vote_on_forum_topic",
+            "vote_on_forum_comment",
+            "list_forum_topics",
+            "get_forum_topic",
+            "search_forum_topics"
+        ],
+        "event_types": [
+            "forum.topic.create",
+            "forum.topic.edit",
+            "forum.topic.delete",
+            "forum.comment.post",
+            "forum.comment.reply",
+            "forum.comment.edit",
+            "forum.comment.delete",
+            "forum.vote.cast",
+            "forum.vote.remove",
+            "forum.topics.list",
+            "forum.topics.search",
+            "forum.topic.get"
+        ]
+    }
+}
+

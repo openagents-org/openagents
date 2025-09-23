@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { ThreadMessagingChannel, AgentInfo } from '../../services/grpcService';
+import { ThreadChannel, AgentInfo } from '../../types/events';
 import OpenAgentsLogo from '../icons/OpenAgentsLogo';
 
 interface ChannelSidebarProps {
-  channels: ThreadMessagingChannel[];
+  channels: ThreadChannel[];
   agents: AgentInfo[];
   currentChannel: string | null;
   currentDirectMessage: string | null;

@@ -1,10 +1,10 @@
 import React from 'react';
-import { OpenAgentsGRPCConnection } from '../../services/grpcService';
+// TODO: Implement with HTTP event system
 import OpenAgentsDocumentEditor from './OpenAgentsDocumentEditor';
 
 interface DocumentViewerProps {
   documentId: string;
-  connection: OpenAgentsGRPCConnection;
+  connection: any; // TODO: HTTP event connector
   currentTheme: 'light' | 'dark';
   onBack: () => void;
   readOnly?: boolean;

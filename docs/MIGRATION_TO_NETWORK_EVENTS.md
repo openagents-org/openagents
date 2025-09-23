@@ -36,15 +36,17 @@ async for event in subscription:
 ```python
 # New network-level events
 subscription = network.events.subscribe(
-    agent_id="my-agent",
-    event_patterns=["project.*", "channel.message.*"]
+    "my-agent",
+    ["project.*", "channel.message.*"]
 )
 
 # Option 1: Event queue polling
-event_queue = network.events.create_agent_event_queue("my-agent")
+network.events.register_agent("my-agent")
 while True:
-    event = await event_queue.get()
-    print(f"Event: {event.event_name}")
+    events = await network.events.poll_events("my-agent")
+    for event in events:
+        print(f"Event: {event.event_name}")
+    await asyncio.sleep(1.0)
 
 # Option 2: Direct subscription processing (if supported by your use case)
 # Events are automatically delivered to matching subscriptions
@@ -94,8 +96,8 @@ subscription = ws.events.subscribe(
 ```python
 # New filtering via subscription parameters
 subscription = network.events.subscribe(
-    agent_id="my-agent",
-    event_patterns=["channel.message.*"],
+    "my-agent",
+    ["channel.message.*"],
     channel_filter="#general"
 )
 ```
@@ -166,22 +168,24 @@ async def main():
     
     # Subscribe to project events
     subscription = network.events.subscribe(
-        agent_id="my-agent",
-        event_patterns=["project.*"]
+        "my-agent",
+        ["project.*"]
     )
     
     # Create event queue
-    queue = network.events.create_agent_event_queue("my-agent")
+    network.events.register_agent("my-agent")
     
     # Process events
     while True:
-        event = await queue.get()
-        print(f"Received: {event.event_name}")
-        print(f"From: {event.source_agent_id}")
-        print(f"Data: {event.payload}")
-        
-        if event.event_name == "project.run.completed":
-            break
+        events = await network.events.poll_events("my-agent")
+        for event in events:
+            print(f"Received: {event.event_name}")
+            print(f"From: {event.source_id}")
+            print(f"Data: {event.payload}")
+            
+            if event.event_name == "project.run.completed":
+                break
+        await asyncio.sleep(1.0)
     
     # Cleanup
     network.events.unsubscribe(subscription.subscription_id)

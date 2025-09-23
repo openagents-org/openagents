@@ -4,7 +4,7 @@ agent:
   description: "Customer support agent for handling user issues and inquiries"
   
 mod_adapters:
-  - mod_name: "thread_messaging"
+  - mod_name: "messaging"
     mod_adapter_class: "ThreadMessagingAgentAdapter"
     config:
       auto_download_files: true

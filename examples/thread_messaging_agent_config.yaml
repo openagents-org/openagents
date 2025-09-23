@@ -11,7 +11,7 @@ network:
   network_id: "thread_messaging_network"
 
 mod_adapters:
-  - mod_name: "thread_messaging"
+  - mod_name: "messaging"
     mod_adapter_class: "ThreadMessagingAgentAdapter"
     config:
       # Maximum file size for attachments (10MB)

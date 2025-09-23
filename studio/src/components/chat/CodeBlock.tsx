@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import useTheme from '../../hooks/useTheme';
+import { useThemeStore } from '../../stores/themeStore';
 
 interface CodeBlockProps {
   code: string;
@@ -9,7 +9,7 @@ interface CodeBlockProps {
 }
 
 const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
-  const { theme } = useTheme();
+  const { theme } = useThemeStore();
   const [copied, setCopied] = useState(false);
 
   const copyToClipboard = () => {
@@ -59,20 +59,22 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
           {copied ? 'Copied!' : 'Copy code'}
         </button>
       </div>
-      <SyntaxHighlighter 
-        language={normalizedLanguage}
-        style={theme === 'dark' ? oneDark : oneLight}
-        customStyle={{ 
-          margin: 0, 
-          padding: '1rem', 
-          backgroundColor: 'transparent', 
-          fontSize: '0.875rem',
-        }}
-        wrapLongLines={true}
-        showLineNumbers={true}
-      >
-        {code}
-      </SyntaxHighlighter>
+      <div className="[&>pre]:!m-0 [&>pre]:!p-4 [&>pre]:!bg-transparent [&>pre]:!text-sm">
+        <SyntaxHighlighter
+          language={normalizedLanguage}
+          style={theme === 'dark' ? oneDark : oneLight}
+          customStyle={{
+            margin: 0,
+            padding: '1rem',
+            backgroundColor: 'transparent',
+            fontSize: '0.875rem',
+          }}
+          wrapLongLines={true}
+          showLineNumbers={true}
+        >
+          {code}
+        </SyntaxHighlighter>
+      </div>
     </div>
   );
 };

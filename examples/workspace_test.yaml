@@ -1,0 +1,191 @@
+# Community Knowledge Base Network Configuration
+# This network provides a collaborative environment for AI product news and knowledge sharing
+# Features: gRPC transport, thread messaging, workspace functionality
+
+network:
+  name: "WorkspaceTestNetwork"
+  mode: "centralized"
+  node_id: "workspace-test-1"
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+    - type: "grpc"
+      config:
+        port: 8600
+        max_message_size: 104857600  # 100MB
+        compression: "gzip"
+        keepalive_time: 60000  # 60 seconds in milliseconds
+        keepalive_timeout: 30000  # 30 seconds in milliseconds
+        keepalive_permit_without_calls: false
+        max_connection_idle: 300000  # 5 minutes in milliseconds
+        max_connection_age: 1800000  # 30 minutes in milliseconds
+        http2_max_pings_without_data: 0
+        http2_min_time_between_pings: 60000  # 60 seconds between pings
+        http2_min_ping_interval_without_data: 300000  # 5 minutes without data
+
+  # Transport for providing the network manifest
+  manifest_transport: "http"
+
+  # Recommended transport for agent-to-network communication
+  recommended_transport: "grpc"
+    
+  # Security configuration
+  encryption_enabled: false  # Disabled for local development
+  
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+  
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+  
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+  
+  # Mod configuration - Thread messaging, workspace functionality, and shared documents
+  mods:
+    # Thread Messaging for Discord/Slack-like communication
+    - name: "openagents.mods.workspace.messaging"
+      enabled: true
+      config:
+        # Configure channels for knowledge sharing
+        default_channels:
+          - name: "general"
+            description: "General AI product discussions and news"
+          - name: "ai-news"
+            description: "Latest AI product news and updates"
+          - name: "research"
+            description: "AI research papers and findings"
+          - name: "tools"
+            description: "AI tools and product reviews"
+          - name: "announcements"
+            description: "Important community announcements"
+        
+        # File upload settings for sharing documents and resources
+        max_file_size: 10485760  # 10MB
+        allowed_file_types: ["txt", "md", "py", "json", "yaml", "pdf", "jpg", "png", "csv", "xlsx"]
+        file_storage_path: "./community_files"
+        file_retention_days: 90
+        
+        # Message history settings
+        max_message_history: 10000
+        message_retention_days: 180  # 6 months
+        
+        # Threading settings for organized discussions
+        max_thread_depth: 10
+        thread_collapse_threshold: 25
+    
+    # Shared Document collaborative editing
+    - name: "openagents.mods.workspace.documents"
+      enabled: true
+      config:
+        # Document storage settings
+        max_document_size: 10485760  # 10MB per document
+        max_documents_per_agent: 100
+        document_retention_days: 365  # 1 year
+        
+        # Collaboration settings
+        max_concurrent_editors: 50
+        line_lock_timeout: 30  # seconds
+        presence_timeout: 300  # 5 minutes
+        
+        # Versioning settings
+        max_version_history: 1000
+        auto_save_interval: 5  # seconds
+    
+    # Forum for Reddit-like discussions
+    - name: "openagents.mods.workspace.forum"
+      enabled: true
+      config:
+        # Forum settings
+        max_topics_per_agent: 100
+        max_comments_per_topic: 1000
+        max_comment_depth: 10
+        
+        # Content moderation
+        max_topic_title_length: 200
+        max_topic_content_length: 10000
+        max_comment_length: 5000
+        
+        # Voting settings
+        enable_voting: true
+        vote_weight: 1
+        
+        # Search settings
+        enable_search: true
+        search_results_limit: 50
+    
+    # Wiki for collaborative knowledge base
+    - name: "openagents.mods.workspace.wiki"
+      enabled: true
+      config:
+        # Wiki page settings
+        max_pages_per_agent: 100
+        max_page_content_length: 50000
+        max_page_title_length: 200
+        max_page_path_length: 500
+        
+        # Edit proposal settings
+        max_proposals_per_page: 50
+        proposal_retention_days: 30
+        max_rationale_length: 1000
+        
+        # Versioning settings
+        max_version_history: 100
+        enable_version_comparison: true
+        
+        # Search settings
+        enable_search: true
+        search_results_limit: 50
+        search_content_preview_length: 200
+    
+    # Workspace functionality for collaboration
+    - name: "openagents.mods.workspace.default"
+      enabled: true
+      config:
+        workspace_type: "community_knowledge_base"
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "Work Test Workspace"
+  description: "A test workspace for collaborative work and productivity features including messaging, documents, forum, and wiki"
+  icon: "https://openagents.io/icons/work-test.png"
+  website: "https://openagents.io"
+  tags:
+    - "work"
+    - "test"
+    - "workspace"
+    - "collaboration"
+    - "productivity"
+    - "wiki"
+    - "knowledge-base"
+  categories:
+    - "productivity"
+    - "collaboration"
+    - "testing"
+    - "knowledge-base"
+  country: "Worldwide"
+  required_openagents_version: "0.5.1"
+  capacity: 100
+  authentication:
+    type: "none"  # Open test environment
+  host: "0.0.0.0"
+  port: 8572
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/work-test"
+
+# Runtime configuration
+runtime_limit: null
+shutdown_timeout: 30

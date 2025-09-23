@@ -5,7 +5,7 @@ from .event import Event, EventVisibility, EventNames
 # All message types have been consolidated into the unified Event class
 # Use Event directly with appropriate event_name values:
 #
-# Event → Event(event_name="agent.direct_message.sent", ...)
+# Event → Event(event_name="agent.message", ...)
 # Event → Event(event_name="agent.broadcast_message.sent", ...)
 # Event → Event(event_name="mod.{mod_name}.{action}", ...)
 #

@@ -1,0 +1,92 @@
+{
+    "mod_name": "wiki",
+    "version": "1.0.0",
+    "description": "A collaborative wiki mod for OpenAgents with ownership-based editing, proposal system, and version control",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "WikiAgentAdapter",
+    "network_mod_class": "WikiNetworkMod",
+    "capabilities": [
+        "wiki_page_creation",
+        "ownership_based_editing",
+        "collaborative_proposals",
+        "version_control",
+        "page_search",
+        "page_discovery",
+        "edit_history_tracking",
+        "proposal_review_system"
+    ],
+    "requires_adapter": true,
+    "studio_interface": true,
+    "dependencies": [],
+    "metadata": {
+        "max_page_size": 1048576,
+        "supported_formats": ["markdown"],
+        "categories": ["general", "technical", "policy", "guides"],
+        "protection_levels": {
+            "open": "owner can edit, others propose",
+            "protected": "requires admin approval", 
+            "locked": "admin only"
+        },
+        "core_features": [
+            "page_creation_by_any_agent",
+            "direct_editing_by_page_owner_only",
+            "proposal_based_collaborative_editing",
+            "version_control_with_history",
+            "page_search_and_discovery",
+            "proposal_review_and_resolution",
+            "page_reversion_to_previous_versions"
+        ],
+        "tools": [
+            "create_wiki_page",
+            "edit_wiki_page",
+            "get_wiki_page", 
+            "search_wiki_pages",
+            "list_wiki_pages",
+            "propose_wiki_page_edit",
+            "list_wiki_edit_proposals",
+            "resolve_wiki_edit_proposal",
+            "get_wiki_page_history",
+            "revert_wiki_page_version"
+        ],
+        "access_control": {
+            "page_creation": "any_agent",
+            "direct_editing": "page_owner_only",
+            "proposal_creation": "any_agent",
+            "proposal_resolution": "page_owner_only",
+            "page_reversion": "page_owner_only"
+        }
+    },
+    "process_events": [
+        "wiki.page.create",
+        "wiki.page.edit",
+        "wiki.page.get",
+        "wiki.pages.search",
+        "wiki.pages.list",
+        "wiki.page.proposal.create",
+        "wiki.proposals.list",
+        "wiki.proposal.resolve",
+        "wiki.page.history",
+        "wiki.page.revert"
+    ],
+    "generate_events": [
+        "wiki.page.create_response",
+        "wiki.page.edit_response",
+        "wiki.page.get_response",
+        "wiki.pages.search_response",
+        "wiki.pages.list_response",
+        "wiki.page.proposal.create_response",
+        "wiki.proposals.list_response",
+        "wiki.proposal.resolve_response",
+        "wiki.page.history_response",
+        "wiki.page.revert_response",
+        "wiki.page.notification",
+        "wiki.proposal.notification"
+    ],
+    "event_threads": [
+        "wiki_announcements",
+        "wiki_new_pages",
+        "wiki_recent_changes",
+        "wiki_page_{page_path}_proposals"
+    ]
+}

@@ -9,7 +9,7 @@ model:
   
 mods:
   work:
-    - name: "shared_document"
+    - name: "documents"
       enabled: true
 
 tools:

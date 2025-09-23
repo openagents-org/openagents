@@ -1,0 +1,94 @@
+# Community Knowledge Base Network Configuration
+# This network provides a collaborative environment for AI product news and knowledge sharing
+# Features: gRPC transport, thread messaging, workspace functionality
+
+network:
+  name: "BasicModTestNetwork"
+  mode: "centralized"
+  node_id: "basic-mod-test-1"
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+    - type: "grpc"
+      config:
+        port: 8600
+        max_message_size: 104857600  # 100MB
+        compression: "gzip"
+        keepalive_time: 60000  # 60 seconds in milliseconds
+        keepalive_timeout: 30000  # 30 seconds in milliseconds
+        keepalive_permit_without_calls: false
+        max_connection_idle: 300000  # 5 minutes in milliseconds
+        max_connection_age: 1800000  # 30 minutes in milliseconds
+        http2_max_pings_without_data: 0
+        http2_min_time_between_pings: 60000  # 60 seconds between pings
+        http2_min_ping_interval_without_data: 300000  # 5 minutes without data
+
+  # Transport for providing the network manifest
+  manifest_transport: "http"
+
+  # Recommended transport for agent-to-network communication
+  recommended_transport: "grpc"
+    
+  # Security configuration
+  encryption_enabled: false  # Disabled for local development
+  
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+  
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+  
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+  
+  # Mod configuration - Thread messaging, workspace functionality, and shared documents
+  mods:
+    
+    # Workspace functionality for collaboration
+    - name: "openagents.mods.test_mods.basic_test"
+      enabled: true
+      config:
+        intercept_events: true
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "Basic Mod Test"
+  description: "A test workspace for collaborative work and productivity features"
+  icon: "https://openagents.org/icons/work-test.png"
+  website: "https://openagents.org"
+  tags:
+    - "work"
+    - "test"
+    - "mod"
+    - "collaboration"
+    - "productivity"
+  categories:
+    - "productivity"
+    - "collaboration"
+    - "testing"
+  country: "Worldwide"
+  required_openagents_version: "0.5.1"
+  capacity: 100
+  authentication:
+    type: "none"  # Open test environment
+  host: "0.0.0.0"
+  port: 8572
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/basic-mod-test"
+
+# Runtime configuration
+runtime_limit: null
+shutdown_timeout: 30

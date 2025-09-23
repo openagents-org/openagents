@@ -15,7 +15,7 @@
     "requires_adapter": true,
     "studio_interface": true,
     "dependencies": [
-        "openagents.mods.communication.thread_messaging",
+        "openagents.mods.workspace.messaging",
         "openagents.mods.workspace.default"
     ],
     "metadata": {

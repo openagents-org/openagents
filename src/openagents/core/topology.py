@@ -6,37 +6,30 @@ for both centralized and decentralized network topologies.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional, Set
-from enum import Enum
+from typing import Awaitable, Callable, Dict, Any, List, Optional, Set
 import asyncio
 import logging
 import time
-import json
 import uuid
 
-from .transport import Transport, TransportManager, Message
-from openagents.models.transport import TransportType, PeerMetadata, AgentInfo
+from openagents.config.globals import DEFAULT_TRANSPORT_ADDRESS
+from openagents.models.event import Event
+
+from .transports import Transport, Message
+from openagents.models.transport import TransportType, AgentConnection
+from openagents.models.network_config import NetworkConfig, NetworkMode
 
 logger = logging.getLogger(__name__)
-
-
-class NetworkMode(Enum):
-    """Network operation modes."""
-    CENTRALIZED = "centralized"
-    DECENTRALIZED = "decentralized"
-
-
-# AgentInfo is now imported from openagents.models.transport
 
 
 class NetworkTopology(ABC):
     """Abstract base class for network topology implementations."""
     
-    def __init__(self, node_id: str, config: Dict[str, Any]):
+    def __init__(self, node_id: str, config: NetworkConfig):
         self.node_id = node_id
         self.config = config
-        self.transport_manager = TransportManager()
-        self.agents: Dict[str, AgentInfo] = {}
+        self.transports: Dict[TransportType, Transport] = {}
+        self.agent_registry: Dict[str, AgentConnection] = {}
         self.is_running = False
     
     @abstractmethod
@@ -58,7 +51,7 @@ class NetworkTopology(ABC):
         pass
     
     @abstractmethod
-    async def register_agent(self, agent_info: AgentInfo) -> bool:
+    async def register_agent(self, agent_info: AgentConnection) -> bool:
         """Register an agent with the network.
         
         Args:
@@ -69,7 +62,6 @@ class NetworkTopology(ABC):
         """
         pass
     
-    @abstractmethod
     async def unregister_agent(self, agent_id: str) -> bool:
         """Unregister an agent from the network.
         
@@ -79,220 +71,255 @@ class NetworkTopology(ABC):
         Returns:
             bool: True if unregistration successful
         """
-        pass
+        await self.cleanup_agent(agent_id)
     
-    @abstractmethod
-    async def discover_peers(self, capabilities: Optional[List[str]] = None) -> List[AgentInfo]:
-        """Discover peers in the network.
+    async def is_agent_registered(self, agent_id: str) -> bool:
+        """Check if an agent is registered with the network.
         
         Args:
-            capabilities: Optional list of required capabilities to filter by
+            agent_id: ID of the agent to check
             
         Returns:
-            List[AgentInfo]: List of discovered agents
+            bool: True if agent is registered, False otherwise
+        """
+        return agent_id in self.agent_registry
+
+    @abstractmethod
+    async def register_event_handler(self, handler: Callable[[Event], Awaitable[None]]):
+        """Register an event handler to process events sent via the unified SendEvent method.
+        
+        Args:
+            handler: Async function that takes an Event and processes it
         """
         pass
     
-    @abstractmethod
-    async def route_message(self, message: Message) -> bool:
-        """Route a message through the network.
+    async def route_event(self, event: Event) -> bool:
+        """Route an event through the network to a specific agent.
         
         Args:
-            message: Message to route
+            event: Event to route
             
         Returns:
             bool: True if routing successful
         """
-        pass
+        target_agent_id = event.destination_id
+        if target_agent_id is None:
+            logger.warning("Cannot route event: no target_agent_id specified")
+            return False
+        if target_agent_id not in self.agent_registry:
+            logger.warning(f"Cannot route event: target agent {target_agent_id} not found")
+            return False
+        connection = self.agent_registry[target_agent_id]
+        transport_type = connection.transport_type
+        if transport_type in self.transports:
+            return await self.transports[transport_type].send(event)
     
-    def get_agents(self) -> Dict[str, AgentInfo]:
+    async def record_heartbeat(self, agent_id: str):
+        """Record a heartbeat for an agent."""
+        if agent_id in self.agent_registry:
+            self.agent_registry[agent_id].last_seen = time.time()
+
+    def get_agent_registry(self) -> Dict[str, AgentConnection]:
         """Get all registered agents.
         
         Returns:
             Dict[str, AgentInfo]: Dictionary of agent ID to agent info
         """
-        return self.agents.copy()
+        return self.agent_registry.copy()
     
-    def get_agent(self, agent_id: str) -> Optional[AgentInfo]:
+    def get_agent_connection(self, agent_id: str) -> Optional[AgentConnection]:
         """Get information about a specific agent.
         
         Args:
             agent_id: ID of the agent
             
         Returns:
-            Optional[AgentInfo]: Agent info if found, None otherwise
+            Optional[AgentConnection]: Agent connection if found, None otherwise
         """
-        return self.agents.get(agent_id)
-
+        return self.agent_registry.get(agent_id)
+    
+    def register_event_handler(self, handler: Callable[[Event], Awaitable[None]]):
+        """Register an event handler to process events sent via the unified SendEvent method.
+        
+        Args:
+            handler: Async function that takes an Event and processes it
+        """
+        for transport in self.transports.values():
+            transport.register_event_handler(handler)
+    
+    async def cleanup_agent(self, agent_id: str):
+        """Cleanup an agent's connection."""
+        if agent_id in self.agent_registry:
+            connection = self.agent_registry[agent_id]
+            transport_type = connection.transport_type
+            if transport_type in self.transports:
+                self.transports[transport_type].cleanup_agent(agent_id)
+            del self.agent_registry[agent_id]
+    
 
 class CentralizedTopology(NetworkTopology):
     """Centralized network topology using a coordinator/registry server."""
     
-    def __init__(self, node_id: str, config: Dict[str, Any]):
+    def __init__(self, node_id: str, config: NetworkConfig):
         super().__init__(node_id, config)
-        self.coordinator_url = config.get("coordinator_url", "http://localhost:8080")
-        self.server_mode = config.get("server_mode", False)  # True if this node is the coordinator
-        self.registry: Dict[str, AgentInfo] = {}  # Local registry for server mode
-        self.discovery_interval = config.get("discovery_interval", 30)  # seconds
-        self.discovery_task: Optional[asyncio.Task] = None
+        self.heartbeat_task: Optional[asyncio.Task] = None
     
     async def initialize(self) -> bool:
         """Initialize the centralized topology."""
         try:
-            # Initialize primary transport (default to WebSocket for centralized)
-            transport_type = TransportType(self.config.get("transport", "websocket"))
-            
-            if transport_type == TransportType.WEBSOCKET:
-                from .transport import WebSocketTransport
-                transport = WebSocketTransport(self.config.get("transport_config", {}))
-            elif transport_type == TransportType.GRPC:
-                from .transport import GRPCTransport
-                transport = GRPCTransport(self.config.get("transport_config", {}))
-            else:
-                logger.error(f"Unsupported transport for centralized topology: {transport_type}")
-                return False
-            
-            self.transport_manager.register_transport(transport)
-            if not await self.transport_manager.initialize_transport(transport_type):
-                return False
-            
-            # Note: Removed hybrid WebSocket setup - if gRPC is the transport, everything uses gRPC
-            
-            if self.server_mode:
-                # Start server mode (coordinator)
-                host = self.config.get("host", "0.0.0.0")  
-                port = self.config.get("port", 8080)
-                transport = self.transport_manager.get_active_transport()
-                if transport and not await transport.listen(f"{host}:{port}"):
-                    return False
-                logger.info(f"Centralized coordinator started on {host}:{port}")
+            # Initialize all transports from config
+            for transport_config in self.config.transports:
+                transport_type = transport_config.type
                 
-                # Note: Removed WebSocket agent port setup - agents use the same gRPC port
-            else:
-                # Client mode - connect to coordinator
-                # This would be handled when agents register
-                pass
+                # Ensure each transport type has at most one instance
+                if transport_type in self.transports:
+                    logger.warning(f"Transport type {transport_type} already initialized, skipping duplicate")
+                    continue
+                
+                # Create transport instance based on type
+                if transport_type == TransportType.HTTP:
+                    from .transports import HttpTransport
+                    transport = HttpTransport(transport_config.config)
+                elif transport_type == TransportType.WEBSOCKET:
+                    from .transports import WebSocketTransport
+                    transport = WebSocketTransport(transport_config.config)
+                elif transport_type == TransportType.GRPC:
+                    from .transports import GRPCTransport
+                    transport = GRPCTransport(transport_config.config)
+                else:
+                    logger.error(f"Unsupported transport type: {transport_type}")
+                    continue
+                
+                # Initialize transport
+                if not await transport.initialize():
+                    logger.error(f"Failed to initialize {transport_type} transport")
+                    continue
+                
+                # Start listening on transport-specific port
+                transport_host = transport_config.config.get(
+                    "host",
+                    DEFAULT_TRANSPORT_ADDRESS[transport_type]["host"] if transport_type in DEFAULT_TRANSPORT_ADDRESS else "0.0.0.0"
+                )
+                transport_port = transport_config.config.get(
+                    "port",
+                    DEFAULT_TRANSPORT_ADDRESS[transport_type]["port"] if transport_type in DEFAULT_TRANSPORT_ADDRESS else 8000
+                )
+                if not await transport.listen(f"{transport_host}:{transport_port}"):
+                    logger.error(f"Failed to start {transport_type} transport on {transport_host}:{transport_port}")
+                    continue
+                
+                # Store transport
+                self.transports[transport_type] = transport
+                logger.info(f"Started {transport_type} transport on {transport_host}:{transport_port}")
+            
+            if not self.transports:
+                logger.error("No transports successfully initialized")
+                return False
             
             self.is_running = True
+            self.heartbeat_task = asyncio.create_task(self._heartbeat_monitor())
             
-            # Start periodic discovery if not in server mode
-            if not self.server_mode:
-                self.discovery_task = asyncio.create_task(self._periodic_discovery())
-            
+            logger.info(f"Centralized topology initialized with {len(self.transports)} transports")
             return True
         except Exception as e:
             logger.error(f"Failed to initialize centralized topology: {e}")
             return False
+
+    async def cleanup_agent(self, agent_id: str):
+        """Cleanup an agent's connection."""
+        if agent_id in self.agent_registry:
+            connection = self.agent_registry[agent_id]
+            transport_type = connection.transport_type
+            if transport_type in self.transports:
+                self.transports[transport_type].cleanup_agent(agent_id)
+            del self.agent_registry[agent_id]
+
+    async def _heartbeat_monitor(self) -> None:
+        """Monitor agent connections and clean up stale ones."""
+        heartbeat_interval = self.config.heartbeat_interval
+        # Use connection_timeout as agent_timeout if agent_timeout not available
+        agent_timeout = getattr(self.config, 'agent_timeout', self.config.connection_timeout * 6)
+        logger.info(f"Starting heartbeat monitor (interval: {heartbeat_interval}s, timeout: {agent_timeout}s)")
+        
+        while self.is_running:
+            try:
+                current_time = asyncio.get_event_loop().time()
+                stale_agents = []
+                
+                # Check all connected agents for activity
+                for agent_id, connection in self.agent_registry.items():
+                    time_since_activity = current_time - connection.last_seen
+                    
+                    if time_since_activity > agent_timeout:
+                        stale_agents.append(agent_id)
+                        logger.warning(f"Agent {agent_id} failed heartbeat check (inactive for {time_since_activity:.1f}s)")
+                
+                # Clean up stale agents
+                for agent_id in stale_agents:
+                    logger.info(f"Cleaning up stale agent {agent_id}")
+                    self.unregister_agent(agent_id)
+                
+                # Wait for next heartbeat interval
+                await asyncio.sleep(heartbeat_interval)
+                
+            except asyncio.CancelledError:
+                logger.info("Heartbeat monitor cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in heartbeat monitor: {e}")
+                await asyncio.sleep(heartbeat_interval)
     
     async def shutdown(self) -> bool:
         """Shutdown the centralized topology."""
         self.is_running = False
         
-        if self.discovery_task:
-            self.discovery_task.cancel()
+        if self.heartbeat_task:
+            self.heartbeat_task.cancel()
             try:
-                await self.discovery_task
+                await self.heartbeat_task
             except asyncio.CancelledError:
                 pass
         
-        await self.transport_manager.shutdown_all()
+        # Shutdown all transports
+        for transport_type, transport in self.transports.items():
+            try:
+                await transport.shutdown()
+                logger.info(f"Shutdown {transport_type} transport")
+            except Exception as e:
+                logger.error(f"Error shutting down {transport_type} transport: {e}")
+        
+        self.transports.clear()
         logger.info("Centralized topology shutdown")
         return True
     
-    async def register_agent(self, agent_info: AgentInfo) -> bool:
+    async def register_agent(self, agent_info: AgentConnection) -> bool:
         """Register an agent with the centralized registry."""
-        try:
-            if self.server_mode:
-                # Server mode - add to local registry
-                self.registry[agent_info.agent_id] = agent_info
-                logger.info(f"Registered agent {agent_info.agent_id} in centralized registry")
-            else:
-                # Client mode - send registration to coordinator
-                # TODO: Implement HTTP/WebSocket registration with coordinator
-                logger.info(f"Registering agent {agent_info.agent_id} with coordinator at {self.coordinator_url}")
-            
-            self.agents[agent_info.agent_id] = agent_info
-            return True
-        except Exception as e:
-            logger.error(f"Failed to register agent {agent_info.agent_id}: {e}")
-            return False
+        self.agent_registry[agent_info.agent_id] = agent_info
+        # TODO: send out an event in the system
+
+        logger.info(f"Registered agent {agent_info.agent_id} in centralized registry")
+        return True
     
     async def unregister_agent(self, agent_id: str) -> bool:
         """Unregister an agent from the centralized registry."""
-        try:
-            if self.server_mode:
-                if agent_id in self.registry:
-                    del self.registry[agent_id]
-                    logger.info(f"Unregistered agent {agent_id} from centralized registry")
-            else:
-                # TODO: Implement HTTP/WebSocket unregistration with coordinator
-                logger.info(f"Unregistering agent {agent_id} from coordinator")
-            
-            if agent_id in self.agents:
-                del self.agents[agent_id]
-            return True
-        except Exception as e:
-            logger.error(f"Failed to unregister agent {agent_id}: {e}")
-            return False
-    
-    async def discover_peers(self, capabilities: Optional[List[str]] = None) -> List[AgentInfo]:
-        """Discover peers through the centralized registry."""
-        try:
-            if self.server_mode:
-                # Return agents from local registry
-                agents = list(self.registry.values())
-            else:
-                # TODO: Query coordinator for agent list
-                # For now, return local cache
-                agents = list(self.agents.values())
-            
-            if capabilities:
-                # Filter by capabilities (agent must have ALL required capabilities)
-                filtered_agents = []
-                for agent in agents:
-                    if all(cap in agent.capabilities for cap in capabilities):
-                        filtered_agents.append(agent)
-                return filtered_agents
-            
-            return agents
-        except Exception as e:
-            logger.error(f"Failed to discover peers: {e}")
-            return []
-    
-    async def route_message(self, message: Message) -> bool:
-        """Route message through centralized topology."""
-        try:
-            transport = self.transport_manager.get_active_transport()
-            if not transport:
-                logger.error("No active transport for message routing")
-                return False
-            
-            return await transport.send(message)
-        except Exception as e:
-            logger.error(f"Failed to route message: {e}")
-            return False
-    
-    async def _periodic_discovery(self):
-        """Periodically discover peers from coordinator."""
-        while self.is_running:
-            try:
-                # TODO: Implement periodic discovery from coordinator
-                await asyncio.sleep(self.discovery_interval)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error in periodic discovery: {e}")
-                await asyncio.sleep(self.discovery_interval)
+        # TODO: send out an event in the system
 
+        await super().unregister_agent(agent_id)
+
+        logger.info(f"Unregistered agent {agent_id} from centralized registry")
+    
 
 class DecentralizedTopology(NetworkTopology):
-    """Decentralized network topology using P2P protocols."""
+    """Decentralized network topology using P2P protocols.
     
-    def __init__(self, node_id: str, config: Dict[str, Any]):
+    Note that this topology is currently work in progress.
+    """
+    
+    def __init__(self, node_id: str, config: NetworkConfig):
         super().__init__(node_id, config)
-        self.bootstrap_nodes = config.get("bootstrap_nodes", [])
-        self.discovery_interval = config.get("discovery_interval", 10)  # seconds
-        self.dht_table: Dict[str, AgentInfo] = {}  # Distributed hash table
+        self.bootstrap_nodes = config.bootstrap_nodes
+        self.discovery_interval = config.discovery_interval
+        self.dht_table: Dict[str, AgentConnection] = {}  # Distributed hash table
         self.discovery_task: Optional[asyncio.Task] = None
         self.heartbeat_task: Optional[asyncio.Task] = None
         self.connected_peers: Set[str] = set()
@@ -300,33 +327,52 @@ class DecentralizedTopology(NetworkTopology):
     async def initialize(self) -> bool:
         """Initialize the decentralized topology."""
         try:
-            # Initialize transport (prefer libp2p, fallback to WebSocket)
-            transport_type = TransportType(self.config.get("transport", "libp2p"))
+            # Initialize all transports from config
+            for transport_config in self.config.transports:
+                transport_type = TransportType(transport_config.get("type", "libp2p"))
+                
+                # Ensure each transport type has at most one instance
+                if transport_type in self.transports:
+                    logger.warning(f"Transport type {transport_type} already initialized, skipping duplicate")
+                    continue
+                
+                # For now, use WebSocket as libp2p is not implemented
+                if transport_type == TransportType.LIBP2P:
+                    logger.warning("libp2p not implemented, falling back to WebSocket for P2P simulation")
+                    transport_type = TransportType.WEBSOCKET
+                
+                # Create transport instance based on type
+                if transport_type == TransportType.HTTP:
+                    from .transports import HttpTransport
+                    transport = HttpTransport(transport_config.get("config", {}))
+                elif transport_type == TransportType.WEBSOCKET:
+                    from .transports import WebSocketTransport
+                    transport = WebSocketTransport(transport_config.get("config", {}))
+                elif transport_type == TransportType.GRPC:
+                    from .transports import GRPCTransport
+                    transport = GRPCTransport(transport_config.get("config", {}))
+                else:
+                    logger.error(f"Unsupported transport type: {transport_type}")
+                    continue
+                
+                # Initialize transport
+                if not await transport.initialize():
+                    logger.error(f"Failed to initialize {transport_type} transport")
+                    continue
+                
+                # Start listening on transport-specific port (use 0 for random port in P2P)
+                transport_port = transport_config.get("config", {}).get("port", 0)
+                host = getattr(self.config, 'host', '0.0.0.0')
+                if not await transport.listen(f"{host}:{transport_port}"):
+                    logger.error(f"Failed to start {transport_type} transport on {host}:{transport_port}")
+                    continue
+                
+                # Store transport
+                self.transports[transport_type] = transport
+                logger.info(f"Started {transport_type} transport on {host}:{transport_port}")
             
-            # For now, use WebSocket as libp2p is not implemented
-            if transport_type == TransportType.LIBP2P:
-                logger.warning("libp2p not implemented, falling back to WebSocket for P2P simulation")
-                transport_type = TransportType.WEBSOCKET
-            
-            if transport_type == TransportType.WEBSOCKET:
-                from .transport import WebSocketTransport
-                transport = WebSocketTransport(self.config.get("transport_config", {}))
-            elif transport_type == TransportType.GRPC:
-                from .transport import GRPCTransport
-                transport = GRPCTransport(self.config.get("transport_config", {}))
-            else:
-                logger.error(f"Unsupported transport for decentralized topology: {transport_type}")
-                return False
-            
-            self.transport_manager.register_transport(transport)
-            if not await self.transport_manager.initialize_transport(transport_type):
-                return False
-            
-            # Start listening for connections
-            host = self.config.get("host", "0.0.0.0")
-            port = self.config.get("port", 0)  # Use random port if not specified
-            transport = self.transport_manager.get_active_transport()
-            if transport and not await transport.listen(f"{host}:{port}"):
+            if not self.transports:
+                logger.error("No transports successfully initialized")
                 return False
             
             self.is_running = True
@@ -338,7 +384,7 @@ class DecentralizedTopology(NetworkTopology):
             self.discovery_task = asyncio.create_task(self._periodic_discovery())
             self.heartbeat_task = asyncio.create_task(self._periodic_heartbeat())
             
-            logger.info(f"Decentralized topology initialized on {host}:{port}")
+            logger.info(f"Decentralized topology initialized with {len(self.transports)} transports")
             return True
         except Exception as e:
             logger.error(f"Failed to initialize decentralized topology: {e}")
@@ -365,16 +411,24 @@ class DecentralizedTopology(NetworkTopology):
         except asyncio.CancelledError:
             pass
         
-        await self.transport_manager.shutdown_all()
+        # Shutdown all transports
+        for transport_type, transport in self.transports.items():
+            try:
+                await transport.shutdown()
+                logger.info(f"Shutdown {transport_type} transport")
+            except Exception as e:
+                logger.error(f"Error shutting down {transport_type} transport: {e}")
+        
+        self.transports.clear()
         logger.info("Decentralized topology shutdown")
         return True
     
-    async def register_agent(self, agent_info: AgentInfo) -> bool:
+    async def register_agent(self, agent_info: AgentConnection) -> bool:
         """Register an agent in the decentralized network."""
         try:
             # Add to local DHT
             self.dht_table[agent_info.agent_id] = agent_info
-            self.agents[agent_info.agent_id] = agent_info
+            self.agent_registry[agent_info.agent_id] = agent_info
             
             # Announce to connected peers
             await self._announce_agent(agent_info)
@@ -390,8 +444,8 @@ class DecentralizedTopology(NetworkTopology):
         try:
             if agent_id in self.dht_table:
                 del self.dht_table[agent_id]
-            if agent_id in self.agents:
-                del self.agents[agent_id]
+            if agent_id in self.agent_registry:
+                del self.agent_registry[agent_id]
             
             # Announce removal to connected peers
             await self._announce_agent_removal(agent_id)
@@ -402,7 +456,7 @@ class DecentralizedTopology(NetworkTopology):
             logger.error(f"Failed to unregister agent {agent_id}: {e}")
             return False
     
-    async def discover_peers(self, capabilities: Optional[List[str]] = None) -> List[AgentInfo]:
+    async def discover_peers(self, capabilities: Optional[List[str]] = None) -> List[AgentConnection]:
         """Discover peers in the decentralized network."""
         try:
             # Query local DHT and connected peers
@@ -424,10 +478,13 @@ class DecentralizedTopology(NetworkTopology):
     async def route_message(self, message: Message) -> bool:
         """Route message through decentralized topology."""
         try:
-            transport = self.transport_manager.get_active_transport()
-            if not transport:
-                logger.error("No active transport for message routing")
+            if not self.transports:
+                logger.error("No transports available for message routing")
                 return False
+            
+            # Use the first available transport for routing
+            # TODO: Implement transport selection strategy
+            transport = next(iter(self.transports.values()))
             
             if message.target_id:
                 # Direct message - find route to target
@@ -446,9 +503,12 @@ class DecentralizedTopology(NetworkTopology):
     
     async def _connect_to_bootstrap_nodes(self):
         """Connect to bootstrap nodes to join the network."""
-        transport = self.transport_manager.get_active_transport()
-        if not transport:
+        if not self.transports:
             return
+        
+        # Use the first available transport for bootstrap connections
+        # TODO: Implement transport selection strategy
+        transport = next(iter(self.transports.values()))
         
         for node_address in self.bootstrap_nodes:
             try:
@@ -460,10 +520,9 @@ class DecentralizedTopology(NetworkTopology):
             except Exception as e:
                 logger.error(f"Failed to connect to bootstrap node {node_address}: {e}")
     
-    async def _announce_agent(self, agent_info: AgentInfo):
+    async def _announce_agent(self, agent_info: AgentConnection):
         """Announce an agent to connected peers."""
-        transport = self.transport_manager.get_active_transport()
-        if not transport:
+        if not self.transports:
             return
         
         announcement = Message(
@@ -479,12 +538,16 @@ class DecentralizedTopology(NetworkTopology):
             timestamp=int(time.time() * 1000)
         )
         
-        await transport.send(announcement)
+        # Broadcast to all transports
+        for transport in self.transports.values():
+            try:
+                await transport.send(announcement)
+            except Exception as e:
+                logger.error(f"Failed to send agent announcement via transport: {e}")
     
     async def _announce_agent_removal(self, agent_id: str):
         """Announce agent removal to connected peers."""
-        transport = self.transport_manager.get_active_transport()
-        if not transport:
+        if not self.transports:
             return
         
         announcement = Message(
@@ -495,7 +558,12 @@ class DecentralizedTopology(NetworkTopology):
             timestamp=int(time.time() * 1000)
         )
         
-        await transport.send(announcement)
+        # Broadcast to all transports
+        for transport in self.transports.values():
+            try:
+                await transport.send(announcement)
+            except Exception as e:
+                logger.error(f"Failed to send agent removal announcement via transport: {e}")
     
     async def _periodic_discovery(self):
         """Periodically discover new peers."""
@@ -513,8 +581,7 @@ class DecentralizedTopology(NetworkTopology):
         """Send periodic heartbeats to maintain connections."""
         while self.is_running:
             try:
-                transport = self.transport_manager.get_active_transport()
-                if transport:
+                if self.transports:
                     heartbeat = Message(
                         sender_id=self.node_id,
                         target_id=None,  # Broadcast
@@ -522,7 +589,13 @@ class DecentralizedTopology(NetworkTopology):
                         payload={"timestamp": int(time.time() * 1000)},
                         timestamp=int(time.time() * 1000)
                     )
-                    await transport.send(heartbeat)
+                    
+                    # Send heartbeat via all transports
+                    for transport in self.transports.values():
+                        try:
+                            await transport.send(heartbeat)
+                        except Exception as e:
+                            logger.error(f"Failed to send heartbeat via transport: {e}")
                 
                 await asyncio.sleep(30)  # Heartbeat every 30 seconds
             except asyncio.CancelledError:
@@ -532,7 +605,7 @@ class DecentralizedTopology(NetworkTopology):
                 await asyncio.sleep(30)
 
 
-def create_topology(mode: NetworkMode, node_id: str, config: Dict[str, Any]) -> NetworkTopology:
+def create_topology(mode: NetworkMode, node_id: str, config: NetworkConfig) -> NetworkTopology:
     """Factory function to create network topology based on mode.
     
     Args:

@@ -21,7 +21,7 @@ Add the mod to your agent configuration:
 
 ```yaml
 mod_adapters:
-  - mod_name: "thread_messaging"
+  - mod_name: "messaging"
     mod_adapter_class: "ThreadMessagingAgentAdapter"
 ```
 
@@ -29,7 +29,7 @@ mod_adapters:
 
 ```python
 from openagents.core.client import AgentClient
-from openagents.mods.communication.thread_messaging import ThreadMessagingAgentAdapter
+from openagents.mods.workspace.messaging import ThreadMessagingAgentAdapter
 
 # Create agent with thread messaging
 agent = AgentClient(agent_id="my_agent")
@@ -490,7 +490,7 @@ Configure channels at the network level:
 ```yaml
 network:
   mods:
-    - mod_name: "thread_messaging"
+    - mod_name: "messaging"
       config:
         channels:
           - name: "general"
@@ -511,7 +511,7 @@ agent:
   agent_id: "my_agent"
 
 mod_adapters:
-  - mod_name: "thread_messaging"
+  - mod_name: "messaging"
     mod_adapter_class: "ThreadMessagingAgentAdapter"
     config:
       # Agent-specific settings
@@ -875,7 +875,7 @@ Enable debug logging for troubleshooting:
 
 ```python
 import logging
-logging.getLogger("openagents.mods.communication.thread_messaging").setLevel(logging.DEBUG)
+logging.getLogger("openagents.mods.workspace.messaging").setLevel(logging.DEBUG)
 ```
 
 ## Performance Considerations

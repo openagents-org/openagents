@@ -5,7 +5,7 @@ agent:
   
 # Mod adapters configuration
 mod_adapters:
-  - mod_name: "thread_messaging"
+  - mod_name: "messaging"
     mod_adapter_class: "ThreadMessagingAgentAdapter"
     config:
       auto_download_files: true

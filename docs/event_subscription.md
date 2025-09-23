@@ -45,7 +45,7 @@ asyncio.run(main())
 - `agent.connected` - Agent connected to network
 - `agent.disconnected` - Agent disconnected from network  
 - `agent.direct_message.received` - Direct message received
-- `agent.direct_message.sent` - Direct message sent
+- `agent.message` - Direct message sent
 
 ### Channel Events
 - `channel.post.created` - New post created in channel

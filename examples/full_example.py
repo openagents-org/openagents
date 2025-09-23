@@ -154,7 +154,7 @@ class InteractiveClient:
         """Send a direct message (following agent_client_example.py pattern)."""
         message = Event(
             sender_id=self.agent_id,
-            target_agent_id=target_agent_id,
+            destination_id=target_agent_id,
             protocol="openagents.mods.communication.simple_messaging",
             message_type="direct_message",
             content={"text": text},

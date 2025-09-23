@@ -34,28 +34,28 @@ async def main():
         # Subscribe to all project events using pattern matching
         print("🔔 Subscribing to project events...")
         project_subscription = network.events.subscribe(
-            agent_id="event-demo-agent",
-            event_patterns=["project.*"]
+            "event-demo-agent",
+            ["project.*"]
         )
         
         # Subscribe to channel messages in specific channel
         print("🔔 Subscribing to channel messages...")
         channel_subscription = network.events.subscribe(
-            agent_id="event-demo-agent", 
-            event_patterns=["channel.message.*"],
-            channel_filter="#general"
+            "event-demo-agent", 
+            ["channel.message.*"],
+            channels=["general"]
         )
         
         # Subscribe to direct messages
         print("🔔 Subscribing to direct messages...")
         direct_subscription = network.events.subscribe(
-            agent_id="event-demo-agent",
-            event_patterns=["agent.direct_message.*"]
+            "event-demo-agent",
+            ["agent.direct_message.*"]
         )
         
         # Create event queue for polling approach
         print("🔔 Creating event queue for polling...")
-        event_queue = network.events.create_agent_event_queue("event-demo-agent")
+        network.events.register_agent("event-demo-agent")
         
         print(f"✅ Set up {len(network.events.get_agent_subscriptions('event-demo-agent'))} subscriptions")
         
@@ -72,7 +72,7 @@ async def main():
                 "project_goal": "Demonstrate event system"
             }
         )
-        await network.emit_event(project_event)
+        await network.emit_to_event_bus(project_event)
         print("📤 Emitted project.created event")
         
         # Emit a channel message event
@@ -85,21 +85,21 @@ async def main():
                 "message_id": "msg-456"
             }
         )
-        await network.emit_event(channel_event)
+        await network.emit_to_event_bus(channel_event)
         print("📤 Emitted channel.message.posted event")
         
         # Emit a direct message event
         direct_event = Event(
             event_name=EventNames.AGENT_DIRECT_MESSAGE_SENT,
             source_agent_id="event-demo-agent",
-            target_agent_id="other-agent",
+            destination_id="other-agent",
             payload={
                 "text": "Direct message via events!",
                 "message_id": "dm-789"
             }
         )
-        await network.emit_event(direct_event)
-        print("📤 Emitted agent.direct_message.sent event")
+        await network.emit_to_event_bus(direct_event)
+        print("📤 Emitted agent.message event")
         
         # Wait for events to be processed
         print("\n⏳ Waiting for events to be processed...")
@@ -107,17 +107,13 @@ async def main():
         
         # Check event queue
         print("\n📥 Checking event queue...")
-        event_count = 0
-        while not event_queue.empty():
-            try:
-                event = event_queue.get_nowait()
-                event_count += 1
-                print(f"📨 Received event: {event.event_name}")
-                print(f"   Source: {event.source_agent_id}")
-                print(f"   Payload: {event.payload}")
-                print()
-            except:
-                break
+        events = await network.events.poll_events("event-demo-agent")
+        event_count = len(events)
+        for event in events:
+            print(f"📨 Received event: {event.event_name}")
+            print(f"   Source: {event.source_id}")
+            print(f"   Payload: {event.payload}")
+            print()
         
         print(f"✅ Processed {event_count} events from queue")
         
@@ -132,16 +128,14 @@ async def main():
         
         # Subscribe only to events from specific agent
         filtered_subscription = network.events.subscribe(
-            agent_id="event-demo-agent",
-            event_patterns=["*"],  # All events
-            agent_filter={"event-demo-agent"}  # Only from this agent
+            "event-demo-agent",
+            ["*"]  # All events
         )
         
         # Subscribe only to specific mod events
         mod_subscription = network.events.subscribe(
-            agent_id="event-demo-agent",
-            event_patterns=["project.*"],
-            mod_filter="project.default"
+            "event-demo-agent",
+            ["project.*"]
         )
         
         print("✅ Set up filtered subscriptions")

@@ -206,7 +206,7 @@ asyncio.run(main())
 import asyncio
 from openagents.agents.runner import AgentRunner
 from openagents.models.messages import DirectMessage, BroadcastMessage, BaseMessage
-from openagents.models.message_thread import MessageThread
+from openagents.models.event_thread import MessageThread
 
 class EchoAgent(AgentRunner):
     """An agent that echoes direct messages"""
@@ -214,7 +214,7 @@ class EchoAgent(AgentRunner):
     def __init__(self):
         super().__init__(agent_id="echo-agent")
     
-    async def react(self, message_threads, incoming_thread_id, incoming_message):
+    async def react(self, event_threads, incoming_thread_id, incoming_message):
         """Handle incoming messages"""
         if isinstance(incoming_message, DirectMessage):
             # Echo back the message

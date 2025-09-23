@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from unittest.mock import Mock, AsyncMock
 
-from openagents.mods.work.shared_document import (
+from openagents.mods.workspace.documents import (
     SharedDocumentNetworkMod,
     SharedDocumentAgentAdapter,
     CreateDocumentMessage,

@@ -39,7 +39,7 @@ async def main():
         client.connector.register_message_handler("direct_message", handle_direct_message)
     
     # Send message
-    msg = Event(sender_id="demo-client", target_agent_id="echo-agent", 
+    msg = Event(sender_id="demo-client", destination_id="echo-agent", 
                        content={"text": "Hello!"})
     await client.send_direct_message(msg)
     print("📤 Sent: Hello!")

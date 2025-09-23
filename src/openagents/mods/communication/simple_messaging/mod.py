@@ -19,6 +19,7 @@ from openagents.models.messages import (
     Event
 )
 from openagents.models.event import Event
+from openagents.models.event_response import EventResponse
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,11 @@ class SimpleMessagingNetworkMod(BaseMod):
     def __init__(self, mod_name: str = "simple_messaging"):
         """Initialize the simple messaging mod for a network."""
         super().__init__(mod_name=mod_name)
+        
+        # Register event handlers using the elegant pattern
+        self.register_event_handler(self._handle_direct_message, "agent.direct_message.*")
+        self.register_event_handler(self._handle_broadcast_message, "agent.broadcast_message.*")
+        self.register_event_handler(self._handle_simple_messaging_event, "simple_messaging.*")
         
         # Initialize mod state
         self.active_agents: Set[str] = set()
@@ -73,12 +79,15 @@ class SimpleMessagingNetworkMod(BaseMod):
         
         return True
     
-    def handle_register_agent(self, agent_id: str, metadata: Dict[str, Any]) -> None:
+    async def handle_register_agent(self, agent_id: str, metadata: Dict[str, Any]) -> Optional[EventResponse]:
         """Register an agent with the simple messaging protocol.
         
         Args:
             agent_id: Unique identifier for the agent
             metadata: Agent metadata including capabilities
+            
+        Returns:
+            Optional[EventResponse]: None to allow the event to continue processing
         """
         self.active_agents.add(agent_id)
         
@@ -87,82 +96,111 @@ class SimpleMessagingNetworkMod(BaseMod):
         os.makedirs(agent_storage_path, exist_ok=True)
         
         logger.info(f"Registered agent {agent_id} with Simple Messaging protocol")
+        return None  # Don't intercept the registration event
     
-    def handle_unregister_agent(self, agent_id: str) -> None:
+    async def handle_unregister_agent(self, agent_id: str) -> Optional[EventResponse]:
         """Unregister an agent from the simple messaging protocol.
         
         Args:
             agent_id: Unique identifier for the agent
+            
+        Returns:
+            Optional[EventResponse]: None to allow the event to continue processing
         """
         if agent_id in self.active_agents:
             self.active_agents.remove(agent_id)
             logger.info(f"Unregistered agent {agent_id} from Simple Messaging protocol")
+        return None  # Don't intercept the unregistration event
     
-    async def process_direct_message(self, message: Event) -> Optional[Event]:
-        """Process a direct message in the mod pipeline.
+    async def _handle_direct_message(self, event: Event) -> Optional[EventResponse]:
+        """Handle direct message events.
         
         Args:
-            message: The direct message to process (event_name starts with "agent.direct_message.")
+            event: The direct message event to process
             
         Returns:
-            Optional[Event]: The processed message, or None if processing should stop
+            Optional[EventResponse]: None to allow the event to continue processing
         """
-        logger.debug(f"Simple messaging mod processing direct message from {message.source_id} to {message.target_agent_id}")
+        logger.debug(f"Simple messaging mod processing direct message from {event.source_id} to {event.destination_id}")
         
         # Add the message to history
-        self._add_to_history(message)
+        self._add_to_history(event)
         
         # Check if the message contains file attachments
-        content = message.payload
+        content = event.payload
         if hasattr(content, 'get') and "files" in content and content["files"]:
             # Process file attachments
-            await self._process_file_attachments(message)
+            await self._process_file_attachments(event)
         
         # Simple messaging doesn't interfere with direct messages, let them continue
-        return message
+        return None
     
-    async def process_broadcast_message(self, message: Event) -> Optional[Event]:
-        """Process a broadcast message in the mod pipeline.
+    async def _handle_broadcast_message(self, event: Event) -> Optional[EventResponse]:
+        """Handle broadcast message events.
         
         Args:
-            message: The broadcast message to process (event_name starts with "agent.broadcast_message.")
+            event: The broadcast message event to process
             
         Returns:
-            Optional[Event]: The processed message, or None if processing should stop
+            Optional[EventResponse]: The response to the event, or None if the event is not processed
         """
-        logger.debug(f"Simple messaging mod processing broadcast message from {message.source_id}")
+        return await self._process_broadcast_event(event)
+    
+    async def _handle_simple_messaging_event(self, event: Event) -> Optional[EventResponse]:
+        """Handle simple messaging specific events.
+        
+        Args:
+            event: The simple messaging event to process
+            
+        Returns:
+            Optional[EventResponse]: The response to the event, or None if the event is not processed
+        """
+        return await self._process_simple_messaging_event(event)
+    
+    async def _process_broadcast_event(self, event: Event) -> Optional[EventResponse]:
+        """Process a broadcast message event.
+        
+        Args:
+            event: The broadcast message event to process
+            
+        Returns:
+            Optional[EventResponse]: The response to the event, or None if the event is not processed
+        """
+        logger.debug(f"Simple messaging mod processing broadcast message from {event.source_id}")
         
         # Add the message to history
-        self._add_to_history(message)
+        self._add_to_history(event)
         
         # Check if the message contains file attachments
-        content = message.payload
+        content = event.payload
         if hasattr(content, 'get') and "files" in content and content["files"]:
             # Process file attachments
-            await self._process_file_attachments(message)
+            await self._process_file_attachments(event)
         
         # Simple messaging doesn't interfere with broadcast messages, let them continue
-        return message
+        return None
     
-    async def process_system_message(self, message: Event) -> Optional[Event]:
-        """Process a system message in the mod pipeline.
+    
+    async def _process_simple_messaging_event(self, event: Event) -> Optional[EventResponse]:
+        """Process a simple messaging specific event.
         
         Args:
-            message: The system message to process
+            event: The simple messaging event to process
             
         Returns:
-            Optional[Event]: The processed message, or None if the message was handled
+            Optional[EventResponse]: The response to the event, or None if the event is not processed
         """
         # Prevent infinite loops - don't process messages we generated
-        if message.source_id == self.network.network_id and message.relevant_mod == "simple_messaging":
+        if (self.network and event.source_id == self.network.network_id and 
+            event.relevant_mod == "simple_messaging"):
             logger.debug("Skipping simple messaging response message to prevent infinite loop")
-            return message
+            return None
         
-        logger.debug(f"Simple messaging processing system message: {message.event_name} from {message.source_id}")
+        logger.debug(f"Simple messaging processing system message: {event.event_name} from {event.source_id}")
         
         # Check if this is a simple messaging specific event or file operation
-        event_name = message.event_name
-        content = message.payload
+        event_name = event.event_name
+        content = event.payload
         
         # Handle simple messaging file operations
         if hasattr(content, 'get'):
@@ -171,23 +209,29 @@ class SimpleMessagingNetworkMod(BaseMod):
             if action == "get_file":
                 # Handle file download request
                 logger.debug("Simple messaging handling file download request")
-                self._add_to_history(message)
                 file_id = content.get("file_id")
                 if file_id:
-                    await self._handle_file_download(message.source_id, file_id, message)
-                return None  # Simple messaging handled this
-                
+                    await self._handle_file_download(event.source_id, file_id, event)
+                    return EventResponse(
+                        success=True,
+                        message=f"File download request processed for file {file_id}",
+                        data={"file_id": file_id, "action": "get_file"}
+                    )
+            
             elif action == "delete_file":
                 # Handle file deletion request
                 logger.debug("Simple messaging handling file deletion request")
-                self._add_to_history(message)
                 file_id = content.get("file_id")
                 if file_id:
-                    await self._handle_file_deletion(message.source_id, file_id, message)
-                return None  # Simple messaging handled this
+                    await self._handle_file_deletion(event.source_id, file_id, event)
+                    return EventResponse(
+                        success=True,
+                        message=f"File deletion request processed for file {file_id}",
+                        data={"file_id": file_id, "action": "delete_file"}
+                    )
         
         # Not a simple messaging event, let other mods process it
-        return message
+        return None
     
     async def _process_file_attachments(self, message: Event) -> None:
         """Process file attachments in a message.
@@ -244,18 +288,22 @@ class SimpleMessagingNetworkMod(BaseMod):
         if not file_path.exists():
             # File not found
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="simple_messaging",
-                content={
+                event_name="simple_messaging.file_download_response",
+                source_id=self.network.network_id if self.network else "simple_messaging",
+                destination_id=agent_id,
+                payload={
                     "action": "file_download_response",
                     "success": False,
                     "error": "File not found",
                     "request_id": request_message.message_id
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                }
             )
-            await self.network.send_mod_message(response)
+            # Return response instead of trying to send it directly
+            return EventResponse(
+                success=response.payload["success"],
+                message=response.payload.get("error", "File operation completed"),
+                data=response.payload
+            )
             return
         
         try:
@@ -268,36 +316,44 @@ class SimpleMessagingNetworkMod(BaseMod):
             
             # Send response
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="simple_messaging",
-                content={
+                event_name="simple_messaging.file_download_response",
+                source_id=self.network.network_id if self.network else "simple_messaging",
+                destination_id=agent_id,
+                payload={
                     "action": "file_download_response",
                     "success": True,
                     "file_id": file_id,
                     "content": encoded_content,
                     "request_id": request_message.message_id
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                }
             )
-            await self.network.send_mod_message(response)
+            # Return response instead of trying to send it directly
+            return EventResponse(
+                success=response.payload["success"],
+                message=response.payload.get("error", "File operation completed"),
+                data=response.payload
+            )
             
             logger.debug(f"Sent file {file_id} to agent {agent_id}")
         except Exception as e:
             # Error reading file
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="simple_messaging",
-                content={
+                event_name="simple_messaging.file_download_response",
+                source_id=self.network.network_id if self.network else "simple_messaging",
+                destination_id=agent_id,
+                payload={
                     "action": "file_download_response",
                     "success": False,
                     "error": f"Error reading file: {str(e)}",
                     "request_id": request_message.message_id
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                }
             )
-            await self.network.send_mod_message(response)
+            # Return response instead of trying to send it directly
+            return EventResponse(
+                success=response.payload["success"],
+                message=response.payload.get("error", "File operation completed"),
+                data=response.payload
+            )
             logger.error(f"Error sending file {file_id} to agent {agent_id}: {e}")
     
     async def _handle_file_deletion(self, agent_id: str, file_id: str, request_message: Event) -> None:
@@ -313,18 +369,22 @@ class SimpleMessagingNetworkMod(BaseMod):
         if not file_path.exists():
             # File not found
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="simple_messaging",
-                content={
+                event_name="simple_messaging.file_deletion_response",
+                source_id=self.network.network_id if self.network else "simple_messaging",
+                destination_id=agent_id,
+                payload={
                     "action": "file_deletion_response",
                     "success": False,
                     "error": "File not found",
                     "request_id": request_message.message_id
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                }
             )
-            await self.network.send_mod_message(response)
+            # Return response instead of trying to send it directly
+            return EventResponse(
+                success=response.payload["success"],
+                message=response.payload.get("error", "File operation completed"),
+                data=response.payload
+            )
             return
         
         try:
@@ -333,35 +393,43 @@ class SimpleMessagingNetworkMod(BaseMod):
             
             # Send response
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="simple_messaging",
-                content={
+                event_name="simple_messaging.file_deletion_response",
+                source_id=self.network.network_id if self.network else "simple_messaging",
+                destination_id=agent_id,
+                payload={
                     "action": "file_deletion_response",
                     "success": True,
                     "file_id": file_id,
                     "request_id": request_message.message_id
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                }
             )
-            await self.network.send_mod_message(response)
+            # Return response instead of trying to send it directly
+            return EventResponse(
+                success=response.payload["success"],
+                message=response.payload.get("error", "File operation completed"),
+                data=response.payload
+            )
             
             logger.debug(f"Deleted file {file_id} for agent {agent_id}")
         except Exception as e:
             # Error deleting file
             response = Event(
-                sender_id=self.network.network_id,
-                relevant_mod="simple_messaging",
-                content={
+                event_name="simple_messaging.file_deletion_response",
+                source_id=self.network.network_id if self.network else "simple_messaging",
+                destination_id=agent_id,
+                payload={
                     "action": "file_deletion_response",
                     "success": False,
                     "error": f"Error deleting file: {str(e)}",
                     "request_id": request_message.message_id
-                },
-                direction="outbound",
-                relevant_agent_id=agent_id
+                }
             )
-            await self.network.send_mod_message(response)
+            # Return response instead of trying to send it directly
+            return EventResponse(
+                success=response.payload["success"],
+                message=response.payload.get("error", "File operation completed"),
+                data=response.payload
+            )
             logger.error(f"Error deleting file {file_id} for agent {agent_id}: {e}")
     
     def get_state(self) -> Dict[str, Any]:

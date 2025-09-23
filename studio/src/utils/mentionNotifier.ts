@@ -2,7 +2,7 @@
  * Utility for handling mention notifications
  */
 
-import { ThreadMessage } from '../services/grpcService';
+import { ThreadMessage } from '../types/events';
 
 interface NotificationConfig {
   enabled: boolean;

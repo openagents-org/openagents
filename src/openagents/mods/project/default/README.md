@@ -56,17 +56,19 @@ running_projects = await ws.list_projects(filter_status="running")
 ```python
 # Subscribe to project events using network-level events
 event_sub = network.events.subscribe(
-    agent_id="my-agent",
-    event_patterns=["project.*"]  # Subscribe to all project events
+    "my-agent",
+    ["project.*"]  # Subscribe to all project events
 )
 
 # Create event queue for polling
-event_queue = network.events.create_agent_event_queue("my-agent")
+network.events.register_agent("my-agent")
 
 # Listen for events
 while True:
-    event = await event_queue.get()
-    print(f"Project event: {event.event_name}")
+    events = await network.events.poll_events("my-agent")
+    for event in events:
+        print(f"Project event: {event.event_name}")
+    await asyncio.sleep(1.0)  # Poll every second
     print(f"Payload: {event.payload}")
     
     if event.event_name == "project.run.completed":
@@ -134,7 +136,7 @@ Projects are designed to support long-running tasks:
 
 ## Dependencies
 
-- `openagents.mods.communication.thread_messaging`: For channel creation and messaging
+- `openagents.mods.workspace.messaging`: For channel creation and messaging
 - `openagents.mods.workspace.default`: For workspace integration
 
 ## Tools Provided

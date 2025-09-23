@@ -62,12 +62,12 @@ async def main():
                 print(f"\n🎧 Subscribing to project events...")
                 try:
                     event_sub = network.events.subscribe(
-                        agent_id="project-simple-demo",
-                        event_patterns=["project.*"]
+                        "project-simple-demo",
+                        ["project.*"]
                     )
                     
                     # Create event queue for polling
-                    event_queue = network.events.create_agent_event_queue("project-simple-demo")
+                    network.events.register_agent("project-simple-demo")
                     
                     print("✅ Network event subscription created!")
                     print("⏳ Waiting for project.run.completed event...")
@@ -83,27 +83,34 @@ async def main():
                         
                         while timeout_count < max_timeouts and not completion_received:
                             try:
-                                event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
-                                print(f"📨 Event: {event.event_name}")
-                                if event.source_agent_id:
-                                    print(f"   Source: {event.source_agent_id}")
-                                if event.payload:
-                                    print(f"   Payload: {event.payload}")
+                                await asyncio.sleep(1.0)
+                                events = await network.events.poll_events("project-simple-demo")
                                 
-                                # Check for project completion
-                                if event.event_name == "project.run.completed":
-                                    completion_received = True
-                                    print(f"🎉 PROJECT COMPLETED!")
-                                    if event.payload.get('results'):
-                                        print(f"   Results: {event.payload['results']}")
-                                    break
-                                elif event.event_name == "project.run.failed":
-                                    print(f"❌ PROJECT FAILED!")
-                                    if event.payload.get('error'):
-                                        print(f"   Error: {event.payload['error']}")
-                                    break
-                            except asyncio.TimeoutError:
+                                for event in events:
+                                    print(f"📨 Event: {event.event_name}")
+                                    if event.source_id:
+                                        print(f"   Source: {event.source_id}")
+                                    if event.payload:
+                                        print(f"   Payload: {event.payload}")
+                                    
+                                    # Check for project completion
+                                    if event.event_name == "project.run.completed":
+                                        completion_received = True
+                                        print(f"🎉 PROJECT COMPLETED!")
+                                        if event.payload.get('results'):
+                                            print(f"   Results: {event.payload['results']}")
+                                        break
+                                    elif event.event_name == "project.run.failed":
+                                        print(f"❌ PROJECT FAILED!")
+                                        if event.payload.get('error'):
+                                            print(f"   Error: {event.payload['error']}")
+                                        break
+                                
+                                if not events:
+                                    timeout_count += 1
+                            except Exception as e:
                                 timeout_count += 1
+                                print(f"⏳ Error polling events: {e}")
                                 continue
                     
                     try:

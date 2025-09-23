@@ -35,15 +35,15 @@ class AgentServiceStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.StreamMessages = channel.stream_stream(
-                '/openagents.AgentService/StreamMessages',
-                request_serializer=agent__service__pb2.Message.SerializeToString,
-                response_deserializer=agent__service__pb2.Message.FromString,
+        self.SendEvent = channel.unary_unary(
+                '/openagents.AgentService/SendEvent',
+                request_serializer=agent__service__pb2.Event.SerializeToString,
+                response_deserializer=agent__service__pb2.EventResponse.FromString,
                 _registered_method=True)
-        self.SendMessage = channel.unary_unary(
-                '/openagents.AgentService/SendMessage',
-                request_serializer=agent__service__pb2.Message.SerializeToString,
-                response_deserializer=agent__service__pb2.MessageResponse.FromString,
+        self.StreamEvents = channel.stream_stream(
+                '/openagents.AgentService/StreamEvents',
+                request_serializer=agent__service__pb2.Event.SerializeToString,
+                response_deserializer=agent__service__pb2.Event.FromString,
                 _registered_method=True)
         self.RegisterAgent = channel.unary_unary(
                 '/openagents.AgentService/RegisterAgent',
@@ -65,15 +65,10 @@ class AgentServiceStub(object):
                 request_serializer=agent__service__pb2.GetAgentInfoRequest.SerializeToString,
                 response_deserializer=agent__service__pb2.GetAgentInfoResponse.FromString,
                 _registered_method=True)
-        self.SendSystemCommand = channel.unary_unary(
-                '/openagents.AgentService/SendSystemCommand',
-                request_serializer=agent__service__pb2.SystemCommandRequest.SerializeToString,
-                response_deserializer=agent__service__pb2.SystemCommandResponse.FromString,
-                _registered_method=True)
-        self.Ping = channel.unary_unary(
-                '/openagents.AgentService/Ping',
-                request_serializer=agent__service__pb2.PingRequest.SerializeToString,
-                response_deserializer=agent__service__pb2.PingResponse.FromString,
+        self.Heartbeat = channel.unary_unary(
+                '/openagents.AgentService/Heartbeat',
+                request_serializer=agent__service__pb2.HeartbeatRequest.SerializeToString,
+                response_deserializer=agent__service__pb2.HeartbeatResponse.FromString,
                 _registered_method=True)
         self.GetNetworkInfo = channel.unary_unary(
                 '/openagents.AgentService/GetNetworkInfo',
@@ -86,15 +81,15 @@ class AgentServiceServicer(object):
     """Agent service for OpenAgents gRPC transport
     """
 
-    def StreamMessages(self, request_iterator, context):
-        """Bidirectional streaming for real-time communication
+    def SendEvent(self, request, context):
+        """Unified event handling for all message and system command types
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def SendMessage(self, request, context):
-        """Unary calls for request-response patterns
+    def StreamEvents(self, request_iterator, context):
+        """Bidirectional streaming for events
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -126,14 +121,7 @@ class AgentServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def SendSystemCommand(self, request, context):
-        """System commands
-        """
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def Ping(self, request, context):
+    def Heartbeat(self, request, context):
         """Heartbeat and health checks
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -149,15 +137,15 @@ class AgentServiceServicer(object):
 
 def add_AgentServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'StreamMessages': grpc.stream_stream_rpc_method_handler(
-                    servicer.StreamMessages,
-                    request_deserializer=agent__service__pb2.Message.FromString,
-                    response_serializer=agent__service__pb2.Message.SerializeToString,
+            'SendEvent': grpc.unary_unary_rpc_method_handler(
+                    servicer.SendEvent,
+                    request_deserializer=agent__service__pb2.Event.FromString,
+                    response_serializer=agent__service__pb2.EventResponse.SerializeToString,
             ),
-            'SendMessage': grpc.unary_unary_rpc_method_handler(
-                    servicer.SendMessage,
-                    request_deserializer=agent__service__pb2.Message.FromString,
-                    response_serializer=agent__service__pb2.MessageResponse.SerializeToString,
+            'StreamEvents': grpc.stream_stream_rpc_method_handler(
+                    servicer.StreamEvents,
+                    request_deserializer=agent__service__pb2.Event.FromString,
+                    response_serializer=agent__service__pb2.Event.SerializeToString,
             ),
             'RegisterAgent': grpc.unary_unary_rpc_method_handler(
                     servicer.RegisterAgent,
@@ -179,15 +167,10 @@ def add_AgentServiceServicer_to_server(servicer, server):
                     request_deserializer=agent__service__pb2.GetAgentInfoRequest.FromString,
                     response_serializer=agent__service__pb2.GetAgentInfoResponse.SerializeToString,
             ),
-            'SendSystemCommand': grpc.unary_unary_rpc_method_handler(
-                    servicer.SendSystemCommand,
-                    request_deserializer=agent__service__pb2.SystemCommandRequest.FromString,
-                    response_serializer=agent__service__pb2.SystemCommandResponse.SerializeToString,
-            ),
-            'Ping': grpc.unary_unary_rpc_method_handler(
-                    servicer.Ping,
-                    request_deserializer=agent__service__pb2.PingRequest.FromString,
-                    response_serializer=agent__service__pb2.PingResponse.SerializeToString,
+            'Heartbeat': grpc.unary_unary_rpc_method_handler(
+                    servicer.Heartbeat,
+                    request_deserializer=agent__service__pb2.HeartbeatRequest.FromString,
+                    response_serializer=agent__service__pb2.HeartbeatResponse.SerializeToString,
             ),
             'GetNetworkInfo': grpc.unary_unary_rpc_method_handler(
                     servicer.GetNetworkInfo,
@@ -207,34 +190,7 @@ class AgentService(object):
     """
 
     @staticmethod
-    def StreamMessages(request_iterator,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.stream_stream(
-            request_iterator,
-            target,
-            '/openagents.AgentService/StreamMessages',
-            agent__service__pb2.Message.SerializeToString,
-            agent__service__pb2.Message.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def SendMessage(request,
+    def SendEvent(request,
             target,
             options=(),
             channel_credentials=None,
@@ -247,9 +203,36 @@ class AgentService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/openagents.AgentService/SendMessage',
-            agent__service__pb2.Message.SerializeToString,
-            agent__service__pb2.MessageResponse.FromString,
+            '/openagents.AgentService/SendEvent',
+            agent__service__pb2.Event.SerializeToString,
+            agent__service__pb2.EventResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StreamEvents(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_stream(
+            request_iterator,
+            target,
+            '/openagents.AgentService/StreamEvents',
+            agent__service__pb2.Event.SerializeToString,
+            agent__service__pb2.Event.FromString,
             options,
             channel_credentials,
             insecure,
@@ -369,7 +352,7 @@ class AgentService(object):
             _registered_method=True)
 
     @staticmethod
-    def SendSystemCommand(request,
+    def Heartbeat(request,
             target,
             options=(),
             channel_credentials=None,
@@ -382,36 +365,9 @@ class AgentService(object):
         return grpc.experimental.unary_unary(
             request,
             target,
-            '/openagents.AgentService/SendSystemCommand',
-            agent__service__pb2.SystemCommandRequest.SerializeToString,
-            agent__service__pb2.SystemCommandResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def Ping(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/openagents.AgentService/Ping',
-            agent__service__pb2.PingRequest.SerializeToString,
-            agent__service__pb2.PingResponse.FromString,
+            '/openagents.AgentService/Heartbeat',
+            agent__service__pb2.HeartbeatRequest.SerializeToString,
+            agent__service__pb2.HeartbeatResponse.FromString,
             options,
             channel_credentials,
             insecure,

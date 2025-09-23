@@ -15,11 +15,11 @@ discovery:
 
 # Thread messaging for organized conversations  
 communication:
-  mod_name: "thread_messaging"
+  mod_name: "messaging"
   
 # Shared documents for collaborative editing
 work:
-  mod_name: "shared_document"
+  mod_name: "documents"
 
 # Simple transport configuration
 transport:

@@ -10,12 +10,13 @@ from .event import Event
 from dataclasses import dataclass, field
 
 
-class TransportType(Enum):
+class TransportType(str, Enum):
     """Supported transport types."""
     WEBSOCKET = "websocket"
     LIBP2P = "libp2p"
     GRPC = "grpc"
     WEBRTC = "webrtc"
+    HTTP = "http"
 
 
 class ConnectionState(Enum):
@@ -53,7 +54,7 @@ class ConnectionInfo(BaseModel):
     backoff_delay: float = Field(default=1.0, description="Current backoff delay in seconds")
 
 
-class AgentInfo(BaseModel):
+class AgentConnection(BaseModel):
     """Information about an agent in the network."""
     model_config = ConfigDict(use_enum_values=True)
     
@@ -63,6 +64,7 @@ class AgentInfo(BaseModel):
     last_seen: float = Field(default_factory=time.time, description="Timestamp when agent was last seen")
     transport_type: TransportType = Field(..., description="Transport type used by this agent")
     address: Optional[str] = Field(None, description="Network address of the agent")
+    role: Optional[str] = Field(None, description="Role of the agent in the network")
 
 
  

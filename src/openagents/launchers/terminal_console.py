@@ -12,7 +12,6 @@ from typing import Dict, Any, Optional, List
 
 from openagents.core.client import AgentClient
 from openagents.models.messages import Event, EventNames
-from openagents.core.system_commands import LIST_AGENTS, LIST_MODS, GET_MOD_MANIFEST
 from openagents.utils.verbose import verbose_print
 
 logger = logging.getLogger(__name__)
@@ -71,10 +70,7 @@ class ConsoleAgent:
             self.agent.connector.register_message_handler("direct_message", self._handle_direct_message)
             self.agent.connector.register_message_handler("broadcast_message", self._handle_broadcast_message)
             
-            # Register system response handlers
-            self.agent.register_agent_list_callback(self._handle_agent_list)
-            self.agent.register_mod_list_callback(self._handle_mod_list)
-            self.agent.register_mod_manifest_callback(self._handle_mod_manifest)
+            # System response handlers are no longer needed - using immediate responses
         
         return success
     
@@ -131,7 +127,7 @@ class ConsoleAgent:
         
         message = Event(
             sender_id=self.agent_id,
-            target_agent_id=target_id,
+            destination_id=target_id,
             content={"text": content},
             metadata={"type": "text"},
             requires_response=True,
@@ -180,44 +176,7 @@ class ConsoleAgent:
         await self.agent.send_broadcast_message(message)
         return True
     
-    async def list_agents(self) -> bool:
-        """Request a list of agents from the network server.
-        
-        Returns:
-            bool: True if request was sent successfully
-        """
-        if not self.connected:
-            print("Not connected to a network server")
-            return False
-        
-        return await self.agent.send_system_request(LIST_AGENTS)
-    
-    async def list_mods(self) -> bool:
-        """Request a list of mods from the network server.
-        
-        Returns:
-            bool: True if request was sent successfully
-        """
-        if not self.connected:
-            print("Not connected to a network server")
-            return False
-        
-        return await self.agent.send_system_request(LIST_MODS)
-    
-    async def get_mod_manifest(self, protocol_name: str) -> bool:
-        """Request a mod manifest from the network server.
-        
-        Args:
-            protocol_name: Name of the mod to get the manifest for
-            
-        Returns:
-            bool: True if request was sent successfully
-        """
-        if not self.connected:
-            print("Not connected to a network server")
-            return False
-        
-        return await self.agent.request_get_mod_manifest(protocol_name)
+    # System request methods removed - using AgentClient direct methods with immediate responses
     
     async def send_system_request(self, command: str, **kwargs) -> bool:
         """Send a system request to the network server.
@@ -466,13 +425,13 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None, netw
             
             elif user_input.startswith("/agents"):
                 # List agents
-                await console_agent.list_agents()
-                print("Requesting agent list...")
+                agents = await console_agent.agent.list_agents()
+                await console_agent._handle_agent_list(agents)
             
             elif user_input.startswith("/protocols"):
                 # List protocols
-                await console_agent.list_mods()
-                print("Requesting protocol list...")
+                mods = await console_agent.agent.list_mods()
+                await console_agent._handle_mod_list(mods)
             
             elif user_input.startswith("/manifest "):
                 # Get protocol manifest
@@ -481,8 +440,19 @@ async def run_console(host: str, port: int, agent_id: Optional[str] = None, netw
                     print("Usage: /manifest <protocol_name>")
                     continue
                 
-                await console_agent.get_mod_manifest(protocol_name)
-                print(f"Requesting manifest for protocol {protocol_name}...")
+                manifest = await console_agent.agent.get_mod_manifest(protocol_name)
+                if manifest:
+                    await console_agent._handle_mod_manifest({
+                        "success": True,
+                        "mod_name": protocol_name,
+                        "manifest": manifest
+                    })
+                else:
+                    await console_agent._handle_mod_manifest({
+                        "success": False,
+                        "mod_name": protocol_name,
+                        "error": "Manifest not found"
+                    })
             
             else:
                 # Inform user about available commands

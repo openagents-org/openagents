@@ -27,7 +27,7 @@ network:
   # Network-level mod configuration
   mods:
     # Thread Messaging 
-    - name: "openagents.mods.communication.thread_messaging"
+    - name: "openagents.mods.workspace.messaging"
       enabled: true
       config:
         default_channels:
@@ -41,7 +41,7 @@ network:
         max_thread_depth: 5
         
     # Shared Documents
-    - name: "openagents.mods.work.shared_document"
+    - name: "openagents.mods.workspace.documents"
       enabled: true
       config:
         max_document_size: 10485760  # 10MB

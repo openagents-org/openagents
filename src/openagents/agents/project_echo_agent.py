@@ -4,9 +4,10 @@ import random
 from typing import Dict, List, Optional
 
 from openagents.agents.runner import AgentRunner
-from openagents.models.message_thread import MessageThread
+from openagents.models.event_thread import EventThread
 from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
+from openagents.models.event_context import EventContext
 from openagents.workspace.project_messages import ProjectNotificationMessage
 
 logger = logging.getLogger(__name__)
@@ -66,8 +67,12 @@ class ProjectEchoAgentRunner(AgentRunner):
             }
         ]
 
-    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: Event):
+    async def react(self, context: EventContext):
         """React to incoming messages and handle project participation."""
+        incoming_message = context.incoming_event
+        incoming_thread_id = context.incoming_thread_id
+        event_threads = context.event_threads
+        
         self.message_count += 1
         sender_id = incoming_message.source_id
         content = incoming_message.payload
@@ -109,9 +114,9 @@ class ProjectEchoAgentRunner(AgentRunner):
         # Create echo response
         echo_text = f"{self.echo_prefix}: {text}"
         echo_message = Event(
-            event_name="agent.direct_message.sent",
+            event_name="agent.message",
             source_id=self.client.agent_id,
-            target_agent_id=sender_id,
+            destination_id=sender_id,
             payload={"text": echo_text},
             text_representation=echo_text,
             requires_response=False
@@ -130,7 +135,7 @@ class ProjectEchoAgentRunner(AgentRunner):
             greeting_text = f"Hello {sender_id}! I'm a project-aware echo agent. I can participate in projects and complete them!"
             greeting_message = Event(
                 sender_id=self.client.agent_id,
-                target_agent_id=sender_id,
+                destination_id=sender_id,
                 message_type="direct_message",
                 content={"text": greeting_text},
                 text_representation=greeting_text,
@@ -368,7 +373,7 @@ class ProjectEchoAgentRunner(AgentRunner):
             logger.info("🔧 ThreadMessagingAgentAdapter not found, loading manually...")
             try:
                 from openagents.utils.mod_loaders import load_mod_adapters
-                thread_adapters = load_mod_adapters(["openagents.mods.communication.thread_messaging"])
+                thread_adapters = load_mod_adapters(["openagents.mods.workspace.messaging"])
                 for adapter in thread_adapters:
                     self.client.register_mod_adapter(adapter)
                     logger.info(f"🔧 Manually loaded adapter: {adapter.mod_name}")
@@ -377,7 +382,7 @@ class ProjectEchoAgentRunner(AgentRunner):
         
         # Register with thread messaging adapter for channel notifications
         thread_adapter = None
-        for key in ["ThreadMessagingAgentAdapter", "thread_messaging", "openagents.mods.communication.thread_messaging"]:
+        for key in ["ThreadMessagingAgentAdapter", "thread_messaging", "openagents.mods.workspace.messaging"]:
             if key in self.client.mod_adapters:
                 thread_adapter = self.client.mod_adapters[key]
                 logger.info(f"🔧 Found thread messaging adapter with key: {key}")

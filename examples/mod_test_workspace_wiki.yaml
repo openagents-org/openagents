@@ -1,0 +1,105 @@
+# Wiki Mod Test Network Configuration
+# This network provides a test environment specifically for the wiki mod
+# Features: gRPC transport, wiki functionality
+
+network:
+  name: "WikiTestNetwork"
+  mode: "centralized"
+  node_id: "wiki-test-1"
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8701
+    - type: "grpc"
+      config:
+        port: 8601
+        max_message_size: 104857600  # 100MB
+        compression: "gzip"
+        keepalive_time: 60000  # 60 seconds in milliseconds
+        keepalive_timeout: 30000  # 30 seconds in milliseconds
+        keepalive_permit_without_calls: false
+        max_connection_idle: 300000  # 5 minutes in milliseconds
+        max_connection_age: 1800000  # 30 minutes in milliseconds
+        http2_max_pings_without_data: 0
+        http2_min_time_between_pings: 60000  # 60 seconds between pings
+        http2_min_ping_interval_without_data: 300000  # 5 minutes without data
+
+  # Transport for providing the network manifest
+  manifest_transport: "http"
+
+  # Recommended transport for agent-to-network communication
+  recommended_transport: "grpc"
+    
+  # Security configuration
+  encryption_enabled: false  # Disabled for local development
+  
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+  
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+  
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+  
+  # Mod configuration - Wiki functionality only
+  mods:
+    # Wiki mod for collaborative page creation and editing
+    - name: "openagents.mods.workspace.wiki"
+      enabled: true
+      config:
+        # Page settings
+        max_page_size: 1048576  # 1MB per page
+        supported_formats: ["markdown"]
+        categories: ["general", "technical", "policy", "guides"]
+        
+        # Access control
+        protection_levels:
+          open: "owner can edit, others propose"
+          protected: "requires admin approval"
+          locked: "admin only"
+        
+        # Proposal settings
+        auto_reject_conflicting_proposals: true
+        proposal_timeout_days: 30
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "Wiki Test Network"
+  description: "A test network for wiki mod functionality"
+  icon: "https://openagents.io/icons/wiki-test.png"
+  website: "https://openagents.io"
+  tags:
+    - "wiki"
+    - "test"
+    - "collaboration"
+    - "documentation"
+  categories:
+    - "documentation"
+    - "collaboration"
+    - "testing"
+  country: "Worldwide"
+  required_openagents_version: "0.5.1"
+  capacity: 50
+  authentication:
+    type: "none"  # Open test environment
+  host: "0.0.0.0"
+  port: 8573
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/wiki-test"
+
+# Runtime configuration
+runtime_limit: null
+shutdown_timeout: 30

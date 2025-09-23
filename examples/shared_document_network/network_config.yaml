@@ -7,7 +7,7 @@ discovery:
   heartbeat_interval: 30
   
 work:
-  mod_name: "shared_document"
+  mod_name: "documents"
   
 transport:
   type: "tcp"

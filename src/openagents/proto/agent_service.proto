@@ -7,11 +7,11 @@ import "google/protobuf/any.proto";
 
 // Agent service for OpenAgents gRPC transport
 service AgentService {
-  // Bidirectional streaming for real-time communication
-  rpc StreamMessages(stream Message) returns (stream Message);
+  // Unified event handling for all message and system command types
+  rpc SendEvent(Event) returns (EventResponse);
   
-  // Unary calls for request-response patterns
-  rpc SendMessage(Message) returns (MessageResponse);
+  // Bidirectional streaming for events
+  rpc StreamEvents(stream Event) returns (stream Event);
   
   // Agent registration and management
   rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse);
@@ -21,30 +21,29 @@ service AgentService {
   rpc DiscoverAgents(DiscoverAgentsRequest) returns (DiscoverAgentsResponse);
   rpc GetAgentInfo(GetAgentInfoRequest) returns (GetAgentInfoResponse);
   
-  // System commands
-  rpc SendSystemCommand(SystemCommandRequest) returns (SystemCommandResponse);
-  
   // Heartbeat and health checks
-  rpc Ping(PingRequest) returns (PingResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
   rpc GetNetworkInfo(NetworkInfoRequest) returns (NetworkInfoResponse);
 }
 
-// Core message structure
-message Message {
-  string message_id = 1;
-  string sender_id = 2;
-  string target_id = 3;
-  string message_type = 4;
-  google.protobuf.Any payload = 5;
+// Unified event structure for all message and system command types
+message Event {
+  string event_id = 1;           // Unique event identifier
+  string event_name = 2;         // Event type (e.g., "thread.channel_message.post", "thread.direct_message.send", "system.poll_messages")
+  string source_id = 3;          // Source agent ID
+  string target_agent_id = 4;    // Target agent ID (optional for broadcasts)
+  google.protobuf.Any payload = 5;  // Event-specific data
   google.protobuf.Timestamp timestamp = 6;
   map<string, string> metadata = 7;
+  string visibility = 8;         // "local", "network", "external"
 }
 
-// Message response
-message MessageResponse {
+// Unified event response
+message EventResponse {
   bool success = 1;
-  string error_message = 2;
-  string message_id = 3;
+  string message = 2;
+  google.protobuf.Any data = 3;
+  string event_name = 4;
 }
 
 // Agent registration
@@ -53,13 +52,13 @@ message RegisterAgentRequest {
   map<string, string> metadata = 2;
   repeated string capabilities = 3;
   bool force_reconnect = 4;
+  string certificate = 5;
 }
 
 message RegisterAgentResponse {
   bool success = 1;
   string error_message = 2;
-  string network_name = 3;
-  string network_id = 4;
+  string secret = 3;
 }
 
 // Agent unregistration
@@ -100,27 +99,13 @@ message AgentInfo {
   string address = 6;
 }
 
-// System commands
-message SystemCommandRequest {
-  string command = 1;
-  google.protobuf.Any data = 2;
-  string request_id = 3;
-}
-
-message SystemCommandResponse {
-  bool success = 1;
-  string error_message = 2;
-  google.protobuf.Any data = 3;
-  string request_id = 4;
-}
-
-// Ping/Pong for heartbeat
-message PingRequest {
+// Heartbeat for connection monitoring
+message HeartbeatRequest {
   string agent_id = 1;
   google.protobuf.Timestamp timestamp = 2;
 }
 
-message PingResponse {
+message HeartbeatResponse {
   bool success = 1;
   google.protobuf.Timestamp timestamp = 2;
 }

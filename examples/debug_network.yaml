@@ -9,9 +9,9 @@ network:
   
   # Simple mod configuration
   mods:
-    - name: "openagents.mods.communication.thread_messaging"
+    - name: "openagents.mods.workspace.messaging"
       enabled: true
-    - name: "openagents.mods.work.shared_document"
+    - name: "openagents.mods.workspace.documents"
       enabled: true
 
 logging:

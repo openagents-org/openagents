@@ -5,7 +5,7 @@ from .transport import (
     ConnectionState,
     PeerMetadata,
     ConnectionInfo,
-    AgentInfo
+    AgentConnection
 )
 
 from .messages import (
@@ -20,13 +20,15 @@ from .network_config import (
     NetworkMode
 )
 
+from .network_role import NetworkRole
+
 __all__ = [
     # Transport models
     "TransportType",
     "ConnectionState", 
     "PeerMetadata",
     "ConnectionInfo",
-    "AgentInfo",
+    "AgentConnection",
     # Event models (unified message system)
     "Event",
     "EventVisibility",
@@ -34,5 +36,6 @@ __all__ = [
     # Config models
     "NetworkConfig",
     "OpenAgentsConfig",
-    "NetworkMode"
+    "NetworkMode",
+    "NetworkRole"
 ] 

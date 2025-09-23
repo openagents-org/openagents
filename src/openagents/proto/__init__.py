@@ -18,8 +18,8 @@ __all__ = [
     'AgentInfo',
     'SystemCommandRequest',
     'SystemCommandResponse',
-    'PingRequest',
-    'PingResponse',
+    'HeartbeatRequest',
+    'HeartbeatResponse',
     'NetworkInfoRequest',
     'NetworkInfoResponse',
     

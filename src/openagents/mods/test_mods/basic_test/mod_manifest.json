@@ -1,0 +1,53 @@
+{
+    "mod_name": "basic_test",
+    "version": "1.0.0",
+    "description": "A basic test mod for OpenAgents that provides testing capabilities including event processing, state management, and agent registration tracking",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "BasicTestAgentAdapter",
+    "network_mod_class": "BasicTestNetworkMod",
+    "capabilities": [
+        "test_event_processing",
+        "test_state_management",
+        "test_agent_tracking",
+        "test_message_handling"
+    ],
+    "requires_adapter": true,
+    "studio_interface": false,
+    "dependencies": [],
+    "metadata": {
+        "max_event_history": 100,
+        "supports_interception": true,
+        "supports_custom_responses": true
+    },
+    "process_events": [
+        "test.ping",
+        "test.get_state",
+        "test.agent_ping",
+        "test.message",
+        "agent.connected",
+        "agent.disconnected"
+    ],
+    "generate_events": [
+        "test.ping",
+        "test.message",
+        "test.response"
+    ],
+    "tools": [
+        {
+            "name": "test_ping",
+            "description": "Send a test ping to the network",
+            "category": "testing"
+        },
+        {
+            "name": "get_test_state",
+            "description": "Get the current state of the test adapter",
+            "category": "testing"
+        },
+        {
+            "name": "send_test_message",
+            "description": "Send a test message to another agent or broadcast",
+            "category": "testing"
+        }
+    ]
+}

@@ -5,12 +5,16 @@ This module defines the fundamental event structures that replace all
 message types (Direct, Broadcast, Mod) with a single unified Event type.
 """
 
+from ast import Tuple
 import time
 import uuid
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Any, Optional, Set, List
 import logging
+from aiohttp.hdrs import DESTINATION
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from openagents.models.network_role import NetworkRole
 
 logger = logging.getLogger(__name__)
 
@@ -26,100 +30,106 @@ class EventVisibility(str, Enum):
     MOD_ONLY = "mod_only"    # Only specific mod can process
 
 
-@dataclass
-class Event:
+class EventDestination(BaseModel):
+    """Defines the destination for an event."""
+    
+    role: NetworkRole
+    desitnation_id: str
+
+class EventSource(BaseModel):
+    """Defines the source for an event."""
+    
+    role: NetworkRole
+    source_id: str
+
+
+
+class Event(BaseModel):
     """
     Unified event structure for all network interactions.
     
-    This replaces Event, Event, Event, and workspace events
     with a single, flexible event type that supports all use cases.
+
+    Each event shoulld have at least a source_id and an event_name, and in most cases, a destination_id.
+
+    Event Names:
+    Event name should be a hierarchical name defined by OpenAgents core and the mods. Following are 
+    some example event names:
+    - agent.message
+    - project.run.completed
+    - channel.message.posted
+    - mod.generic.message_received
+    - system.register_agent
+    
+    Source ID:
+    Source ID is the ID of the agent or mod that generated this event. Examples:
+    - agent:charlie_123
+    - mod:openagents.mods.communication.simple_messaging
+    - system:system
+
+    If the source id is provided without a role such as "charlie_123", it will be assumed to be an agent.
+    Destination ID:
+    Destination ID is the ID of the agent, mod, channel, or system component that this event is intended for. 
+    The format can be either:
+    - Prefixed format: "role:id" (e.g., "agent:charlie_123", "mod:simple_messaging", "channel:general", "system:core")
+    - Simple format: "id" (defaults to agent role)
+    
+    Examples:
+    - agent:charlie_123 (specific agent)
+    - mod:openagents.mods.communication.simple_messaging (specific mod)
+    - system:system (system component)
+    - channel:general (channel broadcast)
+    - charlie_123 (defaults to agent:charlie_123)
+    - agent:broadcast (broadcast to all agents)
+    
+    The destination is parsed using parse_destination_id() which returns an EventDestination object
+    containing the role (NetworkRole) and target_id.
     """
     
     # Core identification - REQUIRED FIELDS FIRST
-    event_name: str  # e.g., "agent.direct_message.sent", "project.run.completed" - REQUIRED
+    event_name: str  # e.g., "agent.message", "project.run.completed" - REQUIRED
     source_id: str  # The agent or mod that generated this event - REQUIRED
     
     # Core identification - OPTIONAL FIELDS WITH DEFAULTS
-    event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: int = field(default_factory=lambda: int(time.time()))
-    source_type: str = field(default="agent")  # "agent" or "mod" - indicates what generated this event
+    event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp: int = Field(default_factory=lambda: int(time.time()))
+    source_type: str = Field(default="agent")  # "agent" or "mod" - indicates what generated this event
     
     # Source and targeting
-    target_agent_id: Optional[str] = None  # For direct events
-    target_channel: Optional[str] = None   # For channel events
+    destination_id: Optional[str] = None  # Destination of this events
     
     # Mod system integration
-    relevant_mod: Optional[str] = None  # Restrict processing to specific mod
+    relevant_mod: Optional[str] = None  # Restrict processing to specific mod; Deprecated
     requires_response: bool = False     # Whether this event expects a response
     response_to: Optional[str] = None   # If this is a response, the original event_id
+
+    # Event thread
+    thread_name: Optional[str] = None  # The name of the thread for the event, used for organizing events into threads in the client
     
     # Event data
-    payload: Dict[str, Any] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    payload: Dict[str, Any] = Field(default_factory=dict)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     text_representation: Optional[str] = None  # Human-readable text for the event
     
     # Visibility and access control
     visibility: EventVisibility = EventVisibility.NETWORK
     allowed_agents: Optional[Set[str]] = None  # Specific agents allowed (if visibility=RESTRICTED)
     
-    def __init__(self, event_name: str, source_id: str = "", **kwargs):
-        """Initialize Event."""
-        # Ensure source_id is provided
-        if not source_id:
-            raise ValueError("Event must have a source_id")
+    model_config = {
+        "use_enum_values": True,
+        "arbitrary_types_allowed": True
+    }
         
-        # Set the required fields
-        self.event_name = event_name
-        self.source_id = source_id
-        
-        # Set optional fields with defaults
-        self.event_id = kwargs.pop('event_id', str(uuid.uuid4()))
-        self.timestamp = kwargs.pop('timestamp', int(time.time()))
-        self.source_type = kwargs.pop('source_type', "agent")
-        self.target_agent_id = kwargs.pop('target_agent_id', None)
-        self.target_channel = kwargs.pop('target_channel', None)
-        self.relevant_mod = kwargs.pop('relevant_mod', None)
-        self.requires_response = kwargs.pop('requires_response', False)
-        self.response_to = kwargs.pop('response_to', None)
-        self.payload = kwargs.pop('payload', {})
-        self.metadata = kwargs.pop('metadata', {})
-        self.text_representation = kwargs.pop('text_representation', None)
-        # Track if visibility was explicitly provided
-        visibility_provided = 'visibility' in kwargs
-        self.visibility = kwargs.pop('visibility', EventVisibility.NETWORK)
-        self.allowed_agents = kwargs.pop('allowed_agents', None)
-        
-        # Warn about any remaining unknown fields
-        if kwargs:
-            logger.warning(f"Unknown fields passed to Event constructor: {list(kwargs.keys())}")
-        
-        # Call post-init validation
-        self.__post_init__(visibility_provided)
-    
-    def __post_init__(self, visibility_provided=False):
-        """Validate event after creation."""
-        # Validate event name is meaningful (not placeholder or generic)
-        self._validate_event_name(self.event_name)
-        
-        # source_id is now required as a dataclass field, so no need to check for empty
-        
-        # Auto-set visibility based on targeting, but only if not explicitly provided
-        if not visibility_provided and self.visibility == EventVisibility.NETWORK:  # Only auto-set if default and not explicitly provided
-            if self.target_agent_id:
-                self.visibility = EventVisibility.DIRECT
-            elif self.target_channel:
-                self.visibility = EventVisibility.CHANNEL
-            elif self.relevant_mod:
-                self.visibility = EventVisibility.MOD_ONLY
-    
-    def _validate_event_name(self, event_name: str) -> None:
+    @field_validator('event_name')
+    @classmethod
+    def validate_event_name(cls, v):
         """Validate that event name is meaningful and follows conventions."""
         # Check for empty or whitespace-only names
-        if not event_name or not event_name.strip():
+        if not v or not v.strip():
             raise ValueError("event_name cannot be empty or whitespace-only")
         
         # Check minimum length (meaningful names should be at least 3 characters)
-        if len(event_name.strip()) < 3:
+        if len(v.strip()) < 3:
             raise ValueError("event_name must be at least 3 characters long")
         
         # List of forbidden placeholder/generic names
@@ -129,27 +139,89 @@ class Event:
             "transport.message", "base.event", "system.event"
         }
         
-        if event_name.lower() in forbidden_names:
-            raise ValueError(f"event_name '{event_name}' is not allowed. Use a meaningful name like 'project.run.completed'")
+        if v.lower() in forbidden_names:
+            raise ValueError(f"event_name '{v}' is not allowed. Use a meaningful name like 'project.run.completed'")
         
         # Check for meaningful structure (should contain at least one dot for hierarchy)
-        if "." not in event_name:
-            raise ValueError(f"event_name '{event_name}' should follow hierarchical format like 'domain.entity.action'")
+        if "." not in v:
+            raise ValueError(f"event_name '{v}' should follow hierarchical format like 'domain.entity.action'")
         
         # Validate format: should be lowercase with dots and underscores only
         import re
-        if not re.match(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$', event_name):
-            raise ValueError(f"event_name '{event_name}' must follow format 'domain.entity.action' with lowercase letters, numbers, underscores, and dots only")
+        if not re.match(r'^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$', v):
+            raise ValueError(f"event_name '{v}' must follow format 'domain.entity.action' with lowercase letters, numbers, underscores, and dots only")
         
         # Check for minimum meaningful parts (at least 2 parts: domain.action)
-        parts = event_name.split(".")
+        parts = v.split(".")
         if len(parts) < 2:
-            raise ValueError(f"event_name '{event_name}' must have at least 2 parts: 'domain.action'")
+            raise ValueError(f"event_name '{v}' must have at least 2 parts: 'domain.action'")
         
         # Each part should be meaningful (not single letters or numbers)
         for part in parts:
             if len(part) < 2:
-                raise ValueError(f"event_name '{event_name}' contains part '{part}' that is too short. Each part must be at least 2 characters")
+                raise ValueError(f"event_name '{v}' contains part '{part}' that is too short. Each part must be at least 2 characters")
+        
+        return v
+    
+    def parse_source(self) -> EventSource:
+        """Parse the source_id into a EventSource object."""
+        if self.source_id:
+            # Special cases
+            if self.source_id == "system" or self.source_id == "mod":
+                role = NetworkRole.SYSTEM
+                source_id = "system"
+            # General case
+            elif ":" in self.source_id:
+                role, source_id = self.source_id.split(":", 1)
+            else:
+                role = NetworkRole.AGENT
+                source_id = self.source_id
+        else:
+            role = NetworkRole.UNKNOWN
+            source_id = None
+
+        return EventSource(role=NetworkRole(role), source_id=source_id)
+    
+    def parse_destination(self) -> EventDestination:
+        """Parse the destination_id into a EventDestination object."""
+        if self.destination_id:
+            # Special cases
+            if self.destination_id == "broadcast" or self.destination_id == "all":
+                role = NetworkRole.AGENT
+                target_id = "broadcast"
+            elif self.destination_id == "channel" or self.destination_id == "agent":
+                role = NetworkRole.UNKNOWN
+                target_id = None
+            elif self.destination_id == "system" or self.destination_id == "mod":
+                role = NetworkRole.SYSTEM
+                target_id = "system"
+            # General case
+            elif ":" in self.destination_id:
+                role, target_id = self.destination_id.split(":", 1)
+            else:
+                role = NetworkRole.AGENT
+                target_id = self.destination_id
+        else:
+            role = NetworkRole.SYSTEM
+            target_id = "system"
+
+        return EventDestination(role=role, desitnation_id=target_id)
+    
+    @field_validator('source_id')
+    @classmethod
+    def validate_source_id(cls, v):
+        """Validate source_id is provided."""
+        if not v:
+            raise ValueError("Event must have a source_id")
+        return v
+    
+    @model_validator(mode='after')
+    def auto_set_visibility(self):
+        """Auto-set visibility based on targeting if not explicitly provided."""
+        # Only auto-set if using default visibility
+        # TODO: to be implemented
+        return self
+        
 
     def matches_pattern(self, pattern: str) -> bool:
         """Check if this event matches a subscription pattern."""
@@ -176,12 +248,12 @@ class Event:
             return True
         
         elif self.visibility == EventVisibility.DIRECT:
-            return agent_id == self.target_agent_id
+            return agent_id == self.destination_id
         
         elif self.visibility == EventVisibility.CHANNEL:
-            if not self.target_channel or not agent_channels:
+            if not self.channel or not agent_channels:
                 return False
-            return self.target_channel in agent_channels
+            return self.channel in agent_channels
         
         elif self.visibility == EventVisibility.RESTRICTED:
             if not self.allowed_agents:
@@ -189,7 +261,6 @@ class Event:
             return agent_id in self.allowed_agents
         
         elif self.visibility == EventVisibility.MOD_ONLY:
-            # MOD_ONLY events are handled by the event bus, not delivered to agents directly
             return False
         
         return False
@@ -215,124 +286,49 @@ class Event:
         
     @property
     def target_id(self) -> Optional[str]:
-        return self.target_agent_id
+        return self.destination_id
     
-    @property  
+    @property 
     def relevant_agent_id(self) -> Optional[str]:
-        return self.target_agent_id
+        return self.destination_id
         
-    @relevant_agent_id.setter
-    def relevant_agent_id(self, value: Optional[str]):
-        self.target_agent_id = value
-
     def to_dict(self) -> Dict[str, Any]:
         """Convert event to dictionary for serialization."""
-        return {
-            "event_id": self.event_id,
-            "event_name": self.event_name,
-            "timestamp": self.timestamp,
-            "source_id": self.source_id,
-            "source_type": self.source_type,
-            "target_agent_id": self.target_agent_id,
-            "target_channel": self.target_channel,
-            "relevant_mod": self.relevant_mod,
-            "requires_response": self.requires_response,
-            "response_to": self.response_to,
-            "payload": self.payload,
-            "metadata": self.metadata,
-            "text_representation": self.text_representation,
-            "visibility": self.visibility.value,
-            "allowed_agents": list(self.allowed_agents) if self.allowed_agents else None
-        }
+        return self.model_dump()
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Event":
         """Create event from dictionary."""
-        # Convert allowed_agents back to set
-        allowed_agents = None
-        if data.get("allowed_agents"):
-            allowed_agents = set(data["allowed_agents"])
-        
-        return cls(
-            event_id=data["event_id"],
-            event_name=data["event_name"],
-            timestamp=data["timestamp"],
-            source_id=data["source_id"],
-            target_agent_id=data.get("target_agent_id"),
-            target_channel=data.get("target_channel"),
-            relevant_mod=data.get("relevant_mod"),
-            requires_response=data.get("requires_response", False),
-            response_to=data.get("response_to"),
-            payload=data.get("payload", {}),
-            metadata=data.get("metadata", {}),
-            visibility=EventVisibility(data.get("visibility", EventVisibility.NETWORK.value)),
-            allowed_agents=allowed_agents
-        )
+        return cls(**data)
     
     @property
     def timestamp_float(self) -> float:
         """Get timestamp as float."""
         return float(self.timestamp) / 1000.0
     
-    def model_dump(self) -> Dict[str, Any]:
-        """Model dump for serialization."""
-        return {
-            "event_id": self.event_id,
-            "event_name": self.event_name,
-            "timestamp": self.timestamp,
-            "source_id": self.source_id,
-            "source_type": self.source_type,
-            "target_agent_id": self.target_agent_id,
-            "target_channel": self.target_channel,
-            "relevant_mod": self.relevant_mod,
-            "requires_response": self.requires_response,
-            "response_to": self.response_to,
-            "payload": self.payload,
-            "metadata": self.metadata,
-            "text_representation": self.text_representation,
-            "visibility": self.visibility.value if hasattr(self.visibility, 'value') else self.visibility,
-            "allowed_agents": list(self.allowed_agents) if self.allowed_agents else None
-        }
-    
-    
     def is_direct_message(self) -> bool:
         """Check if this event is a direct message.
-        
-        Returns:
-            bool: True if event_name starts with "agent.direct_message."
         """
-        return self.event_name.startswith("agent.direct_message.")
+        destination = self.parse_destination()
+        return destination.role == NetworkRole.AGENT and destination.desitnation_id != "broadcast"
     
     def is_broadcast_message(self) -> bool:
         """Check if this event is a broadcast message.
-        
-        Returns:
-            bool: True if event_name starts with "agent.broadcast_message."
         """
-        return self.event_name.startswith("agent.broadcast_message.")
+        destination = self.parse_destination()
+        return destination.role == NetworkRole.AGENT and destination.desitnation_id == "broadcast"
     
     def is_system_message(self) -> bool:
         """Check if this event is a system message.
-        
-        System messages are any events that are not direct or broadcast messages.
-        
-        Returns:
-            bool: True if this is a system message
         """
-        return not (self.is_direct_message() or self.is_broadcast_message())
+        destination = self.parse_destination()
+        return destination.role == NetworkRole.SYSTEM
     
-    def get_message_type(self) -> str:
-        """Get the message type classification for this event.
-        
-        Returns:
-            str: "direct_message", "broadcast_message", or "system_message"
+    def is_channel_message(self) -> bool:
+        """Check if this event is a channel message.
         """
-        if self.is_direct_message():
-            return "direct_message"
-        elif self.is_broadcast_message():
-            return "broadcast_message"
-        else:
-            return "system_message"
+        destination = self.parse_destination()
+        return destination.role == NetworkRole.CHANNEL
     
     # Backward compatibility properties for legacy code
     @property
@@ -346,8 +342,7 @@ class Event:
         return self.relevant_mod
 
 
-@dataclass
-class EventSubscription:
+class EventSubscription(BaseModel):
     """
     Represents an agent's subscription to specific events.
     
@@ -355,25 +350,28 @@ class EventSubscription:
     control over which events they receive.
     """
     
-    subscription_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    agent_id: str = field(default="")
-    event_patterns: List[str] = field(default_factory=list)  # e.g., ["project.*", "channel.message.*"]
-    
-    # Optional filters
-    mod_filter: Optional[str] = None        # Only events from specific mod
-    channel_filter: Optional[str] = None    # Only events from specific channel
-    agent_filter: Optional[Set[str]] = None # Only events from specific agents
-    
-    # Subscription metadata
-    created_timestamp: int = field(default_factory=lambda: int(time.time()))
+    subscription_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    agent_id: str
+    event_patterns: List[str]  # e.g., ["project.*", "channel.message.*"]
+    channels: Set[str] = Field(default_factory=set) # Limit the subscription to only specific channels; If empty, the subscription is not limited to any channel
+    created_timestamp: int = Field(default_factory=lambda: int(time.time()))
     is_active: bool = True
     
-    def __post_init__(self):
-        """Validate subscription after creation."""
-        if not self.agent_id:
+    @field_validator('agent_id')
+    @classmethod
+    def validate_agent_id(cls, v):
+        """Validate agent_id is provided."""
+        if not v:
             raise ValueError("agent_id is required")
-        if not self.event_patterns:
+        return v
+    
+    @field_validator('event_patterns')
+    @classmethod
+    def validate_event_patterns(cls, v):
+        """Validate event patterns are provided."""
+        if not v:
             raise ValueError("at least one event pattern is required")
+        return v
     
     def matches_event(self, event: Event, agent_channels: Optional[Set[str]] = None) -> bool:
         """Check if this subscription matches the given event."""
@@ -387,59 +385,28 @@ class EventSubscription:
         if not pattern_match:
             return False
         
-        # Apply optional filters
-        if self.mod_filter and event.relevant_mod != self.mod_filter:
-            return False
-        
-        if self.channel_filter and event.target_channel != self.channel_filter:
-            return False
-        
-        if self.agent_filter and event.source_id not in self.agent_filter:
-            return False
-        
         return True
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert subscription to dictionary for serialization."""
-        return {
-            "subscription_id": self.subscription_id,
-            "agent_id": self.agent_id,
-            "event_patterns": self.event_patterns,
-            "mod_filter": self.mod_filter,
-            "channel_filter": self.channel_filter,
-            "agent_filter": list(self.agent_filter) if self.agent_filter else None,
-            "created_timestamp": self.created_timestamp,
-            "is_active": self.is_active
-        }
+        return self.model_dump()
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "EventSubscription":
         """Create subscription from dictionary."""
-        agent_filter = None
-        if data.get("agent_filter"):
-            agent_filter = set(data["agent_filter"])
-        
-        return cls(
-            subscription_id=data["subscription_id"],
-            agent_id=data["agent_id"],
-            event_patterns=data["event_patterns"],
-            mod_filter=data.get("mod_filter"),
-            channel_filter=data.get("channel_filter"),
-            agent_filter=agent_filter,
-            created_timestamp=data.get("created_timestamp", int(time.time())),
-            is_active=data.get("is_active", True)
-        )
+        return cls(**data)
 
 
 # Predefined event name constants for common events
 class EventNames:
     """Common event names to ensure consistency across the system."""
+
+    # TODO: merge the constants in the globals into this class
     
     # Agent events
     AGENT_CONNECTED = "agent.connected"
     AGENT_DISCONNECTED = "agent.disconnected"
-    AGENT_DIRECT_MESSAGE_SENT = "agent.direct_message.sent"
-    AGENT_DIRECT_MESSAGE_RECEIVED = "agent.direct_message.received"
+    AGENT_MESSAGE = "agent.message"
     
     # Network events
     NETWORK_BROADCAST_SENT = "network.broadcast.sent"

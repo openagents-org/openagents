@@ -11,7 +11,7 @@ import logging
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import Event, EventNames, Event
 from openagents.models.tool import AgentAdapterTool
-from openagents.utils.message_util import get_mod_message_thread_id
+from openagents.utils.message_util import get_mod_event_thread_id
 import copy
 
 logger = logging.getLogger(__name__)
@@ -262,7 +262,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
             event_name="discovery.conversion.announce",
             source_id=self.agent_id,
             relevant_mod=self.mod_name,
-            target_agent_id=self.agent_id,
+            destination_id=self.agent_id,
             payload={
                 "action": ANNOUNCE_CONVERSION_CAPABILITIES,
                 "conversion_capabilities": capabilities_copy

@@ -1,10 +1,12 @@
+import asyncio
 import logging
 from typing import Dict, List, Optional
 
 from openagents.agents.runner import AgentRunner
-from openagents.models.message_thread import MessageThread
+from openagents.models.event_thread import EventThread
 from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
+from openagents.models.event_context import EventContext
 
 logger = logging.getLogger(__name__)
 
@@ -29,14 +31,16 @@ class SimpleEchoAgentRunner(AgentRunner):
         self.echo_prefix = echo_prefix or "Echo"
         self.message_count = 0
 
-    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: Event):
+    async def react(self, context: EventContext):
         """React to incoming messages by echoing them back.
         
         Args:
-            message_threads: Dictionary of all message threads available to the agent
-            incoming_thread_id: ID of the thread containing the incoming message
-            incoming_message: The incoming message to react to
+            context: The event context containing incoming event, threads, and thread ID
         """
+        incoming_message = context.incoming_event
+        print(f"🎯 ECHO AGENT: react method called with message from {incoming_message.source_id}")
+        print(f"   Message type: {type(incoming_message).__name__}")
+        print(f"   Content: {incoming_message.payload}")
         logger.info(f"🎯 Echo agent received message from {incoming_message.source_id}")
         logger.info(f"   Message type: {type(incoming_message).__name__}")
         logger.info(f"   Content: {incoming_message.payload}")
@@ -58,9 +62,9 @@ class SimpleEchoAgentRunner(AgentRunner):
             # Create echo response
             echo_text = f"{self.echo_prefix}: {text}"
             echo_message = Event(
-                event_name="agent.direct_message.sent",
+                event_name="agent.message",
                 source_id=self.client.agent_id,
-                target_agent_id=sender_id,
+                destination_id=sender_id,
                 payload={
                     "text": echo_text,
                     "protocol": "openagents.mods.communication.simple_messaging",
@@ -71,8 +75,13 @@ class SimpleEchoAgentRunner(AgentRunner):
             )
             
             # Send the echo message back
-            await self.client.send_direct_message(echo_message)
-            logger.info(f"✅ Sent echo message back to {sender_id}: {echo_text}")
+            logger.info(f"🔧 ECHO: About to call self.client.send_direct_message")
+            logger.info(f"🔧 ECHO: Client type: {type(self.client)}")
+            logger.info(f"🔧 ECHO: Client hasattr send_direct_message: {hasattr(self.client, 'send_direct_message')}")
+            result = await self.client.send_direct_message(echo_message)
+            logger.info(f"✅ Sent echo message back to {sender_id}: {echo_text} - success: {result}")
+            if not result:
+                logger.error(f"❌ Failed to send echo message to {sender_id}")
             
         elif "broadcast_message" in incoming_message.event_name:
             logger.info(f"Processing broadcast message from {sender_id}")
@@ -81,9 +90,9 @@ class SimpleEchoAgentRunner(AgentRunner):
             if "hello" in text.lower() and sender_id != self.client.agent_id:
                 greeting_text = f"Hello {sender_id}! I'm an echo agent. Send me a direct message and I'll echo it back!"
                 greeting_message = Event(
-                    event_name="agent.direct_message.sent",
+                    event_name="agent.message",
                     source_id=self.client.agent_id,
-                    target_agent_id=sender_id,
+                    destination_id=sender_id,
                     payload={
                         "text": greeting_text,
                         "protocol": "openagents.mods.communication.simple_messaging",

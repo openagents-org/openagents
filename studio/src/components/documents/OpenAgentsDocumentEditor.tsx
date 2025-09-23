@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { DocumentContent, DocumentComment, AgentPresence } from '../../types';
-import { OpenAgentsGRPCConnection } from '../../services/grpcService';
+// TODO: Implement with HTTP event system
 
 interface OpenAgentsDocumentEditorProps {
   documentId: string;
-  connection: OpenAgentsGRPCConnection;
+  connection: any; // TODO: HTTP event connector
   currentTheme: 'light' | 'dark';
   onBack: () => void;
   readOnly?: boolean;

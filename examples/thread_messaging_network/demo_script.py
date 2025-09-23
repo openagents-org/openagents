@@ -34,7 +34,7 @@ import sys
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.openagents.core.client import AgentClient
-from src.openagents.mods.communication.thread_messaging import ThreadMessagingAgentAdapter
+from openagents.mods.workspace.messaging import ThreadMessagingAgentAdapter
 
 
 class DemoAgent:

@@ -42,7 +42,7 @@ OpenAgents mods consist of:
 Example configuration:
 ```yaml
 mod_adapters:
-  - mod_name: "thread_messaging"
+  - mod_name: "messaging"
     mod_adapter_class: "ThreadMessagingAgentAdapter"
     config:
       # Mod-specific configuration

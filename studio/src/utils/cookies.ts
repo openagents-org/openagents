@@ -1,3 +1,6 @@
+const MANUAL_CONNECTION_COOKIE_NAME = "openagents_manual_connection";
+const OPENAGENTS_AGENT_NAMES = "openagents_agent_names";
+
 /**
  * Cookie utility functions for storing and retrieving data
  */
@@ -7,26 +10,30 @@ export interface CookieOptions {
   path?: string;
   domain?: string;
   secure?: boolean;
-  sameSite?: 'Strict' | 'Lax' | 'None';
+  sameSite?: "Strict" | "Lax" | "None";
 }
 
 /**
  * Set a cookie with the given name and value
  */
-export const setCookie = (name: string, value: string, options: CookieOptions = {}): void => {
+export const setCookie = (
+  name: string,
+  value: string,
+  options: CookieOptions = {}
+): void => {
   const {
     expires = 30, // Default to 30 days
-    path = '/',
+    path = "/",
     domain,
-    secure = window.location.protocol === 'https:',
-    sameSite = 'Lax'
+    secure = window.location.protocol === "https:",
+    sameSite = "Lax",
   } = options;
 
   let cookieString = `${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
 
   if (expires) {
     const date = new Date();
-    date.setTime(date.getTime() + (expires * 24 * 60 * 60 * 1000));
+    date.setTime(date.getTime() + expires * 24 * 60 * 60 * 1000);
     cookieString += `; expires=${date.toUTCString()}`;
   }
 
@@ -54,7 +61,7 @@ export const setCookie = (name: string, value: string, options: CookieOptions = 
  */
 export const getCookie = (name: string): string | null => {
   const nameEQ = `${encodeURIComponent(name)}=`;
-  const cookies = document.cookie.split(';');
+  const cookies = document.cookie.split(";");
 
   for (let cookie of cookies) {
     cookie = cookie.trim();
@@ -69,8 +76,11 @@ export const getCookie = (name: string): string | null => {
 /**
  * Delete a cookie by name
  */
-export const deleteCookie = (name: string, options: Pick<CookieOptions, 'path' | 'domain'> = {}): void => {
-  setCookie(name, '', { ...options, expires: -1 });
+export const deleteCookie = (
+  name: string,
+  options: Pick<CookieOptions, "path" | "domain"> = {}
+): void => {
+  setCookie(name, "", { ...options, expires: -1 });
 };
 
 /**
@@ -78,9 +88,9 @@ export const deleteCookie = (name: string, options: Pick<CookieOptions, 'path' |
  */
 export const areCookiesEnabled = (): boolean => {
   try {
-    const testCookie = '__test_cookie__';
-    setCookie(testCookie, 'test', { expires: 1 });
-    const hasTestCookie = getCookie(testCookie) === 'test';
+    const testCookie = "__test_cookie__";
+    setCookie(testCookie, "test", { expires: 1 });
+    const hasTestCookie = getCookie(testCookie) === "test";
     if (hasTestCookie) {
       deleteCookie(testCookie);
     }
@@ -95,15 +105,18 @@ export const areCookiesEnabled = (): boolean => {
  */
 export const saveManualConnection = (host: string, port: string): void => {
   const connectionData = JSON.stringify({ host, port, timestamp: Date.now() });
-  setCookie('openagents_manual_connection', connectionData, { expires: 365 }); // 1 year
+  setCookie(MANUAL_CONNECTION_COOKIE_NAME, connectionData, { expires: 365 }); // 1 year
 };
 
 /**
  * Get saved manual connection details
  */
-export const getSavedManualConnection = (): { host: string; port: string } | null => {
+export const getSavedManualConnection = (): {
+  host: string;
+  port: string;
+} | null => {
   try {
-    const connectionData = getCookie('openagents_manual_connection');
+    const connectionData = getCookie(MANUAL_CONNECTION_COOKIE_NAME);
     if (!connectionData) return null;
 
     const parsed = JSON.parse(connectionData);
@@ -111,7 +124,7 @@ export const getSavedManualConnection = (): { host: string; port: string } | nul
       return { host: parsed.host, port: parsed.port };
     }
   } catch (error) {
-    console.warn('Failed to parse saved manual connection:', error);
+    console.warn("Failed to parse saved manual connection:", error);
   }
 
   return null;
@@ -121,7 +134,7 @@ export const getSavedManualConnection = (): { host: string; port: string } | nul
  * Clear saved manual connection
  */
 export const clearSavedManualConnection = (): void => {
-  deleteCookie('openagents_manual_connection');
+  deleteCookie(MANUAL_CONNECTION_COOKIE_NAME);
 };
 
 /**
@@ -134,93 +147,110 @@ const getNetworkKey = (host: string, port: string | number): string => {
 /**
  * Store agent name for a specific network
  */
-export const saveAgentNameForNetwork = (host: string, port: string | number, agentName: string): void => {
+export const saveAgentNameForNetwork = (
+  host: string,
+  port: string | number,
+  agentName: string
+): void => {
   try {
     const networkKey = getNetworkKey(host, port);
-    const agentNamesData = getCookie('openagents_agent_names');
-    
+    const agentNamesData = getCookie(OPENAGENTS_AGENT_NAMES);
+
     let agentNames: Record<string, { name: string; timestamp: number }> = {};
     if (agentNamesData) {
       agentNames = JSON.parse(agentNamesData);
     }
-    
+
     agentNames[networkKey] = {
       name: agentName,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     };
-    
+
     // Keep only the last 10 networks to prevent cookie bloat
     const entries = Object.entries(agentNames);
     if (entries.length > 10) {
       entries.sort(([, a], [, b]) => b.timestamp - a.timestamp);
       agentNames = Object.fromEntries(entries.slice(0, 10));
     }
-    
-    setCookie('openagents_agent_names', JSON.stringify(agentNames), { expires: 365 });
+
+    setCookie(OPENAGENTS_AGENT_NAMES, JSON.stringify(agentNames), {
+      expires: 365,
+    });
   } catch (error) {
-    console.warn('Failed to save agent name for network:', error);
+    console.warn("Failed to save agent name for network:", error);
   }
 };
 
 /**
  * Get saved agent name for a specific network
  */
-export const getSavedAgentNameForNetwork = (host: string, port: string | number): string | null => {
+export const getSavedAgentNameForNetwork = (
+  host: string,
+  port: string | number
+): string | null => {
   try {
     const networkKey = getNetworkKey(host, port);
-    const agentNamesData = getCookie('openagents_agent_names');
-    
+    const agentNamesData = getCookie(OPENAGENTS_AGENT_NAMES);
+
     if (!agentNamesData) return null;
-    
+
     const agentNames = JSON.parse(agentNamesData);
     const networkData = agentNames[networkKey];
-    
+
     if (networkData && networkData.name) {
       return networkData.name;
     }
   } catch (error) {
-    console.warn('Failed to get saved agent name for network:', error);
+    console.warn("Failed to get saved agent name for network:", error);
   }
-  
+
   return null;
 };
 
 /**
  * Get all saved agent names with their networks
  */
-export const getAllSavedAgentNames = (): Record<string, { name: string; timestamp: number }> => {
+export const getAllSavedAgentNames = (): Record<
+  string,
+  { name: string; timestamp: number }
+> => {
   try {
-    const agentNamesData = getCookie('openagents_agent_names');
+    const agentNamesData = getCookie(OPENAGENTS_AGENT_NAMES);
     if (agentNamesData) {
       return JSON.parse(agentNamesData);
     }
   } catch (error) {
-    console.warn('Failed to get all saved agent names:', error);
+    console.warn("Failed to get all saved agent names:", error);
   }
-  
+
   return {};
 };
 
 /**
  * Clear saved agent name for a specific network
  */
-export const clearSavedAgentNameForNetwork = (host: string, port: string | number): void => {
+export const clearSavedAgentNameForNetwork = (
+  host: string,
+  port: string | number
+): void => {
   try {
     const networkKey = getNetworkKey(host, port);
-    const agentNamesData = getCookie('openagents_agent_names');
-    
+    const agentNamesData = getCookie(OPENAGENTS_AGENT_NAMES);
+
     if (!agentNamesData) return;
-    
+
     const agentNames = JSON.parse(agentNamesData);
     delete agentNames[networkKey];
-    
+
     if (Object.keys(agentNames).length === 0) {
-      deleteCookie('openagents_agent_names');
+      deleteCookie(OPENAGENTS_AGENT_NAMES);
     } else {
-      setCookie('openagents_agent_names', JSON.stringify(agentNames), { expires: 365 });
+      setCookie(OPENAGENTS_AGENT_NAMES, JSON.stringify(agentNames), {
+        expires: 365,
+      });
     }
   } catch (error) {
-    console.warn('Failed to clear saved agent name for network:', error);
+    console.warn("Failed to clear saved agent name for network:", error);
   }
 };
 
@@ -228,35 +258,105 @@ export const clearSavedAgentNameForNetwork = (host: string, port: string | numbe
  * Clear all saved agent names
  */
 export const clearAllSavedAgentNames = (): void => {
-  deleteCookie('openagents_agent_names');
+  deleteCookie(OPENAGENTS_AGENT_NAMES);
 };
 
 /**
- * Migrate old connections to new gRPC port (8571)
- * This helps users who have saved connections to old ports
- */
-export const migrateOldConnections = (): void => {
-  try {
-    const saved = getSavedManualConnection();
-    if (saved) {
-      // Check if it's an old port and migrate to gRPC
-      const oldPorts = ['8575', '8570', '50051'];
-      if (oldPorts.includes(saved.port)) {
-        console.log(`Migrating old connection from port ${saved.port} to 8571`);
-        saveManualConnection(saved.host, '8571');
-      }
-    }
-  } catch (error) {
-    console.warn('Failed to migrate old connections:', error);
-  }
-};
-
-/**
- * Clear all OpenAgents related cookies (useful for troubleshooting)
+ * Clear all OpenAgents related cookies and localStorage (useful for troubleshooting)
  */
 export const clearAllOpenAgentsData = (): void => {
+  // Clear cookies
   clearSavedManualConnection();
   clearAllSavedAgentNames();
-  deleteCookie('openagents_theme');
-  console.log('Cleared all OpenAgents data from cookies');
+
+  // Clear all OpenAgents related localStorage
+  try {
+    // Theme store
+    localStorage.removeItem("openagents_theme");
+
+    // Thread store (channels, current selection)
+    localStorage.removeItem("openagents_thread");
+
+    // Chat messages store
+    localStorage.removeItem("openagents_chat_messages");
+
+    // Conversations store
+    localStorage.removeItem("openagents_conversations");
+
+    // View store
+    localStorage.removeItem("openagents_view");
+
+    // Network store (if persisted)
+    localStorage.removeItem("openagents_network");
+
+    // Any other potential OpenAgents data
+    const keys = Object.keys(localStorage);
+    keys.forEach(key => {
+      if (key.startsWith("openagents_")) {
+        localStorage.removeItem(key);
+      }
+    });
+
+  } catch (error) {
+    console.warn("Failed to clear some localStorage data:", error);
+  }
+
+  console.log("🧹 Cleared all OpenAgents data from cookies and localStorage");
+};
+
+/**
+ * Clear all OpenAgents data for logout (preserves theme preference and saved agent names)
+ */
+export const clearAllOpenAgentsDataForLogout = (): void => {
+  console.log("🚪 Starting logout data cleanup...");
+
+  // Clear manual connection but keep saved agent names for easier reconnection
+  clearSavedManualConnection();
+  console.log("🍪 Manual connection data cleared (agent names preserved)");
+
+  // Clear all OpenAgents related localStorage except theme
+  try {
+    // Thread store (channels, current selection) - 这个最重要
+    const threadData = localStorage.getItem("openagents_thread");
+    console.log("📋 Thread data before cleanup:", threadData);
+    localStorage.removeItem("openagents_thread");
+    console.log("📋 Thread store cleared");
+
+    // Chat messages store
+    localStorage.removeItem("openagents_chat_messages");
+    console.log("💬 Chat messages cleared");
+
+    // Conversations store
+    localStorage.removeItem("openagents_conversations");
+    console.log("🗣️ Conversations cleared");
+
+    // View store
+    localStorage.removeItem("openagents_view");
+    console.log("👁️ View store cleared");
+
+    // Network store (if persisted)
+    localStorage.removeItem("openagents_network");
+    console.log("🌐 Network store cleared");
+
+    // Clear other OpenAgents data but preserve theme
+    const keys = Object.keys(localStorage);
+    const clearedKeys: string[] = [];
+    keys.forEach(key => {
+      if (key.startsWith("openagents_") && key !== "openagents_theme") {
+        localStorage.removeItem(key);
+        clearedKeys.push(key);
+      }
+    });
+
+    if (clearedKeys.length > 0) {
+      console.log("🧹 Additional keys cleared:", clearedKeys);
+    }
+
+    console.log("✅ Thread data after cleanup:", localStorage.getItem("openagents_thread"));
+
+  } catch (error) {
+    console.warn("Failed to clear some localStorage data:", error);
+  }
+
+  console.log("🚪 Cleared OpenAgents session data (theme + agent names preserved)");
 };

@@ -215,7 +215,7 @@ class AgentDiscoveryMod(BaseMod):
                 event_name="discovery.results",
                 source_id=self.network.network_id,
                 relevant_mod=self.mod_name,
-                target_agent_id=sender_id,
+                destination_id=sender_id,
                 payload={
                     "action": "discovery_results",
                     "query": query,

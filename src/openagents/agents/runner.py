@@ -5,8 +5,9 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from openagents.core.base_mod_adapter import BaseModAdapter
-from openagents.models.message_thread import MessageThread
+from openagents.models.event_thread import EventThread
 from openagents.models.event import Event
+from openagents.models.event_context import EventContext
 from openagents.models.tool import AgentAdapterTool
 from openagents.core.client import AgentClient
 from openagents.utils.mod_loaders import load_mod_adapters
@@ -105,16 +106,14 @@ class AgentRunner(ABC):
         return self.client.mod_adapters.get(mod_name)
 
     @abstractmethod
-    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: Event):
+    async def react(self, context: EventContext):
         """React to an incoming message.
         
         This method is called when a new message is received and should implement
         the agent's logic for responding to messages.
         
         Args:
-            message_threads: Dictionary of all message threads available to the agent.
-            incoming_thread_id: ID of the thread containing the incoming message.
-            incoming_message: The incoming message to react to.
+            context: The event context containing the incoming event, event threads, and thread ID.
         """
     
     async def setup(self):
@@ -140,9 +139,8 @@ class AgentRunner(ABC):
         try:    
             while self._running:
                 # Get all message threads from the client
-                message_threads = self.client.get_messsage_threads()
-                # logger.info(f"🔧 AGENT_RUNNER: Checking for messages... Found {len(message_threads)} threads")
-                # print(f"🔍 Checking for messages... Found {len(message_threads)} threads")
+                event_threads = self.client.get_event_threads()
+                logger.debug(f"🔍 AGENT_RUNNER: Checking for messages... Found {len(event_threads)} threads")
                 
                 # Find the first unprocessed message across all threads
                 unprocessed_message = None
@@ -152,13 +150,13 @@ class AgentRunner(ABC):
                 total_messages = 0
                 unprocessed_count = 0
                 
-                for thread_id, thread in message_threads.items():
-                    # print(f"   Thread {thread_id}: {len(thread.messages)} messages")
-                    for message in thread.messages:
+                for thread_id, thread in event_threads.items():
+                    print(f"   Thread {thread_id}: {len(thread.events)} messages")
+                    for message in thread.events:
                         total_messages += 1
                         # Check if message hasn't been processed (regardless of requires_response)
                         message_id = str(message.message_id)
-                        # print(f"     Message {message_id[:8]}... from {message.source_id}, requires_response={message.requires_response}, processed={message_id in self._processed_message_ids}")
+                        print(f"     Message {message_id[:8]}... from {message.source_id}, processed={message_id in self._processed_message_ids}")
                         if message_id not in self._processed_message_ids:
                             unprocessed_count += 1
                             # Find the earliest unprocessed message by timestamp
@@ -171,6 +169,8 @@ class AgentRunner(ABC):
                 
                 # If we found an unprocessed message, process it
                 if unprocessed_message and unprocessed_thread_id:
+                    print(f"🔧 AGENT_RUNNER: Found unprocessed message {unprocessed_message.message_id[:8]}... from {unprocessed_message.source_id}")
+                    print(f"🎯 Processing message {unprocessed_message.message_id[:8]}... from {unprocessed_message.source_id}")
                     # logger.info(f"🔧 AGENT_RUNNER: Found unprocessed message {unprocessed_message.message_id[:8]}... from {unprocessed_message.source_id}")
                     # print(f"🎯 Processing message {unprocessed_message.message_id[:8]}... from {unprocessed_message.source_id}")
                     # Mark the message as processed to avoid processing it again
@@ -185,18 +185,24 @@ class AgentRunner(ABC):
                     current_time = unprocessed_message.timestamp
                     filtered_threads = {}
                     
-                    for thread_id, thread in message_threads.items():
+                    for thread_id, thread in event_threads.items():
                         # Create a new thread with only messages up to the current message's timestamp
-                        filtered_thread = MessageThread()
-                        filtered_thread.messages = [
-                            msg for msg in thread.messages 
+                        filtered_thread = EventThread()
+                        filtered_thread.events = [
+                            msg for msg in thread.events 
                             if msg.timestamp <= current_time
                         ]
                         filtered_threads[thread_id] = filtered_thread
                     
-                    # Call react with the filtered threads and the unprocessed message
-                    # logger.info(f"🔧 AGENT_RUNNER: Calling react method for message {unprocessed_message.message_id[:8]}...")
-                    await self.react(filtered_threads, unprocessed_thread_id, unprocessed_message)
+                    # Create EventContext and call react
+                    context = EventContext(
+                        incoming_event=unprocessed_message,
+                        event_threads=filtered_threads,
+                        incoming_thread_id=unprocessed_thread_id
+                    )
+                    print(f"🔧 AGENT_RUNNER: Calling react method for message {unprocessed_message.message_id[:8]}...")
+                    await self.react(context)
+                    print(f"🔧 AGENT_RUNNER: react method completed for message {unprocessed_message.message_id[:8]}")
                 else:
                     await asyncio.sleep(self._interval or 1)
                     # print("😴 No unprocessed messages found, sleeping...")

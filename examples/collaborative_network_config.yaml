@@ -52,7 +52,7 @@ network:
   # Mod configuration - Both thread messaging and shared documents
   mods:
     # Thread Messaging for organized conversations
-    - name: "openagents.mods.communication.thread_messaging"
+    - name: "openagents.mods.workspace.messaging"
       enabled: true
       config:
         max_message_size: 52428800  # 50MB for rich content
@@ -72,7 +72,7 @@ network:
             description: "Project planning and coordination"
     
     # Shared Documents for collaborative editing
-    - name: "openagents.mods.work.shared_document"
+    - name: "openagents.mods.workspace.documents"
       enabled: true
       config:
         max_document_size: 10485760  # 10MB per document
@@ -103,12 +103,12 @@ service_agents:
   # Collaboration Coordinator
   - name: "CollabCoordinator"
     mods:
-      - name: "openagents.mods.communication.thread_messaging"
+      - name: "openagents.mods.workspace.messaging"
         enabled: true
         config:
           routing_enabled: true
           store_and_forward: true
-      - name: "openagents.mods.work.shared_document"
+      - name: "openagents.mods.workspace.documents"
         enabled: true
         config:
           document_indexing: true
@@ -129,7 +129,7 @@ service_agents:
   # Document Manager Service
   - name: "DocumentManager"
     mods:
-      - name: "openagents.mods.work.shared_document"
+      - name: "openagents.mods.workspace.documents"
         enabled: true
         config:
           indexing_enabled: true
@@ -171,9 +171,9 @@ service_agents:
   # Collaboration Monitor
   - name: "CollabMonitor"
     mods:
-      - name: "openagents.mods.communication.thread_messaging"
+      - name: "openagents.mods.workspace.messaging"
         enabled: true
-      - name: "openagents.mods.work.shared_document"
+      - name: "openagents.mods.workspace.documents"
         enabled: true
     services:
       - name: "collaboration_analytics"
@@ -239,7 +239,7 @@ collaboration:
   document_presence_timeout: 300  # 5 minutes
   
   # Messaging settings
-  message_threading: true
+  event_threading: true
   message_reactions: true
   message_search: true
   

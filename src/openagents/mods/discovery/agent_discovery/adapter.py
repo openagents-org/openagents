@@ -10,7 +10,7 @@ import logging
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import Event, EventNames
 from openagents.models.tool import AgentAdapterTool
-from openagents.utils.message_util import get_mod_message_thread_id
+from openagents.utils.message_util import get_mod_event_thread_id
 import copy
 
 logger = logging.getLogger(__name__)
@@ -113,7 +113,7 @@ class AgentDiscoveryAdapter(BaseModAdapter):
             event_name="discovery.request",
             source_id=self.agent_id,
             relevant_mod=self.mod_name,
-            target_agent_id=self.agent_id,
+            destination_id=self.agent_id,
             payload={
                 "action": DISCOVER_AGENTS,
                 "query": query
@@ -176,7 +176,7 @@ class AgentDiscoveryAdapter(BaseModAdapter):
             event_name="discovery.announce",
             source_id=self.agent_id,
             relevant_mod=self.mod_name,
-            target_agent_id=self.agent_id,
+            destination_id=self.agent_id,
             payload={
                 "action": ANNOUNCE_CAPABILITIES,
                 "capabilities": capabilities_copy

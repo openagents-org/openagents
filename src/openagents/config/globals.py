@@ -12,7 +12,7 @@ including mod names, default values, and other system-wide configuration.
 WORKSPACE_DEFAULT_MOD_NAME = "openagents.mods.workspace.default"
 
 # Communication mods
-THREAD_MESSAGING_MOD_NAME = "openagents.mods.communication.thread_messaging"
+WORKSPACE_MESSAGING_MOD_NAME = "openagents.mods.workspace.messaging"
 SIMPLE_MESSAGING_MOD_NAME = "openagents.mods.communication.simple_messaging"
 
 # Discovery mods
@@ -20,14 +20,30 @@ AGENT_DISCOVERY_MOD_NAME = "openagents.mods.discovery.agent_discovery"
 OPENCONVERT_DISCOVERY_MOD_NAME = "openagents.mods.discovery.openconvert_discovery"
 
 # Work mods
-SHARED_DOCUMENT_MOD_NAME = "openagents.mods.work.shared_document"
+SHARED_DOCUMENT_MOD_NAME = "openagents.mods.workspace.documents"
 
 # ===== DEFAULT VALUES =====
 # Default configuration values
 
 # Network defaults
-DEFAULT_NETWORK_PORT = 8570
-DEFAULT_NETWORK_HOST = "localhost"
+DEFAULT_TRANSPORT_ADDRESS = {
+    "http": {
+        "host": "0.0.0.0",
+        "port": 8700
+    },
+    "websocket": {
+        "host": "0.0.0.0",
+        "port": 8400
+    },
+    "grpc": {
+        "host": "0.0.0.0",
+        "port": 8600
+    },
+    "libp2p": {
+        "host": "0.0.0.0",
+        "port": 0
+    }
+}
 
 # Client defaults
 DEFAULT_CLIENT_TIMEOUT = 30.0
@@ -50,3 +66,35 @@ BROADCAST_MESSAGE_TYPE = "broadcast_message"
 # Mod directions
 MOD_DIRECTION_INBOUND = "inbound"
 MOD_DIRECTION_OUTBOUND = "outbound"
+
+# ===== SYSTEM EVENT NAMES =====
+SYSTEM_EVENT_HEALTH_CHECK = "system.health_check"
+SYSTEM_EVENT_REGISTER_AGENT = "system.register_agent"
+SYSTEM_EVENT_UNREGISTER_AGENT = "system.unregister_agent"
+SYSTEM_EVENT_LIST_AGENTS = "system.list_agents"
+SYSTEM_EVENT_LIST_MODS = "system.list_mods"
+SYSTEM_EVENT_GET_MOD_MANIFEST = "system.get_mod_manifest"
+SYSTEM_EVENT_GET_NETWORK_INFO = "system.get_network_info"
+SYSTEM_EVENT_PING_AGENT = "system.ping_agent"
+SYSTEM_EVENT_HEARTBEAT = "system.heartbeat"
+SYSTEM_EVENT_CLAIM_AGENT_ID = "system.claim_agent_id"
+SYSTEM_EVENT_VALIDATE_CERTIFICATE = "system.validate_certificate"
+SYSTEM_EVENT_POLL_MESSAGES = "system.poll_messages"
+SYSTEM_EVENT_SUBSCRIBE_EVENTS = "system.subscribe_events"
+SYSTEM_EVENT_UNSUBSCRIBE_EVENTS = "system.unsubscribe_events"
+SYSTEM_EVENT_ADD_CHANNEL_MEMBER = "system.add_channel_member"
+SYSTEM_EVENT_REMOVE_CHANNEL_MEMBER = "system.remove_channel_member"
+SYSTEM_EVENT_GET_CHANNEL_MEMBERS = "system.get_channel_members"
+SYSTEM_EVENT_REMOVE_CHANNEL = "system.remove_channel"
+SYSTEM_EVENT_LIST_CHANNELS = "system.list_channels"
+
+SYSTEM_NOTIFICAITON_REGISTER_AGENT = "system.notification.register_agent"
+SYSTEM_NOTIFICAITON_UNREGISTER_AGENT = "system.notification.unregister_agent"
+
+AGENT_EVENT_MESSAGE = "agent.message"
+
+SYSTEM_AGENT_ID = "system:system"
+BROADCAST_AGENT_ID = "agent:broadcast"
+
+# ===== THREAD IDS =====
+THREAD_ID_UNCATEGORIZED = "uncategorized"

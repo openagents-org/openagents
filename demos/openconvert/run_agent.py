@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 from openagents.agents.runner import AgentRunner
 from openagents.models.messages import DirectMessage, BroadcastMessage, BaseMessage
-from openagents.models.message_thread import MessageThread
+from openagents.models.event_thread import EventThread
 from openagents.mods.discovery.openconvert_discovery import OpenConvertDiscoveryAdapter
 from openagents.mods.communication.simple_messaging.adapter import SimpleMessagingAgentAdapter
 
@@ -269,7 +269,7 @@ class OpenConvertServiceAgent(AgentRunner):
         greeting_content = {"text": f"{self.client.agent_id} is ready! I can handle {self.category} file conversions."}
         await self.messaging_adapter.send_broadcast_message(greeting_content)
 
-    async def react(self, message_threads: Dict[str, MessageThread], incoming_thread_id: str, incoming_message: BaseMessage):
+    async def react(self, event_threads: Dict[str, EventThread], incoming_thread_id: str, incoming_message: BaseMessage):
         """React to incoming messages - handle conversion requests."""
         try:
             sender_id = incoming_message.sender_id

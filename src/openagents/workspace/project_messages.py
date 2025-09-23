@@ -110,7 +110,7 @@ class ProjectNotificationMessage(ProjectMessage):
     """Message for project notifications and updates."""
     
     notification_type: str  # "progress", "error", "completion", "input_required"
-    content: Dict[str, Any] = Field(default_factory=dict)
+    notification_content: Dict[str, Any] = Field(default_factory=dict)
     target_agent_id: Optional[str] = None
     
     def __init__(self, event_name: str = "", source_id: str = "", **kwargs):
@@ -142,8 +142,18 @@ class ProjectNotificationMessage(ProjectMessage):
         
         # Set notification-specific fields
         self.notification_type = notification_type
-        self.content = content
+        self.notification_content = content
         self.target_agent_id = target_agent_id
+    
+    @property
+    def content(self) -> Dict[str, Any]:
+        """Backward compatibility: content maps to notification_content."""
+        return self.notification_content
+    
+    @content.setter
+    def content(self, value: Dict[str, Any]):
+        """Backward compatibility: content maps to notification_content."""
+        self.notification_content = value
 
 
 class ProjectChannelMessage(ProjectMessage):

@@ -12,7 +12,7 @@ network:
   
   # Network-level mod configuration
   mods:
-    - name: "openagents.mods.communication.thread_messaging"
+    - name: "openagents.mods.workspace.messaging"
       enabled: true
       config:
         # Configure default channels
@@ -39,7 +39,7 @@ network:
         # Threading settings
         max_thread_depth: 5
         thread_collapse_threshold: 50  # Collapse threads with more than 50 messages
-    - name: "openagents.mods.communication.shared_document"
+    - name: "openagents.mods.workspace.documents"
 
 # Logging configuration
 logging:

@@ -1,13 +1,6 @@
 """Work-related mods for OpenAgents."""
 
-from .shared_document import (
-    SharedDocumentAgentAdapter,
-    SharedDocumentNetworkMod,
-    SharedDocument
-)
+# Note: shared_document has been moved to openagents.mods.workspace.documents
+# This module is kept for backwards compatibility but is now empty
 
-__all__ = [
-    "SharedDocumentAgentAdapter",
-    "SharedDocumentNetworkMod", 
-    "SharedDocument"
-]
+__all__ = []

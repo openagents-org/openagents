@@ -83,8 +83,19 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
         
         logger.info(f"Network '{network.network_name}' started successfully")
         logger.info(f"Network mode: {config.network.mode if isinstance(config.network.mode, str) else config.network.mode.value}")
-        logger.info(f"Transport: {config.network.transport}")
-        logger.info(f"Host: {config.network.host}, Port: {config.network.port}")
+        
+        # Log transport information
+        if config.network.transports:
+            transport_info = []
+            for transport in config.network.transports:
+                port = transport.config.get('port', 'default')
+                transport_info.append(f"{transport.type}:{port}")
+            logger.info(f"Transports: {', '.join(transport_info)}")
+        
+        if config.network.recommended_transport:
+            logger.info(f"Recommended transport: {config.network.recommended_transport}")
+        
+        # Remove the host/port logging since it's handled by the topology system now
         
         # Print network statistics
         stats = network.get_network_stats()

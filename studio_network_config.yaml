@@ -14,7 +14,7 @@ network:
   # Network-level mod configuration
   mods:
     # Shared Documents
-    - name: "openagents.mods.work.shared_document"
+    - name: "openagents.mods.workspace.documents"
       enabled: true
       config:
         max_document_size: 10485760  # 10MB

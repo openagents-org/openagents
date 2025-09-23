@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 
 from openagents.core.client import AgentClient
-from openagents.mods.communication.thread_messaging import ThreadMessagingAgentAdapter
+from openagents.mods.workspace.messaging import ThreadMessagingAgentAdapter
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -274,7 +274,7 @@ async def demonstrate_reactions_only():
     """Demonstrate just the reaction features without network."""
     logger.info("\n=== Reaction Types Demo ===")
     
-    from openagents.mods.communication.thread_messaging import REACTION_TYPES
+    from openagents.mods.workspace.messaging import REACTION_TYPES
     
     logger.info("Available reaction types:")
     for reaction in REACTION_TYPES:

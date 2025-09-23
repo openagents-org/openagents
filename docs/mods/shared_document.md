@@ -24,7 +24,7 @@ Add the mod to your agent configuration:
 ```yaml
 mods:
   work:
-    - name: shared_document
+    - name: documents
       enabled: true
 ```
 
@@ -32,7 +32,7 @@ mods:
 
 ```python
 from openagents.core.client import AgentClient
-from openagents.mods.work.shared_document import SharedDocumentAgentAdapter
+from openagents.mods.workspace.documents import SharedDocumentAgentAdapter
 
 # Create agent with shared document capabilities
 agent = AgentClient(agent_id="my_agent")
@@ -198,7 +198,7 @@ network_name: "collaborative_workspace"
 network_type: "centralized"
 
 communication:
-  mod_name: "shared_document"
+  mod_name: "documents"
   
 transport:
   type: "tcp"
@@ -220,7 +220,7 @@ model:
 
 mods:
   communication:
-    - name: "shared_document"
+    - name: "documents"
       enabled: true
 
 tools:

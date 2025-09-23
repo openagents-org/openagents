@@ -39,7 +39,7 @@ class EchoAgent(WorkerAgent):
     async def on_direct(self, msg: EventContext):
         """Echo back direct messages."""
         ws = self.workspace()
-        await ws.agent(msg.sender_id).send_direct_message(f"Echo: {msg.text}")
+        await ws.agent(msg.sender_id).send_message(f"Echo: {msg.text}")
         logger.info(f"Echoed message from {msg.sender_id}")
 
     async def on_channel_mention(self, msg: ChannelMessageContext):
@@ -64,23 +64,23 @@ class HelpfulAgent(WorkerAgent):
         
         if "hello" in text or "hi" in text:
             ws = self.workspace()
-            await ws.agent(msg.sender_id).send_direct_message(
+            await ws.agent(msg.sender_id).send_message(
                 f"Hello {msg.sender_id}! I'm a helpful agent that demonstrates WorkerAgent capabilities."
             )
         elif "help" in text:
             ws = self.workspace()
-            await ws.agent(msg.sender_id).send_direct_message(
+            await ws.agent(msg.sender_id).send_message(
                 "I'm here to help! I can respond to messages, participate in channels, and demonstrate WorkerAgent features."
             )
         elif "history" in text:
             # Note: Message history functionality removed - using workspace directly
             ws = self.workspace()
-            await ws.agent(msg.sender_id).send_direct_message(
+            await ws.agent(msg.sender_id).send_message(
                 "📜 Message history functionality is now handled by the workspace layer."
             )
         else:
             ws = self.workspace()
-            await ws.agent(msg.sender_id).send_direct_message(
+            await ws.agent(msg.sender_id).send_message(
                 "I received your message! I'm a helpful agent that demonstrates WorkerAgent capabilities."
             )
     
@@ -105,7 +105,7 @@ class HelpfulAgent(WorkerAgent):
     async def on_file_upload(self, msg: FileContext):
         """Handle file uploads."""
         ws = self.workspace()
-        await ws.agent(msg.sender_id).send_direct_message(
+        await ws.agent(msg.sender_id).send_message(
             f"📁 I received your file: {msg.filename} ({msg.file_size} bytes)"
         )
     
@@ -179,7 +179,7 @@ class ProjectManagerAgent(WorkerAgent):
             # Send project status summary
             if not self.active_projects:
                 ws = self.workspace()
-                await ws.agent(msg.sender_id).send_direct_message(
+                await ws.agent(msg.sender_id).send_message(
                     "No active projects currently being tracked."
                 )
             else:
@@ -191,7 +191,7 @@ class ProjectManagerAgent(WorkerAgent):
                     )
                 
                 ws = self.workspace()
-                await ws.agent(msg.sender_id).send_direct_message(
+                await ws.agent(msg.sender_id).send_message(
                     "\n".join(status_lines)
                 )
         elif "project" in text and "create" in text:
@@ -209,12 +209,12 @@ class ProjectManagerAgent(WorkerAgent):
             }
             
             ws = self.workspace()
-            await ws.agent(msg.sender_id).send_direct_message(
+            await ws.agent(msg.sender_id).send_message(
                 f"✅ Created project {project_id}! Channel: #project-{project_id}"
             )
         else:
             ws = self.workspace()
-            await ws.agent(msg.sender_id).send_direct_message(
+            await ws.agent(msg.sender_id).send_message(
                 "I'm a project manager! I can help create projects and track their status. What do you need?"
             )
     
@@ -254,7 +254,7 @@ The file has been analyzed and is ready for use.
         """
         
         ws = self.workspace()
-        await ws.agent(msg.sender_id).send_direct_message(result_text.strip())
+        await ws.agent(msg.sender_id).send_message(result_text.strip())
         
         # Add a reaction to show we processed it
         # Note: Reaction functionality would need channel context
@@ -265,11 +265,11 @@ The file has been analyzed and is ready for use.
         """Handle direct messages about file processing."""
         ws = self.workspace()
         if "file" in msg.text.lower():
-            await ws.agent(msg.sender_id).send_direct_message(
+            await ws.agent(msg.sender_id).send_message(
                 "I process uploaded files! Just upload a file and I'll analyze it for you."
             )
         else:
-            await ws.agent(msg.sender_id).send_direct_message(
+            await ws.agent(msg.sender_id).send_message(
                 "Hi! I'm a file processor. Upload any file and I'll process it for you!"
             )
 

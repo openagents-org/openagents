@@ -171,7 +171,7 @@ class OpenConvertDiscoveryMod(BaseMod):
                     
                     return Event(
                         source_id=self._network.network_id,
-                        target_agent_id=message.source_id,
+                        destination_id=message.source_id,
                         payload=response_payload
                     )
             

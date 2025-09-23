@@ -76,6 +76,11 @@ class AgentIdentityManager:
         self.reserved_ids: Set[str] = {"system", "network", "admin", "root", "anonymous"}
         logger.info(f"AgentIdentityManager initialized with session timeout={session_timeout_hours}h")
     
+    def validate_agent(self, agent_id: str, certificate: str) -> bool:
+        """Validate an agent certificate."""
+        # TODO: Implement certificate validation
+        return True
+
     def claim_agent_id(self, agent_id: str, force: bool = False) -> Optional[AgentIdentity]:
         """Claim an agent ID.
         

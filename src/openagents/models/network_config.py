@@ -5,9 +5,9 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 from enum import Enum
 from openagents.models.network_profile import NetworkProfile
 from openagents.models.transport import TransportType
+from openagents.models.network_role import NetworkRole
 
-
-class NetworkMode(Enum):
+class NetworkMode(str, Enum):
     """Network operation modes."""
     CENTRALIZED = "centralized"
     DECENTRALIZED = "decentralized"
@@ -53,6 +53,12 @@ class AgentConfig(BaseModel):
             raise ValueError('Agent name must be a non-empty string')
         return v
 
+class TransportConfigItem(BaseModel):
+    """Configuration for a transport."""
+    
+    type: TransportType = Field(..., description="Transport type")
+    config: Dict[str, Any] = Field(default_factory=dict, description="Transport-specific configuration")
+
 
 class NetworkConfig(BaseModel):
     """Configuration for a network."""
@@ -64,15 +70,17 @@ class NetworkConfig(BaseModel):
     node_id: Optional[str] = Field(None, description="Unique identifier for this network node")
     
     # Network topology configuration
-    host: str = Field("127.0.0.1", description="Host address to bind to")
-    port: int = Field(8570, description="Port to listen on")
-    server_mode: bool = Field(False, description="Whether this node acts as a server/coordinator")
-    coordinator_url: Optional[str] = Field(None, description="URL of the coordinator (for centralized mode)")
     bootstrap_nodes: List[str] = Field(default_factory=list, description="Bootstrap nodes for decentralized mode")
     
     # Transport configuration
-    transport: Union[TransportType, str] = Field(TransportType.WEBSOCKET, description="Transport type to use")
-    transport_config: Dict[str, Any] = Field(default_factory=dict, description="Transport-specific configuration")
+    transports: List[TransportConfigItem] = Field(
+        default_factory=lambda: [
+            TransportConfigItem(type=TransportType.HTTP, config={})
+        ],
+        description="List of transport configurations"
+    )
+    manifest_transport: Optional[str] = Field("http", description="Transport used for manifests")
+    recommended_transport: Optional[str] = Field("grpc", description="Recommended transport type")
     
     # Security configuration
     encryption_enabled: bool = Field(True, description="Whether encryption is enabled")
@@ -105,27 +113,6 @@ class NetworkConfig(BaseModel):
             raise ValueError('Network name must be a non-empty string')
         return v
     
-    @field_validator('transport', mode='before')
-    @classmethod
-    def validate_transport(cls, v):
-        if isinstance(v, str):
-            # Convert string to enum for validation but allow string values for YAML compatibility
-            try:
-                TransportType(v)  # Just validate the string is valid
-                return v  # Return string value for backward compatibility
-            except ValueError:
-                raise ValueError(f"Invalid transport type: {v}. Must be one of: {[t.value for t in TransportType]}")
-        elif isinstance(v, TransportType):
-            return v.value  # Convert enum to string for consistency
-        return v
-    
-    @field_validator('coordinator_url')
-    @classmethod
-    def coordinator_url_required_for_centralized_client(cls, v, info):
-        if info.data.get('mode') == NetworkMode.CENTRALIZED and not info.data.get('server_mode', False):
-            if not v:
-                raise ValueError('coordinator_url is required for centralized client mode')
-        return v
 
 
 class OpenAgentsConfig(BaseModel):

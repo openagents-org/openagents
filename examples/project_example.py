@@ -30,7 +30,7 @@ async def main():
     print("🤖 Starting service agents...")
     echo_agent = ProjectEchoAgentRunner(
         "echo-agent", 
-        protocol_names=["openagents.mods.communication.thread_messaging"],
+        protocol_names=["openagents.mods.workspace.messaging"],
         echo_prefix="ProjectWorker"
     )
     
@@ -180,8 +180,8 @@ async def main():
             try:
                 # Subscribe to project events using network-level events
                 event_sub = network.events.subscribe(
-                    agent_id="project-demo-agent",
-                    event_patterns=["project.*"]  # Subscribe to all project events
+                    "project-demo-agent",
+                    ["project.*"]  # Subscribe to all project events
                 )
                 
                 print("✅ Project event subscription created!")
@@ -229,7 +229,7 @@ async def main():
                 completion_received = False
                 
                 # Create event queue for polling approach
-                event_queue = network.events.create_agent_event_queue("project-demo-agent")
+                network.events.register_agent("project-demo-agent")
                 
                 async def listen_for_project_events():
                     """Listen for project events using queue polling."""
@@ -240,24 +240,29 @@ async def main():
                     while timeout_count < max_timeouts and not completion_received and event_count < 10:
                         try:
                             # Poll for events with 1 second timeout
-                            event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
-                            event_count += 1
-                            print(f"📨 Project Event {event_count}: {event.event_name}")
-                            print(f"   Source: {event.source_agent_id}")
-                            if event.target_channel:
-                                print(f"   Channel: {event.target_channel}")
-                            if event.target_agent_id:
-                                print(f"   Target: {event.target_agent_id}")
-                            if event.payload:
-                                print(f"   Payload: {event.payload}")
-                                
-                                # Check for project completion
-                                if event.event_name == "project.run.completed":
-                                    completion_received = True
-                                    print(f"🎉 PROJECT COMPLETED! Results: {event.payload.get('results', {})}")
-                            print()
-                        except asyncio.TimeoutError:
+                            await asyncio.sleep(1.0)
+                            events = await network.events.poll_events("project-demo-agent")
+                            
+                            for event in events:
+                                event_count += 1
+                                print(f"📨 Project Event {event_count}: {event.event_name}")
+                                print(f"   Source: {event.source_id}")
+                                if event.destination_id:
+                                    print(f"   Destination: {event.destination_id}")
+                                if event.payload:
+                                    print(f"   Payload: {event.payload}")
+                                    
+                                    # Check for project completion
+                                    if event.event_name == "project.run.completed":
+                                        completion_received = True
+                                        print(f"🎉 PROJECT COMPLETED! Results: {event.payload.get('results', {})}")
+                                print()
+                            
+                            if not events:
+                                timeout_count += 1
+                        except Exception as e:
                             timeout_count += 1
+                            print(f"⏳ Error polling events: {e}")
                             continue
                 
                 try:
