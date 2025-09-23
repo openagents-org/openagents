@@ -22,8 +22,6 @@ from typing import List, Optional, Dict, Any, Tuple
 
 from openagents.launchers.network_launcher import async_launch_network, launch_network
 from openagents.launchers.terminal_console import launch_console
-from openagents.agents.simple_openai_agent import SimpleOpenAIAgentRunner
-from openagents.agents.simple_echo_agent import SimpleEchoAgentRunner
 
 # Global verbose flag that can be imported by other modules
 VERBOSE_MODE = False
@@ -677,124 +675,355 @@ def studio_command(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+# Network command handlers
+def handle_network_command(args: argparse.Namespace) -> None:
+    """Route network subcommands to appropriate handlers.
+    
+    Args:
+        args: Parsed command line arguments
+    """
+    if args.network_action == "start":
+        network_start_command(args)
+    elif args.network_action == "stop":
+        network_stop_command(args)
+    elif args.network_action == "list":
+        network_list_command(args)
+    elif args.network_action == "info":
+        network_info_command(args)
+    elif args.network_action == "logs":
+        network_logs_command(args)
+    elif args.network_action == "interact":
+        network_interact_command(args)
+    elif args.network_action == "create":
+        network_create_command(args)
+    else:
+        logging.error(f"Unknown network action: {args.network_action}")
+
+
+def network_start_command(args: argparse.Namespace) -> None:
+    """Handle 'network start' command.
+    
+    Args:
+        args: Command arguments
+    """
+    if args.detach:
+        logging.info(f"Starting network in background: {args.config}")
+        # TODO: Implement detached mode with process management
+        logging.warning("Detached mode not yet implemented, running in foreground")
+    
+    # Use existing launch_network functionality
+    launch_network(args.config, args.runtime)
+
+
+def network_stop_command(args: argparse.Namespace) -> None:
+    """Handle 'network stop' command.
+    
+    Args:
+        args: Command arguments
+    """
+    logging.info(f"Stopping network: {args.name if args.name else 'all networks'}")
+    logging.warning("Network stop not yet implemented")
+
+
+def network_list_command(args: argparse.Namespace) -> None:
+    """Handle 'network list' command.
+    
+    Args:
+        args: Command arguments
+    """
+    if args.status:
+        print("Networks with status:")
+        print("NAME              STATUS    PORT    PID")
+        print("================  ========  ======  =====")
+        print("No networks found")
+    else:
+        print("Available networks:")
+        print("No networks found")
+
+
+def network_info_command(args: argparse.Namespace) -> None:
+    """Handle 'network info' command.
+    
+    Args:
+        args: Command arguments
+    """
+    logging.info(f"Getting info for network: {args.name}")
+    logging.warning("Network info not yet implemented")
+
+
+def network_logs_command(args: argparse.Namespace) -> None:
+    """Handle 'network logs' command.
+    
+    Args:
+        args: Command arguments
+    """
+    logging.info(f"{'Following' if args.follow else 'Showing'} logs for network: {args.name}")
+    logging.warning("Network logs not yet implemented")
+
+
+def network_interact_command(args: argparse.Namespace) -> None:
+    """Handle 'network interact' command.
+    
+    Args:
+        args: Command arguments
+    """
+    # Use existing connect functionality
+    launch_console(args.host, args.port, args.id, args.network)
+
+
+def network_create_command(args: argparse.Namespace) -> None:
+    """Handle 'network create' command.
+    
+    Args:
+        args: Command arguments
+    """
+    logging.info(f"Creating network from template: {args.template}")
+    logging.warning("Network creation not yet implemented")
+
+
+# Agent command handlers
+def handle_agent_command(args: argparse.Namespace) -> None:
+    """Route agent subcommands to appropriate handlers.
+    
+    Args:
+        args: Parsed command line arguments
+    """
+    if args.agent_action == "start":
+        agent_start_command(args)
+    elif args.agent_action == "stop":
+        agent_stop_command(args)
+    elif args.agent_action == "list":
+        agent_list_command(args)
+    elif args.agent_action == "logs":
+        agent_logs_command(args)
+    elif args.agent_action == "create":
+        agent_create_command(args)
+    else:
+        logging.error(f"Unknown agent action: {args.agent_action}")
+
+
+def agent_start_command(args: argparse.Namespace) -> None:
+    """Handle 'agent start' command.
+    
+    Args:
+        args: Command arguments
+    """
+    from openagents.agents.runner import AgentRunner
+    import yaml
+    
+    if args.detach:
+        logging.info(f"Starting agent in background: {args.config}")
+        logging.warning("Detached mode not yet implemented, running in foreground")
+    
+    try:
+        # Load agent using AgentRunner.from_yaml (reuse existing logic)
+        logging.info(f"Loading agent from configuration: {args.config}")
+        agent = AgentRunner.from_yaml(args.config)
+        
+        # Get agent information
+        agent_id = agent.agent_id
+        agent_type = type(agent).__name__
+        
+        logging.info(f"Loaded agent '{agent_id}' of type '{agent_type}'")
+        
+        # Prepare connection settings - prioritize command line arguments over config file
+        connection_settings = {}
+        
+        # Load config file to get connection settings if needed
+        config_path = Path(args.config)
+        if config_path.exists():
+            try:
+                with open(config_path, 'r') as file:
+                    config = yaml.safe_load(file)
+                
+                # Get connection settings from config file
+                if 'connection' in config:
+                    conn_config = config['connection']
+                    connection_settings.update(conn_config)
+            except Exception as e:
+                logging.warning(f"Could not read connection settings from config file: {e}")
+        
+        # Override with command line arguments (if provided)
+        if args.host is not None:
+            connection_settings['host'] = args.host
+        if args.port is not None:
+            connection_settings['port'] = args.port
+        if args.network is not None:
+            connection_settings['network_id'] = args.network
+        
+        # Apply defaults for any missing settings
+        host = connection_settings.get('host', 'localhost')
+        port = connection_settings.get('port', 8570)
+        network_id = connection_settings.get('network_id')
+        
+        # Start the agent and wait for it to stop
+        try:
+            logging.info(f"Starting agent '{agent_id}' - connecting to {host}:{port}")
+            if network_id:
+                logging.info(f"Target network ID: {network_id}")
+            
+            # Start the agent
+            agent.start(
+                host=host,
+                port=port,
+                network_id=network_id,
+                metadata={"agent_type": agent_type, "config_file": args.config}
+            )
+            
+            # Wait for the agent to stop
+            agent.wait_for_stop()
+            
+        except KeyboardInterrupt:
+            logging.info("Agent stopped by user")
+            agent.stop()
+        except Exception as e:
+            logging.error(f"Error running agent: {e}")
+            agent.stop()
+            
+    except FileNotFoundError as e:
+        logging.error(f"Configuration file not found: {e}")
+        return
+    except ValueError as e:
+        logging.error(f"Invalid configuration: {e}")
+        return
+    except ImportError as e:
+        logging.error(f"Failed to import agent class: {e}")
+        return
+    except Exception as e:
+        logging.error(f"Failed to load agent: {e}")
+        return
+
+
+def agent_stop_command(args: argparse.Namespace) -> None:
+    """Handle 'agent stop' command.
+    
+    Args:
+        args: Command arguments
+    """
+    logging.info(f"Stopping agent: {args.name}")
+    logging.warning("Agent stop not yet implemented")
+
+
+def agent_list_command(args: argparse.Namespace) -> None:
+    """Handle 'agent list' command.
+    
+    Args:
+        args: Command arguments
+    """
+    if args.network:
+        print(f"Agents in network '{args.network}':")
+    else:
+        print("All agents:")
+    
+    print("NAME              TYPE           STATUS    NETWORK")
+    print("================  =============  ========  ================")
+    print("No agents found")
+
+
+def agent_logs_command(args: argparse.Namespace) -> None:
+    """Handle 'agent logs' command.
+    
+    Args:
+        args: Command arguments
+    """
+    logging.info(f"{'Following' if args.follow else 'Showing'} logs for agent: {args.name}")
+    logging.warning("Agent logs not yet implemented")
+
+
+def agent_create_command(args: argparse.Namespace) -> None:
+    """Handle 'agent create' command.
+    
+    Args:
+        args: Command arguments
+    """
+    logging.info(f"Creating agent from template: {args.template}")
+    logging.warning("Agent creation not yet implemented")
+
+
 def launch_agent_command(args: argparse.Namespace) -> None:
     """Handle launch-agent command.
     
     Args:
         args: Command-line arguments
     """
-    # Load agent configuration from YAML file
-    try:
-        with open(args.config, 'r') as file:
-            config = yaml.safe_load(file)
-    except Exception as e:
-        logging.error(f"Failed to load agent configuration: {e}")
-        return
-
-    # Validate configuration
-    if 'type' not in config:
-        logging.error("Agent configuration must specify 'type'")
-        return
+    from openagents.agents.runner import AgentRunner
     
-    if 'config' not in config:
-        logging.error("Agent configuration must include a 'config' section")
-        return
-
-    # Get the agent type and configuration
-    agent_type = config['type']
-    agent_config = config['config']
-    
-    # Create and launch the agent based on type
     try:
-        # Check if the agent type is a fully qualified class path
-        if '.' in agent_type:
-            # Import the module and get the class
-            module_path, class_name = agent_type.rsplit('.', 1)
-            try:
-                module = __import__(module_path, fromlist=[class_name])
-                agent_class = getattr(module, class_name)
-            except (ImportError, AttributeError) as e:
-                logging.error(f"Failed to import agent class '{agent_type}': {e}")
-                return
-        else:
-            # Handle predefined agent types
-            if agent_type.lower() == 'openai':
-                agent_class = SimpleOpenAIAgentRunner
-            elif agent_type.lower() == 'simple':
-                from openagents.agents.simple_agent import SimpleAutoAgent
-                agent_class = SimpleAutoAgent
-            elif agent_type.lower() == 'echo':
-                agent_class = SimpleEchoAgentRunner
-            else:
-                logging.error(f"Unsupported predefined agent type: {agent_type}")
-                logging.info("Supported predefined types: 'openai', 'simple', 'echo'")
-                logging.info("Or use a fully qualified class path (e.g., 'openagents.agents.simple_agent.SimpleAgentRunner')")
-                return
+        # Load agent using AgentRunner.from_yaml
+        logging.info(f"Loading agent from configuration: {args.config}")
+        agent = AgentRunner.from_yaml(args.config)
         
-        # Create the agent using the config parameters directly as kwargs
+        # Get agent information
+        agent_id = agent.agent_id
+        agent_type = type(agent).__name__
+        
+        logging.info(f"Loaded agent '{agent_id}' of type '{agent_type}'")
+        
+        # Prepare connection settings - prioritize command line arguments over config file
+        connection_settings = {}
+        
+        # Load config file to get connection settings if needed
+        config_path = Path(args.config)
+        if config_path.exists():
+            try:
+                with open(config_path, 'r') as file:
+                    config = yaml.safe_load(file)
+                
+                # Get connection settings from config file
+                if 'connection' in config:
+                    conn_config = config['connection']
+                    connection_settings.update(conn_config)
+            except Exception as e:
+                logging.warning(f"Could not read connection settings from config file: {e}")
+        
+        # Override with command line arguments (if provided)
+        if args.host is not None:
+            connection_settings['host'] = args.host
+        if args.port is not None:
+            connection_settings['port'] = args.port
+        if args.network_id is not None:
+            connection_settings['network_id'] = args.network_id
+        
+        # Apply defaults for any missing settings
+        host = connection_settings.get('host', 'localhost')
+        port = connection_settings.get('port', 8570)
+        network_id = connection_settings.get('network_id')
+        
+        # Start the agent and wait for it to stop
         try:
-            agent = agent_class(**agent_config)
+            logging.info(f"Starting agent '{agent_id}' - connecting to {host}:{port}")
+            if network_id:
+                logging.info(f"Target network ID: {network_id}")
             
             # Start the agent
-            logging.info(f"Starting agent of type '{agent_type}' with ID '{agent_config.get('agent_id', 'unknown')}'")
+            agent.start(
+                host=host,
+                port=port,
+                network_id=network_id,
+                metadata={"agent_type": agent_type, "config_file": args.config}
+            )
             
-            # Connection settings - prioritize command line arguments over config file
-            host = args.host
-            port = args.port
-            network_id = args.network_id
+            # Wait for the agent to stop
+            agent.wait_for_stop()
             
-            # If not provided in command line, try to get from config file
-            if 'connection' in config:
-                conn_config = config['connection']
-                
-                # Get host from config if not provided in command line
-                if host is None:
-                    host = conn_config.get('host')
-                
-                # Get port from config if not provided in command line
-                if port is None:
-                    port = conn_config.get('port')
-                
-                # Get network_id from config if not provided in command line
-                if network_id is None:
-                    # Support both network_id and network-id keys
-                    network_id = conn_config.get('network_id') or conn_config.get('network-id')
-            
-            # Apply default values as last resort if still None
-            if host is None:
-                host = "localhost"
-            if port is None:
-                port = 8570
-            
-            # Start the agent and wait for it to stop
-            try:
-                # Start the agent
-                agent.start(
-                    host=host,
-                    port=port,
-                    network_id=network_id,
-                    metadata={"agent_type": agent_type}
-                )
-                
-                # Wait for the agent to stop
-                agent.wait_for_stop()
-                
-            except KeyboardInterrupt:
-                logging.info("Agent stopped by user")
-                agent.stop()
-            except Exception as e:
-                logging.error(f"Error running agent: {e}")
-                agent.stop()
-            
-        except TypeError as e:
-            logging.error(f"Error creating agent: {e}")
-            logging.error("Check that your configuration parameters match the agent's constructor")
-            return
+        except KeyboardInterrupt:
+            logging.info("Agent stopped by user")
+            agent.stop()
         except Exception as e:
-            logging.error(f"Unexpected error creating agent: {e}")
-            return
+            logging.error(f"Error running agent: {e}")
+            agent.stop()
+            
+    except FileNotFoundError as e:
+        logging.error(f"Configuration file not found: {e}")
+        return
+    except ValueError as e:
+        logging.error(f"Invalid configuration: {e}")
+        return
+    except ImportError as e:
+        logging.error(f"Failed to import agent class: {e}")
+        return
     except Exception as e:
-        logging.error(f"Failed to create agent: {e}")
+        logging.error(f"Failed to load agent: {e}")
         return
 
 
@@ -818,32 +1047,101 @@ def main(argv: Optional[List[str]] = None) -> int:
     
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
     
-    # Launch network command
-    launch_network_parser = subparsers.add_parser("launch-network", help="Launch a network")
-    launch_network_parser.add_argument("config", help="Path to network configuration file")
-    launch_network_parser.add_argument("--runtime", type=int, help="Runtime in seconds (default: run indefinitely)")
+    # Network command group
+    network_parser = subparsers.add_parser("network", help="Network management commands")
+    network_subparsers = network_parser.add_subparsers(dest="network_action", help="Network actions")
     
-    # Connect command
-    connect_parser = subparsers.add_parser("connect", help="Connect to a network server")
-    connect_parser.add_argument("--host", default="localhost", help="Server host address (required if --network-id is not provided)")
-    connect_parser.add_argument("--port", type=int, default=8570, help="Server port (default: 8570)")
-    connect_parser.add_argument("--id", help="Agent ID (default: auto-generated)")
-    connect_parser.add_argument("--network-id", help="Network ID to connect to (required if --host is not provided)")
+    # network create
+    network_create_parser = network_subparsers.add_parser("create", help="Create a new network from template")
+    network_create_parser.add_argument("template", nargs="?", help="Network template name")
+    network_create_parser.add_argument("--name", help="Network name")
+    network_create_parser.add_argument("--port", type=int, help="Network port")
     
-    # Launch agent command
-    launch_agent_parser = subparsers.add_parser("launch-agent", help="Launch an agent from a configuration file")
-    launch_agent_parser.add_argument("config", help="Path to agent configuration file")
-    launch_agent_parser.add_argument("--network-id", help="Network ID to connect to (overrides config file)")
-    launch_agent_parser.add_argument("--host", help="Server host address (overrides config file)")
-    launch_agent_parser.add_argument("--port", type=int, help="Server port (overrides config file)")
+    # network start
+    network_start_parser = network_subparsers.add_parser("start", help="Start a network")
+    network_start_parser.add_argument("config", help="Path to network configuration file or network name")
+    network_start_parser.add_argument("--detach", action="store_true", help="Run in background")
+    network_start_parser.add_argument("--runtime", type=int, help="Runtime in seconds (default: run indefinitely)")
     
-    # Studio command
+    # network stop
+    network_stop_parser = network_subparsers.add_parser("stop", help="Stop a running network")
+    network_stop_parser.add_argument("name", nargs="?", help="Network name to stop")
+    
+    # network list
+    network_list_parser = network_subparsers.add_parser("list", help="List networks")
+    network_list_parser.add_argument("--status", action="store_true", help="Show status information")
+    
+    # network info
+    network_info_parser = network_subparsers.add_parser("info", help="Show network information")
+    network_info_parser.add_argument("name", help="Network name")
+    
+    # network logs
+    network_logs_parser = network_subparsers.add_parser("logs", help="Show network logs")
+    network_logs_parser.add_argument("name", help="Network name")
+    network_logs_parser.add_argument("--follow", action="store_true", help="Follow log output")
+    
+    # network interact
+    network_interact_parser = network_subparsers.add_parser("interact", help="Connect to a network interactively")
+    network_interact_parser.add_argument("--network", help="Network ID to connect to")
+    network_interact_parser.add_argument("--host", default="localhost", help="Server host address (default: localhost)")
+    network_interact_parser.add_argument("--port", type=int, default=8570, help="Server port (default: 8570)")
+    network_interact_parser.add_argument("--id", help="Agent ID (default: auto-generated)")
+    
+    # Agent command group
+    agent_parser = subparsers.add_parser("agent", help="Agent management commands")
+    agent_subparsers = agent_parser.add_subparsers(dest="agent_action", help="Agent actions")
+    
+    # agent create
+    agent_create_parser = agent_subparsers.add_parser("create", help="Create a new agent from template")
+    agent_create_parser.add_argument("template", help="Agent template name")
+    agent_create_parser.add_argument("--name", help="Agent name")
+    agent_create_parser.add_argument("--network", help="Network to connect to")
+    
+    # agent start
+    agent_start_parser = agent_subparsers.add_parser("start", help="Start an agent")
+    agent_start_parser.add_argument("config", help="Path to agent configuration file or agent name")
+    agent_start_parser.add_argument("--network", help="Network ID to connect to (overrides config)")
+    agent_start_parser.add_argument("--host", help="Server host address (overrides config)")
+    agent_start_parser.add_argument("--port", type=int, help="Server port (overrides config)")
+    agent_start_parser.add_argument("--detach", action="store_true", help="Run in background")
+    
+    # agent stop
+    agent_stop_parser = agent_subparsers.add_parser("stop", help="Stop a running agent")
+    agent_stop_parser.add_argument("name", help="Agent name to stop")
+    
+    # agent list
+    agent_list_parser = agent_subparsers.add_parser("list", help="List agents")
+    agent_list_parser.add_argument("--network", help="Filter by network")
+    
+    # agent logs
+    agent_logs_parser = agent_subparsers.add_parser("logs", help="Show agent logs")
+    agent_logs_parser.add_argument("name", help="Agent name")
+    agent_logs_parser.add_argument("--follow", action="store_true", help="Follow log output")
+    
+    # Studio command (unchanged)
     studio_parser = subparsers.add_parser("studio", help="Launch OpenAgents Studio - a Jupyter-like web interface")
     studio_parser.add_argument("--host", default="localhost", help="Network host address (default: localhost)")
     studio_parser.add_argument("--port", type=int, default=8570, help="Network port (default: 8570)")
     studio_parser.add_argument("--studio-port", type=int, default=8055, help="Studio frontend port (default: 8055)")
     studio_parser.add_argument("--workspace", "-w", help="Path to workspace directory (default: ./openagents_workspace)")
     studio_parser.add_argument("--no-browser", action="store_true", help="Don't automatically open browser")
+    
+    # Legacy commands for backward compatibility
+    legacy_launch_network_parser = subparsers.add_parser("launch-network", help="[DEPRECATED] Use 'network start' instead")
+    legacy_launch_network_parser.add_argument("config", help="Path to network configuration file")
+    legacy_launch_network_parser.add_argument("--runtime", type=int, help="Runtime in seconds (default: run indefinitely)")
+    
+    legacy_connect_parser = subparsers.add_parser("connect", help="[DEPRECATED] Use 'network interact' instead")
+    legacy_connect_parser.add_argument("--host", default="localhost", help="Server host address")
+    legacy_connect_parser.add_argument("--port", type=int, default=8570, help="Server port (default: 8570)")
+    legacy_connect_parser.add_argument("--id", help="Agent ID (default: auto-generated)")
+    legacy_connect_parser.add_argument("--network-id", help="Network ID to connect to")
+    
+    legacy_launch_agent_parser = subparsers.add_parser("launch-agent", help="[DEPRECATED] Use 'agent start' instead")
+    legacy_launch_agent_parser.add_argument("config", help="Path to agent YAML configuration file")
+    legacy_launch_agent_parser.add_argument("--network-id", help="Network ID to connect to (overrides config file)")
+    legacy_launch_agent_parser.add_argument("--host", help="Server host address (overrides config file)")
+    legacy_launch_agent_parser.add_argument("--port", type=int, help="Server port (overrides config file)")
     
     # Parse arguments
     args = parser.parse_args(argv)
@@ -852,14 +1150,27 @@ def main(argv: Optional[List[str]] = None) -> int:
     setup_logging(args.log_level, args.verbose)
     
     try:
-        if args.command == "launch-network":
-            launch_network_command(args)
-        elif args.command == "connect":
-            connect_command(args)
-        elif args.command == "launch-agent":
-            launch_agent_command(args)
+        if args.command == "network":
+            handle_network_command(args)
+        elif args.command == "agent":
+            handle_agent_command(args)
         elif args.command == "studio":
             studio_command(args)
+        # Legacy commands with deprecation warnings
+        elif args.command == "launch-network":
+            logging.warning("⚠️  'launch-network' is deprecated. Use 'openagents network start' instead.")
+            launch_network_command(args)
+        elif args.command == "connect":
+            logging.warning("⚠️  'connect' is deprecated. Use 'openagents network interact' instead.")
+            # Convert connect args to network interact format
+            args.network = getattr(args, 'network_id', None)
+            connect_command(args)
+        elif args.command == "launch-agent":
+            logging.warning("⚠️  'launch-agent' is deprecated. Use 'openagents agent start' instead.")
+            # Convert legacy args to new format
+            if hasattr(args, 'network_id'):
+                args.network = args.network_id
+            launch_agent_command(args)
         else:
             parser.print_help()
             return 1
