@@ -13,7 +13,7 @@ const McpMainPage: React.FC = () => {
       {/* 默认 MCP 视图 */}
       <Route
         index
-        element={<McpView onBackClick={() => navigate("/chat")} />}
+        element={<McpView />}
       />
 
       {/* MCP 配置子页面 */}

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useForumStore } from "@/stores/forumStore";
 import { useOpenAgentsService } from "@/contexts/OpenAgentsServiceContext";
+import useConnectedStatus from "@/hooks/useConnectedStatus";
 
 // Section Header Component
 const SectionHeader: React.FC<{ title: string }> = React.memo(({ title }) => (
@@ -95,12 +96,15 @@ const ForumSidebar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { service: openAgentsService } = useOpenAgentsService();
+  const { isConnected } = useConnectedStatus();
 
   const {
     topics,
     setConnection,
     loadTopics,
-    getPopularTopics
+    getPopularTopics,
+    setupEventListeners,
+    cleanupEventListeners
   } = useForumStore();
 
   // 获取热门话题（缓存计算结果）
@@ -114,15 +118,33 @@ const ForumSidebar: React.FC = () => {
   // 检查当前是否在某个话题详情页
   const currentTopicId = location.pathname.match(/^\/forum\/([^/]+)$/)?.[1];
 
-  // 设置连接并加载话题
+  // 设置连接
   useEffect(() => {
     if (openAgentsService) {
       setConnection(openAgentsService);
-      if (topics.length === 0) {
-        loadTopics();
-      }
     }
-  }, [openAgentsService, setConnection, loadTopics, topics.length]);
+  }, [openAgentsService, setConnection]);
+
+  // 加载话题（等待连接建立）
+  useEffect(() => {
+    if (openAgentsService && isConnected && topics.length === 0) {
+      console.log('ForumSidebar: Connection ready, loading topics');
+      loadTopics();
+    }
+  }, [openAgentsService, isConnected, loadTopics, topics.length]);
+
+  // 设置forum事件监听器
+  useEffect(() => {
+    if (openAgentsService) {
+      console.log('ForumSidebar: Setting up forum event listeners');
+      setupEventListeners();
+
+      return () => {
+        console.log('ForumSidebar: Cleaning up forum event listeners');
+        cleanupEventListeners();
+      };
+    }
+  }, [openAgentsService, setupEventListeners, cleanupEventListeners]);
 
   // 分类数据（静态）
   const forumCategories = [
@@ -161,7 +183,7 @@ const ForumSidebar: React.FC = () => {
       </div> */}
 
       {/* Popular Topics Section */}
-      <SectionHeader title="POPULAR TOPICS" />
+      <SectionHeader title="POPULAR 10 TOPICS" />
       <div className="flex-1 overflow-y-auto px-3 custom-scrollbar">
         {popularTopics.length === 0 ? (
           <div className="text-center py-4">

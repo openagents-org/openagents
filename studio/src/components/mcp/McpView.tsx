@@ -3,11 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import McpRouterView from './McpRouterView';
 import McpServerView from './McpServerView';
 
-interface McpViewProps {
-  onBackClick: () => void;
-}
-
-const McpView: React.FC<McpViewProps> = ({ onBackClick }) => {
+const McpView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'router' | 'server'>('router');
   
   // Callback to switch to the server tab when a server is added
@@ -16,19 +12,9 @@ const McpView: React.FC<McpViewProps> = ({ onBackClick }) => {
   }, []);
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-800">
-        <button
-          onClick={onBackClick}
-          className="flex items-center text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
-          </svg>
-          Back
-        </button>
+    <div className="h-full flex flex-col dark:bg-gray-900">
+      <div className="flex items-center justify-center p-4 border-b border-gray-200 dark:border-gray-800 dark:bg-gray-800">
         <h2 className="text-lg font-medium">MCP</h2>
-        <div className="w-8" /> {/* Spacer for alignment */}
       </div>
 
       {/* Tabs */}

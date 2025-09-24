@@ -1,6 +1,8 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ForumTopic } from '@/stores/forumStore';
+import MarkdownRenderer from '@/components/common/MarkdownRenderer';
+import { formatDateTime } from '@/utils/utils';
 
 interface ForumTopicItemProps {
   topic: ForumTopic;
@@ -16,7 +18,7 @@ const ForumTopicItem: React.FC<ForumTopicItemProps> = React.memo(({
     navigate(`/forum/${topic.topic_id}`);
   };
 
-  const timeAgo = new Date(topic.timestamp * 1000).toLocaleString();
+  const timeAgo = formatDateTime(topic.timestamp * 1000);
 
   return (
     <div
@@ -29,10 +31,14 @@ const ForumTopicItem: React.FC<ForumTopicItemProps> = React.memo(({
       </h3>
 
       {/* 话题内容预览 */}
-      <p className="text-sm mb-3 line-clamp-3 text-gray-600 dark:text-gray-400">
-        {topic.content.slice(0, 200)}
-        {topic.content.length > 200 && '...'}
-      </p>
+      <div className="text-sm line-clamp-3">
+        <MarkdownRenderer
+          content={topic.content}
+          truncate={true}
+          maxLength={200}
+          className="text-gray-600 dark:text-gray-400"
+        />
+      </div>
 
       {/* 元信息栏 */}
       <div className="flex items-center justify-between">

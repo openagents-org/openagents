@@ -11,7 +11,7 @@ const ProfileMainPage: React.FC = () => {
       <Route
         index
         element={
-          <div className="p-6">
+          <div className="p-6 dark:bg-gray-900 h-full">
             <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100">
               Profile
             </h1>

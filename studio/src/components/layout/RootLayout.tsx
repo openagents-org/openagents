@@ -1,6 +1,8 @@
 import React, { ReactNode } from "react";
 import ModSidebar from "./ModSidebar";
 import Sidebar from "./Sidebar";
+import ConnectionLoadingOverlay from "@/components/common/ConnectionLoadingOverlay";
+import useConnectedStatus from "@/hooks/useConnectedStatus";
 
 interface RootLayoutProps {
   children: ReactNode;
@@ -14,9 +16,13 @@ interface RootLayoutProps {
  * 每个页面组件会通过自己的 hooks 获取需要的数据
  */
 const RootLayout: React.FC<RootLayoutProps> = ({ children }) => {
+  const { isConnected } = useConnectedStatus();
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-slate-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+      {/* 连接状态覆盖层 */}
+      {!isConnected && <ConnectionLoadingOverlay />}
+
       {/* 左侧模块导航栏 */}
       <ModSidebar />
 

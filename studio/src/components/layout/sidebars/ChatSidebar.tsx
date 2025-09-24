@@ -170,7 +170,7 @@ const ChatSidebar: React.FC = () => {
       <SectionHeader title="CHANNELS" />
       <div className="px-3">
         {channelMessages.isLoading && channels.length === 0 ? (
-          <div className="text-gray-500 text-sm px-2 py-2">Loading channels...</div>
+          <div className="text-gray-500 text-sm px-2 py-2 text-center">Loading channels...</div>
         ) : (
           <ul className="flex flex-col gap-1">
             {channels.map((channel) => (
@@ -183,7 +183,7 @@ const ChatSidebar: React.FC = () => {
               />
             ))}
             {channels.length === 0 && !channelMessages.isLoading && (
-              <div className="text-gray-500 text-sm px-2 py-2">No channels available</div>
+              <div className="text-gray-500 text-sm px-2 py-2 text-center">No channels available</div>
             )}
           </ul>
         )}
@@ -193,7 +193,7 @@ const ChatSidebar: React.FC = () => {
       <SectionHeader title="DIRECT MESSAGES" />
       <div className="flex-1 overflow-y-auto px-3 custom-scrollbar">
         {directMessages.isLoading && agents.length === 0 ? (
-          <div className="text-gray-500 text-sm px-2 py-2">Loading agents...</div>
+          <div className="text-gray-500 text-sm px-2 py-2 text-center">Loading agents...</div>
         ) : (
           <ul className="flex flex-col gap-1">
             {agents.map((agent) => (
@@ -206,7 +206,7 @@ const ChatSidebar: React.FC = () => {
               />
             ))}
             {agents.length === 0 && !directMessages.isLoading && (
-              <div className="text-gray-500 text-sm px-2 py-2">No agents online</div>
+              <div className="text-gray-500 text-sm px-2 py-2 text-center">No agents online</div>
             )}
           </ul>
         )}

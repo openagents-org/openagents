@@ -148,3 +148,32 @@ export const formatRelativeTimestamp = (timestamp: string | number): string => {
 export const formatRelativeDate = (dateString: string): string => {
   return formatRelativeTimestamp(dateString);
 };
+
+/**
+ * 格式化时间戳为具体的日期时间显示
+ * @param timestamp - 时间戳（秒级Unix时间戳）
+ * @param options - 格式选项
+ * @returns 格式化后的日期时间字符串
+ */
+export const formatDateTime = (timestamp: number, options?: {
+  includeTime?: boolean;
+  locale?: string;
+}): string => {
+  const { includeTime = true, locale = 'zh-CN' } = options || {};
+
+  if (!timestamp || timestamp <= 0) {
+    return 'Unknown date';
+  }
+
+  const date = new Date(timestamp);
+
+  if (isNaN(date.getTime())) {
+    return 'Invalid date';
+  }
+
+  if (includeTime) {
+    return date.toLocaleString(locale);
+  } else {
+    return date.toLocaleDateString(locale);
+  }
+};

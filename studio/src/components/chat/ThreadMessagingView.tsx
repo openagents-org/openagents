@@ -779,6 +779,7 @@ const ThreadMessagingViewEventBased = forwardRef<
                     }}
                     onReply={startReply}
                     onQuote={startQuote}
+                    isDMChat={!!currentDirectMessage}
                   />
                 );
               })()}

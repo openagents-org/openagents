@@ -5,7 +5,6 @@ import { PLUGIN_NAME_ENUM } from "@/types/plugins";
 // Pages
 import NetworkSelectionPage from "@/pages/NetworkSelectionPage";
 import AgentSetupPage from "@/pages/AgentSetupPage";
-import ConnectionLoadingPage from "@/pages/ConnectionLoadingPage";
 import ChatMainPage from "@/pages/chat/ChatMainPage";
 import ForumMainPage from "@/pages/forum/ForumMainPage";
 import WikiMainPage from "@/pages/wiki/WikiMainPage";
@@ -167,12 +166,6 @@ export const dynamicRouteConfig: RouteConfig[] = [
     path: "/agent-setup",
     element: AgentSetupPage,
     title: "Agent Setup",
-    requiresLayout: false,
-  },
-  {
-    path: "/connection-loading",
-    element: ConnectionLoadingPage,
-    title: "Connecting",
     requiresLayout: false,
   },
 

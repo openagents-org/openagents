@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useForumStore } from '@/stores/forumStore';
 import { useOpenAgentsService } from '@/contexts/OpenAgentsServiceContext';
+import useConnectedStatus from '@/hooks/useConnectedStatus';
 import ForumTopicItem from './components/ForumTopicItem';
 import ForumCreateModal from './components/ForumCreateModal';
 
@@ -8,27 +9,50 @@ const ForumTopicList: React.FC = () => {
   const [showCreateModal, setShowCreateModal] = useState(false);
 
   const { service: openAgentsService } = useOpenAgentsService();
+  const { isConnected } = useConnectedStatus();
 
   const {
     topics,
     topicsLoading,
     topicsError,
     setConnection,
-    loadTopics
+    loadTopics,
+    setupEventListeners,
+    cleanupEventListeners
   } = useForumStore();
 
-  // 设置连接并加载话题
+  // 设置连接
   useEffect(() => {
     if (openAgentsService) {
       setConnection(openAgentsService);
+    }
+  }, [openAgentsService, setConnection]);
+
+  // 加载话题（等待连接建立）
+  useEffect(() => {
+    if (openAgentsService && isConnected) {
+      console.log('ForumTopicList: Connection ready, loading topics');
       loadTopics();
     }
-  }, [openAgentsService, setConnection, loadTopics]);
+  }, [openAgentsService, isConnected, loadTopics]);
+
+  // 设置forum事件监听器
+  useEffect(() => {
+    if (openAgentsService) {
+      console.log('ForumTopicList: Setting up forum event listeners');
+      setupEventListeners();
+
+      return () => {
+        console.log('ForumTopicList: Cleaning up forum event listeners');
+        cleanupEventListeners();
+      };
+    }
+  }, [openAgentsService, setupEventListeners, cleanupEventListeners]);
 
 
   if (topicsLoading && topics.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className="flex-1 flex items-center justify-center dark:bg-gray-900">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400 mx-auto mb-4" />
           <p className="text-gray-600 dark:text-gray-400">
@@ -90,9 +114,9 @@ const ForumTopicList: React.FC = () => {
       </div>
 
       {/* 话题列表 */}
-      <div className="flex-1 overflow-y-auto p-6 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+      <div className="flex-1 overflow-y-hidden py-6 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
         {topics.length === 0 ? (
-          <div className="text-center py-12">
+          <div className="text-center py-12 h-full flex flex-col items-center justify-center">
             <div className="mb-4 text-gray-500 dark:text-gray-400">
               <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z" />
@@ -112,7 +136,7 @@ const ForumTopicList: React.FC = () => {
             </button>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="h-full px-6 overflow-y-auto space-y-4">
             {topics.map((topic) => (
               <ForumTopicItem
                 key={topic.topic_id}

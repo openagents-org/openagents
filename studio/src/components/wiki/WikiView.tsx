@@ -22,12 +22,10 @@ interface WikiEditProposal {
 }
 
 interface WikiViewProps {
-  onBackClick?: () => void;
   connection?: OpenAgentsService | null;
 }
 
 const WikiView: React.FC<WikiViewProps> = ({
-  onBackClick,
   connection
 }) => {
   const [pages, setPages] = useState<WikiPage[]>([]);
@@ -319,7 +317,6 @@ const WikiView: React.FC<WikiViewProps> = ({
             {error}
           </p>
           <button
-            onClick={onBackClick}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             Back to Chat
@@ -336,24 +333,24 @@ const WikiView: React.FC<WikiViewProps> = ({
     return (
       <div className="h-full flex flex-col">
         {/* Header */}
-        <div className="border-b border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-center space-x-3 mb-4">
+        <div className="border-b border-gray-200 dark:border-gray-700 dark:bg-gray-800 p-6">
+          <div className="flex items-center space-x-3">
             <button
               onClick={() => {
                 setSelectedPage(null);
                 setCurrentView('list');
               }}
-              className="p-2 rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+              className="py-2 rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
             <div className="flex-1">
-              <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
+              <h1 className="text-2xl font-bold line-clamp-1 text-gray-800 dark:text-gray-200">
                 {selectedPage.title || 'Untitled'}
               </h1>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
                 {selectedPage.page_path || 'Unknown path'} • by {selectedPage.creator_id || 'Unknown'} • v{selectedPage.version || 1}
               </p>
             </div>
@@ -378,7 +375,7 @@ const WikiView: React.FC<WikiViewProps> = ({
         </div>
 
         {/* Page content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6 dark:bg-gray-900">
           <div className="prose max-w-none dark:prose-invert">
             <div className="whitespace-pre-wrap text-gray-700 dark:text-gray-300">
               {selectedPage.wiki_content || 'No content available'}
@@ -396,7 +393,7 @@ const WikiView: React.FC<WikiViewProps> = ({
     return (
       <div className="h-full flex flex-col">
         {/* Header */}
-        <div className="border-b border-gray-200 dark:border-gray-700 p-6">
+        <div className="border-b border-gray-200 dark:border-gray-700 dark:bg-gray-800 p-6">
           <div className="flex items-center space-x-3">
             <button
               onClick={() => setCurrentView('page')}
@@ -406,14 +403,14 @@ const WikiView: React.FC<WikiViewProps> = ({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
-            <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
+            <h1 className="text-2xl font-bold line-clamp-1 text-gray-800 dark:text-gray-200" title={selectedPage.title}>
               {isOwner ? 'Edit Page' : 'Propose Edit'}: {selectedPage.title}
             </h1>
           </div>
         </div>
 
         {/* Edit form */}
-        <div className="flex-1 flex flex-col p-6 space-y-4">
+        <div className="flex-1 flex flex-col p-6 space-y-4 dark:bg-gray-900">
           <div className="flex-1">
             <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
               Content
@@ -472,7 +469,7 @@ const WikiView: React.FC<WikiViewProps> = ({
     return (
       <div className="h-full flex flex-col">
         {/* Header */}
-        <div className="border-b border-gray-200 dark:border-gray-700 p-6">
+        <div className="border-b border-gray-200 dark:border-gray-700 dark:bg-gray-800 p-6">
           <div className="flex items-center space-x-3">
             <button
               onClick={() => setCurrentView('list')}
@@ -489,7 +486,7 @@ const WikiView: React.FC<WikiViewProps> = ({
         </div>
 
         {/* Proposals list */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6 dark:bg-gray-900">
           <div className="space-y-4">
             {proposals.filter(p => p.status === 'pending').map((proposal) => (
               <div
@@ -551,17 +548,9 @@ const WikiView: React.FC<WikiViewProps> = ({
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="border-b border-gray-200 dark:border-gray-700 p-6">
+      <div className="border-b border-gray-200 dark:border-gray-700 dark:bg-gray-800 p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-3">
-            <button
-              onClick={onBackClick}
-              className="p-2 rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
             <div>
               <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
                 Wiki
@@ -611,7 +600,7 @@ const WikiView: React.FC<WikiViewProps> = ({
       </div>
 
       {/* Pages list */}
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-6 dark:bg-gray-900">
         <div className="space-y-4">
           {pages.map((page) => (
             <div
@@ -634,8 +623,8 @@ const WikiView: React.FC<WikiViewProps> = ({
                   </p>
                   <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
                     <span>{page.page_path || 'Unknown path'}</span>
-                    <span>by {page.creator_id || 'Unknown'}</span>
-                    <span>v{page.version || 1}</span>
+                    <span className="whitespace-nowrap">by {page.creator_id || 'Unknown'}</span>
+                    <span className="whitespace-nowrap">v{page.version || 1}</span>
                     <span>{page.last_modified ? new Date(page.last_modified * 1000).toLocaleDateString() : 'Unknown date'}</span>
                   </div>
                 </div>
