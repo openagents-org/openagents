@@ -1,17 +1,39 @@
+<<<<<<< HEAD
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useWikiStore } from '@/stores/wikiStore';
 import { useOpenAgentsService } from '@/contexts/OpenAgentsServiceContext';
+=======
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useWikiStore } from '@/stores/wikiStore';
+import { useOpenAgentsService } from '@/contexts/OpenAgentsServiceContext';
+import DiffViewer from '@/components/common/DiffViewer';
+>>>>>>> feature/krane-development
 
 const WikiProposals: React.FC = () => {
   const navigate = useNavigate();
   const { service: openAgentsService } = useOpenAgentsService();
+<<<<<<< HEAD
 
   const {
     proposals,
     pagesError,
     setConnection,
     loadProposals,
+=======
+  const [expandedProposal, setExpandedProposal] = useState<string | null>(null);
+  const [pageContents, setPageContents] = useState<{ [key: string]: string }>({});
+
+  const {
+    proposals,
+    pages,
+    pagesError,
+    setConnection,
+    loadProposals,
+    loadPages,
+    loadPage,
+>>>>>>> feature/krane-development
     resolveProposal,
     clearError
   } = useWikiStore();
@@ -28,8 +50,52 @@ const WikiProposals: React.FC = () => {
     if (openAgentsService) {
       console.log('WikiProposals: Loading proposals');
       loadProposals();
+<<<<<<< HEAD
     }
   }, [openAgentsService, loadProposals]);
+=======
+      loadPages(); // 确保我们有页面数据
+    }
+  }, [openAgentsService, loadProposals, loadPages]);
+
+  // 获取页面内容用于diff对比
+  const getPageContent = async (pagePath: string): Promise<string> => {
+    if (pageContents[pagePath]) {
+      return pageContents[pagePath];
+    }
+
+    // 首先查找pages中是否已有该页面
+    const existingPage = pages.find(page => page.page_path === pagePath);
+    if (existingPage) {
+      const content = existingPage.wiki_content || '';
+      setPageContents(prev => ({ ...prev, [pagePath]: content }));
+      return content;
+    }
+
+    // 如果没有，尝试加载页面详情
+    try {
+      await loadPage(pagePath);
+      // 这里我们需要从store中获取最新加载的页面
+      const updatedPages = pages;
+      const loadedPage = updatedPages.find(page => page.page_path === pagePath);
+      const content = loadedPage?.wiki_content || '';
+      setPageContents(prev => ({ ...prev, [pagePath]: content }));
+      return content;
+    } catch (error) {
+      console.error('Failed to load page content for diff:', error);
+      return '';
+    }
+  };
+
+  const handleToggleProposal = async (proposalId: string, pagePath: string) => {
+    if (expandedProposal === proposalId) {
+      setExpandedProposal(null);
+    } else {
+      setExpandedProposal(proposalId);
+      await getPageContent(pagePath);
+    }
+  };
+>>>>>>> feature/krane-development
 
   const handleBack = () => {
     navigate('/wiki');
@@ -42,7 +108,11 @@ const WikiProposals: React.FC = () => {
   const pendingProposals = proposals.filter(p => p.status === 'pending');
 
   return (
+<<<<<<< HEAD
     <div className="flex-1 flex flex-col h-full">
+=======
+    <div className="flex-1 flex flex-col h-full dark:bg-gray-900">
+>>>>>>> feature/krane-development
       {/* 头部 */}
       <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
         <div className="flex items-center space-x-3">
@@ -96,6 +166,7 @@ const WikiProposals: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-4">
+<<<<<<< HEAD
             {pendingProposals.map((proposal) => (
               <div
                 key={proposal.proposal_id}
@@ -148,6 +219,103 @@ const WikiProposals: React.FC = () => {
                 </div>
               </div>
             ))}
+=======
+            {pendingProposals.map((proposal) => {
+              const isExpanded = expandedProposal === proposal.proposal_id;
+              const currentContent = pageContents[proposal.page_path] || '';
+
+              return (
+                <div
+                  key={proposal.proposal_id}
+                  className="p-4 rounded-lg border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+                          {proposal.page_path}
+                        </h3>
+                        <button
+                          onClick={() => handleToggleProposal(proposal.proposal_id, proposal.page_path)}
+                          className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+                        >
+                          <svg
+                            className={`w-4 h-4 transform transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                      </div>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                        by {proposal.proposer_id} • {new Date(proposal.created_at * 1000).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="flex space-x-2 ml-4">
+                      <button
+                        onClick={() => handleResolveProposal(proposal.proposal_id, 'approve')}
+                        className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => handleResolveProposal(proposal.proposal_id, 'reject')}
+                        className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mb-3">
+                    <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                      Rationale:
+                    </div>
+                    <div className="text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 p-2 rounded">
+                      {proposal.rationale}
+                    </div>
+                  </div>
+
+                  {isExpanded ? (
+                    <div className="mt-4">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Changes:
+                      </div>
+                      <DiffViewer
+                        oldValue={currentContent}
+                        newValue={proposal.proposed_content || ''}
+                        oldTitle="Current Version"
+                        newTitle="Proposed Version"
+                        viewType="unified"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        Proposed content preview:
+                      </div>
+                      <div className="text-xs p-2 rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                        <div className="whitespace-pre-wrap">
+                          {proposal.proposed_content ? proposal.proposed_content.substring(0, 300) : 'No content'}
+                          {proposal.proposed_content && proposal.proposed_content.length > 300 && '...'}
+                        </div>
+                      </div>
+                      <div className="mt-2">
+                        <button
+                          onClick={() => handleToggleProposal(proposal.proposal_id, proposal.page_path)}
+                          className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+                        >
+                          View detailed changes →
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+>>>>>>> feature/krane-development
           </div>
         )}
       </div>

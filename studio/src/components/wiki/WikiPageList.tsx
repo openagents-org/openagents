@@ -4,6 +4,10 @@ import { useWikiStore } from '@/stores/wikiStore';
 import { useOpenAgentsService } from '@/contexts/OpenAgentsServiceContext';
 import useConnectedStatus from '@/hooks/useConnectedStatus';
 import WikiCreateModal from './components/WikiCreateModal';
+<<<<<<< HEAD
+=======
+import MarkdownRenderer from '@/components/common/MarkdownRenderer';
+>>>>>>> feature/krane-development
 import { formatDateTime } from '@/utils/utils';
 
 const WikiPageList: React.FC = () => {
@@ -199,10 +203,19 @@ const WikiPageList: React.FC = () => {
                     <h3 className="text-lg font-semibold mb-2 line-clamp-2 text-gray-900 dark:text-gray-100">
                       {page.title || 'Untitled'}
                     </h3>
+<<<<<<< HEAD
                     <p className="text-sm mb-3 line-clamp-3 text-gray-600 dark:text-gray-400">
                       {page.wiki_content ? page.wiki_content.substring(0, 200) : 'No content'}
                       {page.wiki_content && page.wiki_content.length > 200 && '...'}
                     </p>
+=======
+                    <div className="text-sm mb-3 line-clamp-3 text-gray-600 dark:text-gray-400 wiki-list-preview">
+                      <MarkdownRenderer
+                        content={page.wiki_content || 'No content'}
+                        className="prose-sm max-w-none"
+                      />
+                    </div>
+>>>>>>> feature/krane-development
                     <div className="flex items-center space-x-4 text-xs text-gray-500 dark:text-gray-400">
                       <span>{page.page_path || 'Unknown path'}</span>
                       <span>by {page.creator_id || 'Unknown'}</span>

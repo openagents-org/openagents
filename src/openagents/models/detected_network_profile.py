@@ -8,6 +8,10 @@ runtime characteristics of discovered OpenAgents networks.
 from typing import List, Optional, Dict, Any, Set
 from datetime import datetime
 from pydantic import BaseModel, Field, computed_field
+<<<<<<< HEAD
+=======
+from enum import StrEnum
+>>>>>>> feature/krane-development
 from openagents.models.transport import TransportType
 
 class DetectedAgentInfo(BaseModel):

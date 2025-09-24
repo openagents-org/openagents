@@ -10,7 +10,11 @@ import json
 import logging
 import uuid
 from datetime import datetime
+<<<<<<< HEAD
 from typing import List, Optional
+=======
+from typing import List
+>>>>>>> feature/krane-development
 
 from jinja2 import Template
 
@@ -47,8 +51,12 @@ def orchestrate_agent(
     context: EventContext,
     agent_config: AgentConfig,
     tools: List[AgentAdapterTool],
+<<<<<<< HEAD
     user_instruction: Optional[str] = None,
     max_iterations: Optional[int] = None
+=======
+    max_iterations: int = 10
+>>>>>>> feature/krane-development
 ) -> AgentTrajectory:
     """Orchestrate an agent's response to an incoming message.
     
@@ -68,12 +76,15 @@ def orchestrate_agent(
     Returns:
         AgentTrajectory containing all actions performed and summary
     """
+<<<<<<< HEAD
     if max_iterations is None:
         if agent_config.max_iterations is None:
             max_iterations = 10
         else:
             max_iterations = agent_config.max_iterations
     
+=======
+>>>>>>> feature/krane-development
     # Track actions in trajectory
     actions = []
     
@@ -102,11 +113,19 @@ def orchestrate_agent(
     
     # Generate messages using templates from agent config
     user_template = Template(agent_config.get_effective_user_prompt_template())
+<<<<<<< HEAD
     prompt_content = user_template.render(context=template_context, user_instruction=user_instruction).strip()
     
     system_content = Template(agent_config.get_effective_system_prompt_template()).render(
         instruction=agent_config.instruction
     ).strip()
+=======
+    prompt_content = user_template.render(context=template_context)
+    
+    system_content = Template(agent_config.get_effective_system_prompt_template()).render(
+        instruction=agent_config.instruction
+    )
+>>>>>>> feature/krane-development
     
     messages = [
         {"role": "system", "content": system_content},
@@ -122,7 +141,11 @@ def orchestrate_agent(
     
     # Get event loop for async operations
     try:
+<<<<<<< HEAD
         loop = asyncio.get_running_loop()
+=======
+        loop = asyncio.get_event_loop()
+>>>>>>> feature/krane-development
     except RuntimeError:
         # Create new event loop if none exists
         loop = asyncio.new_event_loop()

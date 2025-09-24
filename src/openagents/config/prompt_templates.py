@@ -45,8 +45,11 @@ In each step, you MUST either:
 2. Use the finish tool when you've completed all necessary actions.
 
 If you don't need to use any tools, use the finish tool directly.
+<<<<<<< HEAD
 
 {% if user_instruction %}{{ user_instruction }}{% endif %}
+=======
+>>>>>>> feature/krane-development
 """
 
 DEFAULT_SYSTEM_PROMPT_TEMPLATE = f"""{{instruction}}"""

@@ -10,12 +10,18 @@ This standalone mod enables Reddit-like forum functionality with:
 """
 
 import logging
+<<<<<<< HEAD
 import json
+=======
+>>>>>>> feature/krane-development
 import time
 import uuid
 from typing import Dict, Any, List, Optional, Set
 from collections import defaultdict
+<<<<<<< HEAD
 from pathlib import Path
+=======
+>>>>>>> feature/krane-development
 
 from openagents.config.globals import BROADCAST_AGENT_ID
 from openagents.core.base_mod import BaseMod, mod_event_handler
@@ -139,6 +145,7 @@ class ForumNetworkMod(BaseMod):
         super().__init__(mod_name=mod_name)
         
         
+<<<<<<< HEAD
         # Initialize forum state  
         self.active_agents: Set[str] = set()
         
@@ -411,6 +418,17 @@ class ForumNetworkMod(BaseMod):
     
     # Old memory-based methods removed - now using storage-first approach
     
+=======
+        # Initialize forum state
+        self.active_agents: Set[str] = set()
+        self.topics: Dict[str, ForumTopic] = {}  # topic_id -> ForumTopic
+        self.user_votes: Dict[str, Dict[str, str]] = defaultdict(dict)  # agent_id -> {target_id: vote_type}
+        self.topic_order_recent: List[str] = []  # Topic IDs ordered by recency
+        self.topic_order_popular: List[str] = []  # Topic IDs ordered by popularity
+        
+        logger.info(f"Initialized Forum Network Mod: {self.mod_name}")
+    
+>>>>>>> feature/krane-development
     async def handle_register_agent(self, agent_id: str, metadata: Optional[Dict[str, Any]] = None) -> Optional[EventResponse]:
         """Handle agent registration."""
         self.active_agents.add(agent_id)
@@ -487,6 +505,7 @@ class ForumNetworkMod(BaseMod):
             timestamp=timestamp
         )
         
+<<<<<<< HEAD
         # Save the new topic to storage
         self._save_topic(topic)
         
@@ -510,6 +529,11 @@ class ForumNetworkMod(BaseMod):
         self._save_metadata(topic_order_recent, topic_order_popular)
         
         # Topic data now stored in storage
+=======
+        self.topics[topic_id] = topic
+        self.topic_order_recent.insert(0, topic_id)  # Add to front for recency
+        self._update_popular_order()
+>>>>>>> feature/krane-development
         
         logger.info(f"Created topic {topic_id}: '{title}' by {owner_id}")
         
@@ -559,6 +583,7 @@ class ForumNetworkMod(BaseMod):
         
         logger.info(f"Edited topic {topic_id} by {editor_id}")
         
+<<<<<<< HEAD
         # Save the updated topic to storage
         self._save_topic(topic)
         
@@ -566,6 +591,8 @@ class ForumNetworkMod(BaseMod):
         metadata = self._get_topics_metadata()
         self._save_metadata(metadata['topic_order_recent'], metadata['topic_order_popular'])
         
+=======
+>>>>>>> feature/krane-development
         # Send notification event
         await self._send_topic_notification("forum.topic.edited", topic, event.source_id)
         
@@ -597,6 +624,7 @@ class ForumNetworkMod(BaseMod):
                 message="Only the topic owner can delete this topic"
             )
         
+<<<<<<< HEAD
         # Remove topic file
         storage_path = self.get_storage_path()
         topics_dir = storage_path / "topics"
@@ -635,6 +663,24 @@ class ForumNetworkMod(BaseMod):
         
         # Save updated metadata
         self._save_metadata(topic_order_recent, topic_order_popular)
+=======
+        # Remove topic and clean up
+        del self.topics[topic_id]
+        if topic_id in self.topic_order_recent:
+            self.topic_order_recent.remove(topic_id)
+        if topic_id in self.topic_order_popular:
+            self.topic_order_popular.remove(topic_id)
+        
+        # Clean up votes for this topic and its comments
+        for agent_votes in self.user_votes.values():
+            # Remove votes for the topic
+            if topic_id in agent_votes:
+                del agent_votes[topic_id]
+            # Remove votes for comments in this topic
+            for comment_id in list(agent_votes.keys()):
+                if comment_id in topic.comments:
+                    del agent_votes[comment_id]
+>>>>>>> feature/krane-development
         
         logger.info(f"Deleted topic {topic_id} by {deleter_id}")
         
@@ -685,11 +731,19 @@ class ForumNetworkMod(BaseMod):
         content = payload.get('content', '').strip()
         author_id = event.source_id
         
+<<<<<<< HEAD
         # Validate input and load topic from storage
         if not topic_id:
             return EventResponse(
                 success=False,
                 message="Topic ID required"
+=======
+        # Validate input
+        if not topic_id or topic_id not in self.topics:
+            return EventResponse(
+                success=False,
+                message="Topic not found"
+>>>>>>> feature/krane-development
             )
         
         if not content:
@@ -698,12 +752,16 @@ class ForumNetworkMod(BaseMod):
                 message="Comment content cannot be empty"
             )
         
+<<<<<<< HEAD
         topic = self._load_topic(topic_id)
         if not topic:
             return EventResponse(
                 success=False,
                 message="Topic not found"
             )
+=======
+        topic = self.topics[topic_id]
+>>>>>>> feature/krane-development
         comment_id = str(uuid.uuid4())
         timestamp = time.time()
         
@@ -722,6 +780,7 @@ class ForumNetworkMod(BaseMod):
         topic.comment_count += 1
         topic.last_activity = timestamp
         
+<<<<<<< HEAD
         logger.info(f"Posted comment {comment_id} on topic {topic_id} by {author_id}")
         
         # Save the updated topic with new comment
@@ -731,6 +790,13 @@ class ForumNetworkMod(BaseMod):
         metadata = self._get_topics_metadata()
         self._save_metadata(metadata['topic_order_recent'], metadata['topic_order_popular'])
         
+=======
+        # Update topic ordering
+        self._update_topic_activity(topic_id)
+        
+        logger.info(f"Posted comment {comment_id} on topic {topic_id} by {author_id}")
+        
+>>>>>>> feature/krane-development
         # Send notifications
         await self._send_comment_notification("forum.comment.posted", comment, topic, event.source_id)
         
@@ -748,6 +814,7 @@ class ForumNetworkMod(BaseMod):
         content = payload.get('content', '').strip()
         author_id = event.source_id
         
+<<<<<<< HEAD
         # Validate input and load topic from storage
         if not topic_id:
             return EventResponse(
@@ -757,11 +824,16 @@ class ForumNetworkMod(BaseMod):
         
         topic = self._load_topic(topic_id)
         if not topic:
+=======
+        # Validate input
+        if not topic_id or topic_id not in self.topics:
+>>>>>>> feature/krane-development
             return EventResponse(
                 success=False,
                 message="Topic not found"
             )
         
+<<<<<<< HEAD
         if not parent_comment_id:
             return EventResponse(
                 success=False,
@@ -770,6 +842,11 @@ class ForumNetworkMod(BaseMod):
             
         if parent_comment_id not in topic.comments:
             logger.error(f"Parent comment {parent_comment_id} not found in topic {topic_id}. Available comments: {list(topic.comments.keys())}")
+=======
+        topic = self.topics[topic_id]
+        
+        if not parent_comment_id or parent_comment_id not in topic.comments:
+>>>>>>> feature/krane-development
             return EventResponse(
                 success=False,
                 message="Parent comment not found"
@@ -809,6 +886,7 @@ class ForumNetworkMod(BaseMod):
         topic.comment_count += 1
         topic.last_activity = timestamp
         
+<<<<<<< HEAD
         logger.info(f"Posted reply {comment_id} to comment {parent_comment_id} by {author_id}")
         
         # Save the updated topic with new reply
@@ -818,6 +896,13 @@ class ForumNetworkMod(BaseMod):
         metadata = self._get_topics_metadata()
         self._save_metadata(metadata['topic_order_recent'], metadata['topic_order_popular'])
         
+=======
+        # Update topic ordering
+        self._update_topic_activity(topic_id)
+        
+        logger.info(f"Posted reply {comment_id} to comment {parent_comment_id} by {author_id}")
+        
+>>>>>>> feature/krane-development
         # Send notifications
         await self._send_comment_notification("forum.comment.replied", comment, topic, event.source_id)
         
@@ -835,6 +920,7 @@ class ForumNetworkMod(BaseMod):
         content = payload.get('content', '').strip()
         editor_id = event.source_id
         
+<<<<<<< HEAD
         # Validate input and load topic from storage
         if not topic_id:
             return EventResponse(
@@ -844,11 +930,20 @@ class ForumNetworkMod(BaseMod):
         
         topic = self._load_topic(topic_id)
         if not topic:
+=======
+        # Validate input
+        if not topic_id or topic_id not in self.topics:
+>>>>>>> feature/krane-development
             return EventResponse(
                 success=False,
                 message="Topic not found"
             )
         
+<<<<<<< HEAD
+=======
+        topic = self.topics[topic_id]
+        
+>>>>>>> feature/krane-development
         if not comment_id or comment_id not in topic.comments:
             return EventResponse(
                 success=False,
@@ -874,9 +969,12 @@ class ForumNetworkMod(BaseMod):
         comment.content = content
         topic.last_activity = time.time()
         
+<<<<<<< HEAD
         # Save the updated topic with edited comment
         self._save_topic(topic)
         
+=======
+>>>>>>> feature/krane-development
         logger.info(f"Edited comment {comment_id} by {editor_id}")
         
         # Send notification
@@ -895,6 +993,7 @@ class ForumNetworkMod(BaseMod):
         comment_id = payload.get('comment_id')
         deleter_id = event.source_id
         
+<<<<<<< HEAD
         # Validate input and load topic from storage
         if not topic_id:
             return EventResponse(
@@ -904,11 +1003,20 @@ class ForumNetworkMod(BaseMod):
         
         topic = self._load_topic(topic_id)
         if not topic:
+=======
+        # Validate input
+        if not topic_id or topic_id not in self.topics:
+>>>>>>> feature/krane-development
             return EventResponse(
                 success=False,
                 message="Topic not found"
             )
         
+<<<<<<< HEAD
+=======
+        topic = self.topics[topic_id]
+        
+>>>>>>> feature/krane-development
         if not comment_id or comment_id not in topic.comments:
             return EventResponse(
                 success=False,
@@ -955,6 +1063,7 @@ class ForumNetworkMod(BaseMod):
         remove_comment_tree(comment_id)
         topic.last_activity = time.time()
         
+<<<<<<< HEAD
         # Save the updated topic after comment deletion
         self._save_topic(topic)
         
@@ -970,6 +1079,8 @@ class ForumNetworkMod(BaseMod):
         with open(votes_file, 'w') as f:
             json.dump(updated_votes, f, indent=2)
         
+=======
+>>>>>>> feature/krane-development
         logger.info(f"Deleted comment {comment_id} by {deleter_id}")
         
         # Send notification
@@ -1029,14 +1140,20 @@ class ForumNetworkMod(BaseMod):
         
         # Find target
         target_obj = None
+<<<<<<< HEAD
         containing_topic = None  # Track which topic contains a comment
         if target_type == 'topic':
             target_obj = self._load_topic(target_id)
             if not target_obj:
+=======
+        if target_type == 'topic':
+            if target_id not in self.topics:
+>>>>>>> feature/krane-development
                 return EventResponse(
                     success=False,
                     message="Topic not found"
                 )
+<<<<<<< HEAD
         else:  # comment
             # Find comment in any topic - need to search through all topics
             for topic_id in self._get_topics_metadata()['topics'].keys():
@@ -1044,6 +1161,14 @@ class ForumNetworkMod(BaseMod):
                 if topic and target_id in topic.comments:
                     target_obj = topic.comments[target_id]
                     containing_topic = topic  # Save reference to the topic containing this comment
+=======
+            target_obj = self.topics[target_id]
+        else:  # comment
+            # Find comment in any topic
+            for topic in self.topics.values():
+                if target_id in topic.comments:
+                    target_obj = topic.comments[target_id]
+>>>>>>> feature/krane-development
                     break
             
             if not target_obj:
@@ -1052,9 +1177,14 @@ class ForumNetworkMod(BaseMod):
                     message="Comment not found"
                 )
         
+<<<<<<< HEAD
         # Check if user already voted on this target - get fresh vote data each time
         user_vote_data = self._get_user_votes(voter_id)
         existing_vote = user_vote_data.get(target_id)
+=======
+        # Check if user already voted on this target
+        existing_vote = self.user_votes[voter_id].get(target_id)
+>>>>>>> feature/krane-development
         if existing_vote:
             if existing_vote == vote_type:
                 return EventResponse(
@@ -1074,6 +1204,7 @@ class ForumNetworkMod(BaseMod):
         else:
             target_obj.downvotes += 1
         
+<<<<<<< HEAD
         # Update user votes and save
         user_vote_data[target_id] = vote_type
         
@@ -1101,6 +1232,13 @@ class ForumNetworkMod(BaseMod):
                 reverse=True
             )
             self._save_metadata(metadata['topic_order_recent'], topic_order_popular)
+=======
+        self.user_votes[voter_id][target_id] = vote_type
+        
+        # Update popular ordering if it's a topic
+        if target_type == 'topic':
+            self._update_popular_order()
+>>>>>>> feature/krane-development
         
         logger.info(f"Cast {vote_type} on {target_type} {target_id} by {voter_id}")
         
@@ -1124,9 +1262,14 @@ class ForumNetworkMod(BaseMod):
         target_id = payload.get('target_id')
         voter_id = event.source_id
         
+<<<<<<< HEAD
         # Check if user has voted on this target - get fresh vote data each time
         user_vote_data = self._get_user_votes(voter_id)
         existing_vote = user_vote_data.get(target_id)
+=======
+        # Check if user has voted on this target
+        existing_vote = self.user_votes[voter_id].get(target_id)
+>>>>>>> feature/krane-development
         if not existing_vote:
             return EventResponse(
                 success=False,
@@ -1136,17 +1279,29 @@ class ForumNetworkMod(BaseMod):
         # Find target
         target_obj = None
         if target_type == 'topic':
+<<<<<<< HEAD
             target_obj = self._load_topic(target_id)
             if not target_obj:
+=======
+            if target_id not in self.topics:
+>>>>>>> feature/krane-development
                 return EventResponse(
                     success=False,
                     message="Topic not found"
                 )
+<<<<<<< HEAD
         else:  # comment
             # Find comment in any topic - need to search through all topics
             for topic_id in self._get_topics_metadata()['topics'].keys():
                 topic = self._load_topic(topic_id)
                 if topic and target_id in topic.comments:
+=======
+            target_obj = self.topics[target_id]
+        else:  # comment
+            # Find comment in any topic
+            for topic in self.topics.values():
+                if target_id in topic.comments:
+>>>>>>> feature/krane-development
                     target_obj = topic.comments[target_id]
                     break
             
@@ -1162,6 +1317,7 @@ class ForumNetworkMod(BaseMod):
         else:
             target_obj.downvotes -= 1
         
+<<<<<<< HEAD
         del user_vote_data[target_id]
         
         # Save updated user votes
@@ -1177,6 +1333,13 @@ class ForumNetworkMod(BaseMod):
                 reverse=True
             )
             self._save_metadata(metadata['topic_order_recent'], topic_order_popular)
+=======
+        del self.user_votes[voter_id][target_id]
+        
+        # Update popular ordering if it's a topic
+        if target_type == 'topic':
+            self._update_popular_order()
+>>>>>>> feature/krane-development
         
         logger.info(f"Removed {existing_vote} on {target_type} {target_id} by {voter_id}")
         
@@ -1473,6 +1636,7 @@ class ForumNetworkMod(BaseMod):
         )
     
     def _update_topic_activity(self, topic_id: str):
+<<<<<<< HEAD
         """Update topic activity ordering in metadata."""
         metadata = self._get_topics_metadata()
         topic_order_recent = metadata['topic_order_recent']
@@ -1499,6 +1663,34 @@ class ForumNetworkMod(BaseMod):
         activity_bonus = min(topic_metadata.get('last_activity', 0) / 1000000, 1000)  # Normalize timestamp
         comment_bonus = topic_metadata.get('comment_count', 0) * 0.1
         return vote_score + activity_bonus + comment_bonus
+=======
+        """Update topic activity ordering."""
+        # Move to front of recent list
+        if topic_id in self.topic_order_recent:
+            self.topic_order_recent.remove(topic_id)
+        self.topic_order_recent.insert(0, topic_id)
+        
+        # Update popular ordering
+        self._update_popular_order()
+    
+    def _update_popular_order(self):
+        """Update the popular topics ordering based on vote scores and activity."""
+        def popularity_score(topic_id):
+            if topic_id not in self.topics:
+                return 0
+            topic = self.topics[topic_id]
+            # Combine vote score with recent activity and comment count
+            vote_score = topic.get_vote_score()
+            activity_bonus = min(topic.last_activity / 1000000, 1000)  # Normalize timestamp
+            comment_bonus = topic.comment_count * 0.1
+            return vote_score + activity_bonus + comment_bonus
+        
+        self.topic_order_popular = sorted(
+            self.topics.keys(),
+            key=popularity_score,
+            reverse=True
+        )
+>>>>>>> feature/krane-development
     
     async def _send_topic_notification(self, event_name: str, topic: ForumTopic, source_id: str):
         """Send topic-related notifications."""

@@ -9,7 +9,10 @@ This standalone mod enables collaborative wiki functionality with:
 """
 
 import logging
+<<<<<<< HEAD
 import json
+=======
+>>>>>>> feature/krane-development
 import os
 import time
 import uuid
@@ -57,6 +60,7 @@ class WikiNetworkMod(BaseMod):
         
         # Initialize mod state
         self.active_agents: Set[str] = set()
+<<<<<<< HEAD
         
         logger.info(f"Initializing Wiki network mod")
     
@@ -178,10 +182,22 @@ class WikiNetworkMod(BaseMod):
 
     def initialize(self) -> bool:
         """Initialize the mod and load persistent data.
+=======
+        self.pages: Dict[str, WikiPage] = {}  # page_path -> WikiPage
+        self.page_versions: Dict[str, List[WikiPageVersion]] = {}  # page_path -> [versions]
+        self.proposals: Dict[str, WikiEditProposal] = {}  # proposal_id -> WikiEditProposal
+        self.page_proposals: Dict[str, List[str]] = {}  # page_path -> [proposal_ids]
+        
+        logger.info(f"Initializing Wiki network mod")
+    
+    def initialize(self) -> bool:
+        """Initialize the mod.
+>>>>>>> feature/krane-development
         
         Returns:
             bool: True if initialization was successful, False otherwise
         """
+<<<<<<< HEAD
         try:
             # No need to load all data - storage-first approach
             # Initialize default wiki threads
@@ -195,10 +211,19 @@ class WikiNetworkMod(BaseMod):
     
     def shutdown(self) -> bool:
         """Shutdown the mod gracefully and save data.
+=======
+        # Initialize default wiki threads
+        self._initialize_wiki_threads()
+        return True
+    
+    def shutdown(self) -> bool:
+        """Shutdown the mod gracefully.
+>>>>>>> feature/krane-development
         
         Returns:
             bool: True if shutdown was successful, False otherwise
         """
+<<<<<<< HEAD
         try:
             # Clear state (data is already in storage)
             self.active_agents.clear()
@@ -208,6 +233,17 @@ class WikiNetworkMod(BaseMod):
         except Exception as e:
             logger.error(f"Wiki mod shutdown failed: {e}")
             return False
+=======
+        # Clear all state
+        self.active_agents.clear()
+        self.pages.clear()
+        self.page_versions.clear()
+        self.proposals.clear()
+        self.page_proposals.clear()
+        
+        logger.info("Wiki mod shutdown complete")
+        return True
+>>>>>>> feature/krane-development
     
     def bind_network(self, network):
         """Bind the mod to a network and initialize threads."""
@@ -231,6 +267,7 @@ class WikiNetworkMod(BaseMod):
             self.network.event_gateway.create_channel(thread_name)
             logger.debug(f"Created wiki thread: {thread_name}")
     
+<<<<<<< HEAD
     # Old _load_wiki_data method removed - now using storage-first approach with properties
     
     def _encode_page_path_for_filename(self, page_path: str) -> str:
@@ -307,6 +344,8 @@ class WikiNetworkMod(BaseMod):
         except Exception as e:
             logger.error(f"Failed to save wiki metadata: {e}")
     
+=======
+>>>>>>> feature/krane-development
     async def handle_register_agent(self, agent_id: str, metadata: Dict[str, Any]) -> Optional[EventResponse]:
         """Register an agent with the wiki mod.
         
@@ -395,6 +434,7 @@ class WikiNetworkMod(BaseMod):
                 edit_type="direct"
             )
             
+<<<<<<< HEAD
             # Store page and version to individual files
             self._save_page(page)
             self._save_page_versions(message.page_path, [version])
@@ -404,6 +444,11 @@ class WikiNetworkMod(BaseMod):
             if message.page_path not in page_proposals:
                 page_proposals[message.page_path] = []
             self._save_metadata(page_proposals)
+=======
+            # Store page and version
+            self.pages[message.page_path] = page
+            self.page_versions[message.page_path] = [version]
+>>>>>>> feature/krane-development
             
             # Create page-specific proposal thread
             proposal_thread = f"wiki_page_{message.page_path.replace('/', '_')}_proposals"
@@ -488,6 +533,7 @@ class WikiNetworkMod(BaseMod):
             page.content = message.wiki_content
             page.current_version = new_version_number
             
+<<<<<<< HEAD
             # Save updated page
             self._save_page(page)
             
@@ -495,6 +541,10 @@ class WikiNetworkMod(BaseMod):
             current_versions = self.page_versions[message.page_path]
             current_versions.append(version)
             self._save_page_versions(message.page_path, current_versions)
+=======
+            # Store version
+            self.page_versions[message.page_path].append(version)
+>>>>>>> feature/krane-development
             
             # Send notification to recent changes thread
             await self._send_page_edit_notification(page, version)
@@ -753,6 +803,7 @@ class WikiNetworkMod(BaseMod):
                 created_timestamp=message.timestamp
             )
             
+<<<<<<< HEAD
             # Store proposal to individual file
             self._save_proposal(proposal)
             
@@ -762,6 +813,13 @@ class WikiNetworkMod(BaseMod):
                 page_proposals[message.page_path] = []
             page_proposals[message.page_path].append(proposal_id)
             self._save_metadata(page_proposals)
+=======
+            # Store proposal
+            self.proposals[proposal_id] = proposal
+            if message.page_path not in self.page_proposals:
+                self.page_proposals[message.page_path] = []
+            self.page_proposals[message.page_path].append(proposal_id)
+>>>>>>> feature/krane-development
             
             # Send notification to page proposal thread
             await self._send_proposal_notification(proposal)
@@ -929,6 +987,7 @@ class WikiNetworkMod(BaseMod):
                 page.content = proposal.proposed_content
                 page.current_version = new_version_number
                 
+<<<<<<< HEAD
                 # Save updated page
                 self._save_page(page)
                 
@@ -942,6 +1001,12 @@ class WikiNetworkMod(BaseMod):
                 
             # Send notification about page edit (only if approved)
             if message.action == "approve":
+=======
+                # Store version
+                self.page_versions[proposal.page_path].append(version)
+                
+                # Send notification about page edit
+>>>>>>> feature/krane-development
                 await self._send_page_edit_notification(page, version)
             
             # Send notification about proposal resolution
@@ -1104,9 +1169,12 @@ class WikiNetworkMod(BaseMod):
             # Store version
             versions.append(revert_version)
             
+<<<<<<< HEAD
             # Save data after page revert
             # Data now stored in storage
             
+=======
+>>>>>>> feature/krane-development
             # Send notification
             await self._send_page_edit_notification(page, revert_version)
             

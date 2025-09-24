@@ -13,7 +13,11 @@ import inspect
 from abc import abstractmethod
 from typing import Dict, List, Optional, Any, Callable, Union
 
+<<<<<<< HEAD
 from openagents.agents.collaborator_agent import CollaboratorAgent
+=======
+from openagents.agents.runner import AgentRunner
+>>>>>>> feature/krane-development
 from openagents.core.workspace import Workspace
 from openagents.models.event_thread import EventThread
 from openagents.models.event import Event
@@ -106,7 +110,11 @@ def on_event(pattern: str):
     return decorator
 
 
+<<<<<<< HEAD
 class WorkerAgent(CollaboratorAgent):
+=======
+class WorkerAgent(AgentRunner):
+>>>>>>> feature/krane-development
     """
     A simplified, event-driven agent interface for OpenAgents workspace.
     
@@ -157,6 +165,10 @@ class WorkerAgent(CollaboratorAgent):
         super().__init__(agent_id=agent_id, **kwargs)
         
         # Internal state
+<<<<<<< HEAD
+=======
+        self._command_handlers: Dict[str, Callable] = {}
+>>>>>>> feature/krane-development
         self._scheduled_tasks: List[asyncio.Task] = []
         self._message_history_cache: Dict[str, List[Dict[str, Any]]] = {}
         self._pending_history_requests: Dict[str, asyncio.Future] = {}
@@ -327,6 +339,7 @@ class WorkerAgent(CollaboratorAgent):
         
         logger.debug(f"WorkerAgent '{self.default_agent_id}' processing event: {context.incoming_event.event_name} from {context.incoming_event.source_id}")
         
+<<<<<<< HEAD
         # Execute custom @on decorated event handlers
         handler_executed = await self._execute_custom_event_handlers(context)
         if handler_executed:
@@ -337,6 +350,33 @@ class WorkerAgent(CollaboratorAgent):
 
 
     @on_event("agent.message")
+=======
+        # First, execute custom @on decorated event handlers
+        await self._execute_custom_event_handlers(context)
+
+        
+        # Handle different event types based on event names
+        event_name = context.incoming_event.event_name
+        
+        if event_name == "agent.message":
+            await self._handle_raw_direct_message(context)
+        elif event_name.startswith("thread.direct_message."):
+            await self._handle_thread_direct_message(context)
+        elif event_name.startswith("thread.channel_message."):
+            await self._handle_thread_channel_message(context)
+        elif event_name.startswith("thread.reaction."):
+            await self._handle_thread_reaction(context)
+        elif event_name.startswith("thread.file."):
+            await self._handle_thread_file(context)
+        elif event_name.startswith("thread."):
+            await self._handle_thread_event(context)
+        elif event_name.startswith("system."):
+            await self._handle_system_message(context)
+        else:
+            logger.debug(f"Unhandled event type: {event_name}")
+
+
+>>>>>>> feature/krane-development
     async def _handle_raw_direct_message(self, context: EventContext):
         """Handle direct messages."""
         # Create specific context for direct messages with additional fields
@@ -350,6 +390,13 @@ class WorkerAgent(CollaboratorAgent):
             quoted_text=getattr(context.incoming_event, 'quoted_text', None)
         )
         
+<<<<<<< HEAD
+=======
+        # Check for command patterns
+        if await self._handle_command(direct_context):
+            return
+        
+>>>>>>> feature/krane-development
         await self.on_direct(context)
 
     async def _handle_broadcast_message(self, context: EventContext):
@@ -368,8 +415,51 @@ class WorkerAgent(CollaboratorAgent):
         else:
             await self.on_channel_post(channel_context)
 
+<<<<<<< HEAD
 
     @on_event("thread.channel_message.notification")
+=======
+    async def _handle_system_message(self, context: EventContext):
+        """Handle mod messages from thread messaging."""
+        if context.incoming_event.relevant_mod != 'thread_messaging':
+            return
+        
+        # Thread mod messages are now handled through event-specific handlers
+        pass
+
+    async def _handle_thread_direct_message(self, context: EventContext):
+        """Handle thread direct message events."""
+        if context.incoming_event.event_name == "thread.direct_message.notification":
+            await self._handle_direct_message_notification(context)
+        else:
+            logger.debug(f"Unhandled thread direct message event: {context.incoming_event.event_name}")
+
+    async def _handle_thread_channel_message(self, context: EventContext):
+        """Handle thread channel message events."""
+        if context.incoming_event.event_name == "thread.channel_message.notification":
+            await self._handle_channel_notification(context)
+        else:
+            logger.debug(f"Unhandled thread channel message event: {context.incoming_event.event_name}")
+
+    async def _handle_thread_reaction(self, context: EventContext):
+        """Handle thread reaction events."""
+        if context.incoming_event.event_name == "thread.reaction.notification":
+            await self._handle_reaction_notification(context)
+        else:
+            logger.debug(f"Unhandled thread reaction event: {context.incoming_event.event_name}")
+
+    async def _handle_thread_file(self, context: EventContext):
+        """Handle thread file events."""
+        if context.incoming_event.event_name in ["thread.file.upload_response", "thread.file.download_response"]:
+            await self._handle_file_notification(context)
+        else:
+            logger.debug(f"Unhandled thread file event: {context.incoming_event.event_name}")
+
+    async def _handle_thread_event(self, context: EventContext):
+        """Handle other thread events."""
+        logger.debug(f"Generic thread event: {context.incoming_event.event_name}")
+
+>>>>>>> feature/krane-development
     async def _handle_channel_notification(self, context: EventContext):
         """Handle channel message notifications."""
         message = context.incoming_event
@@ -419,7 +509,10 @@ class WorkerAgent(CollaboratorAgent):
             else:
                 await self.on_channel_post(channel_context)
 
+<<<<<<< HEAD
     @on_event("thread.reaction.notification")
+=======
+>>>>>>> feature/krane-development
     async def _handle_reaction_notification(self, context: EventContext):
         """Handle reaction notifications."""
         message = context.incoming_event
@@ -437,8 +530,11 @@ class WorkerAgent(CollaboratorAgent):
         
         await self.on_reaction(reaction_context)
 
+<<<<<<< HEAD
     @on_event("thread.file.upload_response")
     @on_event("thread.file.download_response")
+=======
+>>>>>>> feature/krane-development
     async def _handle_file_notification(self, context: EventContext):
         """Handle file upload notifications."""
         message = context.incoming_event
@@ -457,7 +553,10 @@ class WorkerAgent(CollaboratorAgent):
         
         await self.on_file_received(file_context)
 
+<<<<<<< HEAD
     @on_event("thread.direct_message.notification")
+=======
+>>>>>>> feature/krane-development
     async def _handle_direct_message_notification(self, context: EventContext):
         """Handle direct message notifications."""
         logger.info(f"🔧 WORKER_AGENT: Handling direct message notification")
@@ -466,6 +565,10 @@ class WorkerAgent(CollaboratorAgent):
         # Extract message details from the payload
         source_id = message.payload.get("sender_id", "")
         content = message.payload.get("content", {})
+<<<<<<< HEAD
+=======
+        text = message.payload.get("text", "")
+>>>>>>> feature/krane-development
         timestamp = message.payload.get("timestamp", 0)
         
         # Create EventContext for the on_direct method
@@ -581,6 +684,23 @@ class WorkerAgent(CollaboratorAgent):
         logger.debug(f"Generic thread event: {message.event_name}")
 
 
+<<<<<<< HEAD
+=======
+    async def _handle_command(self, context: EventContext) -> bool:
+        """Handle registered text commands."""
+        text = context.text.strip()
+        
+        # Check for command patterns (e.g., "/help", "!status")
+        for command, handler in self._command_handlers.items():
+            if text.startswith(command):
+                try:
+                    await handler(context, text[len(command):].strip())
+                    return True
+                except Exception as e:
+                    logger.error(f"Error in command handler '{command}': {e}")
+        
+        return False
+>>>>>>> feature/krane-development
 
     # Project functionality methods (only effective when project mod is enabled)
     async def _setup_project_functionality(self):
@@ -751,6 +871,30 @@ class WorkerAgent(CollaboratorAgent):
             except Exception as e:
                 logger.error(f"Error cleaning up project subscription: {e}")
     
+<<<<<<< HEAD
+=======
+    def agent(
+        self,
+        context: EventContext,
+        instruction: Optional[str] = None,
+    ):
+        """
+        Let the agent respond to the context and decide it's action automatically.
+
+        Args:
+            context: The event context containing incoming event, threads, and thread ID
+            instruction: The instruction for the agent to respond to the context
+        """
+
+        pass
+
+    async def on_direct(self, context: EventContext):
+        """Handle direct messages. Override this method."""
+        pass
+
+        pass
+    
+>>>>>>> feature/krane-development
     # Abstract handler methods that users should override
     async def on_direct(self, context: EventContext):
         """Handle direct messages. Override this method."""
@@ -1030,6 +1174,18 @@ class WorkerAgent(CollaboratorAgent):
         mention_pattern = r'@([a-zA-Z0-9_-]+)'
         return re.findall(mention_pattern, text)
 
+<<<<<<< HEAD
+=======
+    def register_command(self, command: str, handler: Callable):
+        """Register a text command handler.
+        
+        Args:
+            command: The command string (e.g., "/help", "!status")
+            handler: Async function that takes (context, args) parameters
+        """
+        self._command_handlers[command] = handler
+        logger.info(f"Registered command: {command}")
+>>>>>>> feature/krane-development
 
     async def schedule_task(self, delay: float, coro: Callable):
         """Schedule a delayed task.

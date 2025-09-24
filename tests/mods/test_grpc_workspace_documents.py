@@ -13,8 +13,12 @@ from pathlib import Path
 from typing import Dict, Any
 
 from openagents.core.client import AgentClient
+<<<<<<< HEAD
 from openagents.launchers.network_launcher import load_network_config
 from openagents.core.network import AgentNetwork
+=======
+from openagents.launchers.network_launcher import load_network_config, create_network
+>>>>>>> feature/krane-development
 from openagents.mods.workspace.documents import SharedDocumentAgentAdapter
 
 
@@ -40,7 +44,11 @@ async def documents_network():
             transport.config["port"] = http_port
     
     # Create and initialize network
+<<<<<<< HEAD
     network = AgentNetwork.create_from_config(config.network)
+=======
+    network = create_network(config.network)
+>>>>>>> feature/krane-development
     await network.initialize()
     
     # Give network time to start up

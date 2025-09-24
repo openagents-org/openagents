@@ -4,10 +4,14 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+<<<<<<< HEAD
 from openagents.agents.orchestrator import orchestrate_agent
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.agent_actions import AgentTrajectory
 from openagents.models.agent_config import AgentConfig
+=======
+from openagents.core.base_mod_adapter import BaseModAdapter
+>>>>>>> feature/krane-development
 from openagents.models.event_thread import EventThread
 from openagents.models.event import Event
 from openagents.models.event_context import EventContext
@@ -26,6 +30,7 @@ class AgentRunner(ABC):
     agent should respond to messages and interact with protocols.
     """
 
+<<<<<<< HEAD
     def __init__(
         self,
         agent_id: Optional[str] = None,
@@ -36,6 +41,9 @@ class AgentRunner(ABC):
         interval: Optional[int] = 1,
         ignored_sender_ids: Optional[List[str]] = None,
     ):
+=======
+    def __init__(self, agent_id: Optional[str] = None, mod_names: Optional[List[str]] = None, mod_adapters: Optional[List[BaseModAdapter]] = None, client: Optional[AgentClient] = None, interval: Optional[int] = 1, ignored_sender_ids: Optional[List[str]] = None):
+>>>>>>> feature/krane-development
         """Initialize the agent runner.
         
         Args:

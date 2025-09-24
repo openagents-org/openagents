@@ -5,12 +5,19 @@ import asyncio
 import inspect
 
 from pydantic import BaseModel, Field
+<<<<<<< HEAD
 from pathlib import Path
 import tempfile
 
 # Use TYPE_CHECKING to avoid circular imports
 if TYPE_CHECKING:
     from openagents.core.workspace_manager import WorkspaceManager
+=======
+
+# Use TYPE_CHECKING to avoid circular imports
+if TYPE_CHECKING:
+    from openagents.core.network import AgentNetworkServer
+>>>>>>> feature/krane-development
 from openagents.models.event_response import EventResponse
 from openagents.models.messages import Event, EventNames
 
@@ -84,7 +91,10 @@ class BaseMod(ABC):
         self._network = None  # Will be set when registered with a network
         self._config = {}
         self._event_handlers: List[EventHandlerEntry] = []
+<<<<<<< HEAD
         self._workspace_manager = None  # Will be set when registered with a network
+=======
+>>>>>>> feature/krane-development
         
         self._register_default_event_handlers()
         self._collect_mod_event_handlers()
@@ -191,6 +201,7 @@ class BaseMod(ABC):
             Optional[Any]: The network this mod is registered with
         """
         return self._network
+<<<<<<< HEAD
     
     @property
     def workspace_manager(self) -> Optional['WorkspaceManager']:
@@ -216,6 +227,9 @@ class BaseMod(ABC):
             temp_dir = tempfile.mkdtemp(prefix=f"openagents_mod_{self._mod_name}_")
             return Path(temp_dir)
 
+=======
+        
+>>>>>>> feature/krane-development
     def bind_network(self, network) -> bool:
         """Register this mod with a network.
         
@@ -226,10 +240,13 @@ class BaseMod(ABC):
             bool: True if registration was successful, False otherwise
         """
         self._network = network
+<<<<<<< HEAD
         
         # Set workspace manager if available
         self._workspace_manager = network.workspace_manager
         
+=======
+>>>>>>> feature/krane-development
         logger.info(f"Mod {self.mod_name} bound to network {network.network_id}")
         return True
     

@@ -22,6 +22,11 @@ from typing import List, Optional, Dict, Any, Tuple
 
 from openagents.launchers.network_launcher import async_launch_network, launch_network
 from openagents.launchers.terminal_console import launch_console
+<<<<<<< HEAD
+=======
+from openagents.agents.simple_openai_agent import SimpleOpenAIAgentRunner
+from openagents.agents.simple_echo_agent import SimpleEchoAgentRunner
+>>>>>>> feature/krane-development
 
 # Global verbose flag that can be imported by other modules
 VERBOSE_MODE = False
@@ -673,6 +678,7 @@ def studio_command(args: argparse.Namespace) -> None:
     except Exception as e:
         logging.error(f"❌ Failed to start OpenAgents Studio: {e}")
         sys.exit(1)
+<<<<<<< HEAD
 
 
 # Network command handlers
@@ -952,6 +958,8 @@ def agent_create_command(args: argparse.Namespace) -> None:
     """
     logging.info(f"Creating agent from template: {args.template}")
     logging.warning("Agent creation not yet implemented")
+=======
+>>>>>>> feature/krane-development
 
 
 def launch_agent_command(args: argparse.Namespace) -> None:
@@ -963,9 +971,36 @@ def launch_agent_command(args: argparse.Namespace) -> None:
     from openagents.agents.runner import AgentRunner
     
     try:
+<<<<<<< HEAD
         # Load agent using AgentRunner.from_yaml
         logging.info(f"Loading agent from configuration: {args.config}")
         agent = AgentRunner.from_yaml(args.config)
+=======
+        # Check if the agent type is a fully qualified class path
+        if '.' in agent_type:
+            # Import the module and get the class
+            module_path, class_name = agent_type.rsplit('.', 1)
+            try:
+                module = __import__(module_path, fromlist=[class_name])
+                agent_class = getattr(module, class_name)
+            except (ImportError, AttributeError) as e:
+                logging.error(f"Failed to import agent class '{agent_type}': {e}")
+                return
+        else:
+            # Handle predefined agent types
+            if agent_type.lower() == 'openai':
+                agent_class = SimpleOpenAIAgentRunner
+            elif agent_type.lower() == 'simple':
+                from openagents.agents.simple_agent import SimpleAgentRunner
+                agent_class = SimpleAgentRunner
+            elif agent_type.lower() == 'echo':
+                agent_class = SimpleEchoAgentRunner
+            else:
+                logging.error(f"Unsupported predefined agent type: {agent_type}")
+                logging.info("Supported predefined types: 'openai', 'simple', 'echo'")
+                logging.info("Or use a fully qualified class path (e.g., 'openagents.agents.simple_agent.SimpleAgentRunner')")
+                return
+>>>>>>> feature/krane-development
         
         # Get agent information
         agent_id = agent.agent_id
@@ -1020,9 +1055,59 @@ def launch_agent_command(args: argparse.Namespace) -> None:
             # Wait for the agent to stop
             agent.wait_for_stop()
             
+<<<<<<< HEAD
         except KeyboardInterrupt:
             logging.info("Agent stopped by user")
             agent.stop()
+=======
+            # If not provided in command line, try to get from config file
+            if 'connection' in config:
+                conn_config = config['connection']
+                
+                # Get host from config if not provided in command line
+                if host is None:
+                    host = conn_config.get('host')
+                
+                # Get port from config if not provided in command line
+                if port is None:
+                    port = conn_config.get('port')
+                
+                # Get network_id from config if not provided in command line
+                if network_id is None:
+                    # Support both network_id and network-id keys
+                    network_id = conn_config.get('network_id') or conn_config.get('network-id')
+            
+            # Apply default values as last resort if still None
+            if host is None:
+                host = "localhost"
+            if port is None:
+                port = 8570
+            
+            # Start the agent and wait for it to stop
+            try:
+                # Start the agent
+                agent.start(
+                    host=host,
+                    port=port,
+                    network_id=network_id,
+                    metadata={"agent_type": agent_type}
+                )
+                
+                # Wait for the agent to stop
+                agent.wait_for_stop()
+                
+            except KeyboardInterrupt:
+                logging.info("Agent stopped by user")
+                agent.stop()
+            except Exception as e:
+                logging.error(f"Error running agent: {e}")
+                agent.stop()
+            
+        except TypeError as e:
+            logging.error(f"Error creating agent: {e}")
+            logging.error("Check that your configuration parameters match the agent's constructor")
+            return
+>>>>>>> feature/krane-development
         except Exception as e:
             logging.error(f"Error running agent: {e}")
             agent.stop()
@@ -1065,11 +1150,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     network_parser = subparsers.add_parser("network", help="Network management commands")
     network_subparsers = network_parser.add_subparsers(dest="network_action", help="Network actions")
     
+<<<<<<< HEAD
     # network create
     network_create_parser = network_subparsers.add_parser("create", help="Create a new network from template")
     network_create_parser.add_argument("template", nargs="?", help="Network template name")
     network_create_parser.add_argument("--name", help="Network name")
     network_create_parser.add_argument("--port", type=int, help="Network port")
+=======
+    # Connect command
+    connect_parser = subparsers.add_parser("connect", help="Connect to a network server")
+    connect_parser.add_argument("--host", default="localhost", help="Server host address (required if --network-id is not provided)")
+    connect_parser.add_argument("--port", type=int, default=8570, help="Server port (default: 8570)")
+    connect_parser.add_argument("--id", help="Agent ID (default: auto-generated)")
+    connect_parser.add_argument("--network-id", help="Network ID to connect to (required if --host is not provided)")
+>>>>>>> feature/krane-development
     
     # network start
     network_start_parser = network_subparsers.add_parser("start", help="Start a network")
@@ -1158,6 +1252,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     legacy_launch_agent_parser.add_argument("--host", help="Server host address (overrides config file)")
     legacy_launch_agent_parser.add_argument("--port", type=int, help="Server port (overrides config file)")
     
+    # Studio command
+    studio_parser = subparsers.add_parser("studio", help="Launch OpenAgents Studio - a Jupyter-like web interface")
+    studio_parser.add_argument("--host", default="localhost", help="Network host address (default: localhost)")
+    studio_parser.add_argument("--port", type=int, default=8570, help="Network port (default: 8570)")
+    studio_parser.add_argument("--studio-port", type=int, default=8055, help="Studio frontend port (default: 8055)")
+    studio_parser.add_argument("--workspace", "-w", help="Path to workspace directory (default: ./openagents_workspace)")
+    studio_parser.add_argument("--no-browser", action="store_true", help="Don't automatically open browser")
+    
     # Parse arguments
     args = parser.parse_args(argv)
     
@@ -1186,6 +1288,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             if hasattr(args, 'network_id'):
                 args.network = args.network_id
             launch_agent_command(args)
+        elif args.command == "studio":
+            studio_command(args)
         else:
             parser.print_help()
             return 1

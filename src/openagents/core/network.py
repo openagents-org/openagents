@@ -43,6 +43,7 @@ class AgentNetwork:
         self.network_name = config.name
         self.network_id = config.node_id or f"network-{uuid.uuid4().hex[:8]}"
         
+<<<<<<< HEAD
         # Workspace manager for persistent storage
         self.workspace_manager = None
         if workspace_path:
@@ -54,6 +55,8 @@ class AgentNetwork:
             from openagents.core.workspace_manager import create_temporary_workspace
             self.workspace_manager = create_temporary_workspace()
         
+=======
+>>>>>>> feature/krane-development
         # Create topology
         topology_mode = NetworkMode.DECENTRALIZED if str(config.mode) == str(ConfigNetworkMode.DECENTRALIZED) else NetworkMode.CENTRALIZED
         self.topology = create_topology(topology_mode, self.network_id, self.config)
@@ -90,13 +93,20 @@ class AgentNetwork:
         return self.event_gateway
     
     @staticmethod
+<<<<<<< HEAD
     def create_from_config(config: NetworkConfig, port: int = None, workspace_path: Optional[str] = None) -> "AgentNetwork":
+=======
+    def create_from_config(config: NetworkConfig, port: int = None) -> "AgentNetwork":
+>>>>>>> feature/krane-development
         """Create an AgentNetwork from a NetworkConfig object.
         
         Args:
             config: NetworkConfig object containing network configuration
             port: Optional port to use for the network
+<<<<<<< HEAD
             workspace_path: Optional workspace directory path for persistent storage
+=======
+>>>>>>> feature/krane-development
         Returns:
             AgentNetwork: Initialized network instance with mods loaded
         """
@@ -105,7 +115,11 @@ class AgentNetwork:
             config.network.port = port
 
         # Create the network instance
+<<<<<<< HEAD
         network = AgentNetwork(config, workspace_path)
+=======
+        network = AgentNetwork(config)
+>>>>>>> feature/krane-development
         
         # Load network mods if specified in config
         if config.mods:
@@ -141,6 +155,7 @@ class AgentNetwork:
         return network
     
     @staticmethod
+<<<<<<< HEAD
     def load(config: Union[str, Path, None] = None, port: int = None, workspace_path: Optional[str] = None) -> "AgentNetwork":
         """Load an AgentNetwork from a YAML configuration file.
         
@@ -148,22 +163,38 @@ class AgentNetwork:
             config: String or Path to a YAML config file, or None to auto-discover in workspace_path
             port: Optional port to use for the network
             workspace_path: Optional workspace directory path for persistent storage
+=======
+    def load(config: Union[str, Path], port: int = None) -> "AgentNetwork":
+        """Load an AgentNetwork from a YAML configuration file.
+        
+        Args:
+            config: String or Path to a YAML config file
+            port: Optional port to use for the network
+>>>>>>> feature/krane-development
         Returns:
             AgentNetwork: Initialized network instance
             
         Raises:
             FileNotFoundError: If config file path doesn't exist
+<<<<<<< HEAD
             ValueError: If config file is invalid or missing required fields, or if config is None and no network.yaml found
             TypeError: If config is not a string, Path, or None (NetworkConfig objects should use create_from_config())
+=======
+            ValueError: If config file is invalid or missing required fields
+            TypeError: If config is not a string or Path (NetworkConfig objects should use create_from_config())
+>>>>>>> feature/krane-development
             
         Examples:
             # Load from YAML file path
             network = AgentNetwork.load("examples/centralized_network_config.yaml")
             network = AgentNetwork.load(Path("config/network.yaml"))
             
+<<<<<<< HEAD
             # Auto-discover network.yaml in workspace directory
             network = AgentNetwork.load(None, workspace_path="./my_workspace")
             
+=======
+>>>>>>> feature/krane-development
             # For NetworkConfig objects, use create_from_config() instead:
             network_config = NetworkConfig(name="MyNetwork", mode="centralized")
             network = AgentNetwork.create_from_config(network_config)
@@ -174,6 +205,7 @@ class AgentNetwork:
                 "Use AgentNetwork.create_from_config(config) instead for NetworkConfig objects."
             )
         
+<<<<<<< HEAD
         elif config is None:
             # Auto-discover network.yaml in workspace_path
             if not workspace_path:
@@ -189,6 +221,9 @@ class AgentNetwork:
             config = config_path  # Set config to the discovered path and continue with normal processing
         
         if isinstance(config, (str, Path)):
+=======
+        elif isinstance(config, (str, Path)):
+>>>>>>> feature/krane-development
             # Load from YAML file path
             config_path = Path(config)
             
@@ -207,7 +242,11 @@ class AgentNetwork:
                 logger.info(f"Loaded network configuration from {config_path}")
                 
                 # Create the network instance using create_from_config for consistent mod loading
+<<<<<<< HEAD
                 network = AgentNetwork.create_from_config(network_config, port, workspace_path)
+=======
+                network = AgentNetwork.create_from_config(network_config, port)
+>>>>>>> feature/krane-development
                 
                 # Load metadata if specified in config
                 if 'metadata' in config_dict:
@@ -222,7 +261,11 @@ class AgentNetwork:
                 raise ValueError(f"Error loading network configuration from {config_path}: {e}")
         
         else:
+<<<<<<< HEAD
             raise TypeError(f"config must be NetworkConfig, str, Path, or None, got {type(config)}")
+=======
+            raise TypeError(f"config must be NetworkConfig, str, or Path, got {type(config)}")
+>>>>>>> feature/krane-development
     
     def _register_internal_handlers(self):
         """Register internal message handlers."""
@@ -515,7 +558,10 @@ def create_network(config: Union[NetworkConfig, str, Path]) -> AgentNetwork:
         return AgentNetwork.create_from_config(config)
     else:
         return AgentNetwork.load(config)
+<<<<<<< HEAD
 
+=======
+>>>>>>> feature/krane-development
 
 
 # Backward compatibility aliases

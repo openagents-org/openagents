@@ -9,12 +9,20 @@ import pytest
 import asyncio
 import random
 from pathlib import Path
+<<<<<<< HEAD
 from unittest.mock import AsyncMock, MagicMock
+=======
+from unittest.mock import AsyncMock, MagicMock, patch
+>>>>>>> feature/krane-development
 
 from openagents.core.client import AgentClient
 from openagents.core.network import create_network
 from openagents.launchers.network_launcher import load_network_config
 from openagents.agents.worker_agent import WorkerAgent
+<<<<<<< HEAD
+=======
+from openagents.models.event import Event
+>>>>>>> feature/krane-development
 from openagents.models.event_response import EventResponse
 from openagents.core.workspace import Workspace
 
@@ -352,8 +360,11 @@ async def test_worker_agent_get_direct_messages_mock(worker_agent):
     
     # Create an async function to simulate the direct message retrieval
     async def mock_get_direct_messages(with_agent, limit=50, offset=0):
+<<<<<<< HEAD
         # Use the parameters to avoid warnings
         _ = with_agent, limit, offset
+=======
+>>>>>>> feature/krane-development
         return expected_result
     
     # Mock the method to return our expected result
@@ -426,6 +437,15 @@ async def test_worker_agent_utility_methods(worker_agent):
     mentions = worker_agent.extract_mentions("Hello @agent1 and @agent2!")
     assert mentions == ["agent1", "agent2"]
     
+<<<<<<< HEAD
+=======
+    # Test register_command
+    async def test_handler(context, args):
+        pass
+    
+    worker_agent.register_command("/test", test_handler)
+    assert "/test" in worker_agent._command_handlers
+>>>>>>> feature/krane-development
 
 
 def test_worker_agent_class_attributes():
@@ -458,7 +478,11 @@ def test_worker_agent_class_attributes():
 async def test_worker_agent_integration_with_real_network(test_network):
     """Test WorkerAgent integration with a real network (if available)."""
     
+<<<<<<< HEAD
     _network, _config, _grpc_port, http_port = test_network
+=======
+    network, config, grpc_port, http_port = test_network
+>>>>>>> feature/krane-development
     
     # Create a real client
     client = AgentClient(agent_id="worker-test-client")

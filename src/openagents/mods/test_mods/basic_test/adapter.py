@@ -151,7 +151,11 @@ class BasicTestAgentAdapter(BaseModAdapter):
         # Allow event to continue processing
         return event
     
+<<<<<<< HEAD
     def get_tools(self) -> List[AgentAdapterTool]:
+=======
+    async def get_tools(self) -> List[AgentAdapterTool]:
+>>>>>>> feature/krane-development
         """Get the tools for the mod adapter.
         
         Returns:

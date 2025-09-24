@@ -92,6 +92,81 @@
   box-sizing: border-box !important;
 }
 
+<<<<<<< HEAD
+=======
+/* Wiki List Markdown Preview Styles */
+.wiki-list-preview .prose {
+  font-size: 0.875rem !important;
+  line-height: 1.4 !important;
+  color: inherit !important;
+}
+
+.wiki-list-preview .prose p {
+  margin: 0 !important;
+  display: inline !important;
+}
+
+.wiki-list-preview .prose h1,
+.wiki-list-preview .prose h2,
+.wiki-list-preview .prose h3,
+.wiki-list-preview .prose h4,
+.wiki-list-preview .prose h5,
+.wiki-list-preview .prose h6 {
+  font-size: inherit !important;
+  font-weight: 600 !important;
+  margin: 0 !important;
+  display: inline !important;
+}
+
+.wiki-list-preview .prose ul,
+.wiki-list-preview .prose ol {
+  margin: 0 !important;
+  padding-left: 1rem !important;
+  display: inline !important;
+}
+
+.wiki-list-preview .prose li {
+  margin: 0 !important;
+  display: inline !important;
+}
+
+.wiki-list-preview .prose li::before {
+  content: " • " !important;
+}
+
+.wiki-list-preview .prose code {
+  font-size: 0.8rem !important;
+  padding: 0.1rem 0.2rem !important;
+  background-color: rgba(156, 163, 175, 0.2) !important;
+  border-radius: 2px !important;
+}
+
+.wiki-list-preview .prose blockquote {
+  margin: 0 !important;
+  padding-left: 0.5rem !important;
+  border-left: 2px solid rgba(156, 163, 175, 0.3) !important;
+  font-style: italic !important;
+  display: inline !important;
+}
+
+.wiki-list-preview .prose pre {
+  display: inline !important;
+  margin: 0 !important;
+  padding: 0.2rem 0.4rem !important;
+  background-color: rgba(156, 163, 175, 0.1) !important;
+  border-radius: 2px !important;
+  font-size: 0.8rem !important;
+}
+
+.wiki-list-preview .prose strong {
+  font-weight: 600 !important;
+}
+
+.wiki-list-preview .prose em {
+  font-style: italic !important;
+}
+
+>>>>>>> feature/krane-development
 /* Add custom scrollbar styles */
 .custom-scrollbar::-webkit-scrollbar {
   width: 5px;
@@ -435,6 +510,46 @@
   color: #6b7280 !important;
 }
 
+<<<<<<< HEAD
+=======
+/* Markdown Editor Dark Theme Styles */
+[data-color-mode="dark"] .w-md-editor {
+  background-color: #1f2937 !important;
+  border: 1px solid #374151 !important;
+}
+
+[data-color-mode="dark"] .w-md-editor-text-container,
+[data-color-mode="dark"] .w-md-editor-text {
+  background-color: #1f2937 !important;
+  color: #e5e7eb !important;
+}
+
+[data-color-mode="dark"] .w-md-editor-text-textarea {
+  background-color: #1f2937 !important;
+  color: #e5e7eb !important;
+}
+
+[data-color-mode="dark"] .w-md-editor-preview {
+  background-color: #1f2937 !important;
+  color: #e5e7eb !important;
+}
+
+[data-color-mode="dark"] .w-md-editor-toolbar {
+  background-color: #374151 !important;
+  border-bottom: 1px solid #4b5563 !important;
+}
+
+[data-color-mode="dark"] .w-md-editor-toolbar button {
+  color: #d1d5db !important;
+  background: transparent !important;
+}
+
+[data-color-mode="dark"] .w-md-editor-toolbar button:hover {
+  background-color: #4b5563 !important;
+  color: #ffffff !important;
+}
+
+>>>>>>> feature/krane-development
 /* Remove any borders or outlines */
 .w-md-editor * {
   border: none !important;

@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useWikiStore } from '@/stores/wikiStore';
+<<<<<<< HEAD
+=======
+import WikiEditor from './WikiEditor';
+>>>>>>> feature/krane-development
 
 interface WikiCreateModalProps {
   isOpen: boolean;
@@ -42,7 +46,11 @@ const WikiCreateModal: React.FC<WikiCreateModalProps> = ({ isOpen, onClose }) =>
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+<<<<<<< HEAD
       <div className="w-full max-w-2xl mx-4 rounded-lg bg-white dark:bg-gray-800">
+=======
+      <div className="w-full max-w-4xl h-5/6 mx-4 flex flex-col rounded-lg bg-white dark:bg-gray-800">
+>>>>>>> feature/krane-development
         {/* Header */}
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
@@ -61,7 +69,11 @@ const WikiCreateModal: React.FC<WikiCreateModalProps> = ({ isOpen, onClose }) =>
         </div>
 
         {/* Content */}
+<<<<<<< HEAD
         <div className="px-6 py-4">
+=======
+        <div className="flex-1 px-6 py-4 overflow-hidden">
+>>>>>>> feature/krane-development
 
         {pagesError && (
           <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
@@ -69,7 +81,11 @@ const WikiCreateModal: React.FC<WikiCreateModalProps> = ({ isOpen, onClose }) =>
           </div>
         )}
 
+<<<<<<< HEAD
         <form id="wiki-form" onSubmit={handleSubmit} className="space-y-4">
+=======
+        <form id="wiki-form" onSubmit={handleSubmit} className="flex-1 flex flex-col space-y-4">
+>>>>>>> feature/krane-development
           <div>
             <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
               Page Path
@@ -98,6 +114,7 @@ const WikiCreateModal: React.FC<WikiCreateModalProps> = ({ isOpen, onClose }) =>
             />
           </div>
 
+<<<<<<< HEAD
           <div>
             <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
               Content
@@ -109,13 +126,30 @@ const WikiCreateModal: React.FC<WikiCreateModalProps> = ({ isOpen, onClose }) =>
               className="w-full p-3 rounded-lg border resize-none bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-400"
               rows={8}
               required
+=======
+          <div className="flex-1 flex flex-col">
+            <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+              Content
+            </label>
+            <WikiEditor
+              value={content}
+              onChange={setContent}
+              modes={['edit', 'preview']}
+              style={{ minHeight: '250px', height: '100%' }}
+              placeholder="Enter page content in Markdown format..."
+              textareaProps={{ required: true }}
+>>>>>>> feature/krane-development
             />
           </div>
         </form>
         </div>
 
         {/* Bottom buttons */}
+<<<<<<< HEAD
         <div className="px-6 py-4 border-t flex justify-end space-x-3 border-gray-200 dark:border-gray-700">
+=======
+        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
+>>>>>>> feature/krane-development
           <button
             type="button"
             onClick={handleClose}

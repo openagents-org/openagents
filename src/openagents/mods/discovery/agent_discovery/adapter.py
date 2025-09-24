@@ -188,7 +188,11 @@ class AgentDiscoveryAdapter(BaseModAdapter):
         # Send the message
         await self.connector.send_mod_message(message) 
     
+<<<<<<< HEAD
     def get_tools(self) -> List[AgentAdapterTool]:
+=======
+    async def get_tools(self) -> List[AgentAdapterTool]:
+>>>>>>> feature/krane-development
         """Get the tools for the mod adapter.
         
         Returns:

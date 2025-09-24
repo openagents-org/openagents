@@ -6,10 +6,15 @@ and coordinates with thread messaging for communication capabilities.
 """
 
 import logging
+<<<<<<< HEAD
 import json
 from typing import Dict, Any, List, Optional, Set
 from datetime import datetime
 from pathlib import Path
+=======
+from typing import Dict, Any, List, Optional, Set
+from datetime import datetime
+>>>>>>> feature/krane-development
 
 from openagents.core.base_mod import BaseMod
 from openagents.models.messages import Event, EventNames
@@ -26,9 +31,15 @@ class DefaultWorkspaceNetworkMod(BaseMod):
     with thread messaging for agent communication within workspaces.
     """
     
+<<<<<<< HEAD
     def __init__(self, mod_name: str = "openagents.mods.workspace.default"):
         """Initialize the default workspace network mod."""
         super().__init__(mod_name)
+=======
+    def __init__(self, mod_name: str, **kwargs):
+        """Initialize the default workspace network mod."""
+        super().__init__(mod_name, **kwargs)
+>>>>>>> feature/krane-development
         self.workspaces: Dict[str, Dict[str, Any]] = {}
         self.agent_workspaces: Dict[str, str] = {}  # agent_id -> workspace_id
         
@@ -42,6 +53,7 @@ class DefaultWorkspaceNetworkMod(BaseMod):
         # No specific message types for now
         return []
     
+<<<<<<< HEAD
     def bind_network(self, network):
         """Bind the mod to a network and load persistent data."""
         super().bind_network(network)
@@ -221,6 +233,11 @@ class DefaultWorkspaceNetworkMod(BaseMod):
         if self.workspace_manager:
             self._save_workspace_data()
         
+=======
+    def cleanup(self):
+        """Clean up network mod resources."""
+        logger.info("Cleaning up default workspace network mod")
+>>>>>>> feature/krane-development
         self.workspaces.clear()
         self.agent_workspaces.clear()
         super().cleanup()

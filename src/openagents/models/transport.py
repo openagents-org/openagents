@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field, ConfigDict
-from enum import Enum
+from enum import Enum, StrEnum
 import time
 import uuid
 
@@ -10,7 +10,11 @@ from .event import Event
 from dataclasses import dataclass, field
 
 
+<<<<<<< HEAD
 class TransportType(str, Enum):
+=======
+class TransportType(StrEnum):
+>>>>>>> feature/krane-development
     """Supported transport types."""
     WEBSOCKET = "websocket"
     LIBP2P = "libp2p"

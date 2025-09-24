@@ -3,6 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useWikiStore } from '@/stores/wikiStore';
 import { useOpenAgentsService } from '@/contexts/OpenAgentsServiceContext';
 import MarkdownRenderer from '@/components/common/MarkdownRenderer';
+<<<<<<< HEAD
+=======
+import WikiEditor from './components/WikiEditor';
+>>>>>>> feature/krane-development
 
 const WikiPageDetail: React.FC = () => {
   const [showEditModal, setShowEditModal] = useState(false);
@@ -182,7 +186,11 @@ const WikiPageDetail: React.FC = () => {
           <div className="w-full max-w-4xl h-5/6 mx-4 flex flex-col rounded-lg bg-white dark:bg-gray-800">
             <div className="p-6 border-b border-gray-200 dark:border-gray-700">
               <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+<<<<<<< HEAD
                 {isOwner ? 'Edit Page' : 'Propose Edit'}: {selectedPage.title}
+=======
+                {isOwner ? 'Edit' : 'Propose Edit'}: {selectedPage.title}
+>>>>>>> feature/krane-development
               </h2>
             </div>
 
@@ -193,6 +201,7 @@ const WikiPageDetail: React.FC = () => {
                 </div>
               )}
 
+<<<<<<< HEAD
               <div className="flex-1 flex flex-col">
                 <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
                   Content
@@ -204,6 +213,18 @@ const WikiPageDetail: React.FC = () => {
                   placeholder="Enter page content..."
                 />
               </div>
+=======
+              <WikiEditor
+                value={editContent}
+                onChange={setEditContent}
+                modes={['edit', 'preview', 'diff']}
+                oldValue={selectedPage?.wiki_content || ''}
+                oldTitle="Current Version"
+                newTitle="Your Changes"
+                style={{ height: '400px' }}
+                placeholder="Enter page content in Markdown format..."
+              />
+>>>>>>> feature/krane-development
 
               {!isOwner && (
                 <div>

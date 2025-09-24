@@ -75,6 +75,7 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None, 
             from openagents.core.network import AgentNetwork
             network = AgentNetwork.load(config_path)
         
+<<<<<<< HEAD
         logger.info(f"Created network: {network.network_name}")
         logger.info(f"Loaded {len(network.mods)} network mods: {list(network.mods.keys())}")
         
@@ -83,6 +84,13 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None, 
             workspace_stats = network.workspace_manager.get_workspace_stats()
             logger.info(f"Workspace path: {workspace_stats.get('workspace_path', 'Unknown')}")
             logger.info(f"Workspace initialized with {len(workspace_stats.get('mod_directories', []))} mod directories")
+=======
+        # Create enhanced network - pass the full config path to preserve metadata
+        # Mods are automatically loaded and registered during network creation
+        network = create_network(config_path)
+        logger.info(f"Created network: {network.network_name}")
+        logger.info(f"Loaded {len(network.mods)} network mods: {list(network.mods.keys())}")
+>>>>>>> feature/krane-development
     
         # Initialize network
         if not await network.initialize():
@@ -90,6 +98,7 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None, 
             return
         
         logger.info(f"Network '{network.network_name}' started successfully")
+<<<<<<< HEAD
         logger.info(f"Network mode: {network.config.mode}")
         
         # Log transport information
@@ -100,6 +109,22 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None, 
                 port = transport_config.get('port', 'default')
                 host = transport_config.get('host', '0.0.0.0')
                 logger.info(f"Transport {transport_type}: {host}:{port}")
+=======
+        logger.info(f"Network mode: {config.network.mode if isinstance(config.network.mode, str) else config.network.mode.value}")
+        
+        # Log transport information
+        if config.network.transports:
+            transport_info = []
+            for transport in config.network.transports:
+                port = transport.config.get('port', 'default')
+                transport_info.append(f"{transport.type}:{port}")
+            logger.info(f"Transports: {', '.join(transport_info)}")
+        
+        if config.network.recommended_transport:
+            logger.info(f"Recommended transport: {config.network.recommended_transport}")
+        
+        # Remove the host/port logging since it's handled by the topology system now
+>>>>>>> feature/krane-development
         
         # Print network statistics
         stats = network.get_network_stats()
@@ -216,6 +241,7 @@ if __name__ == "__main__":
         create_example_configs()
         sys.exit(0)
     
+<<<<<<< HEAD
     # Validate arguments
     if not args.config and not args.workspace:
         print("Error: Either --config or --workspace must be provided")
@@ -225,3 +251,6 @@ if __name__ == "__main__":
     config_path = args.config
     
     launch_network(config_path, args.runtime, args.workspace)
+=======
+    launch_network(args.config, args.runtime)
+>>>>>>> feature/krane-development

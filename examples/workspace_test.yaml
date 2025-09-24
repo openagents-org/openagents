@@ -77,6 +77,7 @@ network:
         file_retention_days: 90
         
         # Message history settings
+<<<<<<< HEAD
         max_message_history: 10000  # Legacy setting (now max_memory_messages)
         message_retention_days: 180  # 6 months
         
@@ -87,6 +88,11 @@ network:
         hot_storage_days: 7             # Keep 7 days accessible in daily archives
         archive_retention_days: 180     # Delete daily archives after 180 days
         
+=======
+        max_message_history: 10000
+        message_retention_days: 180  # 6 months
+        
+>>>>>>> feature/krane-development
         # Threading settings for organized discussions
         max_thread_depth: 10
         thread_collapse_threshold: 25

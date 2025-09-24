@@ -19,6 +19,10 @@
     "prism-themes": "^1.9.0",
     "prismjs": "^1.30.0",
     "react": "^18.2.0",
+<<<<<<< HEAD
+=======
+    "react-diff-view": "^3.3.2",
+>>>>>>> feature/krane-development
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.9.1",
@@ -35,6 +39,10 @@
     "@testing-library/jest-dom": "^5.17.0",
     "@testing-library/react": "^14.0.0",
     "@testing-library/user-event": "^14.4.3",
+<<<<<<< HEAD
+=======
+    "@types/diff": "^7.0.2",
+>>>>>>> feature/krane-development
     "@types/dompurify": "^3.0.5",
     "@types/events": "^3.0.3",
     "@types/marked": "^5.0.2",

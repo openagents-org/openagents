@@ -47,7 +47,11 @@ class TestForumMod:
                 TransportConfigItem(type=TransportType.GRPC, config={"port": grpc_port})
             ]
         )
+<<<<<<< HEAD
         network = AgentNetwork(config, workspace_path=None)
+=======
+        network = AgentNetwork(config)
+>>>>>>> feature/krane-development
         
         # Add forum mod
         forum_mod = ForumNetworkMod()
@@ -497,7 +501,11 @@ if __name__ == "__main__":
             mode=NetworkMode.CENTRALIZED,
             transports=[TransportConfigItem(type=TransportType.HTTP, config={"port": 8702})]
         )
+<<<<<<< HEAD
         network = AgentNetwork(config, workspace_path=None)
+=======
+        network = AgentNetwork(config)
+>>>>>>> feature/krane-development
         forum_mod = ForumNetworkMod()
         forum_mod.bind_network(network)
         network.mods["forum"] = forum_mod
