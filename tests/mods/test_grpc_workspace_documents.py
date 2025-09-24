@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Dict, Any
 
 from openagents.core.client import AgentClient
-from openagents.launchers.network_launcher import load_network_config, create_network
+from openagents.launchers.network_launcher import load_network_config
+from openagents.core.network import AgentNetwork
 from openagents.mods.workspace.documents import SharedDocumentAgentAdapter
 
 
@@ -39,7 +40,7 @@ async def documents_network():
             transport.config["port"] = http_port
     
     # Create and initialize network
-    network = create_network(config.network)
+    network = AgentNetwork.create_from_config(config.network)
     await network.initialize()
     
     # Give network time to start up

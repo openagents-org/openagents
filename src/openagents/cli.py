@@ -707,12 +707,26 @@ def network_start_command(args: argparse.Namespace) -> None:
         args: Command arguments
     """
     if args.detach:
-        logging.info(f"Starting network in background: {args.config}")
+        config_str = args.config or "auto-discovered config"
+        logging.info(f"Starting network in background: {config_str}")
         # TODO: Implement detached mode with process management
         logging.warning("Detached mode not yet implemented, running in foreground")
     
-    # Use existing launch_network functionality
-    launch_network(args.config, args.runtime)
+    # Handle workspace-based launch
+    if args.workspace or args.config is None:
+        workspace_path = args.workspace
+        config_path = args.config
+        
+        # Validate that we have either config or workspace
+        if not config_path and not workspace_path:
+            logging.error("Either config file or workspace directory must be provided")
+            return
+        
+        # Use workspace-aware launch_network functionality
+        launch_network(config_path, args.runtime, workspace_path)
+    else:
+        # Use existing launch_network functionality for backward compatibility
+        launch_network(args.config, args.runtime)
 
 
 def network_stop_command(args: argparse.Namespace) -> None:
@@ -1059,7 +1073,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     
     # network start
     network_start_parser = network_subparsers.add_parser("start", help="Start a network")
-    network_start_parser.add_argument("config", help="Path to network configuration file or network name")
+    network_start_parser.add_argument("config", nargs="?", help="Path to network configuration file or network name (optional if workspace has network.yaml)")
+    network_start_parser.add_argument("--workspace", help="Path to workspace directory for persistent storage")
     network_start_parser.add_argument("--detach", action="store_true", help="Run in background")
     network_start_parser.add_argument("--runtime", type=int, help="Runtime in seconds (default: run indefinitely)")
     

@@ -13,14 +13,17 @@ import logging
 import os
 import base64
 import uuid
-import tempfile
 import time
+import json
+import gzip
+from datetime import datetime
 from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
 
 from openagents.core.base_mod import BaseMod, mod_event_handler
 from openagents.models.event import Event
 from openagents.models.event_response import EventResponse
+from .message_storage_helper import MessageStorageHelper, MessageStorageConfig
 from .thread_messages import (
     ChannelMessage, 
     ReplyMessage,
@@ -113,13 +116,24 @@ class ThreadMessagingNetworkMod(BaseMod):
         """Initialize the thread messaging mod for a network."""
         super().__init__(mod_name=mod_name)
         
+        # Initialize storage helper with configuration
+        storage_config = MessageStorageConfig(
+            max_memory_messages=self.config.get('max_memory_messages', 1000),
+            memory_cleanup_minutes=self.config.get('memory_cleanup_minutes', 30),
+            dump_interval_minutes=self.config.get('dump_interval_minutes', 10),
+            hot_storage_days=self.config.get('hot_storage_days', 7),
+            archive_retention_days=self.config.get('archive_retention_days', 180)
+        )
+        self.storage_helper = MessageStorageHelper(self.get_storage_path, storage_config)
+        
+        # Storage configuration now handled by helper class
         
         # Initialize mod state
         self.active_agents: Set[str] = set()
         self.message_history: Dict[str, Event] = {}  # message_id -> message
         self.threads: Dict[str, MessageThread] = {}  # thread_id -> MessageThread
         self.message_to_thread: Dict[str, str] = {}  # message_id -> thread_id
-        self.max_history_size = 2000  # Number of messages to keep in history
+        self.max_history_size = 1000  # Default limit for backward compatibility
         
         # Channel management - use EventGateway as single source of truth
         self.channels: Dict[str, Dict[str, Any]] = {}  # channel_name -> channel_info (metadata only)
@@ -129,11 +143,14 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         # Initialize default channels (will be created after network binding)
         
-        # Create a temporary directory for file storage
-        self.temp_dir = tempfile.TemporaryDirectory(prefix="openagents_threads_")
-        self.file_storage_path = Path(self.temp_dir.name)
+        # File storage will be set up after workspace binding
+        self.file_storage_path: Optional[Path] = None
         
-        logger.info(f"Initializing Thread Messaging network mod with file storage at {self.file_storage_path}")
+        # Enhanced periodic persistence tracking
+        self._message_count_since_save = 0
+        self._save_interval = 50  # Save every 50 messages
+        
+        logger.info(f"Initializing Thread Messaging network mod")
     
     def _get_request_id(self, message) -> str:
         """Extract request_id from message, with fallback to message_id."""
@@ -219,8 +236,67 @@ class ThreadMessagingNetworkMod(BaseMod):
     def bind_network(self, network):
         """Bind the mod to a network and initialize channels."""
         super().bind_network(network)
+        
+        # Set up file storage - use workspace if available, otherwise temp directory
+        self._setup_file_storage()
+        
         # Now that network is available, initialize default channels
         self._initialize_default_channels()
+    
+    def _setup_file_storage(self):
+        """Set up file storage using workspace or temporary directory."""
+        # Use storage path (workspace or fallback)
+        storage_path = self.get_storage_path()
+        self.file_storage_path = storage_path / "files"
+        self.file_storage_path.mkdir(exist_ok=True)
+        
+        logger.info(f"Using file storage at {self.file_storage_path}")
+    
+        self._load_file_metadata()
+        self._load_message_history()
+
+    def _load_file_metadata(self):
+        """Load file metadata from storage."""
+        try:
+            storage_path = self.get_storage_path()
+            metadata_file = storage_path / "files_metadata.json"
+            
+            if metadata_file.exists():
+                import json
+                with open(metadata_file, 'r') as f:
+                    self.files = json.load(f)
+                logger.info(f"Loaded {len(self.files)} file records from storage")
+            else:
+                logger.debug("No existing file metadata found in storage")
+        except Exception as e:
+            logger.error(f"Failed to load file metadata: {e}")
+            self.files = {}
+    
+    def _save_file_metadata(self):
+        """Save file metadata to storage."""
+        try:
+            storage_path = self.get_storage_path()
+            metadata_file = storage_path / "files_metadata.json"
+            
+            import json
+            with open(metadata_file, 'w') as f:
+                json.dump(self.files, f, indent=2)
+            logger.info(f"Saved {len(self.files)} file records to storage")
+        except Exception as e:
+            logger.error(f"Failed to save file metadata: {e}")
+    
+    def _load_message_history(self):
+        """Load message history from storage using helper."""
+        self.message_history = self.storage_helper.load_message_history()
+    
+    def _save_message_history(self):
+        """Save message history to storage using helper."""
+        self.storage_helper.save_message_history(self.message_history)
+    
+    @property
+    def max_memory_messages(self) -> int:
+        """Access max memory messages from storage helper config."""
+        return self.storage_helper.config.max_memory_messages
     
     def initialize(self) -> bool:
         """Initialize the mod.
@@ -250,12 +326,9 @@ class ThreadMessagingNetworkMod(BaseMod):
         
         self.channels.clear()
         
-        # Clean up the temporary directory
-        try:
-            self.temp_dir.cleanup()
-            logger.info("Cleaned up temporary file storage directory")
-        except Exception as e:
-            logger.error(f"Error cleaning up temporary directory: {e}")
+        # Save data to storage
+        self._save_file_metadata()
+        self._save_message_history()
         
         return True
     
@@ -1147,6 +1220,9 @@ class ThreadMessagingNetworkMod(BaseMod):
                 "path": str(file_path)
             }
             
+            # Persist file metadata to storage
+            self._save_file_metadata()
+            
             logger.info(f"File uploaded: {FileUploadMessage.get_filename(message)} -> {file_id}")
             
             # Return response data instead of sending event
@@ -1705,22 +1781,70 @@ class ThreadMessagingNetworkMod(BaseMod):
         }
     
     def _add_to_history(self, message: Event) -> None:
-        """Add a message to the history.
+        """Add a message to the history with enhanced memory management.
         
         Args:
             message: The message to add
         """
         self.message_history[message.event_id] = message
-       
-        # Trim history if it exceeds the maximum size
-        if len(self.message_history) > self.max_history_size:
-            # Remove oldest messages
-            oldest_ids = sorted(
-                self.message_history.keys(), 
-                key=lambda k: self.message_history[k].timestamp
-            )[:200]
-            for old_id in oldest_ids:
-                del self.message_history[old_id]
+        
+        # Check if we need periodic dump using helper
+        if self.storage_helper.should_perform_dump():
+            self.storage_helper.periodic_dump(self.message_history)
+        
+        # Check if we need memory cleanup using helper
+        if self.storage_helper.should_perform_memory_cleanup():
+            removed_ids = self.storage_helper.cleanup_old_memory(
+                self.message_history, self.message_to_thread, self.threads
+            )
+            logger.debug(f"Cleaned up {len(removed_ids)} messages from memory")
+        
+        # Check if we need archive cleanup using helper
+        if self.storage_helper.should_perform_archive_cleanup():
+            self.storage_helper.cleanup_expired_archives()
+        
+        # Immediate cleanup if memory is full using helper
+        removed_ids = self.storage_helper.cleanup_excess_messages(self.message_history)
+        # Clean up thread references for removed messages (if any were removed)
+        for msg_id in removed_ids:
+            if msg_id in self.message_to_thread:
+                del self.message_to_thread[msg_id]
+        
+        # Periodic persistence to storage (keep existing logic for compatibility)
+        self._message_count_since_save += 1
+        if self._message_count_since_save >= self._save_interval:
+            self._save_message_history()
+            self._message_count_since_save = 0
+    
+    def _periodic_dump(self):
+        """Dump current in-memory data periodically to prevent data loss. [DEPRECATED - use storage helper]"""
+        self.storage_helper.periodic_dump(self.message_history)
+    
+    def _cleanup_old_dumps(self):
+        """Remove dump files older than 24 hours. [DEPRECATED - use storage helper]"""
+        self.storage_helper.cleanup_old_dumps()
+    
+    def _cleanup_old_memory(self):
+        """Clean up old messages from memory based on time and count. [DEPRECATED - use storage helper]"""
+        removed_ids = self.storage_helper.cleanup_old_memory(
+            self.message_history, 
+            self.message_to_thread, 
+            self.threads
+        )
+        return removed_ids
+    
+    def _cleanup_excess_messages(self):
+        """Emergency cleanup when memory limit is exceeded. [DEPRECATED - use storage helper]"""
+        removed_ids = self.storage_helper.cleanup_excess_messages(self.message_history)
+        return removed_ids
+    
+    def _archive_messages_by_date(self, message_ids: List[str]):
+        """Archive specific messages to daily files before removing from memory. [DEPRECATED - use storage helper]"""
+        self.storage_helper.archive_messages_by_date(message_ids, self.message_history)
+    
+    def _cleanup_expired_archives(self):
+        """Remove archived files older than retention policy. [DEPRECATED - use storage helper]"""
+        self.storage_helper.cleanup_expired_archives()
     
     def _get_quoted_text(self, quoted_message_id: str) -> str:
         """Get the text content of a quoted message with author information.

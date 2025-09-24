@@ -9,16 +9,14 @@ with transport and topology abstractions.
 import logging
 import os
 import sys
-import time
 import yaml
 import asyncio
 import signal
-from typing import Dict, Any, List, Optional
+from typing import Optional
 
-from openagents.core.network import AgentNetwork, create_network
 from openagents.models.transport import TransportType
 from openagents.models.network_config import (
-    OpenAgentsConfig, NetworkConfig, NetworkMode,
+    OpenAgentsConfig,
     create_centralized_server_config, create_centralized_client_config, create_decentralized_config
 )
 
@@ -49,12 +47,13 @@ def load_network_config(config_path: str) -> OpenAgentsConfig:
         raise ValueError(f"Invalid configuration: {e}")
 
 
-async def async_launch_network(config_path: str, runtime: Optional[int] = None) -> None:
+async def async_launch_network(config_path: str, runtime: Optional[int] = None, workspace_path: Optional[str] = None) -> None:
     """Launch a network asynchronously.
     
     Args:
         config_path: Path to the network configuration file
         runtime: Optional runtime limit in seconds
+        workspace_path: Optional path to workspace directory for persistent storage
     """
     def signal_handler():
         logger.info("Received shutdown signal")
@@ -66,15 +65,24 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
             signal.signal(sig, lambda signum, frame: signal_handler())
     
     try:
-        # Load configuration
-        config = load_network_config(config_path)
-        logger.info(f"Loaded network configuration from {config_path}")
+        # Create network with workspace support
+        if workspace_path:
+            logger.info(f"Using workspace directory: {workspace_path}")
+            from openagents.core.network import AgentNetwork
+            network = AgentNetwork.load(config_path, workspace_path=workspace_path)
+        else:
+            logger.info("Creating network with temporary workspace")
+            from openagents.core.network import AgentNetwork
+            network = AgentNetwork.load(config_path)
         
-        # Create enhanced network - pass the full config path to preserve metadata
-        # Mods are automatically loaded and registered during network creation
-        network = create_network(config_path)
         logger.info(f"Created network: {network.network_name}")
         logger.info(f"Loaded {len(network.mods)} network mods: {list(network.mods.keys())}")
+        
+        # Log workspace information
+        if network.workspace_manager:
+            workspace_stats = network.workspace_manager.get_workspace_stats()
+            logger.info(f"Workspace path: {workspace_stats.get('workspace_path', 'Unknown')}")
+            logger.info(f"Workspace initialized with {len(workspace_stats.get('mod_directories', []))} mod directories")
     
         # Initialize network
         if not await network.initialize():
@@ -82,20 +90,16 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
             return
         
         logger.info(f"Network '{network.network_name}' started successfully")
-        logger.info(f"Network mode: {config.network.mode if isinstance(config.network.mode, str) else config.network.mode.value}")
+        logger.info(f"Network mode: {network.config.mode}")
         
         # Log transport information
-        if config.network.transports:
-            transport_info = []
-            for transport in config.network.transports:
-                port = transport.config.get('port', 'default')
-                transport_info.append(f"{transport.type}:{port}")
-            logger.info(f"Transports: {', '.join(transport_info)}")
-        
-        if config.network.recommended_transport:
-            logger.info(f"Recommended transport: {config.network.recommended_transport}")
-        
-        # Remove the host/port logging since it's handled by the topology system now
+        if hasattr(network.config, 'transports') and network.config.transports:
+            for transport in network.config.transports:
+                transport_type = transport.type
+                transport_config = transport.config
+                port = transport_config.get('port', 'default')
+                host = transport_config.get('host', '0.0.0.0')
+                logger.info(f"Transport {transport_type}: {host}:{port}")
         
         # Print network statistics
         stats = network.get_network_stats()
@@ -133,12 +137,13 @@ async def async_launch_network(config_path: str, runtime: Optional[int] = None) 
             logger.error(f"Error during shutdown: {e}")
 
 
-def launch_network(config_path: str, runtime: Optional[int] = None) -> None:
+def launch_network(config_path: str, runtime: Optional[int] = None, workspace_path: Optional[str] = None) -> None:
     """Launch a network.
     
     Args:
         config_path: Path to the network configuration file
         runtime: Optional runtime limit in seconds
+        workspace_path: Optional path to workspace directory for persistent storage
     """
     # Set up logging
     logging.basicConfig(
@@ -147,7 +152,7 @@ def launch_network(config_path: str, runtime: Optional[int] = None) -> None:
     )
     
     try:
-        asyncio.run(async_launch_network(config_path, runtime))
+        asyncio.run(async_launch_network(config_path, runtime, workspace_path))
     except KeyboardInterrupt:
         logger.info("Network launcher interrupted by user")
     except Exception as e:
@@ -166,7 +171,7 @@ def create_example_configs() -> None:
     )
     
     with open("centralized_server.yaml", "w") as f:
-        yaml.dump(server_config.dict(), f, default_flow_style=False)
+        yaml.dump(server_config.model_dump(), f, default_flow_style=False)
     logger.info("Created centralized_server.yaml")
     
     # Centralized client config
@@ -176,7 +181,7 @@ def create_example_configs() -> None:
     )
     
     with open("centralized_client.yaml", "w") as f:
-        yaml.dump(client_config.dict(), f, default_flow_style=False)
+        yaml.dump(client_config.model_dump(), f, default_flow_style=False)
     logger.info("Created centralized_client.yaml")
     
     # Decentralized config
@@ -192,7 +197,7 @@ def create_example_configs() -> None:
     )
     
     with open("decentralized_p2p.yaml", "w") as f:
-        yaml.dump(p2p_config.dict(), f, default_flow_style=False)
+        yaml.dump(p2p_config.model_dump(), f, default_flow_style=False)
     logger.info("Created decentralized_p2p.yaml")
 
 
@@ -200,7 +205,8 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description="Enhanced OpenAgents Network Launcher")
-    parser.add_argument("--config", required=True, help="Path to network configuration file")
+    parser.add_argument("--config", help="Path to network configuration file")
+    parser.add_argument("--workspace", help="Path to workspace directory for persistent storage")
     parser.add_argument("--runtime", type=int, help="Runtime in seconds (default: run indefinitely)")
     parser.add_argument("--create-examples", action="store_true", help="Create example configuration files")
     
@@ -210,4 +216,12 @@ if __name__ == "__main__":
         create_example_configs()
         sys.exit(0)
     
-    launch_network(args.config, args.runtime)
+    # Validate arguments
+    if not args.config and not args.workspace:
+        print("Error: Either --config or --workspace must be provided")
+        sys.exit(1)
+    
+    # If only workspace is provided, set config to None for auto-discovery
+    config_path = args.config
+    
+    launch_network(config_path, args.runtime, args.workspace)

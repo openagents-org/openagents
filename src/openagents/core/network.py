@@ -31,15 +31,28 @@ logger = logging.getLogger(__name__)
 class AgentNetwork:
     """Agent network implementation using transport and topology abstractions."""
     
-    def __init__(self, config: NetworkConfig):
+    def __init__(self, config: NetworkConfig, workspace_path: Optional[str]):
         """Initialize the agent network.
         
         Args:
             config: Network configuration
+            workspace_path: Optional workspace directory path for persistent storage.
+                            If None, a temporary workspace will be created.
         """
         self.config = config
         self.network_name = config.name
         self.network_id = config.node_id or f"network-{uuid.uuid4().hex[:8]}"
+        
+        # Workspace manager for persistent storage
+        self.workspace_manager = None
+        if workspace_path:
+            from openagents.core.workspace_manager import WorkspaceManager
+            self.workspace_manager = WorkspaceManager(workspace_path)
+            self.workspace_manager.initialize_workspace()
+        else:
+            # Create temporal workspace when workspace_path is None
+            from openagents.core.workspace_manager import create_temporary_workspace
+            self.workspace_manager = create_temporary_workspace()
         
         # Create topology
         topology_mode = NetworkMode.DECENTRALIZED if str(config.mode) == str(ConfigNetworkMode.DECENTRALIZED) else NetworkMode.CENTRALIZED
@@ -77,12 +90,13 @@ class AgentNetwork:
         return self.event_gateway
     
     @staticmethod
-    def create_from_config(config: NetworkConfig, port: int = None) -> "AgentNetwork":
+    def create_from_config(config: NetworkConfig, port: int = None, workspace_path: Optional[str] = None) -> "AgentNetwork":
         """Create an AgentNetwork from a NetworkConfig object.
         
         Args:
             config: NetworkConfig object containing network configuration
             port: Optional port to use for the network
+            workspace_path: Optional workspace directory path for persistent storage
         Returns:
             AgentNetwork: Initialized network instance with mods loaded
         """
@@ -91,7 +105,7 @@ class AgentNetwork:
             config.network.port = port
 
         # Create the network instance
-        network = AgentNetwork(config)
+        network = AgentNetwork(config, workspace_path)
         
         # Load network mods if specified in config
         if config.mods:
@@ -127,24 +141,28 @@ class AgentNetwork:
         return network
     
     @staticmethod
-    def load(config: Union[str, Path], port: int = None) -> "AgentNetwork":
+    def load(config: Union[str, Path, None] = None, port: int = None, workspace_path: Optional[str] = None) -> "AgentNetwork":
         """Load an AgentNetwork from a YAML configuration file.
         
         Args:
-            config: String or Path to a YAML config file
+            config: String or Path to a YAML config file, or None to auto-discover in workspace_path
             port: Optional port to use for the network
+            workspace_path: Optional workspace directory path for persistent storage
         Returns:
             AgentNetwork: Initialized network instance
             
         Raises:
             FileNotFoundError: If config file path doesn't exist
-            ValueError: If config file is invalid or missing required fields
-            TypeError: If config is not a string or Path (NetworkConfig objects should use create_from_config())
+            ValueError: If config file is invalid or missing required fields, or if config is None and no network.yaml found
+            TypeError: If config is not a string, Path, or None (NetworkConfig objects should use create_from_config())
             
         Examples:
             # Load from YAML file path
             network = AgentNetwork.load("examples/centralized_network_config.yaml")
             network = AgentNetwork.load(Path("config/network.yaml"))
+            
+            # Auto-discover network.yaml in workspace directory
+            network = AgentNetwork.load(None, workspace_path="./my_workspace")
             
             # For NetworkConfig objects, use create_from_config() instead:
             network_config = NetworkConfig(name="MyNetwork", mode="centralized")
@@ -156,7 +174,21 @@ class AgentNetwork:
                 "Use AgentNetwork.create_from_config(config) instead for NetworkConfig objects."
             )
         
-        elif isinstance(config, (str, Path)):
+        elif config is None:
+            # Auto-discover network.yaml in workspace_path
+            if not workspace_path:
+                raise ValueError("workspace_path must be provided when config is None for auto-discovery")
+            
+            workspace_dir = Path(workspace_path)
+            config_path = workspace_dir / "network.yaml"
+            
+            if not config_path.exists():
+                raise FileNotFoundError(f"No network.yaml found in workspace directory: {workspace_path}")
+            
+            logger.info(f"Auto-discovered network configuration: {config_path}")
+            config = config_path  # Set config to the discovered path and continue with normal processing
+        
+        if isinstance(config, (str, Path)):
             # Load from YAML file path
             config_path = Path(config)
             
@@ -175,7 +207,7 @@ class AgentNetwork:
                 logger.info(f"Loaded network configuration from {config_path}")
                 
                 # Create the network instance using create_from_config for consistent mod loading
-                network = AgentNetwork.create_from_config(network_config, port)
+                network = AgentNetwork.create_from_config(network_config, port, workspace_path)
                 
                 # Load metadata if specified in config
                 if 'metadata' in config_dict:
@@ -190,7 +222,7 @@ class AgentNetwork:
                 raise ValueError(f"Error loading network configuration from {config_path}: {e}")
         
         else:
-            raise TypeError(f"config must be NetworkConfig, str, or Path, got {type(config)}")
+            raise TypeError(f"config must be NetworkConfig, str, Path, or None, got {type(config)}")
     
     def _register_internal_handlers(self):
         """Register internal message handlers."""
@@ -483,6 +515,7 @@ def create_network(config: Union[NetworkConfig, str, Path]) -> AgentNetwork:
         return AgentNetwork.create_from_config(config)
     else:
         return AgentNetwork.load(config)
+
 
 
 # Backward compatibility aliases

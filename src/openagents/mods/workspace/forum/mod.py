@@ -10,10 +10,12 @@ This standalone mod enables Reddit-like forum functionality with:
 """
 
 import logging
+import json
 import time
 import uuid
 from typing import Dict, Any, List, Optional, Set
 from collections import defaultdict
+from pathlib import Path
 
 from openagents.config.globals import BROADCAST_AGENT_ID
 from openagents.core.base_mod import BaseMod, mod_event_handler
@@ -137,14 +139,277 @@ class ForumNetworkMod(BaseMod):
         super().__init__(mod_name=mod_name)
         
         
-        # Initialize forum state
+        # Initialize forum state  
         self.active_agents: Set[str] = set()
-        self.topics: Dict[str, ForumTopic] = {}  # topic_id -> ForumTopic
-        self.user_votes: Dict[str, Dict[str, str]] = defaultdict(dict)  # agent_id -> {target_id: vote_type}
-        self.topic_order_recent: List[str] = []  # Topic IDs ordered by recency
-        self.topic_order_popular: List[str] = []  # Topic IDs ordered by popularity
         
         logger.info(f"Initialized Forum Network Mod: {self.mod_name}")
+    
+    @property
+    def topics(self) -> Dict[str, ForumTopic]:
+        """Get all topics (loaded from storage)."""
+        topics = {}
+        metadata = self._get_topics_metadata()
+        # Load all topics from storage
+        for topic_id in metadata['topics'].keys():
+            topic = self._load_topic(topic_id)
+            if topic:
+                topics[topic_id] = topic
+        return topics
+    
+    @property 
+    def user_votes(self) -> Dict[str, Dict[str, str]]:
+        """Get all user votes (loaded from storage)."""
+        try:
+            storage_path = self.get_storage_path()
+            votes_file = storage_path / "votes.json"
+            
+            if votes_file.exists():
+                with open(votes_file, 'r') as f:
+                    votes_data = json.load(f)
+                return defaultdict(dict, votes_data)
+            else:
+                return defaultdict(dict)
+        except Exception as e:
+            logger.error(f"Failed to load user votes: {e}")
+            return defaultdict(dict)
+    
+    @property
+    def topic_order_recent(self) -> List[str]:
+        """Get recent topic order (loaded from storage)."""
+        metadata = self._get_topics_metadata()
+        return metadata.get('topic_order_recent', [])
+    
+    @property
+    def topic_order_popular(self) -> List[str]:
+        """Get popular topic order (loaded from storage).""" 
+        metadata = self._get_topics_metadata()
+        return metadata.get('topic_order_popular', [])
+    
+    def _load_topic(self, topic_id: str) -> Optional[ForumTopic]:
+        """Get a specific topic from storage."""
+        try:
+            storage_path = self.get_storage_path()
+            topics_dir = storage_path / "topics"
+            topic_file = topics_dir / f"{topic_id}.json"
+            
+            if not topic_file.exists():
+                return None
+                
+            with open(topic_file, 'r') as f:
+                topic_dict = json.load(f)
+            topic = ForumTopic(
+                topic_id=topic_dict['topic_id'],
+                title=topic_dict['title'],
+                content=topic_dict['content'],
+                owner_id=topic_dict['owner_id'],
+                timestamp=topic_dict['timestamp']
+            )
+            
+            # Restore additional attributes
+            topic.upvotes = topic_dict.get('upvotes', 0)
+            topic.downvotes = topic_dict.get('downvotes', 0)
+            topic.comment_count = topic_dict.get('comment_count', 0)
+            topic.last_activity = topic_dict.get('last_activity', topic.timestamp)
+            
+            # Reconstruct comments
+            if 'comments_data' in topic_dict:
+                for comment_id, comment_dict in topic_dict['comments_data'].items():
+                    comment = ForumComment(
+                        comment_id=comment_dict['comment_id'],
+                        topic_id=comment_dict['topic_id'],
+                        content=comment_dict['content'],
+                        author_id=comment_dict['author_id'],
+                        timestamp=comment_dict['timestamp'],
+                        parent_comment_id=comment_dict.get('parent_comment_id'),
+                        thread_level=comment_dict.get('thread_level', 1)
+                    )
+                    comment.upvotes = comment_dict.get('upvotes', 0)
+                    comment.downvotes = comment_dict.get('downvotes', 0)
+                    topic.comments[comment_id] = comment
+            
+            # Reconstruct comment tree structure
+            if 'comment_tree_data' in topic_dict:
+                topic.comment_tree = defaultdict(list, topic_dict['comment_tree_data'])
+            if 'root_comments' in topic_dict:
+                topic.root_comments = topic_dict['root_comments']
+            
+            return topic
+            
+        except Exception as e:
+            logger.error(f"Failed to load topic {topic_id}: {e}")
+            return None
+    
+    def _get_topics_metadata(self) -> Dict[str, Any]:
+        """Get topic metadata (for listing) without loading full topics."""
+        try:
+            storage_path = self.get_storage_path()
+            
+            # Load basic topic info from individual files
+            topics_data = {}
+            topics_dir = storage_path / "topics"
+            if topics_dir.exists():
+                for topic_file in topics_dir.glob("*.json"):
+                    try:
+                        topic_id = topic_file.stem  # filename without extension
+                        with open(topic_file, 'r') as f:
+                            topic_dict = json.load(f)
+                        # Extract only metadata, not full content/comments
+                        topics_data[topic_id] = {
+                            'topic_id': topic_dict['topic_id'],
+                            'title': topic_dict['title'],
+                            'owner_id': topic_dict['owner_id'],
+                            'timestamp': topic_dict['timestamp'],
+                            'upvotes': topic_dict.get('upvotes', 0),
+                            'downvotes': topic_dict.get('downvotes', 0),
+                            'comment_count': topic_dict.get('comment_count', 0),
+                            'last_activity': topic_dict.get('last_activity', topic_dict['timestamp'])
+                        }
+                    except Exception as e:
+                        logger.error(f"Failed to load metadata for topic file {topic_file}: {e}")
+                        continue
+            
+            # Load ordering metadata
+            metadata = {}
+            metadata_file = storage_path / "metadata.json"
+            if metadata_file.exists():
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+            
+            return {
+                'topics': topics_data,
+                'topic_order_recent': metadata.get('topic_order_recent', []),
+                'topic_order_popular': metadata.get('topic_order_popular', [])
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to load topics metadata: {e}")
+            return {'topics': {}, 'topic_order_recent': [], 'topic_order_popular': []}
+    
+    def _get_user_votes(self, agent_id: str) -> Dict[str, str]:
+        """Get votes for a specific user from storage."""
+        try:
+            storage_path = self.get_storage_path()
+            votes_file = storage_path / "votes.json"
+            
+            if not votes_file.exists():
+                return {}
+                
+            with open(votes_file, 'r') as f:
+                all_votes = json.load(f)
+                
+            return all_votes.get(agent_id, {})
+            
+        except Exception as e:
+            logger.error(f"Failed to load votes for user {agent_id}: {e}")
+            return {}
+    
+    def _save_topic(self, topic: ForumTopic):
+        """Save a single topic to its own file."""
+        try:
+            storage_path = self.get_storage_path()
+            topics_dir = storage_path / "topics"
+            topics_dir.mkdir(parents=True, exist_ok=True)
+            
+            topic_file = topics_dir / f"{topic.topic_id}.json"
+            
+            # Prepare topic data
+            topic_dict = topic.to_dict()
+            topic_dict['comments_data'] = {}
+            for comment_id, comment in topic.comments.items():
+                topic_dict['comments_data'][comment_id] = comment.to_dict()
+            topic_dict['comment_tree_data'] = dict(topic.comment_tree)
+            topic_dict['root_comments'] = topic.root_comments
+            
+            # Save to individual file
+            with open(topic_file, 'w') as f:
+                json.dump(topic_dict, f, indent=2, default=str)
+                
+            # Topic saved to individual file
+            
+        except Exception as e:
+            logger.error(f"Failed to save topic {topic.topic_id}: {e}")
+    
+    def _save_user_votes(self, agent_id: str, votes: Dict[str, str]):
+        """Save votes for a specific user."""
+        try:
+            storage_path = self.get_storage_path()
+            storage_path.mkdir(parents=True, exist_ok=True)
+            votes_file = storage_path / "votes.json"
+            
+            # Load existing votes
+            all_votes = {}
+            if votes_file.exists():
+                with open(votes_file, 'r') as f:
+                    all_votes = json.load(f)
+            
+            # Update this user's votes
+            all_votes[agent_id] = votes
+            
+            # Save back to file
+            with open(votes_file, 'w') as f:
+                json.dump(all_votes, f, indent=2)
+                
+        except Exception as e:
+            logger.error(f"Failed to save votes for user {agent_id}: {e}")
+    
+    def _save_metadata(self, topic_order_recent: List[str], topic_order_popular: List[str]):
+        """Save topic ordering metadata."""
+        try:
+            storage_path = self.get_storage_path()
+            storage_path.mkdir(parents=True, exist_ok=True)
+            metadata_file = storage_path / "metadata.json"
+            
+            metadata = {
+                'topic_order_recent': topic_order_recent,
+                'topic_order_popular': topic_order_popular,
+                'last_saved': time.time()
+            }
+            
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2, default=str)
+                
+        except Exception as e:
+            logger.error(f"Failed to save metadata: {e}")
+    
+    def _get_topic_vote_score(self, topic_id: str) -> int:
+        """Get vote score for a topic from storage."""
+        metadata = self._get_topics_metadata()
+        topic_info = metadata['topics'].get(topic_id, {})
+        upvotes = topic_info.get('upvotes', 0) 
+        downvotes = topic_info.get('downvotes', 0)
+        return upvotes - downvotes
+
+    def initialize(self) -> bool:
+        """Initialize the mod without loading all data into memory.
+        
+        Returns:
+            bool: True if initialization was successful, False otherwise
+        """
+        try:
+            # No need to load all data - storage-first approach
+            logger.info("Forum mod initialization complete (storage-first mode)")
+            return True
+        except Exception as e:
+            logger.error(f"Forum mod initialization failed: {e}")
+            return False
+    
+    def shutdown(self) -> bool:
+        """Shutdown the mod gracefully.
+        
+        Returns:
+            bool: True if shutdown was successful, False otherwise
+        """
+        try:
+            # Clear state (data is already in storage)
+            self.active_agents.clear()
+            
+            logger.info("Forum mod shutdown complete")
+            return True
+        except Exception as e:
+            logger.error(f"Forum mod shutdown failed: {e}")
+            return False
+    
+    # Old memory-based methods removed - now using storage-first approach
     
     async def handle_register_agent(self, agent_id: str, metadata: Optional[Dict[str, Any]] = None) -> Optional[EventResponse]:
         """Handle agent registration."""
@@ -222,9 +487,29 @@ class ForumNetworkMod(BaseMod):
             timestamp=timestamp
         )
         
-        self.topics[topic_id] = topic
-        self.topic_order_recent.insert(0, topic_id)  # Add to front for recency
-        self._update_popular_order()
+        # Save the new topic to storage
+        self._save_topic(topic)
+        
+        # Update topic ordering metadata
+        metadata = self._get_topics_metadata()
+        topic_order_recent = metadata['topic_order_recent']
+        topic_order_popular = metadata['topic_order_popular']
+        
+        # Add to front for recency
+        if topic_id in topic_order_recent:
+            topic_order_recent.remove(topic_id)
+        topic_order_recent.insert(0, topic_id)
+        
+        # Update popular order 
+        if topic_id not in topic_order_popular:
+            topic_order_popular.append(topic_id)
+        # Sort by vote score (will be 0 for new topics)
+        topic_order_popular.sort(key=lambda tid: self._get_topic_vote_score(tid), reverse=True)
+        
+        # Save metadata
+        self._save_metadata(topic_order_recent, topic_order_popular)
+        
+        # Topic data now stored in storage
         
         logger.info(f"Created topic {topic_id}: '{title}' by {owner_id}")
         
@@ -274,6 +559,13 @@ class ForumNetworkMod(BaseMod):
         
         logger.info(f"Edited topic {topic_id} by {editor_id}")
         
+        # Save the updated topic to storage
+        self._save_topic(topic)
+        
+        # Update metadata (ordering might have changed due to activity update)
+        metadata = self._get_topics_metadata()
+        self._save_metadata(metadata['topic_order_recent'], metadata['topic_order_popular'])
+        
         # Send notification event
         await self._send_topic_notification("forum.topic.edited", topic, event.source_id)
         
@@ -305,22 +597,44 @@ class ForumNetworkMod(BaseMod):
                 message="Only the topic owner can delete this topic"
             )
         
-        # Remove topic and clean up
-        del self.topics[topic_id]
-        if topic_id in self.topic_order_recent:
-            self.topic_order_recent.remove(topic_id)
-        if topic_id in self.topic_order_popular:
-            self.topic_order_popular.remove(topic_id)
+        # Remove topic file
+        storage_path = self.get_storage_path()
+        topics_dir = storage_path / "topics"
+        topic_file = topics_dir / f"{topic_id}.json"
+        if topic_file.exists():
+            topic_file.unlink()
+        
+        # Update metadata - remove from ordering
+        metadata = self._get_topics_metadata()
+        topic_order_recent = metadata['topic_order_recent']
+        topic_order_popular = metadata['topic_order_popular']
+        
+        if topic_id in topic_order_recent:
+            topic_order_recent.remove(topic_id)
+        if topic_id in topic_order_popular:
+            topic_order_popular.remove(topic_id)
         
         # Clean up votes for this topic and its comments
-        for agent_votes in self.user_votes.values():
-            # Remove votes for the topic
-            if topic_id in agent_votes:
-                del agent_votes[topic_id]
-            # Remove votes for comments in this topic
-            for comment_id in list(agent_votes.keys()):
-                if comment_id in topic.comments:
-                    del agent_votes[comment_id]
+        all_user_votes = self.user_votes
+        updated_votes = {}
+        for agent_id, agent_votes in all_user_votes.items():
+            # Remove votes for the topic and its comments
+            filtered_votes = {}
+            for vote_target_id, vote_type in agent_votes.items():
+                # Keep vote if it's not for this topic or its comments
+                if vote_target_id != topic_id and vote_target_id not in topic.comments:
+                    filtered_votes[vote_target_id] = vote_type
+            if filtered_votes:  # Only save if user has remaining votes
+                updated_votes[agent_id] = filtered_votes
+            
+        # Save updated votes
+        storage_path.mkdir(parents=True, exist_ok=True)
+        votes_file = storage_path / "votes.json"
+        with open(votes_file, 'w') as f:
+            json.dump(updated_votes, f, indent=2)
+        
+        # Save updated metadata
+        self._save_metadata(topic_order_recent, topic_order_popular)
         
         logger.info(f"Deleted topic {topic_id} by {deleter_id}")
         
@@ -371,11 +685,11 @@ class ForumNetworkMod(BaseMod):
         content = payload.get('content', '').strip()
         author_id = event.source_id
         
-        # Validate input
-        if not topic_id or topic_id not in self.topics:
+        # Validate input and load topic from storage
+        if not topic_id:
             return EventResponse(
                 success=False,
-                message="Topic not found"
+                message="Topic ID required"
             )
         
         if not content:
@@ -384,7 +698,12 @@ class ForumNetworkMod(BaseMod):
                 message="Comment content cannot be empty"
             )
         
-        topic = self.topics[topic_id]
+        topic = self._load_topic(topic_id)
+        if not topic:
+            return EventResponse(
+                success=False,
+                message="Topic not found"
+            )
         comment_id = str(uuid.uuid4())
         timestamp = time.time()
         
@@ -403,10 +722,14 @@ class ForumNetworkMod(BaseMod):
         topic.comment_count += 1
         topic.last_activity = timestamp
         
-        # Update topic ordering
-        self._update_topic_activity(topic_id)
-        
         logger.info(f"Posted comment {comment_id} on topic {topic_id} by {author_id}")
+        
+        # Save the updated topic with new comment
+        self._save_topic(topic)
+        
+        # Update metadata for activity ordering
+        metadata = self._get_topics_metadata()
+        self._save_metadata(metadata['topic_order_recent'], metadata['topic_order_popular'])
         
         # Send notifications
         await self._send_comment_notification("forum.comment.posted", comment, topic, event.source_id)
@@ -425,16 +748,28 @@ class ForumNetworkMod(BaseMod):
         content = payload.get('content', '').strip()
         author_id = event.source_id
         
-        # Validate input
-        if not topic_id or topic_id not in self.topics:
+        # Validate input and load topic from storage
+        if not topic_id:
+            return EventResponse(
+                success=False,
+                message="Topic ID required"
+            )
+        
+        topic = self._load_topic(topic_id)
+        if not topic:
             return EventResponse(
                 success=False,
                 message="Topic not found"
             )
         
-        topic = self.topics[topic_id]
-        
-        if not parent_comment_id or parent_comment_id not in topic.comments:
+        if not parent_comment_id:
+            return EventResponse(
+                success=False,
+                message="Parent comment ID required"
+            )
+            
+        if parent_comment_id not in topic.comments:
+            logger.error(f"Parent comment {parent_comment_id} not found in topic {topic_id}. Available comments: {list(topic.comments.keys())}")
             return EventResponse(
                 success=False,
                 message="Parent comment not found"
@@ -474,10 +809,14 @@ class ForumNetworkMod(BaseMod):
         topic.comment_count += 1
         topic.last_activity = timestamp
         
-        # Update topic ordering
-        self._update_topic_activity(topic_id)
-        
         logger.info(f"Posted reply {comment_id} to comment {parent_comment_id} by {author_id}")
+        
+        # Save the updated topic with new reply
+        self._save_topic(topic)
+        
+        # Update metadata for activity ordering
+        metadata = self._get_topics_metadata()
+        self._save_metadata(metadata['topic_order_recent'], metadata['topic_order_popular'])
         
         # Send notifications
         await self._send_comment_notification("forum.comment.replied", comment, topic, event.source_id)
@@ -496,14 +835,19 @@ class ForumNetworkMod(BaseMod):
         content = payload.get('content', '').strip()
         editor_id = event.source_id
         
-        # Validate input
-        if not topic_id or topic_id not in self.topics:
+        # Validate input and load topic from storage
+        if not topic_id:
+            return EventResponse(
+                success=False,
+                message="Topic ID required"
+            )
+        
+        topic = self._load_topic(topic_id)
+        if not topic:
             return EventResponse(
                 success=False,
                 message="Topic not found"
             )
-        
-        topic = self.topics[topic_id]
         
         if not comment_id or comment_id not in topic.comments:
             return EventResponse(
@@ -530,6 +874,9 @@ class ForumNetworkMod(BaseMod):
         comment.content = content
         topic.last_activity = time.time()
         
+        # Save the updated topic with edited comment
+        self._save_topic(topic)
+        
         logger.info(f"Edited comment {comment_id} by {editor_id}")
         
         # Send notification
@@ -548,14 +895,19 @@ class ForumNetworkMod(BaseMod):
         comment_id = payload.get('comment_id')
         deleter_id = event.source_id
         
-        # Validate input
-        if not topic_id or topic_id not in self.topics:
+        # Validate input and load topic from storage
+        if not topic_id:
+            return EventResponse(
+                success=False,
+                message="Topic ID required"
+            )
+        
+        topic = self._load_topic(topic_id)
+        if not topic:
             return EventResponse(
                 success=False,
                 message="Topic not found"
             )
-        
-        topic = self.topics[topic_id]
         
         if not comment_id or comment_id not in topic.comments:
             return EventResponse(
@@ -602,6 +954,21 @@ class ForumNetworkMod(BaseMod):
         
         remove_comment_tree(comment_id)
         topic.last_activity = time.time()
+        
+        # Save the updated topic after comment deletion
+        self._save_topic(topic)
+        
+        # Clean up votes (already done in remove_comment_tree but save updated votes)
+        updated_votes = {}
+        for agent_id, agent_votes in self.user_votes.items():
+            if agent_votes:  # Only include agents that still have votes
+                updated_votes[agent_id] = agent_votes
+        
+        storage_path = self.get_storage_path()
+        storage_path.mkdir(parents=True, exist_ok=True)
+        votes_file = storage_path / "votes.json"
+        with open(votes_file, 'w') as f:
+            json.dump(updated_votes, f, indent=2)
         
         logger.info(f"Deleted comment {comment_id} by {deleter_id}")
         
@@ -662,18 +1029,21 @@ class ForumNetworkMod(BaseMod):
         
         # Find target
         target_obj = None
+        containing_topic = None  # Track which topic contains a comment
         if target_type == 'topic':
-            if target_id not in self.topics:
+            target_obj = self._load_topic(target_id)
+            if not target_obj:
                 return EventResponse(
                     success=False,
                     message="Topic not found"
                 )
-            target_obj = self.topics[target_id]
         else:  # comment
-            # Find comment in any topic
-            for topic in self.topics.values():
-                if target_id in topic.comments:
+            # Find comment in any topic - need to search through all topics
+            for topic_id in self._get_topics_metadata()['topics'].keys():
+                topic = self._load_topic(topic_id)
+                if topic and target_id in topic.comments:
                     target_obj = topic.comments[target_id]
+                    containing_topic = topic  # Save reference to the topic containing this comment
                     break
             
             if not target_obj:
@@ -705,9 +1075,30 @@ class ForumNetworkMod(BaseMod):
         
         self.user_votes[voter_id][target_id] = vote_type
         
-        # Update popular ordering if it's a topic
+        # Save the updated topic with new vote counts
         if target_type == 'topic':
-            self._update_popular_order()
+            self._save_topic(target_obj)
+        else:
+            # For comments, we need to save the topic that contains the comment
+            # Use the containing_topic that we already found during comment lookup
+            if containing_topic:
+                self._save_topic(containing_topic)
+            else:
+                logger.error(f"Could not find topic containing comment {target_id} for vote save")
+        
+        # Save updated user votes
+        self._save_user_votes(voter_id, self.user_votes[voter_id])
+        
+        # Update metadata if it's a topic vote (affects popular ordering)
+        if target_type == 'topic':
+            metadata = self._get_topics_metadata()
+            # Re-sort popular order based on new vote scores
+            topic_order_popular = sorted(
+                metadata['topics'].keys(),
+                key=lambda tid: metadata['topics'][tid].get('upvotes', 0) - metadata['topics'][tid].get('downvotes', 0),
+                reverse=True
+            )
+            self._save_metadata(metadata['topic_order_recent'], topic_order_popular)
         
         logger.info(f"Cast {vote_type} on {target_type} {target_id} by {voter_id}")
         
@@ -742,16 +1133,17 @@ class ForumNetworkMod(BaseMod):
         # Find target
         target_obj = None
         if target_type == 'topic':
-            if target_id not in self.topics:
+            target_obj = self._load_topic(target_id)
+            if not target_obj:
                 return EventResponse(
                     success=False,
                     message="Topic not found"
                 )
-            target_obj = self.topics[target_id]
         else:  # comment
-            # Find comment in any topic
-            for topic in self.topics.values():
-                if target_id in topic.comments:
+            # Find comment in any topic - need to search through all topics
+            for topic_id in self._get_topics_metadata()['topics'].keys():
+                topic = self._load_topic(topic_id)
+                if topic and target_id in topic.comments:
                     target_obj = topic.comments[target_id]
                     break
             
@@ -769,9 +1161,19 @@ class ForumNetworkMod(BaseMod):
         
         del self.user_votes[voter_id][target_id]
         
-        # Update popular ordering if it's a topic
+        # Save updated user votes
+        self._save_user_votes(voter_id, self.user_votes[voter_id])
+        
+        # Update metadata if it's a topic vote (affects popular ordering)
         if target_type == 'topic':
-            self._update_popular_order()
+            metadata = self._get_topics_metadata()
+            # Re-sort popular order based on new vote scores  
+            topic_order_popular = sorted(
+                metadata['topics'].keys(),
+                key=lambda tid: metadata['topics'][tid].get('upvotes', 0) - metadata['topics'][tid].get('downvotes', 0),
+                reverse=True
+            )
+            self._save_metadata(metadata['topic_order_recent'], topic_order_popular)
         
         logger.info(f"Removed {existing_vote} on {target_type} {target_id} by {voter_id}")
         
@@ -1068,32 +1470,32 @@ class ForumNetworkMod(BaseMod):
         )
     
     def _update_topic_activity(self, topic_id: str):
-        """Update topic activity ordering."""
+        """Update topic activity ordering in metadata."""
+        metadata = self._get_topics_metadata()
+        topic_order_recent = metadata['topic_order_recent']
+        topic_order_popular = metadata['topic_order_popular']
+        
         # Move to front of recent list
-        if topic_id in self.topic_order_recent:
-            self.topic_order_recent.remove(topic_id)
-        self.topic_order_recent.insert(0, topic_id)
+        if topic_id in topic_order_recent:
+            topic_order_recent.remove(topic_id)
+        topic_order_recent.insert(0, topic_id)
         
-        # Update popular ordering
-        self._update_popular_order()
-    
-    def _update_popular_order(self):
-        """Update the popular topics ordering based on vote scores and activity."""
-        def popularity_score(topic_id):
-            if topic_id not in self.topics:
-                return 0
-            topic = self.topics[topic_id]
-            # Combine vote score with recent activity and comment count
-            vote_score = topic.get_vote_score()
-            activity_bonus = min(topic.last_activity / 1000000, 1000)  # Normalize timestamp
-            comment_bonus = topic.comment_count * 0.1
-            return vote_score + activity_bonus + comment_bonus
-        
-        self.topic_order_popular = sorted(
-            self.topics.keys(),
-            key=popularity_score,
+        # Update popular ordering based on current vote scores
+        topic_order_popular = sorted(
+            metadata['topics'].keys(),
+            key=lambda tid: self._get_topic_popularity_score(metadata['topics'][tid]),
             reverse=True
         )
+        
+        # Save updated metadata
+        self._save_metadata(topic_order_recent, topic_order_popular)
+    
+    def _get_topic_popularity_score(self, topic_metadata: Dict[str, Any]) -> float:
+        """Calculate popularity score for a topic based on metadata."""
+        vote_score = topic_metadata.get('upvotes', 0) - topic_metadata.get('downvotes', 0)
+        activity_bonus = min(topic_metadata.get('last_activity', 0) / 1000000, 1000)  # Normalize timestamp
+        comment_bonus = topic_metadata.get('comment_count', 0) * 0.1
+        return vote_score + activity_bonus + comment_bonus
     
     async def _send_topic_notification(self, event_name: str, topic: ForumTopic, source_id: str):
         """Send topic-related notifications."""

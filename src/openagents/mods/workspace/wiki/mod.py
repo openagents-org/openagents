@@ -9,6 +9,7 @@ This standalone mod enables collaborative wiki functionality with:
 """
 
 import logging
+import json
 import os
 import time
 import uuid
@@ -56,38 +57,157 @@ class WikiNetworkMod(BaseMod):
         
         # Initialize mod state
         self.active_agents: Set[str] = set()
-        self.pages: Dict[str, WikiPage] = {}  # page_path -> WikiPage
-        self.page_versions: Dict[str, List[WikiPageVersion]] = {}  # page_path -> [versions]
-        self.proposals: Dict[str, WikiEditProposal] = {}  # proposal_id -> WikiEditProposal
-        self.page_proposals: Dict[str, List[str]] = {}  # page_path -> [proposal_ids]
         
         logger.info(f"Initializing Wiki network mod")
     
+    @property
+    def pages(self) -> Dict[str, WikiPage]:
+        """Get all pages (loaded from storage)."""
+        pages = {}
+        try:
+            storage_path = self.get_storage_path()
+            pages_dir = storage_path / "pages"
+            if pages_dir.exists():
+                for page_file in pages_dir.glob("*.json"):
+                    try:
+                        page_path = page_file.stem.replace('_SLASH_', '/')  # Decode path from filename
+                        with open(page_file, 'r') as f:
+                            page_dict = json.load(f)
+                        
+                        page = WikiPage(
+                            page_path=page_dict['page_path'],
+                            title=page_dict['title'],
+                            content=page_dict['content'],
+                            created_by=page_dict['created_by'],
+                            created_timestamp=page_dict['created_timestamp'],
+                            current_version=page_dict.get('current_version', 1)
+                        )
+                        pages[page_path] = page
+                    except Exception as e:
+                        logger.error(f"Failed to load page from file {page_file}: {e}")
+                        continue
+        except Exception as e:
+            logger.error(f"Failed to load wiki pages: {e}")
+        return pages
+    
+    @property
+    def page_versions(self) -> Dict[str, List[WikiPageVersion]]:
+        """Get all page versions (loaded from storage)."""
+        page_versions = {}
+        try:
+            storage_path = self.get_storage_path()
+            versions_dir = storage_path / "versions"
+            if versions_dir.exists():
+                for version_file in versions_dir.glob("*.json"):
+                    try:
+                        page_path = version_file.stem.replace('_SLASH_', '/')  # Decode path from filename
+                        with open(version_file, 'r') as f:
+                            versions_list = json.load(f)
+                        
+                        versions = []
+                        for version_dict in versions_list:
+                            version = WikiPageVersion(
+                                version_id=version_dict['version_id'],
+                                page_path=version_dict['page_path'],
+                                version_number=version_dict['version_number'],
+                                content=version_dict['content'],
+                                edited_by=version_dict['edited_by'],
+                                edit_timestamp=version_dict['edit_timestamp'],
+                                edit_type=version_dict.get('edit_type', 'direct'),
+                                parent_version=version_dict.get('parent_version')
+                            )
+                            versions.append(version)
+                        page_versions[page_path] = versions
+                    except Exception as e:
+                        logger.error(f"Failed to load versions from file {version_file}: {e}")
+                        continue
+        except Exception as e:
+            logger.error(f"Failed to load page versions: {e}")
+        return page_versions
+    
+    @property
+    def proposals(self) -> Dict[str, WikiEditProposal]:
+        """Get all proposals (loaded from storage)."""
+        proposals = {}
+        try:
+            storage_path = self.get_storage_path()
+            proposals_dir = storage_path / "proposals"
+            if proposals_dir.exists():
+                for proposal_file in proposals_dir.glob("*.json"):
+                    try:
+                        proposal_id = proposal_file.stem  # filename without extension
+                        with open(proposal_file, 'r') as f:
+                            proposal_dict = json.load(f)
+                        
+                        proposal = WikiEditProposal(
+                            proposal_id=proposal_dict['proposal_id'],
+                            page_path=proposal_dict['page_path'],
+                            proposed_content=proposal_dict['proposed_content'],
+                            rationale=proposal_dict.get('rationale', ''),
+                            proposed_by=proposal_dict['proposed_by'],
+                            created_timestamp=proposal_dict['created_timestamp'],
+                            status=proposal_dict.get('status', 'pending'),
+                            resolved_by=proposal_dict.get('resolved_by'),
+                            resolved_timestamp=proposal_dict.get('resolved_timestamp'),
+                            resolution_comments=proposal_dict.get('resolution_comments')
+                        )
+                        proposals[proposal_id] = proposal
+                    except Exception as e:
+                        logger.error(f"Failed to load proposal from file {proposal_file}: {e}")
+                        continue
+        except Exception as e:
+            logger.error(f"Failed to load proposals: {e}")
+        return proposals
+        
+    @property
+    def page_proposals(self) -> Dict[str, List[str]]:
+        """Get page-proposal mappings (loaded from metadata)."""
+        try:
+            storage_path = self.get_storage_path()
+            metadata_file = storage_path / "metadata.json"
+            
+            if metadata_file.exists():
+                with open(metadata_file, 'r') as f:
+                    metadata = json.load(f)
+                return metadata.get('page_proposals', {})
+            else:
+                return {}
+        except Exception as e:
+            logger.error(f"Failed to load page proposals metadata: {e}")
+            return {}
+
     def initialize(self) -> bool:
-        """Initialize the mod.
+        """Initialize the mod and load persistent data.
         
         Returns:
             bool: True if initialization was successful, False otherwise
         """
-        # Initialize default wiki threads
-        self._initialize_wiki_threads()
-        return True
+        try:
+            # No need to load all data - storage-first approach
+            # Initialize default wiki threads
+            self._initialize_wiki_threads()
+            
+            logger.info("Wiki mod initialization complete (storage-first mode)")
+            return True
+        except Exception as e:
+            logger.error(f"Wiki mod initialization failed: {e}")
+            return False
     
     def shutdown(self) -> bool:
-        """Shutdown the mod gracefully.
+        """Shutdown the mod gracefully and save data.
         
         Returns:
             bool: True if shutdown was successful, False otherwise
         """
-        # Clear all state
-        self.active_agents.clear()
-        self.pages.clear()
-        self.page_versions.clear()
-        self.proposals.clear()
-        self.page_proposals.clear()
-        
-        logger.info("Wiki mod shutdown complete")
-        return True
+        try:
+            # Clear state (data is already in storage)
+            self.active_agents.clear()
+            
+            logger.info("Wiki mod shutdown complete")
+            return True
+        except Exception as e:
+            logger.error(f"Wiki mod shutdown failed: {e}")
+            return False
     
     def bind_network(self, network):
         """Bind the mod to a network and initialize threads."""
@@ -110,6 +230,82 @@ class WikiNetworkMod(BaseMod):
         for thread_name in wiki_threads:
             self.network.event_gateway.create_channel(thread_name)
             logger.debug(f"Created wiki thread: {thread_name}")
+    
+    # Old _load_wiki_data method removed - now using storage-first approach with properties
+    
+    def _encode_page_path_for_filename(self, page_path: str) -> str:
+        """Encode page path to be safe for filename."""
+        return page_path.replace('/', '_SLASH_')
+    
+    def _save_page(self, page: WikiPage):
+        """Save a single page to its own file."""
+        try:
+            storage_path = self.get_storage_path()
+            pages_dir = storage_path / "pages"
+            pages_dir.mkdir(parents=True, exist_ok=True)
+            
+            filename = self._encode_page_path_for_filename(page.page_path) + ".json"
+            page_file = pages_dir / filename
+            
+            page_data = page.model_dump() if hasattr(page, 'model_dump') else page.dict()
+            
+            with open(page_file, 'w') as f:
+                json.dump(page_data, f, indent=2, default=str)
+                
+        except Exception as e:
+            logger.error(f"Failed to save page {page.page_path}: {e}")
+    
+    def _save_page_versions(self, page_path: str, versions: List[WikiPageVersion]):
+        """Save page versions to individual file."""
+        try:
+            storage_path = self.get_storage_path()
+            versions_dir = storage_path / "versions"
+            versions_dir.mkdir(parents=True, exist_ok=True)
+            
+            filename = self._encode_page_path_for_filename(page_path) + ".json"
+            version_file = versions_dir / filename
+            
+            versions_data = [version.model_dump() if hasattr(version, 'model_dump') else version.dict() for version in versions]
+            
+            with open(version_file, 'w') as f:
+                json.dump(versions_data, f, indent=2, default=str)
+                
+        except Exception as e:
+            logger.error(f"Failed to save versions for page {page_path}: {e}")
+    
+    def _save_proposal(self, proposal: WikiEditProposal):
+        """Save a single proposal to its own file."""
+        try:
+            storage_path = self.get_storage_path()
+            proposals_dir = storage_path / "proposals"
+            proposals_dir.mkdir(parents=True, exist_ok=True)
+            
+            proposal_file = proposals_dir / f"{proposal.proposal_id}.json"
+            
+            proposal_data = proposal.model_dump() if hasattr(proposal, 'model_dump') else proposal.dict()
+            
+            with open(proposal_file, 'w') as f:
+                json.dump(proposal_data, f, indent=2, default=str)
+                
+        except Exception as e:
+            logger.error(f"Failed to save proposal {proposal.proposal_id}: {e}")
+    
+    def _save_metadata(self, page_proposals: Dict[str, List[str]]):
+        """Save wiki metadata."""
+        try:
+            storage_path = self.get_storage_path()
+            storage_path.mkdir(parents=True, exist_ok=True)
+            metadata_file = storage_path / "metadata.json"
+            
+            metadata = {
+                'page_proposals': page_proposals,
+                'last_saved': time.time()
+            }
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2, default=str)
+                
+        except Exception as e:
+            logger.error(f"Failed to save wiki metadata: {e}")
     
     async def handle_register_agent(self, agent_id: str, metadata: Dict[str, Any]) -> Optional[EventResponse]:
         """Register an agent with the wiki mod.
@@ -199,9 +395,15 @@ class WikiNetworkMod(BaseMod):
                 edit_type="direct"
             )
             
-            # Store page and version
-            self.pages[message.page_path] = page
-            self.page_versions[message.page_path] = [version]
+            # Store page and version to individual files
+            self._save_page(page)
+            self._save_page_versions(message.page_path, [version])
+            
+            # Update metadata
+            page_proposals = self.page_proposals  # This loads current metadata
+            if message.page_path not in page_proposals:
+                page_proposals[message.page_path] = []
+            self._save_metadata(page_proposals)
             
             # Create page-specific proposal thread
             proposal_thread = f"wiki_page_{message.page_path.replace('/', '_')}_proposals"
@@ -286,8 +488,13 @@ class WikiNetworkMod(BaseMod):
             page.content = message.wiki_content
             page.current_version = new_version_number
             
-            # Store version
-            self.page_versions[message.page_path].append(version)
+            # Save updated page
+            self._save_page(page)
+            
+            # Update and save versions
+            current_versions = self.page_versions[message.page_path]
+            current_versions.append(version)
+            self._save_page_versions(message.page_path, current_versions)
             
             # Send notification to recent changes thread
             await self._send_page_edit_notification(page, version)
@@ -546,11 +753,15 @@ class WikiNetworkMod(BaseMod):
                 created_timestamp=message.timestamp
             )
             
-            # Store proposal
-            self.proposals[proposal_id] = proposal
-            if message.page_path not in self.page_proposals:
-                self.page_proposals[message.page_path] = []
-            self.page_proposals[message.page_path].append(proposal_id)
+            # Store proposal to individual file
+            self._save_proposal(proposal)
+            
+            # Update metadata
+            page_proposals = self.page_proposals  # This loads current metadata
+            if message.page_path not in page_proposals:
+                page_proposals[message.page_path] = []
+            page_proposals[message.page_path].append(proposal_id)
+            self._save_metadata(page_proposals)
             
             # Send notification to page proposal thread
             await self._send_proposal_notification(proposal)
@@ -718,10 +929,19 @@ class WikiNetworkMod(BaseMod):
                 page.content = proposal.proposed_content
                 page.current_version = new_version_number
                 
-                # Store version
-                self.page_versions[proposal.page_path].append(version)
+                # Save updated page
+                self._save_page(page)
                 
-                # Send notification about page edit
+                # Update and save versions
+                current_versions = self.page_versions[proposal.page_path]
+                current_versions.append(version)
+                self._save_page_versions(proposal.page_path, current_versions)
+            
+            # Save updated proposal
+            self._save_proposal(proposal)
+                
+            # Send notification about page edit (only if approved)
+            if message.action == "approve":
                 await self._send_page_edit_notification(page, version)
             
             # Send notification about proposal resolution
@@ -883,6 +1103,9 @@ class WikiNetworkMod(BaseMod):
             
             # Store version
             versions.append(revert_version)
+            
+            # Save data after page revert
+            # Data now stored in storage
             
             # Send notification
             await self._send_page_edit_notification(page, revert_version)

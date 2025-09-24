@@ -47,7 +47,7 @@ class TestForumMod:
                 TransportConfigItem(type=TransportType.GRPC, config={"port": grpc_port})
             ]
         )
-        network = AgentNetwork(config)
+        network = AgentNetwork(config, workspace_path=None)
         
         # Add forum mod
         forum_mod = ForumNetworkMod()
@@ -497,7 +497,7 @@ if __name__ == "__main__":
             mode=NetworkMode.CENTRALIZED,
             transports=[TransportConfigItem(type=TransportType.HTTP, config={"port": 8702})]
         )
-        network = AgentNetwork(config)
+        network = AgentNetwork(config, workspace_path=None)
         forum_mod = ForumNetworkMod()
         forum_mod.bind_network(network)
         network.mods["forum"] = forum_mod

@@ -5,10 +5,12 @@ import asyncio
 import inspect
 
 from pydantic import BaseModel, Field
+from pathlib import Path
+import tempfile
 
 # Use TYPE_CHECKING to avoid circular imports
 if TYPE_CHECKING:
-    from openagents.core.network import AgentNetworkServer
+    from openagents.core.workspace_manager import WorkspaceManager
 from openagents.models.event_response import EventResponse
 from openagents.models.messages import Event, EventNames
 
@@ -82,6 +84,7 @@ class BaseMod(ABC):
         self._network = None  # Will be set when registered with a network
         self._config = {}
         self._event_handlers: List[EventHandlerEntry] = []
+        self._workspace_manager = None  # Will be set when registered with a network
         
         self._register_default_event_handlers()
         self._collect_mod_event_handlers()
@@ -188,7 +191,31 @@ class BaseMod(ABC):
             Optional[Any]: The network this mod is registered with
         """
         return self._network
+    
+    @property
+    def workspace_manager(self) -> Optional['WorkspaceManager']:
+        """Get the workspace manager for this mod.
         
+        Returns:
+            Optional[WorkspaceManager]: The workspace manager if available
+        """
+        return self._workspace_manager
+    
+    def get_storage_path(self) -> Path:
+        """Get the storage path for this mod.
+        
+        Returns:
+            Optional[Path]: Path to mod's storage directory, or None if no workspace manager
+        """
+        if self._workspace_manager is not None:
+            return self._workspace_manager.get_mod_storage_path(self._mod_name)
+        else:
+            # Create a temporary directory for file storage as backup
+            logger.warning(f"No workspace manager found, using temporary directory for storage: {self._mod_name}")
+            logger.warning(f"This mod will not be able to persist data between restarts.")
+            temp_dir = tempfile.mkdtemp(prefix=f"openagents_mod_{self._mod_name}_")
+            return Path(temp_dir)
+
     def bind_network(self, network) -> bool:
         """Register this mod with a network.
         
@@ -199,6 +226,10 @@ class BaseMod(ABC):
             bool: True if registration was successful, False otherwise
         """
         self._network = network
+        
+        # Set workspace manager if available
+        self._workspace_manager = network.workspace_manager
+        
         logger.info(f"Mod {self.mod_name} bound to network {network.network_id}")
         return True
     

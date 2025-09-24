@@ -77,8 +77,15 @@ network:
         file_retention_days: 90
         
         # Message history settings
-        max_message_history: 10000
+        max_message_history: 10000  # Legacy setting (now max_memory_messages)
         message_retention_days: 180  # 6 months
+        
+        # NEW: Memory management and periodic dump settings
+        max_memory_messages: 1000        # Keep max 1000 messages in memory
+        memory_cleanup_minutes: 30       # Clean up memory every 30 minutes
+        dump_interval_minutes: 10        # Dump to disk every 10 minutes
+        hot_storage_days: 7             # Keep 7 days accessible in daily archives
+        archive_retention_days: 180     # Delete daily archives after 180 days
         
         # Threading settings for organized discussions
         max_thread_depth: 10
