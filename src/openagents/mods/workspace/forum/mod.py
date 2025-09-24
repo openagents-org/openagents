@@ -1052,8 +1052,9 @@ class ForumNetworkMod(BaseMod):
                     message="Comment not found"
                 )
         
-        # Check if user already voted on this target
-        existing_vote = self.user_votes[voter_id].get(target_id)
+        # Check if user already voted on this target - get fresh vote data each time
+        user_vote_data = self._get_user_votes(voter_id)
+        existing_vote = user_vote_data.get(target_id)
         if existing_vote:
             if existing_vote == vote_type:
                 return EventResponse(
@@ -1073,7 +1074,8 @@ class ForumNetworkMod(BaseMod):
         else:
             target_obj.downvotes += 1
         
-        self.user_votes[voter_id][target_id] = vote_type
+        # Update user votes and save
+        user_vote_data[target_id] = vote_type
         
         # Save the updated topic with new vote counts
         if target_type == 'topic':
@@ -1087,7 +1089,7 @@ class ForumNetworkMod(BaseMod):
                 logger.error(f"Could not find topic containing comment {target_id} for vote save")
         
         # Save updated user votes
-        self._save_user_votes(voter_id, self.user_votes[voter_id])
+        self._save_user_votes(voter_id, user_vote_data)
         
         # Update metadata if it's a topic vote (affects popular ordering)
         if target_type == 'topic':
@@ -1122,8 +1124,9 @@ class ForumNetworkMod(BaseMod):
         target_id = payload.get('target_id')
         voter_id = event.source_id
         
-        # Check if user has voted on this target
-        existing_vote = self.user_votes[voter_id].get(target_id)
+        # Check if user has voted on this target - get fresh vote data each time
+        user_vote_data = self._get_user_votes(voter_id)
+        existing_vote = user_vote_data.get(target_id)
         if not existing_vote:
             return EventResponse(
                 success=False,
@@ -1159,10 +1162,10 @@ class ForumNetworkMod(BaseMod):
         else:
             target_obj.downvotes -= 1
         
-        del self.user_votes[voter_id][target_id]
+        del user_vote_data[target_id]
         
         # Save updated user votes
-        self._save_user_votes(voter_id, self.user_votes[voter_id])
+        self._save_user_votes(voter_id, user_vote_data)
         
         # Update metadata if it's a topic vote (affects popular ordering)
         if target_type == 'topic':
