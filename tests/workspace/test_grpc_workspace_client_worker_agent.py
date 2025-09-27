@@ -69,6 +69,10 @@ class MockWorkerAgent(WorkerAgent):
         self._project_event_queue = None
         self._workspace_client = None
         self._project_mod_available = False
+        
+        # Initialize MCP-related attributes to avoid AttributeError
+        self._agent_config = None
+        self._mcp_connector = None
 
         # Initialize client with mod adapters
         if self._preset_mod_names:

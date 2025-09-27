@@ -2,12 +2,14 @@ from abc import ABC, abstractmethod
 import asyncio
 import json
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from openagents.agents.orchestrator import orchestrate_agent
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.agent_actions import AgentTrajectory
 from openagents.models.agent_config import AgentConfig
+from openagents.utils.mcp_connector import MCPConnector
 from openagents.models.event_thread import EventThread
 from openagents.models.event import Event
 from openagents.models.event_context import EventContext
@@ -62,6 +64,9 @@ class AgentRunner(ABC):
         self._ignored_sender_ids = (
             set(ignored_sender_ids) if ignored_sender_ids is not None else set()
         )
+        
+        # MCP (Model Context Protocol) client management
+        self._mcp_connector = MCPConnector()
 
         # Validate that mod_names and mod_adapters are not both provided
         if mod_names is not None and mod_adapters is not None:
@@ -96,10 +101,14 @@ class AgentRunner(ABC):
         such as after connecting to a server or registering new mod adapters.
         """
         tools = self.client.get_tools()
+        
+        # Add MCP tools if available
+        all_tools = tools + self._mcp_connector.get_mcp_tools()
+        
         # Log info about all available tools
-        tool_names = [tool.name for tool in tools]
+        tool_names = [tool.name for tool in all_tools]
         logger.info(f"Updated available tools for agent {self._agent_id}: {tool_names}")
-        self._tools = tools
+        self._tools = all_tools
 
     @staticmethod
     def from_yaml(yaml_path: str) -> "AgentRunner":
@@ -202,6 +211,9 @@ class AgentRunner(ABC):
 
         This method should be called when the agent runner is ready to start receiving messages.
         """
+        # Setup MCP clients if configured
+        if self._agent_config and self._agent_config.mcps:
+            await self._setup_mcp_clients()
         pass
 
     async def teardown(self):
@@ -209,7 +221,28 @@ class AgentRunner(ABC):
 
         This method should be called when the agent runner is ready to stop receiving messages.
         """
-        pass
+        # Cleanup MCP clients if connector exists
+        if self._mcp_connector:
+            await self._mcp_connector.cleanup_mcp_clients()
+
+    async def _setup_mcp_clients(self):
+        """Setup MCP (Model Context Protocol) clients based on configuration."""
+        if not self._agent_config or not self._agent_config.mcps:
+            return
+
+        # Setup MCP clients using the connector
+        await self._mcp_connector.setup_mcp_clients(self._agent_config.mcps)
+        
+        # Update tools after setting up MCP clients
+        self.update_tools()
+
+    def get_mcp_tools(self) -> List[AgentAdapterTool]:
+        """Get all tools from connected MCP servers."""
+        return self._mcp_connector.get_mcp_tools()
+
+    def get_mcp_clients(self) -> Dict[str, Any]:
+        """Get all connected MCP clients."""
+        return self._mcp_connector.get_mcp_clients()
 
     async def _async_loop(self):
         """Async implementation of the main loop for the agent runner.

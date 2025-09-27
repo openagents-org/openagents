@@ -45,6 +45,17 @@ def load_agent_from_yaml(
       react_to_all_messages: false
       max_iterations: 10
 
+    mcps:  # Optional - MCP (Model Context Protocol) servers
+      - name: "filesystem"
+        type: "stdio"
+        command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/path/to/files"]
+        env:
+          HOME: "/tmp"
+      - name: "web-search"
+        type: "sse"
+        url: "https://api.example.com/mcp"
+        api_key_env: "WEB_SEARCH_API_KEY"
+
     mods:  # Optional
       - name: "openagents.mods.workspace.messaging"
         enabled: true
@@ -97,8 +108,10 @@ def load_agent_from_yaml(
     # Extract agent type (default to WorkerAgent)
     agent_type = config_data.get("type", "openagents.agents.worker_agent.WorkerAgent")
 
-    # Create AgentConfig from config section
-    agent_config = _create_agent_config_from_yaml(config_data.get("config", {}))
+    # Create AgentConfig from config section, including MCP configuration
+    agent_config = _create_agent_config_from_yaml(
+        config_data.get("config", {}), config_data.get("mcps", [])
+    )
 
     # Load AgentRunner class first to check if special handling is needed
     agent_class = _load_agent_class(agent_type)
@@ -121,12 +134,15 @@ def load_agent_from_yaml(
     return agent, connection_settings
 
 
-def _create_agent_config_from_yaml(config_data: Dict[str, Any]) -> AgentConfig:
+def _create_agent_config_from_yaml(
+    config_data: Dict[str, Any], mcps_data: List[Dict[str, Any]] = None
+) -> AgentConfig:
     """
     Create an AgentConfig instance from YAML config section.
 
     Args:
         config_data: Dictionary containing AgentConfig fields
+        mcps_data: List of MCP server configurations
 
     Returns:
         AgentConfig instance
@@ -138,9 +154,28 @@ def _create_agent_config_from_yaml(config_data: Dict[str, Any]) -> AgentConfig:
         raise ValueError("'config' section is required in YAML")
 
     try:
+        # Process MCP configurations if provided
+        if mcps_data:
+            from openagents.models.mcp_config import MCPServerConfig
+            mcp_configs = []
+            for mcp_data in mcps_data:
+                try:
+                    mcp_config = MCPServerConfig(**mcp_data)
+                    mcp_configs.append(mcp_config)
+                    logger.debug(f"Added MCP server config: {mcp_config.name}")
+                except Exception as e:
+                    logger.error(f"Invalid MCP config: {e}")
+                    raise ValueError(f"Invalid MCP configuration: {e}")
+            
+            # Add MCP configs to the config data
+            config_data = config_data.copy()
+            config_data["mcps"] = mcp_configs
+
         # Create AgentConfig using the constructor with validation
         agent_config = AgentConfig(**config_data)
         logger.debug(f"Created AgentConfig with model: {agent_config.model_name}")
+        if agent_config.mcps:
+            logger.info(f"AgentConfig includes {len(agent_config.mcps)} MCP servers")
         return agent_config
     except Exception as e:
         raise ValueError(f"Invalid AgentConfig data: {e}")

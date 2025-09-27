@@ -10,6 +10,7 @@ from openagents.config.prompt_templates import (
     DEFAULT_SYSTEM_PROMPT_TEMPLATE,
     DEFAULT_USER_PROMPT_TEMPLATE,
 )
+from openagents.models.mcp_config import MCPServerConfig
 
 
 class AgentTriggerConfigItem(BaseModel):
@@ -19,6 +20,7 @@ class AgentTriggerConfigItem(BaseModel):
     instruction: Optional[str] = Field(
         default=None, description="Instruction on how to respond to the event"
     )
+
 
 
 class AgentConfig(BaseModel):
@@ -82,6 +84,12 @@ class AgentConfig(BaseModel):
     user_prompt_template: str = Field(
         default=DEFAULT_USER_PROMPT_TEMPLATE,
         description="Custom user prompt template for conversation formatting (uses default if not provided)",
+    )
+
+    # MCP (Model Context Protocol) servers
+    mcps: List[MCPServerConfig] = Field(
+        default_factory=list,
+        description="List of MCP servers to connect to for additional tools and capabilities"
     )
 
     @field_validator("model_name")

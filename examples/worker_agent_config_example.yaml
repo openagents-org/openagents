@@ -7,6 +7,7 @@ config:
   instruction: |
     You are a helpful assistant agent in the OpenAgents network.
     You can communicate with other agents and help users with various tasks.
+    You have access to additional tools through MCP servers including file system access.
     Be helpful, harmless, and honest in your responses.
   model_name: "gpt-4o-mini"
   provider: "openai"
@@ -18,6 +19,17 @@ config:
       instruction: "Handle direct messages with care and provide assistance"
   react_to_all_messages: false
   max_iterations: 10
+
+# MCP (Model Context Protocol) servers - provide additional tools and capabilities
+mcps:
+  - name: "filesystem"
+    type: "stdio"
+    command: ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp/agent-workspace"]
+    env:
+      HOME: "/tmp"
+    timeout: 30
+    retry_attempts: 3
+  
 
 # Mod configuration - specify agent capabilities
 mods:

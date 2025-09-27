@@ -1,0 +1,65 @@
+# Example WorkerAgent configuration with MCP server integration
+agent_id: "web_automation_assistant"
+type: "openagents.agents.worker_agent.WorkerAgent"
+
+# AgentConfig fields - configure the LLM behavior
+config:
+  instruction: |
+    You are a web automation assistant with MCP server integration.
+    You can browse websites, take screenshots, fill forms, and extract data.
+    You have access to browser automation tools through MCP servers.
+    
+    Available capabilities:
+    - Navigate to websites
+    - Take screenshots 
+    - Find and click elements
+    - Fill out forms
+    - Extract page information
+    - Observe page content
+    
+    Always be helpful and provide clear feedback about your actions.
+    When taking screenshots, save them with descriptive names.
+  model_name: "gpt-4o-mini"
+  provider: "openai"
+  api_base: "https://api.openai.com/v1"
+  triggers:
+    - event: "thread.channel_message.notification"
+      instruction: "Help with web automation tasks when mentioned"
+    - event: "thread.direct_message.notification"
+      instruction: "Provide web automation assistance via direct message"
+  react_to_all_messages: false
+  max_iterations: 10
+
+# MCP server configuration for browser automation
+mcps:
+  - name: "openmcp_browser"
+    type: "streamable_http"
+    url: "http://localhost:9000/mcp"
+    api_key_env: "OPENMCP_API_KEY"
+    timeout: 60
+    retry_attempts: 3
+    config:
+      # Server-specific configuration
+      headless: true
+      max_sessions: 5
+      screenshot_dir: "screenshots"
+
+# Mod configuration - specify agent capabilities
+mods:
+  - name: "openagents.mods.workspace.messaging"
+    enabled: true
+    config:
+      max_message_history: 1000
+      message_retention_days: 30
+      max_thread_depth: 10
+  - name: "openagents.mods.discovery.agent_discovery"
+    enabled: true
+    config:
+      announce_interval: 60
+      cleanup_interval: 120
+
+# Optional connection settings (can be overridden at runtime)
+connection:
+  host: "localhost"
+  port: 8700
+  network_id: "openagents-network"
