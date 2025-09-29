@@ -1,0 +1,340 @@
+{
+  "bae4e23060d9": {
+    "id": "bae4e23060d9",
+    "title": "How one AI startup is helping rice farmers battle climate change",
+    "summary": "Mitti Labs is working with The Nature Conservancy to expand the use of climate-friendly rice farming practices in India. The startup uses its AI to verify reductions in methane emissions.",
+    "category": "creative",
+    "source": "TechCrunch AI (AI Products)",
+    "url": "https://techcrunch.com/2025/08/26/how-one-ai-startup-is-helping-rice-farmers-battle-climate-change/",
+    "product_hunt_url": "https://techcrunch.com/2025/08/26/how-one-ai-startup-is-helping-rice-farmers-battle-climate-change/",
+    "image_url": null,
+    "tags": [
+      "tech_news"
+    ],
+    "timestamp": "2025-08-26T15:21:19",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "bae4e23060d9"
+  },
+  "8d48de09184b": {
+    "id": "8d48de09184b",
+    "title": "YouTube AI updates include auto dubbing expansion, age ID tech, and more",
+    "summary": "In his annual letter, YouTube CEO Neal Mohan dubbed AI one of the company&#8217;s four &#8220;big bets&#8221; for 2025. The executive pointed to the company&#8217;s investments in AI tools for creators, including ones for video ideas, thumbnails, and language translation. The latter feature will roll out to all creators in YouTube&#8217;s Partner Program this month, [&#8230;]",
+    "category": "productivity",
+    "source": "TechCrunch AI (AI Products)",
+    "url": "https://techcrunch.com/2025/02/11/youtube-ai-updates-to-include-expansion-of-auto-dubbing-age-identifying-tech-and-more/",
+    "product_hunt_url": "https://techcrunch.com/2025/02/11/youtube-ai-updates-to-include-expansion-of-auto-dubbing-age-identifying-tech-and-more/",
+    "image_url": null,
+    "tags": [
+      "ai_tool",
+      "tech_news"
+    ],
+    "timestamp": "2025-02-11T14:57:22",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "8d48de09184b"
+  },
+  "1fd7549613e9": {
+    "id": "1fd7549613e9",
+    "title": "Self Inspection raises $3M for its AI-powered vehicle inspections",
+    "summary": "A number of startups are racing to make vehicle inspections faster, easier, and cheaper. Self Inspection, a startup based in San Diego, thinks it has them all beat with its AI-powered service &#8212; and now it has convinced outside investors. Self Inspection, founded in 2021, is set to announce Thursday it&#8217;s raised $3 million in [&#8230;]",
+    "category": "creative",
+    "source": "TechCrunch AI (AI Products)",
+    "url": "https://techcrunch.com/2025/02/07/self-inspection-raises-3m-for-its-ai-powered-vehicle-inspections/",
+    "product_hunt_url": "https://techcrunch.com/2025/02/07/self-inspection-raises-3m-for-its-ai-powered-vehicle-inspections/",
+    "image_url": null,
+    "tags": [
+      "ai-powered",
+      "tech_news"
+    ],
+    "timestamp": "2025-02-07T18:00:44",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "1fd7549613e9"
+  },
+  "512d2e8b13a3": {
+    "id": "512d2e8b13a3",
+    "title": "Thinking Machines becomes OpenAI\u2019s first services partner in APAC",
+    "summary": "Thinking Machines Data Science is joining forces with OpenAI to help more businesses across Asia Pacific turn artificial intelligence into measurable results. The collaboration makes Thinking Machines the first official Services Partner for OpenAI in the region. The partnership comes as AI adoption in APAC continues to rise. An IBM study found that 61% of enterprises already use AI, yet many struggle to move beyond pilot projects and deliver real business impact. Thinking Machines and OpenAI aim...",
+    "category": "creative",
+    "source": "AI News (AI Products)",
+    "url": "https://www.artificialintelligence-news.com/news/thinking-machines-becomes-openai-first-services-partner-in-apac/",
+    "product_hunt_url": "https://www.artificialintelligence-news.com/news/thinking-machines-becomes-openai-first-services-partner-in-apac/",
+    "image_url": null,
+    "tags": [
+      "artificial_intelligence",
+      "gpt",
+      "openai",
+      "data_science",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-09T10:16:22",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "512d2e8b13a3"
+  },
+  "12121fc6bd2d": {
+    "id": "12121fc6bd2d",
+    "title": "Alibaba\u2019s new Qwen model to supercharge AI transcription tools",
+    "summary": "AI speech transcription tools are about to get a lot more competitive with Alibaba&#8217;s Qwen team pulling unveiling the Qwen3-ASR-Flash model. Built upon the powerful Qwen3-Omni intelligence and trained using a massive dataset with tens of millions of hours of speech data, this isn&#8217;t just another AI speech recognition model. The team says it&#8217;s designed to deliver highly accurate performance, even when faced with tricky acoustic environments or complex language patterns. So, how do...",
+    "category": "productivity",
+    "source": "AI News (AI Products)",
+    "url": "https://www.artificialintelligence-news.com/news/alibaba-new-qwen-model-supercharge-ai-transcription-tools/",
+    "product_hunt_url": "https://www.artificialintelligence-news.com/news/alibaba-new-qwen-model-supercharge-ai-transcription-tools/",
+    "image_url": null,
+    "tags": [
+      "gpt",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-08T16:33:13",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "12121fc6bd2d"
+  },
+  "41cf876090dc": {
+    "id": "41cf876090dc",
+    "title": "100% open AI model by Switzerland",
+    "summary": "A group of Swiss institutions has released a new open AI model, designed to serve as a foundation for future research and applications. Built by EPFL, ETH Zurich, and the Swiss National Supercomputing Centre (CSCS), the model is called Apertus \u2013 Latin for &#8220;open.&#8221; The name reflects its core principle: every part of its design and training process is accessible to the public. Developers and organisations can use Apertus to create chatbots, translation tools, or education-focused applic...",
+    "category": "productivity",
+    "source": "AI News (AI Products)",
+    "url": "https://www.artificialintelligence-news.com/news/switzerland-releases-its-own-fully-open-ai-model/",
+    "product_hunt_url": "https://www.artificialintelligence-news.com/news/switzerland-releases-its-own-fully-open-ai-model/",
+    "image_url": null,
+    "tags": [
+      "bot",
+      "chatbot",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-04T09:39:49",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "41cf876090dc"
+  },
+  "ae19f0d82040": {
+    "id": "ae19f0d82040",
+    "title": "AI hacking tool exploits zero-day security vulnerabilities in minutes",
+    "summary": "A new AI tool \u2013 built to help companies find and fix their own security weaknesses \u2013 has been snatched up by cybercriminals, turned on its head, and used as a devastating hacking weapon exploiting zero-day vulnerabilities. According to a report from cybersecurity firm Check Point , the framework \u2013 called Hexstrike-AI \u2013 is the turning point that security experts have been dreading, where the sheer power of AI is put directly into the hands of those who want to do harm. A tool for good, twisted fo...",
+    "category": "productivity",
+    "source": "AI News (AI Products)",
+    "url": "https://www.artificialintelligence-news.com/news/ai-hacking-tool-exploits-zero-day-security-vulnerabilities-in-minutes/",
+    "product_hunt_url": "https://www.artificialintelligence-news.com/news/ai-hacking-tool-exploits-zero-day-security-vulnerabilities-in-minutes/",
+    "image_url": null,
+    "tags": [
+      "ai_tool",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-03T09:57:37",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "ae19f0d82040"
+  },
+  "2a5e7bbdb1a7": {
+    "id": "2a5e7bbdb1a7",
+    "title": "Microsoft gives free Copilot AI services to US government workers",
+    "summary": "Millions of US federal government workers are about to get a new AI assistant on their devices for free in the form of Microsoft Copilot. The move is part of a deal between Microsoft and the US General Services Administration (GSA) that\u2019s also expected to save taxpayers $3.1 billion in its first year. The centrepiece of this huge new agreement is a full year of Microsoft 365 Copilot at no extra cost for government workers using the high-security G5 licence. This is a push to get the latest AI to...",
+    "category": "productivity",
+    "source": "AI News (AI Products)",
+    "url": "https://www.artificialintelligence-news.com/news/microsoft-gives-free-copilot-ai-services-to-us-government-workers/",
+    "product_hunt_url": "https://www.artificialintelligence-news.com/news/microsoft-gives-free-copilot-ai-services-to-us-government-workers/",
+    "image_url": null,
+    "tags": [
+      "assistant",
+      "copilot",
+      "ai_tool",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-02T14:22:42",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "2a5e7bbdb1a7"
+  },
+  "362c6b4e6aed": {
+    "id": "362c6b4e6aed",
+    "title": "Can Google Cloud defend against tomorrow\u2019s threats? by AI security wars",
+    "summary": "In Google&#8217;s sleek Singapore office at Block 80, Level 3, Mark Johnston stood before a room of technology journalists at 1:30 PM with a startling admission: after five decades of cybersecurity evolution, defenders are still losing the war. &#8220;In 69% of incidents in Japan and Asia Pacific, organisations were notified of their own breaches by external entities,&#8221; the Director of Google Cloud&#8217;s Office of the CISO for Asia Pacific revealed, his presentation slide showing a damnin...",
+    "category": "productivity",
+    "source": "AI News (AI Products)",
+    "url": "https://www.artificialintelligence-news.com/news/ai-security-wars-google-cloud-cybersecurity-threats/",
+    "product_hunt_url": "https://www.artificialintelligence-news.com/news/ai-security-wars-google-cloud-cybersecurity-threats/",
+    "image_url": null,
+    "tags": [
+      "artificial_intelligence",
+      "tech_news"
+    ],
+    "timestamp": "2025-08-28T11:02:56",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "362c6b4e6aed"
+  },
+  "ec17e6488b65": {
+    "id": "ec17e6488b65",
+    "title": "Ted Cruz\u2019s new bill would let AI companies set their own rules for up to 10 years",
+    "summary": "On Wednesday, Sen. Ted Cruz introduced legislation to create a regulation \"sandbox\" that would allow artificial intelligence companies to experiment with minimal federal oversight. The SANDBOX Act, if passed by Congress, would allow companies to apply for modifications to or waivers from any \"obstructive regulations\" to the testing and deployment of products or services that use or",
+    "category": "creative",
+    "source": "The Verge AI (AI Products)",
+    "url": "https://www.theverge.com/ai-artificial-intelligence/776130/senator-ted-cruz-ai-sandbox-bill",
+    "product_hunt_url": "https://www.theverge.com/ai-artificial-intelligence/776130/senator-ted-cruz-ai-sandbox-bill",
+    "image_url": null,
+    "tags": [
+      "artificial_intelligence",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-11T03:13:14.176887",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "ec17e6488b65"
+  },
+  "7cd60fac2f6b": {
+    "id": "7cd60fac2f6b",
+    "title": "The MechaHitler defense contract is raising red flags",
+    "summary": "Ask someone their worst fears about AI, and you'll find a few recurring topics - from near-term fears like AI tools replacing human workers and the loss of critical thinking to apocalyptic scenarios like AI-designed weapons of mass destruction and automated war. Most have one thing in common: a loss of human control. And the system many AI experts fear most will spiral out of our grip? Elon Musk's Grok. Grok was designed to compete with leading AI systems like Anthropic's Claude and OpenAI's Cha...",
+    "category": "productivity",
+    "source": "The Verge AI (AI Products)",
+    "url": "https://www.theverge.com/x-ai/775411/grok-xai-safety-musk-warren-hegseth-dod",
+    "product_hunt_url": "https://www.theverge.com/x-ai/775411/grok-xai-safety-musk-warren-hegseth-dod",
+    "image_url": null,
+    "tags": [
+      "ios",
+      "anthropic",
+      "ai_tool",
+      "gpt",
+      "openai",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-11T03:13:14.177464",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "7cd60fac2f6b"
+  },
+  "f385478f04dd": {
+    "id": "f385478f04dd",
+    "title": "Zillow\u2019s new AI staging feature is impressively unimpressive",
+    "summary": "A before and after image of a bedroom changed using Zillow\u2019s Virtual Staging tool. Zillow is launching an AI-powered feature that will allow home hunters to empty the room of furniture or subtly change the design style. The intent is to make it easier to overcome the owner\u2019s dodgy design choices and questionable furniture so buyers can better picture themselves living in a property. In concept, the tool, called Virtual Staging, is great. It tackles a genuine and difficult problem that almost any...",
+    "category": "productivity",
+    "source": "The Verge AI (AI Products)",
+    "url": "https://www.theverge.com/news/775465/zillow-ai-virtual-staging",
+    "product_hunt_url": "https://www.theverge.com/news/775465/zillow-ai-virtual-staging",
+    "image_url": null,
+    "tags": [
+      "ai-powered",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-11T03:13:14.177592",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "f385478f04dd"
+  },
+  "d3544fb24ec8": {
+    "id": "d3544fb24ec8",
+    "title": "One of Google\u2019s new Pixel 10 AI features has already been removed",
+    "summary": "Google is one of the most ardent proponents of generative AI technology, as evidenced by the recent launch of the Pixel 10 series. The phones were announced with more than 20 new AI experiences, according to Google. However, one of them is already being pulled from the company's phones. If you go looking for your Daily Hub, you may be disappointed. Not that disappointed, though, as it has been pulled because it didn't do very much. Many of Google's new AI features only make themselves known in s...",
+    "category": "general",
+    "source": "Ars Technica (AI Products)",
+    "url": "https://arstechnica.com/google/2025/09/google-pulls-daily-hub-ai-feature-from-pixel-10-phones/",
+    "product_hunt_url": "https://arstechnica.com/google/2025/09/google-pulls-daily-hub-ai-feature-from-pixel-10-phones/",
+    "image_url": null,
+    "tags": [
+      "generative",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-10T19:00:41",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "d3544fb24ec8"
+  },
+  "01a80a6dcdbd": {
+    "id": "01a80a6dcdbd",
+    "title": "Developers joke about \u201ccoding like cavemen\u201d as AI service suffers major outage",
+    "summary": "On Wednesday afternoon, Anthropic experienced a brief but complete service outage that took down its AI infrastructure, leaving developers unable to access Claude.ai, the API, Claude Code, or the management console for around half an hour. The outage affected all three of Anthropic's main services simultaneously, with the company posting at 12:28 pm Eastern that \"APIs, Console, and Claude.ai are down. Services will be restored as soon as possible.\" As of press time, the services appear to be res...",
+    "category": "productivity",
+    "source": "Ars Technica (AI Products)",
+    "url": "https://arstechnica.com/ai/2025/09/developers-joke-about-coding-like-cavemen-as-ai-service-suffers-major-outage/",
+    "product_hunt_url": "https://arstechnica.com/ai/2025/09/developers-joke-about-coding-like-cavemen-as-ai-service-suffers-major-outage/",
+    "image_url": null,
+    "tags": [
+      "anthropic",
+      "api",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-10T18:08:49",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "01a80a6dcdbd"
+  },
+  "993f92542a28": {
+    "id": "993f92542a28",
+    "title": "Spotify peeved after 10,000 users sold data to build AI tools",
+    "summary": "For millions of Spotify users, the \"Wrapped\" feature\u2014which crunches the numbers on their annual listening habits\u2014is a highlight of every year's end, ever since it debuted in 2015. NPR once broke down exactly why our brains find the feature so \"irresistible,\" while Cosmopolitan last year declared that sharing Wrapped screenshots of top artists and songs had by now become \"the ultimate status symbol\" for tens of millions of music fans. It's no surprise then that, after a decade, some Spotify users...",
+    "category": "productivity",
+    "source": "Ars Technica (AI Products)",
+    "url": "https://arstechnica.com/tech-policy/2025/09/spotify-peeved-after-10000-users-sold-data-to-build-ai-tools/",
+    "product_hunt_url": "https://arstechnica.com/tech-policy/2025/09/spotify-peeved-after-10000-users-sold-data-to-build-ai-tools/",
+    "image_url": null,
+    "tags": [
+      "ai_tool",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-10T16:23:25",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "993f92542a28"
+  },
+  "3dab01e180ed": {
+    "id": "3dab01e180ed",
+    "title": "Reddit bug caused lesbian subreddit to be labeled as a place for \u201cstraight\u201d women",
+    "summary": "Reddit has addressed a problem where the description of subreddits originally written by moderators appeared different\u2014and, often, inaccurate\u2014on Reddit\u2019s Android app. For weeks, the problem was largely suspected to be caused by Reddit clumsily using generative AI to create new subreddit descriptions. However, Reddit says that the changes were the fault of a bug tied to its AI-powered translation technology. Reports of subreddits suddenly having inaccurate summaries when viewed on Reddit\u2019s Androi...",
+    "category": "creative",
+    "source": "Ars Technica (AI Products)",
+    "url": "https://arstechnica.com/gadgets/2025/09/reddit-bug-caused-lesbian-subreddit-to-be-labeled-as-a-place-for-straight-women/",
+    "product_hunt_url": "https://arstechnica.com/gadgets/2025/09/reddit-bug-caused-lesbian-subreddit-to-be-labeled-as-a-place-for-straight-women/",
+    "image_url": null,
+    "tags": [
+      "android",
+      "generative",
+      "ai-powered",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-09T22:32:52",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "3dab01e180ed"
+  },
+  "4df65afb0f29": {
+    "id": "4df65afb0f29",
+    "title": "Claude\u2019s new AI file-creation feature ships with security risks built in",
+    "summary": "On Tuesday, Anthropic launched a new file-creation feature for its Claude AI assistant that enables users to generate Excel spreadsheets, PowerPoint presentations, and other documents directly within conversations on the web interface and in the Claude desktop app. While the feature may be handy for Claude users, the company's support documentation also warns that it \"may put your data at risk\" and details how the AI assistant can be manipulated to transmit user data to external servers. The fea...",
+    "category": "productivity",
+    "source": "Ars Technica (AI Products)",
+    "url": "https://arstechnica.com/information-technology/2025/09/anthropics-new-claude-feature-can-leak-data-users-told-to-monitor-chats-closely/",
+    "product_hunt_url": "https://arstechnica.com/information-technology/2025/09/anthropics-new-claude-feature-can-leak-data-users-told-to-monitor-chats-closely/",
+    "image_url": null,
+    "tags": [
+      "anthropic",
+      "assistant",
+      "web",
+      "gpt",
+      "tech_news"
+    ],
+    "timestamp": "2025-09-09T20:55:34",
+    "votes": 0,
+    "comments_count": 0,
+    "maker": "Tech News",
+    "hash": "4df65afb0f29"
+  }
+}

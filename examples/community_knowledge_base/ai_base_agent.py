@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-AI News Worker Agent for Community Knowledge Base
+AI Base Agent for Community Knowledge Base
 
-This agent automatically finds and shares AI product news, research updates,
-and interesting developments in the AI space. It posts findings to the general
-channel and can respond to specific requests for information.
+This module provides a base class for AI content worker agents that can discover 
+and share different types of content (news, research, products, etc.) in the 
+community knowledge base.
 
 Features:
-- Automatic news discovery and sharing
-- Responds to AI-related questions
-- Categorizes content by type (news, research, tools, etc.)
-- Provides summaries and key insights
-- Maintains a knowledge base of shared content
+- Common agent functionality (startup, shutdown, messaging)
+- Content categorization and tagging
+- Knowledge base management
+- Channel posting and user interaction
+- Configurable content sources and intervals
 """
 
 import asyncio
@@ -22,7 +22,7 @@ import random
 from datetime import datetime, timedelta
 from typing import Dict, List, Set, Optional, Any
 from pathlib import Path
-import os
+from abc import ABC, abstractmethod
 
 from openagents.agents.worker_agent import (
     WorkerAgent,
@@ -31,44 +31,47 @@ from openagents.agents.worker_agent import (
     ReplyMessageContext
 )
 
-
-# Import the RedditFeeder class
-from reddit_util import RedditFeeder
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class AINewsWorkerAgent(WorkerAgent):
+class AIBaseAgent(WorkerAgent, ABC):
     """
-    Worker agent that discovers and shares AI product news and research.
+    Base class for AI content worker agents.
     
-    This agent monitors various sources for AI-related content and automatically
-    shares interesting findings with the community through channel posts.
+    This abstract base class provides common functionality for agents that
+    discover and share different types of AI-related content with the community.
     """
     
-    default_agent_id = "ai-news-bot"
+    # Override these in subclasses
+    default_agent_id = "ai-base-bot"
+    content_type = "AI content"
+    source_name = "AI Source"
+    
     auto_mention_response = True
-    default_channels = ["general", "#ai-news", "#research", "#tools"]
+    default_channels = ["general"]
     
     def __init__(self, **kwargs):
-        """Initialize the AI News Worker Agent."""
+        """Initialize the AI Base Agent."""
         super().__init__(**kwargs)
         
         # Content tracking
-        self.shared_content: Set[str] = set()  # Track shared content hashes
+        self.shared_content: Set[str] = set()
         self.content_categories = {
             "news": "📰",
             "research": "🔬", 
             "tools": "🛠️",
             "product": "🚀",
             "tutorial": "📚",
-            "announcement": "📢"
+            "announcement": "📢",
+            "business": "💼",
+            "ethics": "⚖️"
         }
         
-        # News sources and keywords
+        # Common AI keywords for filtering
         self.ai_keywords = [
+            "ai",
             "artificial intelligence", "machine learning", "deep learning",
             "neural networks", "LLM", "large language model", "GPT",
             "transformer", "AI model", "AI product", "AI tool",
@@ -77,39 +80,49 @@ class AINewsWorkerAgent(WorkerAgent):
             "OpenAI", "Anthropic", "Google AI", "Meta AI", "Microsoft AI"
         ]
         
-        # Simulated news sources (in real implementation, these would be actual APIs)
-        self.news_sources = [
-            "AI Research Papers",
-            "Tech News Aggregator", 
-            "AI Product Launches",
-            "Research Institution Updates",
-            "Industry Announcements"
-        ]
-        
         # Content database
         self.knowledge_base: Dict[str, Dict[str, Any]] = {}
-        self.last_news_check = datetime.now() - timedelta(hours=1)
+        self.last_content_check = datetime.now() - timedelta(hours=1)
         
         # Agent state
         self.is_active = True
-        self.news_check_interval = 60  # 60 seconds for Reddit crawling
+        self.content_check_interval = 60  # seconds
         
-        # Initialize Reddit feeder
-        os.remove("/tmp/ai_news_reddit_crawl.json")
-        self.reddit_feeder = RedditFeeder(subreddit="artificial", storage_file="/tmp/ai_news_reddit_crawl.json")
-        self.last_reddit_check = datetime.now() - timedelta(hours=1)  # Force initial check
+        # Message rate limiting - enforce 1 minute interval between posts
+        self.last_message_time = None
+        self.min_message_interval = 60  # 1 minute between messages
         
+        # Initialize content fetcher (to be implemented by subclasses)
+        self.content_fetcher = None
+    
+    @abstractmethod
+    async def initialize_content_fetcher(self):
+        """Initialize the content fetcher specific to this agent type."""
+        pass
+    
+    @abstractmethod
+    async def fetch_new_content(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Fetch new content from the source."""
+        pass
+    
+    async def _enforce_message_rate_limit(self):
+        """Enforce minimum 1 minute interval between messages."""
+        if self.last_message_time is not None:
+            time_since_last = (datetime.now() - self.last_message_time).total_seconds()
+            if time_since_last < self.min_message_interval:
+                wait_time = self.min_message_interval - time_since_last
+                logger.info(f"⏱️ Rate limiting: waiting {wait_time:.1f} seconds before next message")
+                await asyncio.sleep(wait_time)
+    
     async def on_startup(self):
         """Initialize the agent and start background tasks."""
-        logger.info(f"🤖 AI News Agent '{self.default_agent_id}' starting up...")
+        logger.info(f"🤖 {self.content_type} Agent '{self.default_agent_id}' starting up...")
+        
+        # Initialize content fetcher
+        await self.initialize_content_fetcher()
         
         # Load existing knowledge base if available
         await self._load_knowledge_base()
-        
-        # Get Reddit feeder stats
-        logger.info("📊 Reddit feeder initialized")
-        stats = self.reddit_feeder.get_stats()
-        logger.info(f"Reddit feeder stats: {stats}")
         
         # Check available channels
         logger.info("🔍 Checking available channels...")
@@ -120,23 +133,11 @@ class AINewsWorkerAgent(WorkerAgent):
         except Exception as e:
             logger.error(f"❌ Error listing channels: {e}")
         
-        # Start background news monitoring
-        asyncio.create_task(self._news_monitoring_loop())
+        # Start background content monitoring
+        asyncio.create_task(self._content_monitoring_loop())
         
-        # Send startup message to general channel using direct adapter
-        startup_message = (f"🤖 **AI News Bot Online!** 📰\n\n"
-                          f"I'm now connected and ready to share AI news from **Reddit r/artificial**!\n\n"
-                          f"**What I do:**\n"
-                          f"• 📡 Crawl AI posts from Reddit r/artificial\n"
-                          f"• 🎲 Share new posts every 60 seconds to general\n"
-                          f"• 🔄 Check for new posts continuously\n"
-                          f"• 💬 Answer questions about AI developments\n"
-                          f"• 🏷️ Categorize and tag content automatically\n\n"
-                          f"**Commands:**\n"
-                          f"• `@ai-news-bot search <topic>` - Search shared articles\n"
-                          f"• `@ai-news-bot summary` - Get today's AI news summary\n"
-                          f"• `@ai-news-bot categories` - Show content categories\n\n"
-                          f"🔥 **Now featuring real-time AI news from [Reddit r/artificial](https://reddit.com/r/artificial)!** 🚀")
+        # Send startup message to general channel
+        startup_message = self._create_startup_message()
         
         try:
             ws = self.workspace()
@@ -145,33 +146,49 @@ class AINewsWorkerAgent(WorkerAgent):
         except Exception as e:
             logger.error(f"❌ Failed to send startup message: {e}")
         
-        logger.info("✅ AI News Agent startup complete")
+        logger.info(f"✅ {self.content_type} Agent startup complete")
+    
+    def _create_startup_message(self) -> str:
+        """Create startup message for the agent."""
+        return (f"🤖 **{self.content_type} Bot Online!** 📰\n\n"
+                f"I'm now connected and ready to share {self.content_type.lower()} from **{self.source_name}**!\n\n"
+                f"**What I do:**\n"
+                f"• 📡 Monitor {self.source_name} for new {self.content_type.lower()}\n"
+                f"• 🎲 Check for updates every {self.content_check_interval} seconds\n"
+                f"• ⏱️ Share content with 1-minute intervals (respectful posting)\n"
+                f"• 🔄 Continuously discover new content\n"
+                f"• 💬 Answer questions about {self.content_type.lower()}\n"
+                f"• 🏷️ Categorize and tag content automatically\n\n"
+                f"**Commands:**\n"
+                f"• `@{self.default_agent_id} search <topic>` - Search shared content\n"
+                f"• `@{self.default_agent_id} summary` - Get today's summary\n"
+                f"• `@{self.default_agent_id} categories` - Show content categories\n\n"
+                f"🔥 **Now featuring real-time {self.content_type.lower()} from {self.source_name}!** 🚀")
     
     async def on_shutdown(self):
         """Clean shutdown of the agent."""
-        logger.info("🛑 AI News Agent shutting down...")
+        logger.info(f"🛑 {self.content_type} Agent shutting down...")
         self.is_active = False
         await self._save_knowledge_base()
-        logger.info("✅ AI News Agent shutdown complete")
+        logger.info(f"✅ {self.content_type} Agent shutdown complete")
     
     async def on_direct(self, msg: EventContext):
-        """Handle direct messages with personalized AI news assistance."""
+        """Handle direct messages with personalized assistance."""
         text = msg.text.lower().strip()
         
         if "hello" in text or "hi" in text:
             ws = self.workspace()
             await ws.agent(msg.sender_id).send_direct_message(
-                f"👋 Hello {msg.sender_id}! I'm your AI News assistant.\n\n"
-                f"I can help you stay updated on AI developments. Try asking me about:\n"
-                f"• Latest AI product launches\n"
-                f"• Recent research papers\n"
-                f"• New AI tools and frameworks\n"
-                f"• Industry announcements\n\n"
+                f"👋 Hello {msg.sender_id}! I'm your {self.content_type} assistant.\n\n"
+                f"I can help you stay updated on {self.content_type.lower()}. Try asking me about:\n"
+                f"• Latest {self.content_type.lower()}\n"
+                f"• Search for specific topics\n"
+                f"• Daily summaries\n"
+                f"• Content categories\n\n"
                 f"What would you like to know about?"
             )
         
         elif "search" in text:
-            # Extract search query
             query = text.replace("search", "").strip()
             if query:
                 results = await self._search_knowledge_base(query)
@@ -199,29 +216,24 @@ class AINewsWorkerAgent(WorkerAgent):
             await ws.agent(msg.sender_id).send_direct_message(categories_text)
         
         elif "help" in text:
-            help_text = """
-🤖 **AI News Bot Help**
+            help_text = f"""
+🤖 **{self.content_type} Bot Help**
 
 **Commands:**
 • `search <topic>` - Search knowledge base
-• `summary` - Get today's AI news summary  
+• `summary` - Get today's summary  
 • `categories` - Show content categories
 • `help` - Show this help message
 
 **What I monitor:**
-• AI product launches and updates
-• Research papers and breakthroughs
-• New tools and frameworks
-• Industry announcements
-• Technical tutorials and guides
+• {self.content_type} from {self.source_name}
+• AI-related developments
+• Research and announcements
 
 **Channels I post to:**
-• general - Major announcements
-• #ai-news - Daily news updates
-• #research - Research papers
-• #tools - New AI tools
+• general - All updates
 
-I automatically share interesting findings every 30 minutes!
+I automatically share interesting findings every {self.content_check_interval} seconds!
             """.strip()
             
             ws = self.workspace()
@@ -232,15 +244,15 @@ I automatically share interesting findings every 30 minutes!
             if any(keyword in text for keyword in ["ai", "artificial intelligence", "machine learning", "llm"]):
                 ws = self.workspace()
                 await ws.agent(msg.sender_id).send_direct_message(
-                    f"🤔 That's an interesting AI question! While I specialize in sharing news and updates, "
-                    f"I'd recommend asking in general or #research for community discussion.\n\n"
+                    f"🤔 That's an interesting AI question! While I specialize in sharing {self.content_type.lower()}, "
+                    f"I'd recommend asking in general for community discussion.\n\n"
                     f"I can help you search for related content though - try `search {text[:30]}...`"
                 )
             else:
                 ws = self.workspace()
                 await ws.agent(msg.sender_id).send_direct_message(
-                    "🤖 I'm focused on AI news and research! Try asking me about:\n"
-                    f"• `search <AI topic>`\n"
+                    f"🤖 I'm focused on {self.content_type.lower()}! Try asking me about:\n"
+                    f"• `search <topic>`\n"
                     f"• `summary` for today's updates\n"
                     f"• `help` for more commands"
                 )
@@ -248,8 +260,6 @@ I automatically share interesting findings every 30 minutes!
     async def on_channel_mention(self, msg: ChannelMessageContext):
         """Handle mentions in channels."""
         text = msg.text.lower()
-        
-        # Remove mention from text for processing
         clean_text = text.replace(f"@{self.default_agent_id}", "").strip()
         
         if "search" in clean_text:
@@ -262,7 +272,7 @@ I automatically share interesting findings every 30 minutes!
                 ws = self.workspace()
                 await ws.channel(msg.channel).post_with_mention(
                     f"🔍 {msg.sender_id}, please specify what you'd like to search for!\n"
-                    f"Example: `@ai-news-bot search GPT models`",
+                    f"Example: `@{self.default_agent_id} search GPT models`",
                     mention_agent_id=msg.sender_id
                 )
         
@@ -270,7 +280,7 @@ I automatically share interesting findings every 30 minutes!
             summary = await self._generate_daily_summary()
             ws = self.workspace()
             await ws.channel(msg.channel).post_with_mention(
-                f"📊 **Daily AI Summary for {msg.sender_id}:**\n\n{summary}",
+                f"📊 **Daily Summary for {msg.sender_id}:**\n\n{summary}",
                 mention_agent_id=msg.sender_id
             )
         
@@ -290,8 +300,8 @@ I automatically share interesting findings every 30 minutes!
         else:
             ws = self.workspace()
             await ws.channel(msg.channel).post_with_mention(
-                f"👋 Hi {msg.sender_id}! I can help with AI news and research.\n"
-                f"Try: `@ai-news-bot search <topic>`, `@ai-news-bot summary`, or `@ai-news-bot help`",
+                f"👋 Hi {msg.sender_id}! I can help with {self.content_type.lower()}.\n"
+                f"Try: `@{self.default_agent_id} search <topic>`, `@{self.default_agent_id} summary`, or `@{self.default_agent_id} help`",
                 mention_agent_id=msg.sender_id
             )
     
@@ -304,92 +314,59 @@ I automatically share interesting findings every 30 minutes!
         text = msg.text.lower()
         
         # Check if message contains AI-related keywords
-        if any(keyword in text for keyword in self.ai_keywords[:10]):  # Check top keywords
-            # If it's a question, offer to help
+        if any(keyword in text for keyword in self.ai_keywords[:10]):
+            # If it's a question, offer to help occasionally
             if "?" in text and len(text) > 20:
-                # Don't spam - only respond occasionally
-                import random
                 if random.random() < 0.3:  # 30% chance to respond
                     ws = self.workspace()
                     await ws.channel(msg.channel).post_with_mention(
-                        f"💡 Interesting AI discussion! I might have related content - "
-                        f"try `@ai-news-bot search {text.split()[0:3]}`",
+                        f"💡 Interesting discussion! I might have related {self.content_type.lower()} - "
+                        f"try `@{self.default_agent_id} search {' '.join(text.split()[:3])}`",
                         mention_agent_id=msg.sender_id
                     )
     
-    async def _news_monitoring_loop(self):
-        """Background task that checks for new Reddit posts every 60 seconds."""
-        logger.info("🔄 Starting AI news monitoring loop (checking Reddit every 60 seconds)...")
+    async def _content_monitoring_loop(self):
+        """Background task that checks for new content."""
+        logger.info(f"🔄 Starting {self.content_type.lower()} monitoring loop (checking every {self.content_check_interval} seconds)...")
         
         while self.is_active:
             try:
-                # Check for new Reddit posts
-                if datetime.now() - self.last_news_check >= timedelta(seconds=self.news_check_interval):
-                    logger.info("🔍 Checking Reddit r/artificial for new posts...")
+                # Check for new content
+                if datetime.now() - self.last_content_check >= timedelta(seconds=self.content_check_interval):
+                    logger.info(f"🔍 Checking {self.source_name} for new {self.content_type.lower()}...")
                     
-                    # Get new posts from Reddit
-                    new_posts = await self.reddit_feeder.get_new_posts(limit=10)
+                    # Get new content
+                    new_content = await self.fetch_new_content(limit=10)
                     
-                    if new_posts:
-                        logger.info(f"📰 Found {len(new_posts)} new posts from Reddit")
+                    if new_content:
+                        logger.info(f"📰 Found {len(new_content)} new items from {self.source_name}")
                         
-                        # Share each new post
-                        for post in new_posts:
-                            # Convert Reddit post to our article format
-                            article = self._convert_reddit_post_to_article(post)
-                            logger.info(f"📤 Sharing Reddit post: {article['title']}")
-                            await self._share_content(article)
+                        # Share each new item with rate limiting
+                        for item in new_content:
+                            logger.info(f"📤 Sharing: {item['title']}")
                             
-                            # Add small delay between posts to avoid spam
-                            await asyncio.sleep(2)
+                            # Enforce 1 minute interval between messages
+                            await self._enforce_message_rate_limit()
+                            
+                            # Share the content
+                            await self._share_content(item)
+                            
+                            # Update last message time
+                            self.last_message_time = datetime.now()
                     else:
-                        logger.info("📰 No new posts found on Reddit")
+                        logger.info(f"📰 No new {self.content_type.lower()} found")
                     
-                    self.last_news_check = datetime.now()
+                    self.last_content_check = datetime.now()
                 
                 # Wait before next check
-                await asyncio.sleep(self.news_check_interval)
+                await asyncio.sleep(self.content_check_interval)
                 
             except Exception as e:
-                logger.error(f"❌ Error in news monitoring loop: {e}")
+                logger.error(f"❌ Error in content monitoring loop: {e}")
                 await asyncio.sleep(60)  # Wait 1 minute on error before retrying
     
-    def _convert_reddit_post_to_article(self, post: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Convert a Reddit post to our internal article format.
-        
-        Args:
-            post: Reddit post dictionary from RedditFeeder
-            
-        Returns:
-            Article dictionary compatible with existing sharing system
-        """
-        # Categorize based on title and content
-        category = self._categorize_article(post['title'], post.get('selftext', ''))
-        
-        # Extract tags from title and content
-        tags = self._extract_tags(post['title'], post.get('selftext', ''))
-        
-        article = {
-            "title": post['title'],
-            "summary": post.get('selftext', post['title'])[:300] + "..." if len(post.get('selftext', '')) > 300 else post.get('selftext', post['title']),
-            "category": category,
-            "source": "Reddit r/artificial",
-            "url": post['url'],
-            "reddit_url": post['reddit_url'],
-            "image_url": post.get('image_url'),
-            "tags": tags,
-            "timestamp": post['created_time'],
-            "author": post['author'],
-            "score": post.get('score', 0),
-            "num_comments": post.get('num_comments', 0),
-            "hash": self._generate_content_hash({"title": post['title'], "url": post['url']})
-        }
-        
-        return article
-    
-    def _categorize_article(self, title: str, description: str) -> str:
-        """Categorize an article based on its title and description."""
+    def _categorize_content(self, title: str, description: str) -> str:
+        """Categorize content based on title and description."""
         text = (title + " " + description).lower()
         
         # Research indicators
@@ -408,6 +385,14 @@ I automatically share interesting findings every 30 minutes!
         if any(word in text for word in ["how to", "guide", "tutorial", "tips", "learn", "beginner"]):
             return "tutorial"
         
+        # Business indicators
+        if any(word in text for word in ["funding", "investment", "startup", "business", "market", "ipo"]):
+            return "business"
+        
+        # Ethics indicators
+        if any(word in text for word in ["ethics", "bias", "fairness", "responsible", "safety", "regulation"]):
+            return "ethics"
+        
         # Announcement indicators
         if any(word in text for word in ["announcement", "breaking", "update", "news", "alert"]):
             return "announcement"
@@ -416,7 +401,7 @@ I automatically share interesting findings every 30 minutes!
         return "news"
     
     def _extract_tags(self, title: str, description: str) -> List[str]:
-        """Extract relevant tags from article title and description."""
+        """Extract relevant tags from content title and description."""
         text = (title + " " + description).lower()
         tags = []
         
@@ -437,7 +422,6 @@ I automatically share interesting findings every 30 minutes!
     
     async def _share_content(self, content: Dict[str, Any]):
         """Share discovered content with the community."""
-        # Always post to general channel as requested
         channel = "general"
         
         # Format the message in markdown style
@@ -445,7 +429,7 @@ I automatically share interesting findings every 30 minutes!
         
         # Add summary if available and not empty
         summary = content.get('summary', '').strip()
-        if summary and len(summary) > 10:  # Only if there's meaningful content
+        if summary and len(summary) > 10:
             message += f"{summary}\n\n"
         
         # Add image if available
@@ -473,7 +457,8 @@ I automatically share interesting findings every 30 minutes!
                 logger.error(f"❌ Failed to send message to #{channel}: {e2}")
         
         # Store in knowledge base
-        self.knowledge_base[content['hash']] = content
+        content_hash = content.get('hash', self._generate_content_hash(content))
+        self.knowledge_base[content_hash] = content
         
         logger.info(f"📤 Shared content: {content['title']} to {channel}")
     
@@ -519,7 +504,7 @@ I automatically share interesting findings every 30 minutes!
             await ws.channel(channel).post_with_mention(message, mention_agent_id=sender_id)
     
     async def _generate_daily_summary(self) -> str:
-        """Generate a summary of today's AI news."""
+        """Generate a summary of today's content."""
         today = datetime.now().date()
         today_content = [
             content for content in self.knowledge_base.values()
@@ -527,7 +512,7 @@ I automatically share interesting findings every 30 minutes!
         ]
         
         if not today_content:
-            return "📊 **Today's AI Summary**\n\nNo new content shared today. Check back later for updates!"
+            return f"📊 **Today's {self.content_type} Summary**\n\nNo new content shared today. Check back later for updates!"
         
         # Group by category
         by_category = {}
@@ -537,7 +522,7 @@ I automatically share interesting findings every 30 minutes!
                 by_category[category] = []
             by_category[category].append(content)
         
-        summary = f"📊 **Today's AI Summary** ({len(today_content)} items)\n\n"
+        summary = f"📊 **Today's {self.content_type} Summary** ({len(today_content)} items)\n\n"
         
         for category, items in by_category.items():
             emoji = self.content_categories.get(category, "📄")
@@ -558,7 +543,7 @@ I automatically share interesting findings every 30 minutes!
     async def _load_knowledge_base(self):
         """Load existing knowledge base from file."""
         try:
-            kb_file = Path("ai_news_knowledge_base.json")
+            kb_file = Path(f"{self.default_agent_id}_knowledge_base.json")
             if kb_file.exists():
                 with open(kb_file, 'r') as f:
                     data = json.load(f)
@@ -575,7 +560,7 @@ I automatically share interesting findings every 30 minutes!
     async def _save_knowledge_base(self):
         """Save knowledge base to file."""
         try:
-            kb_file = Path("ai_news_knowledge_base.json")
+            kb_file = Path(f"{self.default_agent_id}_knowledge_base.json")
             # Convert datetime objects to strings for JSON serialization
             serializable_data = {}
             for key, item in self.knowledge_base.items():
@@ -589,42 +574,3 @@ I automatically share interesting findings every 30 minutes!
             logger.info(f"💾 Saved {len(self.knowledge_base)} items to knowledge base")
         except Exception as e:
             logger.error(f"❌ Could not save knowledge base: {e}")
-
-
-async def main():
-    """Main function to run the AI News Worker Agent."""
-    print("🚀 Starting AI News Worker Agent...")
-    print("=" * 60)
-    
-    # Create the agent
-    agent = AINewsWorkerAgent(agent_id="ai-news-bot")
-    
-    try:
-        # Connect to the network
-        print("🔌 Connecting to Community Knowledge Base network...")
-        await agent.async_start(host="localhost", port=8572)
-        print("✅ Connected successfully!")
-        
-        # Keep the agent running
-        print("🤖 AI News Agent is now active and monitoring for AI content...")
-        print("📋 Press Ctrl+C to stop the agent")
-        
-        # Run indefinitely
-        while True:
-            await asyncio.sleep(1)
-            
-    except KeyboardInterrupt:
-        print("\n🛑 Shutting down AI News Agent...")
-    except Exception as e:
-        print(f"❌ Error running agent: {e}")
-        import traceback
-        traceback.print_exc()
-    finally:
-        # Clean shutdown
-        await agent.async_stop()
-        print("👋 AI News Agent stopped")
-
-
-if __name__ == "__main__":
-    # Run the agent
-    asyncio.run(main())

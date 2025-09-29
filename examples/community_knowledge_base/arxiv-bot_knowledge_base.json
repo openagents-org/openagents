@@ -1,0 +1,609 @@
+{
+  "2509.07680v1": {
+    "id": "2509.07680v1",
+    "title": "CAViAR: Critic-Augmented Video Agentic Reasoning",
+    "summary": "Video understanding has seen significant progress in recent years, with\nmodels' performance on perception from short clips continuing to rise. Yet,\nmultiple recent benchmarks, such as LVBench, Neptune, and ActivityNet-RTL, show\nperformance wanes for tasks requiring complex reasoning on videos as queries\ngrow more complex and videos grow longer. In this work, we ask: can existing\nperception capabilities be leveraged to successfully perform more complex video\nreasoning? In particular, we develop a...",
+    "category": "computer_vision",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.07680v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.07680v1",
+    "image_url": null,
+    "tags": [
+      "computer_vision",
+      "machine_learning",
+      "gpt"
+    ],
+    "timestamp": "2025-09-09T17:59:39",
+    "authors": [
+      "Sachit Menon",
+      "Ahmet Iscen",
+      "Arsha Nagrani",
+      "Tobias Weyand",
+      "Carl Vondrick",
+      "Cordelia Schmid"
+    ],
+    "author_string": "Sachit Menon, Ahmet Iscen, Arsha Nagrani et al. (6 total)",
+    "arxiv_categories": [
+      "cs.CV",
+      "cs.LG"
+    ],
+    "hash": "2509.07680v1"
+  },
+  "2509.07980v1": {
+    "id": "2509.07980v1",
+    "title": "Parallel-R1: Towards Parallel Thinking via Reinforcement Learning",
+    "summary": "Parallel thinking has emerged as a novel approach for enhancing the reasoning\ncapabilities of large language models (LLMs) by exploring multiple reasoning\npaths concurrently. However, activating such capabilities through training\nremains challenging, as existing methods predominantly rely on supervised\nfine-tuning (SFT) over synthetic data, which encourages teacher-forced\nimitation rather than exploration and generalization. Different from them, we\npropose \\textbf{Parallel-R1}, the first reinfor...",
+    "category": "nlp",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.07980v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.07980v1",
+    "image_url": null,
+    "tags": [
+      "llm",
+      "computation_and_language_(nlp)",
+      "reinforcement_learning"
+    ],
+    "timestamp": "2025-09-09T17:59:35",
+    "authors": [
+      "Tong Zheng",
+      "Hongming Zhang",
+      "Wenhao Yu",
+      "Xiaoyang Wang",
+      "Xinyu Yang",
+      "Runpeng Dai",
+      "Rui Liu",
+      "Huiwen Bao",
+      "Chengsong Huang",
+      "Heng Huang",
+      "Dong Yu"
+    ],
+    "author_string": "Tong Zheng, Hongming Zhang, Wenhao Yu et al. (11 total)",
+    "arxiv_categories": [
+      "cs.CL"
+    ],
+    "hash": "2509.07980v1"
+  },
+  "2509.07979v1": {
+    "id": "2509.07979v1",
+    "title": "Visual Representation Alignment for Multimodal Large Language Models",
+    "summary": "Multimodal large language models (MLLMs) trained with visual instruction\ntuning have achieved strong performance across diverse tasks, yet they remain\nlimited in vision-centric tasks such as object counting or spatial reasoning.\nWe attribute this gap to the prevailing text-only supervision paradigm, which\nprovides only indirect guidance for the visual pathway and often leads MLLMs to\ndiscard fine-grained visual details during training. In this paper, we present\nVIsual Representation ALignment (V...",
+    "category": "computer_vision",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.07979v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.07979v1",
+    "image_url": null,
+    "tags": [
+      "computer_vision",
+      "llm"
+    ],
+    "timestamp": "2025-09-09T17:59:14",
+    "authors": [
+      "Heeji Yoon",
+      "Jaewoo Jung",
+      "Junwan Kim",
+      "Hyungyu Choi",
+      "Heeseong Shin",
+      "Sangbeom Lim",
+      "Honggyu An",
+      "Chaehyun Kim",
+      "Jisang Han",
+      "Donghyun Kim",
+      "Chanho Eom",
+      "Sunghwan Hong",
+      "Seungryong Kim"
+    ],
+    "author_string": "Heeji Yoon, Jaewoo Jung, Junwan Kim et al. (13 total)",
+    "arxiv_categories": [
+      "cs.CV"
+    ],
+    "hash": "2509.07979v1"
+  },
+  "2509.07978v1": {
+    "id": "2509.07978v1",
+    "title": "One View, Many Worlds: Single-Image to 3D Object Meets Generative Domain\n  Randomization for One-Shot 6D Pose Estimation",
+    "summary": "Estimating the 6D pose of arbitrary unseen objects from a single reference\nimage is critical for robotics operating in the long-tail of real-world\ninstances. However, this setting is notoriously challenging: 3D models are\nrarely available, single-view reconstructions lack metric scale, and domain\ngaps between generated models and real-world images undermine robustness. We\npropose OnePoseViaGen, a pipeline that tackles these challenges through two key\ncomponents. First, a coarse-to-fine alignment...",
+    "category": "computer_vision",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.07978v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.07978v1",
+    "image_url": null,
+    "tags": [
+      "computer_vision"
+    ],
+    "timestamp": "2025-09-09T17:59:02",
+    "authors": [
+      "Zheng Geng",
+      "Nan Wang",
+      "Shaocong Xu",
+      "Chongjie Ye",
+      "Bohan Li",
+      "Zhaoxi Chen",
+      "Sida Peng",
+      "Hao Zhao"
+    ],
+    "author_string": "Zheng Geng, Nan Wang, Shaocong Xu et al. (8 total)",
+    "arxiv_categories": [
+      "cs.CV"
+    ],
+    "hash": "2509.07978v1"
+  },
+  "2509.07972v1": {
+    "id": "2509.07972v1",
+    "title": "Theoretical Analysis on how Learning Rate Warmup Accelerates Convergence",
+    "summary": "Learning rate warmup is a popular and practical technique in training\nlarge-scale deep neural networks. Despite the huge success in practice, the\ntheoretical advantages of this strategy of gradually increasing the learning\nrate at the beginning of the training process have not been fully understood.\nTo resolve this gap between theory and practice, we first propose a novel\nfamily of generalized smoothness assumptions, and validate its applicability\nboth theoretically and empirically. Under the no...",
+    "category": "machine_learning",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.07972v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.07972v1",
+    "image_url": null,
+    "tags": [
+      "neural_network",
+      "machine_learning"
+    ],
+    "timestamp": "2025-09-09T17:56:03",
+    "authors": [
+      "Yuxing Liu",
+      "Yuze Ge",
+      "Rui Pan",
+      "An Kang",
+      "Tong Zhang"
+    ],
+    "author_string": "Yuxing Liu, Yuze Ge, Rui Pan et al. (5 total)",
+    "arxiv_categories": [
+      "cs.LG",
+      "math.OC"
+    ],
+    "hash": "2509.07972v1"
+  },
+  "2509.07969v1": {
+    "id": "2509.07969v1",
+    "title": "Mini-o3: Scaling Up Reasoning Patterns and Interaction Turns for Visual\n  Search",
+    "summary": "Recent advances in large multimodal models have leveraged image-based tools\nwith reinforcement learning to tackle visual problems. However, existing\nopen-source approaches often exhibit monotonous reasoning patterns and allow\nonly a limited number of interaction turns, making them inadequate for\ndifficult tasks that require trial-and-error exploration. In this work, we\naddress this limitation by scaling up tool-based interactions and introduce\nMini-o3, a system that executes deep, multi-turn rea...",
+    "category": "computer_vision",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.07969v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.07969v1",
+    "image_url": null,
+    "tags": [
+      "computer_vision",
+      "artificial_intelligence",
+      "computation_and_language_(nlp)",
+      "reinforcement_learning"
+    ],
+    "timestamp": "2025-09-09T17:54:21",
+    "authors": [
+      "Xin Lai",
+      "Junyi Li",
+      "Wei Li",
+      "Tao Liu",
+      "Tianjian Li",
+      "Hengshuang Zhao"
+    ],
+    "author_string": "Xin Lai, Junyi Li, Wei Li et al. (6 total)",
+    "arxiv_categories": [
+      "cs.CV",
+      "cs.AI",
+      "cs.CL"
+    ],
+    "hash": "2509.07969v1"
+  },
+  "2509.07968v1": {
+    "id": "2509.07968v1",
+    "title": "SimpleQA Verified: A Reliable Factuality Benchmark to Measure Parametric\n  Knowledge",
+    "summary": "We introduce SimpleQA Verified, a 1,000-prompt benchmark for evaluating Large\nLanguage Model (LLM) short-form factuality based on OpenAI's SimpleQA. It\naddresses critical limitations in OpenAI's benchmark, including noisy and\nincorrect labels, topical biases, and question redundancy. SimpleQA Verified\nwas created through a rigorous multi-stage filtering process involving\nde-duplication, topic balancing, and source reconciliation to produce a more\nreliable and challenging evaluation set, alongsid...",
+    "category": "nlp",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.07968v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.07968v1",
+    "image_url": null,
+    "tags": [
+      "gpt",
+      "llm",
+      "computation_and_language_(nlp)"
+    ],
+    "timestamp": "2025-09-09T17:53:58",
+    "authors": [
+      "Lukas Haas",
+      "Gal Yona",
+      "Giovanni D'Antonio",
+      "Sasha Goldshtein",
+      "Dipanjan Das"
+    ],
+    "author_string": "Lukas Haas, Gal Yona, Giovanni D'Antonio et al. (5 total)",
+    "arxiv_categories": [
+      "cs.CL"
+    ],
+    "hash": "2509.07968v1"
+  },
+  "2509.07966v1": {
+    "id": "2509.07966v1",
+    "title": "Visual-TableQA: Open-Domain Benchmark for Reasoning over Table Images",
+    "summary": "Visual reasoning over structured data such as tables is a critical capability\nfor modern vision-language models (VLMs), yet current benchmarks remain limited\nin scale, diversity, or reasoning depth, especially when it comes to rendered\ntable images. Addressing this gap, we introduce Visual-TableQA, a large-scale,\nopen-domain multimodal dataset specifically designed to evaluate and enhance\nvisual reasoning over complex tabular data. Our generation pipeline is modular,\nscalable, and fully autonomo...",
+    "category": "computer_vision",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.07966v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.07966v1",
+    "image_url": null,
+    "tags": [
+      "computation_and_language_(nlp)",
+      "computer_vision",
+      "llm"
+    ],
+    "timestamp": "2025-09-09T17:52:26",
+    "authors": [
+      "Boammani Aser Lompo",
+      "Marc Haraoui"
+    ],
+    "author_string": "Boammani Aser Lompo, Marc Haraoui",
+    "arxiv_categories": [
+      "cs.CV",
+      "cs.CL"
+    ],
+    "hash": "2509.07966v1"
+  },
+  "2509.07965v1": {
+    "id": "2509.07965v1",
+    "title": "Symmetry TFTs for Continuous Spacetime Symmetries",
+    "summary": "We propose a Symmetry Topological Field Theory (SymTFT) for continuous\nspacetime symmetries. For a $d$-dimensional theory, it is given by a\n$(d+1)$-dimensional BF-theory for the spacetime symmetry group, and whenever\n$d$ is even, it can also include Chern-Simons couplings that encode conformal\nand gravitational anomalies. We study the boundary conditions for this SymTFT\nand describe the general setup to study symmetry breaking of spacetime\nsymmetries. We then specialize to the conformal symmetry...",
+    "category": "theory",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.07965v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.07965v1",
+    "image_url": null,
+    "tags": [],
+    "timestamp": "2025-09-09T17:52:09",
+    "authors": [
+      "Fabio Apruzzi",
+      "Nicola Dondi",
+      "I\u00f1aki Garc\u00eda Etxebarria",
+      "Ho Tat Lam",
+      "Sakura Schafer-Nameki"
+    ],
+    "author_string": "Fabio Apruzzi, Nicola Dondi, I\u00f1aki Garc\u00eda Etxebarria et al. (5 total)",
+    "arxiv_categories": [
+      "hep-th",
+      "cond-mat.str-el",
+      "gr-qc"
+    ],
+    "hash": "2509.07965v1"
+  },
+  "2509.08828v1": {
+    "id": "2509.08828v1",
+    "title": "SAFT: Shape and Appearance of Fabrics from Template via Differentiable\n  Physical Simulations from Monocular Video",
+    "summary": "The reconstruction of three-dimensional dynamic scenes is a well-established\nyet challenging task within the domain of computer vision. In this paper, we\npropose a novel approach that combines the domains of 3D geometry\nreconstruction and appearance estimation for physically based rendering and\npresent a system that is able to perform both tasks for fabrics, utilizing only\na single monocular RGB video sequence as input. In order to obtain realistic\nand high-quality deformations and renderings, a...",
+    "category": "computer_vision",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.08828v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.08828v1",
+    "image_url": null,
+    "tags": [
+      "computer_vision"
+    ],
+    "timestamp": "2025-09-10T17:59:57",
+    "authors": [
+      "David Stotko",
+      "Reinhard Klein"
+    ],
+    "author_string": "David Stotko, Reinhard Klein",
+    "arxiv_categories": [
+      "cs.CV"
+    ],
+    "hash": "2509.08828v1"
+  },
+  "2509.08827v1": {
+    "id": "2509.08827v1",
+    "title": "A Survey of Reinforcement Learning for Large Reasoning Models",
+    "summary": "In this paper, we survey recent advances in Reinforcement Learning (RL) for\nreasoning with Large Language Models (LLMs). RL has achieved remarkable success\nin advancing the frontier of LLM capabilities, particularly in addressing\ncomplex logical tasks such as mathematics and coding. As a result, RL has\nemerged as a foundational methodology for transforming LLMs into LRMs. With the\nrapid progress of the field, further scaling of RL for LRMs now faces\nfoundational challenges not only in computatio...",
+    "category": "nlp",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.08827v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.08827v1",
+    "image_url": null,
+    "tags": [
+      "computation_and_language_(nlp)",
+      "artificial_intelligence",
+      "reinforcement_learning",
+      "llm",
+      "machine_learning"
+    ],
+    "timestamp": "2025-09-10T17:59:43",
+    "authors": [
+      "Kaiyan Zhang",
+      "Yuxin Zuo",
+      "Bingxiang He",
+      "Youbang Sun",
+      "Runze Liu",
+      "Che Jiang",
+      "Yuchen Fan",
+      "Kai Tian",
+      "Guoli Jia",
+      "Pengfei Li",
+      "Yu Fu",
+      "Xingtai Lv",
+      "Yuchen Zhang",
+      "Sihang Zeng",
+      "Shang Qu",
+      "Haozhan Li",
+      "Shijie Wang",
+      "Yuru Wang",
+      "Xinwei Long",
+      "Fangfu Liu",
+      "Xiang Xu",
+      "Jiaze Ma",
+      "Xuekai Zhu",
+      "Ermo Hua",
+      "Yihao Liu",
+      "Zonglin Li",
+      "Huayu Chen",
+      "Xiaoye Qu",
+      "Yafu Li",
+      "Weize Chen",
+      "Zhenzhao Yuan",
+      "Junqi Gao",
+      "Dong Li",
+      "Zhiyuan Ma",
+      "Ganqu Cui",
+      "Zhiyuan Liu",
+      "Biqing Qi",
+      "Ning Ding",
+      "Bowen Zhou"
+    ],
+    "author_string": "Kaiyan Zhang, Yuxin Zuo, Bingxiang He et al. (39 total)",
+    "arxiv_categories": [
+      "cs.CL",
+      "cs.AI",
+      "cs.LG"
+    ],
+    "hash": "2509.08827v1"
+  },
+  "2509.08826v1": {
+    "id": "2509.08826v1",
+    "title": "RewardDance: Reward Scaling in Visual Generation",
+    "summary": "Reward Models (RMs) are critical for improving generation models via\nReinforcement Learning (RL), yet the RM scaling paradigm in visual generation\nremains largely unexplored. It primarily due to fundamental limitations in\nexisting approaches: CLIP-based RMs suffer from architectural and input\nmodality constraints, while prevalent Bradley-Terry losses are fundamentally\nmisaligned with the next-token prediction mechanism of Vision-Language Models\n(VLMs), hindering effective scaling. More criticall...",
+    "category": "computer_vision",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.08826v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.08826v1",
+    "image_url": null,
+    "tags": [
+      "reinforcement_learning",
+      "computer_vision"
+    ],
+    "timestamp": "2025-09-10T17:59:31",
+    "authors": [
+      "Jie Wu",
+      "Yu Gao",
+      "Zilyu Ye",
+      "Ming Li",
+      "Liang Li",
+      "Hanzhong Guo",
+      "Jie Liu",
+      "Zeyue Xue",
+      "Xiaoxia Hou",
+      "Wei Liu",
+      "Yan Zeng",
+      "Weilin Huang"
+    ],
+    "author_string": "Jie Wu, Yu Gao, Zilyu Ye et al. (12 total)",
+    "arxiv_categories": [
+      "cs.CV"
+    ],
+    "hash": "2509.08826v1"
+  },
+  "2509.08825v1": {
+    "id": "2509.08825v1",
+    "title": "Large Language Model Hacking: Quantifying the Hidden Risks of Using LLMs\n  for Text Annotation",
+    "summary": "Large language models (LLMs) are rapidly transforming social science research\nby enabling the automation of labor-intensive tasks like data annotation and\ntext analysis. However, LLM outputs vary significantly depending on the\nimplementation choices made by researchers (e.g., model selection, prompting\nstrategy, or temperature settings). Such variation can introduce systematic\nbiases and random errors, which propagate to downstream analyses and cause Type\nI, Type II, Type S, or Type M errors. We...",
+    "category": "nlp",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.08825v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.08825v1",
+    "image_url": null,
+    "tags": [
+      "computation_and_language_(nlp)",
+      "machine_learning",
+      "artificial_intelligence",
+      "llm"
+    ],
+    "timestamp": "2025-09-10T17:58:53",
+    "authors": [
+      "Joachim Baumann",
+      "Paul R\u00f6ttger",
+      "Aleksandra Urman",
+      "Albert Wendsj\u00f6",
+      "Flor Miriam Plaza-del-Arco",
+      "Johannes B. Gruber",
+      "Dirk Hovy"
+    ],
+    "author_string": "Joachim Baumann, Paul R\u00f6ttger, Aleksandra Urman et al. (7 total)",
+    "arxiv_categories": [
+      "cs.CL",
+      "cs.AI",
+      "cs.LG"
+    ],
+    "hash": "2509.08825v1"
+  },
+  "2509.08824v1": {
+    "id": "2509.08824v1",
+    "title": "Building High-Quality Datasets for Portuguese LLMs: From Common Crawl\n  Snapshots to Industrial-Grade Corpora",
+    "summary": "The performance of large language models (LLMs) is deeply influenced by the\nquality and composition of their training data. While much of the existing work\nhas centered on English, there remains a gap in understanding how to construct\neffective training corpora for other languages. We explore scalable methods for\nbuilding web-based corpora for LLMs. We apply them to build a new 120B token\ncorpus in Portuguese that achieves competitive results to an industrial-grade\ncorpus. Using a continual pret...",
+    "category": "nlp",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.08824v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.08824v1",
+    "image_url": null,
+    "tags": [
+      "computation_and_language_(nlp)",
+      "llm"
+    ],
+    "timestamp": "2025-09-10T17:58:23",
+    "authors": [
+      "Thales Sales Almeida",
+      "Rodrigo Nogueira",
+      "Helio Pedrini"
+    ],
+    "author_string": "Thales Sales Almeida, Rodrigo Nogueira, Helio Pedrini",
+    "arxiv_categories": [
+      "cs.CL"
+    ],
+    "hash": "2509.08824v1"
+  },
+  "2509.08822v1": {
+    "id": "2509.08822v1",
+    "title": "A Survey of TinyML Applications in Beekeeping for Hive Monitoring and\n  Management",
+    "summary": "Honey bee colonies are essential for global food security and ecosystem\nstability, yet they face escalating threats from pests, diseases, and\nenvironmental stressors. Traditional hive inspections are labor-intensive and\ndisruptive, while cloud-based monitoring solutions remain impractical for\nremote or resource-limited apiaries. Recent advances in Internet of Things\n(IoT) and Tiny Machine Learning (TinyML) enable low-power, real-time monitoring\ndirectly on edge devices, offering scalable and non...",
+    "category": "machine_learning",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.08822v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.08822v1",
+    "image_url": null,
+    "tags": [
+      "gan",
+      "machine_learning"
+    ],
+    "timestamp": "2025-09-10T17:53:39",
+    "authors": [
+      "Willy Sucipto",
+      "Jianlong Zhou",
+      "Ray Seung Min Kwon",
+      "Fang Chen"
+    ],
+    "author_string": "Willy Sucipto, Jianlong Zhou, Ray Seung Min Kwon et al. (4 total)",
+    "arxiv_categories": [
+      "cs.LG",
+      "I.2.6; I.2.9; C.3"
+    ],
+    "hash": "2509.08822v1"
+  },
+  "2509.08818v1": {
+    "id": "2509.08818v1",
+    "title": "GeneVA: A Dataset of Human Annotations for Generative Text to Video\n  Artifacts",
+    "summary": "Recent advances in probabilistic generative models have extended capabilities\nfrom static image synthesis to text-driven video generation. However, the\ninherent randomness of their generation process can lead to unpredictable\nartifacts, such as impossible physics and temporal inconsistency. Progress in\naddressing these challenges requires systematic benchmarks, yet existing\ndatasets primarily focus on generative images due to the unique spatio-temporal\ncomplexities of videos. To bridge this gap,...",
+    "category": "computer_vision",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.08818v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.08818v1",
+    "image_url": null,
+    "tags": [
+      "generative_model",
+      "computer_vision"
+    ],
+    "timestamp": "2025-09-10T17:51:42",
+    "authors": [
+      "Jenna Kang",
+      "Maria Silva",
+      "Patsorn Sangkloy",
+      "Kenneth Chen",
+      "Niall Williams",
+      "Qi Sun"
+    ],
+    "author_string": "Jenna Kang, Maria Silva, Patsorn Sangkloy et al. (6 total)",
+    "arxiv_categories": [
+      "cs.CV"
+    ],
+    "hash": "2509.08818v1"
+  },
+  "2509.08817v1": {
+    "id": "2509.08817v1",
+    "title": "QCardEst/QCardCorr: Quantum Cardinality Estimation and Correction",
+    "summary": "Cardinality estimation is an important part of query optimization in DBMS. We\ndevelop a Quantum Cardinality Estimation (QCardEst) approach using Quantum\nMachine Learning with a Hybrid Quantum-Classical Network. We define a compact\nencoding for turning SQL queries into a quantum state, which requires only\nqubits equal to the number of tables in the query. This allows the processing\nof a complete query with a single variational quantum circuit (VQC) on current\nhardware. In addition, we compare mul...",
+    "category": "machine_learning",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.08817v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.08817v1",
+    "image_url": null,
+    "tags": [
+      "machine_learning",
+      "artificial_intelligence"
+    ],
+    "timestamp": "2025-09-10T17:49:06",
+    "authors": [
+      "Tobias Winker",
+      "Jinghua Groppe",
+      "Sven Groppe"
+    ],
+    "author_string": "Tobias Winker, Jinghua Groppe, Sven Groppe",
+    "arxiv_categories": [
+      "quant-ph",
+      "cs.AI",
+      "cs.DB",
+      "cs.LG"
+    ],
+    "hash": "2509.08817v1"
+  },
+  "2509.08816v1": {
+    "id": "2509.08816v1",
+    "title": "A Benchmark Dataset for Satellite-Based Estimation and Detection of Rain",
+    "summary": "Accurately tracking the global distribution and evolution of precipitation is\nessential for both research and operational meteorology. Satellite observations\nremain the only means of achieving consistent, global-scale precipitation\nmonitoring. While machine learning has long been applied to satellite-based\nprecipitation retrieval, the absence of a standardized benchmark dataset has\nhindered fair comparisons between methods and limited progress in algorithm\ndevelopment.\n  To address this gap, the...",
+    "category": "computer_vision",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.08816v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.08816v1",
+    "image_url": null,
+    "tags": [
+      "machine_learning"
+    ],
+    "timestamp": "2025-09-10T17:48:37",
+    "authors": [
+      "Simon Pfreundschuh",
+      "Malarvizhi Arulraj",
+      "Ali Behrangi",
+      "Linda Bogerd",
+      "Alan James Peixoto Calheiros",
+      "Daniele Casella",
+      "Neda Dolatabadi",
+      "Clement Guilloteau",
+      "Jie Gong",
+      "Christian D. Kummerow",
+      "Pierre Kirstetter",
+      "Gyuwon Lee",
+      "Maximilian Maahn",
+      "Lisa Milani",
+      "Giulia Panegrossi",
+      "Rayana Palharini",
+      "Veljko Petkovi\u0107",
+      "Soorok Ryu",
+      "Paolo San\u00f2",
+      "Jackson Tan"
+    ],
+    "author_string": "Simon Pfreundschuh, Malarvizhi Arulraj, Ali Behrangi et al. (20 total)",
+    "arxiv_categories": [
+      "physics.ao-ph"
+    ],
+    "hash": "2509.08816v1"
+  },
+  "2509.08814v1": {
+    "id": "2509.08814v1",
+    "title": "Merge-of-Thought Distillation",
+    "summary": "Efficient reasoning distillation for long chain-of-thought (CoT) models is\nincreasingly constrained by the assumption of a single oracle teacher, despite\npractical availability of multiple candidate teachers and growing CoT corpora.\nWe revisit teacher selection and observe that different students have different\n\"best teachers,\" and even for the same student the best teacher can vary across\ndatasets. Therefore, to unify multiple teachers' reasoning abilities into\nstudent with overcoming conflicts...",
+    "category": "nlp",
+    "source": "ArXiv",
+    "url": "https://arxiv.org/abs/2509.08814v1",
+    "pdf_url": "http://arxiv.org/pdf/2509.08814v1",
+    "image_url": null,
+    "tags": [
+      "computation_and_language_(nlp)",
+      "artificial_intelligence",
+      "machine_learning"
+    ],
+    "timestamp": "2025-09-10T17:46:57",
+    "authors": [
+      "Zhanming Shen",
+      "Zeyu Qin",
+      "Zenan Huang",
+      "Hao Chen",
+      "Jiaqi Hu",
+      "Yihong Zhuang",
+      "Guoshan Lu",
+      "Gang Chen",
+      "Junbo Zhao"
+    ],
+    "author_string": "Zhanming Shen, Zeyu Qin, Zenan Huang et al. (9 total)",
+    "arxiv_categories": [
+      "cs.LG",
+      "cs.AI",
+      "cs.CL"
+    ],
+    "hash": "2509.08814v1"
+  }
+}
