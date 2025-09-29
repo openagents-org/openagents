@@ -104,6 +104,14 @@ class NetworkConfig(BaseModel):
     disable_agent_secret_verification: bool = Field(
         False, description="Disable agent secret verification (for testing only)"
     )
+    
+    # Password protection configuration
+    password_hash: Optional[str] = Field(
+        None, description="Hashed password for network access (use bcrypt)"
+    )
+    require_password: bool = Field(
+        False, description="Whether password is required for agent registration"
+    )
 
     # Discovery configuration
     discovery_interval: int = Field(5, description="Discovery interval in seconds")

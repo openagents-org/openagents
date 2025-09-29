@@ -19,6 +19,7 @@ export interface EventNetworkServiceOptions {
   agentId: string;
   connection: NetworkConnection;
   timeout?: number;
+  password?: string;
 }
 
 export class EventNetworkService {
@@ -36,6 +37,7 @@ export class EventNetworkService {
       port: this.connection.port,
       agentId: this.agentId,
       timeout: options.timeout,
+      password: options.password,
     });
 
     this.setupEventHandlers();

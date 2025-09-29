@@ -142,6 +142,7 @@ class HttpTransport(Transport):
             data = await request.json()
             agent_id = data.get("agent_id")
             metadata = data.get("metadata", {})
+            password = data.get("password")
 
             if not agent_id:
                 return web.json_response(
@@ -161,6 +162,7 @@ class HttpTransport(Transport):
                     "transport_type": TransportType.HTTP,
                     "certificate": data.get("certificate", None),
                     "force_reconnect": True,
+                    "password": password,
                 },
             )
             # Process the registration event through the event handler
@@ -205,12 +207,16 @@ class HttpTransport(Transport):
                 logger.error(
                     f"❌ Network registration failed for HTTP agent {agent_id}: {error_message}"
                 )
+                
+                # Return 401 for password-related errors, 500 for other errors
+                status_code = 401 if "password" in error_message.lower() else 500
+                
                 return web.json_response(
                     {
                         "success": False,
                         "error_message": f"Registration failed: {error_message}",
                     },
-                    status=500,
+                    status=status_code,
                 )
 
         except Exception as e:

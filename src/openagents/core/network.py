@@ -350,6 +350,7 @@ class AgentNetwork:
         metadata: Dict[str, Any],
         certificate: str,
         force_reconnect: bool = False,
+        password: Optional[str] = None,
     ) -> EventResponse:
         """Register an agent with the network.
 
@@ -359,11 +360,36 @@ class AgentNetwork:
             metadata: Agent metadata including capabilities
             certificate: Agent certificate
             force_reconnect: Whether to force reconnect
+            password: Password for network access (if required)
 
         Returns:
-            bool: True if registration successful
+            EventResponse: Registration result with success status and message
         """
-
+        
+        # Check password requirement
+        if self.config.require_password:
+            if not password:
+                return EventResponse(
+                    success=False,
+                    message="Password is required for this network",
+                )
+                
+            if not self.config.password_hash:
+                logger.error("Network requires password but no password hash is configured")
+                return EventResponse(
+                    success=False,
+                    message="Network password configuration error",
+                )
+                
+            # Validate password
+            from openagents.utils.password_utils import verify_password
+            if not verify_password(password, self.config.password_hash):
+                logger.warning(f"Invalid password provided for agent {agent_id}")
+                return EventResponse(
+                    success=False,
+                    message="Invalid network password",
+                )
+                
         # Create agent info
         agent_info = AgentConnection(
             agent_id=agent_id,

@@ -46,6 +46,7 @@ dependencies = [
     # Security and encryption
     "cryptography>=40.0.0",    # Encryption for secure communications
     "pynacl>=1.5.0",          # Fast cryptography for P2P
+    "bcrypt>=4.0.0",          # Password hashing for network security
     
     # CLI and user interface
     "click>=8.1.0",           # Enhanced CLI framework

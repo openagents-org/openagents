@@ -14,6 +14,7 @@ export interface ConnectionOptions {
   agentId: string;
   metadata?: any;
   timeout?: number;
+  password?: string;
 }
 
 export interface EventHandler {
@@ -35,11 +36,13 @@ export class HttpEventConnector {
   private maxReconnectAttempts = 5;
   private timeout: number;
   private secret: string | null = null;
+  private password: string | undefined;
 
   constructor(options: ConnectionOptions) {
     this.agentId = options.agentId;
     this.originalAgentId = options.agentId;
     this.timeout = options.timeout || 30000;
+    this.password = options.password;
 
     // Store host and port for network requests
     this.baseUrl = `http://${options.host}:${options.port}/api`;
@@ -81,14 +84,21 @@ export class HttpEventConnector {
 
       // Register agent
       console.log(`📡 Sending registration to ${this.baseUrl}/api/register`);
-      const registerResponse = await this.sendHttpRequest("/api/register", "POST", {
+      const registrationData: any = {
         agent_id: this.agentId,
         metadata: {
           display_name: this.agentId,
           user_agent: navigator.userAgent,
           platform: "web",
         },
-      });
+      };
+
+      // Include password if provided
+      if (this.password) {
+        registrationData.password = this.password;
+      }
+
+      const registerResponse = await this.sendHttpRequest("/api/register", "POST", registrationData);
 
       console.log("📡 Registration response:", registerResponse);
       if (!registerResponse.success) {
