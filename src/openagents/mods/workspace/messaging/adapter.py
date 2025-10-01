@@ -20,7 +20,7 @@ from pathlib import Path
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import Event
 from openagents.models.event import EventVisibility, EventNames
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from openagents.utils.message_util import (
     get_direct_event_thread_id,
     get_broadcast_event_thread_id,
@@ -565,7 +565,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             quoted_message_id=quoted_message_id,
             quoted_text=quoted_text,
         )
-
+        
         # Use the reply message Event directly, just update the metadata
         message = reply_msg
         message.relevant_mod = "openagents.mods.workspace.messaging"
@@ -1261,7 +1261,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
 
         return mime_types.get(extension, "application/octet-stream")
 
-    def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentTool]:
         """Get the tools for the mod adapter.
 
         Returns:
@@ -1270,7 +1270,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         tools = []
 
         # Tool 1: Send direct message
-        send_direct_tool = AgentAdapterTool(
+        send_direct_tool = AgentTool(
             name="send_direct_message",
             description="Send a direct message to another agent",
             input_schema={
@@ -1296,7 +1296,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         tools.append(send_direct_tool)
 
         # Tool 2: Send channel message
-        send_channel_tool = AgentAdapterTool(
+        send_channel_tool = AgentTool(
             name="send_channel_message",
             description="Send a message into a channel, optionally mentioning an agent",
             input_schema={
@@ -1326,7 +1326,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         tools.append(send_channel_tool)
 
         # Tool 3: Upload file
-        upload_file_tool = AgentAdapterTool(
+        upload_file_tool = AgentTool(
             name="upload_file",
             description="Upload a local file to obtain a UUID for network access",
             input_schema={
@@ -1344,7 +1344,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         tools.append(upload_file_tool)
 
         # Tool 4: Reply to channel message
-        reply_channel_tool = AgentAdapterTool(
+        reply_channel_tool = AgentTool(
             name="reply_channel_message",
             description="Reply to a message in a channel (creates/continues thread, max 5 levels)",
             input_schema={
@@ -1368,7 +1368,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         tools.append(reply_channel_tool)
 
         # Tool 6: List channels
-        list_channels_tool = AgentAdapterTool(
+        list_channels_tool = AgentTool(
             name="list_channels",
             description="List all channels in the network with channel names, descriptions, and agents",
             input_schema={"type": "object", "properties": {}, "required": []},
@@ -1377,7 +1377,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         tools.append(list_channels_tool)
 
         # Tool 7: Retrieve channel messages
-        retrieve_channel_tool = AgentAdapterTool(
+        retrieve_channel_tool = AgentTool(
             name="retrieve_channel_messages",
             description="Retrieve messages from a specific channel with pagination and threading support",
             input_schema={
@@ -1413,7 +1413,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         tools.append(retrieve_channel_tool)
 
         # Tool 8: Retrieve direct messages
-        retrieve_direct_tool = AgentAdapterTool(
+        retrieve_direct_tool = AgentTool(
             name="retrieve_direct_messages",
             description="Retrieve direct messages with a specific agent with pagination and threading support",
             input_schema={
@@ -1449,7 +1449,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         tools.append(retrieve_direct_tool)
 
         # Tool 9: React to message
-        react_tool = AgentAdapterTool(
+        react_tool = AgentTool(
             name="react_to_message",
             description="Add or remove an emoji reaction to/from a message",
             input_schema={

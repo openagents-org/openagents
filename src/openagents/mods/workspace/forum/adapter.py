@@ -13,7 +13,7 @@ from typing import Dict, Any, List, Optional, Callable, Union
 
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.event import Event, EventVisibility
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from .forum_messages import (
     ForumTopicMessage,
     ForumCommentMessage,
@@ -605,7 +605,7 @@ class ForumAgentAdapter(BaseModAdapter):
                 forum_threads[thread_id] = thread
         return forum_threads
 
-    def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentTool]:
         """Get the tools for the forum adapter.
 
         Returns:
@@ -614,7 +614,7 @@ class ForumAgentAdapter(BaseModAdapter):
         tools = []
 
         # Tool 1: Create forum topic
-        create_topic_tool = AgentAdapterTool(
+        create_topic_tool = AgentTool(
             name="create_forum_topic",
             description="Create a new topic in the forum",
             input_schema={
@@ -633,7 +633,7 @@ class ForumAgentAdapter(BaseModAdapter):
         tools.append(create_topic_tool)
 
         # Tool 2: Edit forum topic
-        edit_topic_tool = AgentAdapterTool(
+        edit_topic_tool = AgentTool(
             name="edit_forum_topic",
             description="Edit an existing forum topic (only by owner)",
             input_schema={
@@ -656,7 +656,7 @@ class ForumAgentAdapter(BaseModAdapter):
         tools.append(edit_topic_tool)
 
         # Tool 3: Delete forum topic
-        delete_topic_tool = AgentAdapterTool(
+        delete_topic_tool = AgentTool(
             name="delete_forum_topic",
             description="Delete a forum topic (only by owner)",
             input_schema={
@@ -674,7 +674,7 @@ class ForumAgentAdapter(BaseModAdapter):
         tools.append(delete_topic_tool)
 
         # Tool 4: Post forum topic comment
-        post_comment_tool = AgentAdapterTool(
+        post_comment_tool = AgentTool(
             name="post_forum_topic_comment",
             description="Post a comment on a topic or reply to a comment (max 5 levels of nesting)",
             input_schema={
@@ -700,7 +700,7 @@ class ForumAgentAdapter(BaseModAdapter):
         tools.append(post_comment_tool)
 
         # Tool 5: Vote on forum topic
-        vote_topic_tool = AgentAdapterTool(
+        vote_topic_tool = AgentTool(
             name="vote_on_forum_topic",
             description="Vote on a forum topic",
             input_schema={
@@ -723,7 +723,7 @@ class ForumAgentAdapter(BaseModAdapter):
         tools.append(vote_topic_tool)
 
         # Tool 6: Vote on forum comment
-        vote_comment_tool = AgentAdapterTool(
+        vote_comment_tool = AgentTool(
             name="vote_on_forum_comment",
             description="Vote on a forum comment",
             input_schema={
@@ -746,7 +746,7 @@ class ForumAgentAdapter(BaseModAdapter):
         tools.append(vote_comment_tool)
 
         # Tool 7: List forum topics
-        list_topics_tool = AgentAdapterTool(
+        list_topics_tool = AgentTool(
             name="list_forum_topics",
             description="List topics in the forum with pagination and sorting",
             input_schema={
@@ -779,7 +779,7 @@ class ForumAgentAdapter(BaseModAdapter):
         tools.append(list_topics_tool)
 
         # Tool 8: Get forum topic
-        get_topic_tool = AgentAdapterTool(
+        get_topic_tool = AgentTool(
             name="get_forum_topic",
             description="Get a specific topic with all its comments",
             input_schema={
@@ -797,7 +797,7 @@ class ForumAgentAdapter(BaseModAdapter):
         tools.append(get_topic_tool)
 
         # Tool 9: Search forum topics
-        search_topics_tool = AgentAdapterTool(
+        search_topics_tool = AgentTool(
             name="search_forum_topics",
             description="Search topics by keywords with pagination",
             input_schema={

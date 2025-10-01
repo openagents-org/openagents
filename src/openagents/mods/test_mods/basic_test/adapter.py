@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional, Callable, Union
 
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import Event
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +157,7 @@ class BasicTestAgentAdapter(BaseModAdapter):
         # Allow event to continue processing
         return event
 
-    def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentTool]:
         """Get the tools for the mod adapter.
 
         Returns:
@@ -167,7 +167,7 @@ class BasicTestAgentAdapter(BaseModAdapter):
 
         # Test ping tool
         tools.append(
-            AgentAdapterTool(
+            AgentTool(
                 name="test_ping",
                 description="Send a test ping to the network",
                 parameters={
@@ -185,7 +185,7 @@ class BasicTestAgentAdapter(BaseModAdapter):
 
         # Get adapter state tool
         tools.append(
-            AgentAdapterTool(
+            AgentTool(
                 name="get_test_state",
                 description="Get the current state of the test adapter",
                 parameters={"type": "object", "properties": {}},
@@ -195,7 +195,7 @@ class BasicTestAgentAdapter(BaseModAdapter):
 
         # Send test message tool
         tools.append(
-            AgentAdapterTool(
+            AgentTool(
                 name="send_test_message",
                 description="Send a test message to another agent or broadcast",
                 parameters={

@@ -16,7 +16,7 @@ from openagents.models.agent_config import AgentConfig
 from openagents.models.event_context import EventContext
 from openagents.models.event import Event
 from openagents.models.event_thread import EventThread
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from openagents.models.agent_actions import (
     AgentTrajectory,
     AgentAction,
@@ -70,7 +70,7 @@ def test_tools():
         return a + b
 
     tools = [
-        AgentAdapterTool(
+        AgentTool(
             name="echo",
             description="Echo back a message",
             input_schema={
@@ -82,7 +82,7 @@ def test_tools():
             },
             func=echo_tool,
         ),
-        AgentAdapterTool(
+        AgentTool(
             name="add_numbers",
             description="Add two numbers together",
             input_schema={

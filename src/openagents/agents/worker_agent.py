@@ -406,6 +406,19 @@ class WorkerAgent(CollaboratorAgent):
             await self.on_channel_mention(channel_context)
         else:
             await self.on_channel_post(channel_context)
+    
+    @on_event("thread.reply.notification")
+    async def _handle_channel_post_notification(self, context: EventContext):
+        """Handle channel post notifications."""
+        reply_context = ReplyMessageContext(
+            incoming_event=context.incoming_event,
+            event_threads=context.event_threads,
+            incoming_thread_id=context.incoming_thread_id,
+            reply_to_id=context.incoming_event.payload.get("reply_to_id"),
+            target_agent_id=context.incoming_event.payload.get("target_agent_id"),
+            channel=context.incoming_event.payload.get("channel"),
+        )
+        await self.on_channel_reply(reply_context)
 
     @on_event("thread.channel_message.notification")
     async def _handle_channel_notification(self, context: EventContext):
@@ -899,7 +912,7 @@ class WorkerAgent(CollaboratorAgent):
             message_content = {"text": ""}
 
         agent_connection = self.workspace().agent(to)
-        return await agent_connection.send_message(message_content, **kwargs)
+        return await agent_connection.send(message_content, **kwargs)
 
     async def post_to_channel(
         self, channel: str, text: str = None, content: Dict[str, Any] = None, **kwargs

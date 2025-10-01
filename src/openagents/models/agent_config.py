@@ -7,8 +7,9 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from openagents.config.llm_configs import MODEL_CONFIGS, LLMProviderType
 from openagents.config.prompt_templates import (
+    DEFAULT_LLM_USER_PROMPT_TEMPLATE,
     DEFAULT_SYSTEM_PROMPT_TEMPLATE,
-    DEFAULT_USER_PROMPT_TEMPLATE,
+    DEFAULT_AGENT_USER_PROMPT_TEMPLATE,
 )
 from openagents.models.mcp_config import MCPServerConfig
 
@@ -82,8 +83,12 @@ class AgentConfig(BaseModel):
         description="Custom system prompt template (uses instruction if not provided)",
     )
     user_prompt_template: str = Field(
-        default=DEFAULT_USER_PROMPT_TEMPLATE,
+        default=DEFAULT_AGENT_USER_PROMPT_TEMPLATE,
         description="Custom user prompt template for conversation formatting (uses default if not provided)",
+    )
+    llm_user_prompt_template: Optional[str] = Field(
+        default=DEFAULT_LLM_USER_PROMPT_TEMPLATE,
+        description="Custom user prompt template for LLM conversation formatting (uses default if not provided)",
     )
 
     # MCP (Model Context Protocol) servers
@@ -214,14 +219,6 @@ class AgentConfig(BaseModel):
         provider = provider or self.determine_provider()
         config = MODEL_CONFIGS.get(provider, {})
         return config.get("api_base")
-
-    def get_effective_user_prompt_template(self) -> str:
-        """Get the effective user prompt template (custom or default).
-
-        Returns:
-            User prompt template to use
-        """
-        return self.user_prompt_template
 
     def get_effective_system_prompt_template(self) -> str:
         """Get the effective system prompt template (custom or instruction).

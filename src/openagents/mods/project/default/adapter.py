@@ -8,7 +8,7 @@ import logging
 import asyncio
 from typing import Dict, Any, List, Optional
 from openagents.core.base_mod_adapter import BaseModAdapter
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from openagents.models.messages import Event, EventNames
 from openagents.workspace.project import Project
 from openagents.workspace.project_messages import (
@@ -30,14 +30,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
         super().__init__(mod_name=mod_name)
         self._pending_responses: Dict[str, asyncio.Future] = {}
 
-    def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentTool]:
         """Get the tools provided by this adapter.
 
         Returns:
             List of tools for project management
         """
         return [
-            AgentAdapterTool(
+            AgentTool(
                 name="start_project",
                 description="Start a new project with specified goal. Service agents are automatically configured from the mod settings.",
                 parameters={
@@ -60,7 +60,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     "required": ["goal"],
                 },
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="get_project_status",
                 description="Get the status and details of a project",
                 parameters={
@@ -74,7 +74,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     "required": ["project_id"],
                 },
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="list_projects",
                 description="List all projects associated with this agent",
                 parameters={
@@ -95,7 +95,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                 },
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="stop_project",
                 description="Stop a running project",
                 parameters={
@@ -109,7 +109,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     "required": ["project_id"],
                 },
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="pause_project",
                 description="Pause a running project",
                 parameters={
@@ -123,7 +123,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     "required": ["project_id"],
                 },
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="resume_project",
                 description="Resume a paused project",
                 parameters={
@@ -137,7 +137,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     "required": ["project_id"],
                 },
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="join_project",
                 description="Join an existing project as a service agent",
                 parameters={
@@ -151,7 +151,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     "required": ["project_id"],
                 },
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="leave_project",
                 description="Leave a project",
                 parameters={
@@ -165,7 +165,7 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     "required": ["project_id"],
                 },
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="send_project_notification",
                 description="Send a notification or update about project progress",
                 parameters={

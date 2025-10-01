@@ -14,7 +14,7 @@ from pathlib import Path
 
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import Event, Event, Event
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from openagents.utils.message_util import (
     get_direct_event_thread_id,
     get_broadcast_event_thread_id,
@@ -613,7 +613,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
 
         return mime_types.get(extension, "application/octet-stream")
 
-    def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentTool]:
         """Get the tools for the mod adapter.
 
         Returns:
@@ -622,7 +622,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         tools = []
 
         # Tool for sending a text message to a specific agent
-        send_text_tool = AgentAdapterTool(
+        send_text_tool = AgentTool(
             name="send_text_message",
             description="Send a text message to a specific agent",
             input_schema={
@@ -644,7 +644,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         tools.append(send_text_tool)
 
         # Tool for broadcasting a text message to all agents
-        broadcast_text_tool = AgentAdapterTool(
+        broadcast_text_tool = AgentTool(
             name="broadcast_text_message",
             description="Broadcast a text message to all agents",
             input_schema={
@@ -662,7 +662,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         tools.append(broadcast_text_tool)
 
         # Tool for sending a file to a specific agent
-        send_file_tool = AgentAdapterTool(
+        send_file_tool = AgentTool(
             name="send_file",
             description="Send a file to a specific agent",
             input_schema={
@@ -688,7 +688,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         tools.append(send_file_tool)
 
         # Tool for broadcasting a file to all agents
-        broadcast_file_tool = AgentAdapterTool(
+        broadcast_file_tool = AgentTool(
             name="broadcast_file",
             description="Broadcast a file to all agents",
             input_schema={
@@ -710,7 +710,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         tools.append(broadcast_file_tool)
 
         # Tool for downloading a file
-        download_file_tool = AgentAdapterTool(
+        download_file_tool = AgentTool(
             name="download_file",
             description="Download a file from the network",
             input_schema={
@@ -728,7 +728,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         tools.append(download_file_tool)
 
         # Tool for deleting a file
-        delete_file_tool = AgentAdapterTool(
+        delete_file_tool = AgentTool(
             name="delete_file",
             description="Request deletion of a file from the network",
             input_schema={

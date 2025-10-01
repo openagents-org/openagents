@@ -6,7 +6,7 @@ from openagents.models.event_context import EventContext
 from typing import Dict, List, Any, Optional
 import json
 import asyncio
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from openagents.utils.verbose import verbose_print
 import logging
 
@@ -102,7 +102,7 @@ class SimpleOpenAIAgentRunner(AgentRunner):
 
     def _create_finish_tool(self):
         """Create a tool that allows the model to indicate it's finished with actions."""
-        return AgentAdapterTool(
+        return AgentTool(
             name="finish",
             description="Use this tool when you have completed all necessary actions and don't need to do anything else.",
             input_schema={

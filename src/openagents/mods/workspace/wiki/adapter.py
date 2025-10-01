@@ -14,7 +14,7 @@ from typing import Dict, Any, List, Optional, Callable
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import Event
 from openagents.models.event import EventVisibility
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from .wiki_messages import (
     WikiPageCreateMessage,
     WikiPageEditMessage,
@@ -741,7 +741,7 @@ class WikiAgentAdapter(BaseModAdapter):
             except Exception as e:
                 logger.error(f"Error in wiki handler: {e}")
 
-    def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentTool]:
         """Get the tools for the wiki adapter.
 
         Returns:
@@ -750,7 +750,7 @@ class WikiAgentAdapter(BaseModAdapter):
         tools = []
 
         # Tool 1: Create wiki page
-        create_page_tool = AgentAdapterTool(
+        create_page_tool = AgentTool(
             name="create_wiki_page",
             description="Create a new wiki page",
             input_schema={
@@ -776,7 +776,7 @@ class WikiAgentAdapter(BaseModAdapter):
         tools.append(create_page_tool)
 
         # Tool 2: Edit wiki page
-        edit_page_tool = AgentAdapterTool(
+        edit_page_tool = AgentTool(
             name="edit_wiki_page",
             description="Edit an existing wiki page (owner/creator only)",
             input_schema={
@@ -798,7 +798,7 @@ class WikiAgentAdapter(BaseModAdapter):
         tools.append(edit_page_tool)
 
         # Tool 3: Get wiki page
-        get_page_tool = AgentAdapterTool(
+        get_page_tool = AgentTool(
             name="get_wiki_page",
             description="Retrieve a wiki page",
             input_schema={
@@ -820,7 +820,7 @@ class WikiAgentAdapter(BaseModAdapter):
         tools.append(get_page_tool)
 
         # Tool 4: Search wiki pages
-        search_pages_tool = AgentAdapterTool(
+        search_pages_tool = AgentTool(
             name="search_wiki_pages",
             description="Search wiki pages by title and content",
             input_schema={
@@ -842,7 +842,7 @@ class WikiAgentAdapter(BaseModAdapter):
         tools.append(search_pages_tool)
 
         # Tool 5: List wiki pages
-        list_pages_tool = AgentAdapterTool(
+        list_pages_tool = AgentTool(
             name="list_wiki_pages",
             description="List wiki pages with optional category filter",
             input_schema={
@@ -867,7 +867,7 @@ class WikiAgentAdapter(BaseModAdapter):
         tools.append(list_pages_tool)
 
         # Tool 6: Propose wiki page edit
-        propose_edit_tool = AgentAdapterTool(
+        propose_edit_tool = AgentTool(
             name="propose_wiki_page_edit",
             description="Propose an edit to a wiki page (for non-owners)",
             input_schema={
@@ -893,7 +893,7 @@ class WikiAgentAdapter(BaseModAdapter):
         tools.append(propose_edit_tool)
 
         # Tool 7: List wiki edit proposals
-        list_proposals_tool = AgentAdapterTool(
+        list_proposals_tool = AgentTool(
             name="list_wiki_edit_proposals",
             description="List edit proposals with optional filters",
             input_schema={
@@ -917,7 +917,7 @@ class WikiAgentAdapter(BaseModAdapter):
         tools.append(list_proposals_tool)
 
         # Tool 8: Resolve wiki edit proposal
-        resolve_proposal_tool = AgentAdapterTool(
+        resolve_proposal_tool = AgentTool(
             name="resolve_wiki_edit_proposal",
             description="Resolve an edit proposal (page owner only)",
             input_schema={
@@ -944,7 +944,7 @@ class WikiAgentAdapter(BaseModAdapter):
         tools.append(resolve_proposal_tool)
 
         # Tool 9: Get wiki page history
-        get_history_tool = AgentAdapterTool(
+        get_history_tool = AgentTool(
             name="get_wiki_page_history",
             description="Get version history of a wiki page",
             input_schema={
@@ -969,7 +969,7 @@ class WikiAgentAdapter(BaseModAdapter):
         tools.append(get_history_tool)
 
         # Tool 10: Revert wiki page version
-        revert_page_tool = AgentAdapterTool(
+        revert_page_tool = AgentTool(
             name="revert_wiki_page_version",
             description="Revert a wiki page to a previous version (owner only)",
             input_schema={

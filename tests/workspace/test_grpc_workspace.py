@@ -164,7 +164,7 @@ async def test_workspace_agent_direct_message(workspace_client_a, workspace_clie
     )
 
     # Send direct message
-    response = await agent_b_connection.send_message("Hello from workspace client A!")
+    response = await agent_b_connection.send("Hello from workspace client A!")
 
     print(
         f"📤 Direct message response: success={response.success}, message={response.message}"
@@ -256,7 +256,7 @@ async def test_workspace_agent_operations(workspace_client_a, workspace_client_b
 
     # Test sending direct message
     print("📝 Testing direct message sending...")
-    message_response = await agent_b_conn.send_message("Direct message from A to B")
+    message_response = await agent_b_conn.send("Direct message from A to B")
     assert isinstance(
         message_response, EventResponse
     ), "Send message should return EventResponse"
@@ -328,7 +328,7 @@ async def test_workspace_error_handling(workspace_client_a, workspace_client_b):
     # Test sending message to non-existent agent
     print("📝 Testing message to non-existent agent...")
     non_existent_agent = workspace_a.agent("non-existent-agent-123")
-    response = await non_existent_agent.send_message("Message to nowhere")
+    response = await non_existent_agent.send("Message to nowhere")
 
     assert isinstance(
         response, EventResponse
@@ -460,10 +460,10 @@ async def test_workspace_concurrent_operations(workspace_client_a, workspace_cli
     agent_a_conn = workspace_b.agent("workspace-client-a")
 
     dm_tasks = [
-        agent_b_conn.send_message("Concurrent DM 1 from A to B"),
-        agent_a_conn.send_message("Concurrent DM 1 from B to A"),
-        agent_b_conn.send_message("Concurrent DM 2 from A to B"),
-        agent_a_conn.send_message("Concurrent DM 2 from B to A"),
+        agent_b_conn.send("Concurrent DM 1 from A to B"),
+        agent_a_conn.send("Concurrent DM 1 from B to A"),
+        agent_b_conn.send("Concurrent DM 2 from A to B"),
+        agent_a_conn.send("Concurrent DM 2 from B to A"),
     ]
 
     dm_responses = await asyncio.gather(*dm_tasks, return_exceptions=True)

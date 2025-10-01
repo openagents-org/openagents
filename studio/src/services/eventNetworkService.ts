@@ -243,7 +243,7 @@ export class EventNetworkService {
    */
   async getDirectMessages(
     targetAgentId: string,
-    limit: number = 50,
+    limit: number = 200,
     offset: number = 0
   ): Promise<ThreadMessage[]> {
     try {
@@ -429,7 +429,7 @@ export class EventNetworkService {
 
   async retrieveChannelMessages(
     channelName: string,
-    limit: number = 50,
+    limit: number = 200,
     offset: number = 0
   ): Promise<void> {
     const messages = await this.getChannelMessages(channelName, limit, offset);
@@ -442,7 +442,7 @@ export class EventNetworkService {
 
   async retrieveDirectMessages(
     targetAgentId: string,
-    limit: number = 50,
+    limit: number = 200,
     offset: number = 0
   ): Promise<void> {
     const messages = await this.getDirectMessages(targetAgentId, limit, offset);

@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from openagents.core.connectors.grpc_connector import GRPCNetworkConnector
 from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from openagents.models.event_thread import EventThread
 
 
@@ -114,7 +114,7 @@ class BaseModAdapter(ABC):
         """
         return event
 
-    def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentTool]:
         """Get the tools for the mod adapter.
 
         Returns:

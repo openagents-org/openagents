@@ -299,7 +299,7 @@ async def test_workspace_to_worker_direct_message(workspace_client, worker_agent
     test_message = f"Direct message from workspace client! Test at {time.time()}"
     print(f"📤 Sending direct message: {test_message}")
 
-    response = await agent_connection.send_message(test_message)
+    response = await agent_connection.send(test_message)
 
     # Verify response
     assert isinstance(response, EventResponse)
@@ -483,7 +483,7 @@ async def test_comprehensive_message_flow(workspace_client, worker_agent):
     # 1. Workspace sends direct message
     print("📤 Step 1: Workspace → Worker direct message")
     agent_conn = workspace.agent(agent.client.agent_id)
-    dm_response = await agent_conn.send_message("Direct message in comprehensive test")
+    dm_response = await agent_conn.send("Direct message in comprehensive test")
     assert dm_response.success
 
     await asyncio.sleep(2.0)
@@ -595,7 +595,7 @@ async def test_error_handling_and_edge_cases(workspace_client, worker_agent):
 
     # Test message to non-existent agent
     fake_agent = workspace.agent("non-existent-agent-123")
-    fake_response = await fake_agent.send_message("Message to nowhere")
+    fake_response = await fake_agent.send("Message to nowhere")
     # Should return a response (might be success=False or success=True depending on implementation)
     assert isinstance(fake_response, EventResponse)
 

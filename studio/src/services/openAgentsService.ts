@@ -199,7 +199,7 @@ export class OpenAgentsService {
 
   async getChannelMessages(
     channel: string,
-    limit: number = 50,
+    limit: number = 200,
     offset: number = 0
   ): Promise<ThreadMessage[]> {
     console.log(
@@ -210,7 +210,7 @@ export class OpenAgentsService {
 
   async getDirectMessages(
     targetAgentId: string,
-    limit: number = 50,
+    limit: number = 200,
     offset: number = 0
   ): Promise<ThreadMessage[]> {
     console.log(

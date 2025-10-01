@@ -17,7 +17,7 @@ from datetime import datetime
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import Event
 from openagents.models.event import Event, EventVisibility
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from .document_messages import (
     CreateDocumentMessage,
     OpenDocumentMessage,
@@ -114,14 +114,14 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
         logger.info(f"Shut down SharedDocument adapter for agent {self.agent_id}")
         return True
 
-    def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentTool]:
         """Get the list of tools provided by this adapter.
 
         Returns:
             List[AgentAdapterTool]: List of available tools
         """
         return [
-            AgentAdapterTool(
+            AgentTool(
                 name="create_document",
                 description="Create a new shared document",
                 parameters={
@@ -146,7 +146,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 },
                 func=self.create_document,
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="open_document",
                 description="Open an existing shared document",
                 parameters={
@@ -161,7 +161,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 },
                 func=self.open_document,
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="close_document",
                 description="Close a shared document",
                 parameters={
@@ -176,7 +176,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 },
                 func=self.close_document,
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="insert_lines",
                 description="Insert lines into a document at a specific position",
                 parameters={
@@ -201,7 +201,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 },
                 func=self.insert_lines,
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="remove_lines",
                 description="Remove lines from a document",
                 parameters={
@@ -226,7 +226,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 },
                 func=self.remove_lines,
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="replace_lines",
                 description="Replace lines in a document with new content",
                 parameters={
@@ -256,7 +256,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 },
                 func=self.replace_lines,
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="add_comment",
                 description="Add a comment to a specific line in the document",
                 parameters={
@@ -280,7 +280,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 },
                 func=self.add_comment,
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="remove_comment",
                 description="Remove a comment from the document",
                 parameters={
@@ -299,7 +299,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 },
                 func=self.remove_comment,
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="update_cursor_position",
                 description="Update the agent's cursor position in the document",
                 parameters={
@@ -325,7 +325,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 },
                 func=self.update_cursor_position,
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="get_document_content",
                 description="Get the current content of a document",
                 parameters={
@@ -350,7 +350,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 },
                 func=self.get_document_content,
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="get_document_history",
                 description="Get the operation history of a document",
                 parameters={
@@ -378,7 +378,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 },
                 func=self.get_document_history,
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="list_documents",
                 description="List all available documents",
                 parameters={
@@ -394,7 +394,7 @@ class SharedDocumentAgentAdapter(BaseModAdapter):
                 },
                 func=self.list_documents,
             ),
-            AgentAdapterTool(
+            AgentTool(
                 name="get_agent_presence",
                 description="Get agent presence information for a document",
                 parameters={

@@ -348,7 +348,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // Messages management
-  loadChannelMessages: async (channel: string, limit = 50, offset = 0) => {
+  loadChannelMessages: async (channel: string, limit = 200, offset = 0) => {
     const connection = get().getConnection();
     if (!connection) {
       console.warn("ChatStore: No connection available for loadChannelMessages");
@@ -421,7 +421,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  loadDirectMessages: async (targetAgentId: string, limit = 50, offset = 0) => {
+  loadDirectMessages: async (targetAgentId: string, limit = 200, offset = 0) => {
     const connection = get().getConnection();
     if (!connection) {
       console.warn("ChatStore: No connection available for loadDirectMessages");

@@ -40,17 +40,17 @@ class CommunityMemberAgent(WorkerAgent):
         
         if "hello" in text or "hi" in text:
             ws = self.workspace()
-            await ws.agent(msg.sender_id).send_message(
+            await ws.agent(msg.sender_id).send(
                 f"Hello {msg.sender_id}! 👋 I'm a community member interested in AI developments."
             )
         elif "help" in text:
             ws = self.workspace()
-            await ws.agent(msg.sender_id).send_message(
+            await ws.agent(msg.sender_id).send(
                 f"Hi {msg.sender_id}! I'm here to participate in AI discussions. Try asking @ai-news-bot for the latest updates!"
             )
         else:
             ws = self.workspace()
-            await ws.agent(msg.sender_id).send_message(
+            await ws.agent(msg.sender_id).send(
                 f"Thanks for messaging me, {msg.sender_id}! I'm always interested in AI discussions."
             )
     

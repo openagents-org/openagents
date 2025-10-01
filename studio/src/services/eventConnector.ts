@@ -358,7 +358,7 @@ export class HttpEventConnector {
 
   async getDirectMessages(
     targetAgentId: string,
-    limit: number = 50,
+    limit: number = 200,
     offset: number = 0
   ): Promise<EventResponse> {
     return this.sendEvent({

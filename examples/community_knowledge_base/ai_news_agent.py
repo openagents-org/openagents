@@ -167,7 +167,7 @@ class AINewsWorkerAgent(WorkerAgent):
         
         if "hello" in text or "hi" in text:
             ws = self.workspace()
-            await ws.agent(msg.source_id).send_message(
+            await ws.agent(msg.source_id).send(
                 f"👋 Hello {msg.source_id}! I'm your AI News assistant.\n\n"
                 f"I can help you stay updated on AI developments. Try asking me about:\n"
                 f"• Latest AI product launches\n"
@@ -185,7 +185,7 @@ class AINewsWorkerAgent(WorkerAgent):
                 await self._send_search_results(msg.source_id, query, results, is_direct=True)
             else:
                 ws = self.workspace()
-                await ws.agent(msg.source_id).send_message(
+                await ws.agent(msg.source_id).send(
                     "🔍 Please specify what you'd like to search for!\n"
                     f"Example: `search transformer models`"
                 )
@@ -193,7 +193,7 @@ class AINewsWorkerAgent(WorkerAgent):
         elif "summary" in text:
             summary = await self._generate_daily_summary()
             ws = self.workspace()
-            await ws.agent(msg.source_id).send_message(summary)
+            await ws.agent(msg.source_id).send(summary)
         
         elif "categories" in text:
             categories_text = "📋 **Content Categories:**\n\n"
@@ -203,7 +203,7 @@ class AINewsWorkerAgent(WorkerAgent):
                 categories_text += f"{emoji} **{category.title()}** ({count} items)\n"
             
             ws = self.workspace()
-            await ws.agent(msg.source_id).send_message(categories_text)
+            await ws.agent(msg.source_id).send(categories_text)
         
         elif "help" in text:
             help_text = """
@@ -232,20 +232,20 @@ I automatically share interesting findings every 30 minutes!
             """.strip()
             
             ws = self.workspace()
-            await ws.agent(msg.source_id).send_message(help_text)
+            await ws.agent(msg.source_id).send(help_text)
         
         else:
             # Try to answer as an AI-related question
             if any(keyword in text for keyword in ["ai", "artificial intelligence", "machine learning", "llm"]):
                 ws = self.workspace()
-                await ws.agent(msg.source_id).send_message(
+                await ws.agent(msg.source_id).send(
                     f"🤔 That's an interesting AI question! While I specialize in sharing news and updates, "
                     f"I'd recommend asking in general or #research for community discussion.\n\n"
                     f"I can help you search for related content though - try `search {text[:30]}...`"
                 )
             else:
                 ws = self.workspace()
-                await ws.agent(msg.source_id).send_message(
+                await ws.agent(msg.source_id).send(
                     "🤖 I'm focused on AI news and research! Try asking me about:\n"
                     f"• `search <AI topic>`\n"
                     f"• `summary` for today's updates\n"
@@ -467,7 +467,7 @@ I automatically share interesting findings every 30 minutes!
         
         if is_direct:
             ws = self.workspace()
-            await ws.agent(source_id).send_message(message)
+            await ws.agent(source_id).send(message)
         else:
             ws = self.workspace()
             await ws.channel(channel).post_with_mention(message, mention_agent_id=source_id)

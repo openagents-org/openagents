@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Optional, Callable
 
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import Event, EventNames
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class DefaultWorkspaceAgentAdapter(BaseModAdapter):
         super().__init__(agent_id, **kwargs)
         self.workspace_data: Dict[str, Any] = {}
 
-    def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentTool]:
         """
         Get available tools for the default workspace.
 

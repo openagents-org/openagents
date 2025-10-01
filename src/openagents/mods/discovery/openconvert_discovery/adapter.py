@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, List, Union
 import logging
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import Event
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 import copy
 
 logger = logging.getLogger(__name__)
@@ -385,7 +385,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
                 f"Agent {self.agent_id} has no matching conversion capabilities for {from_mime} -> {to_mime}"
             )
 
-    def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentTool]:
         """Get the tools for the mod adapter.
 
         Returns:
@@ -394,7 +394,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
         tools = []
 
         # Tool for discovering agents with specific conversion capabilities
-        discover_conversion_agents_tool = AgentAdapterTool(
+        discover_conversion_agents_tool = AgentTool(
             name="discover_conversion_agents",
             description="Discover agents that can perform a specific MIME format conversion",
             input_schema={
@@ -420,7 +420,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
         tools.append(discover_conversion_agents_tool)
 
         # Tool for setting this agent's conversion capabilities
-        announce_conversion_capabilities_tool = AgentAdapterTool(
+        announce_conversion_capabilities_tool = AgentTool(
             name="announce_conversion_capabilities",
             description="Announce this agent's MIME conversion capabilities to the network",
             input_schema={
@@ -456,7 +456,7 @@ class OpenConvertDiscoveryAdapter(BaseModAdapter):
         tools.append(announce_conversion_capabilities_tool)
 
         # Tool for adding a single conversion pair
-        add_conversion_pair_tool = AgentAdapterTool(
+        add_conversion_pair_tool = AgentTool(
             name="add_conversion_pair",
             description="Add a single MIME conversion pair to this agent's capabilities",
             input_schema={

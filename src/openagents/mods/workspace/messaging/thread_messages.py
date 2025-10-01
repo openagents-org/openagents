@@ -657,7 +657,7 @@ class MessageRetrievalMessage:
     @staticmethod
     def get_limit(event: Event) -> int:
         """Extract limit from event payload."""
-        return event.payload.get("limit", 50) if event.payload else 50
+        return event.payload.get("limit", 200) if event.payload else 200
 
     @staticmethod
     def get_offset(event: Event) -> int:

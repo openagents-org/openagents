@@ -55,7 +55,7 @@ async def main():
             
             # Send direct message to agent
             print(f"📤 Sending direct message to {agent_id}...")
-            success = await agent_conn.send_message("Hello from workspace!")
+            success = await agent_conn.send("Hello from workspace!")
             print(f"Direct message sent successfully: {success}")
             
             # Get agent info
@@ -138,7 +138,7 @@ async def main():
             await asyncio.sleep(0.5)
             
             # Send a message to trigger echo response
-            await agent_conn.send_message("Test wait function")
+            await agent_conn.send("Test wait function")
             
             # Wait for the response
             message = await wait_task
@@ -240,7 +240,7 @@ async def main():
             # Send direct message to trigger events
             if agents:
                 print(f"   Sending direct message to {agents[0]}...")
-                await agent_conn.send_message("Test message for event system!")
+                await agent_conn.send("Test message for event system!")
             
             # Give events time to propagate
             await asyncio.sleep(1.0)

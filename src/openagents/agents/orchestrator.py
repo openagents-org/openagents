@@ -14,7 +14,7 @@ from typing import List, Optional
 from jinja2 import Template
 
 from openagents.models.event_context import EventContext
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from openagents.models.agent_config import AgentConfig
 from openagents.models.agent_actions import (
     AgentTrajectory,
@@ -27,9 +27,9 @@ from openagents.utils.verbose import verbose_print
 logger = logging.getLogger(__name__)
 
 
-def _create_finish_tool() -> AgentAdapterTool:
+def _create_finish_tool() -> AgentTool:
     """Create a tool that allows the model to indicate it's finished with actions."""
-    return AgentAdapterTool(
+    return AgentTool(
         name="finish",
         description="Use this tool when you have completed all necessary actions and don't need to do anything else.",
         input_schema={
@@ -49,9 +49,11 @@ def _create_finish_tool() -> AgentAdapterTool:
 async def orchestrate_agent(
     context: EventContext,
     agent_config: AgentConfig,
-    tools: List[AgentAdapterTool],
+    tools: List[AgentTool],
     user_instruction: Optional[str] = None,
     max_iterations: Optional[int] = None,
+    disable_finish_tool: Optional[bool] = False,
+    use_llm_user_prompt: Optional[bool] = False,
 ) -> AgentTrajectory:
     """Orchestrate an agent's response to an incoming message.
 
@@ -112,7 +114,11 @@ async def orchestrate_agent(
     )()
 
     # Generate messages using templates from agent config
-    user_template = Template(agent_config.get_effective_user_prompt_template())
+    if use_llm_user_prompt:
+        user_template = Template(agent_config.llm_user_prompt_template)
+    else:
+        user_template = Template(agent_config.user_prompt_template)
+    
     prompt_content = user_template.render(
         context=template_context, user_instruction=user_instruction
     ).strip()
@@ -130,8 +136,10 @@ async def orchestrate_agent(
 
     # Prepare tools with finish tool
     all_tools = list(tools)
-    finish_tool = _create_finish_tool()
-    all_tools.append(finish_tool)
+
+    if not disable_finish_tool:
+        finish_tool = _create_finish_tool()
+        all_tools.append(finish_tool)
 
     formatted_tools = model_provider.format_tools(all_tools)
 

@@ -105,7 +105,7 @@ async def mock_workspace():
 
     # Mock agent connection
     agent_connection = MagicMock()
-    agent_connection.send_message = AsyncMock(
+    agent_connection.send = AsyncMock(
         return_value=EventResponse(success=True, message="Message sent")
     )
     workspace.agent.return_value = agent_connection
@@ -148,7 +148,7 @@ async def test_worker_agent_send_direct(worker_agent, mock_workspace):
     # Verify workspace was called correctly
     mock_workspace.agent.assert_called_once_with("target-agent")
     agent_connection = mock_workspace.agent.return_value
-    agent_connection.send_message.assert_called_once_with({"text": "Hello world!"})
+    agent_connection.send.assert_called_once_with({"text": "Hello world!"})
 
 
 @pytest.mark.asyncio
@@ -164,7 +164,7 @@ async def test_worker_agent_send_direct_with_content(worker_agent, mock_workspac
     assert response.success
 
     agent_connection = mock_workspace.agent.return_value
-    agent_connection.send_message.assert_called_once_with(content)
+    agent_connection.send.assert_called_once_with(content)
 
 
 @pytest.mark.asyncio
@@ -293,7 +293,7 @@ async def test_worker_agent_error_handling(worker_agent, mock_workspace):
 
     # Mock a failed response
     agent_connection = mock_workspace.agent.return_value
-    agent_connection.send_message = AsyncMock(
+    agent_connection.send = AsyncMock(
         return_value=EventResponse(success=False, message="Network error")
     )
 
@@ -421,7 +421,7 @@ async def test_worker_agent_empty_content_handling(worker_agent, mock_workspace)
     assert response.success
 
     agent_connection = mock_workspace.agent.return_value
-    agent_connection.send_message.assert_called_once_with({"text": ""})
+    agent_connection.send.assert_called_once_with({"text": ""})
 
 
 @pytest.mark.asyncio

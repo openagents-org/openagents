@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, validator, ConfigDict
 import inspect
 
 
-class AgentAdapterTool(BaseModel):
+class AgentTool(BaseModel):
     """
     A tool that can be used by an agent.
 

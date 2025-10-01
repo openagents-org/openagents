@@ -14,7 +14,7 @@ class CharlieAgent(WorkerAgent):
 
     async def on_direct(self, context: EventContext):
         ws = self.workspace()
-        await ws.agent(context.source_id).send_message(f"Hello {context.source_id}!")
+        await ws.agent(context.source_id).send(f"Hello {context.source_id}!")
     
     async def on_channel_post(self, context: ChannelMessageContext):
         task_instruction = "If the message is about weather, check weather report and reply"

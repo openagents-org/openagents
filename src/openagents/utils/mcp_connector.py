@@ -15,7 +15,7 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.sse import sse_client
 
 from openagents.models.mcp_config import MCPServerConfig
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +26,10 @@ class MCPConnector:
     def __init__(self):
         """Initialize the MCP connector."""
         self._mcp_clients: Dict[str, Any] = {}
-        self._mcp_tools: List[AgentAdapterTool] = []
+        self._mcp_tools: List[AgentTool] = []
         self._mcp_sessions: Dict[str, ClientSession] = {}
 
-    async def setup_mcp_clients(self, mcp_configs: List[MCPServerConfig]) -> List[AgentAdapterTool]:
+    async def setup_mcp_clients(self, mcp_configs: List[MCPServerConfig]) -> List[AgentTool]:
         """Setup MCP clients based on configuration.
         
         Args:
@@ -215,7 +215,7 @@ class MCPConnector:
                 tool_parameters = tool.inputSchema or {}
                 
                 # Create AgentAdapterTool for each MCP tool
-                adapter_tool = AgentAdapterTool(
+                adapter_tool = AgentTool(
                     name=f"mcp_{server_name}_{tool_name}",
                     description=tool_description,
                     func=self._create_mcp_session_tool_function(server_name, tool_name),
@@ -281,7 +281,7 @@ class MCPConnector:
         self._mcp_tools.clear()
         self._mcp_sessions.clear()
 
-    def get_mcp_tools(self) -> List[AgentAdapterTool]:
+    def get_mcp_tools(self) -> List[AgentTool]:
         """Get all tools from connected MCP servers."""
         return self._mcp_tools.copy()
 

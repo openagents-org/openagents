@@ -12,7 +12,7 @@ from openagents.utils.mcp_connector import MCPConnector
 from openagents.models.event_thread import EventThread
 from openagents.models.event import Event
 from openagents.models.event_context import EventContext
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from openagents.core.client import AgentClient
 from openagents.utils.mod_loaders import load_mod_adapters
 from openagents.utils.verbose import verbose_print
@@ -55,6 +55,8 @@ class AgentRunner(ABC):
         self._preset_mod_names = mod_names
         self._network_client = client
         self._tools = []
+        self._mcp_tools = []
+        self._mod_tools = []
         self._supported_mods = None
         self._running = False
         self._processed_message_ids = set()
@@ -99,10 +101,11 @@ class AgentRunner(ABC):
         This method should be called when the available tools might have changed,
         such as after connecting to a server or registering new mod adapters.
         """
-        tools = self.client.get_tools()
-        
+        self._mod_tools = self.client.get_tools()
         # Add MCP tools if available
-        all_tools = tools + self._mcp_connector.get_mcp_tools()
+        self._mcp_tools = self._mcp_connector.get_mcp_tools()
+
+        all_tools = self._mod_tools + self._mcp_tools
         
         # Log info about all available tools
         tool_names = [tool.name for tool in all_tools]
@@ -156,7 +159,7 @@ class AgentRunner(ABC):
         return self._network_client
 
     @property
-    def tools(self) -> List[AgentAdapterTool]:
+    def tools(self) -> List[AgentTool]:
         """Get the tools available to the agent.
 
         Returns:
@@ -188,6 +191,8 @@ class AgentRunner(ABC):
         context: EventContext,
         instruction: Optional[str] = None,
         max_iterations: Optional[int] = None,
+        disable_mcp: Optional[bool] = False,
+        disable_mods: Optional[bool] = False,
     ) -> AgentTrajectory:
         """
         Let the agent respond to the context and decide it's action automatically.
@@ -196,13 +201,46 @@ class AgentRunner(ABC):
             context: The event context containing incoming event, threads, and thread ID
             user_instruction: The instruction for the agent to respond to the context
             max_iterations: The maximum number of iterations for the agent to respond to the context
+            disable_mcp: Whether to disable MCP tools
+            disable_mods: Whether to disable network interaction with mods
         """
+        # Get tools from MCP and mods
+        tools = []
+        if not disable_mcp:
+            tools.extend(self._mcp_tools)
+        if not disable_mods:
+            tools.extend(self._mod_tools)
+        
         return await orchestrate_agent(
             context=context,
             agent_config=self.agent_config,
-            tools=self.tools,
+            tools=tools,
+            user_instruction=instruction,
+            max_iterations=max_iterations,  
+        )
+    
+    async def run_llm(
+        self,
+        context: EventContext,
+        instruction: Optional[str] = None,
+        max_iterations: Optional[int] = None,
+        disable_mcp: Optional[bool] = False,
+    ) -> AgentTrajectory:
+        """
+        Run the LLM to generate a response based on the context and instruction.
+        This method will not call tools for interacting with mods or the network.
+        """
+        tools = []
+        if not disable_mcp:
+            tools.extend(self._mcp_tools)
+        return await orchestrate_agent(
+            context=context,
+            agent_config=self.agent_config,
+            tools=tools,
             user_instruction=instruction,
             max_iterations=max_iterations,
+            disable_finish_tool=True,
+            use_llm_user_prompt=True,
         )
 
     async def setup(self):
@@ -234,13 +272,17 @@ class AgentRunner(ABC):
         # Update tools after setting up MCP clients
         self.update_tools()
 
-    def get_mcp_tools(self) -> List[AgentAdapterTool]:
+    def get_mcp_tools(self) -> List[AgentTool]:
         """Get all tools from connected MCP servers."""
         return self._mcp_connector.get_mcp_tools()
 
     def get_mcp_clients(self) -> Dict[str, Any]:
         """Get all connected MCP clients."""
         return self._mcp_connector.get_mcp_clients()
+    
+    def get_cached_event(self, event_id: str) -> Optional[Event]:
+        """Get an event by its ID from the cache."""
+        return self.client.get_cached_event(event_id)
 
     async def _async_loop(self):
         """Async implementation of the main loop for the agent runner.

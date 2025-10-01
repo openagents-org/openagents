@@ -50,7 +50,7 @@ async def demonstrate_project_completion():
             agent_conn = ws.agent("echo-agent")
             
             print("📤 Sending direct message to ProjectEchoAgent...")
-            await agent_conn.send_message("Hello, can you help with projects?")
+            await agent_conn.send("Hello, can you help with projects?")
             
             # Wait for echo response
             print("⏳ Waiting for echo response...")

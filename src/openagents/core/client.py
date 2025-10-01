@@ -35,7 +35,7 @@ from openagents.config.globals import (
     SYSTEM_EVENT_SUBSCRIBE_EVENTS,
     SYSTEM_EVENT_UNSUBSCRIBE_EVENTS,
 )
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from openagents.models.event_thread import EventThread
 from openagents.utils.verbose import verbose_print
 import aiohttp
@@ -87,6 +87,7 @@ class AgentClient:
 
         # Message threads
         self._event_threads: Dict[str, EventThread] = {}
+        self._event_id_map: Dict[str, Event] = {}
 
         # Register mod adapters if provided
         if mod_adapters:
@@ -468,6 +469,7 @@ class AgentClient:
                 )
                 verbose_print(f"🚀 Sending event via connector...")
                 result = await self.connector.send_event(processed_event)
+                self._event_id_map[processed_event.event_id] = processed_event
                 print(f"✅ Event sent via connector - result: {result}")
                 verbose_print(f"✅ Event sent via connector successfully")
                 return result
@@ -584,7 +586,7 @@ class AgentClient:
             logger.error(f"Error getting mod manifest for {mod_name}: {e}")
             return None
 
-    def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentTool]:
         """Get all tools from registered mod adapters.
 
         Returns:
@@ -680,7 +682,12 @@ class AgentClient:
             self._event_threads[event.thread_name] = EventThread()
 
         # Add the Event to the thread
+        self._event_id_map[event.event_id] = event
         self._event_threads[event.thread_name].add_event(event)
+    
+    def get_cached_event(self, event_id: str) -> Optional[Event]:
+        """Get an event by its ID from the cache."""
+        return self._event_id_map.get(event_id)
 
     async def wait_event(
         self, condition: Optional[Callable[[Event], bool]] = None, timeout: float = 30.0

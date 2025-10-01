@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, List
 import logging
 from openagents.core.base_mod_adapter import BaseModAdapter
 from openagents.models.messages import Event, EventNames
-from openagents.models.tool import AgentAdapterTool
+from openagents.models.tool import AgentTool
 from openagents.utils.message_util import get_mod_event_thread_id
 import copy
 
@@ -194,7 +194,7 @@ class AgentDiscoveryAdapter(BaseModAdapter):
         # Send the message
         await self.connector.send_mod_message(message)
 
-    def get_tools(self) -> List[AgentAdapterTool]:
+    def get_tools(self) -> List[AgentTool]:
         """Get the tools for the mod adapter.
 
         Returns:
@@ -203,7 +203,7 @@ class AgentDiscoveryAdapter(BaseModAdapter):
         tools = []
 
         # Tool for discovering agents with specific capabilities
-        discover_agents_tool = AgentAdapterTool(
+        discover_agents_tool = AgentTool(
             name="discover_agents",
             description="Discover agents with specific capabilities",
             input_schema={
@@ -221,7 +221,7 @@ class AgentDiscoveryAdapter(BaseModAdapter):
         tools.append(discover_agents_tool)
 
         # Tool for setting this agent's capabilities
-        announce_capabilities_tool = AgentAdapterTool(
+        announce_capabilities_tool = AgentTool(
             name="announce_capabilities",
             description="Announce this agent's capabilities to the network",
             input_schema={

@@ -21,7 +21,7 @@ __all__ = [
     "get_all_models",
     "determine_provider",
     "create_model_provider",
-    "DEFAULT_USER_PROMPT_TEMPLATE",
+    "DEFAULT_AGENT_USER_PROMPT_TEMPLATE",
     "SIMPLE_USER_PROMPT_TEMPLATE",
     "TOOL_FOCUSED_USER_PROMPT_TEMPLATE",
     "get_default_user_prompt_template",

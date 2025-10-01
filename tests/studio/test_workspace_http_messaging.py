@@ -125,7 +125,7 @@ class TestWorkerAgent(WorkerAgent):
                     "port": DEFAULT_TRANSPORT_ADDRESS["http"]["port"],
                 }
 
-                response = await ws.agent(target_agent_id).send_message(message)
+                response = await ws.agent(target_agent_id).send(message)
                 if response and response.success:
                     sent_count += 1
                     self.messages_sent += 1
