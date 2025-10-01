@@ -317,7 +317,7 @@ class ChannelConnection:
             )
             return False
 
-    def get_messages(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
+    async def get_messages(self, limit: int = 50, offset: int = 0) -> List[Dict[str, Any]]:
         """Retrieve messages from this channel synchronously.
 
         Args:
@@ -343,7 +343,7 @@ class ChannelConnection:
             )
 
             # Send request synchronously and get immediate response
-            response = self.workspace.send_event_sync(mod_message)
+            response = await self.workspace.send_event(mod_message)
 
             if not response.success:
                 logger.error(
