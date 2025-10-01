@@ -76,9 +76,8 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  // Remove auto-scroll logic from MessageRenderer - MessagingView handles this
+  // This prevents duplicate scroll effects that conflict with each other
 
 
   // 消息类型检测和属性获取

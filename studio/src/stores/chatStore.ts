@@ -1762,7 +1762,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         // 详细调试：检查payload结构
         console.log("ChatStore: Reply notification payload structure:", {
           message_id: event.event_id,
-          sender_id: messageData.original_sender,
+          event_source_id: event.source_id,
+          sender_id: event.sender_id,
+          original_sender: messageData.original_sender,
           channel: messageData.channel,
           content: messageData.content,
           reply_to_id: messageData.reply_to_id,
@@ -1774,9 +1776,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         if (messageData.channel && messageData.content) {
           // 构造统一消息格式
+          // 修复：使用正确的发送者ID - event.source_id 或 event.sender_id 是实际的回复作者
+          // messageData.original_sender 指的是被回复消息的原作者，不是回复的发送者
           const unifiedMessage: UnifiedMessage = {
             id: event.event_id || `${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
-            senderId: messageData.original_sender || event.source_id || "unknown",
+            senderId: event.source_id || event.sender_id || "unknown",
             timestamp: event.timestamp || new Date().toISOString(),
             content: typeof messageData.content === 'string' ? messageData.content : messageData.content.text || "",
             type: messageData.message_type,

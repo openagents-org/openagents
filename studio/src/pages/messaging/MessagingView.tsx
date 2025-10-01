@@ -100,6 +100,9 @@ const ThreadMessagingViewEventBased: React.FC = () => {
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const prevMessagesLength = useRef<number>(0);
+  const prevScrollHeight = useRef<number>(0);
 
   // 获取当前频道或私信的消息
   const messages = useMemo(() => {
@@ -138,10 +141,39 @@ const ThreadMessagingViewEventBased: React.FC = () => {
   // 通知点击处理已移至全局（OpenAgentsProvider），这里不再需要重复监听
 
 
-  // Auto-scroll to bottom when new messages arrive
+  // Smart auto-scroll: only scroll to bottom if user is already near the bottom
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    const container = messagesContainerRef.current;
+    const messagesEnd = messagesEndRef.current;
+    
+    if (!container || !messagesEnd) return;
+
+    // Check if this is a new message being added
+    // eslint-disable-next-line
+    const isNewMessage = messages.length > (prevMessagesLength.current ?? 0);
+    const currentScrollHeight = container.scrollHeight;
+    const previousScrollHeight = prevScrollHeight.current || 0;
+    
+    prevMessagesLength.current = messages.length;
+    prevScrollHeight.current = currentScrollHeight;
+
+    if (isNewMessage) {
+      // For new messages, we need to check if user was near bottom BEFORE the new content was added
+      // Calculate where user was relative to the bottom before content height changed
+      const { scrollTop, clientHeight } = container;
+      const heightDifference = currentScrollHeight - previousScrollHeight;
+      const originalDistanceFromBottom = previousScrollHeight - scrollTop - clientHeight;
+      const isNearBottom = originalDistanceFromBottom < 100;
+
+
+      if (isNearBottom) {
+        // User was near bottom before new message, auto-scroll to new message
+        messagesEnd.scrollIntoView({ behavior: "smooth" });
+      }
+      // If user was not near bottom, don't auto-scroll (let them continue reading)
+    } else {
+      // Not a new message (e.g., initial load, channel switch), always scroll to bottom
+      messagesEnd.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
 
@@ -485,7 +517,7 @@ const ThreadMessagingViewEventBased: React.FC = () => {
       <div className="flex-1 flex flex-col min-h-0">
           <>
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-4">
+            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4">
               {(() => {
                 // Filter messages based on current channel or direct message
                 const filteredMessages = messages.filter((message) => {
