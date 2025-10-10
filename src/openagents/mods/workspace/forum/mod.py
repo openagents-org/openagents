@@ -1161,21 +1161,27 @@ class ForumNetworkMod(BaseMod):
 
         logger.info(f"Cast {vote_type} on {target_type} {target_id} by {voter_id}")
 
-        await self.send_event(
-            Event(
-                event_name="forum.vote.notification",
-                source_id=voter_id,
-                destination_id=BROADCAST_AGENT_ID,
-                payload={
-                    "target_type": target_type,
-                    "target_id": target_id,
-                    "vote_type": vote_type,
-                    "upvotes": target_obj.upvotes,
-                    "downvotes": target_obj.downvotes,
-                    "vote_score": target_obj.get_vote_score(),
-                },
+        # Send vote notification - respect topic permissions
+        # Get the topic to check allowed_groups
+        vote_topic = None
+        if target_type == "topic":
+            vote_topic = target_obj  # target_obj is already the topic
+        else:
+            # For comments, find the containing topic
+            vote_topic = containing_topic
+        
+        # Send notification respecting permissions
+        if vote_topic:
+            await self._send_vote_notification(
+                voter_id,
+                target_type,
+                target_id,
+                vote_type,
+                target_obj.upvotes,
+                target_obj.downvotes,
+                target_obj.get_vote_score(),
+                vote_topic
             )
-        )
 
         return EventResponse(
             success=True,
@@ -1613,31 +1619,154 @@ class ForumNetworkMod(BaseMod):
     async def _send_topic_notification(
         self, event_name: str, topic: ForumTopic, source_id: str
     ):
-        """Send topic-related notifications."""
-        # For now, we'll just log the notification
-        # In a full implementation, this would send events to interested agents
-        notification = Event(
-            event_name=event_name,
-            destination_id=BROADCAST_AGENT_ID,
-            source_id=source_id,
-            payload={"topic": topic.to_dict()},
-        )
-        await self.send_event(notification)
-        logger.info(f"Topic notification: {event_name} for topic {topic.topic_id}")
+        """Send topic-related notifications only to agents with permission.
+        
+        If topic has allowed_groups restriction:
+        - Send individual notifications to agents in those groups
+        If topic is public (no allowed_groups):
+        - Broadcast to all agents
+        """
+        # If topic is public, broadcast to everyone
+        if not topic.allowed_groups:
+            notification = Event(
+                event_name=event_name,
+                destination_id=BROADCAST_AGENT_ID,
+                source_id=source_id,
+                payload={"topic": topic.to_dict()},
+            )
+            await self.send_event(notification)
+            logger.info(f"Topic notification (public): {event_name} for topic {topic.topic_id}")
+        else:
+            # Topic has group restrictions - only notify agents in allowed groups
+            notified_agents = set()
+            
+            # Get all registered agents and check their groups
+            for agent_id in self.active_agents:
+                if agent_id == source_id:
+                    # Skip the source agent (they already know they created/modified it)
+                    continue
+                    
+                if self._can_agent_view_topic(agent_id, topic):
+                    # Send individual notification to this agent
+                    notification = Event(
+                        event_name=event_name,
+                        destination_id=agent_id,
+                        source_id=source_id,
+                        payload={"topic": topic.to_dict()},
+                    )
+                    await self.send_event(notification)
+                    notified_agents.add(agent_id)
+            
+            logger.info(
+                f"Topic notification (group-restricted): {event_name} for topic {topic.topic_id} "
+                f"sent to {len(notified_agents)} agents in groups {topic.allowed_groups}"
+            )
 
     async def _send_comment_notification(
         self, event_name: str, comment: ForumComment, topic: ForumTopic, source_id: str
     ):
-        """Send comment-related notifications."""
-        # For now, we'll just log the notification
-        # In a full implementation, this would send events to topic owners and parent comment authors
-        notification = Event(
-            event_name=event_name,
-            destination_id=BROADCAST_AGENT_ID,
-            source_id=source_id,
-            payload={"comment": comment.to_dict()},
-        )
-        await self.send_event(notification)
-        logger.info(
-            f"Comment notification: {event_name} for comment {comment.comment_id} on topic {topic.topic_id}"
-        )
+        """Send comment-related notifications only to agents with permission.
+        
+        Respects topic's allowed_groups restriction:
+        - Public topics: broadcast to all
+        - Group-restricted topics: only notify agents in allowed groups
+        """
+        # If topic is public, broadcast to everyone
+        if not topic.allowed_groups:
+            notification = Event(
+                event_name=event_name,
+                destination_id=BROADCAST_AGENT_ID,
+                source_id=source_id,
+                payload={"comment": comment.to_dict(), "topic_id": topic.topic_id},
+            )
+            await self.send_event(notification)
+            logger.info(
+                f"Comment notification (public): {event_name} for comment {comment.comment_id} on topic {topic.topic_id}"
+            )
+        else:
+            # Topic has group restrictions - only notify agents in allowed groups
+            notified_agents = set()
+            
+            # Get all registered agents and check their groups
+            for agent_id in self.active_agents:
+                if agent_id == source_id:
+                    # Skip the source agent (they already know they commented)
+                    continue
+                    
+                if self._can_agent_view_topic(agent_id, topic):
+                    # Send individual notification to this agent
+                    notification = Event(
+                        event_name=event_name,
+                        destination_id=agent_id,
+                        source_id=source_id,
+                        payload={"comment": comment.to_dict(), "topic_id": topic.topic_id},
+                    )
+                    await self.send_event(notification)
+                    notified_agents.add(agent_id)
+            
+            logger.info(
+                f"Comment notification (group-restricted): {event_name} for comment {comment.comment_id} "
+                f"on topic {topic.topic_id} sent to {len(notified_agents)} agents in groups {topic.allowed_groups}"
+            )
+    
+    async def _send_vote_notification(
+        self,
+        voter_id: str,
+        target_type: str,
+        target_id: str,
+        vote_type: str,
+        upvotes: int,
+        downvotes: int,
+        vote_score: int,
+        topic: ForumTopic
+    ):
+        """Send vote-related notifications only to agents with permission.
+        
+        Respects topic's allowed_groups restriction:
+        - Public topics: broadcast to all
+        - Group-restricted topics: only notify agents in allowed groups
+        """
+        payload = {
+            "target_type": target_type,
+            "target_id": target_id,
+            "vote_type": vote_type,
+            "upvotes": upvotes,
+            "downvotes": downvotes,
+            "vote_score": vote_score,
+        }
+        
+        # If topic is public, broadcast to everyone
+        if not topic.allowed_groups:
+            notification = Event(
+                event_name="forum.vote.notification",
+                source_id=voter_id,
+                destination_id=BROADCAST_AGENT_ID,
+                payload=payload,
+            )
+            await self.send_event(notification)
+            logger.info(f"Vote notification (public): {vote_type} on {target_type} {target_id}")
+        else:
+            # Topic has group restrictions - only notify agents in allowed groups
+            notified_agents = set()
+            
+            # Get all registered agents and check their groups
+            for agent_id in self.active_agents:
+                if agent_id == voter_id:
+                    # Skip the voter (they already know they voted)
+                    continue
+                    
+                if self._can_agent_view_topic(agent_id, topic):
+                    # Send individual notification to this agent
+                    notification = Event(
+                        event_name="forum.vote.notification",
+                        source_id=voter_id,
+                        destination_id=agent_id,
+                        payload=payload,
+                    )
+                    await self.send_event(notification)
+                    notified_agents.add(agent_id)
+            
+            logger.info(
+                f"Vote notification (group-restricted): {vote_type} on {target_type} {target_id} "
+                f"sent to {len(notified_agents)} agents in groups {topic.allowed_groups}"
+            )
