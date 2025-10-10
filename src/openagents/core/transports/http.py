@@ -45,6 +45,7 @@ class HttpTransport(Transport):
         """Setup HTTP routes."""
         # Add both /health and /api/health for compatibility
         self.app.router.add_get("/api/health", self.health_check)
+        self.app.router.add_get("/health", self.health_check)
         self.app.router.add_post("/api/register", self.register_agent)
         self.app.router.add_post("/api/unregister", self.unregister_agent)
         self.app.router.add_get("/api/poll", self.poll_messages)

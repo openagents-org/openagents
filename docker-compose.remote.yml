@@ -1,0 +1,72 @@
+services:
+  openagents:
+    image: ghcr.io/openagents-org/openagents:latest
+    container_name: openagents-network-studio
+    ports:
+      - "8700:8700"
+      - "8600:8600"
+      - "8050:8050"
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8700/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # sample-agent:
+  #   image: ghcr.io/openagents-org/openagents:latest
+  #   container_name: openagents-sample-agent
+  #   depends_on:
+  #     openagents:
+  #       condition: service_healthy
+  #   environment:
+  #     - NETWORK_HOST=openagents
+  #     - NETWORK_PORT=8700
+  #     - AGENT_INSTRUCTION=You are a friendly demo agent packaged with OpenAgents.
+  #     - AGENT_MODEL_NAME=demo-model
+  #   volumes:
+  #     - ./examples/agents:/workspace/examples/agents
+  #   working_dir: /workspace/examples/agents
+  #   entrypoint: ["python", "simple_worker_agent_example.py"]
+  #   restart: unless-stopped
+
+  llm-agent:
+    image: ghcr.io/openagents-org/openagents:latest
+    container_name: openagents-llm-demo
+    depends_on:
+      openagents:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - NETWORK_HOST=openagents
+      - NETWORK_PORT=8700
+      - AGENT_INSTRUCTION=You are an LLM agent answering questions for the OpenAgents demo.
+      - AGENT_PROVIDER=${PROVIDER-openai}
+    volumes:
+      - ./examples/agents:/workspace/examples/agents
+    working_dir: /workspace/examples/agents
+    entrypoint: ["python", "llm_worker_agent.py"]
+    restart: unless-stopped
+
+  poet-agent:
+    image: ghcr.io/openagents-org/openagents:latest
+    container_name: openagents-chinese-poet
+    depends_on:
+      openagents:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - NETWORK_HOST=openagents
+      - NETWORK_PORT=8700
+      - AGENT_INSTRUCTION=你是一位通晓古典诗词的AI诗人。
+      - AGENT_PROVIDER=${PROVIDER-openai}
+    volumes:
+      - ./examples/agents:/workspace/examples/agents
+    working_dir: /workspace/examples/agents
+    entrypoint: ["python", "chinese_poet_agent.py"]
+    restart: unless-stopped
