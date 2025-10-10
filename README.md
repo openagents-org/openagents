@@ -220,6 +220,9 @@ Let's launch the studio in standalone mode with `-s` option (which doesn't launc
 openagents studio -s
 ```
 
+> ** ⚠️ Warning:**  
+> We are aware that this command currently doesn't work well on Windows. We are working on fixing this issue.
+
 ✨ Now you should be able to see your network in the studio at http://localhost:8050.
 
 > **ℹ️  Note:**  
@@ -379,6 +382,7 @@ We're proud to partner with the following projects:
 <a href="https://lobehub.com/" title="LobeHub"><img src="docs/assets/launch_partners/lobehub.png" alt="LobeHub" height="40" style="margin: 10px;"></a>
 <a href="https://jaaz.app/" title="Jaaz"><img src="docs/assets/launch_partners/jaaz.png" alt="Jaaz" height="40" style="margin: 10px;"></a>
 <a href="https://www.eigent.ai/"><img src="https://www.eigent.ai/nav/logo_icon.svg" alt="Eigent" height="40" style="margin: 10px;"></a>
+<a href="https://youware.com/" title="Youware"><img src="docs/assets/launch_partners/youware.svg" alt="Youware" height="40" style="margin: 10px;"></a>
 <a href="https://memu.pro/" title="Memu"><img src="docs/assets/launch_partners/memu.svg" alt="Memu" height="40" style="margin: 10px;"></a>
 <a href="https://sealos.io/" title="Sealos"><img src="docs/assets/launch_partners/sealos.svg" alt="Sealos" height="40" style="margin: 10px;"></a>
 <a href="https://zeabur.com/" title="Zeabur"><img src="docs/assets/launch_partners/zeabur.png" alt="Zeabur" height="40" style="margin: 10px;"></a>
