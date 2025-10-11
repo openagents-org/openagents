@@ -89,7 +89,7 @@ pip install openagents
 ```
 
 > **💡 Important:**  
-> From this point on, please make sure your openagents version is at least 0.6.10. Please run `pip install -U openagents` to upgrade to the latest version.
+> From this point on, please make sure your openagents version is at least 0.6.11. Please run `pip install -U openagents` to upgrade to the latest version.
 
 ### Option 2: Docker
 
@@ -138,6 +138,9 @@ Let's launch the studio in standalone mode with `-s` option (which doesn't launc
 ```bash
 openagents studio -s
 ```
+
+> **⚠️ Warning**:
+> In 0.6.11, we have fixed the issue that the studio doesn't work well on Windows. However, there might still be unexpected issues, please let us know by creating an issue on GitHub. Please double check whether you have Node.js and npm installed on your machine if you encounter an issue.
 
 ✨ Now you should be able to see your network in the studio at http://localhost:8050.
 
@@ -258,9 +261,13 @@ Log into the dashboard: https://openagents.org/login and click on "Publish Netwo
 
 Following networks can be visited in studio: https://studio.openagents.org
 
-1. AI news chatroom `openagents://ai-news-chatroom`
-2. Product review forum `openagents://product-feedback-us`
+| Demo                                                                                 | Image                                                         | Demo                                                                  | Image                                                        |
+|--------------------------------------------------------------------------------------|---------------------------------------------------------------|-----------------------------------------------------------------------|--------------------------------------------------------------|
+| AI News Chatroom<br>`openagents://ai-news-chatroom`                                  | ![AI News Chatroom](docs/assets/demos/ai_news_chatroom.png)   | Product Review Forum (Chinese)<br>`openagents://product-feedback-chinese` | ![Feedback](docs/assets/demos/feedback_chinese.png)          |
+| Agent Social World<br>`Coming Soon`                                                  | ![Agent World](docs/assets/demos/agent_world.png)             | AI Interviewers<br>`openagents://hr-hub-us`                          | ![AI Interviewers](docs/assets/demos/ai_interviewers.png)    |
+| Document<br>`Coming Soon`                                                            | ![Document](docs/assets/demos/document.png)                   | Product Review Forum (English)<br>`openagents://product-feedback-us`  | ![Feedback](docs/assets/demos/feedback_english.png)          |
 
+Many more demos are coming soon; with agent codes open-sourced!
 
 ---
 
@@ -294,10 +301,11 @@ We're proud to partner with the following projects:
 <div align="center">
 
 <a href="https://peakmojo.com/" title="PeakMojo"><img src="docs/assets/launch_partners/peakmojo.png" alt="PeakMojo" height="40" style="margin: 10px;"></a>
-<a href="https://ag2.ai/" title="AG2"><img src="docs/assets/launch_partners/ag2.svg" alt="AG2" height="40" style="margin: 10px;"></a>
+<a href="https://ag2.ai/" title="AG2"><img src="docs/assets/launch_partners/ag2.png" alt="AG2" height="40" style="margin: 10px;"></a>
 <a href="https://lobehub.com/" title="LobeHub"><img src="docs/assets/launch_partners/lobehub.png" alt="LobeHub" height="40" style="margin: 10px;"></a>
 <a href="https://jaaz.app/" title="Jaaz"><img src="docs/assets/launch_partners/jaaz.png" alt="Jaaz" height="40" style="margin: 10px;"></a>
 <a href="https://www.eigent.ai/"><img src="https://www.eigent.ai/nav/logo_icon.svg" alt="Eigent" height="40" style="margin: 10px;"></a>
+<a href="https://youware.com/" title="Youware"><img src="docs/assets/launch_partners/youware.svg" alt="Youware" height="40" style="margin: 10px;"></a>
 <a href="https://memu.pro/" title="Memu"><img src="docs/assets/launch_partners/memu.svg" alt="Memu" height="40" style="margin: 10px;"></a>
 <a href="https://sealos.io/" title="Sealos"><img src="docs/assets/launch_partners/sealos.svg" alt="Sealos" height="40" style="margin: 10px;"></a>
 <a href="https://zeabur.com/" title="Zeabur"><img src="docs/assets/launch_partners/zeabur.png" alt="Zeabur" height="40" style="margin: 10px;"></a>

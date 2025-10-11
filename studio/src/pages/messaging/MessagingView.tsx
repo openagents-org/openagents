@@ -31,12 +31,19 @@ const ThreadMessagingViewEventBased: React.FC = () => {
   const { error: showError } = useToast();
 
   // 从 chatStore 获取当前选择状态和选择方法
-  const { currentChannel, currentDirectMessage, selectChannel, selectDirectMessage } = useChatStore();
+  const {
+    currentChannel,
+    currentDirectMessage,
+    selectChannel,
+    selectDirectMessage,
+  } = useChatStore();
 
   // 调试日志：监听选择状态变化
   useEffect(() => {
     console.log(
-      `📋 Selection changed: channel="${currentChannel || ""}", direct="${currentDirectMessage || ""}"`
+      `📋 Selection changed: channel="${currentChannel || ""}", direct="${
+        currentDirectMessage || ""
+      }"`
     );
   }, [currentChannel, currentDirectMessage]);
 
@@ -109,24 +116,38 @@ const ThreadMessagingViewEventBased: React.FC = () => {
     if (currentChannel) {
       // 直接从 Map 中获取数据
       const msgs = channelMessages.get(currentChannel) || [];
-      console.log(`MessagingView: Channel #${currentChannel} has ${msgs.length} messages`);
+      console.log(
+        `MessagingView: Channel #${currentChannel} has ${msgs.length} messages`
+      );
       return msgs;
     } else if (currentDirectMessage) {
       const currentAgentId = connectionStatus.agentId || agentName;
       const directMsgs = directMessages.get(currentDirectMessage) || [];
 
       // 过滤属于当前会话的消息
-      const filteredMsgs = directMsgs.filter(message =>
-        (message.type === 'direct_message') &&
-        ((message.senderId === currentAgentId && message.targetUserId === currentDirectMessage) ||
-        (message.senderId === currentDirectMessage && message.targetUserId === currentAgentId) ||
-        (message.senderId === currentDirectMessage))  // 兼容旧格式
+      const filteredMsgs = directMsgs.filter(
+        (message) =>
+          message.type === "direct_message" &&
+          ((message.senderId === currentAgentId &&
+            message.targetUserId === currentDirectMessage) ||
+            (message.senderId === currentDirectMessage &&
+              message.targetUserId === currentAgentId) ||
+            message.senderId === currentDirectMessage) // 兼容旧格式
       );
-      console.log(`MessagingView: Direct messages with ${currentDirectMessage}: ${filteredMsgs.length} messages`);
+      console.log(
+        `MessagingView: Direct messages with ${currentDirectMessage}: ${filteredMsgs.length} messages`
+      );
       return filteredMsgs;
     }
     return [];
-  }, [currentChannel, currentDirectMessage, channelMessages, directMessages, connectionStatus.agentId, agentName]);
+  }, [
+    currentChannel,
+    currentDirectMessage,
+    channelMessages,
+    directMessages,
+    connectionStatus.agentId,
+    agentName,
+  ]);
 
   // 设置事件监听器
   useEffect(() => {
@@ -140,12 +161,11 @@ const ThreadMessagingViewEventBased: React.FC = () => {
 
   // 通知点击处理已移至全局（OpenAgentsProvider），这里不再需要重复监听
 
-
   // Smart auto-scroll: only scroll to bottom if user is already near the bottom
   useEffect(() => {
     const container = messagesContainerRef.current;
     const messagesEnd = messagesEndRef.current;
-    
+
     if (!container || !messagesEnd) return;
 
     // Check if this is a new message being added
@@ -153,7 +173,7 @@ const ThreadMessagingViewEventBased: React.FC = () => {
     const isNewMessage = messages.length > (prevMessagesLength.current ?? 0);
     const currentScrollHeight = container.scrollHeight;
     const previousScrollHeight = prevScrollHeight.current || 0;
-    
+
     prevMessagesLength.current = messages.length;
     prevScrollHeight.current = currentScrollHeight;
 
@@ -162,9 +182,9 @@ const ThreadMessagingViewEventBased: React.FC = () => {
       // Calculate where user was relative to the bottom before content height changed
       const { scrollTop, clientHeight } = container;
       const heightDifference = currentScrollHeight - previousScrollHeight;
-      const originalDistanceFromBottom = previousScrollHeight - scrollTop - clientHeight;
+      const originalDistanceFromBottom =
+        previousScrollHeight - scrollTop - clientHeight;
       const isNearBottom = originalDistanceFromBottom < 100;
-
 
       if (isNearBottom) {
         // User was near bottom before new message, auto-scroll to new message
@@ -177,11 +197,10 @@ const ThreadMessagingViewEventBased: React.FC = () => {
     }
   }, [messages]);
 
-
   // 获取过滤后的 agents（排除当前用户）
   const filteredAgents = useMemo(() => {
     const currentUserId = connectionStatus.agentId || agentName || "";
-    return agents.filter(agent => agent.agent_id !== currentUserId);
+    return agents.filter((agent) => agent.agent_id !== currentUserId);
   }, [agents, connectionStatus.agentId, agentName]);
 
   // Load initial data function
@@ -201,7 +220,9 @@ const ThreadMessagingViewEventBased: React.FC = () => {
       }
 
       console.log(`📋 Loaded ${channels.length} channels`);
-      console.log(`👥 Loaded ${filteredAgents.length} agents (excluding current user)`);
+      console.log(
+        `👥 Loaded ${filteredAgents.length} agents (excluding current user)`
+      );
 
       // 智能频道选择逻辑
       if (channels.length > 0) {
@@ -270,7 +291,12 @@ const ThreadMessagingViewEventBased: React.FC = () => {
           selectChannel(selectedChannel);
         } else if (selectedChannel === currentChannel) {
           console.log(`✅ 保持当前频道选择: ${selectedChannel}`);
-        } else if (currentDirectMessage && filteredAgents.some(agent => agent.agent_id === currentDirectMessage)) {
+        } else if (
+          currentDirectMessage &&
+          filteredAgents.some(
+            (agent) => agent.agent_id === currentDirectMessage
+          )
+        ) {
           console.log(`✅ 保持当前直接消息选择: ${currentDirectMessage}`);
         }
       }
@@ -339,7 +365,6 @@ const ThreadMessagingViewEventBased: React.FC = () => {
     loadDirectMessages,
   ]);
 
-
   // Handle sending messages
   const handleSendMessage = useCallback(
     async (
@@ -361,7 +386,11 @@ const ThreadMessagingViewEventBased: React.FC = () => {
       try {
         let success = false;
         if (currentChannel) {
-          success = await sendChannelMessage(currentChannel, content, replyToId);
+          success = await sendChannelMessage(
+            currentChannel,
+            content,
+            replyToId
+          );
         } else if (currentDirectMessage) {
           success = await sendDirectMessage(currentDirectMessage, content);
         } else {
@@ -423,24 +452,39 @@ const ThreadMessagingViewEventBased: React.FC = () => {
       action: "add" | "remove" = "add"
     ) => {
       try {
-        const success = action === "add"
-          ? await addReaction(messageId, reactionType, currentChannel || undefined)
-          : await removeReaction(messageId, reactionType, currentChannel || undefined);
+        const success =
+          action === "add"
+            ? await addReaction(
+                messageId,
+                reactionType,
+                currentChannel || undefined
+              )
+            : await removeReaction(
+                messageId,
+                reactionType,
+                currentChannel || undefined
+              );
 
         if (success) {
           console.log(
-            `${action === "add" ? "➕" : "➖"} Reaction ${reactionType} ${action}ed to message ${messageId}`
+            `${
+              action === "add" ? "➕" : "➖"
+            } Reaction ${reactionType} ${action}ed to message ${messageId}`
           );
           // 反应更新会通过事件监听器自动同步到 store 中
         } else {
           console.error(`Failed to ${action} reaction`);
           // 显示错误toast
-          showError(`Failed to ${action} reaction "${reactionType}". Please try again.`);
+          showError(
+            `Failed to ${action} reaction "${reactionType}". Please try again.`
+          );
         }
       } catch (error) {
         console.error(`Failed to ${action} reaction:`, error);
         // 显示网络错误toast
-        showError(`Network error while ${action}ing reaction "${reactionType}". Please check your connection and try again.`);
+        showError(
+          `Network error while ${action}ing reaction "${reactionType}". Please check your connection and try again.`
+        );
       }
     },
     [addReaction, removeReaction, currentChannel, showError]
@@ -515,189 +559,197 @@ const ThreadMessagingViewEventBased: React.FC = () => {
 
       {/* Content Area */}
       <div className="flex-1 flex flex-col min-h-0">
-          <>
-            {/* Messages */}
-            <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4">
-              {(() => {
-                // Filter messages based on current channel or direct message
-                const filteredMessages = messages.filter((message) => {
-                  // Debug: uncomment to debug message filtering
-                  // console.log('🔧 Filtering message:', {
-                  //   messageId: message.message_id,
-                  //   messageType: message.message_type,
-                  //   channel: message.channel,
-                  //   targetAgent: message.target_agent_id,
-                  //   senderId: message.sender_id,
-                  //   currentChannel,
-                  //   currentDirectMessage
+        <>
+          {/* Messages */}
+          <div
+            ref={messagesContainerRef}
+            className="flex-1 overflow-y-auto p-4"
+          >
+            {(() => {
+              // Filter messages based on current channel or direct message
+              const filteredMessages = messages.filter((message) => {
+                // Debug: uncomment to debug message filtering
+                // console.log('🔧 Filtering message:', {
+                //   messageId: message.message_id,
+                //   messageType: message.message_type,
+                //   channel: message.channel,
+                //   targetAgent: message.target_agent_id,
+                //   senderId: message.sender_id,
+                //   currentChannel,
+                //   currentDirectMessage
+                // });
+
+                if (currentChannel) {
+                  // For channel messages, match the channel
+                  return (
+                    (message.type === "channel_message" &&
+                      message.channel === currentChannel) ||
+                    (message.type === "reply_message" &&
+                      message.channel === currentChannel)
+                  );
+                } else if (currentDirectMessage) {
+                  // 安全获取字段，支持多种数据格式（standardized 和 原始格式）
+                  const messageType = message.type;
+                  const targetUserId = message.targetUserId;
+                  const senderId = message.senderId;
+
+                  // For direct messages, match the target agent or sender
+                  // Include messages where current user is sender or receiver
+                  const currentUserId =
+                    connectionStatus.agentId || agentName || "";
+                  // console.log('🔧 Filtering direct message:', {
+                  //   messageId: message.id,
+                  //   messageType,
+                  //   targetUserId,
+                  //   senderId,
+                  //   currentDirectMessage,
+                  //   currentUserId,
+                  //   message
                   // });
 
-
-
-                  if (currentChannel) {
-                    // For channel messages, match the channel
-                    return (
-                      (message.type === "channel_message" &&
-                        message.channel === currentChannel) ||
-                      (message.type === "reply_message" &&
-                        message.channel === currentChannel)
-                    );
-                  } else if (currentDirectMessage) {
-                    // 安全获取字段，支持多种数据格式（standardized 和 原始格式）
-                    const messageType = message.type;
-                    const targetUserId = message.targetUserId;
-                    const senderId = message.senderId;
-
-                    // For direct messages, match the target agent or sender
-                    // Include messages where current user is sender or receiver
-                    const currentUserId = connectionStatus.agentId || agentName || "";
-                    console.log('🔧 Filtering direct message:', {
-                      messageId: message.id,
-                      messageType,
-                      targetUserId,
-                      senderId,
-                      currentDirectMessage,
-                      currentUserId,
-                      message
-                    });
-
-                    return (
-                      messageType === "direct_message" &&
-                      (targetUserId === currentDirectMessage ||
-                        senderId === currentDirectMessage ||
-                        (senderId === currentUserId &&
-                          targetUserId === currentDirectMessage))
-                    );
-                  }
-                  return false;
-                });
-
-                if (filteredMessages.length === 0) {
                   return (
-                    <div className="text-center text-gray-500 dark:text-gray-400 py-8">
-                      {currentChannel
-                        ? `No messages in #${currentChannel} yet. Start the conversation!`
-                        : currentDirectMessage
-                        ? `No messages with ${currentDirectMessage} yet.`
-                        : "Select a channel to start chatting."}
-                    </div>
+                    messageType === "direct_message" &&
+                    (targetUserId === currentDirectMessage ||
+                      senderId === currentDirectMessage ||
+                      (senderId === currentUserId &&
+                        targetUserId === currentDirectMessage))
                   );
                 }
+                return false;
+              });
 
-                // Sort messages by timestamp (oldest first, newest last)
-                const sortedMessages = filteredMessages.sort((a, b) => {
-                  const parseTimestamp = (
-                    timestamp: string | number
-                  ): number => {
-                    if (!timestamp) return 0;
-                    
-                    const timestampStr = String(timestamp);
-                    
-                    // Handle ISO string format (e.g., '2025-09-22T20:20:09.000Z')
-                    if (timestampStr.includes("T") || timestampStr.includes("-")) {
-                      const time = new Date(timestampStr).getTime();
-                      return isNaN(time) ? 0 : time;
-                    }
-                    
-                    // Handle Unix timestamp (seconds or milliseconds)
-                    const num = parseInt(timestampStr);
-                    if (isNaN(num)) return 0;
-                    
-                    // If timestamp appears to be in seconds (typical range: 10 digits)
-                    // Convert to milliseconds. Otherwise assume it's already in milliseconds
-                    if (num < 10000000000) { // Less than 10 billion = seconds
-                      return num * 1000;
-                    } else {
-                      return num; // Already in milliseconds
-                    }
-                  };
+              if (filteredMessages.length === 0) {
+                return (
+                  <div className="text-center text-gray-500 dark:text-gray-400 py-8">
+                    {currentChannel
+                      ? `No messages in #${currentChannel} yet. Start the conversation!`
+                      : currentDirectMessage
+                      ? `No messages with ${currentDirectMessage} yet.`
+                      : "Select a channel to start chatting."}
+                  </div>
+                );
+              }
 
-                  const aTime = parseTimestamp(a.timestamp);
-                  const bTime = parseTimestamp(b.timestamp);
+              // Sort messages by timestamp (oldest first, newest last)
+              const sortedMessages = filteredMessages.sort((a, b) => {
+                const parseTimestamp = (timestamp: string | number): number => {
+                  if (!timestamp) return 0;
 
-                  return aTime - bTime;
+                  const timestampStr = String(timestamp);
+
+                  // Handle ISO string format (e.g., '2025-09-22T20:20:09.000Z')
+                  if (
+                    timestampStr.includes("T") ||
+                    timestampStr.includes("-")
+                  ) {
+                    const time = new Date(timestampStr).getTime();
+                    return isNaN(time) ? 0 : time;
+                  }
+
+                  // Handle Unix timestamp (seconds or milliseconds)
+                  const num = parseInt(timestampStr);
+                  if (isNaN(num)) return 0;
+
+                  // If timestamp appears to be in seconds (typical range: 10 digits)
+                  // Convert to milliseconds. Otherwise assume it's already in milliseconds
+                  if (num < 10000000000) {
+                    // Less than 10 billion = seconds
+                    return num * 1000;
+                  } else {
+                    return num; // Already in milliseconds
+                  }
+                };
+
+                const aTime = parseTimestamp(a.timestamp);
+                const bTime = parseTimestamp(b.timestamp);
+
+                return aTime - bTime;
+              });
+
+              // Render all messages together so MessageRenderer can build proper thread structure
+              return (
+                <MessageRenderer
+                  key="all-messages"
+                  messages={sortedMessages}
+                  currentUserId={connectionStatus.agentId || agentName || ""}
+                  onReaction={(
+                    messageId: string,
+                    reactionType: string,
+                    action?: "add" | "remove"
+                  ) => {
+                    // 如果MessageRenderer没有指定action，则默认为add
+                    const finalAction = action || "add";
+                    console.log(
+                      `🔧 Reaction click: ${finalAction} ${reactionType} for message ${messageId}`
+                    );
+                    handleReaction(messageId, reactionType, finalAction);
+                  }}
+                  onReply={startReply}
+                  onQuote={startQuote}
+                  isDMChat={!!currentDirectMessage}
+                />
+              );
+            })()}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Message Input */}
+          {(currentChannel || currentDirectMessage) && (
+            <MessageInput
+              agents={currentDirectMessage ? [] : filteredAgents}
+              onSendMessage={(
+                text: string,
+                replyTo?: string,
+                quotedMessageId?: string
+              ) => {
+                console.log("🔧 MessageInput onSendMessage called:", {
+                  text,
+                  replyTo,
+                  quotedMessageId,
+                  replyingTo,
+                  quotingMessage,
                 });
 
-                // Render all messages together so MessageRenderer can build proper thread structure
-                return (
-                  <MessageRenderer
-                    key="all-messages"
-                    messages={sortedMessages}
-                    currentUserId={connectionStatus.agentId || agentName || ""}
-                    onReaction={(messageId: string, reactionType: string, action?: "add" | "remove") => {
-                      // 如果MessageRenderer没有指定action，则默认为add
-                      const finalAction = action || "add";
-                      console.log(`🔧 Reaction click: ${finalAction} ${reactionType} for message ${messageId}`);
-                      handleReaction(messageId, reactionType, finalAction);
-                    }}
-                    onReply={startReply}
-                    onQuote={startQuote}
-                    isDMChat={!!currentDirectMessage}
-                  />
-                );
-              })()}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Message Input */}
-            {(currentChannel || currentDirectMessage) && (
-              <MessageInput
-                agents={currentDirectMessage ? [] : filteredAgents}
-                onSendMessage={(
-                  text: string,
-                  replyTo?: string,
-                  quotedMessageId?: string
-                ) => {
-                  console.log("🔧 MessageInput onSendMessage called:", {
-                    text,
-                    replyTo,
+                // Use the replyTo parameter passed from MessageInput
+                if (replyTo) {
+                  // This is a reply (comment)
+                  handleSendMessage(text, replyTo);
+                  setReplyingTo(null);
+                } else if (quotingMessage && quotedMessageId) {
+                  // This is a quote (independent message that references another)
+                  handleSendMessage(
+                    `> ${quotingMessage.text}\n\n${text}`,
+                    undefined, // No replyToId for quotes
                     quotedMessageId,
-                    replyingTo,
-                    quotingMessage,
-                  });
-
-                  // Use the replyTo parameter passed from MessageInput
-                  if (replyTo) {
-                    // This is a reply (comment)
-                    handleSendMessage(text, replyTo);
-                    setReplyingTo(null);
-                  } else if (quotingMessage && quotedMessageId) {
-                    // This is a quote (independent message that references another)
-                    handleSendMessage(
-                      `> ${quotingMessage.text}\n\n${text}`,
-                      undefined, // No replyToId for quotes
-                      quotedMessageId,
-                      quotingMessage.text
-                    );
-                    setQuotingMessage(null);
-                  } else {
-                    // Regular message
-                    handleSendMessage(text);
-                  }
-                }}
-                disabled={
-                  sendingMessage || !isConnected
+                    quotingMessage.text
+                  );
+                  setQuotingMessage(null);
+                } else {
+                  // Regular message
+                  handleSendMessage(text);
                 }
-                placeholder={
-                  sendingMessage
-                    ? "Sending..."
-                    : currentChannel
-                    ? `Message #${currentChannel}`
-                    : currentDirectMessage
-                    ? `Message ${currentDirectMessage}`
-                    : "Select a channel to start typing..."
-                }
-                currentTheme={currentTheme}
-                currentChannel={currentChannel || undefined}
-                currentDirectMessage={currentDirectMessage || undefined}
-                currentAgentId={connectionStatus.agentId || agentName || ""}
-                replyingTo={replyingTo}
-                quotingMessage={quotingMessage}
-                onCancelReply={cancelReply}
-                onCancelQuote={cancelQuote}
-              />
-            )}
-          </>
+              }}
+              disabled={sendingMessage || !isConnected}
+              placeholder={
+                sendingMessage
+                  ? "Sending..."
+                  : currentChannel
+                  ? `Message #${currentChannel}`
+                  : currentDirectMessage
+                  ? `Message ${currentDirectMessage}`
+                  : "Select a channel to start typing..."
+              }
+              currentTheme={currentTheme}
+              currentChannel={currentChannel || undefined}
+              currentDirectMessage={currentDirectMessage || undefined}
+              currentAgentId={connectionStatus.agentId || agentName || ""}
+              replyingTo={replyingTo}
+              quotingMessage={quotingMessage}
+              onCancelReply={cancelReply}
+              onCancelQuote={cancelQuote}
+            />
+          )}
+        </>
       </div>
     </div>
   );

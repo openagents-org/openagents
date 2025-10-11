@@ -508,9 +508,18 @@ def check_nodejs_availability() -> Tuple[bool, str]:
     missing_tools = []
     version_issues = []
 
+    # On Windows, we need shell=True to find executables in PATH
+    is_windows = sys.platform.startswith('win')
+
     # Check for Node.js and its version
     try:
-        result = subprocess.run(["node", "--version"], capture_output=True, check=True, text=True)
+        result = subprocess.run(
+            ["node", "--version"],
+            capture_output=True,
+            check=True,
+            text=True,
+            shell=is_windows
+        )
         node_version = result.stdout.strip()
         # Parse version string (e.g., "v20.1.0" -> 20)
         if node_version.startswith('v'):
@@ -524,13 +533,23 @@ def check_nodejs_availability() -> Tuple[bool, str]:
 
     # Check for npm
     try:
-        subprocess.run(["npm", "--version"], capture_output=True, check=True)
+        subprocess.run(
+            ["npm", "--version"],
+            capture_output=True,
+            check=True,
+            shell=is_windows
+        )
     except (FileNotFoundError, subprocess.CalledProcessError):
         missing_tools.append("npm")
 
     # Check for npx
     try:
-        subprocess.run(["npx", "--version"], capture_output=True, check=True)
+        subprocess.run(
+            ["npx", "--version"],
+            capture_output=True,
+            check=True,
+            shell=is_windows
+        )
     except (FileNotFoundError, subprocess.CalledProcessError):
         missing_tools.append("npx")
 
@@ -580,18 +599,20 @@ Then run [code]openagents studio[/code] again.
 
 def check_openagents_studio_package() -> Tuple[bool, bool, str]:
     """Check if openagents-studio package is installed and up-to-date.
-    
+
     Returns:
         tuple: (is_installed, is_latest, installed_version)
     """
     openagents_prefix = os.path.expanduser("~/.openagents")
-    
+    is_windows = sys.platform.startswith('win')
+
     # Check if package is installed
     try:
         result = subprocess.run(
             ["npm", "list", "-g", "openagents-studio", "--prefix", openagents_prefix],
             capture_output=True,
-            text=True
+            text=True,
+            shell=is_windows
         )
         
         if result.returncode != 0:
@@ -614,7 +635,8 @@ def check_openagents_studio_package() -> Tuple[bool, bool, str]:
         result = subprocess.run(
             ["npm", "view", "openagents-studio", "version"],
             capture_output=True,
-            text=True
+            text=True,
+            shell=is_windows
         )
         
         if result.returncode != 0:
@@ -633,19 +655,20 @@ def check_openagents_studio_package() -> Tuple[bool, bool, str]:
 
 def install_openagents_studio_package(progress=None, task_id=None) -> None:
     """Install openagents-studio package and dependencies to ~/.openagents prefix.
-    
+
     Args:
         progress: Optional Rich Progress instance to use for progress updates
         task_id: Optional task ID for progress updates
     """
     import threading
     import time
-    
+
     openagents_prefix = os.path.expanduser("~/.openagents")
-    
+    is_windows = sys.platform.startswith('win')
+
     # Ensure the prefix directory exists
     os.makedirs(openagents_prefix, exist_ok=True)
-    
+
     logging.info("Installing openagents-studio package and dependencies...")
     
     # Progress tracking variables
@@ -693,16 +716,28 @@ def install_openagents_studio_package(progress=None, task_id=None) -> None:
         progress_thread.start()
     
     try:
-        install_process = subprocess.run(
-            [
+        # On Windows, npm with --prefix can have issues, so we use a different approach
+        if is_windows:
+            # Install globally without --prefix, but set npm config to use custom location
+            install_cmd = [
+                "npm", "install", "-g",
+                "openagents-studio",
+                f"--prefix={openagents_prefix}",
+            ]
+        else:
+            install_cmd = [
                 "npm", "install", "-g",
                 "openagents-studio",
                 "--prefix", openagents_prefix,
                 "--silent"  # Reduce npm output noise
-            ],
+            ]
+
+        install_process = subprocess.run(
+            install_cmd,
             capture_output=True,
             text=True,
             timeout=600,  # 10 minute timeout for npm install
+            shell=is_windows
         )
         
         process_complete = True
@@ -726,30 +761,120 @@ def install_openagents_studio_package(progress=None, task_id=None) -> None:
         raise RuntimeError("npm command not found. Please install Node.js and npm.")
 
 
-def launch_studio_with_package(studio_port: int = 8055) -> subprocess.Popen:
+def launch_studio_with_package(studio_port: int = 8050) -> subprocess.Popen:
     """Launch studio using the installed openagents-studio package.
-    
+
     Args:
         studio_port: Port for the studio frontend
-        
+
     Returns:
         subprocess.Popen: The studio process
     """
     openagents_prefix = os.path.expanduser("~/.openagents")
-    studio_bin = os.path.join(openagents_prefix, "bin", "openagents-studio")
-    
-    if not os.path.exists(studio_bin):
-        raise RuntimeError(f"openagents-studio binary not found: {studio_bin}")
-    
-    # Set up environment with PATH including ~/.openagents/bin
+    is_windows = sys.platform.startswith('win')
+
+    # Set up environment
     env = os.environ.copy()
-    current_path = env.get("PATH", "")
-    openagents_bin = os.path.join(openagents_prefix, "bin")
-    env["PATH"] = f"{openagents_bin}:{current_path}"
     env["PORT"] = str(studio_port)
-    
+    env["HOST"] = "0.0.0.0"
+    env["DANGEROUSLY_DISABLE_HOST_CHECK"] = "true"
+
+    # On Windows, increase Node.js memory limit to avoid buffer allocation errors
+    # Also disable source maps which can cause memory issues
+    if is_windows:
+        env["NODE_OPTIONS"] = "--max-old-space-size=4096"
+        env["GENERATE_SOURCEMAP"] = "false"
+        # Use polling for file watching to reduce memory usage on Windows
+        env["CHOKIDAR_USEPOLLING"] = "true"
+        env["WATCHPACK_POLLING"] = "true"
+
+    # On Windows, npm global installs with --prefix don't reliably create wrapper scripts,
+    # so we use npx directly which is more reliable
+    if is_windows:
+        logging.info(f"Starting openagents-studio on port {studio_port} using npx...")
+
+        # Try to find the openagents-studio directory
+        possible_studio_dirs = [
+            os.path.join(openagents_prefix, "node_modules", "openagents-studio"),
+            os.path.join(openagents_prefix, "lib", "node_modules", "openagents-studio"),
+        ]
+
+        studio_dir = None
+        for dir_path in possible_studio_dirs:
+            if os.path.exists(dir_path):
+                studio_dir = dir_path
+                break
+
+        if not studio_dir:
+            raise RuntimeError(
+                f"openagents-studio package directory not found.\n"
+                f"Searched in: {', '.join(possible_studio_dirs)}\n"
+                f"Try reinstalling with: pip install --upgrade openagents"
+            )
+
+        try:
+            # Call craco directly to avoid the Unix-style env var syntax in npm scripts
+            # The environment variables (PORT, HOST, DANGEROUSLY_DISABLE_HOST_CHECK) are set via env parameter
+            process = subprocess.Popen(
+                ["npx", "craco", "start"],
+                env=env,
+                cwd=studio_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                shell=True
+            )
+            return process
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to run openagents-studio with npx: {e}\n"
+                f"Make sure Node.js and npm are properly installed.\n"
+                f"Try reinstalling with: pip install --upgrade openagents"
+            )
+
+    # On Unix-like systems, try to find the binary first
+    possible_bin_paths = [
+        os.path.join(openagents_prefix, "bin", "openagents-studio"),
+        os.path.join(openagents_prefix, "node_modules", ".bin", "openagents-studio"),
+    ]
+
+    # Find the first existing binary
+    studio_bin = None
+    for bin_path in possible_bin_paths:
+        if os.path.exists(bin_path):
+            studio_bin = bin_path
+            break
+
+    if not studio_bin:
+        # Try using npx as a fallback on Unix systems too
+        logging.warning(f"openagents-studio binary not found, trying npx...")
+        try:
+            process = subprocess.Popen(
+                ["npx", "--prefix", openagents_prefix, "openagents-studio", "start"],
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+            )
+            return process
+        except Exception as e:
+            raise RuntimeError(
+                f"openagents-studio binary not found in any of: {', '.join(possible_bin_paths)}\n"
+                f"Also failed to run with npx: {e}\n"
+                f"Try reinstalling with: pip install --upgrade openagents"
+            )
+
+    # Set up environment with PATH including ~/.openagents/bin
+    current_path = env.get("PATH", "")
+    openagents_bin_dir = os.path.join(openagents_prefix, "bin")
+    env["PATH"] = f"{openagents_bin_dir}:{current_path}"
+
     logging.info(f"Starting openagents-studio on port {studio_port}...")
-    
+
     try:
         process = subprocess.Popen(
             [studio_bin, "start"],
@@ -765,7 +890,7 @@ def launch_studio_with_package(studio_port: int = 8055) -> subprocess.Popen:
         raise RuntimeError(f"Failed to execute openagents-studio binary: {studio_bin}")
 
 
-def launch_studio_frontend(studio_port: int = 8055) -> subprocess.Popen:
+def launch_studio_frontend(studio_port: int = 8050) -> subprocess.Popen:
     """Launch the studio frontend development server.
 
     Args:
@@ -782,6 +907,8 @@ def launch_studio_frontend(studio_port: int = 8055) -> subprocess.Popen:
     is_available, error_msg = check_nodejs_availability()
     if not is_available:
         raise RuntimeError(error_msg)
+
+    is_windows = sys.platform.startswith('win')
 
     # Find the studio directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -802,6 +929,7 @@ def launch_studio_frontend(studio_port: int = 8055) -> subprocess.Popen:
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout for npm install
+                shell=is_windows
             )
             if install_process.returncode != 0:
                 raise RuntimeError(
@@ -822,6 +950,13 @@ def launch_studio_frontend(studio_port: int = 8055) -> subprocess.Popen:
     env["HOST"] = "0.0.0.0"
     env["DANGEROUSLY_DISABLE_HOST_CHECK"] = "true"
 
+    # On Windows, increase Node.js memory limit and optimize file watching
+    if is_windows:
+        env["NODE_OPTIONS"] = "--max-old-space-size=4096"
+        env["GENERATE_SOURCEMAP"] = "false"
+        env["CHOKIDAR_USEPOLLING"] = "true"
+        env["WATCHPACK_POLLING"] = "true"
+
     logging.info(f"Starting studio frontend on port {studio_port}...")
 
     try:
@@ -836,6 +971,7 @@ def launch_studio_frontend(studio_port: int = 8055) -> subprocess.Popen:
             text=True,
             bufsize=1,
             universal_newlines=True,
+            shell=is_windows
         )
         return process
     except FileNotFoundError:
@@ -1533,9 +1669,10 @@ def network_publish(
 @agent_app.command("start")
 def agent_start(
     config: str = typer.Argument(..., help="Path to agent configuration file"),
-    network: Optional[str] = typer.Option(None, "--network", "-n", help="Network ID to connect to"),
-    host: Optional[str] = typer.Option(None, "--host", "-h", help="Server host address"),
-    port: Optional[int] = typer.Option(None, "--port", "-p", help="Server port"),
+    agent_id: Optional[str] = typer.Option(None, "--agent-id", "-i", help="Override agent ID"),
+    network_id: Optional[str] = typer.Option(None, "--network-id", "-n", help="Network ID to connect to"),
+    host: Optional[str] = typer.Option(None, "--network-host", "-h", help="Network host address"),
+    port: Optional[int] = typer.Option(None, "--network-port", "-p", help="Network port"),
     detach: bool = typer.Option(False, "--detach", "-d", help="Run in background"),
 ):
     """🚀 Start an agent"""
@@ -1552,11 +1689,20 @@ def agent_start(
             if detach:
                 console.print("[yellow]⚠️  Detached mode not yet implemented, running in foreground[/yellow]")
 
-            # Load agent using AgentRunner.from_yaml
-            agent = AgentRunner.from_yaml(config)
+            # Prepare connection override from command line arguments
+            connection_override = {}
+            if host is not None:
+                connection_override["host"] = host
+            if port is not None:
+                connection_override["port"] = port
+            if network_id is not None:
+                connection_override["network_id"] = network_id
+
+            # Load agent using AgentRunner.from_yaml with overrides
+            agent = AgentRunner.from_yaml(config, agent_id_override=agent_id, connection_override=connection_override if connection_override else None)
             progress.update(task, description=f"[green]✅ Loaded agent '{agent.agent_id}'")
 
-            # Prepare connection settings
+            # Prepare connection settings (combine config file + CLI overrides)
             connection_settings = {}
             config_path = Path(config)
             if config_path.exists():
@@ -1568,26 +1714,36 @@ def agent_start(
                 except Exception as e:
                     console.print(f"[yellow]⚠️  Could not read connection settings: {e}[/yellow]")
 
-            # Override with command line arguments
+            # Apply CLI overrides to connection settings
             if host is not None:
                 connection_settings["host"] = host
             if port is not None:
                 connection_settings["port"] = port
-            if network is not None:
-                connection_settings["network_id"] = network
+            if network_id is not None:
+                connection_settings["network_id"] = network_id
 
-            # Apply defaults
-            final_host = connection_settings.get("host", "localhost")
-            final_port = connection_settings.get("port", 8570)
-            network_id = connection_settings.get("network_id")
+            # Apply defaults only when no network_id is provided
+            final_network_id = connection_settings.get("network_id")
+            if final_network_id:
+                # When network_id is provided, let the client handle network discovery
+                final_host = connection_settings.get("host")  # None if not specified
+                final_port = connection_settings.get("port")  # None if not specified
+            else:
+                # When no network_id, use defaults for direct connection
+                final_host = connection_settings.get("host", "localhost")
+                final_port = connection_settings.get("port", 8570)
 
-            progress.update(task, description=f"[blue]🔗 Connecting to {final_host}:{final_port}")
+            # Update progress message appropriately
+            if final_network_id:
+                progress.update(task, description=f"[blue]🔗 Connecting to network '{final_network_id}'")
+            else:
+                progress.update(task, description=f"[blue]🔗 Connecting to {final_host}:{final_port}")
 
             # Start the agent
             agent.start(
                 network_host=final_host,
                 network_port=final_port,
-                network_id=network_id,
+                network_id=final_network_id,
                 metadata={"agent_type": type(agent).__name__, "config_file": config},
             )
 
@@ -1631,7 +1787,7 @@ def agent_list(
 def studio(
     host: str = typer.Option("localhost", "--host", "-h", help="Network host address"),
     port: int = typer.Option(8700, "--port", "-p", help="Network port"),
-    studio_port: int = typer.Option(8055, "--studio-port", help="Studio frontend port"),
+    studio_port: int = typer.Option(8050, "--studio-port", help="Studio frontend port"),
     workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="Path to workspace directory"),
     no_browser: bool = typer.Option(False, "--no-browser", help="Don't automatically open browser"),
     standalone: bool = typer.Option(False, "--standalone", "-s", help="Launch studio frontend only (without network)"),

@@ -121,7 +121,11 @@ class AgentRunner(ABC):
         self._tools = all_tools
 
     @staticmethod
-    def from_yaml(yaml_path: str) -> "AgentRunner":
+    def from_yaml(
+        yaml_path: str, 
+        agent_id_override: Optional[str] = None,
+        connection_override: Optional[Dict[str, Any]] = None
+    ) -> "AgentRunner":
         """Create an agent runner from a YAML file.
 
         This method loads a WorkerAgent (which is a type of AgentRunner) from a YAML
@@ -129,6 +133,8 @@ class AgentRunner(ABC):
 
         Args:
             yaml_path: The path to the YAML configuration file
+            agent_id_override: Optional agent ID to override the one in config
+            connection_override: Optional connection settings to override config
 
         Returns:
             AgentRunner: A configured WorkerAgent instance (subclass of AgentRunner)
@@ -145,7 +151,7 @@ class AgentRunner(ABC):
         from openagents.utils.agent_loader import load_agent_from_yaml
 
         # Load the agent using our utility function (ignore connection settings here)
-        agent, _ = load_agent_from_yaml(yaml_path)
+        agent, _ = load_agent_from_yaml(yaml_path, agent_id_override, connection_override)
         return agent
 
     @property

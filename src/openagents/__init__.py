@@ -1,3 +1,3 @@
-"""OpenAgents - A flexible framework for building multi-agent systems with customizable protocols."""
+"""OpenAgents - AI Agent Networks for Open Collaboration."""
 
-__version__ = "0.6.10"
+__version__ = "0.6.12"

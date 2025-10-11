@@ -30,19 +30,19 @@ config:
   react_to_all_messages: false
   max_iterations: 10
 
-# MCP server configuration for browser automation
-mcps:
-  - name: "openmcp_browser"
-    type: "streamable_http"
-    url: "http://localhost:9000/mcp"
-    api_key_env: "OPENMCP_API_KEY"
-    timeout: 60
-    retry_attempts: 3
-    config:
-      # Server-specific configuration
-      headless: true
-      max_sessions: 5
-      screenshot_dir: "screenshots"
+# # MCP server configuration for browser automation
+# mcps:
+#   - name: "openmcp_browser"
+#     type: "streamable_http"
+#     url: "http://localhost:9000/mcp"
+#     api_key_env: "OPENMCP_API_KEY"
+#     timeout: 60
+#     retry_attempts: 3
+#     config:
+#       # Server-specific configuration
+#       headless: true
+#       max_sessions: 5
+#       screenshot_dir: "screenshots"
 
 # Mod configuration - specify agent capabilities
 mods:
@@ -60,6 +60,4 @@ mods:
 
 # Optional connection settings (can be overridden at runtime)
 connection:
-  host: "localhost"
-  port: 8700
-  network_id: "openagents-network"
+  network_id: "ai-news-chatroom"
