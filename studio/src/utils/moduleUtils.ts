@@ -6,6 +6,7 @@ const MODULE_PLUGIN_MAP: Record<string, PLUGIN_NAME_ENUM> = {
   messaging: PLUGIN_NAME_ENUM.MESSAGING,
   documents: PLUGIN_NAME_ENUM.DOCUMENTS,
   forum: PLUGIN_NAME_ENUM.FORUM,
+  interview: PLUGIN_NAME_ENUM.INTERVIEW,
   wiki: PLUGIN_NAME_ENUM.WIKI,
 };
 
@@ -80,7 +81,7 @@ export const getDefaultRoute = (enabledModules: string[]): string => {
   }
 
   // 按优先级排序模块
-  const priorityOrder = ['messaging', 'documents', 'forum', 'wiki'];
+  const priorityOrder = ['messaging', 'documents', 'forum', 'interview', 'wiki'];
 
   for (const priority of priorityOrder) {
     if (enabledModules.includes(priority)) {

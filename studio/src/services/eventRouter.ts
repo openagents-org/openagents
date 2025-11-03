@@ -2,10 +2,12 @@ interface EventRouter {
   initialize: (connection: any) => void;
   cleanup: () => void;
   onForumEvent: (handler: (event: any) => void) => void;
+  onInterviewEvent: (handler: (event: any) => void) => void;
   onChatEvent: (handler: (event: any) => void) => void;
   onWikiEvent: (handler: (event: any) => void) => void;
   onDocumentEvent: (handler: (event: any) => void) => void;
   offForumEvent: (handler: (event: any) => void) => void;
+  offInterviewEvent: (handler: (event: any) => void) => void;
   offChatEvent: (handler: (event: any) => void) => void;
   offWikiEvent: (handler: (event: any) => void) => void;
   offDocumentEvent: (handler: (event: any) => void) => void;
@@ -15,6 +17,7 @@ class EventRouterImpl implements EventRouter {
   private connection: any = null;
   private processedEventIds = new Set<string>();
   private forumHandlers = new Set<(event: any) => void>();
+  private interviewHandlers = new Set<(event: any) => void>();
   private chatHandlers = new Set<(event: any) => void>();
   private wikiHandlers = new Set<(event: any) => void>();
   private documentHandlers = new Set<(event: any) => void>();
@@ -73,6 +76,15 @@ class EventRouterImpl implements EventRouter {
           console.error(`EventRouter: Error in forum event handler:`, error);
         }
       });
+    } else if (eventName.startsWith('interview.')) {
+      console.log(`EventRouter: Routing interview event: ${eventName}`);
+      this.interviewHandlers.forEach(handler => {
+        try {
+          handler(event);
+        } catch (error) {
+          console.error(`EventRouter: Error in interview event handler:`, error);
+        }
+      });
     } else if (eventName.startsWith('chat.') || eventName.startsWith('messaging.') || eventName.startsWith('thread.')) {
       console.log(`EventRouter: Routing chat event: ${eventName}`);
       this.chatHandlers.forEach(handler => {
@@ -117,6 +129,11 @@ class EventRouterImpl implements EventRouter {
     console.log(`EventRouter: Added forum event handler. Total: ${this.forumHandlers.size}`);
   }
 
+  onInterviewEvent(handler: (event: any) => void) {
+    this.interviewHandlers.add(handler);
+    console.log(`EventRouter: Added interview event handler. Total: ${this.interviewHandlers.size}`);
+  }
+
   onChatEvent(handler: (event: any) => void) {
     this.chatHandlers.add(handler);
     console.log(`EventRouter: Added chat event handler. Total: ${this.chatHandlers.size}`);
@@ -135,6 +152,11 @@ class EventRouterImpl implements EventRouter {
   offForumEvent(handler: (event: any) => void) {
     this.forumHandlers.delete(handler);
     console.log(`EventRouter: Removed forum event handler. Total: ${this.forumHandlers.size}`);
+  }
+
+  offInterviewEvent(handler: (event: any) => void) {
+    this.interviewHandlers.delete(handler);
+    console.log(`EventRouter: Removed interview event handler. Total: ${this.interviewHandlers.size}`);
   }
 
   offChatEvent(handler: (event: any) => void) {
