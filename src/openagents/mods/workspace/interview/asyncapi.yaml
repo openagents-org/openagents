@@ -1,0 +1,257 @@
+asyncapi: 3.0.0
+info:
+  title: Interview Mod API
+  version: 0.1.0
+  description: AI interview module with private resume-based topics and nested comments
+
+channels:
+  interview.topic.create:
+    address: interview.topic.create
+    messages:
+      CreateTopic:
+        payload:
+          type: object
+          properties:
+            action:
+              type: string
+              enum: [create]
+            title:
+              type: string
+              maxLength: 200
+            content:
+              type: string
+            resume_url:
+              type: string
+              format: uri
+              description: PDF resume URL (required)
+          required:
+            - action
+            - title
+            - content
+            - resume_url
+
+  interview.topic.delete:
+    address: interview.topic.delete
+    messages:
+      DeleteTopic:
+        payload:
+          type: object
+          properties:
+            action:
+              type: string
+              enum: [delete]
+            topic_id:
+              type: string
+              format: uuid
+          required:
+            - action
+            - topic_id
+
+  interview.topic.list:
+    address: interview.topic.list
+    messages:
+      ListTopics:
+        payload:
+          type: object
+          properties:
+            action:
+              type: string
+              enum: [list]
+            limit:
+              type: integer
+              default: 50
+            offset:
+              type: integer
+              default: 0
+
+  interview.topic.search:
+    address: interview.topic.search
+    messages:
+      SearchTopics:
+        payload:
+          type: object
+          properties:
+            action:
+              type: string
+              enum: [search]
+            query:
+              type: string
+            limit:
+              type: integer
+              default: 50
+            offset:
+              type: integer
+              default: 0
+          required:
+            - query
+
+  interview.topic.get:
+    address: interview.topic.get
+    messages:
+      GetTopic:
+        payload:
+          type: object
+          properties:
+            action:
+              type: string
+              enum: [get]
+            topic_id:
+              type: string
+              format: uuid
+          required:
+            - topic_id
+
+  interview.topic.list_by_user:
+    address: interview.topic.list_by_user
+    messages:
+      ListByUser:
+        payload:
+          type: object
+          properties:
+            action:
+              type: string
+              enum: [list_by_user]
+            user_id:
+              type: string
+              format: uuid
+            limit:
+              type: integer
+              default: 50
+            offset:
+              type: integer
+              default: 0
+
+  interview.comment.create:
+    address: interview.comment.create
+    messages:
+      CreateComment:
+        payload:
+          type: object
+          properties:
+            action:
+              type: string
+              enum: [create]
+            topic_id:
+              type: string
+              format: uuid
+            content:
+              type: string
+            parent_comment_id:
+              type: string
+              format: uuid
+              description: Optional parent comment for nesting (max depth 5)
+          required:
+            - action
+            - topic_id
+            - content
+
+  interview.comment.reply:
+    address: interview.comment.reply
+    messages:
+      ReplyComment:
+        payload:
+          type: object
+          properties:
+            action:
+              type: string
+              enum: [reply]
+            topic_id:
+              type: string
+              format: uuid
+            content:
+              type: string
+            parent_comment_id:
+              type: string
+              format: uuid
+          required:
+            - action
+            - topic_id
+            - content
+            - parent_comment_id
+
+  interview.comment.delete:
+    address: interview.comment.delete
+    messages:
+      DeleteComment:
+        payload:
+          type: object
+          properties:
+            action:
+              type: string
+              enum: [delete]
+            topic_id:
+              type: string
+              format: uuid
+            comment_id:
+              type: string
+              format: uuid
+          required:
+            - action
+            - topic_id
+            - comment_id
+
+  interview.topic.created:
+    address: interview.topic.created
+    messages:
+      TopicCreated:
+        payload:
+          type: object
+          properties:
+            topic:
+              type: object
+
+  interview.topic.deleted:
+    address: interview.topic.deleted
+    messages:
+      TopicDeleted:
+        payload:
+          type: object
+          properties:
+            topic_id:
+              type: string
+              format: uuid
+
+  interview.comment.created:
+    address: interview.comment.created
+    messages:
+      CommentCreated:
+        payload:
+          type: object
+          properties:
+            comment:
+              type: object
+            topic_id:
+              type: string
+              format: uuid
+
+  interview.comment.replied:
+    address: interview.comment.replied
+    messages:
+      CommentReplied:
+        payload:
+          type: object
+          properties:
+            comment:
+              type: object
+            topic_id:
+              type: string
+              format: uuid
+
+  interview.comment.deleted:
+    address: interview.comment.deleted
+    messages:
+      CommentDeleted:
+        payload:
+          type: object
+          properties:
+            comment_id:
+              type: string
+              format: uuid
+            topic_id:
+              type: string
+              format: uuid
+            deleted_count:
+              type: integer
+
+operations: {}
+

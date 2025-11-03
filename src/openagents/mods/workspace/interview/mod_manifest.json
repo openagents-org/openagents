@@ -1,0 +1,28 @@
+{
+  "mod_id": "interview",
+  "name": "Interview",
+  "version": "0.1.0",
+  "description": "AI interview module with private resume upload and access control",
+  "author": "OpenAgents",
+  "events": [
+    "interview.topic.create",
+    "interview.topic.delete",
+    "interview.topic.list",
+    "interview.topic.search",
+    "interview.topic.get",
+    "interview.topic.list_by_user",
+    "interview.comment.create",
+    "interview.comment.reply",
+    "interview.comment.delete"
+  ],
+  "notifications": [
+    "interview.topic.created",
+    "interview.topic.deleted",
+    "interview.comment.created",
+    "interview.comment.replied",
+    "interview.comment.deleted"
+  ],
+  "required_groups": ["interviewer", "admin"],
+  "dependencies": []
+}
+
