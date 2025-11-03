@@ -1,6 +1,7 @@
 """Interview message event models."""
 
 from typing import Optional, List
+import base64
 from openagents.models.event import Event
 
 
@@ -171,4 +172,80 @@ class InterviewQueryMessage(Event):
     @property
     def offset(self) -> int:
         return self._offset
+
+
+class InterviewFileUploadMessage(Event):
+    """Message for interview file upload (PDF resume)."""
+
+    def __init__(
+        self,
+        source_id: str,
+        filename: str,
+        file_content: str,
+        mime_type: str = "application/pdf",
+        file_size: Optional[int] = None,
+        **kwargs,
+    ):
+        # Calculate file size if not provided
+        if file_size is None:
+            try:
+                decoded = base64.b64decode(file_content)
+                file_size = len(decoded)
+            except Exception:
+                file_size = len(file_content)
+        
+        payload = {
+            "filename": filename,
+            "file_content": file_content,
+            "mime_type": mime_type,
+            "file_size": file_size,
+        }
+        
+        super().__init__(
+            event_name="interview.file.upload",
+            source_id=source_id,
+            payload=payload,
+            **kwargs,
+        )
+        
+        self._filename = filename
+        self._file_content = file_content
+        self._mime_type = mime_type
+        self._file_size = file_size
+
+    @property
+    def filename(self) -> str:
+        return self._filename
+
+    @property
+    def file_content(self) -> str:
+        return self._file_content
+
+    @property
+    def mime_type(self) -> str:
+        return self._mime_type
+
+    @property
+    def file_size(self) -> int:
+        return self._file_size
+
+    @staticmethod
+    def get_filename(event: Event) -> str:
+        """Extract filename from event payload."""
+        return event.payload.get("filename", "") if event.payload else ""
+
+    @staticmethod
+    def get_file_content(event: Event) -> str:
+        """Extract file content from event payload."""
+        return event.payload.get("file_content", "") if event.payload else ""
+
+    @staticmethod
+    def get_mime_type(event: Event) -> str:
+        """Extract MIME type from event payload."""
+        return event.payload.get("mime_type", "application/pdf") if event.payload else "application/pdf"
+
+    @staticmethod
+    def get_file_size(event: Event) -> int:
+        """Extract file size from event payload."""
+        return event.payload.get("file_size", 0) if event.payload else 0
 

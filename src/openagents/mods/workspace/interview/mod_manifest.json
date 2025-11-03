@@ -5,20 +5,23 @@
   "description": "AI interview module with private resume upload and access control",
   "author": "OpenAgents",
   "events": [
+    "interview.file.upload",
+    "interview.file.download",
+    "interview.file.get",
     "interview.topic.create",
     "interview.topic.delete",
-    "interview.topic.list",
-    "interview.topic.search",
+    "interview.topics.list",
+    "interview.topics.search",
     "interview.topic.get",
-    "interview.topic.list_by_user",
-    "interview.comment.create",
+    "interview.topics.list_by_user",
+    "interview.comment.post",
     "interview.comment.reply",
     "interview.comment.delete"
   ],
   "notifications": [
     "interview.topic.created",
     "interview.topic.deleted",
-    "interview.comment.created",
+    "interview.comment.posted",
     "interview.comment.replied",
     "interview.comment.deleted"
   ],

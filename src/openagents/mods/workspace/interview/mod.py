@@ -5,8 +5,10 @@ Network-level interview mod for OpenAgents - Private AI interviews with resume u
 import logging
 import time
 import uuid
+import base64
 from typing import Dict, Any, List, Optional
 from collections import defaultdict
+from pathlib import Path
 
 from openagents.config.globals import BROADCAST_AGENT_ID
 from openagents.core.base_mod import BaseMod, mod_event_handler
@@ -16,6 +18,12 @@ from openagents.models.event_response import EventResponse
 logger = logging.getLogger(__name__)
 
 MAX_COMMENT_DEPTH = 5  # Maximum nesting depth for comments
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB for PDF files
+
+# PDF magic numbers (file header signatures)
+PDF_MAGIC_NUMBERS = [
+    b'%PDF-1.',  # Standard PDF header
+]
 
 
 class InterviewTopic:
@@ -122,10 +130,75 @@ class InterviewNetworkMod(BaseMod):
     def __init__(self, mod_name: str = "interview"):
         super().__init__(mod_name=mod_name)
         self.topics: Dict[str, InterviewTopic] = {}
+        self.files: Dict[str, Dict[str, Any]] = {}  # file_id -> file_metadata
+        self.file_storage_path: Optional[Path] = None
+
+    def bind_network(self, network):
+        """Bind network and initialize file storage."""
+        super().bind_network(network)
+        
+        # Initialize file storage path
+        storage_path = self.get_storage_path()
+        if storage_path:
+            self.file_storage_path = storage_path / "files"
+            self.file_storage_path.mkdir(exist_ok=True)
+            logger.info(f"Interview file storage initialized at {self.file_storage_path}")
+            
+            # Load existing file metadata if any
+            self._load_file_metadata()
+        else:
+            logger.warning("No storage path available for interview file uploads")
+
+    def _load_file_metadata(self):
+        """Load file metadata from storage."""
+        if not self.file_storage_path:
+            return
+        
+        metadata_file = self.file_storage_path.parent / "file_metadata.json"
+        if metadata_file.exists():
+            try:
+                import json
+                with open(metadata_file, 'r') as f:
+                    self.files = json.load(f)
+                logger.info(f"Loaded {len(self.files)} file metadata entries")
+            except Exception as e:
+                logger.warning(f"Failed to load file metadata: {e}")
+
+    def _save_file_metadata(self):
+        """Persist file metadata to storage."""
+        if not self.file_storage_path:
+            return
+        
+        metadata_file = self.file_storage_path.parent / "file_metadata.json"
+        try:
+            import json
+            with open(metadata_file, 'w') as f:
+                json.dump(self.files, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save file metadata: {e}")
+
+    def _validate_pdf_content(self, file_content: bytes) -> bool:
+        """Validate PDF file by checking magic number."""
+        if not file_content or len(file_content) < 8:
+            return False
+        
+        # Check PDF magic number
+        for magic in PDF_MAGIC_NUMBERS:
+            if file_content.startswith(magic):
+                return True
+        return False
 
     def _validate_pdf(self, resume_url: str) -> bool:
-        """Validate PDF URL/file - basic check for .pdf extension."""
-        return resume_url and resume_url.lower().endswith(".pdf")
+        """Validate PDF URL/file - check for .pdf extension or file:// scheme."""
+        if not resume_url:
+            return False
+        
+        # Support local file IDs (file://{uuid}) or URLs
+        if resume_url.startswith("file://"):
+            file_id = resume_url.replace("file://", "")
+            return file_id in self.files
+        
+        return resume_url.lower().endswith(".pdf")
 
     def _can_access_topic(self, agent_id: str, topic: InterviewTopic) -> bool:
         """Check if agent can access private topic."""
@@ -141,6 +214,195 @@ class InterviewNetworkMod(BaseMod):
                 return True
         
         return False
+
+    @mod_event_handler("interview.file.upload")
+    async def _upload_file(self, event: Event) -> EventResponse:
+        """Handle PDF file upload for resume.
+        
+        Expected payload:
+        {
+            "filename": "resume.pdf",
+            "file_content": "base64_encoded_content",
+            "mime_type": "application/pdf",
+            "file_size": 12345
+        }
+        """
+        if not self.file_storage_path:
+            return EventResponse(
+                success=False,
+                message="File storage not initialized"
+            )
+        
+        payload = event.payload
+        filename = payload.get("filename")
+        file_content_b64 = payload.get("file_content")
+        mime_type = payload.get("mime_type", "application/pdf")
+        file_size = payload.get("file_size", 0)
+        
+        # Validate required fields
+        if not filename or not file_content_b64:
+            return EventResponse(
+                success=False,
+                message="Missing required fields: filename and file_content"
+            )
+        
+        # Validate file extension
+        if not filename.lower().endswith(".pdf"):
+            return EventResponse(
+                success=False,
+                message="Only PDF files are allowed for resume upload"
+            )
+        
+        # Validate MIME type
+        if mime_type not in ["application/pdf"]:
+            return EventResponse(
+                success=False,
+                message=f"Invalid MIME type: {mime_type}. Only application/pdf is allowed"
+            )
+        
+        try:
+            # Decode base64 content
+            file_content = base64.b64decode(file_content_b64)
+            actual_size = len(file_content)
+            
+            # Validate file size
+            if actual_size > MAX_FILE_SIZE:
+                return EventResponse(
+                    success=False,
+                    message=f"File size ({actual_size} bytes) exceeds maximum allowed size ({MAX_FILE_SIZE} bytes)"
+                )
+            
+            # Validate PDF magic number
+            if not self._validate_pdf_content(file_content):
+                return EventResponse(
+                    success=False,
+                    message="Invalid PDF file: file header does not match PDF format"
+                )
+            
+            # Generate unique file ID
+            file_id = str(uuid.uuid4())
+            file_path = self.file_storage_path / file_id
+            
+            # Save file to disk
+            with open(file_path, "wb") as f:
+                f.write(file_content)
+            
+            # Store file metadata
+            self.files[file_id] = {
+                "file_id": file_id,
+                "filename": filename,
+                "mime_type": mime_type,
+                "size": actual_size,
+                "uploaded_by": event.source_id,
+                "upload_timestamp": time.time(),
+                "path": str(file_path),
+            }
+            
+            # Persist metadata
+            self._save_file_metadata()
+            
+            logger.info(f"PDF uploaded: {filename} -> {file_id} by {event.source_id}")
+            
+            return EventResponse(
+                success=True,
+                message="File uploaded successfully",
+                data={
+                    "file_id": file_id,
+                    "filename": filename,
+                    "size": actual_size,
+                    "resume_url": f"file://{file_id}",  # Return file:// URL for use in topic creation
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"File upload failed: {e}")
+            return EventResponse(
+                success=False,
+                message=f"File upload failed: {str(e)}"
+            )
+
+    @mod_event_handler("interview.file.download")
+    async def _download_file(self, event: Event) -> EventResponse:
+        """Download a file by file_id.
+        
+        Expected payload:
+        {
+            "file_id": "uuid"
+        }
+        """
+        payload = event.payload
+        file_id = payload.get("file_id")
+        
+        if not file_id or file_id not in self.files:
+            return EventResponse(
+                success=False,
+                message="File not found"
+            )
+        
+        file_metadata = self.files[file_id]
+        file_path = Path(file_metadata["path"])
+        
+        # Check if file still exists
+        if not file_path.exists():
+            return EventResponse(
+                success=False,
+                message="File has been deleted from storage"
+            )
+        
+        try:
+            # Read and encode file
+            with open(file_path, "rb") as f:
+                file_content = f.read()
+            
+            encoded_content = base64.b64encode(file_content).decode("utf-8")
+            
+            return EventResponse(
+                success=True,
+                message="File retrieved successfully",
+                data={
+                    "file_id": file_id,
+                    "filename": file_metadata["filename"],
+                    "mime_type": file_metadata["mime_type"],
+                    "size": file_metadata["size"],
+                    "file_content": encoded_content,
+                    "uploaded_by": file_metadata["uploaded_by"],
+                    "upload_timestamp": file_metadata["upload_timestamp"],
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"File download failed: {e}")
+            return EventResponse(
+                success=False,
+                message=f"File download failed: {str(e)}"
+            )
+
+    @mod_event_handler("interview.file.get")
+    async def _get_file_info(self, event: Event) -> EventResponse:
+        """Get file metadata without downloading content.
+        
+        Expected payload:
+        {
+            "file_id": "uuid"
+        }
+        """
+        payload = event.payload
+        file_id = payload.get("file_id")
+        
+        if not file_id or file_id not in self.files:
+            return EventResponse(
+                success=False,
+                message="File not found"
+            )
+        
+        file_metadata = self.files[file_id].copy()
+        file_metadata.pop("path", None)  # Don't expose internal path
+        
+        return EventResponse(
+            success=True,
+            message="File info retrieved successfully",
+            data={"file": file_metadata}
+        )
 
     @mod_event_handler("interview.topic.create")
     async def _create_topic(self, event: Event) -> EventResponse:
