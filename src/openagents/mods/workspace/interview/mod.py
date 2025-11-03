@@ -119,8 +119,8 @@ class InterviewComment:
 class InterviewNetworkMod(BaseMod):
     """Network mod for AI interview with private resume access."""
 
-    def __init__(self):
-        super().__init__(mod_name="interview")
+    def __init__(self, mod_name: str = "interview"):
+        super().__init__(mod_name=mod_name)
         self.topics: Dict[str, InterviewTopic] = {}
 
     def _validate_pdf(self, resume_url: str) -> bool:
