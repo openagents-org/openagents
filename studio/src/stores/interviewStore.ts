@@ -7,6 +7,7 @@ export interface InterviewTopic {
   title: string;
   content: string;
   resume_url: string; // PDF resume URL (required)
+  resume_blob?: string; // Optional base64 blob for preview
   owner_id: string;
   timestamp: number;
   comment_count: number;
@@ -28,6 +29,7 @@ export interface CreateTopicData {
   title: string;
   content: string;
   resume_url: string; // PDF resume URL (required)
+  resume_blob?: string; // Optional base64 blob for preview
 }
 
 // Helper function to recursively update comment in nested structure
@@ -96,6 +98,7 @@ interface InterviewState {
 
   // Computed
   getTotalComments: () => number;
+  getRecentTopics: (limit?: number) => InterviewTopic[];
 
   // Reset
   resetSelectedTopic: () => void;
@@ -210,20 +213,20 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
             },
           });
 
-          if (response.success && response.data && response.data.comments) {
+          if (response.success && response.data && response.data.topic?.comments) {
             console.log("InterviewStore: Updated comments from API");
-            const sortedComments = [...response.data.comments].sort(
-              (a, b) => b.timestamp - a.timestamp
-            );
+            const apiTopic = response.data.topic;
+            const comments = apiTopic.comments || [];
 
             const updatedTopics = get().topics.map((t) =>
               t.topic_id === topicId
-                ? { ...t, comment_count: sortedComments.length }
+                ? { ...t, comment_count: apiTopic.comment_count || comments.length }
                 : t
             );
 
             set({
-              comments: sortedComments,
+              selectedTopic: apiTopic, // Update with full API data (includes resume_blob!)
+              comments: comments,
               topics: updatedTopics,
             });
           }
@@ -269,23 +272,20 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           : response.data.topic;
 
         if (topic) {
-          const comments = response.data.comments || [];
-          const sortedComments = [...comments].sort(
-            (a, b) => b.timestamp - a.timestamp
-          );
+          const comments = topic.comments || [];
 
           const updatedTopics = get().topics.map((t) =>
             t.topic_id === topicId
               ? {
                   ...t,
-                  comment_count: topic.comment_count || sortedComments.length,
+                  comment_count: topic.comment_count || comments.length,
                 }
               : t
           );
 
           set({
             selectedTopic: topic,
-            comments: sortedComments,
+            comments: comments,
             topics: updatedTopics,
             commentsLoading: false,
           });
@@ -316,22 +316,31 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     const { connection } = get();
     if (!connection) return false;
 
-    // Validate PDF URL
-    if (!data.resume_url || !data.resume_url.toLowerCase().endsWith('.pdf')) {
+    // Validate PDF URL (accept both file:// URLs from server and .pdf URLs)
+    if (!data.resume_url ||
+        (!data.resume_url.startsWith('file://') &&
+         !data.resume_url.toLowerCase().endsWith('.pdf'))) {
       console.error("InterviewStore: Invalid or missing PDF resume URL");
       return false;
     }
 
     try {
+      const payload: any = {
+        action: "create",
+        title: data.title.trim(),
+        content: data.content.trim(),
+        resume_url: data.resume_url,
+      };
+
+      // Include blob if provided
+      if (data.resume_blob) {
+        payload.resume_blob = data.resume_blob;
+      }
+
       const response = await connection.sendEvent({
         event_name: "interview.topic.create",
         destination_id: "mod:openagents.mods.workspace.interview",
-        payload: {
-          action: "create",
-          title: data.title.trim(),
-          content: data.content.trim(),
-          resume_url: data.resume_url,
-        },
+        payload,
       });
 
       if (response.success) {
@@ -413,6 +422,16 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     return get().countAllComments(comments);
   },
 
+  getRecentTopics: (limit = 10) => {
+    const { topics, canViewTopic } = get();
+
+    // Filter accessible topics and sort by timestamp descending (newest first)
+    return topics
+      .filter((topic) => canViewTopic(topic))
+      .sort((a, b) => b.timestamp - a.timestamp)
+      .slice(0, limit);
+  },
+
   resetSelectedTopic: () => {
     set({
       selectedTopic: null,
@@ -451,7 +470,8 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     console.log("InterviewStore: Setting up interview event listeners");
 
     const interviewEventHandler = (event: any) => {
-      console.log("InterviewStore: Received interview event:", event);
+      console.log("🔔 InterviewStore: Received interview event:", event.event_name, event);
+      console.log("🔔 InterviewStore: Event payload:", event.payload);
 
       // Handle topic creation event
       if (event.event_name === "interview.topic.created" && event.payload?.topic) {
@@ -575,7 +595,9 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     };
 
     // Register to event router
+    console.log("🔔 InterviewStore: Registering event handler to eventRouter");
     eventRouter.onInterviewEvent(interviewEventHandler);
+    console.log("🔔 InterviewStore: Event handler registered successfully");
 
     // Save handler reference for cleanup
     set({ eventHandler: interviewEventHandler });
@@ -669,42 +691,49 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         comments: InterviewComment[],
         parentId: string,
         reply: InterviewComment
-      ): boolean => {
-        for (let i = 0; i < comments.length; i++) {
-          const comment = comments[i];
+      ): { found: boolean; comments: InterviewComment[] } => {
+        let found = false;
+        const updatedComments = comments.map((comment) => {
           if (comment.comment_id === parentId) {
-            if (!comment.replies) {
-              comment.replies = [];
+            found = true;
+            // Create new comment object with updated replies (immutable)
+            return {
+              ...comment,
+              replies: [reply, ...(comment.replies || [])],
+            };
+          } else if (comment.replies && comment.replies.length > 0) {
+            // Recursively search in nested replies
+            const result = addReplyToParent(comment.replies, parentId, reply);
+            if (result.found) {
+              found = true;
+              // Create new comment object with updated replies (immutable)
+              return { ...comment, replies: result.comments };
             }
-            comment.replies.unshift(reply);
-            return true;
           }
-          if (comment.replies && comment.replies.length > 0) {
-            if (addReplyToParent(comment.replies, parentId, reply)) {
-              return true;
-            }
-          }
-        }
-        return false;
+          return comment;
+        });
+        return { found, comments: updatedComments };
       };
 
-      let updatedComments = [...state.comments];
+      let updatedComments: InterviewComment[];
 
       if (newComment.parent_comment_id) {
-        const foundParent = addReplyToParent(
-          updatedComments,
+        const result = addReplyToParent(
+          state.comments,
           newComment.parent_comment_id,
           newComment
         );
-        if (!foundParent) {
+        if (result.found) {
+          updatedComments = result.comments;
+        } else {
           console.warn(
             "InterviewStore: Parent comment not found, treating as root comment:",
             newComment.parent_comment_id
           );
-          updatedComments.unshift(newComment);
+          updatedComments = [newComment, ...state.comments];
         }
       } else {
-        updatedComments.unshift(newComment);
+        updatedComments = [newComment, ...state.comments];
       }
 
       console.log(

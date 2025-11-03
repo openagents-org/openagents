@@ -42,6 +42,7 @@ class InterviewTopic:
         self.title = title
         self.content = content
         self.resume_url = resume_url  # PDF resume URL (required)
+        self.resume_blob: Optional[str] = None  # Optional base64 blob for preview
         self.owner_id = owner_id
         self.visibility = "private"  # Always private
         self.timestamp = timestamp
@@ -51,7 +52,7 @@ class InterviewTopic:
         self.comment_tree: Dict[str, List[str]] = defaultdict(list)
         self.root_comments: List[str] = []
 
-    def to_dict(self, include_comments: bool = False) -> Dict[str, Any]:
+    def to_dict(self, include_comments: bool = False, include_blob: bool = False) -> Dict[str, Any]:
         """Convert to dict."""
         result = {
             "topic_id": self.topic_id,
@@ -66,6 +67,8 @@ class InterviewTopic:
         }
         if include_comments:
             result["comments"] = self._build_comment_tree()
+        if include_blob and self.resume_blob:
+            result["resume_blob"] = self.resume_blob
         return result
 
     def _build_comment_tree(self) -> List[Dict[str, Any]]:
@@ -119,7 +122,8 @@ class InterviewComment:
             "author_id": self.author_id,
             "timestamp": self.timestamp,
             "parent_comment_id": self.parent_comment_id,
-            "depth": self.depth,
+            "thread_level": self.depth,  # Frontend expects thread_level
+            "depth": self.depth,  # Keep for backward compatibility
             "deleted": self.deleted,
         }
 
@@ -411,21 +415,22 @@ class InterviewNetworkMod(BaseMod):
         title = payload.get("title")
         content = payload.get("content")
         resume_url = payload.get("resume_url")
-        
+        resume_blob = payload.get("resume_blob")  # Optional base64 blob
+
         # Validate required fields
         if not title or not content:
             return EventResponse(
                 success=False,
                 message="Missing required fields: title and content"
             )
-        
+
         # Require PDF resume
         if not resume_url or not self._validate_pdf(resume_url):
             return EventResponse(
                 success=False,
                 message="PDF resume is required for interview topics"
             )
-        
+
         # Create topic
         topic_id = str(uuid.uuid4())
         topic = InterviewTopic(
@@ -436,19 +441,23 @@ class InterviewNetworkMod(BaseMod):
             owner_id=event.source_id,
             timestamp=time.time(),
         )
-        
+
+        # Store optional blob for preview
+        if resume_blob:
+            topic.resume_blob = resume_blob
+
         self.topics[topic_id] = topic
         logger.info(f"Created interview topic {topic_id} by {event.source_id}")
-        
-        # Broadcast notification
+
+        # Broadcast notification (without blob to save bandwidth)
         await self._broadcast_event("interview.topic.created", {
             "topic": topic.to_dict()
         }, event.source_id)
-        
+
         return EventResponse(
             success=True,
             message="Interview topic created successfully",
-            data={"topic_id": topic_id, "topic": topic.to_dict()}
+            data={"topic_id": topic_id, "topic": topic.to_dict(include_blob=True)}
         )
 
     @mod_event_handler("interview.topic.delete")
@@ -732,26 +741,26 @@ class InterviewNetworkMod(BaseMod):
         """Get single interview topic with comments."""
         payload = event.payload
         topic_id = payload.get("topic_id")
-        
+
         if not topic_id or topic_id not in self.topics:
             return EventResponse(
                 success=False,
                 message="Topic not found"
             )
-        
+
         topic = self.topics[topic_id]
-        
+
         # Check access
         if not self._can_access_topic(event.source_id, topic):
             return EventResponse(
                 success=False,
                 message="Unauthorized to access this topic"
             )
-        
+
         return EventResponse(
             success=True,
             message="Topic retrieved successfully",
-            data={"topic": topic.to_dict(include_comments=True)}
+            data={"topic": topic.to_dict(include_comments=True, include_blob=True)}
         )
 
     @mod_event_handler("interview.topic.list_by_user")

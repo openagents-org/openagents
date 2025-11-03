@@ -18,8 +18,6 @@ const InterviewTopicList: React.FC = () => {
     setGroupsData,
     setAgentId,
     loadTopics,
-    setupEventListeners,
-    cleanupEventListeners,
   } = useInterviewStore();
 
   // Set connection
@@ -63,19 +61,6 @@ const InterviewTopicList: React.FC = () => {
       loadTopics();
     }
   }, [openAgentsService, isConnected, loadTopics]);
-
-  // Setup interview event listeners
-  useEffect(() => {
-    if (openAgentsService) {
-      console.log("InterviewTopicList: Setting up interview event listeners");
-      setupEventListeners();
-
-      return () => {
-        console.log("InterviewTopicList: Cleaning up interview event listeners");
-        cleanupEventListeners();
-      };
-    }
-  }, [openAgentsService, setupEventListeners, cleanupEventListeners]);
 
   if (topicsLoading && topics.length === 0) {
     return (

@@ -8,6 +8,25 @@ interface InterviewCreateModalProps {
   onClose: () => void;
 }
 
+/**
+ * Read file as Base64 string
+ * @param file - File to read
+ * @returns Base64 encoded string (without data URL prefix)
+ */
+const readFileAsBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result as string;
+      // Remove data:application/pdf;base64, prefix
+      const base64Content = base64.split(',')[1];
+      resolve(base64Content);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+};
+
 const InterviewCreateModal: React.FC<InterviewCreateModalProps> = ({
   isOpen,
   onClose
@@ -18,10 +37,12 @@ const InterviewCreateModal: React.FC<InterviewCreateModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string>('');
+  const [pdfBlob, setPdfBlob] = useState<string>(''); // Keep base64 blob for preview
   const [uploadingPdf, setUploadingPdf] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createTopic = useInterviewStore(state => state.createTopic);
+  const connection = useInterviewStore(state => state.connection);
 
   const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -33,49 +54,63 @@ const InterviewCreateModal: React.FC<InterviewCreateModalProps> = ({
       return;
     }
 
-    // Validate file size (e.g., max 10MB)
+    // Validate file size (max 10MB)
     const maxSize = 10 * 1024 * 1024; // 10MB
     if (file.size > maxSize) {
       toast.error('File size must be less than 10MB');
       return;
     }
 
+    // Check connection
+    if (!connection) {
+      toast.error('Not connected to network');
+      return;
+    }
+
     setPdfFile(file);
-
-    // TODO: Upload file to server and get URL
-    // For now, create a temporary object URL for preview
     setUploadingPdf(true);
+
     try {
-      // Simulate upload delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Read file and encode as Base64
+      console.log('Reading file as Base64...');
+      const fileContent = await readFileAsBase64(file);
+      console.log(`File read successfully, size: ${fileContent.length} bytes (base64)`);
 
-      // In a real implementation, you would upload the file to your server here
-      // const formData = new FormData();
-      // formData.append('file', file);
-      // const response = await fetch('/api/upload-resume', {
-      //   method: 'POST',
-      //   body: formData,
-      // });
-      // const data = await response.json();
-      // setPdfUrl(data.url);
+      // Upload file via send event
+      console.log('Uploading file to server...');
+      const response = await connection.sendEvent({
+        event_name: 'interview.file.upload',
+        destination_id: 'mod:openagents.mods.workspace.interview',
+        payload: {
+          filename: file.name,
+          file_content: fileContent,
+          mime_type: 'application/pdf',
+          file_size: file.size
+        }
+      });
 
-      // For now, use a temporary object URL
-      const tempUrl = URL.createObjectURL(file);
-      setPdfUrl(tempUrl);
+      console.log('Upload response:', response);
 
-      toast.success('Resume uploaded successfully');
-    } catch (error) {
+      // Handle response
+      if (response.success && response.data?.resume_url) {
+        setPdfUrl(response.data.resume_url); // file://{uuid}
+        setPdfBlob(fileContent); // Keep blob for topic creation
+        console.log(`File uploaded successfully: ${response.data.resume_url}`);
+        toast.success('Resume uploaded successfully');
+      } else {
+        throw new Error(response.message || 'Upload failed');
+      }
+    } catch (error: any) {
       console.error('Failed to upload file:', error);
-      toast.error('Failed to upload resume');
+      toast.error(`Failed to upload resume: ${error.message || 'Unknown error'}`);
+      setPdfFile(null);
     } finally {
       setUploadingPdf(false);
     }
   };
 
   const handleRemovePdf = () => {
-    if (pdfUrl && pdfUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(pdfUrl);
-    }
+    // No need to revoke URL since we're using file:// URLs from server
     setPdfFile(null);
     setPdfUrl('');
     if (fileInputRef.current) {
@@ -99,6 +134,7 @@ const InterviewCreateModal: React.FC<InterviewCreateModalProps> = ({
       title: title.trim(),
       content: content.trim(),
       resume_url: pdfUrl,
+      resume_blob: pdfBlob, // Include blob for preview
     });
 
     if (success) {
