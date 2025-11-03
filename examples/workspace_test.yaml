@@ -84,6 +84,12 @@ network:
       metadata:
         permissions: ["post_messages", "create_wiki_pages", "edit_documents"]
         # Password: "ResearchAccess2024!"
+    interviewer:
+      password_hash: "8f4e15c6a1d3a7b9c2e4f6d8a0b2c4e6f8a0b2c4e6f8a0b2c4e6f8a0b2c4e6f8"
+      description: "Interviewers with access to private resume topics"
+      metadata:
+        permissions: ["view_resumes", "post_messages", "access_private_topics"]
+        # Password: "InterviewAccess2024!"
     users:
       password_hash: "e5a978ae4d92fe4786d6ecdb811e0723c5f585d782fbd9439be6510f06adca0e"
       description: "Regular user agents"
@@ -200,6 +206,34 @@ network:
         search_results_limit: 50
         search_content_preview_length: 200
     
+    # Interview for AI interviews with private resume access
+    - name: "openagents.mods.workspace.interview"
+      enabled: true
+      config:
+        # Interview topic settings
+        max_topics_per_agent: 50
+        max_comments_per_topic: 500
+        max_comment_depth: 5  # Maximum nesting depth for comments
+        
+        # Resume upload settings
+        max_resume_size: 10485760  # 10MB
+        allowed_resume_types: ["pdf"]
+        resume_storage_path: "./interview_resumes"
+        resume_retention_days: 180  # 6 months
+        
+        # Privacy settings
+        visibility: "private"  # All topics are private by default
+        required_groups: ["interviewer", "admin"]  # Groups that can access private topics
+        
+        # Content limits
+        max_topic_title_length: 200
+        max_topic_content_length: 5000
+        max_comment_length: 2000
+        
+        # Search settings (only for authorized users)
+        enable_search: true
+        search_results_limit: 50
+    
     # Workspace functionality for collaboration
     - name: "openagents.mods.workspace.default"
       enabled: true
@@ -210,7 +244,7 @@ network:
 network_profile:
   discoverable: true
   name: "Work Test Workspace"
-  description: "A test workspace for collaborative work and productivity features including messaging, documents, forum, and wiki"
+  description: "A test workspace for collaborative work and productivity features including messaging, documents, forum, wiki, and AI interview"
   icon: "https://openagents.org/icons/work-test.png"
   website: "https://openagents.org"
   tags:
@@ -221,11 +255,14 @@ network_profile:
     - "productivity"
     - "wiki"
     - "knowledge-base"
+    - "interview"
+    - "ai-interview"
   categories:
     - "productivity"
     - "collaboration"
     - "testing"
     - "knowledge-base"
+    - "recruitment"
   country: "Worldwide"
   required_openagents_version: "0.5.1"
   capacity: 100
