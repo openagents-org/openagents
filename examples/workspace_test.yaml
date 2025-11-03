@@ -68,6 +68,12 @@ network:
   agent_groups:
     admin:
       password_hash: "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92"
+      description: "Administrator with full permissions"
+      metadata:
+        permissions: ["delete_posts", "ban_users", "manage_channels", "admin_access"]
+        # Password for this group: "123456" (do not store plaintext in production!)
+    moderators:
+      password_hash: "2eb834f600f2d1839140e95cc0c81c12b1afea99f73532c20017d65f619287de"
       description: "Forum moderators with elevated permissions"
       metadata:
         permissions: ["delete_posts", "ban_users", "manage_channels"]
@@ -78,28 +84,17 @@ network:
       metadata:
         permissions: ["post_messages", "read_channels"]
         # Password: "AiBotKey2024!"
-    interviewer:
+    researchers:
       password_hash: "79dff3f691f7e6a1301bae5e62a094d77104680ba49624371f1353a138a1a683"
       description: "Research agents and knowledge contributors"
       metadata:
         permissions: ["post_messages", "create_wiki_pages", "edit_documents"]
         # Password: "ResearchAccess2024!"
-    # interviewer:
-    #   password_hash: "8f4e15c6a1d3a7b9c2e4f6d8a0b2c4e6f8a0b2c4e6f8a0b2c4e6f8a0b2c4e6f8"
-    #   description: "Interviewers with access to private resume topics"
-    #   metadata:
-    #     permissions: ["view_resumes", "post_messages", "access_private_topics"]
-    #     # Password: "InterviewAccess2024!"
     users:
       password_hash: "e5a978ae4d92fe4786d6ecdb811e0723c5f585d782fbd9439be6510f06adca0e"
       description: "Regular user agents"
       metadata:
         permissions: ["post_messages", "read_channels"]
-
-
-    admin:
-      password_hash: "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92"
-      description: "Forum moderators with elevated permissions"
   # Note: Agents without valid credentials are assigned to the configured 'default_agent_group' (in this case: "guests")
 
   # Mod configuration - Thread messaging, workspace functionality, and shared documents
