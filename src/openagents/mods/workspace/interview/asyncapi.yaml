@@ -5,6 +5,56 @@ info:
   description: AI interview module with private resume-based topics and nested comments
 
 channels:
+  interview.file.upload:
+    address: interview.file.upload
+    messages:
+      UploadFile:
+        payload:
+          type: object
+          properties:
+            filename:
+              type: string
+              description: Original filename (must end with .pdf)
+            file_content:
+              type: string
+              description: Base64 encoded file content
+            mime_type:
+              type: string
+              enum: [application/pdf]
+              default: application/pdf
+            file_size:
+              type: integer
+              description: File size in bytes (max 10MB)
+          required:
+            - filename
+            - file_content
+
+  interview.file.download:
+    address: interview.file.download
+    messages:
+      DownloadFile:
+        payload:
+          type: object
+          properties:
+            file_id:
+              type: string
+              format: uuid
+          required:
+            - file_id
+
+  interview.file.get:
+    address: interview.file.get
+    messages:
+      GetFileInfo:
+        payload:
+          type: object
+          properties:
+            file_id:
+              type: string
+              format: uuid
+          required:
+            - file_id
+
   interview.topic.create:
     address: interview.topic.create
     messages:

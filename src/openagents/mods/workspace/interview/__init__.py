@@ -7,6 +7,7 @@ from .interview_messages import (
     InterviewTopicMessage,
     InterviewCommentMessage,
     InterviewQueryMessage,
+    InterviewFileUploadMessage,
 )
 
 __all__ = [
@@ -14,5 +15,6 @@ __all__ = [
     "InterviewTopicMessage",
     "InterviewCommentMessage",
     "InterviewQueryMessage",
+    "InterviewFileUploadMessage",
 ]
 
