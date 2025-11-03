@@ -5,10 +5,6 @@ import MarkdownRenderer from "@/components/common/MarkdownRenderer";
 import InterviewCommentThread from "./components/InterviewCommentThread";
 import InterviewAddCommentModal from "./components/InterviewAddCommentModal";
 import { OpenAgentsContext } from "@/context/OpenAgentsProvider";
-import { Document, Page, pdfjs } from 'react-pdf';
-
-// Set up PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 interface InterviewTopicDetailProps {}
 
@@ -19,9 +15,9 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
 
   const [isAddCommentModalOpen, setIsAddCommentModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [numPages, setNumPages] = useState<number | null>(null);
-  const [pageNumber, setPageNumber] = useState(1);
-  const [showPdf, setShowPdf] = useState(true);
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
 
   const openAgentsService = context?.connector;
@@ -70,13 +66,55 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
     }
   }, [topicId, openAgentsService, isConnected, loadTopicDetail]);
 
+  // Use embedded blob if available (no need to download)
+  useEffect(() => {
+    if (selectedTopic?.resume_blob && !pdfBlobUrl) {
+      console.log("InterviewTopicDetail: Using embedded resume blob");
+      try {
+        // Convert base64 to blob
+        const binaryString = atob(selectedTopic.resume_blob);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const blobUrl = URL.createObjectURL(blob);
+        setPdfBlobUrl(blobUrl);
+        console.log("InterviewTopicDetail: PDF blob URL created from embedded data");
+      } catch (error) {
+        console.error("InterviewTopicDetail: Failed to create blob from embedded data:", error);
+        setPdfError("Failed to load PDF from embedded data");
+      }
+    }
+  }, [selectedTopic, pdfBlobUrl]);
+
   // Reset selected topic when component unmounts
   useEffect(() => {
     return () => {
       console.log("InterviewTopicDetail: Cleanup - resetting selected topic");
+      // Clean up blob URL
+      if (pdfBlobUrl) {
+        URL.revokeObjectURL(pdfBlobUrl);
+      }
       resetSelectedTopic();
     };
-  }, [resetSelectedTopic]);
+  }, [resetSelectedTopic, pdfBlobUrl]);
+
+  // Open PDF preview modal
+  const handleTogglePdfPreview = async () => {
+    // If blob URL already exists (from embedded blob or previous download), just open modal
+    if (pdfBlobUrl) {
+      setShowPdfPreview(true);
+      return;
+    }
+
+    // Otherwise, need to download PDF from file system
+    if (!pdfLoading) {
+      await loadPdfBlob();
+    }
+    // Open modal
+    setShowPdfPreview(true);
+  };
 
   const handleBack = () => {
     navigate("/interview");
@@ -92,14 +130,45 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
     return success;
   };
 
-  const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
-    setNumPages(numPages);
-    setPdfError(null);
-  };
+  const loadPdfBlob = async () => {
+    if (!selectedTopic?.resume_url || !openAgentsService) return;
 
-  const onDocumentLoadError = (error: Error) => {
-    console.error("Error loading PDF:", error);
-    setPdfError("Failed to load resume PDF");
+    // Extract file_id from file:// URL
+    const fileId = selectedTopic.resume_url.replace('file://', '');
+
+    setPdfLoading(true);
+    setPdfError(null);
+
+    try {
+      // Download file via send event
+      const response = await openAgentsService.sendEvent({
+        event_name: 'interview.file.download',
+        destination_id: 'mod:openagents.mods.workspace.interview',
+        payload: {
+          file_id: fileId
+        }
+      });
+
+      if (response.success && response.data?.file_content) {
+        // Decode base64 and create blob URL
+        const base64Content = response.data.file_content;
+        const binaryString = atob(base64Content);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const blobUrl = URL.createObjectURL(blob);
+        setPdfBlobUrl(blobUrl);
+      } else {
+        throw new Error(response.message || 'Failed to download PDF');
+      }
+    } catch (error: any) {
+      console.error('Failed to load PDF:', error);
+      setPdfError(error.message || 'Failed to load PDF');
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
   // Show connection waiting state
@@ -191,11 +260,10 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
         </button>
       </div>
 
-      {/* Main content - split view */}
-      <div className="flex-1 flex overflow-hidden dark:bg-gray-900">
-        {/* Left side - Topic and Comments */}
-        <div className="flex-1 flex flex-col overflow-hidden border-r border-gray-200 dark:border-gray-700">
-          <div className="flex-1 flex flex-col overflow-y-auto">
+      {/* Main content */}
+      <div className="flex-1 overflow-y-auto dark:bg-gray-900">
+        <div className="flex flex-col">
+          <div className="flex flex-col">
             {/* Topic content */}
             <div className="p-6 border-b bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700">
               {/* Topic title */}
@@ -223,6 +291,26 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
               {/* Topic content */}
               <div className="mb-4">
                 <MarkdownRenderer content={selectedTopic.content} />
+              </div>
+
+              {/* PDF Preview Button */}
+              <div className="mb-4">
+                <button
+                  onClick={handleTogglePdfPreview}
+                  disabled={pdfLoading}
+                  className="flex items-center space-x-2 px-4 py-2 rounded-md transition-colors bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
+                >
+                  {pdfLoading ? (
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-700 dark:border-gray-300" />
+                  ) : (
+                    <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                    </svg>
+                  )}
+                  <span className="text-sm font-medium">
+                    {pdfLoading ? 'Loading...' : 'View Resume (PDF)'}
+                  </span>
+                </button>
               </div>
 
               {/* Add comment button */}
@@ -280,104 +368,6 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
             </div>
           </div>
         </div>
-
-        {/* Right side - PDF Resume Preview */}
-        <div className="w-96 flex flex-col bg-gray-50 dark:bg-gray-800">
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
-              </svg>
-              <h3 className="font-medium text-gray-900 dark:text-gray-100">Resume</h3>
-            </div>
-            <button
-              onClick={() => setShowPdf(!showPdf)}
-              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={showPdf ? "M19 9l-7 7-7-7" : "M5 15l7-7 7 7"} />
-              </svg>
-            </button>
-          </div>
-
-          {showPdf && (
-            <div className="flex-1 overflow-y-auto p-4">
-              {pdfError ? (
-                <div className="text-center py-8">
-                  <div className="text-red-500 mb-4">
-                    <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">{pdfError}</p>
-                  <a
-                    href={selectedTopic.resume_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-block mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                  >
-                    Open in new tab
-                  </a>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <Document
-                    file={selectedTopic.resume_url}
-                    onLoadSuccess={onDocumentLoadSuccess}
-                    onLoadError={onDocumentLoadError}
-                    loading={
-                      <div className="text-center py-8">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-400 mx-auto mb-4" />
-                        <p className="text-sm text-gray-600 dark:text-gray-400">Loading resume...</p>
-                      </div>
-                    }
-                  >
-                    <Page
-                      pageNumber={pageNumber}
-                      renderTextLayer={false}
-                      renderAnnotationLayer={false}
-                      width={320}
-                      className="shadow-lg"
-                    />
-                  </Document>
-
-                  {numPages && numPages > 1 && (
-                    <div className="flex items-center justify-center space-x-4 py-2">
-                      <button
-                        onClick={() => setPageNumber(Math.max(1, pageNumber - 1))}
-                        disabled={pageNumber <= 1}
-                        className="px-3 py-1 text-sm rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
-                      >
-                        Previous
-                      </button>
-                      <span className="text-sm text-gray-600 dark:text-gray-400">
-                        Page {pageNumber} of {numPages}
-                      </span>
-                      <button
-                        onClick={() => setPageNumber(Math.min(numPages, pageNumber + 1))}
-                        disabled={pageNumber >= numPages}
-                        className="px-3 py-1 text-sm rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
-                      >
-                        Next
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="text-center">
-                    <a
-                      href={selectedTopic.resume_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                    >
-                      Open in new tab
-                    </a>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* Add comment modal */}
@@ -387,6 +377,59 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
         onSubmit={handleAddComment}
         isSubmitting={isSubmitting}
       />
+
+      {/* PDF Preview Modal */}
+      {showPdfPreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
+          <div className="relative w-full h-full max-w-6xl max-h-[90vh] m-4 bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Resume Preview
+              </h3>
+              <button
+                onClick={() => setShowPdfPreview(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="h-[calc(100%-4rem)] overflow-hidden">
+              {pdfError ? (
+                <div className="flex flex-col items-center justify-center h-full">
+                  <div className="text-red-500 mb-4">
+                    <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{pdfError}</p>
+                  <button
+                    onClick={loadPdfBlob}
+                    className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : pdfBlobUrl ? (
+                <iframe
+                  src={pdfBlobUrl}
+                  className="w-full h-full"
+                  title="Resume PDF"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400 mb-4" />
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Loading resume...</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

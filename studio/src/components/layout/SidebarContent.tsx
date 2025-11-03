@@ -4,6 +4,7 @@ import DefaultSidebar from "./DefaultSidebar";
 import MessagingSidebar from "@/pages/messaging/MessagingSidebar";
 import DocumentsSidebar from "@/pages/documents/DocumentsSidebar";
 import ForumSidebar from "@/pages/forum/ForumSidebar";
+import InterviewSidebar from "@/pages/interview/InterviewSidebar";
 import WikiSidebar from "@/pages/wiki/WikiSidebar";
 import ProfileSidebar from "@/pages/profile/ProfileSidebar";
 
@@ -23,6 +24,11 @@ const SidebarContent: React.FC = () => {
     if (pathname.startsWith("/forum")) {
       // ForumSidebar gets needed data through hooks itself
       return <ForumSidebar />;
+    }
+
+    if (pathname.startsWith("/interview")) {
+      // InterviewSidebar gets needed data through hooks itself
+      return <InterviewSidebar />;
     }
 
     if (pathname.startsWith("/wiki")) {
