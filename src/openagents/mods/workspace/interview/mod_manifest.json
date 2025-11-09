@@ -16,7 +16,16 @@
     "interview.topics.list_by_user",
     "interview.comment.post",
     "interview.comment.reply",
-    "interview.comment.delete"
+    "interview.comment.delete",
+    "interview.jobs.list",
+    "interview.jobs.get",
+    "interview.jobs.put",
+    "interview.jobs.delete",
+    "interview.notification.list",
+    "interview.notification.add",
+    "interview.interviews.list",
+    "interview.interviews.add",
+    "interview.interviews.delete"
   ],
   "notifications": [
     "interview.topic.created",
