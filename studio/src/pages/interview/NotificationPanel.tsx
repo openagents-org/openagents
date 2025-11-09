@@ -16,6 +16,38 @@ const NotificationPanel: React.FC = () => {
     );
   }, [notifications]);
 
+  const getTypeLabel = (type: string) => {
+    const normalized = type?.toLowerCase();
+    switch (normalized) {
+      case "warning":
+        return "Warning";
+      case "success":
+        return "Success";
+      case "error":
+      case "alert":
+        return "Alert";
+      case "message":
+      case "info":
+      default:
+        return "Notice";
+    }
+  };
+
+  const getTypeIcon = (type: string) => {
+    const normalized = type?.toLowerCase();
+    switch (normalized) {
+      case "warning":
+        return "⚠️";
+      case "success":
+        return "✅";
+      case "error":
+      case "alert":
+        return "⛔";
+      default:
+        return "💬";
+    }
+  };
+
   return (
     <aside className="hidden xl:flex xl:w-80 flex-col border-l border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/70 backdrop-blur">
       <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700">
@@ -91,24 +123,18 @@ const NotificationPanel: React.FC = () => {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    {notification.level === "warning"
-                      ? "Warning"
-                      : notification.level === "success"
-                      ? "Success"
-                      : notification.level === "error"
-                      ? "Alert"
-                      : "Notice"}
+                    {getTypeLabel(notification.type)}
                   </p>
                   <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                     {new Date((notification.created_at || 0) * 1000).toLocaleString()}
                   </p>
                 </div>
-                {!notification.read && (
+                {notification.status === "unread" && (
                   <span className="w-2 h-2 rounded-full bg-blue-500 mt-1" />
                 )}
               </div>
               <p className="mt-2 text-sm text-gray-700 dark:text-gray-200 line-clamp-4 whitespace-pre-line">
-                {notification.message}
+                {getTypeIcon(notification.type)} {notification.message}
               </p>
             </button>
           ))

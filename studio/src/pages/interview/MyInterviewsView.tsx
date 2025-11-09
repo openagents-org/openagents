@@ -2,18 +2,18 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useInterviewPortalStore } from "@/stores/interviewPortalStore";
 
 interface ScheduleFormState {
-  job_title: string;
-  scheduled_time: string;
-  interviewer: string;
-  location: string;
+  job_id: string;
+  interview_url: string;
+  interview_type: string;
+  duration_minutes: number;
   notes: string;
 }
 
 const defaultFormState: ScheduleFormState = {
-  job_title: "",
-  scheduled_time: "",
-  interviewer: "",
-  location: "",
+  job_id: "",
+  interview_url: "",
+  interview_type: "virtual",
+  duration_minutes: 60,
   notes: "",
 };
 
@@ -33,47 +33,68 @@ const MyInterviewsView: React.FC = () => {
     jobs,
   } = useInterviewPortalStore();
 
+  const jobMap = useMemo(() => {
+    const map = new Map<string, (typeof jobs)[number]>();
+    jobs.forEach((job) => {
+      map.set(job.job_id, job);
+    });
+    return map;
+  }, [jobs]);
   useEffect(() => {
     loadInterviews();
   }, [loadInterviews]);
 
   const orderedInterviews = useMemo(() => {
     return [...interviews].sort((a, b) => {
-      const timeA = a.scheduled_time
-        ? new Date(a.scheduled_time).getTime()
-        : 0;
-      const timeB = b.scheduled_time
-        ? new Date(b.scheduled_time).getTime()
-        : 0;
+      const timeA = a.updated_at ?? a.created_at ?? 0;
+      const timeB = b.updated_at ?? b.created_at ?? 0;
       return timeB - timeA;
     });
   }, [interviews]);
 
   const handleInputChange = (
-    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    event: React.ChangeEvent<
+      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+    >
   ) => {
     const { name, value } = event.target;
-    setFormState((prev) => ({ ...prev, [name]: value }));
+    setFormState((prev) => {
+      if (name === "duration_minutes") {
+        const parsed = parseInt(value, 10);
+        return {
+          ...prev,
+          duration_minutes: Number.isFinite(parsed) && parsed > 0 ? parsed : prev.duration_minutes,
+        };
+      }
+
+      return { ...prev, [name]: value };
+    });
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!formState.job_title || !formState.scheduled_time) {
+    const trimmedJobInput = formState.job_id.trim();
+    const trimmedUrl = formState.interview_url.trim();
+
+    if (!trimmedJobInput || !trimmedUrl || !formState.interview_type) {
       return;
     }
 
-    const selectedJob = jobs.find(
-      (job) => job.title === formState.job_title || job.job_id === formState.job_title
-    );
+    const matchedJob =
+      jobs.find((job) => job.job_id === trimmedJobInput) ||
+      jobs.find(
+        (job) => job.title.toLowerCase() === trimmedJobInput.toLowerCase()
+      );
+
+    const jobId = matchedJob ? matchedJob.job_id : trimmedJobInput;
 
     const success = await scheduleInterview({
-      job_id: selectedJob?.job_id,
-      job_title: selectedJob ? selectedJob.title : formState.job_title,
-      scheduled_time: formState.scheduled_time,
-      interviewer: formState.interviewer || undefined,
-      location: formState.location || undefined,
-      notes: formState.notes || undefined,
+      job_id: jobId,
+      interview_url: trimmedUrl,
+      interview_type: formState.interview_type,
+      duration_minutes: formState.duration_minutes,
+      notes: formState.notes.trim() ? formState.notes.trim() : undefined,
     });
 
     if (success) {
@@ -114,33 +135,38 @@ const MyInterviewsView: React.FC = () => {
           >
             <div className="flex flex-col">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
-                Role Title
+                Job ID
               </label>
               <input
-                name="job_title"
+                name="job_id"
                 list="job-options"
-                value={formState.job_title}
+                value={formState.job_id}
                 onChange={handleInputChange}
-                placeholder="Select or enter the role"
+                placeholder="Select or enter the role ID"
                 className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-4 py-2 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition"
                 required
               />
               <datalist id="job-options">
                 {jobs.map((job) => (
-                  <option key={job.job_id} value={job.title} />
+                  <option
+                    key={job.job_id}
+                    value={job.job_id}
+                    label={`${job.title} · ${job.company}`}
+                  />
                 ))}
               </datalist>
             </div>
 
             <div className="flex flex-col">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
-                Interview Time
+                Interview URL
               </label>
               <input
-                type="datetime-local"
-                name="scheduled_time"
-                value={formState.scheduled_time}
+                type="url"
+                name="interview_url"
+                value={formState.interview_url}
                 onChange={handleInputChange}
+                placeholder="https://meet.example.com/session"
                 className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-4 py-2 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition"
                 required
               />
@@ -148,27 +174,36 @@ const MyInterviewsView: React.FC = () => {
 
             <div className="flex flex-col">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
-                Interviewer
+                Interview Type
               </label>
-              <input
-                name="interviewer"
-                value={formState.interviewer}
+              <select
+                name="interview_type"
+                value={formState.interview_type}
                 onChange={handleInputChange}
-                placeholder="Optional"
                 className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-4 py-2 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition"
-              />
+                required
+              >
+                <option value="virtual">Virtual</option>
+                <option value="onsite">Onsite</option>
+                <option value="phone">Phone</option>
+                <option value="assessment">Assessment</option>
+              </select>
             </div>
 
             <div className="flex flex-col">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
-                Interview Location
+                Duration (minutes)
               </label>
               <input
-                name="location"
-                value={formState.location}
+                type="number"
+                min={15}
+                step={5}
+                name="duration_minutes"
+                value={formState.duration_minutes}
                 onChange={handleInputChange}
-                placeholder="Meeting link or onsite location"
+                placeholder="60"
                 className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-4 py-2 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition"
+                required
               />
             </div>
 
@@ -260,89 +295,122 @@ const MyInterviewsView: React.FC = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {orderedInterviews.map((interview) => (
-              <div
-                key={interview.interview_id}
-                className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow hover:shadow-lg transition duration-200"
-              >
-                <div className="px-6 py-5 space-y-4">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                    <div>
-                      <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-                        {interview.job_title || "Untitled Role"}
-                      </h2>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        Scheduled:&nbsp;
-                        {interview.scheduled_time
-                          ? new Date(interview.scheduled_time).toLocaleString()
-                          : "Not set"}
+            {orderedInterviews.map((interview) => {
+              const job =
+                interview.job_id && jobMap.get(interview.job_id);
+              const displayTitle =
+                job?.title || interview.job_id || "Unassigned Role";
+              const displayCompany = job?.company;
+              const timestamp = interview.updated_at ?? interview.created_at;
+              const formattedTime = timestamp
+                ? new Date(timestamp * 1000).toLocaleString()
+                : "Not set";
+              const durationLabel = interview.duration_minutes
+                ? `${interview.duration_minutes} min`
+                : "Not set";
+
+              return (
+                <div
+                  key={interview.interview_id}
+                  className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow hover:shadow-lg transition duration-200"
+                >
+                  <div className="px-6 py-5 space-y-4">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                      <div>
+                        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                          {displayTitle}
+                        </h2>
+                        {displayCompany && (
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {displayCompany}
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Last update:&nbsp;{formattedTime}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-semibold ${
+                          interview.status === "completed"
+                            ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-200"
+                            : interview.status === "cancelled"
+                            ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-200"
+                            : "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-200"
+                        }`}
+                      >
+                        {interview.status || "Scheduled"}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-gray-600 dark:text-gray-300">
+                      <div>
+                        <span className="font-medium text-gray-700 dark:text-gray-200">
+                          Interview Type:
+                        </span>{" "}
+                        {interview.interview_type || "Not set"}
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700 dark:text-gray-200">
+                          Duration:
+                        </span>{" "}
+                        {durationLabel}
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700 dark:text-gray-200">
+                          Job ID:
+                        </span>{" "}
+                        {interview.job_id || "N/A"}
+                      </div>
+                      <div>
+                        <span className="font-medium text-gray-700 dark:text-gray-200">
+                          Interview ID:
+                        </span>{" "}
+                        {interview.interview_id}
+                      </div>
+                    </div>
+
+                    {interview.interview_url && (
+                      <a
+                        href={interview.interview_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center text-sm text-blue-600 dark:text-blue-300 hover:underline"
+                      >
+                        Join interview
+                        <svg
+                          className="w-4 h-4 ml-1"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={1.5}
+                            d="M17 8l4 4m0 0l-4 4m4-4H3"
+                          />
+                        </svg>
+                      </a>
+                    )}
+
+                    {interview.notes && (
+                      <p className="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 rounded-lg px-4 py-3 leading-relaxed whitespace-pre-wrap">
+                        {interview.notes}
                       </p>
-                    </div>
-                    <span
-                      className={`inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-semibold ${
-                        interview.status === "completed"
-                          ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-200"
-                          : interview.status === "cancelled"
-                          ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-200"
-                          : "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-200"
-                      }`}
-                    >
-                      {interview.status || "Scheduled"}
-                    </span>
-                  </div>
+                    )}
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-gray-600 dark:text-gray-300">
-                    <div className="flex items-center gap-2">
-                      <svg
-                        className="w-4 h-4 text-gray-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
+                    <div className="flex items-center justify-end gap-3">
+                      <button
+                        onClick={() => cancelInterview(interview.interview_id)}
+                        className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
                       >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={1.5}
-                          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                        />
-                      </svg>
-                      Interviewer:&nbsp;{interview.interviewer || "Not set"}
+                        Cancel Interview
+                      </button>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <svg
-                        className="w-4 h-4 text-gray-400"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={1.5}
-                          d="M17.657 16.657L13.414 12l4.243-4.243M6.343 7.343L10.586 12l-4.243 4.243"
-                        />
-                      </svg>
-                      Location：{interview.location || "TBD"}
-                    </div>
-                  </div>
-
-                  {interview.notes && (
-                    <p className="text-sm text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 rounded-lg px-4 py-3 leading-relaxed">
-                      {interview.notes}
-                    </p>
-                  )}
-
-                  <div className="flex items-center justify-end gap-3">
-                    <button
-                      onClick={() => cancelInterview(interview.interview_id)}
-                      className="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-                    >
-                      Cancel Interview
-                    </button>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
