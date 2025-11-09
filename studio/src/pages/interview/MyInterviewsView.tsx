@@ -24,6 +24,7 @@ const MyInterviewsView: React.FC = () => {
   );
 
   const {
+    connection,
     interviews,
     interviewsLoading,
     interviewsError,
@@ -41,8 +42,11 @@ const MyInterviewsView: React.FC = () => {
     return map;
   }, [jobs]);
   useEffect(() => {
-    loadInterviews();
-  }, [loadInterviews]);
+    if (!connection) {
+      return;
+    }
+    loadInterviews(true);
+  }, [connection, loadInterviews]);
 
   const orderedInterviews = useMemo(() => {
     return [...interviews].sort((a, b) => {

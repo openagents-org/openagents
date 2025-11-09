@@ -31,6 +31,7 @@ const InterviewMainPage: React.FC = () => {
   }, [connection, setConnection]);
 
   useEffect(() => {
+    console.log("connection", connection, isConnected);
     if (!connection || !isConnected) {
       return;
     }

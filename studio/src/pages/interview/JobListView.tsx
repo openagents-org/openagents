@@ -26,6 +26,7 @@ const JobListSkeleton: React.FC = () => {
 const JobListView: React.FC = () => {
   const navigate = useNavigate();
   const {
+    connection,
     jobs,
     jobsLoading,
     jobsError,
@@ -39,23 +40,23 @@ const JobListView: React.FC = () => {
   } = useInterviewPortalStore();
 
   useEffect(() => {
-    loadJobs();
-  }, [loadJobs]);
+    if (!connection) {
+      return;
+    }
+    loadJobs(true);
+  }, [connection, loadJobs]);
 
   useEffect(() => {
     if (
-      assessmentSupported &&
-      !assessmentFetched &&
-      !assessmentLoading
+      !connection ||
+      !assessmentSupported ||
+      assessmentFetched ||
+      assessmentLoading
     ) {
-      fetchAssessmentStatus();
+      return;
     }
-  }, [
-    assessmentSupported,
-    assessmentFetched,
-    assessmentLoading,
-    fetchAssessmentStatus,
-  ]);
+    fetchAssessmentStatus();
+  }, [connection, assessmentSupported, assessmentFetched, assessmentLoading, fetchAssessmentStatus]);
 
   const showAssessmentButton =
     assessmentSupported &&
