@@ -70,7 +70,7 @@
   },
   "scripts": {
     "start:win": "cross-env HOST=0.0.0.0 DANGEROUSLY_DISABLE_HOST_CHECK=true craco start",
-    "start": "cross-env HOST=0.0.0.0 DANGEROUSLY_DISABLE_HOST_CHECK=true craco start",
+    "start": "HOST=0.0.0.0 DANGEROUSLY_DISABLE_HOST_CHECK=true craco start",
     "build": "craco build",
     "test": "craco test",
     "eject": "react-scripts eject",

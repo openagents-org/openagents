@@ -254,6 +254,7 @@ export const useInterviewPortalStore = create<InterviewPortalState>(
 
     loadJobs: async (force = false) => {
       const { connection, jobsFetched } = get();
+      console.log("connection", connection);
       if (!connection) {
         console.warn("InterviewPortal: No connection available for loadJobs");
         set({
