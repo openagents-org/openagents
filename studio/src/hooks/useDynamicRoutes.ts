@@ -1,10 +1,10 @@
-import { useEffect, useCallback, useRef } from 'react';
-import { useAuthStore } from '@/stores/authStore';
-import { getCurrentNetworkHealth } from '@/services/networkService';
+import { useEffect, useCallback, useRef } from "react";
+import { useAuthStore } from "@/stores/authStore";
+import { getCurrentNetworkHealth } from "@/services/networkService";
 import {
   generateRouteConfigFromHealth,
   updateRouteVisibilityFromModules,
-} from '@/utils/moduleUtils';
+} from "@/utils/moduleUtils";
 
 /**
  * Hook to manage dynamic route configuration based on network health
@@ -44,23 +44,23 @@ export const useDynamicRoutes = () => {
     isLoadingRef.current = true;
 
     try {
-      console.log('🔄 Loading modules from network health...');
+      console.log("🔄 Loading modules from network health...");
 
       const healthResult = await getCurrentNetworkHealth(selectedNetwork);
 
       if (!healthResult.success || !healthResult.data) {
-        console.error('❌ Failed to load network health:', healthResult.error);
+        console.error("❌ Failed to load network health:", healthResult.error);
         return;
       }
 
       const routeConfig = generateRouteConfigFromHealth(healthResult.data);
 
-      console.log('✅ Modules loaded successfully:', {
+      console.log("✅ Modules loaded successfully:", {
         enabledModules: routeConfig.enabledModules,
         defaultRoute: routeConfig.defaultRoute,
         networkId: routeConfig.networkId,
       });
-
+      console.log("routeConfig.enabledModules", routeConfig.enabledModules);
       // Update route visibility
       updateRouteVisibilityFromModules(routeConfig.enabledModules);
 
@@ -71,9 +71,8 @@ export const useDynamicRoutes = () => {
         networkId: routeConfig.networkId,
         networkName: routeConfig.networkName,
       });
-
     } catch (error) {
-      console.error('❌ Error loading modules:', error);
+      console.error("❌ Error loading modules:", error);
     } finally {
       isLoadingRef.current = false;
     }
@@ -98,7 +97,8 @@ export const useDynamicRoutes = () => {
     // 4. Modules not loaded for current network
     const networkChanged = currentNetworkKey !== prevNetworkKey;
     const agentChanged = agentName !== prevAgent;
-    const modulesNotLoaded = !isModuleLoaded() || moduleState.networkId !== currentNetworkKey;
+    const modulesNotLoaded =
+      !isModuleLoaded() || moduleState.networkId !== currentNetworkKey;
 
     return networkChanged || agentChanged || modulesNotLoaded;
   }, [selectedNetwork, agentName, isModuleLoaded, moduleState.networkId]);
@@ -107,7 +107,9 @@ export const useDynamicRoutes = () => {
    * Handle module loading logic
    */
   useEffect(() => {
-    const currentNetworkKey = selectedNetwork ? `${selectedNetwork.host}:${selectedNetwork.port}` : null;
+    const currentNetworkKey = selectedNetwork
+      ? `${selectedNetwork.host}:${selectedNetwork.port}`
+      : null;
 
     // Update refs
     prevNetworkRef.current = currentNetworkKey;
@@ -116,7 +118,7 @@ export const useDynamicRoutes = () => {
     // Clear modules if no network/agent
     if (!selectedNetwork || !agentName) {
       if (isModuleLoaded()) {
-        console.log('🧹 Clearing modules - no network/agent selected');
+        console.log("🧹 Clearing modules - no network/agent selected");
         clearModules();
       }
       return;
@@ -124,16 +126,23 @@ export const useDynamicRoutes = () => {
 
     // Load modules if needed
     if (shouldLoadModules()) {
-      console.log('🚀 Loading modules for network:', currentNetworkKey);
+      console.log("🚀 Loading modules for network:", currentNetworkKey);
       loadModules();
     }
-  }, [selectedNetwork, agentName, shouldLoadModules, loadModules, clearModules, isModuleLoaded]);
+  }, [
+    selectedNetwork,
+    agentName,
+    shouldLoadModules,
+    loadModules,
+    clearModules,
+    isModuleLoaded,
+  ]);
 
   /**
    * Handle logout - clear modules when user logs out
    */
   const handleLogout = useCallback(() => {
-    console.log('👋 User logged out - clearing modules');
+    console.log("👋 User logged out - clearing modules");
     clearModules();
     prevNetworkRef.current = null;
     prevAgentRef.current = null;
@@ -152,6 +161,7 @@ export const useDynamicRoutes = () => {
     handleLogout,
 
     // Utilities
-    isModuleEnabled: (moduleName: string) => moduleState.enabledModules.includes(moduleName),
+    isModuleEnabled: (moduleName: string) =>
+      moduleState.enabledModules.includes(moduleName),
   };
 };
