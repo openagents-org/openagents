@@ -16,82 +16,87 @@ import ProfileMainPage from "@/pages/profile/ProfileMainPage";
 // Navigation icon components
 export const NavigationIcons = {
   Messages: React.memo(() =>
-    React.createElement("svg",
+    React.createElement(
+      "svg",
       {
         className: "w-6 h-6",
         fill: "none",
         stroke: "currentColor",
-        viewBox: "0 0 24 24"
+        viewBox: "0 0 24 24",
       },
       React.createElement("path", {
         strokeLinecap: "round",
         strokeLinejoin: "round",
         strokeWidth: 2,
-        d: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+        d: "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z",
       })
     )
   ),
   Forum: React.memo(() =>
-    React.createElement("svg",
+    React.createElement(
+      "svg",
       {
         className: "w-6 h-6",
         fill: "none",
         stroke: "currentColor",
-        viewBox: "0 0 24 24"
+        viewBox: "0 0 24 24",
       },
       React.createElement("path", {
         strokeLinecap: "round",
         strokeLinejoin: "round",
         strokeWidth: 2,
-        d: "M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z"
+        d: "M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z",
       })
     )
   ),
   Wiki: React.memo(() =>
-    React.createElement("svg",
+    React.createElement(
+      "svg",
       {
         className: "w-6 h-6",
         fill: "none",
         stroke: "currentColor",
-        viewBox: "0 0 24 24"
+        viewBox: "0 0 24 24",
       },
       React.createElement("path", {
         strokeLinecap: "round",
         strokeLinejoin: "round",
         strokeWidth: 2,
-        d: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+        d: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253",
       })
     )
   ),
   Documents: React.memo(() =>
-    React.createElement("svg",
+    React.createElement(
+      "svg",
       {
         className: "w-6 h-6",
         fill: "none",
         stroke: "currentColor",
-        viewBox: "0 0 24 24"
+        viewBox: "0 0 24 24",
       },
       React.createElement("path", {
         strokeLinecap: "round",
         strokeLinejoin: "round",
         strokeWidth: 2,
-        d: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+        d: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
       })
     )
   ),
   Interview: React.memo(() =>
-    React.createElement("svg",
+    React.createElement(
+      "svg",
       {
         className: "w-6 h-6",
         fill: "none",
         stroke: "currentColor",
-        viewBox: "0 0 24 24"
+        viewBox: "0 0 24 24",
       },
       React.createElement("path", {
         strokeLinecap: "round",
         strokeLinejoin: "round",
         strokeWidth: 2,
-        d: "M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+        d: "M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z",
       })
     )
   ),
@@ -118,18 +123,19 @@ export const NavigationIcons = {
   //   )
   // ),
   Profile: React.memo(() =>
-    React.createElement("svg",
+    React.createElement(
+      "svg",
       {
         className: "w-5 h-5",
         fill: "none",
         stroke: "currentColor",
-        viewBox: "0 0 24 24"
+        viewBox: "0 0 24 24",
       },
       React.createElement("path", {
         strokeLinecap: "round",
         strokeLinejoin: "round",
         strokeWidth: 2,
-        d: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+        d: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z",
       })
     )
   ),
@@ -165,7 +171,7 @@ export interface RouteConfig {
     icon: keyof typeof NavigationIcons;
     visible: boolean;
     order: number; // Sort weight
-    group: 'primary' | 'secondary'; // Primary function | Secondary function
+    group: "primary" | "secondary"; // Primary function | Secondary function
   };
 }
 
@@ -198,7 +204,7 @@ export const dynamicRouteConfig: RouteConfig[] = [
       icon: "Messages",
       visible: true,
       order: 1,
-      group: 'primary',
+      group: "primary",
     },
   },
   {
@@ -213,7 +219,7 @@ export const dynamicRouteConfig: RouteConfig[] = [
       icon: "Forum",
       visible: true,
       order: 2,
-      group: 'primary',
+      group: "primary",
     },
   },
   {
@@ -228,7 +234,7 @@ export const dynamicRouteConfig: RouteConfig[] = [
       icon: "Wiki",
       visible: true,
       order: 2.5,
-      group: 'primary',
+      group: "primary",
     },
   },
   {
@@ -243,7 +249,7 @@ export const dynamicRouteConfig: RouteConfig[] = [
       icon: "Documents",
       visible: true,
       order: 3,
-      group: 'primary',
+      group: "primary",
     },
   },
   {
@@ -258,7 +264,7 @@ export const dynamicRouteConfig: RouteConfig[] = [
       icon: "Interview",
       visible: true,
       order: 4,
-      group: 'primary',
+      group: "primary",
     },
   },
 
@@ -290,7 +296,7 @@ export const dynamicRouteConfig: RouteConfig[] = [
       icon: "Profile",
       visible: true,
       order: 6,
-      group: 'secondary',
+      group: "secondary",
     },
   },
   // {
@@ -386,14 +392,18 @@ export const dynamicRouteConfig: RouteConfig[] = [
 // Utility function: get visible navigation routes
 export const getVisibleNavigationRoutes = () => {
   return dynamicRouteConfig
-    .filter(route => route.navigationConfig?.visible)
-    .sort((a, b) => (a.navigationConfig?.order || 0) - (b.navigationConfig?.order || 0));
+    .filter((route) => route.navigationConfig?.visible)
+    .sort(
+      (a, b) =>
+        (a.navigationConfig?.order || 0) - (b.navigationConfig?.order || 0)
+    );
 };
 
 // Utility function: get navigation routes by group
-export const getNavigationRoutesByGroup = (group: 'primary' | 'secondary') => {
-  return getVisibleNavigationRoutes()
-    .filter(route => route.navigationConfig?.group === group);
+export const getNavigationRoutesByGroup = (group: "primary" | "secondary") => {
+  return getVisibleNavigationRoutes().filter(
+    (route) => route.navigationConfig?.group === group
+  );
 };
 
 // // Utility function: get visible quick actions
@@ -414,8 +424,13 @@ export const specialRoutes = [
 ];
 
 // Dynamic configuration update function - can update configuration through interface calls
-export const updateRouteVisibility = (pluginKey: PLUGIN_NAME_ENUM, visible: boolean) => {
-  const route = dynamicRouteConfig.find(r => r.navigationConfig?.key === pluginKey);
+export const updateRouteVisibility = (
+  pluginKey: PLUGIN_NAME_ENUM,
+  visible: boolean
+) => {
+  const route = dynamicRouteConfig.find(
+    (r) => r.navigationConfig?.key === pluginKey
+  );
   if (route?.navigationConfig) {
     route.navigationConfig.visible = visible;
   }

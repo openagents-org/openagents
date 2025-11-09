@@ -15,7 +15,7 @@ const ModSidebar: React.FC = () => {
   const iconGroups = useMemo(() => {
     const primaryRoutes = getNavigationRoutesByGroup("primary");
     const secondaryRoutes = getNavigationRoutesByGroup("secondary");
-
+    console.log("primaryRoutes", primaryRoutes);
     return [
       // Primary group (main features)
       primaryRoutes.map((route) => ({
@@ -41,7 +41,10 @@ const ModSidebar: React.FC = () => {
   // Check if current route is active
   const isRouteActive = (route: string) => {
     if (route === "/messaging") {
-      return location.pathname === "/messaging" || location.pathname === "/messaging/";
+      return (
+        location.pathname === "/messaging" ||
+        location.pathname === "/messaging/"
+      );
     }
     return location.pathname.startsWith(route);
   };
@@ -50,6 +53,7 @@ const ModSidebar: React.FC = () => {
   const handleNavigation = (route: string) => {
     navigate(route);
   };
+  console.log("iconGroups", iconGroups);
   return (
     <div
       className="

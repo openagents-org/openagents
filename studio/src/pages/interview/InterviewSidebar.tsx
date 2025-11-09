@@ -1,159 +1,170 @@
-import React, { useEffect, useMemo, useContext } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { useInterviewStore } from "@/stores/interviewStore";
-import { OpenAgentsContext } from "@/context/OpenAgentsProvider";
+import React, { useMemo } from "react";
+import { NavLink, useLocation } from "react-router-dom";
+import { useInterviewPortalStore } from "@/stores/interviewPortalStore";
 
-// Section Header Component
-const SectionHeader: React.FC<{ title: string }> = React.memo(({ title }) => (
-  <div className="px-5 my-3">
-    <div className="flex items-center">
-      <div className="text-xs font-bold text-gray-400 tracking-wide select-none">
-        {title}
-      </div>
-      <div className="ml-2 h-px bg-gray-200 dark:bg-gray-700 flex-1"></div>
-    </div>
-  </div>
-));
-SectionHeader.displayName = "SectionHeader";
+interface NavigationItem {
+  label: string;
+  description: string;
+  to: string;
+  icon: React.ReactNode;
+}
 
-// Recent Interview Item Component
-const RecentTopicItem: React.FC<{
-  topic: {
-    topic_id: string;
-    title: string;
-    comment_count: number;
-    timestamp: number;
-  };
-  isActive: boolean;
-  onClick: () => void;
-}> = React.memo(({ topic, isActive, onClick }) => {
-  // Format relative time
-  const getRelativeTime = (timestamp: number) => {
-    const now = Date.now() / 1000;
-    const diff = now - timestamp;
-
-    if (diff < 60) return "just now";
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-    return `${Math.floor(diff / 604800)}w ago`;
-  };
-
-  return (
-    <li>
-      <button
-        onClick={onClick}
-        className={`w-full text-left text-sm px-2 py-2 font-medium rounded transition-colors
-          ${
-            isActive
-              ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-300 border-l-2 border-indigo-500 dark:border-indigo-400 pl-2 shadow-sm"
-              : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 pl-2.5"
-          }
-        `}
-        title={topic.title}
+const navItems: NavigationItem[] = [
+  {
+    label: "Job Description",
+    description: "Browse available openings",
+    to: "/interview",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
       >
-        <div className="flex items-start justify-between">
-          <div className="flex items-start min-w-0 flex-1">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center truncate font-medium overflow-hidden">
-                <div className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                  {topic.title}
-                </div>
-              </div>
-              <div className="flex items-center space-x-2 text-xs text-gray-500 dark:text-gray-400 mt-1">
-                <span className="flex items-center space-x-1">
-                  💬 {topic.comment_count}
-                </span>
-                <span>•</span>
-                <span>{getRelativeTime(topic.timestamp)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </button>
-    </li>
-  );
-});
-RecentTopicItem.displayName = "RecentTopicItem";
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={1.5}
+          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+        />
+      </svg>
+    ),
+  },
+  {
+    label: "Discussion",
+    description: "Stay in sync with recruiters",
+    to: "/interview/discussion",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={1.5}
+          d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a2 2 0 01-2-2V6a2 2 0 012-2h6a2 2 0 012 2v2z"
+        />
+      </svg>
+    ),
+  },
+  {
+    label: "My Interviews",
+    description: "Review and manage schedules",
+    to: "/interview/my-interviews",
+    icon: (
+      <svg
+        className="w-5 h-5"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={1.5}
+          d="M8 7V3m8 4V3m-9 8h10m-9 4h6m-9 6h12a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+        />
+      </svg>
+    ),
+  },
+];
 
-// Interview Sidebar Content Component
 const InterviewSidebar: React.FC = () => {
-  const context = useContext(OpenAgentsContext);
-  const openAgentsService = context?.connector;
-  const isConnected = context?.isConnected;
-  const navigate = useNavigate();
   const location = useLocation();
+  const { jobs, notifications, interviews, assessmentStatus } =
+    useInterviewPortalStore();
 
-  const { topics, groupsData, setConnection, loadTopics, getRecentTopics } =
-    useInterviewStore();
-
-  // Get recent topics (cached result)
-  const recentTopics = useMemo(() => {
-    const recent = getRecentTopics();
-    console.log(
-      "InterviewSidebar: Recent topics recalculated. Total topics:",
-      topics.length,
-      "Recent count:",
-      recent.length,
-      "groupsData:",
-      groupsData
-    );
-    console.log(
-      "InterviewSidebar: Recent topics:",
-      recent.map((t) => ({
-        id: t.topic_id,
-        title: t.title,
-        timestamp: t.timestamp,
-      }))
-    );
-    return recent;
-  }, [topics, getRecentTopics, groupsData]);
-
-  // Check if currently on a topic detail page
-  const currentTopicId = location.pathname.match(/^\/interview\/([^/]+)$/)?.[1];
-
-  // Set connection
-  useEffect(() => {
-    if (openAgentsService) {
-      setConnection(openAgentsService);
-    }
-  }, [openAgentsService, setConnection]);
-
-  // Load topics (wait for connection to be established)
-  useEffect(() => {
-    if (openAgentsService && isConnected && topics.length === 0) {
-      console.log("InterviewSidebar: Connection ready, loading topics");
-      loadTopics();
-    }
-  }, [openAgentsService, isConnected, topics.length, loadTopics]);
-
-  // Handle topic click
-  const handleTopicClick = (topicId: string) => {
-    console.log("InterviewSidebar: Navigating to topic:", topicId);
-    navigate(`/interview/${topicId}`);
-  };
+  const stats = useMemo(() => {
+    return [
+      {
+        label: "Open Roles",
+        value: jobs.length,
+      },
+      {
+        label: "Unread Notices",
+        value: notifications.filter((item) => !item.read).length,
+      },
+      {
+        label: "Scheduled Interviews",
+        value: interviews.length,
+      },
+    ];
+  }, [jobs.length, notifications, interviews.length]);
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Recent Interviews Section */}
-      <div className="flex-1 overflow-y-auto">
-        <SectionHeader title="RECENT INTERVIEWS" />
-        {recentTopics.length > 0 ? (
-          <ul className="space-y-1 px-3">
-            {recentTopics.map((topic) => (
-              <RecentTopicItem
-                key={topic.topic_id}
-                topic={topic}
-                isActive={currentTopicId === topic.topic_id}
-                onClick={() => handleTopicClick(topic.topic_id)}
-              />
-            ))}
-          </ul>
-        ) : (
-          <div className="px-5 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
-            No interviews yet
+    <div className="h-full flex flex-col bg-white/60 dark:bg-gray-900/60 backdrop-blur">
+      <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+        <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
+          Interview Workspace
+        </p>
+        <h2 className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
+          Interview Hub
+        </h2>
+        {assessmentStatus && (
+          <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-900/40 dark:bg-blue-900/20 px-3 py-2">
+            <p className="text-xs text-blue-700 dark:text-blue-200 leading-relaxed">
+              General Assessment:&nbsp;
+              {assessmentStatus.general_assessment_completed
+                ? "Completed"
+                : "Pending"}
+            </p>
           </div>
         )}
+      </div>
+
+      <nav className="px-3 py-4 space-y-2 overflow-y-auto">
+        {navItems.map((item) => {
+          const isActive =
+            item.to === "/interview"
+              ? location.pathname === item.to
+              : location.pathname.startsWith(item.to);
+
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={`group flex items-start gap-3 px-3 py-3 rounded-xl border transition hover:-translate-y-0.5 hover:shadow ${
+                isActive
+                  ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800/60 dark:bg-blue-900/30 dark:text-blue-200"
+                  : "border-transparent bg-white dark:bg-gray-900/40 text-gray-700 dark:text-gray-200 hover:border-blue-100 dark:hover:border-blue-800/40 hover:bg-blue-50/40 dark:hover:bg-blue-900/20"
+              }`}
+            >
+              <span
+                className={`mt-0.5 p-2 rounded-lg bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-200 shadow-sm`}
+              >
+                {item.icon}
+              </span>
+              <span>
+                <span className="block text-sm font-semibold">{item.label}</span>
+                <span className="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+                  {item.description}
+                </span>
+              </span>
+            </NavLink>
+          );
+        })}
+      </nav>
+
+      <div className="mt-auto border-t border-gray-200 dark:border-gray-700 px-5 py-4 space-y-3">
+        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+          Today's Snapshot
+        </p>
+        <div className="space-y-2">
+          {stats.map((stat) => (
+            <div
+              key={stat.label}
+              className="flex items-center justify-between text-sm text-gray-700 dark:text-gray-200"
+            >
+              <span>{stat.label}</span>
+              <span className="font-semibold text-gray-900 dark:text-gray-100">
+                {stat.value}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

@@ -65,10 +65,12 @@
     "@types/events": "^3.0.3",
     "@types/marked": "^5.0.2",
     "@types/node": "^20.11.0",
-    "@types/uuid": "^9.0.8"
+    "@types/uuid": "^9.0.8",
+    "cross-env": "^7.0.3"
   },
   "scripts": {
-    "start": "HOST=0.0.0.0 DANGEROUSLY_DISABLE_HOST_CHECK=true craco start",
+    "start:win": "cross-env HOST=0.0.0.0 DANGEROUSLY_DISABLE_HOST_CHECK=true craco start",
+    "start": "cross-env HOST=0.0.0.0 DANGEROUSLY_DISABLE_HOST_CHECK=true craco start",
     "build": "craco build",
     "test": "craco test",
     "eject": "react-scripts eject",

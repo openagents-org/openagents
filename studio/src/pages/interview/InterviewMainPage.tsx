@@ -1,45 +1,66 @@
-import React, { useEffect, useContext } from "react";
-import { Routes, Route } from "react-router-dom";
-import InterviewTopicList from "@/components/interview/InterviewTopicList";
-import InterviewTopicDetail from "@/components/interview/InterviewTopicDetail";
-import { useInterviewStore } from "@/stores/interviewStore";
+import React, { useContext, useEffect } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { OpenAgentsContext } from "@/context/OpenAgentsProvider";
+import { useInterviewPortalStore } from "@/stores/interviewPortalStore";
+import JobListView from "./JobListView";
+import JobDetailView from "./JobDetailView";
+import DiscussionView from "./DiscussionView";
+import MyInterviewsView from "./MyInterviewsView";
+import NotificationPanel from "./NotificationPanel";
 
-/**
- * Interview main page - handles all Interview related functionality
- */
 const InterviewMainPage: React.FC = () => {
   const context = useContext(OpenAgentsContext);
-  const openAgentsService = context?.connector;
-  const { setupEventListeners, cleanupEventListeners } = useInterviewStore();
+  const connection = context?.connector || null;
+  const isConnected = context?.isConnected;
 
-  // Setup event listeners at parent level to persist across navigation
+  const {
+    setConnection,
+    loadJobs,
+    loadNotifications,
+    loadInterviews,
+    fetchAssessmentStatus,
+  } = useInterviewPortalStore();
+
   useEffect(() => {
-    if (openAgentsService) {
-      console.log("InterviewMainPage: Setting up interview event listeners");
-      setupEventListeners();
-
+    if (connection) {
+      setConnection(connection);
       return () => {
-        console.log("InterviewMainPage: Cleaning up interview event listeners");
-        cleanupEventListeners();
+        setConnection(null);
       };
     }
-  }, [openAgentsService, setupEventListeners, cleanupEventListeners]);
+  }, [connection, setConnection]);
+
+  useEffect(() => {
+    if (!connection || !isConnected) {
+      return;
+    }
+
+    loadJobs();
+    fetchAssessmentStatus();
+    loadNotifications();
+    loadInterviews();
+  }, [
+    connection,
+    isConnected,
+    loadJobs,
+    fetchAssessmentStatus,
+    loadNotifications,
+    loadInterviews,
+  ]);
 
   return (
-    <Routes>
-      {/* Interview session list page */}
-      <Route
-        index
-        element={<InterviewTopicList />}
-      />
-
-      {/* Interview session detail page */}
-      <Route
-        path=":topicId"
-        element={<InterviewTopicDetail />}
-      />
-    </Routes>
+    <div className="flex h-full w-full bg-white/80 dark:bg-gray-900/80 backdrop-blur rounded-xl overflow-hidden">
+      <div className="flex-1 overflow-hidden">
+        <Routes>
+          <Route index element={<JobListView />} />
+          <Route path="jobs/:jobId" element={<JobDetailView />} />
+          <Route path="discussion" element={<DiscussionView />} />
+          <Route path="my-interviews" element={<MyInterviewsView />} />
+          <Route path="*" element={<Navigate to="/interview" replace />} />
+        </Routes>
+      </div>
+      <NotificationPanel />
+    </div>
   );
 };
 
