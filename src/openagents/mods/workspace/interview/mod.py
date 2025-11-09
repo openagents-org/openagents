@@ -128,6 +128,148 @@ class InterviewComment:
         }
 
 
+class Job:
+    """Job posting for interview process."""
+
+    def __init__(
+        self,
+        job_id: str,
+        title: str,
+        company_name: str,
+        posted_agent_id: str,
+        posted_date: float,
+        detailed_description: str = "",
+        image_url: str = "",
+        requirements: Optional[List[str]] = None,
+        salary_range: str = "",
+        location: str = "",
+        status: str = "open",
+        application_deadline: Optional[float] = None,
+        contact_info: str = "",
+    ):
+        self.job_id = job_id
+        self.title = title
+        self.company_name = company_name
+        self.posted_agent_id = posted_agent_id
+        self.posted_date = posted_date
+        self.detailed_description = detailed_description
+        self.image_url = image_url
+        self.requirements = requirements or []
+        self.salary_range = salary_range
+        self.location = location
+        self.status = status
+        self.application_deadline = application_deadline
+        self.contact_info = contact_info
+        self.updated_at = posted_date
+
+    def to_brief_dict(self) -> Dict[str, Any]:
+        """Convert to brief dict for list view."""
+        brief_desc = self.detailed_description[:200] if self.detailed_description else ""
+        return {
+            "job_id": self.job_id,
+            "title": self.title,
+            "company_name": self.company_name,
+            "image_url": self.image_url,
+            "posted_date": int(self.posted_date),
+            "posted_agent_id": self.posted_agent_id,
+            "status": self.status,
+            "brief_description": brief_desc,
+        }
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to full dict."""
+        result = {
+            "job_id": self.job_id,
+            "title": self.title,
+            "company_name": self.company_name,
+            "image_url": self.image_url,
+            "posted_date": int(self.posted_date),
+            "posted_agent_id": self.posted_agent_id,
+            "status": self.status,
+            "detailed_description": self.detailed_description,
+            "requirements": self.requirements,
+            "salary_range": self.salary_range,
+            "location": self.location,
+            "contact_info": self.contact_info,
+        }
+        if self.application_deadline is not None:
+            result["application_deadline"] = int(self.application_deadline)
+        return result
+
+
+class Notification:
+    """Notification for interview events."""
+
+    def __init__(
+        self,
+        notification_id: str,
+        recipient_id: str,
+        notification_type: str,
+        message: str,
+        created_at: float,
+        status: str = "unread",
+    ):
+        self.notification_id = notification_id
+        self.recipient_id = recipient_id
+        self.notification_type = notification_type
+        self.message = message
+        self.created_at = created_at
+        self.status = status
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dict."""
+        return {
+            "notification_id": self.notification_id,
+            "recipient_id": self.recipient_id,
+            "type": self.notification_type,
+            "message": self.message,
+            "created_at": int(self.created_at),
+            "status": self.status,
+        }
+
+
+class Interview:
+    """Interview session."""
+
+    def __init__(
+        self,
+        interview_id: str,
+        job_id: str,
+        interview_url: str,
+        interview_type: str,
+        created_at: float,
+        duration_minutes: int = 60,
+        notes: str = "",
+        status: str = "scheduled",
+    ):
+        self.interview_id = interview_id
+        self.job_id = job_id
+        self.interview_url = interview_url
+        self.interview_type = interview_type
+        self.created_at = created_at
+        self.updated_at = created_at
+        self.duration_minutes = duration_minutes
+        self.notes = notes
+        self.status = status
+        self.results: Dict[str, Any] = {}
+        self.cancelled_at: Optional[float] = None
+        self.cancellation_reason: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dict."""
+        result = {
+            "interview_id": self.interview_id,
+            "status": self.status,
+            "interview_url": self.interview_url if self.status == "scheduled" else None,
+            "interview_type": self.interview_type if self.status == "scheduled" else None,
+            "duration_minutes": self.duration_minutes if self.status == "scheduled" else None,
+            "results": self.results,
+            "created_at": int(self.created_at),
+            "updated_at": int(self.updated_at),
+        }
+        return result
+
+
 class InterviewNetworkMod(BaseMod):
     """Network mod for AI interview with private resume access."""
 
@@ -136,6 +278,9 @@ class InterviewNetworkMod(BaseMod):
         self.topics: Dict[str, InterviewTopic] = {}
         self.files: Dict[str, Dict[str, Any]] = {}  # file_id -> file_metadata
         self.file_storage_path: Optional[Path] = None
+        self.jobs: Dict[str, Job] = {}  # job_id -> Job
+        self.notifications: Dict[str, Notification] = {}  # notification_id -> Notification
+        self.interviews: Dict[str, Interview] = {}  # interview_id -> Interview
 
     def bind_network(self, network):
         """Bind network and initialize file storage."""
@@ -808,4 +953,395 @@ class InterviewNetworkMod(BaseMod):
         )
         await self.send_event(notification)
         logger.info(f"Broadcast notification: {event_name}")
+
+    # ========== Jobs Events ==========
+
+    @mod_event_handler("interview.jobs.list")
+    async def _list_jobs(self, event: Event) -> EventResponse:
+        """List job postings with optional status filter."""
+        payload = event.payload
+        status = payload.get("status")
+
+        # Filter jobs by status if provided
+        if status:
+            filtered_jobs = [
+                job for job in self.jobs.values()
+                if job.status == status
+            ]
+        else:
+            filtered_jobs = list(self.jobs.values())
+
+        # Sort by posted date (newest first)
+        filtered_jobs.sort(key=lambda j: j.posted_date, reverse=True)
+
+        jobs_data = [job.to_brief_dict() for job in filtered_jobs]
+
+        return EventResponse(
+            success=True,
+            message="Jobs retrieved successfully",
+            data={
+                "jobs": jobs_data,
+                "total_count": len(jobs_data),
+            }
+        )
+
+    @mod_event_handler("interview.jobs.get")
+    async def _get_job(self, event: Event) -> EventResponse:
+        """Get detailed job information."""
+        payload = event.payload
+        job_id = payload.get("job_id")
+
+        if not job_id:
+            return EventResponse(
+                success=False,
+                message="Missing required field: job_id"
+            )
+
+        if job_id not in self.jobs:
+            return EventResponse(
+                success=False,
+                message="Job not found"
+            )
+
+        job = self.jobs[job_id]
+        return EventResponse(
+            success=True,
+            message="Job retrieved successfully",
+            data=job.to_dict()
+        )
+
+    @mod_event_handler("interview.jobs.put")
+    async def _update_job(self, event: Event) -> EventResponse:
+        """Update job posting."""
+        payload = event.payload
+        job_id = payload.get("job_id")
+
+        if not job_id:
+            return EventResponse(
+                success=False,
+                message="Missing required field: job_id"
+            )
+
+        # If job doesn't exist, create it
+        if job_id not in self.jobs:
+            # Create new job
+            title = payload.get("title", "")
+            company_name = payload.get("company_name", "")
+            
+            if not title or not company_name:
+                return EventResponse(
+                    success=False,
+                    message="Missing required fields for new job: title and company_name"
+                )
+
+            job = Job(
+                job_id=job_id,
+                title=title,
+                company_name=company_name,
+                posted_agent_id=event.source_id,
+                posted_date=time.time(),
+                detailed_description=payload.get("detailed_description", ""),
+                image_url=payload.get("image_url", ""),
+                requirements=payload.get("requirements", []),
+                salary_range=payload.get("salary_range", ""),
+                location=payload.get("location", ""),
+                status=payload.get("status", "open"),
+                application_deadline=payload.get("application_deadline"),
+                contact_info=payload.get("contact_info", ""),
+            )
+            self.jobs[job_id] = job
+            updated_fields = list(payload.keys())
+            updated_fields.remove("job_id")
+        else:
+            # Update existing job
+            job = self.jobs[job_id]
+            updated_fields = []
+
+            # Update allowed fields
+            updatable_fields = {
+                "title": str,
+                "company_name": str,
+                "image_url": str,
+                "detailed_description": str,
+                "requirements": list,
+                "salary_range": str,
+                "location": str,
+                "status": str,
+                "application_deadline": (int, float, type(None)),
+                "contact_info": str,
+            }
+
+            for field, expected_type in updatable_fields.items():
+                if field in payload:
+                    setattr(job, field, payload[field])
+                    updated_fields.append(field)
+
+        job.updated_at = time.time()
+
+        return EventResponse(
+            success=True,
+            message="Job updated successfully",
+            data={
+                "job_id": job_id,
+                "updated_fields": updated_fields,
+                "updated_at": int(job.updated_at),
+                "success": True,
+            }
+        )
+
+    @mod_event_handler("interview.jobs.delete")
+    async def _delete_job(self, event: Event) -> EventResponse:
+        """Delete job posting."""
+        payload = event.payload
+        job_id = payload.get("job_id")
+
+        if not job_id:
+            return EventResponse(
+                success=False,
+                message="Missing required field: job_id"
+            )
+
+        if job_id not in self.jobs:
+            return EventResponse(
+                success=False,
+                message="Job not found"
+            )
+
+        del self.jobs[job_id]
+        deleted_at = time.time()
+
+        logger.info(f"Deleted job {job_id}")
+
+        return EventResponse(
+            success=True,
+            message="Job deleted successfully",
+            data={
+                "job_id": job_id,
+                "deleted_at": int(deleted_at),
+                "success": True,
+            }
+        )
+
+    # ========== Notification Events ==========
+
+    @mod_event_handler("interview.notification.list")
+    async def _list_notifications(self, event: Event) -> EventResponse:
+        """List notifications with pagination and filters."""
+        payload = event.payload
+        limit = int(payload.get("limit", 50))
+        offset = int(payload.get("offset", 0))
+        status = payload.get("status")
+        notification_type = payload.get("type")
+
+        # Filter notifications
+        filtered_notifications = []
+        for notification in self.notifications.values():
+            # Filter by recipient (only show notifications for requesting agent)
+            if notification.recipient_id != event.source_id:
+                continue
+            
+            # Filter by status if provided
+            if status and notification.status != status:
+                continue
+            
+            # Filter by type if provided
+            if notification_type and notification.notification_type != notification_type:
+                continue
+            
+            filtered_notifications.append(notification)
+
+        # Sort by created date (newest first)
+        filtered_notifications.sort(key=lambda n: n.created_at, reverse=True)
+
+        # Paginate
+        total_count = len(filtered_notifications)
+        paginated_notifications = filtered_notifications[offset:offset + limit]
+        notifications_data = [n.to_dict() for n in paginated_notifications]
+
+        return EventResponse(
+            success=True,
+            message="Notifications retrieved successfully",
+            data={
+                "notifications": notifications_data,
+                "total_count": total_count,
+                "offset": offset,
+                "limit": limit,
+                "has_more": offset + limit < total_count,
+            }
+        )
+
+    @mod_event_handler("interview.notification.add")
+    async def _add_notification(self, event: Event) -> EventResponse:
+        """Add a new notification."""
+        payload = event.payload
+        recipient_id = payload.get("recipient_id")
+        notification_type = payload.get("type")
+        message = payload.get("message")
+
+        # Validate required fields
+        if not recipient_id:
+            return EventResponse(
+                success=False,
+                message="Missing required field: recipient_id"
+            )
+        
+        if not notification_type:
+            return EventResponse(
+                success=False,
+                message="Missing required field: type"
+            )
+        
+        if not message:
+            return EventResponse(
+                success=False,
+                message="Missing required field: message"
+            )
+
+        # Create notification
+        notification_id = str(uuid.uuid4())
+        notification = Notification(
+            notification_id=notification_id,
+            recipient_id=recipient_id,
+            notification_type=notification_type,
+            message=message,
+            created_at=time.time(),
+        )
+
+        self.notifications[notification_id] = notification
+        logger.info(f"Created notification {notification_id} for {recipient_id}")
+
+        return EventResponse(
+            success=True,
+            message="Notification created successfully",
+            data={
+                "notification_id": notification_id,
+            }
+        )
+
+    # ========== Interviews Events ==========
+
+    @mod_event_handler("interview.interviews.list")
+    async def _list_interviews(self, event: Event) -> EventResponse:
+        """List interview sessions with optional status filter."""
+        payload = event.payload
+        status = payload.get("status")
+
+        # Filter interviews by status if provided
+        if status:
+            filtered_interviews = [
+                interview for interview in self.interviews.values()
+                if interview.status == status
+            ]
+        else:
+            filtered_interviews = list(self.interviews.values())
+
+        # Sort by created date (newest first)
+        filtered_interviews.sort(key=lambda i: i.created_at, reverse=True)
+
+        interviews_data = [interview.to_dict() for interview in filtered_interviews]
+
+        return EventResponse(
+            success=True,
+            message="Interviews retrieved successfully",
+            data={
+                "interviews": interviews_data,
+                "total_count": len(interviews_data),
+            }
+        )
+
+    @mod_event_handler("interview.interviews.add")
+    async def _add_interview(self, event: Event) -> EventResponse:
+        """Schedule a new interview."""
+        payload = event.payload
+        job_id = payload.get("job_id")
+        interview_url = payload.get("interview_url")
+        interview_type = payload.get("interview_type")
+        duration_minutes = int(payload.get("duration_minutes", 60))
+        notes = payload.get("notes", "")
+
+        # Validate required fields
+        if not job_id:
+            return EventResponse(
+                success=False,
+                message="Missing required field: job_id"
+            )
+        
+        if not interview_url:
+            return EventResponse(
+                success=False,
+                message="Missing required field: interview_url"
+            )
+        
+        if not interview_type:
+            return EventResponse(
+                success=False,
+                message="Missing required field: interview_type"
+            )
+
+        # Create interview
+        interview_id = str(uuid.uuid4())
+        created_at = time.time()
+        
+        interview = Interview(
+            interview_id=interview_id,
+            job_id=job_id,
+            interview_url=interview_url,
+            interview_type=interview_type,
+            created_at=created_at,
+            duration_minutes=duration_minutes,
+            notes=notes,
+            status="scheduled",
+        )
+
+        self.interviews[interview_id] = interview
+        logger.info(f"Scheduled interview {interview_id} for job {job_id}")
+
+        return EventResponse(
+            success=True,
+            message="Interview scheduled successfully",
+            data={
+                "interview_id": interview_id,
+                "status": "scheduled",
+                "created_at": int(created_at),
+            }
+        )
+
+    @mod_event_handler("interview.interviews.delete")
+    async def _delete_interview(self, event: Event) -> EventResponse:
+        """Cancel/delete an interview."""
+        payload = event.payload
+        interview_id = payload.get("interview_id")
+        reason = payload.get("reason", "")
+
+        if not interview_id:
+            return EventResponse(
+                success=False,
+                message="Missing required field: interview_id"
+            )
+
+        if interview_id not in self.interviews:
+            return EventResponse(
+                success=False,
+                message="Interview not found"
+            )
+
+        interview = self.interviews[interview_id]
+        interview.status = "cancelled"
+        interview.cancelled_at = time.time()
+        interview.cancellation_reason = reason
+        interview.updated_at = interview.cancelled_at
+
+        logger.info(f"Cancelled interview {interview_id}: {reason}")
+
+        return EventResponse(
+            success=True,
+            message="Interview cancelled successfully",
+            data={
+                "interview_id": interview_id,
+                "cancelled_at": int(interview.cancelled_at),
+                "reason": reason,
+                "success": True,
+            }
+        )
+
 
