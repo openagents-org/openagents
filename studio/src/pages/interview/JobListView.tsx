@@ -32,6 +32,8 @@ const JobListView: React.FC = () => {
     loadJobs,
     assessmentStatus,
     assessmentLoading,
+    assessmentFetched,
+    assessmentSupported,
     fetchAssessmentStatus,
     startGeneralAssessment,
   } = useInterviewPortalStore();
@@ -41,12 +43,22 @@ const JobListView: React.FC = () => {
   }, [loadJobs]);
 
   useEffect(() => {
-    if (!assessmentStatus && !assessmentLoading) {
+    if (
+      assessmentSupported &&
+      !assessmentFetched &&
+      !assessmentLoading
+    ) {
       fetchAssessmentStatus();
     }
-  }, [assessmentStatus, assessmentLoading, fetchAssessmentStatus]);
+  }, [
+    assessmentSupported,
+    assessmentFetched,
+    assessmentLoading,
+    fetchAssessmentStatus,
+  ]);
 
   const showAssessmentButton =
+    assessmentSupported &&
     !assessmentStatus?.general_assessment_completed;
 
   return (

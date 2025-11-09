@@ -27,6 +27,7 @@ const EmptyState: React.FC = () => (
 
 const DiscussionView: React.FC = () => {
   const [message, setMessage] = useState("");
+  const [notificationType, setNotificationType] = useState("message");
 
   const {
     notifications,
@@ -46,9 +47,44 @@ const DiscussionView: React.FC = () => {
       return;
     }
 
-    const success = await addNotification(message.trim());
+    const success = await addNotification(message.trim(), {
+      type: notificationType,
+    });
     if (success) {
       setMessage("");
+    }
+  };
+
+  const getTypeLabel = (type: string) => {
+    const normalized = type?.toLowerCase();
+    switch (normalized) {
+      case "warning":
+        return "Warning";
+      case "success":
+        return "Success";
+      case "error":
+      case "alert":
+        return "Alert";
+      case "info":
+        return "Info";
+      case "message":
+      default:
+        return "Message";
+    }
+  };
+
+  const getTypeIcon = (type: string) => {
+    const normalized = type?.toLowerCase();
+    switch (normalized) {
+      case "warning":
+        return "⚠️";
+      case "success":
+        return "✅";
+      case "error":
+      case "alert":
+        return "⛔";
+      default:
+        return "💬";
     }
   };
 
@@ -113,17 +149,11 @@ const DiscussionView: React.FC = () => {
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
                         <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-200 flex items-center justify-center font-semibold">
-                          {notification.level === "warning"
-                            ? "⚠️"
-                            : notification.level === "success"
-                            ? "✅"
-                            : notification.level === "error"
-                            ? "⛔"
-                          : "💬"}
+                          {getTypeIcon(notification.type)}
                         </div>
                         <div>
                           <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                            Hiring Team
+                            {getTypeLabel(notification.type)}
                           </p>
                           <p className="text-xs text-gray-500 dark:text-gray-400">
                             {new Date(
@@ -154,6 +184,17 @@ const DiscussionView: React.FC = () => {
               placeholder="Share your update or question..."
               className="flex-1 min-h-[96px] md:min-h-[72px] rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-4 py-3 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition"
             />
+            <select
+              value={notificationType}
+              onChange={(event) => setNotificationType(event.target.value)}
+              className="md:w-40 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-4 py-3 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition"
+            >
+              <option value="message">Message</option>
+              <option value="info">Info</option>
+              <option value="warning">Warning</option>
+              <option value="alert">Alert</option>
+              <option value="success">Success</option>
+            </select>
             <button
               type="submit"
               disabled={!message.trim()}

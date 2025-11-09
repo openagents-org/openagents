@@ -24,27 +24,37 @@ export interface JobDetail extends JobSummary {
   employment_type?: string;
   remote?: boolean;
   additional_information?: string;
+  image_url?: string;
+  contact_info?: string;
+  posted_date?: number;
+  posted_agent_id?: string;
+  application_deadline?: number;
+  detailed_description?: string;
+  brief_description?: string;
 }
 
 export interface NotificationItem {
   notification_id: string;
   message: string;
   created_at: number;
-  read?: boolean;
-  level?: "info" | "warning" | "success" | "error";
+  status: string;
+  type: string;
+  recipient_id?: string;
+  read: boolean;
   metadata?: Record<string, unknown>;
 }
 
 export interface InterviewRecord {
   interview_id: string;
   job_id?: string;
-  job_title?: string;
-  scheduled_time?: string;
-  interviewer?: string;
-  location?: string;
-  status?: string;
+  status: string;
+  interview_url?: string | null;
+  interview_type?: string | null;
+  duration_minutes?: number | null;
+  results?: Record<string, unknown>;
+  created_at?: number;
+  updated_at?: number;
   notes?: string;
-  metadata?: Record<string, unknown>;
 }
 
 export interface AssessmentStatus {
@@ -70,6 +80,7 @@ interface InterviewPortalState {
   assessmentLoading: boolean;
   assessmentError: string | null;
   assessmentFetched: boolean;
+  assessmentSupported: boolean;
 
   notifications: NotificationItem[];
   notificationsLoading: boolean;
@@ -91,16 +102,18 @@ interface InterviewPortalState {
   startGeneralAssessment: () => Promise<boolean>;
 
   loadNotifications: (force?: boolean) => Promise<void>;
-  addNotification: (message: string) => Promise<boolean>;
+  addNotification: (
+    message: string,
+    options?: { recipientId?: string; type?: string }
+  ) => Promise<boolean>;
   markNotificationRead: (notificationId: string) => void;
 
   loadInterviews: (force?: boolean) => Promise<void>;
   scheduleInterview: (payload: {
-    job_id?: string;
-    job_title?: string;
-    scheduled_time?: string;
-    interviewer?: string;
-    location?: string;
+    job_id: string;
+    interview_url: string;
+    interview_type: string;
+    duration_minutes?: number;
     notes?: string;
   }) => Promise<boolean>;
   cancelInterview: (interviewId: string) => Promise<boolean>;
@@ -121,27 +134,57 @@ const normalizeJob = (job: any): JobDetail => {
     job?.slug ||
     `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+  const postedDate =
+    typeof job?.posted_date === "number"
+      ? job.posted_date
+      : typeof job?.posted_at === "number"
+      ? job.posted_at
+      : undefined;
+
+  const statusValue =
+    job?.status ||
+    job?.state ||
+    job?.job_status ||
+    job?.hiring_status ||
+    "open";
+
+  const description =
+    job?.description ||
+    job?.detailed_description ||
+    job?.brief_description ||
+    job?.summary ||
+    job?.content ||
+    job?.details ||
+    "";
+
   return {
     job_id: jobId,
     title: job?.title || job?.position || "Untitled Position",
     company: job?.company || job?.company_name || "Unknown Company",
-    location: job?.location || job?.city || job?.region || "Remote",
-    description:
-      job?.description ||
-      job?.summary ||
-      job?.content ||
-      job?.details ||
-      "",
-    tags:
-      ensureArray(job?.tags).map((tag) =>
+    location:
+      job?.location ||
+      job?.city ||
+      job?.region ||
+      job?.work_location ||
+      "Remote",
+    description,
+    tags: [
+      ...ensureArray(job?.tags).map((tag) =>
         typeof tag === "string" ? tag : tag?.name || ""
-      ) || [],
+      ),
+      ...ensureArray(job?.skills).map((tag) =>
+        typeof tag === "string" ? tag : tag?.name || ""
+      ),
+    ].filter(Boolean),
     created_at:
       job?.created_at ||
       job?.timestamp ||
-      (typeof job?.posted_at === "number" ? job?.posted_at : undefined),
-    status: job?.status || job?.state || "open",
-    metadata: job?.metadata || {},
+      postedDate,
+    status: statusValue,
+    metadata: {
+      ...(job?.metadata || {}),
+      ...(job?.posted_agent_id ? { posted_agent_id: job.posted_agent_id } : {}),
+    },
     requirements: ensureArray(job?.requirements).map((req) =>
       typeof req === "string" ? req : req?.text || ""
     ),
@@ -160,7 +203,18 @@ const normalizeJob = (job: any): JobDetail => {
       typeof job?.remote === "boolean"
         ? job.remote
         : job?.work_mode === "remote",
-    additional_information: job?.additional_information || job?.notes,
+    additional_information:
+      job?.additional_information || job?.notes || job?.additional_info,
+    image_url: job?.image_url,
+    contact_info: job?.contact_info,
+    posted_date: postedDate,
+    posted_agent_id: job?.posted_agent_id,
+    application_deadline:
+      typeof job?.application_deadline === "number"
+        ? job.application_deadline
+        : undefined,
+    detailed_description: job?.detailed_description,
+    brief_description: job?.brief_description,
   };
 };
 
@@ -182,6 +236,7 @@ export const useInterviewPortalStore = create<InterviewPortalState>(
     assessmentLoading: false,
     assessmentError: null,
     assessmentFetched: false,
+    assessmentSupported: false,
 
     notifications: [],
     notificationsLoading: false,
@@ -321,108 +376,36 @@ export const useInterviewPortalStore = create<InterviewPortalState>(
     },
 
     fetchAssessmentStatus: async (force = false) => {
-      const { connection, assessmentFetched } = get();
-      if (!connection) {
-        console.warn(
-          "InterviewPortal: No connection available for fetchAssessmentStatus"
-        );
-        set({
-          assessmentError: "Connection not established",
-          assessmentLoading: false,
-        });
-        return;
-      }
+      const { assessmentFetched, assessmentSupported } = get();
 
       if (assessmentFetched && !force) {
         return;
       }
 
-      set({ assessmentLoading: true, assessmentError: null });
-
-      try {
-        const response = await connection.sendEvent({
-          event_name: "interview.status.get",
-          destination_id: INTERVIEW_DESTINATION,
-          payload: {},
-        });
-
-        if (response.success) {
-          const status =
-            response.data?.status ||
-            response.data?.assessment ||
-            response.data ||
-            {};
-          const normalized: AssessmentStatus = {
-            general_assessment_completed:
-              Boolean(status?.general_assessment_completed) ||
-              Boolean(status?.generalAssessmentCompleted) ||
-              Boolean(status?.general_assessment_done),
-            last_updated:
-              status?.last_updated ||
-              status?.updated_at ||
-              status?.timestamp ||
-              Math.floor(Date.now() / 1000),
-            ...status,
-          };
-
-          set({
-            assessmentStatus: normalized,
-            assessmentLoading: false,
-            assessmentFetched: true,
-          });
-        } else {
-          const message = response.message || "Failed to load assessment status";
-          set({
-            assessmentError: message,
-            assessmentLoading: false,
-            assessmentFetched: true,
-          });
-          toast.error("获取测评状态失败", { description: message });
-        }
-      } catch (error: any) {
-        console.error("InterviewPortal: fetchAssessmentStatus error", error);
-        const message = error?.message || "Failed to load assessment status";
+      if (!assessmentSupported) {
+        console.info(
+          "InterviewPortal: General assessment API is not supported by the current backend; skipping fetch."
+        );
         set({
-          assessmentError: message,
+          assessmentStatus: null,
           assessmentLoading: false,
+          assessmentError: null,
           assessmentFetched: true,
         });
-        toast.error("获取测评状态失败", { description: message });
+        return;
       }
+      console.warn(
+        "InterviewPortal: Assessment support is enabled but no handler is implemented."
+      );
+      set({
+        assessmentLoading: false,
+        assessmentFetched: true,
+      });
     },
 
     startGeneralAssessment: async () => {
-      const { connection } = get();
-      if (!connection) {
-        toast.error("尚未连接到网络，无法启动测评");
-        return false;
-      }
-
-      try {
-        const response = await connection.sendEvent({
-          event_name: "interview.status.put",
-          destination_id: INTERVIEW_DESTINATION,
-          payload: {
-            action: "start_general_assessment",
-          },
-        });
-
-        if (response.success) {
-          toast.success("已启动通用测评");
-          await get().fetchAssessmentStatus(true);
-          return true;
-        }
-
-        const message = response.message || "Failed to start assessment";
-        toast.error("启动测评失败", { description: message });
-        return false;
-      } catch (error: any) {
-        console.error("InterviewPortal: startGeneralAssessment error", error);
-        toast.error("启动测评失败", {
-          description: error?.message || "Unexpected error",
-        });
-        return false;
-      }
+      toast.info("当前后端未提供通用测评接口");
+      return false;
     },
 
     loadNotifications: async (force = false) => {
@@ -461,31 +444,43 @@ export const useInterviewPortalStore = create<InterviewPortalState>(
             response.data?.results ||
             [];
 
-          const normalized = ensureArray(rawNotifications).map((item: any) => ({
-            notification_id:
-              item?.notification_id ||
-              item?.id ||
-              `notif_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            message:
-              item?.message ||
-              item?.content ||
-              item?.text ||
-              item?.title ||
-              "",
-            created_at:
-              item?.created_at ||
-              item?.timestamp ||
-              item?.time ||
-              Math.floor(Date.now() / 1000),
-            read: Boolean(item?.read),
-            level:
-              item?.level === "warning" ||
-              item?.level === "success" ||
-              item?.level === "error"
-                ? item.level
-                : "info",
-            metadata: item?.metadata || {},
-          }));
+          const normalized = ensureArray(rawNotifications).map((item: any) => {
+            const status =
+              typeof item?.status === "string" ? item.status : "unread";
+            const type =
+              typeof item?.type === "string"
+                ? item.type
+                : typeof item?.notification_type === "string"
+                ? item.notification_type
+                : "info";
+            const createdAtRaw = item?.created_at ?? item?.timestamp ?? item?.time;
+            const createdAt =
+              typeof createdAtRaw === "number"
+                ? createdAtRaw
+                : Math.floor(Date.now() / 1000);
+
+            return {
+              notification_id:
+                item?.notification_id ||
+                item?.id ||
+                `notif_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+              message:
+                item?.message ||
+                item?.content ||
+                item?.text ||
+                item?.title ||
+                "",
+              created_at: createdAt,
+              status,
+              type,
+              recipient_id:
+                typeof item?.recipient_id === "string"
+                  ? item.recipient_id
+                  : undefined,
+              read: status !== "unread",
+              metadata: item?.metadata || {},
+            } as NotificationItem;
+          });
 
           set({
             notifications: normalized,
@@ -512,25 +507,55 @@ export const useInterviewPortalStore = create<InterviewPortalState>(
       }
     },
 
-    addNotification: async (message: string) => {
+    addNotification: async (message: string, options) => {
       const { connection } = get();
       if (!connection) {
         toast.error("尚未连接到网络，无法发送通知");
         return false;
       }
 
+      const trimmedMessage = message.trim();
+      if (!trimmedMessage) {
+        toast.error("通知内容不能为空");
+        return false;
+      }
+
+      const recipientId =
+        options?.recipientId ||
+        (typeof connection.getAgentId === "function"
+          ? connection.getAgentId()
+          : undefined);
+
+      if (!recipientId) {
+        toast.error("缺少通知接收人信息");
+        return false;
+      }
+
+      const notificationType = options?.type || "message";
+
       try {
         const response = await connection.sendEvent({
           event_name: "interview.notification.add",
           destination_id: INTERVIEW_DESTINATION,
           payload: {
-            message: message.trim(),
+            recipient_id: recipientId,
+            type: notificationType,
+            message: trimmedMessage,
           },
         });
 
         if (response.success) {
           const createdNotification = response.data?.notification;
           if (createdNotification) {
+            const status =
+              typeof createdNotification.status === "string"
+                ? createdNotification.status
+                : "unread";
+            const createdAt =
+              typeof createdNotification.created_at === "number"
+                ? createdNotification.created_at
+                : Math.floor(Date.now() / 1000);
+
             const normalized: NotificationItem = {
               notification_id:
                 createdNotification.notification_id ||
@@ -541,18 +566,16 @@ export const useInterviewPortalStore = create<InterviewPortalState>(
               message:
                 createdNotification.message ||
                 createdNotification.content ||
-                message,
-              created_at:
-                createdNotification.created_at ||
-                createdNotification.timestamp ||
-                Math.floor(Date.now() / 1000),
-              read: Boolean(createdNotification.read),
-              level:
-                createdNotification.level === "warning" ||
-                createdNotification.level === "success" ||
-                createdNotification.level === "error"
-                  ? createdNotification.level
-                  : "info",
+                trimmedMessage,
+              created_at: createdAt,
+              status,
+              type:
+                createdNotification.type ||
+                createdNotification.notification_type ||
+                notificationType,
+              recipient_id:
+                createdNotification.recipient_id || recipientId,
+              read: status !== "unread",
               metadata: createdNotification.metadata || {},
             };
 
@@ -560,8 +583,30 @@ export const useInterviewPortalStore = create<InterviewPortalState>(
               notifications: [normalized, ...state.notifications],
             }));
           } else {
-            await get().loadNotifications(true);
+            const normalized: NotificationItem = {
+              notification_id:
+                response.data?.notification_id ||
+                response.data?.id ||
+                `notif_${Date.now()}_${Math.random()
+                  .toString(36)
+                  .slice(2, 8)}`,
+              message: trimmedMessage,
+              created_at:
+                typeof response.data?.created_at === "number"
+                  ? response.data.created_at
+                  : Math.floor(Date.now() / 1000),
+              status: "unread",
+              type: notificationType,
+              recipient_id: recipientId,
+              read: false,
+              metadata: {},
+            };
+
+            set((state) => ({
+              notifications: [normalized, ...state.notifications],
+            }));
           }
+
           toast.success("通知已发送");
           return true;
         }
@@ -582,7 +627,7 @@ export const useInterviewPortalStore = create<InterviewPortalState>(
       set((state) => ({
         notifications: state.notifications.map((notification) =>
           notification.notification_id === notificationId
-            ? { ...notification, read: true }
+            ? { ...notification, read: true, status: "read" }
             : notification
         ),
       }));
@@ -624,28 +669,50 @@ export const useInterviewPortalStore = create<InterviewPortalState>(
             response.data?.results ||
             [];
 
-          const normalized = ensureArray(rawInterviews).map((interview: any) => ({
-            interview_id:
-              interview?.interview_id ||
-              interview?.id ||
-              `interview_${Date.now()}_${Math.random()
-                .toString(36)
-                .slice(2, 8)}`,
-            job_id: interview?.job_id,
-            job_title:
-              interview?.job_title ||
-              interview?.title ||
-              interview?.position,
-            scheduled_time:
-              interview?.scheduled_time ||
-              interview?.time ||
-              interview?.scheduled_at,
-            interviewer: interview?.interviewer,
-            location: interview?.location,
-            status: interview?.status || "scheduled",
-            notes: interview?.notes || interview?.description,
-            metadata: interview?.metadata || {},
-          }));
+          const normalized = ensureArray(rawInterviews).map((interview: any) => {
+            const createdAt =
+              typeof interview?.created_at === "number"
+                ? interview.created_at
+                : undefined;
+            const updatedAt =
+              typeof interview?.updated_at === "number"
+                ? interview.updated_at
+                : createdAt;
+            const durationMinutes =
+              typeof interview?.duration_minutes === "number"
+                ? interview.duration_minutes
+                : typeof interview?.duration === "number"
+                ? interview.duration
+                : undefined;
+            const results =
+              interview?.results && typeof interview.results === "object"
+                ? interview.results
+                : {};
+
+            return {
+              interview_id:
+                interview?.interview_id ||
+                interview?.id ||
+                `interview_${Date.now()}_${Math.random()
+                  .toString(36)
+                  .slice(2, 8)}`,
+              job_id: interview?.job_id,
+              status: interview?.status || "scheduled",
+              interview_url:
+                interview?.interview_url ?? interview?.url ?? interview?.link,
+              interview_type:
+                interview?.interview_type ?? interview?.type ?? null,
+              duration_minutes:
+                typeof durationMinutes === "number" ? durationMinutes : null,
+              results,
+              created_at: createdAt,
+              updated_at: updatedAt,
+              notes:
+                typeof interview?.notes === "string"
+                  ? interview.notes
+                  : interview?.description,
+            } as InterviewRecord;
+          });
 
           set({
             interviews: normalized,
@@ -672,44 +739,70 @@ export const useInterviewPortalStore = create<InterviewPortalState>(
         return false;
       }
 
+      if (!payload.job_id || !payload.interview_url || !payload.interview_type) {
+        toast.error("缺少必要的面试信息");
+        return false;
+      }
+
+      const normalizedPayload = {
+        job_id: payload.job_id,
+        interview_url: payload.interview_url,
+        interview_type: payload.interview_type,
+        duration_minutes:
+          typeof payload.duration_minutes === "number"
+            ? payload.duration_minutes
+            : undefined,
+        notes: payload.notes,
+      };
+
       try {
         const response = await connection.sendEvent({
           event_name: "interview.interviews.add",
           destination_id: INTERVIEW_DESTINATION,
-          payload,
+          payload: normalizedPayload,
         });
 
         if (response.success) {
           const interview = response.data?.interview;
-          if (interview) {
-            const normalized: InterviewRecord = {
-              interview_id:
-                interview.interview_id ||
-                interview.id ||
-                `interview_${Date.now()}_${Math.random()
-                  .toString(36)
-                  .slice(2, 8)}`,
-              job_id: interview.job_id || payload.job_id,
-              job_title:
-                interview.job_title || interview.title || payload.job_title,
-              scheduled_time:
-                interview.scheduled_time ||
-                interview.time ||
-                interview.scheduled_at ||
-                payload.scheduled_time,
-              interviewer: interview.interviewer || payload.interviewer,
-              location: interview.location || payload.location,
-              status: interview.status || "scheduled",
-              notes: interview.notes || payload.notes,
-              metadata: interview.metadata || {},
-            };
+          const responseData = interview || response.data || {};
+          const createdAt =
+            typeof responseData.created_at === "number"
+              ? responseData.created_at
+              : Math.floor(Date.now() / 1000);
+          const updatedAt =
+            typeof responseData.updated_at === "number"
+              ? responseData.updated_at
+              : createdAt;
 
-            set((state) => ({
-              interviews: [normalized, ...state.interviews],
-            }));
-          } else {
-            await get().loadInterviews(true);
-          }
+          const normalized: InterviewRecord = {
+            interview_id:
+              responseData.interview_id ||
+              responseData.id ||
+              `interview_${Date.now()}_${Math.random()
+                .toString(36)
+                .slice(2, 8)}`,
+            job_id: responseData.job_id || payload.job_id,
+            status: responseData.status || "scheduled",
+            interview_url:
+              responseData.interview_url ?? payload.interview_url ?? null,
+            interview_type:
+              responseData.interview_type ?? payload.interview_type ?? null,
+            duration_minutes:
+              typeof responseData.duration_minutes === "number"
+                ? responseData.duration_minutes
+                : payload.duration_minutes ?? null,
+            results:
+              responseData.results && typeof responseData.results === "object"
+                ? responseData.results
+                : {},
+            created_at: createdAt,
+            updated_at: updatedAt,
+            notes: responseData.notes || payload.notes,
+          };
+
+          set((state) => ({
+            interviews: [normalized, ...state.interviews],
+          }));
 
           toast.success("面试已安排");
           return true;
