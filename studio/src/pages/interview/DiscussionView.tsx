@@ -1,24 +1,24 @@
-import React, { useState, useEffect, useContext } from "react"
-import { useInterviewStore } from "@/stores/interviewStore"
-import InterviewTopicItem from "@/components/interview/components/InterviewTopicItem"
-import InterviewCreateModal from "@/components/interview/components/InterviewCreateModal"
-import InterviewCommentThread from "@/components/interview/components/InterviewCommentThread"
-import InterviewAddCommentModal from "@/components/interview/components/InterviewAddCommentModal"
-import MarkdownRenderer from "@/components/common/MarkdownRenderer"
-import { OpenAgentsContext } from "@/context/OpenAgentsProvider"
+import React, { useState, useEffect, useContext } from "react";
+import { useInterviewStore } from "@/stores/interviewStore";
+import InterviewTopicItem from "@/components/interview/components/InterviewTopicItem";
+import InterviewCreateModal from "@/components/interview/components/InterviewCreateModal";
+import InterviewCommentThread from "@/components/interview/components/InterviewCommentThread";
+import InterviewAddCommentModal from "@/components/interview/components/InterviewAddCommentModal";
+import MarkdownRenderer from "@/components/common/MarkdownRenderer";
+import { OpenAgentsContext } from "@/context/OpenAgentsProvider";
 
 const DiscussionView: React.FC = () => {
-  const context = useContext(OpenAgentsContext)
-  const openAgentsService = context?.connector
-  const [showCreateModal, setShowCreateModal] = useState(false)
-  const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null)
-  const [isAddCommentModalOpen, setIsAddCommentModalOpen] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [showPdfPreview, setShowPdfPreview] = useState(false)
-  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
-  const [pdfLoading, setPdfLoading] = useState(false)
-  const [pdfError, setPdfError] = useState<string | null>(null)
-  const isConnected = context?.isConnected
+  const context = useContext(OpenAgentsContext);
+  const openAgentsService = context?.connector;
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
+  const [isAddCommentModalOpen, setIsAddCommentModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const isConnected = context?.isConnected;
 
   const {
     topics,
@@ -36,55 +36,55 @@ const DiscussionView: React.FC = () => {
     addComment,
     resetSelectedTopic,
     getTotalComments,
-  } = useInterviewStore()
+  } = useInterviewStore();
 
   // Use real-time calculated total comments
-  const totalComments = selectedTopic ? getTotalComments() : 0
+  const totalComments = selectedTopic ? getTotalComments() : 0;
 
   // Set connection
   useEffect(() => {
     if (openAgentsService) {
-      setConnection(openAgentsService)
+      setConnection(openAgentsService);
     }
-  }, [openAgentsService, setConnection])
+  }, [openAgentsService, setConnection]);
 
   // Initialize permission data
   useEffect(() => {
     const initializePermissions = async () => {
-      if (!openAgentsService) return
+      if (!openAgentsService) return;
 
       try {
         // Get current agent ID
-        const agentId = openAgentsService.getAgentId()
+        const agentId = openAgentsService.getAgentId();
         if (agentId) {
-          console.log("DiscussionView: Setting agentId:", agentId)
-          setAgentId(agentId)
+          console.log("DiscussionView: Setting agentId:", agentId);
+          setAgentId(agentId);
         }
 
         // Get groups data
-        const healthData = await openAgentsService.getNetworkHealth()
+        const healthData = await openAgentsService.getNetworkHealth();
         if (healthData && healthData.groups) {
-          console.log("DiscussionView: Setting groupsData:", healthData.groups)
-          setGroupsData(healthData.groups)
+          console.log("DiscussionView: Setting groupsData:", healthData.groups);
+          setGroupsData(healthData.groups);
         }
       } catch (error) {
         console.error(
           "DiscussionView: Failed to initialize permissions:",
           error
-        )
+        );
       }
-    }
+    };
 
-    initializePermissions()
-  }, [openAgentsService, setGroupsData, setAgentId])
+    initializePermissions();
+  }, [openAgentsService, setGroupsData, setAgentId]);
 
   // Load topics (wait for connection to be established)
   useEffect(() => {
     if (openAgentsService && isConnected) {
-      console.log("DiscussionView: Connection ready, loading topics")
-      loadTopics()
+      console.log("DiscussionView: Connection ready, loading topics");
+      loadTopics();
     }
-  }, [openAgentsService, isConnected, loadTopics])
+  }, [openAgentsService, isConnected, loadTopics]);
 
   // Load topic detail when selectedTopicId changes
   useEffect(() => {
@@ -92,10 +92,10 @@ const DiscussionView: React.FC = () => {
       console.log(
         "DiscussionView: Connection ready, loading topic detail for:",
         selectedTopicId
-      )
-      loadTopicDetail(selectedTopicId)
+      );
+      loadTopicDetail(selectedTopicId);
     } else if (!selectedTopicId) {
-      resetSelectedTopic()
+      resetSelectedTopic();
     }
   }, [
     selectedTopicId,
@@ -103,95 +103,83 @@ const DiscussionView: React.FC = () => {
     isConnected,
     loadTopicDetail,
     resetSelectedTopic,
-  ])
+  ]);
 
   // Use embedded blob if available (no need to download)
   useEffect(() => {
     if (selectedTopic?.resume_blob && !pdfBlobUrl) {
-      console.log("DiscussionView: Using embedded resume blob")
+      console.log("DiscussionView: Using embedded resume blob");
       try {
         // Convert base64 to blob
-        const binaryString = atob(selectedTopic.resume_blob)
-        const bytes = new Uint8Array(binaryString.length)
+        const binaryString = atob(selectedTopic.resume_blob);
+        const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i)
+          bytes[i] = binaryString.charCodeAt(i);
         }
-        const blob = new Blob([bytes], { type: "application/pdf" })
-        const blobUrl = URL.createObjectURL(blob)
-        setPdfBlobUrl(blobUrl)
-        console.log("DiscussionView: PDF blob URL created from embedded data")
+        const blob = new Blob([bytes], { type: "application/pdf" });
+        const blobUrl = URL.createObjectURL(blob);
+        setPdfBlobUrl(blobUrl);
+        console.log("DiscussionView: PDF blob URL created from embedded data");
       } catch (error) {
         console.error(
           "DiscussionView: Failed to create blob from embedded data:",
           error
-        )
-        setPdfError("Failed to load PDF from embedded data")
+        );
+        setPdfError("Failed to load PDF from embedded data");
       }
     }
-  }, [selectedTopic, pdfBlobUrl])
-
-  // Reset selected topic when component unmounts or topicId changes
-  useEffect(() => {
-    return () => {
-      console.log("DiscussionView: Cleanup - resetting selected topic")
-      // Clean up blob URL
-      if (pdfBlobUrl) {
-        URL.revokeObjectURL(pdfBlobUrl)
-      }
-      resetSelectedTopic()
-    }
-  }, [resetSelectedTopic, pdfBlobUrl])
+  }, [selectedTopic, pdfBlobUrl]);
 
   // Handle topic item click
   const handleTopicClick = (topicId: string) => {
-    setSelectedTopicId(topicId)
-  }
+    setSelectedTopicId(topicId);
+  };
 
   // Handle back to list
   const handleBack = () => {
-    setSelectedTopicId(null)
+    setSelectedTopicId(null);
     if (pdfBlobUrl) {
-      URL.revokeObjectURL(pdfBlobUrl)
-      setPdfBlobUrl(null)
+      URL.revokeObjectURL(pdfBlobUrl);
+      setPdfBlobUrl(null);
     }
-    setPdfError(null)
-  }
+    setPdfError(null);
+  };
 
   // Handle add comment
   const handleAddComment = async (content: string) => {
-    if (!content.trim() || !selectedTopicId) return false
+    if (!content.trim() || !selectedTopicId) return false;
 
-    setIsSubmitting(true)
-    const success = await addComment(selectedTopicId, content.trim())
-    setIsSubmitting(false)
+    setIsSubmitting(true);
+    const success = await addComment(selectedTopicId, content.trim());
+    setIsSubmitting(false);
 
-    return success
-  }
+    return success;
+  };
 
   // Open PDF preview modal
   const handleTogglePdfPreview = async () => {
     // If blob URL already exists (from embedded blob or previous download), just open modal
     if (pdfBlobUrl) {
-      setShowPdfPreview(true)
-      return
+      setShowPdfPreview(true);
+      return;
     }
 
     // Otherwise, need to download PDF from file system
     if (!pdfLoading) {
-      await loadPdfBlob()
+      await loadPdfBlob();
     }
     // Open modal
-    setShowPdfPreview(true)
-  }
+    setShowPdfPreview(true);
+  };
 
   const loadPdfBlob = async () => {
-    if (!selectedTopic?.resume_url || !openAgentsService) return
+    if (!selectedTopic?.resume_url || !openAgentsService) return;
 
     // Extract file_id from file:// URL
-    const fileId = selectedTopic.resume_url.replace("file://", "")
+    const fileId = selectedTopic.resume_url.replace("file://", "");
 
-    setPdfLoading(true)
-    setPdfError(null)
+    setPdfLoading(true);
+    setPdfError(null);
 
     try {
       // Download file via send event
@@ -201,29 +189,29 @@ const DiscussionView: React.FC = () => {
         payload: {
           file_id: fileId,
         },
-      })
+      });
 
       if (response.success && response.data?.file_content) {
         // Decode base64 and create blob URL
-        const base64Content = response.data.file_content
-        const binaryString = atob(base64Content)
-        const bytes = new Uint8Array(binaryString.length)
+        const base64Content = response.data.file_content;
+        const binaryString = atob(base64Content);
+        const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i)
+          bytes[i] = binaryString.charCodeAt(i);
         }
-        const blob = new Blob([bytes], { type: "application/pdf" })
-        const blobUrl = URL.createObjectURL(blob)
-        setPdfBlobUrl(blobUrl)
+        const blob = new Blob([bytes], { type: "application/pdf" });
+        const blobUrl = URL.createObjectURL(blob);
+        setPdfBlobUrl(blobUrl);
       } else {
-        throw new Error(response.message || "Failed to download PDF")
+        throw new Error(response.message || "Failed to download PDF");
       }
     } catch (error: any) {
-      console.error("Failed to load PDF:", error)
-      setPdfError(error.message || "Failed to load PDF")
+      console.error("Failed to load PDF:", error);
+      setPdfError(error.message || "Failed to load PDF");
     } finally {
-      setPdfLoading(false)
+      setPdfLoading(false);
     }
-  }
+  };
 
   // Show connection waiting state
   if (!openAgentsService || !isConnected) {
@@ -238,7 +226,7 @@ const DiscussionView: React.FC = () => {
           </p>
         </div>
       </div>
-    )
+    );
   }
 
   // Show loading state for list
@@ -252,7 +240,7 @@ const DiscussionView: React.FC = () => {
           </p>
         </div>
       </div>
-    )
+    );
   }
 
   // Show error state for list
@@ -284,7 +272,7 @@ const DiscussionView: React.FC = () => {
           </button>
         </div>
       </div>
-    )
+    );
   }
 
   // Show detail view if topic is selected
@@ -297,7 +285,7 @@ const DiscussionView: React.FC = () => {
       return (
         <div className="flex-1 flex flex-col h-full">
           {/* Header navigation */}
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center bg-gray-50 dark:bg-gray-800">
+          <div className="px-8 py-6 border-b border-gray-200 dark:border-gray-700 flex items-center bg-white/80 dark:bg-gray-900/80">
             <button
               onClick={handleBack}
               className="flex items-center space-x-2 text-sm transition-colors text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
@@ -328,26 +316,26 @@ const DiscussionView: React.FC = () => {
             </div>
           </div>
         </div>
-      )
+      );
     }
-    console.log("selectedTopic", selectedTopic)
-    console.log("commentsError", commentsError)
-    console.log("commentsLoading", commentsLoading)
-    console.log("selectedTopicId", selectedTopicId)
-    console.log("comments", comments)
-    console.log("commentsLoading", commentsLoading)
-    console.log("commentsError", commentsError)
-    console.log("selectedTopicId", selectedTopicId)
-    console.log("selectedTopic", selectedTopic)
+    console.log("selectedTopic", selectedTopic);
+    console.log("commentsError", commentsError);
+    console.log("commentsLoading", commentsLoading);
+    console.log("selectedTopicId", selectedTopicId);
+    console.log("comments", comments);
+    console.log("commentsLoading", commentsLoading);
+    console.log("commentsError", commentsError);
+    console.log("selectedTopicId", selectedTopicId);
+    console.log("selectedTopic", selectedTopic);
 
     const timeAgo = new Date(
       selectedTopic?.timestamp ?? 0 * 1000
-    ).toLocaleString()
+    ).toLocaleString();
 
     return (
       <div className="flex-1 flex flex-col h-full">
         {/* Header navigation */}
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center bg-gray-50 dark:bg-gray-800">
+        <div className="px-8 py-6 border-b border-gray-200 dark:border-gray-700 flex items-center bg-white/80 dark:bg-gray-900/80">
           <button
             onClick={handleBack}
             className="flex items-center space-x-2 text-sm transition-colors text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
@@ -582,47 +570,49 @@ const DiscussionView: React.FC = () => {
           </div>
         )}
       </div>
-    )
+    );
   }
 
   // Show list view
   return (
     <div className="flex-1 flex flex-col h-full ">
-      {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-800">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            Interview Sessions
-          </h1>
-          <p className="text-sm mt-1 text-gray-600 dark:text-gray-400">
-            {topics.length} private interview session
-            {topics.length !== 1 ? "s" : ""} available
-          </p>
-        </div>
-
-        <div className="flex items-center space-x-3">
-          {/* Create session button */}
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+      <header className="px-8 py-6 border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <span className="text-sm font-semibold text-blue-600 uppercase tracking-wide">
+              Interview Portal
+            </span>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-2">
+              Interview Sessions
+            </h1>
+            <p className="text-sm md:text-base mt-2 text-gray-600 dark:text-gray-400">
+              {topics.length} private interview session
+              {topics.length !== 1 ? "s" : ""} available
+            </p>
+          </div>
+          <div className="flex items-center md:justify-end">
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="inline-flex items-center justify-center px-5 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium shadow-md transition-transform duration-200 hover:-translate-y-0.5"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            <span>New Interview Session</span>
-          </button>
+              <svg
+                className="w-4 h-4 mr-2"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 4v16m8-8H4"
+                />
+              </svg>
+              <span>New Interview Session</span>
+            </button>
+          </div>
         </div>
-      </div>
+      </header>
 
       {/* Interview session list */}
       <div className="flex-1 overflow-y-hidden py-6 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
@@ -675,12 +665,12 @@ const DiscussionView: React.FC = () => {
         onClose={() => setShowCreateModal(false)}
         onSuccess={(topicId) => {
           // Automatically navigate to the newly created topic
-          console.log("DiscussionView: Topic created, navigating to:", topicId)
-          setSelectedTopicId(topicId)
+          console.log("DiscussionView: Topic created, navigating to:", topicId);
+          setSelectedTopicId(topicId);
         }}
       />
     </div>
-  )
-}
+  );
+};
 
-export default DiscussionView
+export default DiscussionView;
