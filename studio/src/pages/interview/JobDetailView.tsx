@@ -26,7 +26,7 @@ const InfoItem: React.FC<{ label: string; value?: React.ReactNode }> = ({
       {label}
     </span>
     <span className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100">
-      {value || "未提供"}
+      {value || "Not provided"}
     </span>
   </div>
 );
@@ -75,13 +75,13 @@ const JobDetailView: React.FC = () => {
       <div className="h-full flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-500 dark:text-gray-400 mb-4">
-            未找到对应的职位信息。
+            No job information found.
           </p>
           <button
             onClick={() => navigate("/interview")}
             className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
           >
-            返回职位列表
+            Back to Job List
           </button>
         </div>
       </div>
