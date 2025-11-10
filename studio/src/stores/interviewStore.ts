@@ -1,35 +1,35 @@
-import { create } from "zustand";
-import { eventRouter } from "@/services/eventRouter";
+import { create } from "zustand"
+import { eventRouter } from "@/services/eventRouter"
 
 // Types
 export interface InterviewTopic {
-  topic_id: string;
-  title: string;
-  content: string;
-  resume_url: string; // PDF resume URL (required)
-  resume_blob?: string; // Optional base64 blob for preview
-  owner_id: string;
-  timestamp: number;
-  comment_count: number;
-  visibility: "private"; // Always private
+  topic_id: string
+  title: string
+  content: string
+  resume_url: string // PDF resume URL (required)
+  resume_blob?: string // Optional base64 blob for preview
+  owner_id: string
+  timestamp: number
+  comment_count: number
+  visibility: "private" // Always private
 }
 
 export interface InterviewComment {
-  comment_id: string;
-  topic_id: string;
-  content: string;
-  author_id: string;
-  timestamp: number;
-  parent_comment_id?: string;
-  thread_level: number;
-  replies?: InterviewComment[];
+  comment_id: string
+  topic_id: string
+  content: string
+  author_id: string
+  timestamp: number
+  parent_comment_id?: string
+  thread_level: number
+  replies?: InterviewComment[]
 }
 
 export interface CreateTopicData {
-  title: string;
-  content: string;
-  resume_url: string; // PDF resume URL (required)
-  resume_blob?: string; // Optional base64 blob for preview
+  title: string
+  content: string
+  resume_url: string // PDF resume URL (required)
+  resume_blob?: string // Optional base64 blob for preview
 }
 
 // Helper function to recursively update comment in nested structure
@@ -40,75 +40,75 @@ const updateCommentRecursively = (
 ): InterviewComment[] => {
   return comments.map((comment) => {
     if (comment.comment_id === targetId) {
-      return updateFn(comment);
+      return updateFn(comment)
     } else if (comment.replies && comment.replies.length > 0) {
       const updatedReplies = updateCommentRecursively(
         comment.replies,
         targetId,
         updateFn
-      );
+      )
       if (updatedReplies !== comment.replies) {
-        return { ...comment, replies: updatedReplies };
+        return { ...comment, replies: updatedReplies }
       }
     }
-    return comment;
-  });
-};
+    return comment
+  })
+}
 
 interface InterviewState {
   // Topic list
-  topics: InterviewTopic[];
-  topicsLoading: boolean;
-  topicsError: string | null;
+  topics: InterviewTopic[]
+  topicsLoading: boolean
+  topicsError: string | null
 
   // Current topic details
-  selectedTopic: InterviewTopic | null;
-  comments: InterviewComment[];
-  commentsLoading: boolean;
-  commentsError: string | null;
+  selectedTopic: InterviewTopic | null
+  comments: InterviewComment[]
+  commentsLoading: boolean
+  commentsError: string | null
 
   // Connection service
-  connection: any | null;
+  connection: any | null
 
   // Permission groups
-  groupsData: Record<string, string[]> | null;
-  agentId: string | null;
+  groupsData: Record<string, string[]> | null
+  agentId: string | null
 
   // Event handler reference for cleanup
-  eventHandler?: ((event: any) => void) | null;
+  eventHandler?: ((event: any) => void) | null
 
   // Actions
-  setConnection: (connection: any | null) => void;
-  setGroupsData: (groups: Record<string, string[]>) => void;
-  setAgentId: (agentId: string) => void;
-  loadTopics: () => Promise<void>;
-  loadTopicDetail: (topicId: string) => Promise<void>;
-  createTopic: (data: CreateTopicData) => Promise<boolean>;
+  setConnection: (connection: any | null) => void
+  setGroupsData: (groups: Record<string, string[]>) => void
+  setAgentId: (agentId: string) => void
+  loadTopics: () => Promise<void>
+  loadTopicDetail: (topicId: string) => Promise<void>
+  createTopic: (data: CreateTopicData) => Promise<string | null> // Returns topic_id on success, null on failure
   addComment: (
     topicId: string,
     content: string,
     parentId?: string
-  ) => Promise<boolean>;
+  ) => Promise<boolean>
 
   // Real-time updates
-  addTopicToList: (topic: InterviewTopic) => void;
-  addCommentToTopic: (topicId: string, comment: InterviewComment) => void;
-  countAllComments: (comments: InterviewComment[]) => number;
-  refreshTopicInList: (topicId: string) => Promise<void>;
+  addTopicToList: (topic: InterviewTopic) => void
+  addCommentToTopic: (topicId: string, comment: InterviewComment) => void
+  countAllComments: (comments: InterviewComment[]) => number
+  refreshTopicInList: (topicId: string) => Promise<void>
 
   // Computed
-  getTotalComments: () => number;
-  getRecentTopics: (limit?: number) => InterviewTopic[];
+  getTotalComments: () => number
+  getRecentTopics: (limit?: number) => InterviewTopic[]
 
   // Reset
-  resetSelectedTopic: () => void;
+  resetSelectedTopic: () => void
 
   // Event handling
-  setupEventListeners: () => void;
-  cleanupEventListeners: () => void;
+  setupEventListeners: () => void
+  cleanupEventListeners: () => void
 
   // Permission check helper
-  canViewTopic: (topic: InterviewTopic) => boolean;
+  canViewTopic: (topic: InterviewTopic) => boolean
 }
 
 export const useInterviewStore = create<InterviewState>((set, get) => ({
@@ -131,15 +131,15 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
   setAgentId: (agentId) => set({ agentId }),
 
   loadTopics: async () => {
-    const { connection } = get();
+    const { connection } = get()
     if (!connection) {
-      console.warn("InterviewStore: No connection available for loadTopics");
-      set({ topicsError: "No connection available" });
-      return;
+      console.warn("InterviewStore: No connection available for loadTopics")
+      set({ topicsError: "No connection available" })
+      return
     }
 
-    console.log("InterviewStore: Loading topics...");
-    set({ topicsLoading: true, topicsError: null });
+    console.log("InterviewStore: Loading topics...")
+    set({ topicsLoading: true, topicsError: null })
 
     try {
       const response = await connection.sendEvent({
@@ -150,56 +150,56 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           limit: 50,
           offset: 0,
         },
-      });
+      })
 
       if (response.success && response.data) {
         console.log(
           "InterviewStore: API success, loaded topics:",
           response.data.topics?.length || 0
-        );
+        )
         set({
           topics: response.data.topics || [],
           topicsLoading: false,
-        });
+        })
       } else {
         console.warn(
           "InterviewStore: API failed to load topics. Response:",
           response
-        );
+        )
         set({
           topics: [],
           topicsLoading: false,
           topicsError: "Failed to load topics",
-        });
+        })
       }
     } catch (error) {
-      console.error("InterviewStore: Failed to load topics:", error);
+      console.error("InterviewStore: Failed to load topics:", error)
       set({
         topicsError: "Failed to load topics",
         topicsLoading: false,
-      });
+      })
     }
   },
 
   loadTopicDetail: async (topicId: string) => {
-    const { connection, topics } = get();
+    const { connection, topics } = get()
 
-    console.log("InterviewStore: Loading topic detail for ID:", topicId);
-    set({ commentsLoading: true, commentsError: null });
+    console.log("InterviewStore: Loading topic detail for ID:", topicId)
+    set({ commentsLoading: true, commentsError: null })
 
     // First try to find from loaded topics
-    const existingTopic = topics.find((t) => t.topic_id === topicId);
+    const existingTopic = topics.find((t) => t.topic_id === topicId)
 
     if (existingTopic) {
       console.log(
         "InterviewStore: Found existing topic in memory:",
         existingTopic.title
-      );
+      )
       set({
         selectedTopic: existingTopic,
         comments: [],
         commentsLoading: false,
-      });
+      })
 
       // Fetch latest comment data from API in background
       if (connection) {
@@ -208,49 +208,55 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
             event_name: "interview.topic.get",
             destination_id: "mod:openagents.mods.workspace.interview",
             payload: {
-              query_type: "get_topic",
               topic_id: topicId,
             },
-          });
+          })
 
-          if (response.success && response.data && response.data.topic?.comments) {
-            console.log("InterviewStore: Updated comments from API");
-            const apiTopic = response.data.topic;
-            const comments = apiTopic.comments || [];
+          if (response.success && response.data) {
+            // Backend returns: data={"topic": topic.to_dict(...)}
+            const apiTopic = response.data.topic || response.data
 
-            const updatedTopics = get().topics.map((t) =>
-              t.topic_id === topicId
-                ? { ...t, comment_count: apiTopic.comment_count || comments.length }
-                : t
-            );
+            if (apiTopic && apiTopic.topic_id) {
+              console.log("InterviewStore: Updated comments from API")
+              const comments = apiTopic.comments || []
 
-            set({
-              selectedTopic: apiTopic, // Update with full API data (includes resume_blob!)
-              comments: comments,
-              topics: updatedTopics,
-            });
+              const updatedTopics = get().topics.map((t) =>
+                t.topic_id === topicId
+                  ? {
+                      ...t,
+                      comment_count: apiTopic.comment_count || comments.length,
+                    }
+                  : t
+              )
+
+              set({
+                selectedTopic: apiTopic, // Update with full API data (includes resume_blob!)
+                comments: comments,
+                topics: updatedTopics,
+              })
+            }
           }
         } catch (error) {
           console.warn(
             "InterviewStore: Failed to update comments from API:",
             error
-          );
+          )
         }
       }
 
-      return;
+      return
     }
 
     // If not found and no connection, display error
     if (!connection) {
       console.warn(
         "InterviewStore: No connection available and topic not found in memory"
-      );
+      )
       set({
         commentsError: "Topic not found and no network connection",
         commentsLoading: false,
-      });
-      return;
+      })
+      return
     }
 
     // Try to load topic details from API
@@ -259,21 +265,20 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         event_name: "interview.topic.get",
         destination_id: "mod:openagents.mods.workspace.interview",
         payload: {
-          query_type: "get_topic",
           topic_id: topicId,
         },
-      });
+      })
 
       if (response.success && response.data) {
-        console.log("InterviewStore: API success, topic data:", response.data);
+        console.log("InterviewStore: API success, topic data:", response.data)
 
-        const topic = response.data.topic_id
-          ? response.data
-          : response.data.topic;
+        // Backend returns: data={"topic": topic.to_dict(...)}
+        const topic = response.data.topic || response.data
 
-        if (topic) {
-          const comments = topic.comments || [];
+        if (topic && topic.topic_id) {
+          const comments = topic.comments || []
 
+          // Update topic in list if it exists
           const updatedTopics = get().topics.map((t) =>
             t.topic_id === topicId
               ? {
@@ -281,47 +286,55 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
                   comment_count: topic.comment_count || comments.length,
                 }
               : t
-          );
+          )
+
+          // If topic not in list, add it
+          const topicExists = updatedTopics.some((t) => t.topic_id === topicId)
+          if (!topicExists) {
+            updatedTopics.unshift(topic)
+          }
 
           set({
             selectedTopic: topic,
             comments: comments,
             topics: updatedTopics,
             commentsLoading: false,
-          });
-          return;
+          })
+          return
         }
       }
 
       console.warn(
         "InterviewStore: API failed to load topic details. Response:",
         response
-      );
+      )
       set({
         selectedTopic: null,
         comments: [],
         commentsError: "Failed to load topic details",
         commentsLoading: false,
-      });
+      })
     } catch (error) {
-      console.error("InterviewStore: Failed to load topic details:", error);
+      console.error("InterviewStore: Failed to load topic details:", error)
       set({
         commentsError: "Failed to load topic details",
         commentsLoading: false,
-      });
+      })
     }
   },
 
   createTopic: async (data: CreateTopicData) => {
-    const { connection } = get();
-    if (!connection) return false;
+    const { connection } = get()
+    if (!connection) return null
 
     // Validate PDF URL (accept both file:// URLs from server and .pdf URLs)
-    if (!data.resume_url ||
-        (!data.resume_url.startsWith('file://') &&
-         !data.resume_url.toLowerCase().endsWith('.pdf'))) {
-      console.error("InterviewStore: Invalid or missing PDF resume URL");
-      return false;
+    if (
+      !data.resume_url ||
+      (!data.resume_url.startsWith("file://") &&
+        !data.resume_url.toLowerCase().endsWith(".pdf"))
+    ) {
+      console.error("InterviewStore: Invalid or missing PDF resume URL")
+      return null
     }
 
     try {
@@ -330,51 +343,64 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         title: data.title.trim(),
         content: data.content.trim(),
         resume_url: data.resume_url,
-      };
+      }
 
       // Include blob if provided
       if (data.resume_blob) {
-        payload.resume_blob = data.resume_blob;
+        payload.resume_blob = data.resume_blob
       }
 
       const response = await connection.sendEvent({
         event_name: "interview.topic.create",
         destination_id: "mod:openagents.mods.workspace.interview",
         payload,
-      });
+      })
 
       if (response.success) {
-        const newTopic: InterviewTopic = {
-          topic_id:
-            response.data?.topic_id ||
-            `temp_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
-          title: data.title.trim(),
-          content: data.content.trim(),
-          resume_url: data.resume_url,
-          owner_id: connection.getAgentId() || "unknown",
-          timestamp: response.data?.timestamp || Date.now() / 1000,
-          comment_count: 0,
-          visibility: "private",
-        };
+        // Use the topic data returned from the backend
+        const topicData = response.data?.topic || response.data
+        const topicId = response.data?.topic_id || topicData?.topic_id
 
-        console.log("InterviewStore: Creating topic with data:", newTopic);
-        get().addTopicToList(newTopic);
-        return true;
+        if (!topicId) {
+          console.error(
+            "InterviewStore: No topic_id in response:",
+            response.data
+          )
+          return null
+        }
+
+        const newTopic: InterviewTopic = {
+          topic_id: topicId,
+          title: topicData?.title || data.title.trim(),
+          content: topicData?.content || data.content.trim(),
+          resume_url: topicData?.resume_url || data.resume_url,
+          resume_blob: topicData?.resume_blob || data.resume_blob,
+          owner_id: topicData?.owner_id || connection.getAgentId() || "unknown",
+          timestamp: topicData?.timestamp || Date.now() / 1000,
+          comment_count: topicData?.comment_count || 0,
+          visibility: topicData?.visibility || "private",
+        }
+
+        console.log("InterviewStore: Creating topic with data:", newTopic)
+        get().addTopicToList(newTopic)
+        return topicId
       }
-      return false;
+      return null
     } catch (error) {
-      console.error("Failed to create topic:", error);
-      return false;
+      console.error("Failed to create topic:", error)
+      return null
     }
   },
 
   addComment: async (topicId: string, content: string, parentId?: string) => {
-    const { connection } = get();
-    if (!connection) return false;
+    const { connection } = get()
+    if (!connection) return false
 
     try {
       const response = await connection.sendEvent({
-        event_name: parentId ? "interview.comment.reply" : "interview.comment.create",
+        event_name: parentId
+          ? "interview.comment.reply"
+          : "interview.comment.create",
         destination_id: "mod:openagents.mods.workspace.interview",
         payload: {
           action: parentId ? "reply" : "post",
@@ -382,14 +408,14 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           content: content.trim(),
           ...(parentId && { parent_comment_id: parentId }),
         },
-      });
+      })
 
       if (response.success && response.data?.comment) {
         console.log(
           "InterviewStore: Comment posted successfully, using incremental update"
-        );
+        )
 
-        const comment = response.data.comment;
+        const comment = response.data.comment
         const interviewComment: InterviewComment = {
           comment_id: comment.comment_id,
           topic_id: comment.topic_id,
@@ -399,37 +425,37 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           parent_comment_id: comment.parent_comment_id,
           thread_level: comment.thread_level || (parentId ? 1 : 0),
           replies: [],
-        };
+        }
 
-        get().addCommentToTopic(topicId, interviewComment);
-        return true;
+        get().addCommentToTopic(topicId, interviewComment)
+        return true
       } else if (response.success) {
         console.log(
           "InterviewStore: Comment posted but no comment data returned, falling back to reload"
-        );
-        await get().loadTopicDetail(topicId);
-        return true;
+        )
+        await get().loadTopicDetail(topicId)
+        return true
       }
-      return false;
+      return false
     } catch (error) {
-      console.error("Failed to add comment:", error);
-      return false;
+      console.error("Failed to add comment:", error)
+      return false
     }
   },
 
   getTotalComments: () => {
-    const { comments } = get();
-    return get().countAllComments(comments);
+    const { comments } = get()
+    return get().countAllComments(comments)
   },
 
   getRecentTopics: (limit = 10) => {
-    const { topics, canViewTopic } = get();
+    const { topics, canViewTopic } = get()
 
     // Filter accessible topics and sort by timestamp descending (newest first)
     return topics
       .filter((topic) => canViewTopic(topic))
       .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, limit);
+      .slice(0, limit)
   },
 
   resetSelectedTopic: () => {
@@ -437,7 +463,7 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
       selectedTopic: null,
       comments: [],
       commentsError: null,
-    });
+    })
   },
 
   // Real-time updates
@@ -445,38 +471,48 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     set((state) => {
       const exists = state.topics.some(
         (topic) => topic.topic_id === newTopic.topic_id
-      );
+      )
       if (exists) {
         console.log(
           "InterviewStore: Topic already exists in list, skipping:",
           newTopic.topic_id
-        );
-        return state;
+        )
+        return state
       }
 
-      console.log("InterviewStore: Adding new topic to list:", newTopic.title);
+      console.log("InterviewStore: Adding new topic to list:", newTopic.title)
       return {
         ...state,
         topics: [newTopic, ...state.topics],
-      };
-    });
+      }
+    })
   },
 
   // Event handling - set up event listeners
   setupEventListeners: () => {
-    const { connection } = get();
-    if (!connection) return;
+    const { connection } = get()
+    if (!connection) return
 
-    console.log("InterviewStore: Setting up interview event listeners");
+    console.log("InterviewStore: Setting up interview event listeners")
 
     const interviewEventHandler = (event: any) => {
-      console.log("🔔 InterviewStore: Received interview event:", event.event_name, event);
-      console.log("🔔 InterviewStore: Event payload:", event.payload);
+      console.log(
+        "🔔 InterviewStore: Received interview event:",
+        event.event_name,
+        event
+      )
+      console.log("🔔 InterviewStore: Event payload:", event.payload)
 
       // Handle topic creation event
-      if (event.event_name === "interview.topic.created" && event.payload?.topic) {
-        console.log("InterviewStore: Received interview.topic.created event:", event);
-        const topic = event.payload.topic;
+      if (
+        event.event_name === "interview.topic.created" &&
+        event.payload?.topic
+      ) {
+        console.log(
+          "InterviewStore: Received interview.topic.created event:",
+          event
+        )
+        const topic = event.payload.topic
 
         const interviewTopic: InterviewTopic = {
           topic_id: topic.topic_id,
@@ -487,41 +523,41 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
           timestamp: topic.timestamp,
           comment_count: topic.comment_count || 0,
           visibility: "private",
-        };
+        }
 
         // Permission check: only show to creator, interviewer group, and admin group
-        const { agentId, groupsData } = get();
+        const { agentId, groupsData } = get()
 
         // Check if current agent is the owner
         if (agentId && topic.owner_id === agentId) {
-          console.log("InterviewStore: Agent is owner, adding topic to list");
-          get().addTopicToList(interviewTopic);
-          return;
+          console.log("InterviewStore: Agent is owner, adding topic to list")
+          get().addTopicToList(interviewTopic)
+          return
         }
 
         // Check if current agent is in interviewer or admin groups
         if (agentId && groupsData) {
-          const interviewerMembers = groupsData["interviewer"] || [];
-          const adminMembers = groupsData["admin"] || [];
+          const interviewerMembers = groupsData["interviewer"] || []
+          const adminMembers = groupsData["admin"] || []
 
           const hasPermission =
             interviewerMembers.includes(agentId) ||
-            adminMembers.includes(agentId);
+            adminMembers.includes(agentId)
 
           if (hasPermission) {
             console.log(
               "InterviewStore: Agent has permission, adding topic to list"
-            );
-            get().addTopicToList(interviewTopic);
+            )
+            get().addTopicToList(interviewTopic)
           } else {
             console.log(
               "InterviewStore: Agent does not have permission, ignoring topic"
-            );
+            )
           }
         } else {
           console.log(
             "InterviewStore: Missing agentId or groupsData, cannot check permissions"
-          );
+          )
         }
       }
 
@@ -530,11 +566,14 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         event.event_name === "interview.comment.created" &&
         event.payload?.comment
       ) {
-        console.log("InterviewStore: Received interview.comment.created event:", event);
-        const comment = event.payload.comment;
-        const topicId = comment.topic_id;
+        console.log(
+          "InterviewStore: Received interview.comment.created event:",
+          event
+        )
+        const comment = event.payload.comment
+        const topicId = comment.topic_id
 
-        const { selectedTopic } = get();
+        const { selectedTopic } = get()
         if (selectedTopic && selectedTopic.topic_id === topicId) {
           const interviewComment: InterviewComment = {
             comment_id: comment.comment_id,
@@ -545,17 +584,17 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
             parent_comment_id: comment.parent_comment_id,
             thread_level: comment.thread_level || 0,
             replies: [],
-          };
+          }
 
-          get().addCommentToTopic(topicId, interviewComment);
+          get().addCommentToTopic(topicId, interviewComment)
           console.log(
             `InterviewStore: Added comment to detail view for topic ${topicId}`
-          );
+          )
         } else {
           console.log(
             `InterviewStore: Not viewing topic ${topicId}, refreshing topic in list`
-          );
-          get().refreshTopicInList(topicId);
+          )
+          get().refreshTopicInList(topicId)
         }
       }
 
@@ -564,11 +603,14 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         event.event_name === "interview.comment.replied" &&
         event.payload?.comment
       ) {
-        console.log("InterviewStore: Received interview.comment.replied event:", event);
-        const comment = event.payload.comment;
-        const topicId = comment.topic_id;
+        console.log(
+          "InterviewStore: Received interview.comment.replied event:",
+          event
+        )
+        const comment = event.payload.comment
+        const topicId = comment.topic_id
 
-        const { selectedTopic } = get();
+        const { selectedTopic } = get()
         if (selectedTopic && selectedTopic.topic_id === topicId) {
           const interviewComment: InterviewComment = {
             comment_id: comment.comment_id,
@@ -579,75 +621,73 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
             parent_comment_id: comment.parent_comment_id,
             thread_level: comment.thread_level || 1,
             replies: [],
-          };
+          }
 
-          get().addCommentToTopic(topicId, interviewComment);
+          get().addCommentToTopic(topicId, interviewComment)
           console.log(
             `InterviewStore: Added reply to detail view for topic ${topicId}`
-          );
+          )
         } else {
           console.log(
             `InterviewStore: Not viewing topic ${topicId}, refreshing topic in list`
-          );
-          get().refreshTopicInList(topicId);
+          )
+          get().refreshTopicInList(topicId)
         }
       }
-    };
+    }
 
     // Register to event router
-    console.log("🔔 InterviewStore: Registering event handler to eventRouter");
-    eventRouter.onInterviewEvent(interviewEventHandler);
-    console.log("🔔 InterviewStore: Event handler registered successfully");
+    console.log("🔔 InterviewStore: Registering event handler to eventRouter")
+    eventRouter.onInterviewEvent(interviewEventHandler)
+    console.log("🔔 InterviewStore: Event handler registered successfully")
 
     // Save handler reference for cleanup
-    set({ eventHandler: interviewEventHandler });
+    set({ eventHandler: interviewEventHandler })
   },
 
   // Recursively calculate total comment count
   countAllComments: (comments: InterviewComment[]): number => {
-    let total = 0;
+    let total = 0
     for (const comment of comments) {
-      total += 1;
+      total += 1
       if (comment.replies && comment.replies.length > 0) {
-        total += get().countAllComments(comment.replies);
+        total += get().countAllComments(comment.replies)
       }
     }
-    return total;
+    return total
   },
 
   // Fetch and update specific topic info in list
   refreshTopicInList: async (topicId: string) => {
-    const { connection } = get();
+    const { connection } = get()
     if (!connection) {
       console.warn(
         "InterviewStore: No connection available for refreshTopicInList"
-      );
-      return;
+      )
+      return
     }
 
     try {
-      console.log(`InterviewStore: Refreshing topic ${topicId} in list`);
+      console.log(`InterviewStore: Refreshing topic ${topicId} in list`)
       const response = await connection.sendEvent({
         event_name: "interview.topic.get",
         destination_id: "mod:openagents.mods.workspace.interview",
         payload: {
-          query_type: "get_topic",
           topic_id: topicId,
         },
-      });
+      })
 
       if (response.success && response.data) {
-        const topic = response.data.topic_id
-          ? response.data
-          : response.data.topic;
+        // Backend returns: data={"topic": topic.to_dict(...)}
+        const topic = response.data.topic || response.data
 
-        if (topic) {
+        if (topic && topic.topic_id) {
           console.log(
             `InterviewStore: Updating topic ${topicId} with fresh data:`,
             {
               comment_count: topic.comment_count,
             }
-          );
+          )
 
           set((state) => ({
             topics: state.topics.map((t) =>
@@ -658,18 +698,20 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
                   }
                 : t
             ),
-          }));
+          }))
         } else {
-          console.warn(`InterviewStore: No topic data in response for ${topicId}`);
+          console.warn(
+            `InterviewStore: No topic data in response for ${topicId}`
+          )
         }
       } else {
         console.warn(
           `InterviewStore: Failed to refresh topic ${topicId}:`,
           response
-        );
+        )
       }
     } catch (error) {
-      console.error(`InterviewStore: Error refreshing topic ${topicId}:`, error);
+      console.error(`InterviewStore: Error refreshing topic ${topicId}:`, error)
     }
   },
 
@@ -678,13 +720,13 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
     set((state) => {
       const exists = state.comments.some(
         (comment) => comment.comment_id === newComment.comment_id
-      );
+      )
       if (exists) {
         console.log(
           "InterviewStore: Comment already exists, skipping:",
           newComment.comment_id
-        );
-        return state;
+        )
+        return state
       }
 
       const addReplyToParent = (
@@ -692,102 +734,101 @@ export const useInterviewStore = create<InterviewState>((set, get) => ({
         parentId: string,
         reply: InterviewComment
       ): { found: boolean; comments: InterviewComment[] } => {
-        let found = false;
+        let found = false
         const updatedComments = comments.map((comment) => {
           if (comment.comment_id === parentId) {
-            found = true;
+            found = true
             // Create new comment object with updated replies (immutable)
             return {
               ...comment,
               replies: [reply, ...(comment.replies || [])],
-            };
+            }
           } else if (comment.replies && comment.replies.length > 0) {
             // Recursively search in nested replies
-            const result = addReplyToParent(comment.replies, parentId, reply);
+            const result = addReplyToParent(comment.replies, parentId, reply)
             if (result.found) {
-              found = true;
+              found = true
               // Create new comment object with updated replies (immutable)
-              return { ...comment, replies: result.comments };
+              return { ...comment, replies: result.comments }
             }
           }
-          return comment;
-        });
-        return { found, comments: updatedComments };
-      };
+          return comment
+        })
+        return { found, comments: updatedComments }
+      }
 
-      let updatedComments: InterviewComment[];
+      let updatedComments: InterviewComment[]
 
       if (newComment.parent_comment_id) {
         const result = addReplyToParent(
           state.comments,
           newComment.parent_comment_id,
           newComment
-        );
+        )
         if (result.found) {
-          updatedComments = result.comments;
+          updatedComments = result.comments
         } else {
           console.warn(
             "InterviewStore: Parent comment not found, treating as root comment:",
             newComment.parent_comment_id
-          );
-          updatedComments = [newComment, ...state.comments];
+          )
+          updatedComments = [newComment, ...state.comments]
         }
       } else {
-        updatedComments = [newComment, ...state.comments];
+        updatedComments = [newComment, ...state.comments]
       }
 
       console.log(
         "InterviewStore: Added comment, parent_comment_id:",
         newComment.parent_comment_id
-      );
+      )
 
       return {
         ...state,
         comments: updatedComments,
-      };
-    });
+      }
+    })
   },
 
   // Cleanup event listeners
   cleanupEventListeners: () => {
-    const { eventHandler } = get();
+    const { eventHandler } = get()
 
-    console.log("InterviewStore: Cleaning up interview event listeners");
+    console.log("InterviewStore: Cleaning up interview event listeners")
 
     if (eventHandler) {
-      eventRouter.offInterviewEvent(eventHandler);
-      set({ eventHandler: null });
+      eventRouter.offInterviewEvent(eventHandler)
+      set({ eventHandler: null })
     }
   },
 
   // Permission check helper
   canViewTopic: (topic: InterviewTopic) => {
-    const { agentId, groupsData } = get();
+    const { agentId, groupsData } = get()
 
     // Check if current agent is the owner
     if (agentId && topic.owner_id === agentId) {
-      return true;
+      return true
     }
 
     // Check if current agent is in interviewer or admin groups
     if (agentId && groupsData) {
-      const interviewerMembers = groupsData["interviewer"] || [];
-      const adminMembers = groupsData["admin"] || [];
+      const interviewerMembers = groupsData["interviewer"] || []
+      const adminMembers = groupsData["admin"] || []
 
       return (
-        interviewerMembers.includes(agentId) ||
-        adminMembers.includes(agentId)
-      );
+        interviewerMembers.includes(agentId) || adminMembers.includes(agentId)
+      )
     }
 
-    return false;
+    return false
   },
-}));
+}))
 
 // Bind test tools to global object in development environment
 if (typeof window !== "undefined" && process.env.NODE_ENV === "development") {
-  (window as any).useInterviewStore = useInterviewStore;
+  ;(window as any).useInterviewStore = useInterviewStore
   console.log(
     "Interview store and test utils available globally for development testing"
-  );
+  )
 }

@@ -1,11 +1,12 @@
-import React, { useState, useRef } from 'react';
-import MarkdownRenderer from '@/components/common/MarkdownRenderer';
-import { useInterviewStore } from '@/stores/interviewStore';
-import { toast } from 'sonner';
+import React, { useState, useRef } from "react"
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import { useInterviewStore } from "@/stores/interviewStore"
+import { toast } from "sonner"
 
 interface InterviewCreateModalProps {
-  isOpen: boolean;
-  onClose: () => void;
+  isOpen: boolean
+  onClose: () => void
+  onSuccess?: (topicId: string) => void // Callback when topic is created successfully
 }
 
 /**
@@ -15,158 +16,170 @@ interface InterviewCreateModalProps {
  */
 const readFileAsBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
+    const reader = new FileReader()
     reader.onload = () => {
-      const base64 = reader.result as string;
+      const base64 = reader.result as string
       // Remove data:application/pdf;base64, prefix
-      const base64Content = base64.split(',')[1];
-      resolve(base64Content);
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-};
+      const base64Content = base64.split(",")[1]
+      resolve(base64Content)
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
 
 const InterviewCreateModal: React.FC<InterviewCreateModalProps> = ({
   isOpen,
-  onClose
+  onClose,
+  onSuccess,
 }) => {
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-  const [showPreview, setShowPreview] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [pdfUrl, setPdfUrl] = useState<string>('');
-  const [pdfBlob, setPdfBlob] = useState<string>(''); // Keep base64 blob for preview
-  const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [title, setTitle] = useState("")
+  const [content, setContent] = useState("")
+  const [showPreview, setShowPreview] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [pdfFile, setPdfFile] = useState<File | null>(null)
+  const [pdfUrl, setPdfUrl] = useState<string>("")
+  const [pdfBlob, setPdfBlob] = useState<string>("") // Keep base64 blob for preview
+  const [uploadingPdf, setUploadingPdf] = useState(false)
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const createTopic = useInterviewStore(state => state.createTopic);
-  const connection = useInterviewStore(state => state.connection);
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const createTopic = useInterviewStore((state) => state.createTopic)
+  const connection = useInterviewStore((state) => state.connection)
 
-  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const handleFileSelect = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0]
+    if (!file) return
 
     // Validate file type
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      toast.error('Only PDF files are allowed');
-      return;
+    if (
+      file.type !== "application/pdf" &&
+      !file.name.toLowerCase().endsWith(".pdf")
+    ) {
+      toast.error("Only PDF files are allowed")
+      return
     }
 
     // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxSize = 10 * 1024 * 1024 // 10MB
     if (file.size > maxSize) {
-      toast.error('File size must be less than 10MB');
-      return;
+      toast.error("File size must be less than 10MB")
+      return
     }
 
     // Check connection
     if (!connection) {
-      toast.error('Not connected to network');
-      return;
+      toast.error("Not connected to network")
+      return
     }
 
-    setPdfFile(file);
-    setUploadingPdf(true);
+    setPdfFile(file)
+    setUploadingPdf(true)
 
     try {
       // Read file and encode as Base64
-      console.log('Reading file as Base64...');
-      const fileContent = await readFileAsBase64(file);
-      console.log(`File read successfully, size: ${fileContent.length} bytes (base64)`);
+      console.log("Reading file as Base64...")
+      const fileContent = await readFileAsBase64(file)
+      console.log(
+        `File read successfully, size: ${fileContent.length} bytes (base64)`
+      )
 
       // Upload file via send event
-      console.log('Uploading file to server...');
+      console.log("Uploading file to server...")
       const response = await connection.sendEvent({
-        event_name: 'interview.file.upload',
-        destination_id: 'mod:openagents.mods.workspace.interview',
+        event_name: "interview.file.upload",
+        destination_id: "mod:openagents.mods.workspace.interview",
         payload: {
           filename: file.name,
           file_content: fileContent,
-          mime_type: 'application/pdf',
-          file_size: file.size
-        }
-      });
+          mime_type: "application/pdf",
+          file_size: file.size,
+        },
+      })
 
-      console.log('Upload response:', response);
+      console.log("Upload response:", response)
 
       // Handle response
       if (response.success && response.data?.resume_url) {
-        setPdfUrl(response.data.resume_url); // file://{uuid}
-        setPdfBlob(fileContent); // Keep blob for topic creation
-        console.log(`File uploaded successfully: ${response.data.resume_url}`);
-        toast.success('Resume uploaded successfully');
+        setPdfUrl(response.data.resume_url) // file://{uuid}
+        setPdfBlob(fileContent) // Keep blob for topic creation
+        console.log(`File uploaded successfully: ${response.data.resume_url}`)
+        toast.success("Resume uploaded successfully")
       } else {
-        throw new Error(response.message || 'Upload failed');
+        throw new Error(response.message || "Upload failed")
       }
     } catch (error: any) {
-      console.error('Failed to upload file:', error);
-      toast.error(`Failed to upload resume: ${error.message || 'Unknown error'}`);
-      setPdfFile(null);
+      console.error("Failed to upload file:", error)
+      toast.error(
+        `Failed to upload resume: ${error.message || "Unknown error"}`
+      )
+      setPdfFile(null)
     } finally {
-      setUploadingPdf(false);
+      setUploadingPdf(false)
     }
-  };
+  }
 
   const handleRemovePdf = () => {
     // No need to revoke URL since we're using file:// URLs from server
-    setPdfFile(null);
-    setPdfUrl('');
+    setPdfFile(null)
+    setPdfUrl("")
     if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      fileInputRef.current.value = ""
     }
-  };
+  }
 
   const handleSubmit = async () => {
     if (!title.trim() || !content.trim()) {
-      toast.error('Please fill in title and content');
-      return;
+      toast.error("Please fill in title and content")
+      return
     }
 
     if (!pdfUrl) {
-      toast.error('Please upload your resume (PDF)');
-      return;
+      toast.error("Please upload your resume (PDF)")
+      return
     }
 
-    setIsSubmitting(true);
-    const success = await createTopic({
+    setIsSubmitting(true)
+    const topicId = await createTopic({
       title: title.trim(),
       content: content.trim(),
       resume_url: pdfUrl,
       resume_blob: pdfBlob, // Include blob for preview
-    });
+    })
 
-    if (success) {
-      setTitle('');
-      setContent('');
-      setShowPreview(false);
-      handleRemovePdf();
-      toast.success('Interview session created successfully');
-      onClose();
+    if (topicId) {
+      setTitle("")
+      setContent("")
+      setShowPreview(false)
+      handleRemovePdf()
+      toast.success("Interview session created successfully")
+      onClose()
+      // Call success callback with topic_id
+      if (onSuccess) {
+        onSuccess(topicId)
+      }
     } else {
-      toast.error('Failed to create interview session');
+      toast.error("Failed to create interview session")
     }
-    setIsSubmitting(false);
-  };
+    setIsSubmitting(false)
+  }
 
   const handleClose = () => {
-    setTitle('');
-    setContent('');
-    setShowPreview(false);
-    handleRemovePdf();
-    onClose();
-  };
+    setTitle("")
+    setContent("")
+    setShowPreview(false)
+    handleRemovePdf()
+    onClose()
+  }
 
-  if (!isOpen) return null;
+  if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
         {/* Background overlay */}
-        <div
-          className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
-        />
+        <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" />
 
         {/* Modal */}
         <div className="absolute inline-block w-full max-w-2xl left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 overflow-hidden text-left align-middle transition-all transform shadow-xl rounded-lg bg-white dark:bg-gray-800">
@@ -180,8 +193,18 @@ const InterviewCreateModal: React.FC<InterviewCreateModalProps> = ({
                 onClick={handleClose}
                 className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
@@ -214,20 +237,18 @@ const InterviewCreateModal: React.FC<InterviewCreateModalProps> = ({
                   onClick={() => setShowPreview(!showPreview)}
                   className={`text-xs px-3 py-1 rounded transition-colors ${
                     showPreview
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
                   }`}
                 >
-                  {showPreview ? 'Edit' : 'Preview'}
+                  {showPreview ? "Edit" : "Preview"}
                 </button>
               </div>
 
               {showPreview ? (
                 <div className="w-full p-3 border rounded-md min-h-[200px] bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600">
                   {content.trim() ? (
-                    <MarkdownRenderer
-                      content={content}
-                    />
+                    <MarkdownRenderer content={content} />
                   ) : (
                     <p className="text-gray-400 dark:text-gray-500">
                       Preview will appear here...
@@ -271,11 +292,23 @@ const InterviewCreateModal: React.FC<InterviewCreateModalProps> = ({
                     className="w-full px-4 py-3 border-2 border-dashed rounded-md transition-colors bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 hover:border-blue-500 dark:hover:border-blue-400 text-gray-700 dark:text-gray-300 disabled:opacity-50"
                   >
                     <div className="flex flex-col items-center space-y-2">
-                      <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      <svg
+                        className="w-8 h-8 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                        />
                       </svg>
                       <span className="text-sm">
-                        {uploadingPdf ? 'Uploading...' : 'Click to upload PDF resume'}
+                        {uploadingPdf
+                          ? "Uploading..."
+                          : "Click to upload PDF resume"}
                       </span>
                     </div>
                   </button>
@@ -283,8 +316,16 @@ const InterviewCreateModal: React.FC<InterviewCreateModalProps> = ({
               ) : (
                 <div className="flex items-center justify-between p-3 border rounded-md bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
                   <div className="flex items-center space-x-3">
-                    <svg className="w-8 h-8 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                    <svg
+                      className="w-8 h-8 text-red-500"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                     <div>
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -301,8 +342,18 @@ const InterviewCreateModal: React.FC<InterviewCreateModalProps> = ({
                     disabled={isSubmitting}
                     className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 disabled:opacity-50"
                   >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <svg
+                      className="w-5 h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M6 18L18 6M6 6l12 12"
+                      />
                     </svg>
                   </button>
                 </div>
@@ -312,12 +363,23 @@ const InterviewCreateModal: React.FC<InterviewCreateModalProps> = ({
             {/* Privacy Notice */}
             <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md">
               <div className="flex items-start space-x-2">
-                <svg className="w-5 h-5 text-yellow-600 dark:text-yellow-400 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                <svg
+                  className="w-5 h-5 text-yellow-600 dark:text-yellow-400 mt-0.5"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                    clipRule="evenodd"
+                  />
                 </svg>
                 <div className="text-xs text-yellow-800 dark:text-yellow-200">
                   <p className="font-medium mb-1">Private Session</p>
-                  <p>This interview session is private. Only you, interviewers, and administrators can view it.</p>
+                  <p>
+                    This interview session is private. Only you, interviewers,
+                    and administrators can view it.
+                  </p>
                 </div>
               </div>
             </div>
@@ -334,20 +396,30 @@ const InterviewCreateModal: React.FC<InterviewCreateModalProps> = ({
             </button>
             <button
               onClick={handleSubmit}
-              disabled={!title.trim() || !content.trim() || !pdfUrl || isSubmitting || uploadingPdf}
+              disabled={
+                !title.trim() ||
+                !content.trim() ||
+                !pdfUrl ||
+                isSubmitting ||
+                uploadingPdf
+              }
               className={`px-4 py-2 text-sm font-medium text-white rounded-md transition-colors ${
-                !title.trim() || !content.trim() || !pdfUrl || isSubmitting || uploadingPdf
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700'
+                !title.trim() ||
+                !content.trim() ||
+                !pdfUrl ||
+                isSubmitting ||
+                uploadingPdf
+                  ? "bg-gray-400 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700"
               }`}
             >
-              {isSubmitting ? 'Creating...' : 'Create Interview Session'}
+              {isSubmitting ? "Creating..." : "Create Interview Session"}
             </button>
           </div>
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default InterviewCreateModal;
+export default InterviewCreateModal
