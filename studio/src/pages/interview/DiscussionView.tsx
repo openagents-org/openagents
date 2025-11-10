@@ -1,562 +1,686 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useInterviewPortalStore } from "@/stores/interviewPortalStore";
-
-const EmptyState: React.FC = () => (
-  <div className="h-full flex flex-col items-center justify-center text-center text-gray-500 dark:text-gray-400 space-y-3">
-    <svg
-      className="w-12 h-12 text-gray-400 dark:text-gray-600"
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.5}
-        d="M7 8h10M7 12h6m5 8H6a2 2 0 01-2-2V6a2 2 0 012-2h12a2 2 0 012 2v8l-4 4z"
-      />
-    </svg>
-    <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-200">
-      No Conversations Yet
-    </h3>
-    <p className="text-sm text-gray-500 dark:text-gray-400">
-      Start the first conversation to share updates with the hiring team.
-    </p>
-  </div>
-);
-
-const InfoTile: React.FC<{ label: string; value?: React.ReactNode }> = ({
-  label,
-  value,
-}) => {
-  const displayValue =
-    value === undefined || value === null || value === "" ? (
-      <span className="text-gray-400 dark:text-gray-500">Not provided</span>
-    ) : (
-      value
-    );
-
-  return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
-      <p className="text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400">
-        {label}
-      </p>
-      <div className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100 break-words">
-        {displayValue}
-      </div>
-    </div>
-  );
-};
+import React, { useState, useEffect, useContext } from "react"
+import { useInterviewStore } from "@/stores/interviewStore"
+import InterviewTopicItem from "@/components/interview/components/InterviewTopicItem"
+import InterviewCreateModal from "@/components/interview/components/InterviewCreateModal"
+import InterviewCommentThread from "@/components/interview/components/InterviewCommentThread"
+import InterviewAddCommentModal from "@/components/interview/components/InterviewAddCommentModal"
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import { OpenAgentsContext } from "@/context/OpenAgentsProvider"
 
 const DiscussionView: React.FC = () => {
-  const [message, setMessage] = useState("");
-  const [notificationType, setNotificationType] = useState("message");
+  const context = useContext(OpenAgentsContext)
+  const openAgentsService = context?.connector
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null)
+  const [isAddCommentModalOpen, setIsAddCommentModalOpen] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showPdfPreview, setShowPdfPreview] = useState(false)
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
+  const isConnected = context?.isConnected
 
   const {
-    notifications,
-    notificationsLoading,
-    notificationsError,
-    loadNotifications,
-    addNotification,
-    interviews,
-    interviewsLoading,
-    interviewsError,
-    loadInterviews,
-    jobs,
-  } = useInterviewPortalStore();
+    topics,
+    topicsLoading,
+    topicsError,
+    selectedTopic,
+    comments,
+    commentsLoading,
+    commentsError,
+    setConnection,
+    setGroupsData,
+    setAgentId,
+    loadTopics,
+    loadTopicDetail,
+    addComment,
+    resetSelectedTopic,
+    getTotalComments,
+  } = useInterviewStore()
 
+  // Use real-time calculated total comments
+  const totalComments = selectedTopic ? getTotalComments() : 0
+
+  // Set connection
   useEffect(() => {
-    loadNotifications();
-  }, [loadNotifications]);
+    if (openAgentsService) {
+      setConnection(openAgentsService)
+    }
+  }, [openAgentsService, setConnection])
 
+  // Initialize permission data
   useEffect(() => {
-    loadInterviews();
-  }, [loadInterviews]);
+    const initializePermissions = async () => {
+      if (!openAgentsService) return
 
-  const sortedInterviews = useMemo(() => {
-    return [...interviews].sort((a, b) => {
-      const timeA = a.updated_at ?? a.created_at ?? 0;
-      const timeB = b.updated_at ?? b.created_at ?? 0;
-      return timeB - timeA;
-    });
-  }, [interviews]);
+      try {
+        // Get current agent ID
+        const agentId = openAgentsService.getAgentId()
+        if (agentId) {
+          console.log("DiscussionView: Setting agentId:", agentId)
+          setAgentId(agentId)
+        }
 
-  const candidateData = useMemo(() => {
-    if (sortedInterviews.length === 0) {
-      return null;
-    }
-
-    const interview = sortedInterviews[0];
-    const job = interview.job_id
-      ? jobs.find((item) => item.job_id === interview.job_id)
-      : undefined;
-
-    const baseRecord =
-      interview.results &&
-      typeof interview.results === "object" &&
-      !Array.isArray(interview.results)
-        ? (interview.results as Record<string, unknown>)
-        : {};
-
-    const nestedKeys = ["candidate", "candidate_details", "profile", "applicant"];
-    const mergedNested = nestedKeys.reduce<Record<string, unknown>>((acc, key) => {
-      const candidateSection = baseRecord[key];
-      if (
-        candidateSection &&
-        typeof candidateSection === "object" &&
-        !Array.isArray(candidateSection)
-      ) {
-        return {
-          ...acc,
-          ...(candidateSection as Record<string, unknown>),
-        };
+        // Get groups data
+        const healthData = await openAgentsService.getNetworkHealth()
+        if (healthData && healthData.groups) {
+          console.log("DiscussionView: Setting groupsData:", healthData.groups)
+          setGroupsData(healthData.groups)
+        }
+      } catch (error) {
+        console.error(
+          "DiscussionView: Failed to initialize permissions:",
+          error
+        )
       }
-      return acc;
-    }, {});
+    }
 
-    const combined = {
-      ...baseRecord,
-      ...mergedNested,
-    } as Record<string, unknown>;
+    initializePermissions()
+  }, [openAgentsService, setGroupsData, setAgentId])
 
-    const getString = (keys: string[], fallback?: string) => {
-      for (const key of keys) {
-        const value = combined[key];
-        if (value === undefined || value === null) {
-          continue;
+  // Load topics (wait for connection to be established)
+  useEffect(() => {
+    if (openAgentsService && isConnected) {
+      console.log("DiscussionView: Connection ready, loading topics")
+      loadTopics()
+    }
+  }, [openAgentsService, isConnected, loadTopics])
+
+  // Load topic detail when selectedTopicId changes
+  useEffect(() => {
+    if (selectedTopicId && openAgentsService && isConnected) {
+      console.log(
+        "DiscussionView: Connection ready, loading topic detail for:",
+        selectedTopicId
+      )
+      loadTopicDetail(selectedTopicId)
+    } else if (!selectedTopicId) {
+      resetSelectedTopic()
+    }
+  }, [
+    selectedTopicId,
+    openAgentsService,
+    isConnected,
+    loadTopicDetail,
+    resetSelectedTopic,
+  ])
+
+  // Use embedded blob if available (no need to download)
+  useEffect(() => {
+    if (selectedTopic?.resume_blob && !pdfBlobUrl) {
+      console.log("DiscussionView: Using embedded resume blob")
+      try {
+        // Convert base64 to blob
+        const binaryString = atob(selectedTopic.resume_blob)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i)
         }
-        if (typeof value === "string") {
-          const trimmed = value.trim();
-          if (trimmed.length > 0) {
-            return trimmed;
-          }
-        }
-        if (typeof value === "number" || typeof value === "boolean") {
-          return String(value);
-        }
+        const blob = new Blob([bytes], { type: "application/pdf" })
+        const blobUrl = URL.createObjectURL(blob)
+        setPdfBlobUrl(blobUrl)
+        console.log("DiscussionView: PDF blob URL created from embedded data")
+      } catch (error) {
+        console.error(
+          "DiscussionView: Failed to create blob from embedded data:",
+          error
+        )
+        setPdfError("Failed to load PDF from embedded data")
       }
-      return fallback;
-    };
+    }
+  }, [selectedTopic, pdfBlobUrl])
 
-    const getArray = (keys: string[]) => {
-      for (const key of keys) {
-        const value = combined[key];
-        if (Array.isArray(value)) {
-          return value
-            .map((item) =>
-              typeof item === "string" ? item : item != null ? String(item) : ""
-            )
-            .filter(Boolean);
-        }
-        if (typeof value === "string") {
-          const parts = value
-            .split(/[,|]/)
-            .map((part) => part.trim())
-            .filter(Boolean);
-          if (parts.length > 0) {
-            return parts;
-          }
-        }
+  // Reset selected topic when component unmounts or topicId changes
+  useEffect(() => {
+    return () => {
+      console.log("DiscussionView: Cleanup - resetting selected topic")
+      // Clean up blob URL
+      if (pdfBlobUrl) {
+        URL.revokeObjectURL(pdfBlobUrl)
       }
-      return [];
-    };
+      resetSelectedTopic()
+    }
+  }, [resetSelectedTopic, pdfBlobUrl])
 
-    const name =
-      getString(["candidate_name", "name", "full_name", "display_name"]) ||
-      "Unknown Candidate";
-    const email = getString(["candidate_email", "email", "contact_email"]);
-    const phone = getString(["candidate_phone", "phone", "contact_phone", "mobile"]);
-    const location =
-      getString(["candidate_location", "location", "city", "country"]) ||
-      job?.location ||
-      "Not provided";
-    const experienceRaw = getString([
-      "experience_years",
-      "years_of_experience",
-      "experience",
-      "experienceYears",
-    ]);
-    const experience =
-      experienceRaw && /^\d+(\.\d+)?$/.test(experienceRaw)
-        ? `${experienceRaw} years`
-        : experienceRaw || "Not provided";
-    const resumeLink = getString(["resume_url", "resume", "cv_url", "portfolio_url"]);
-    const notes =
-      interview.notes ||
-      getString(["notes", "summary", "overview", "comments", "feedback"]);
-    const skills = getArray(["skills", "key_skills", "strengths", "expertise"]);
+  // Handle topic item click
+  const handleTopicClick = (topicId: string) => {
+    setSelectedTopicId(topicId)
+  }
 
-    const timestamp = interview.updated_at ?? interview.created_at ?? null;
-    const lastUpdated =
-      typeof timestamp === "number"
-        ? new Date(timestamp * 1000).toLocaleString()
-        : "Not specified";
+  // Handle back to list
+  const handleBack = () => {
+    setSelectedTopicId(null)
+    if (pdfBlobUrl) {
+      URL.revokeObjectURL(pdfBlobUrl)
+      setPdfBlobUrl(null)
+    }
+    setPdfError(null)
+  }
 
-    return {
-      interview,
-      job,
-      name,
-      email,
-      phone,
-      location,
-      experience,
-      resumeLink,
-      notes,
-      skills,
-      status: interview.status || "Not specified",
-      interviewType: interview.interview_type || "Not specified",
-      duration:
-        typeof interview.duration_minutes === "number"
-          ? `${interview.duration_minutes} minutes`
-          : "Not specified",
-      lastUpdated,
-    };
-  }, [jobs, sortedInterviews]);
+  // Handle add comment
+  const handleAddComment = async (content: string) => {
+    if (!content.trim() || !selectedTopicId) return false
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!message.trim()) {
-      return;
+    setIsSubmitting(true)
+    const success = await addComment(selectedTopicId, content.trim())
+    setIsSubmitting(false)
+
+    return success
+  }
+
+  // Open PDF preview modal
+  const handleTogglePdfPreview = async () => {
+    // If blob URL already exists (from embedded blob or previous download), just open modal
+    if (pdfBlobUrl) {
+      setShowPdfPreview(true)
+      return
     }
 
-    const success = await addNotification(message.trim(), {
-      type: notificationType,
-    });
-    if (success) {
-      setMessage("");
+    // Otherwise, need to download PDF from file system
+    if (!pdfLoading) {
+      await loadPdfBlob()
     }
-  };
+    // Open modal
+    setShowPdfPreview(true)
+  }
 
-  const getTypeLabel = (type: string) => {
-    const normalized = type?.toLowerCase();
-    switch (normalized) {
-      case "warning":
-        return "Warning";
-      case "success":
-        return "Success";
-      case "error":
-      case "alert":
-        return "Alert";
-      case "info":
-        return "Info";
-      case "message":
-      default:
-        return "Message";
+  const loadPdfBlob = async () => {
+    if (!selectedTopic?.resume_url || !openAgentsService) return
+
+    // Extract file_id from file:// URL
+    const fileId = selectedTopic.resume_url.replace("file://", "")
+
+    setPdfLoading(true)
+    setPdfError(null)
+
+    try {
+      // Download file via send event
+      const response = await openAgentsService.sendEvent({
+        event_name: "interview.file.download",
+        destination_id: "mod:openagents.mods.workspace.interview",
+        payload: {
+          file_id: fileId,
+        },
+      })
+
+      if (response.success && response.data?.file_content) {
+        // Decode base64 and create blob URL
+        const base64Content = response.data.file_content
+        const binaryString = atob(base64Content)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i)
+        }
+        const blob = new Blob([bytes], { type: "application/pdf" })
+        const blobUrl = URL.createObjectURL(blob)
+        setPdfBlobUrl(blobUrl)
+      } else {
+        throw new Error(response.message || "Failed to download PDF")
+      }
+    } catch (error: any) {
+      console.error("Failed to load PDF:", error)
+      setPdfError(error.message || "Failed to load PDF")
+    } finally {
+      setPdfLoading(false)
     }
-  };
+  }
 
-  const getTypeIcon = (type: string) => {
-    const normalized = type?.toLowerCase();
-    switch (normalized) {
-      case "warning":
-        return "⚠️";
-      case "success":
-        return "✅";
-      case "error":
-      case "alert":
-        return "⛔";
-      default:
-        return "💬";
-    }
-  };
+  // Show connection waiting state
+  if (!openAgentsService || !isConnected) {
+    return (
+      <div className="flex-1 flex items-center justify-center dark:bg-gray-900">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400 mx-auto mb-4" />
+          <p className="text-gray-600 dark:text-gray-400">
+            {!openAgentsService
+              ? "Connecting to network..."
+              : "Establishing connection..."}
+          </p>
+        </div>
+      </div>
+    )
+  }
 
-  const getInitials = (name: string) => {
-    if (!name) {
-      return "UN";
-    }
-    const parts = name.trim().split(/\s+/);
-    if (parts.length === 1) {
-      return parts[0].slice(0, 2).toUpperCase();
-    }
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  };
+  // Show loading state for list
+  if (topicsLoading && topics.length === 0 && !selectedTopicId) {
+    return (
+      <div className="flex-1 flex items-center justify-center dark:bg-gray-900">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400 mx-auto mb-4" />
+          <p className="text-gray-600 dark:text-gray-400">
+            Loading interview sessions...
+          </p>
+        </div>
+      </div>
+    )
+  }
 
-  return (
-    <div className="h-full flex flex-col">
-      <section className="px-8 py-6 border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80">
-        {interviewsLoading && !candidateData ? (
-          <div className="animate-pulse space-y-4">
-            <div className="h-10 w-2/3 bg-gray-200 dark:bg-gray-700 rounded" />
-            <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              {Array.from({ length: 6 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="h-20 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
-                />
-              ))}
-            </div>
-          </div>
-        ) : !candidateData ? (
-          <div className="flex flex-col gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                Candidate Profile
-              </p>
-              <h1 className="mt-1 text-3xl font-bold text-gray-900 dark:text-gray-100">
-                Awaiting interview data
-              </h1>
-              <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-                Refresh the interview feed once a candidate joins the pipeline to view their profile here.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {interviewsError && (
-                <span className="text-sm text-red-500 dark:text-red-300">
-                  {interviewsError}
-                </span>
-              )}
-              <button
-                onClick={() => loadInterviews(true)}
-                className="inline-flex items-center px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition"
-              >
-                Refresh Profile
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-6">
-              <div className="flex items-start gap-4">
-                <div className="w-16 h-16 rounded-full bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-200 flex items-center justify-center text-xl font-semibold">
-                  {getInitials(candidateData.name)}
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-purple-600 dark:text-purple-300">
-                    Candidate Profile
-                  </p>
-                  <h1 className="mt-1 text-3xl font-bold text-gray-900 dark:text-gray-100">
-                    {candidateData.name}
-                  </h1>
-                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
-                    {candidateData.job?.title || "Role pending"}
-                    {candidateData.job?.company ? ` · ${candidateData.job.company}` : ""}
-                  </p>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Last updated: {candidateData.lastUpdated}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="inline-flex items-center px-3 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 text-xs font-semibold uppercase tracking-widest">
-                  {candidateData.status}
-                </span>
-                <button
-                  onClick={() => loadInterviews(true)}
-                  className="inline-flex items-center px-5 py-3 rounded-lg border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-200 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition font-medium"
-                >
-                  Refresh Profile
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              <InfoTile
-                label="Email"
-                value={
-                  candidateData.email ? (
-                    <a
-                      href={`mailto:${candidateData.email}`}
-                      className="text-blue-600 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
-                    >
-                      {candidateData.email}
-                    </a>
-                  ) : undefined
-                }
-              />
-              <InfoTile label="Phone" value={candidateData.phone} />
-              <InfoTile label="Location" value={candidateData.location} />
-              <InfoTile label="Experience" value={candidateData.experience} />
-              <InfoTile label="Interview Type" value={candidateData.interviewType} />
-              <InfoTile label="Planned Duration" value={candidateData.duration} />
-              <InfoTile
-                label="Resume"
-                value={
-                  candidateData.resumeLink ? (
-                    <a
-                      href={candidateData.resumeLink}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-700 dark:text-blue-300 dark:hover:text-blue-200"
-                    >
-                      View resume
-                    </a>
-                  ) : undefined
-                }
-              />
-              <InfoTile
-                label="Hiring Team Alignment"
-                value={
-                  candidateData.job?.company ? (
-                    <>
-                      {candidateData.job.company}
-                      {candidateData.job.location ? ` · ${candidateData.job.location}` : ""}
-                    </>
-                  ) : undefined
-                }
-              />
-              <InfoTile label="Interview ID" value={candidateData.interview.interview_id} />
-            </div>
-
-            {candidateData.skills.length > 0 && (
-              <div className="mt-6">
-                <p className="text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                  Core Skills
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {candidateData.skills.map((skill) => (
-                    <span
-                      key={skill}
-                      className="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200 text-xs font-medium"
-                    >
-                      {skill}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {candidateData.notes && (
-              <div className="mt-6">
-                <p className="text-xs uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                  Interview Notes
-                </p>
-                <p className="mt-2 text-sm text-gray-700 dark:text-gray-200 leading-relaxed whitespace-pre-wrap">
-                  {candidateData.notes}
-                </p>
-              </div>
-            )}
-          </>
-        )}
-      </section>
-
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="px-8 py-4 border-b border-gray-200 dark:border-gray-700 bg-white/70 dark:bg-gray-900/70">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
-                Discussion Feed
-              </p>
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-                Collaborative Comments
-              </h2>
-              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                Document questions, decisions, and follow-ups so the full team stays aligned.
-              </p>
-            </div>
-            <button
-              onClick={() => loadNotifications(true)}
-              className="inline-flex items-center px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition text-sm font-medium"
+  // Show error state for list
+  if (topicsError && !selectedTopicId) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center">
+          <div className={`text-red-500 mb-4`}>
+            <svg
+              className="w-12 h-12 mx-auto"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
             >
-              Refresh Comments
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+          </div>
+          <p className="mb-4 text-gray-700 dark:text-gray-300">{topicsError}</p>
+          <button
+            onClick={loadTopics}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Show detail view if topic is selected
+  if (selectedTopicId) {
+    // Show loading state for detail (when topic is loading or comments are loading)
+    if (
+      (commentsLoading && !selectedTopic) ||
+      (commentsLoading && comments.length === 0 && !selectedTopic)
+    ) {
+      return (
+        <div className="flex-1 flex flex-col h-full">
+          {/* Header navigation */}
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center bg-gray-50 dark:bg-gray-800">
+            <button
+              onClick={handleBack}
+              className="flex items-center space-x-2 text-sm transition-colors text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
+              </svg>
+              <span>Back to Interview List</span>
             </button>
           </div>
-          {notificationsError && notifications.length > 0 && (
-            <p className="mt-2 text-xs text-red-500 dark:text-red-300">{notificationsError}</p>
-          )}
+
+          <div className="flex-1 flex items-center justify-center dark:bg-gray-900">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400 mx-auto mb-4" />
+              <p className="text-gray-600 dark:text-gray-400">
+                Loading interview session...
+              </p>
+            </div>
+          </div>
+        </div>
+      )
+    }
+    console.log("selectedTopic", selectedTopic)
+    console.log("commentsError", commentsError)
+    console.log("commentsLoading", commentsLoading)
+    console.log("selectedTopicId", selectedTopicId)
+    console.log("comments", comments)
+    console.log("commentsLoading", commentsLoading)
+    console.log("commentsError", commentsError)
+    console.log("selectedTopicId", selectedTopicId)
+    console.log("selectedTopic", selectedTopic)
+
+    const timeAgo = new Date(
+      selectedTopic?.timestamp ?? 0 * 1000
+    ).toLocaleString()
+
+    return (
+      <div className="flex-1 flex flex-col h-full">
+        {/* Header navigation */}
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center bg-gray-50 dark:bg-gray-800">
+          <button
+            onClick={handleBack}
+            className="flex items-center space-x-2 text-sm transition-colors text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 19l-7-7 7-7"
+              />
+            </svg>
+            <span>Back to Interview List</span>
+          </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-8 py-6 space-y-4 bg-gray-50/80 dark:bg-gray-900/50">
-          {notificationsLoading && notifications.length === 0 ? (
-            <div className="space-y-3">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm animate-pulse"
-                >
-                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-3" />
-                  <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-5/6 mb-2" />
-                  <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-4/6" />
-                </div>
-              ))}
-            </div>
-          ) : notificationsError && notifications.length === 0 ? (
-            <div className="rounded-xl border border-red-200 dark:border-red-800/60 bg-red-50 dark:bg-red-900/20 p-6">
-              <h2 className="text-lg font-semibold text-red-600 dark:text-red-300 mb-2">
-                Failed to Load Discussions
-              </h2>
-              <p className="text-sm text-red-500 dark:text-red-200 mb-4">
-                {notificationsError}
-              </p>
-              <button
-                onClick={() => loadNotifications(true)}
-                className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg bg-white dark:bg-red-900/60 border border-red-200 dark:border-red-700 text-red-600 dark:text-red-200 hover:bg-red-100 dark:hover:bg-red-900/80 transition"
-              >
-                Retry
-              </button>
-            </div>
-          ) : notifications.length === 0 ? (
-            <EmptyState />
-          ) : (
-            <div className="space-y-4">
-              {notifications.map((notification) => (
-                <article
-                  key={notification.notification_id}
-                  className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow hover:shadow-lg transition duration-200"
-                >
-                  <div className="px-6 py-5 space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-200 flex items-center justify-center font-semibold">
-                          {getTypeIcon(notification.type)}
-                        </div>
-                        <div>
-                          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                            {getTypeLabel(notification.type)}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {new Date(
-                              (notification.created_at || 0) * 1000
-                            ).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
+        {/* Main content */}
+        <div className="flex-1 overflow-y-auto dark:bg-gray-900">
+          <div className="flex flex-col">
+            <div className="flex flex-col">
+              {/* Topic content */}
+              <div className="p-6 border-b bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700">
+                {/* Topic title */}
+                <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100">
+                  {selectedTopic?.title}
+                </h1>
+
+                {/* Topic meta info */}
+                <div className="flex items-center justify-between mb-4 text-sm text-gray-600 dark:text-gray-400">
+                  <div className="flex items-center space-x-3">
+                    <span>by {selectedTopic?.owner_id}</span>
+                    <span>•</span>
+                    <span>{timeAgo}</span>
+                    <span>•</span>
+                    <div className="flex items-center space-x-1">
+                      <svg
+                        className="w-4 h-4 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                        />
+                      </svg>
+                      <span>Private</span>
                     </div>
-                    <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed whitespace-pre-wrap">
-                      {notification.message}
+                  </div>
+                  <span>{totalComments} comments</span>
+                </div>
+
+                {/* Topic content */}
+                <div className="mb-4">
+                  <MarkdownRenderer content={selectedTopic?.content} />
+                </div>
+
+                {/* PDF Preview Button */}
+                <div className="mb-4">
+                  <button
+                    onClick={handleTogglePdfPreview}
+                    disabled={pdfLoading}
+                    className="flex items-center space-x-2 px-4 py-2 rounded-md transition-colors bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
+                  >
+                    {pdfLoading ? (
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-700 dark:border-gray-300" />
+                    ) : (
+                      <svg
+                        className="w-5 h-5 text-red-500"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                    )}
+                    <span className="text-sm font-medium">
+                      {pdfLoading ? "Loading..." : "View Resume (PDF)"}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Add comment button */}
+                <div className="flex items-center justify-end">
+                  <button
+                    onClick={() => setIsAddCommentModalOpen(true)}
+                    className="flex items-center space-x-2 px-4 py-2 rounded-md transition-colors bg-blue-600 text-white hover:bg-blue-700"
+                  >
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 4v16m8-8H4"
+                      />
+                    </svg>
+                    <span className="text-sm font-medium">Add Comment</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Comments title */}
+              <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  Comments ({totalComments})
+                </h2>
+              </div>
+
+              {/* Comments list - scrollable middle area */}
+              <div className="py-4 pb-6">
+                {commentsLoading ? (
+                  <div className="text-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-400 mx-auto mb-4" />
+                    <p className="text-gray-600 dark:text-gray-400">
+                      Loading comments...
                     </p>
                   </div>
-                </article>
-              ))}
+                ) : comments.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-gray-600 dark:text-gray-400">
+                      No comments yet. Be the first to comment!
+                    </p>
+                  </div>
+                ) : (
+                  <InterviewCommentThread
+                    comments={comments}
+                    topicId={selectedTopic?.topic_id}
+                  />
+                )}
+              </div>
             </div>
-          )}
+          </div>
         </div>
 
-        <footer className="border-t border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-900/90 px-8 py-5">
-          <form
-            onSubmit={handleSubmit}
-            className="flex flex-col md:flex-row md:items-center gap-3"
-          >
-            <textarea
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-              placeholder="Share an update, decision, or question for the team..."
-              className="flex-1 min-h-[96px] md:min-h-[72px] rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-4 py-3 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition"
-            />
-            <select
-              value={notificationType}
-              onChange={(event) => setNotificationType(event.target.value)}
-              className="md:w-40 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-4 py-3 text-sm text-gray-800 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition"
-            >
-              <option value="message">Message</option>
-              <option value="info">Info</option>
-              <option value="warning">Warning</option>
-              <option value="alert">Alert</option>
-              <option value="success">Success</option>
-            </select>
-            <button
-              type="submit"
-              disabled={!message.trim()}
-              className="inline-flex items-center justify-center px-5 py-3 rounded-xl bg-purple-600 text-white font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
-            >
-              Post Comment
-            </button>
-          </form>
-        </footer>
+        {/* Add comment modal */}
+        <InterviewAddCommentModal
+          isOpen={isAddCommentModalOpen}
+          onClose={() => setIsAddCommentModalOpen(false)}
+          onSubmit={handleAddComment}
+          isSubmitting={isSubmitting}
+        />
+
+        {/* PDF Preview Modal */}
+        {showPdfPreview && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75">
+            <div className="relative w-full h-full max-w-6xl max-h-[90vh] m-4 bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                  Resume Preview
+                </h3>
+                <button
+                  onClick={() => setShowPdfPreview(false)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                >
+                  <svg
+                    className="w-6 h-6"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Modal Content */}
+              <div className="h-[calc(100%-4rem)] overflow-hidden">
+                {pdfError ? (
+                  <div className="flex flex-col items-center justify-center h-full">
+                    <div className="text-red-500 mb-4">
+                      <svg
+                        className="w-16 h-16 mx-auto"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                      {pdfError}
+                    </p>
+                    <button
+                      onClick={loadPdfBlob}
+                      className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : pdfBlobUrl ? (
+                  <iframe
+                    src={pdfBlobUrl}
+                    className="w-full h-full"
+                    title="Resume PDF"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400 mb-4" />
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Loading resume...
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+    )
+  }
+
+  // Show list view
+  return (
+    <div className="flex-1 flex flex-col h-full ">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-800">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            Interview Sessions
+          </h1>
+          <p className="text-sm mt-1 text-gray-600 dark:text-gray-400">
+            {topics.length} private interview session
+            {topics.length !== 1 ? "s" : ""} available
+          </p>
+        </div>
+
+        <div className="flex items-center space-x-3">
+          {/* Create session button */}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 4v16m8-8H4"
+              />
+            </svg>
+            <span>New Interview Session</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Interview session list */}
+      <div className="flex-1 overflow-y-hidden py-6 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
+        {topics.length === 0 ? (
+          <div className="text-center py-12 h-full flex flex-col items-center justify-center">
+            <div className="mb-4 text-gray-500 dark:text-gray-400">
+              <svg
+                className="w-16 h-16 mx-auto"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1}
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                />
+              </svg>
+            </div>
+            <h3 className="text-lg font-medium mb-2 text-gray-700 dark:text-gray-300">
+              No interview sessions yet
+            </h3>
+            <p className="mb-4 text-gray-600 dark:text-gray-400">
+              Create your first interview session with your resume!
+            </p>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            >
+              Create First Interview Session
+            </button>
+          </div>
+        ) : (
+          <div className="h-full px-6 overflow-y-auto space-y-4">
+            {topics.map((topic) => (
+              <InterviewTopicItem
+                key={topic.topic_id}
+                topic={topic}
+                onClick={handleTopicClick}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Create interview session modal */}
+      <InterviewCreateModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={(topicId) => {
+          // Automatically navigate to the newly created topic
+          console.log("DiscussionView: Topic created, navigating to:", topicId)
+          setSelectedTopicId(topicId)
+        }}
+      />
     </div>
-  );
-};
+  )
+}
 
-export default DiscussionView;
-
+export default DiscussionView

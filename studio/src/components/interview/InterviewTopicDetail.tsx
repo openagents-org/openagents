@@ -1,27 +1,27 @@
-import React, { useState, useEffect, useContext } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { useInterviewStore } from "@/stores/interviewStore";
-import MarkdownRenderer from "@/components/common/MarkdownRenderer";
-import InterviewCommentThread from "./components/InterviewCommentThread";
-import InterviewAddCommentModal from "./components/InterviewAddCommentModal";
-import { OpenAgentsContext } from "@/context/OpenAgentsProvider";
+import React, { useState, useEffect, useContext } from "react"
+import { useParams, useNavigate } from "react-router-dom"
+import { useInterviewStore } from "@/stores/interviewStore"
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import InterviewCommentThread from "./components/InterviewCommentThread"
+import InterviewAddCommentModal from "./components/InterviewAddCommentModal"
+import { OpenAgentsContext } from "@/context/OpenAgentsProvider"
 
 interface InterviewTopicDetailProps {}
 
 const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
-  const context = useContext(OpenAgentsContext);
-  const { topicId } = useParams<{ topicId: string }>();
-  const navigate = useNavigate();
+  const context = useContext(OpenAgentsContext)
+  const { topicId } = useParams<{ topicId: string }>()
+  const navigate = useNavigate()
 
-  const [isAddCommentModalOpen, setIsAddCommentModalOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showPdfPreview, setShowPdfPreview] = useState(false);
-  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
-  const [pdfLoading, setPdfLoading] = useState(false);
-  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [isAddCommentModalOpen, setIsAddCommentModalOpen] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showPdfPreview, setShowPdfPreview] = useState(false)
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
+  const [pdfLoading, setPdfLoading] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
 
-  const openAgentsService = context?.connector;
-  const isConnected = context?.isConnected;
+  const openAgentsService = context?.connector
+  const isConnected = context?.isConnected
 
   const {
     selectedTopic,
@@ -33,18 +33,18 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
     addComment,
     resetSelectedTopic,
     getTotalComments,
-  } = useInterviewStore();
+  } = useInterviewStore()
 
   // Use real-time calculated total comments
-  const totalComments = getTotalComments();
+  const totalComments = getTotalComments()
 
   // Set connection
   useEffect(() => {
     if (openAgentsService) {
-      console.log("InterviewTopicDetail: Setting connection");
-      setConnection(openAgentsService);
+      console.log("InterviewTopicDetail: Setting connection")
+      setConnection(openAgentsService)
     }
-  }, [openAgentsService, setConnection]);
+  }, [openAgentsService, setConnection])
 
   // Load topic detail (wait for connection to be established)
   useEffect(() => {
@@ -52,8 +52,8 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
       console.log(
         "InterviewTopicDetail: Connection ready, loading topic detail for:",
         topicId
-      );
-      loadTopicDetail(topicId);
+      )
+      loadTopicDetail(topicId)
     } else {
       console.log(
         "InterviewTopicDetail: Waiting for connection or missing topicId",
@@ -62,114 +62,119 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
           hasService: !!openAgentsService,
           isConnected,
         }
-      );
+      )
     }
-  }, [topicId, openAgentsService, isConnected, loadTopicDetail]);
+  }, [topicId, openAgentsService, isConnected, loadTopicDetail])
 
   // Use embedded blob if available (no need to download)
   useEffect(() => {
     if (selectedTopic?.resume_blob && !pdfBlobUrl) {
-      console.log("InterviewTopicDetail: Using embedded resume blob");
+      console.log("InterviewTopicDetail: Using embedded resume blob")
       try {
         // Convert base64 to blob
-        const binaryString = atob(selectedTopic.resume_blob);
-        const bytes = new Uint8Array(binaryString.length);
+        const binaryString = atob(selectedTopic.resume_blob)
+        const bytes = new Uint8Array(binaryString.length)
         for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
+          bytes[i] = binaryString.charCodeAt(i)
         }
-        const blob = new Blob([bytes], { type: 'application/pdf' });
-        const blobUrl = URL.createObjectURL(blob);
-        setPdfBlobUrl(blobUrl);
-        console.log("InterviewTopicDetail: PDF blob URL created from embedded data");
+        const blob = new Blob([bytes], { type: "application/pdf" })
+        const blobUrl = URL.createObjectURL(blob)
+        setPdfBlobUrl(blobUrl)
+        console.log(
+          "InterviewTopicDetail: PDF blob URL created from embedded data"
+        )
       } catch (error) {
-        console.error("InterviewTopicDetail: Failed to create blob from embedded data:", error);
-        setPdfError("Failed to load PDF from embedded data");
+        console.error(
+          "InterviewTopicDetail: Failed to create blob from embedded data:",
+          error
+        )
+        setPdfError("Failed to load PDF from embedded data")
       }
     }
-  }, [selectedTopic, pdfBlobUrl]);
+  }, [selectedTopic, pdfBlobUrl])
 
   // Reset selected topic when component unmounts
   useEffect(() => {
     return () => {
-      console.log("InterviewTopicDetail: Cleanup - resetting selected topic");
+      console.log("InterviewTopicDetail: Cleanup - resetting selected topic")
       // Clean up blob URL
       if (pdfBlobUrl) {
-        URL.revokeObjectURL(pdfBlobUrl);
+        URL.revokeObjectURL(pdfBlobUrl)
       }
-      resetSelectedTopic();
-    };
-  }, [resetSelectedTopic, pdfBlobUrl]);
+      resetSelectedTopic()
+    }
+  }, [resetSelectedTopic, pdfBlobUrl])
 
   // Open PDF preview modal
   const handleTogglePdfPreview = async () => {
     // If blob URL already exists (from embedded blob or previous download), just open modal
     if (pdfBlobUrl) {
-      setShowPdfPreview(true);
-      return;
+      setShowPdfPreview(true)
+      return
     }
 
     // Otherwise, need to download PDF from file system
     if (!pdfLoading) {
-      await loadPdfBlob();
+      await loadPdfBlob()
     }
     // Open modal
-    setShowPdfPreview(true);
-  };
+    setShowPdfPreview(true)
+  }
 
   const handleBack = () => {
-    navigate("/interview");
-  };
+    navigate("/interview")
+  }
 
   const handleAddComment = async (content: string) => {
-    if (!content.trim() || !topicId) return false;
+    if (!content.trim() || !topicId) return false
 
-    setIsSubmitting(true);
-    const success = await addComment(topicId, content.trim());
-    setIsSubmitting(false);
+    setIsSubmitting(true)
+    const success = await addComment(topicId, content.trim())
+    setIsSubmitting(false)
 
-    return success;
-  };
+    return success
+  }
 
   const loadPdfBlob = async () => {
-    if (!selectedTopic?.resume_url || !openAgentsService) return;
+    if (!selectedTopic?.resume_url || !openAgentsService) return
 
     // Extract file_id from file:// URL
-    const fileId = selectedTopic.resume_url.replace('file://', '');
+    const fileId = selectedTopic.resume_url.replace("file://", "")
 
-    setPdfLoading(true);
-    setPdfError(null);
+    setPdfLoading(true)
+    setPdfError(null)
 
     try {
       // Download file via send event
       const response = await openAgentsService.sendEvent({
-        event_name: 'interview.file.download',
-        destination_id: 'mod:openagents.mods.workspace.interview',
+        event_name: "interview.file.download",
+        destination_id: "mod:openagents.mods.workspace.interview",
         payload: {
-          file_id: fileId
-        }
-      });
+          file_id: fileId,
+        },
+      })
 
       if (response.success && response.data?.file_content) {
         // Decode base64 and create blob URL
-        const base64Content = response.data.file_content;
-        const binaryString = atob(base64Content);
-        const bytes = new Uint8Array(binaryString.length);
+        const base64Content = response.data.file_content
+        const binaryString = atob(base64Content)
+        const bytes = new Uint8Array(binaryString.length)
         for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
+          bytes[i] = binaryString.charCodeAt(i)
         }
-        const blob = new Blob([bytes], { type: 'application/pdf' });
-        const blobUrl = URL.createObjectURL(blob);
-        setPdfBlobUrl(blobUrl);
+        const blob = new Blob([bytes], { type: "application/pdf" })
+        const blobUrl = URL.createObjectURL(blob)
+        setPdfBlobUrl(blobUrl)
       } else {
-        throw new Error(response.message || 'Failed to download PDF');
+        throw new Error(response.message || "Failed to download PDF")
       }
     } catch (error: any) {
-      console.error('Failed to load PDF:', error);
-      setPdfError(error.message || 'Failed to load PDF');
+      console.error("Failed to load PDF:", error)
+      setPdfError(error.message || "Failed to load PDF")
     } finally {
-      setPdfLoading(false);
+      setPdfLoading(false)
     }
-  };
+  }
 
   // Show connection waiting state
   if (!openAgentsService || !isConnected) {
@@ -184,56 +189,10 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
           </p>
         </div>
       </div>
-    );
+    )
   }
 
-  // Show loading state
-  if (commentsLoading && !selectedTopic) {
-    return (
-      <div className="flex-1 flex items-center justify-center dark:bg-gray-900">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400 mx-auto mb-4" />
-          <p className="text-gray-600 dark:text-gray-400">Loading interview session...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error state
-  if (commentsError || !selectedTopic) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <div className={`text-red-500 mb-4`}>
-            <svg
-              className="w-12 h-12 mx-auto"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-          </div>
-          <p className="mb-4 text-gray-700 dark:text-gray-300">
-            {commentsError || "Interview session not found"}
-          </p>
-          <button
-            onClick={handleBack}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-          >
-            Back to Interview List
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const timeAgo = new Date(selectedTopic.timestamp * 1000).toLocaleString();
+  const timeAgo = new Date(selectedTopic.timestamp * 1000).toLocaleString()
 
   return (
     <div className="flex-1 flex flex-col h-full">
@@ -279,8 +238,18 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
                   <span>{timeAgo}</span>
                   <span>•</span>
                   <div className="flex items-center space-x-1">
-                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    <svg
+                      className="w-4 h-4 text-gray-400"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                      />
                     </svg>
                     <span>Private</span>
                   </div>
@@ -303,12 +272,20 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
                   {pdfLoading ? (
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-700 dark:border-gray-300" />
                   ) : (
-                    <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+                    <svg
+                      className="w-5 h-5 text-red-500"
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z"
+                        clipRule="evenodd"
+                      />
                     </svg>
                   )}
                   <span className="text-sm font-medium">
-                    {pdfLoading ? 'Loading...' : 'View Resume (PDF)'}
+                    {pdfLoading ? "Loading..." : "View Resume (PDF)"}
                   </span>
                 </button>
               </div>
@@ -391,8 +368,18 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
                 onClick={() => setShowPdfPreview(false)}
                 className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
             </div>
@@ -402,11 +389,23 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
               {pdfError ? (
                 <div className="flex flex-col items-center justify-center h-full">
                   <div className="text-red-500 mb-4">
-                    <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <svg
+                      className="w-16 h-16 mx-auto"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
                     </svg>
                   </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{pdfError}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                    {pdfError}
+                  </p>
                   <button
                     onClick={loadPdfBlob}
                     className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
@@ -423,7 +422,9 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
               ) : (
                 <div className="flex flex-col items-center justify-center h-full">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 dark:border-blue-400 mb-4" />
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Loading resume...</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Loading resume...
+                  </p>
                 </div>
               )}
             </div>
@@ -431,7 +432,7 @@ const InterviewTopicDetail: React.FC<InterviewTopicDetailProps> = () => {
         </div>
       )}
     </div>
-  );
-};
+  )
+}
 
-export default InterviewTopicDetail;
+export default InterviewTopicDetail

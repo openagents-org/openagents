@@ -1,10 +1,10 @@
-import React, { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { useInterviewPortalStore } from "@/stores/interviewPortalStore";
+import React, { useEffect } from "react"
+import { useNavigate } from "react-router-dom"
+import { useInterviewPortalStore } from "@/stores/interviewPortalStore"
 
 const JobListSkeleton: React.FC = () => {
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="space-y-4">
       {Array.from({ length: 6 }).map((_, index) => (
         <div
           key={index}
@@ -20,11 +20,11 @@ const JobListSkeleton: React.FC = () => {
         </div>
       ))}
     </div>
-  );
-};
+  )
+}
 
 const JobListView: React.FC = () => {
-  const navigate = useNavigate();
+  const navigate = useNavigate()
   const {
     connection,
     jobs,
@@ -37,14 +37,14 @@ const JobListView: React.FC = () => {
     assessmentSupported,
     fetchAssessmentStatus,
     startGeneralAssessment,
-  } = useInterviewPortalStore();
+  } = useInterviewPortalStore()
 
   useEffect(() => {
     if (!connection) {
-      return;
+      return
     }
-    loadJobs(true);
-  }, [connection, loadJobs]);
+    loadJobs(true)
+  }, [connection, loadJobs])
 
   useEffect(() => {
     if (
@@ -53,14 +53,19 @@ const JobListView: React.FC = () => {
       assessmentFetched ||
       assessmentLoading
     ) {
-      return;
+      return
     }
-    fetchAssessmentStatus();
-  }, [connection, assessmentSupported, assessmentFetched, assessmentLoading, fetchAssessmentStatus]);
+    fetchAssessmentStatus()
+  }, [
+    connection,
+    assessmentSupported,
+    assessmentFetched,
+    assessmentLoading,
+    fetchAssessmentStatus,
+  ])
 
   const showAssessmentButton =
-    assessmentSupported &&
-    !assessmentStatus?.general_assessment_completed;
+    assessmentSupported && !assessmentStatus?.general_assessment_completed
 
   return (
     <div className="h-full w-full flex flex-col overflow-hidden">
@@ -74,7 +79,8 @@ const JobListView: React.FC = () => {
               Job Description
             </h1>
             <p className="mt-2 text-gray-600 dark:text-gray-400 text-sm md:text-base">
-              Review current openings. Complete the general assessment before you apply.
+              Review current openings. Complete the general assessment before
+              you apply.
             </p>
           </div>
           {showAssessmentButton && (
@@ -125,48 +131,49 @@ const JobListView: React.FC = () => {
               No Roles Available
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              No positions are currently published. Please check back later or contact an administrator.
+              No positions are currently published. Please check back later or
+              contact an administrator.
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3">
+          <div className="space-y-4 max-w-4xl mx-auto">
             {jobs.map((job) => (
               <button
                 key={job.job_id}
                 onClick={() => navigate(`/interview/jobs/${job.job_id}`)}
-                className="group text-left bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                className="group w-full text-left bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow hover:shadow-lg transition-all duration-200 hover:border-blue-300 dark:hover:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               >
                 <div className="p-6">
                   <div className="flex items-start justify-between gap-4">
-                    <div>
+                    <div className="flex-1">
                       <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600">
                         {job.title}
                       </h2>
                       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                         {job.company} · {job.location || "Remote friendly"}
                       </p>
+                      {job.description && (
+                        <p className="mt-3 text-sm text-gray-600 dark:text-gray-300 line-clamp-3 leading-relaxed">
+                          {job.description}
+                        </p>
+                      )}
+                      {job.tags && job.tags.length > 0 && (
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          {job.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-gray-100 text-gray-600 dark:bg-gray-700/60 dark:text-gray-300"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <span className="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-200">
+                    <span className="inline-flex items-center justify-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-600 dark:bg-blue-900/40 dark:text-blue-200 shrink-0">
                       {job.status === "open" ? "Open" : job.status || "Pending"}
                     </span>
                   </div>
-                  {job.description && (
-                    <p className="mt-4 text-sm text-gray-600 dark:text-gray-300 line-clamp-4 leading-relaxed">
-                      {job.description}
-                    </p>
-                  )}
-                  {job.tags && job.tags.length > 0 && (
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {job.tags.slice(0, 4).map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex items-center px-2.5 py-1 rounded-full text-xs bg-gray-100 text-gray-600 dark:bg-gray-700/60 dark:text-gray-300"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </button>
             ))}
@@ -174,8 +181,7 @@ const JobListView: React.FC = () => {
         )}
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default JobListView;
-
+export default JobListView

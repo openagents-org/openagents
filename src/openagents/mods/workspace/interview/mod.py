@@ -174,6 +174,9 @@ class Job:
             "posted_agent_id": self.posted_agent_id,
             "status": self.status,
             "brief_description": brief_desc,
+            "detailed_description": self.detailed_description,  # For frontend description field
+            "location": self.location,  # For frontend location field
+            "requirements": self.requirements,  # Can be mapped to tags by frontend
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -257,15 +260,22 @@ class Interview:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict."""
+        # Handle interview_url: return None if empty string or not scheduled
+        interview_url = None
+        if self.status == "scheduled" and self.interview_url:
+            interview_url = self.interview_url if self.interview_url.strip() else None
+        
         result = {
             "interview_id": self.interview_id,
+            "job_id": self.job_id,
             "status": self.status,
-            "interview_url": self.interview_url if self.status == "scheduled" else None,
+            "interview_url": interview_url,
             "interview_type": self.interview_type if self.status == "scheduled" else None,
             "duration_minutes": self.duration_minutes if self.status == "scheduled" else None,
             "results": self.results,
             "created_at": int(self.created_at),
             "updated_at": int(self.updated_at),
+            "notes": self.notes if self.notes else None,
         }
         return result
 
@@ -297,6 +307,12 @@ class InterviewNetworkMod(BaseMod):
             self._load_file_metadata()
         else:
             logger.warning("No storage path available for interview file uploads")
+        
+        # Initialize test data if empty
+        if not self.jobs:
+            self._init_test_jobs()
+        if not self.interviews:
+            self._init_test_interviews()
 
     def _load_file_metadata(self):
         """Load file metadata from storage."""
@@ -325,6 +341,190 @@ class InterviewNetworkMod(BaseMod):
                 json.dump(self.files, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save file metadata: {e}")
+
+    def _init_test_jobs(self):
+        """Initialize test job data."""
+        current_time = time.time()
+        
+        # Test job 1: Senior Software Engineer
+        job1 = Job(
+            job_id="test_job_001",
+            title="Senior Software Engineer",
+            company_name="Tech Company",
+            posted_agent_id=BROADCAST_AGENT_ID,
+            posted_date=current_time - 86400,  # 1 day ago
+            detailed_description="We are looking for an experienced Senior Software Engineer to join our team. You will be responsible for designing and developing scalable software solutions, collaborating with cross-functional teams, and mentoring junior developers.",
+            image_url="",
+            requirements=["5+ years of experience", "Strong knowledge of React and TypeScript", "Experience with AWS"],
+            salary_range="$120,000 - $180,000",
+            location="San Francisco, CA",
+            status="open",
+        )
+        self.jobs[job1.job_id] = job1
+        
+        # Test job 2: Full Stack Developer
+        job2 = Job(
+            job_id="test_job_002",
+            title="Full Stack Developer",
+            company_name="Innovation Labs",
+            posted_agent_id=BROADCAST_AGENT_ID,
+            posted_date=current_time - 172800,  # 2 days ago
+            detailed_description="Join our dynamic team as a Full Stack Developer. You'll work on cutting-edge web applications, build RESTful APIs, and create intuitive user interfaces. Experience with modern JavaScript frameworks and cloud technologies is essential.",
+            image_url="",
+            requirements=["3+ years of experience", "JavaScript, Node.js, Vue.js", "MongoDB, GraphQL"],
+            salary_range="$100,000 - $150,000",
+            location="New York, NY",
+            status="open",
+        )
+        self.jobs[job2.job_id] = job2
+        
+        # Test job 3: DevOps Engineer
+        job3 = Job(
+            job_id="test_job_003",
+            title="DevOps Engineer",
+            company_name="Cloud Solutions Inc",
+            posted_agent_id=BROADCAST_AGENT_ID,
+            posted_date=current_time - 259200,  # 3 days ago
+            detailed_description="We're seeking a DevOps Engineer to help us build and maintain our infrastructure. You'll work with Kubernetes, CI/CD pipelines, and cloud platforms to ensure our systems are scalable, reliable, and secure.",
+            image_url="",
+            requirements=["4+ years of experience", "Kubernetes, Terraform, Jenkins", "Azure, Linux"],
+            salary_range="$110,000 - $160,000",
+            location="Remote",
+            status="open",
+        )
+        self.jobs[job3.job_id] = job3
+        
+        # Test job 4: Machine Learning Engineer
+        job4 = Job(
+            job_id="test_job_004",
+            title="Machine Learning Engineer",
+            company_name="AI Innovations",
+            posted_agent_id=BROADCAST_AGENT_ID,
+            posted_date=current_time - 345600,  # 4 days ago
+            detailed_description="Looking for a Machine Learning Engineer to develop and deploy ML models. You'll work on NLP, computer vision, and recommendation systems. Strong background in deep learning frameworks and data science is required.",
+            image_url="",
+            requirements=["3+ years of experience", "Python, TensorFlow, PyTorch", "MLOps, NLP"],
+            salary_range="$130,000 - $200,000",
+            location="Seattle, WA",
+            status="open",
+        )
+        self.jobs[job4.job_id] = job4
+        
+        # Test job 5: Frontend Developer
+        job5 = Job(
+            job_id="test_job_005",
+            title="Frontend Developer",
+            company_name="Design Studio",
+            posted_agent_id=BROADCAST_AGENT_ID,
+            posted_date=current_time - 432000,  # 5 days ago
+            detailed_description="Join our creative team as a Frontend Developer. You'll create beautiful, responsive web interfaces using modern frameworks. Strong design sense and attention to detail are essential for this role.",
+            image_url="",
+            requirements=["2+ years of experience", "React, CSS, Sass", "Webpack, Figma"],
+            salary_range="$90,000 - $140,000",
+            location="Los Angeles, CA",
+            status="open",
+        )
+        self.jobs[job5.job_id] = job5
+        
+        # Test job 6: Backend Engineer
+        job6 = Job(
+            job_id="test_job_006",
+            title="Backend Engineer",
+            company_name="Data Systems",
+            posted_agent_id=BROADCAST_AGENT_ID,
+            posted_date=current_time - 518400,  # 6 days ago
+            detailed_description="We need a Backend Engineer to build robust server-side applications. You'll design databases, create APIs, and optimize system performance. Experience with microservices architecture is a plus.",
+            image_url="",
+            requirements=["3+ years of experience", "Java, Spring Boot", "PostgreSQL, Redis", "Microservices"],
+            salary_range="$110,000 - $160,000",
+            location="Austin, TX",
+            status="open",
+        )
+        self.jobs[job6.job_id] = job6
+        
+        logger.info(f"Initialized {len(self.jobs)} test jobs")
+
+    def _init_test_interviews(self):
+        """Initialize test interview data."""
+        current_time = time.time()
+        
+        # Test interview 1: Scheduled virtual interview
+        interview1 = Interview(
+            interview_id="interview_001",
+            job_id="test_job_001",
+            interview_url="https://meet.example.com/interview/001",
+            interview_type="virtual",
+            created_at=current_time - 86400,  # 1 day ago
+            duration_minutes=60,
+            notes="Please prepare for technical questions about React and TypeScript.",
+            status="scheduled",
+        )
+        interview1.updated_at = current_time - 3600  # 1 hour ago
+        self.interviews[interview1.interview_id] = interview1
+        
+        # Test interview 2: Scheduled virtual interview
+        interview2 = Interview(
+            interview_id="interview_002",
+            job_id="test_job_002",
+            interview_url="https://meet.example.com/interview/002",
+            interview_type="virtual",
+            created_at=current_time - 172800,  # 2 days ago
+            duration_minutes=45,
+            notes="Focus on system design and architecture discussions.",
+            status="scheduled",
+        )
+        interview2.updated_at = current_time - 7200  # 2 hours ago
+        self.interviews[interview2.interview_id] = interview2
+        
+        # Test interview 3: Completed interview
+        interview3 = Interview(
+            interview_id="interview_003",
+            job_id="test_job_003",
+            interview_url="https://meet.example.com/interview/003",
+            interview_type="virtual",
+            created_at=current_time - 259200,  # 3 days ago
+            duration_minutes=90,
+            notes="Interview completed successfully.",
+            status="completed",
+        )
+        interview3.updated_at = current_time - 86400  # 1 day ago
+        interview3.results = {
+            "score": 85,
+            "feedback": "Strong technical skills demonstrated.",
+        }
+        self.interviews[interview3.interview_id] = interview3
+        
+        # Test interview 4: Scheduled onsite interview
+        interview4 = Interview(
+            interview_id="interview_004",
+            job_id="test_job_004",
+            interview_url="",  # Empty URL for onsite
+            interview_type="onsite",
+            created_at=current_time - 43200,  # 12 hours ago
+            duration_minutes=120,
+            notes="Onsite interview at company headquarters. Please arrive 15 minutes early.",
+            status="scheduled",
+        )
+        interview4.updated_at = current_time - 1800  # 30 minutes ago
+        self.interviews[interview4.interview_id] = interview4
+        
+        # Test interview 5: Cancelled interview
+        interview5 = Interview(
+            interview_id="interview_005",
+            job_id="test_job_005",
+            interview_url="https://meet.example.com/interview/005",
+            interview_type="virtual",
+            created_at=current_time - 345600,  # 4 days ago
+            duration_minutes=60,
+            notes="Interview cancelled due to scheduling conflict.",
+            status="cancelled",
+        )
+        interview5.updated_at = current_time - 172800  # 2 days ago
+        interview5.cancelled_at = current_time - 172800
+        interview5.cancellation_reason = "Scheduling conflict"
+        self.interviews[interview5.interview_id] = interview5
+        
+        logger.info(f"Initialized {len(self.interviews)} test interviews")
 
     def _validate_pdf_content(self, file_content: bytes) -> bool:
         """Validate PDF file by checking magic number."""
