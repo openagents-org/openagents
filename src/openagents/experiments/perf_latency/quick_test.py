@@ -20,6 +20,10 @@ async def main():
     print("🧪 Running quick test of latency benchmark...")
     print("   Testing with 1 and 2 agents, 10 iterations each")
     print()
+    print("⚠️  Make sure an OpenAgents network is running first!")
+    print("   Start with: openagents network start ./my_first_network")
+    print("   The test will connect to localhost:8700 (HTTP)")
+    print()
     
     benchmark = LatencyBenchmark(
         agent_counts=[1, 2],

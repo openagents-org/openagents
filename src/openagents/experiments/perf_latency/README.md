@@ -37,17 +37,25 @@ This benchmark creates a test OpenAgents network and measures ping-echo latency 
 ### Prerequisites
 
 ```bash
-# Ensure OpenAgents is installed
+# 1. Ensure OpenAgents is installed
 pip install -e .
 
-# For plotting (optional)
+# 2. For plotting (optional)
 pip install matplotlib
+
+# 3. IMPORTANT: Start an OpenAgents network first!
+openagents network start ./my_first_network
 ```
+
+**⚠️ Important**: The benchmark connects to an existing OpenAgents network. You must start a network before running the benchmark.
 
 ### Run the Benchmark
 
 ```bash
-# Run with default settings (test 1, 2, 5, 10, 20, 50 agents with 50 iterations each)
+# First: Make sure your network is running (in a separate terminal)
+# openagents network start ./my_first_network
+
+# Then: Run the benchmark (default: test 1, 2, 5, 10, 20, 50 agents with 50 iterations each)
 python -m openagents.experiments.perf_latency.run_openagents_latency
 
 # Custom agent counts

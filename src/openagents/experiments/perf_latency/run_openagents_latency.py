@@ -28,11 +28,7 @@ import argparse
 from openagents.core.client import AgentClient
 from openagents.core.network import AgentNetwork
 from openagents.models.event import Event
-from openagents.models.network_config import (
-    NetworkConfig,
-    NetworkMode,
-    TransportConfigItem,
-)
+from openagents.models.network_config import NetworkConfig, TransportConfigItem, TransportType, NetworkMode
 
 # Configure logging
 logging.basicConfig(
@@ -84,42 +80,21 @@ class LatencyBenchmark:
 
     async def setup_network(self) -> None:
         """
-        Set up the test network using OpenAgents framework.
+        Set up the test - connects to existing network instead of creating one.
         
-        Creates a centralized network with HTTP transport for testing.
+        Assumes an OpenAgents network is already running on localhost.
         """
-        logger.info("Setting up test network...")
+        logger.info("Connecting to existing network...")
         
-        # Create minimal network configuration for testing
-        config = NetworkConfig(
-            name="latency-benchmark-network",
-            node_id="benchmark-network",
-            mode=NetworkMode.CENTRALIZED,
-            transports=[
-                TransportConfigItem(
-                    type="http",
-                    host="127.0.0.1",
-                    port=9570,  # Use different port to avoid conflicts
-                    enabled=True
-                )
-            ],
-        )
+        # No need to create network - we'll connect agents directly to existing one
+        # The existing network is running on:
+        # - HTTP: 0.0.0.0:8700
+        # - gRPC: 0.0.0.0:8600
         
-        # Create network with temporary workspace
-        self.network = AgentNetwork(config, workspace_path=None)
+        logger.info("✅ Ready to connect agents to existing network")
         
-        # Initialize network
-        initialized = await self.network.initialize()
-        if not initialized:
-            raise RuntimeError("Failed to initialize network")
-        
-        # Start network transports
-        await self.network.start()
-        
-        logger.info("✅ Network started successfully on port 9570")
-        
-        # Wait for network to be fully ready
-        await asyncio.sleep(1)
+        # Wait a moment
+        await asyncio.sleep(0.5)
 
     async def create_sender_agent(self) -> None:
         """
@@ -129,13 +104,12 @@ class LatencyBenchmark:
         
         self.sender_client = AgentClient(
             agent_id="sender",
-            secret="sender-secret",
         )
         
-        # Connect to the test network
-        connected = await self.sender_client.connect(
+        # Connect to the existing network (HTTP transport)
+        connected = await self.sender_client.connect_to_server(
             network_host="127.0.0.1",
-            network_port=9570,
+            network_port=8700,  # HTTP port of existing network
         )
         
         if not connected:
@@ -161,13 +135,12 @@ class LatencyBenchmark:
         for i in range(count):
             client = AgentClient(
                 agent_id=f"receiver_{i}",
-                secret=f"receiver-{i}-secret",
             )
             
-            # Connect to network
-            connected = await client.connect(
+            # Connect to existing network (HTTP transport)
+            connected = await client.connect_to_server(
                 network_host="127.0.0.1",
-                network_port=9570,
+                network_port=8700,  # HTTP port of existing network
             )
             
             if not connected:
@@ -208,9 +181,8 @@ class LatencyBenchmark:
                 # Send pong back
                 await client.send_event(pong_event)
         
-        # Register handler
-        if client.connector:
-            client.connector.register_message_handler("direct_message", echo_handler)
+        # Register handler using the correct AgentClient API
+        client.register_event_handler(echo_handler, ["benchmark.ping"])
 
     async def measure_latency_for_count(self, agent_count: int) -> Dict:
         """
@@ -230,6 +202,23 @@ class LatencyBenchmark:
         await self.create_receiver_agents(agent_count)
         
         latencies: List[float] = []
+        pong_responses: List[Dict] = []
+        send_times: Dict[int, float] = {}
+        
+        # Set up pong handler for sender to capture responses
+        async def pong_handler(event: Event):
+            """Handler that captures pong responses."""
+            if event.event_name == "benchmark.pong":
+                iteration = event.payload.get("iteration")
+                receive_time = time.time()
+                pong_responses.append({
+                    "iteration": iteration,
+                    "receive_time": receive_time,
+                    "send_time": send_times.get(iteration),
+                })
+        
+        # Register pong handler
+        self.sender_client.register_event_handler(pong_handler, ["benchmark.pong"])
         
         # Perform ping-pong iterations
         for iteration in range(self.iterations):
@@ -238,6 +227,7 @@ class LatencyBenchmark:
             
             # Record send time
             send_time = time.time()
+            send_times[iteration] = send_time
             
             # Create ping event
             ping_event = Event(
@@ -253,34 +243,27 @@ class LatencyBenchmark:
             # Send ping
             await self.sender_client.send_event(ping_event)
             
-            # Wait for pong response
-            try:
-                def is_pong_response(event: Event) -> bool:
-                    return (
-                        event.event_name == "benchmark.pong" and
-                        event.payload.get("iteration") == iteration
-                    )
-                
-                pong_event = await self.sender_client.wait_event(
-                    condition=is_pong_response,
-                    timeout=5.0
-                )
-                
-                if pong_event:
-                    receive_time = time.time()
-                    rtt = (receive_time - send_time) * 1000  # Convert to ms
-                    latencies.append(rtt)
-                    
-                    if (iteration + 1) % 10 == 0:
-                        print(f"  Progress: {iteration + 1}/{self.iterations} iterations")
-                else:
-                    logger.warning(f"Timeout waiting for pong (iteration {iteration})")
-                    
-            except Exception as e:
-                logger.error(f"Error in iteration {iteration}: {e}")
-            
             # Small delay between iterations to avoid overwhelming the network
             await asyncio.sleep(0.01)
+        
+        # Wait for all pong responses (with timeout)
+        print(f"  Waiting for pong responses...")
+        max_wait = 10  # seconds
+        wait_start = time.time()
+        
+        while len(pong_responses) < self.iterations and (time.time() - wait_start) < max_wait:
+            await asyncio.sleep(0.5)
+            if len(pong_responses) > 0 and (len(pong_responses) % 10 == 0):
+                print(f"  Received: {len(pong_responses)}/{self.iterations} responses")
+        
+        # Calculate latencies from collected responses
+        for response in pong_responses:
+            if response["send_time"] is not None:
+                rtt = (response["receive_time"] - response["send_time"]) * 1000  # Convert to ms
+                latencies.append(rtt)
+        
+        if len(pong_responses) < self.iterations:
+            logger.warning(f"Only received {len(pong_responses)}/{self.iterations} pong responses")
         
         # Calculate statistics
         if latencies:
@@ -332,13 +315,16 @@ class LatencyBenchmark:
         print("=" * 60)
         print(f"Testing agent counts: {self.agent_counts}")
         print(f"Iterations per count: {self.iterations}")
+        print("\n⚠️  Prerequisites: An OpenAgents network must be running!")
+        print("   Start with: openagents network start ./my_first_network")
+        print("   Connecting to: localhost:8700 (HTTP)")
         print("=" * 60)
         
         try:
-            # Setup network
+            # Setup (just preparation, doesn't create network)
             await self.setup_network()
             
-            # Create sender
+            # Create sender - this will fail with clear error if network isn't running
             await self.create_sender_agent()
             
             # Test each agent count
@@ -411,20 +397,30 @@ class LatencyBenchmark:
         # Disconnect all receivers
         await self.cleanup_receivers()
         
-        # Shutdown network
-        if self.network:
-            try:
-                await self.network.shutdown()
-            except Exception as e:
-                logger.warning(f"Error shutting down network: {e}")
+        # Note: We don't shutdown the network since we're using an existing one
+        # The user's network continues running after the benchmark
         
-        logger.info("✅ Cleanup completed")
+        logger.info("✅ Cleanup completed (network remains running)")
 
 
 async def main():
-    """Main entry point for the benchmark script."""
+    """Main entry point for the benchmark script.
+    
+    Prerequisites:
+        An OpenAgents network must be running before starting the benchmark.
+        
+        Start a network with:
+            openagents network start ./my_first_network
+        
+        The benchmark will connect to:
+            - HTTP: localhost:8700 (default)
+            - gRPC: localhost:8600 (if HTTP fails)
+    """
     parser = argparse.ArgumentParser(
-        description="Measure agent-to-agent latency in OpenAgents networks"
+        description="Measure agent-to-agent latency in OpenAgents networks. "
+                    "Requires an existing network running on localhost:8700 (HTTP) or localhost:8600 (gRPC).",
+        epilog="Example: First start a network with 'openagents network start ./my_first_network', "
+               "then run this benchmark."
     )
     parser.add_argument(
         "--agents",
