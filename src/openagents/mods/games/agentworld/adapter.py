@@ -234,12 +234,13 @@ class AgentWorldAdapter(BaseModAdapter):
         method: str = "POST",
         data: Optional[Dict] = None
     ) -> Dict[str, Any]:
-        """Make HTTP request to AgentWorld game server."""
+        """Make HTTP request to AgentWorld game server.
+        
+        Note: AgentWorld API expects token in request body, not in Authorization header.
+        """
         url = f"http://{self.game_server_host}:{self.game_server_port}{endpoint}"
         
-        headers = {}
-        if self.game_token:
-            headers["Authorization"] = f"Bearer {self.game_token}"
+        headers = {"Content-Type": "application/json"}
         
         try:
             if method == "GET":
@@ -272,7 +273,7 @@ class AgentWorldAdapter(BaseModAdapter):
     async def agentworld_login(self, username: str, password: str) -> Dict[str, Any]:
         """Login to AgentWorld game."""
         result = self._make_game_api_request(
-            "/api/login",
+            "/ai/login",
             method="POST",
             data={"username": username, "password": password}
         )
@@ -313,9 +314,9 @@ class AgentWorldAdapter(BaseModAdapter):
             return {"error": "Not logged in. Call agentworld_login first."}
         
         return self._make_game_api_request(
-            "/api/observe",
+            "/ai/observe",
             method="GET",
-            data={"radius": radius}
+            data={"token": self.game_token, "radius": radius}
         )
     
     async def agentworld_move(self, x: int, y: int) -> Dict[str, Any]:
@@ -324,9 +325,9 @@ class AgentWorldAdapter(BaseModAdapter):
             return {"error": "Not logged in"}
         
         return self._make_game_api_request(
-            "/api/move",
+            "/ai/move",
             method="POST",
-            data={"x": x, "y": y}
+            data={"token": self.game_token, "x": x, "y": y}
         )
     
     async def agentworld_chat(self, message: str) -> Dict[str, Any]:
@@ -335,9 +336,9 @@ class AgentWorldAdapter(BaseModAdapter):
             return {"error": "Not logged in"}
         
         return self._make_game_api_request(
-            "/api/chat",
+            "/ai/chat",
             method="POST",
-            data={"message": message}
+            data={"token": self.game_token, "message": message}
         )
     
     async def agentworld_attack(self, target_instance: str) -> Dict[str, Any]:
@@ -346,20 +347,20 @@ class AgentWorldAdapter(BaseModAdapter):
             return {"error": "Not logged in"}
         
         return self._make_game_api_request(
-            "/api/attack",
+            "/ai/attack",
             method="POST",
-            data={"target": target_instance}
+            data={"token": self.game_token, "target": target_instance}
         )
     
     async def agentworld_harvest(self, resource_instance: str) -> Dict[str, Any]:
-        """Harvest resource."""
+        """Harvest resource (uses /ai/collect endpoint)."""
         if not self.game_token:
             return {"error": "Not logged in"}
         
         return self._make_game_api_request(
-            "/api/harvest",
+            "/ai/collect",
             method="POST",
-            data={"resource": resource_instance}
+            data={"token": self.game_token, "target": resource_instance}
         )
     
     async def agentworld_craft(self, item_key: str, count: int = 1) -> Dict[str, Any]:
@@ -368,9 +369,9 @@ class AgentWorldAdapter(BaseModAdapter):
             return {"error": "Not logged in"}
         
         return self._make_game_api_request(
-            "/api/craft",
+            "/ai/craft",
             method="POST",
-            data={"item": item_key, "count": count}
+            data={"token": self.game_token, "item": item_key, "count": count}
         )
     
     async def agentworld_transfer_items(
@@ -379,17 +380,12 @@ class AgentWorldAdapter(BaseModAdapter):
         item_key: str,
         count: int = 1
     ) -> Dict[str, Any]:
-        """Transfer items to another player."""
-        if not self.game_token:
-            return {"error": "Not logged in"}
+        """Transfer items to another player.
         
-        return self._make_game_api_request(
-            "/api/transfer_items",
-            method="POST",
-            data={
-                "target": target_username,
-                "item": item_key,
-                "count": count
-            }
-        )
+        Note: This feature is not currently implemented in AgentWorld API.
+        """
+        return {
+            "success": False,
+            "error": "Transfer items feature is not yet implemented in AgentWorld API"
+        }
 
