@@ -9,9 +9,9 @@ import ProjectMainPage from "@/pages/project/ProjectMainPage"
 import ForumMainPage from "@/pages/forum/ForumMainPage"
 import WikiMainPage from "@/pages/wiki/WikiMainPage"
 import DocumentsMainPage from "@/pages/documents/DocumentsMainPage"
-import ProjectChatRoom from "@/pages/messaging/components/ProjectChatRoom"
 // import SettingsMainPage from "@/pages/settings/SettingsMainPage";
 import ProfileMainPage from "@/pages/profile/ProfileMainPage"
+import AgentWorldMainPage from "@/pages/agentworld/AgentWorldMainPage"
 // import McpMainPage from "@/pages/mcp/McpMainPage";
 
 // Navigation icon components
@@ -140,6 +140,23 @@ export const NavigationIcons = {
       })
     )
   ),
+  AgentWorld: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z",
+      })
+    )
+  ),
   // MCP: React.memo(() =>
   //   React.createElement("svg",
   //     {
@@ -265,6 +282,21 @@ export const dynamicRouteConfig: RouteConfig[] = [
       icon: "Documents",
       visible: true,
       order: 3,
+      group: "primary",
+    },
+  },
+  {
+    path: "/agentworld/*",
+    element: AgentWorldMainPage,
+    title: "AgentWorld",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.AGENTWORLD,
+      label: "AgentWorld",
+      icon: "AgentWorld",
+      visible: true,
+      order: 3.5,
       group: "primary",
     },
   },

@@ -7,4 +7,5 @@ export enum PLUGIN_NAME_ENUM {
   SETTINGS = "settings",
   PROFILE = "profile",
   MCP = "mcp",
+  AGENTWORLD = "agentworld",
 }
