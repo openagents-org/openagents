@@ -279,6 +279,9 @@ class AgentClient:
         success = await self.connector.connect_to_server()
 
         if success:
+            # Auto-load adapters for mods that require them
+            await self._auto_load_mod_adapters()
+            
             # Call on_connect for each mod adapter
             for mod_adapter in self.mod_adapters.values():
                 mod_adapter.bind_connector(self.connector)
@@ -338,6 +341,98 @@ class AgentClient:
             network_host, network_port, network_id, enforce_transport_type, metadata, max_message_size, password_hash
         )
 
+    async def _auto_load_mod_adapters(self) -> None:
+        """Auto-load adapters for mods that require them.
+        
+        This method queries the network for available mods and automatically
+        loads adapters for mods that have requires_adapter=True.
+        """
+        try:
+            logger.info(f"🔧 AUTO-LOAD: Starting adapter auto-loading for agent {self.agent_id}")
+            
+            # Query network for mod list
+            from openagents.models.event import Event
+            
+            list_mods_event = Event(
+                event_name="system.list_mods",
+                source_id=self.agent_id,
+                destination_id="system:system",
+                payload={}
+            )
+            
+            logger.info(f"🔧 AUTO-LOAD: Sending list_mods request...")
+            response = await self.send_event(list_mods_event)
+            
+            if not response or not response.success:
+                logger.warning(f"🔧 AUTO-LOAD: Failed to query mods list: {response}")
+                return
+            
+            logger.info(f"🔧 AUTO-LOAD: Received mods list successfully")
+            
+            mods_data = response.data.get('mods', [])
+            logger.info(f"🔧 AUTO-LOAD: Found {len(mods_data)} mods in network")
+            
+            # Find mods that require adapters
+            mods_needing_adapters = [
+                mod_info for mod_info in mods_data 
+                if mod_info.get('requires_adapter', False)
+            ]
+            
+            logger.info(f"🔧 AUTO-LOAD: {len(mods_needing_adapters)} mods need adapters: {[m['name'] for m in mods_needing_adapters]}")
+            
+            if not mods_needing_adapters:
+                logger.info("🔧 AUTO-LOAD: No mods require adapters")
+                return
+            
+            logger.info(f"🔧 AUTO-LOAD: Starting to load adapters...")
+            
+            # Load and register adapters
+            from openagents.utils.mod_loaders import load_mod_adapter
+            
+            for mod_info in mods_needing_adapters:
+                mod_name = mod_info['name']
+                
+                # Skip if adapter already registered
+                if mod_name in self.mod_adapters:
+                    logger.debug(f"Adapter for {mod_name} already registered")
+                    continue
+                
+                try:
+                    logger.info(f"🔧 AUTO-LOAD: Loading adapter for {mod_name}...")
+                    
+                    # Load adapter class
+                    adapter_class = load_mod_adapter(mod_name)
+                    
+                    if adapter_class is None:
+                        logger.warning(f"🔧 AUTO-LOAD: Could not load adapter class for {mod_name}")
+                        continue
+                    
+                    logger.info(f"🔧 AUTO-LOAD: Adapter class loaded: {adapter_class.__name__}")
+                    
+                    # Instantiate adapter
+                    adapter_instance = adapter_class()
+                    logger.info(f"🔧 AUTO-LOAD: Adapter instance created")
+                    
+                    # Set config if available
+                    if 'config' in mod_info and hasattr(adapter_instance, 'update_config'):
+                        adapter_instance.update_config(mod_info['config'])
+                        logger.info(f"🔧 AUTO-LOAD: Config applied to adapter")
+                    
+                    # Register adapter
+                    self.register_mod_adapter(adapter_instance)
+                    
+                    logger.info(f"✅ AUTO-LOAD: Successfully loaded adapter for {mod_name}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ AUTO-LOAD: Failed to auto-load adapter for {mod_name}: {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+        except Exception as e:
+            logger.error(f"❌ AUTO-LOAD: Error in auto-loading mod adapters: {e}")
+            import traceback
+            traceback.print_exc()
+    
     async def disconnect(self) -> bool:
         """Disconnect from the network server."""
         for mod_adapter in self.mod_adapters.values():

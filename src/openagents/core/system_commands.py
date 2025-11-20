@@ -244,6 +244,7 @@ class SystemCommandProcessor:
                         "capabilities": getattr(
                             mod, "capabilities", mod_info["capabilities"]
                         ),
+                        "config": getattr(mod, "config", {}),  # Include mod config
                         "implementation": mod.__class__.__module__
                         + "."
                         + mod.__class__.__name__,
@@ -256,6 +257,8 @@ class SystemCommandProcessor:
                 and mod_name in self.network.mod_manifests
             ):
                 manifest = self.network.mod_manifests[mod_name]
+                # Preserve config before updating with manifest
+                config = mod_info.get("config", {})
                 mod_info.update(
                     {
                         "version": manifest.version,
@@ -265,6 +268,7 @@ class SystemCommandProcessor:
                         "license": manifest.license,
                         "requires_adapter": manifest.requires_adapter,
                         "network_mod_class": manifest.network_mod_class,
+                        "config": config,  # Restore config after manifest update
                     }
                 )
 

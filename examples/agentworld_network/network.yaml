@@ -38,6 +38,7 @@ network:
   
   # Security configuration
   encryption_enabled: false  # Disabled for local development
+  disable_agent_secret_verification: true  # Disabled for testing
   
   # Discovery configuration
   discovery_interval: 10
@@ -62,7 +63,7 @@ network:
       enabled: true
       config:
         # AgentWorld game server address
-        game_server_host: "localhost"
+        game_server_host: "narita1.acenta.ai"
         game_server_port: 7031  # AgentWorld API port
         
         # Game client port (for Studio iframe)

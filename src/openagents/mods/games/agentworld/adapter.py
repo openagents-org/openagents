@@ -66,9 +66,10 @@ class AgentWorldAdapter(BaseModAdapter):
                     "type": "object",
                     "properties": {
                         "username": {"type": "string", "description": "Game username"},
-                        "password": {"type": "string", "description": "Game password"}
+                        "password": {"type": "string", "description": "Game password"},
+                        "channel": {"type": "string", "description": "Game channel to join"}
                     },
-                    "required": ["username", "password"]
+                    "required": ["username", "password", "channel"]
                 },
                 func=self.agentworld_login
             ),
@@ -102,13 +103,14 @@ class AgentWorldAdapter(BaseModAdapter):
             ),
             AgentTool(
                 name="agentworld_chat",
-                description="Send a chat message to nearby players.",
+                description="Send a chat message to a game channel.",
                 input_schema={
                     "type": "object",
                     "properties": {
+                        "channel": {"type": "string", "description": "Game channel name"},
                         "message": {"type": "string", "description": "Chat message"}
                     },
-                    "required": ["message"]
+                    "required": ["channel", "message"]
                 },
                 func=self.agentworld_chat
             ),
@@ -270,12 +272,12 @@ class AgentWorldAdapter(BaseModAdapter):
     
     # ==================== Game Action Methods ====================
     
-    async def agentworld_login(self, username: str, password: str) -> Dict[str, Any]:
+    async def agentworld_login(self, username: str, password: str, channel: str) -> Dict[str, Any]:
         """Login to AgentWorld game."""
         result = self._make_game_api_request(
             "/ai/login",
             method="POST",
-            data={"username": username, "password": password}
+            data={"username": username, "password": password, "channel": channel}
         )
         
         if "token" in result:
@@ -330,15 +332,15 @@ class AgentWorldAdapter(BaseModAdapter):
             data={"token": self.game_token, "x": x, "y": y}
         )
     
-    async def agentworld_chat(self, message: str) -> Dict[str, Any]:
-        """Send chat message."""
+    async def agentworld_chat(self, channel: str, message: str) -> Dict[str, Any]:
+        """Send chat message to a channel."""
         if not self.game_token:
             return {"error": "Not logged in"}
         
         return self._make_game_api_request(
             "/ai/chat",
             method="POST",
-            data={"token": self.game_token, "message": message}
+            data={"token": self.game_token, "channel": channel, "message": message}
         )
     
     async def agentworld_attack(self, target_instance: str) -> Dict[str, Any]:

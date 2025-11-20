@@ -6,9 +6,22 @@ A beautiful command-line interface for OpenAgents multi-agent framework.
 """
 
 import sys
+import os
+
+# CRITICAL: Set UTF-8 encoding BEFORE any other imports on Windows
+# This must be done at module load time to affect subprocess
+if sys.platform.startswith('win'):
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+    os.environ['PYTHONUTF8'] = '1'
+    # Force UTF-8 for all I/O operations
+    import io
+    if hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+    if hasattr(sys.stderr, 'buffer'):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace', line_buffering=True)
+
 import logging
 import yaml
-import os
 import subprocess
 import threading
 import time
@@ -41,7 +54,11 @@ from openagents.launchers.network_launcher import async_launch_network, launch_n
 from openagents.launchers.terminal_console import launch_console
 
 # Initialize rich console
-console = Console()
+# Console already configured for UTF-8 at module load time
+if sys.platform.startswith('win'):
+    console = Console(legacy_windows=False, force_terminal=True)
+else:
+    console = Console()
 
 # Create main app with Rich help
 app = typer.Typer(
@@ -393,6 +410,8 @@ def check_port_availability(host: str, port: int) -> Tuple[bool, str]:
                         ["lsof", "-i", f":{port}"],
                         capture_output=True,
                         text=True,
+                        encoding='utf-8',
+                        errors='replace',
                         timeout=5,
                     )
                     if result.returncode == 0 and result.stdout:
@@ -409,6 +428,8 @@ def check_port_availability(host: str, port: int) -> Tuple[bool, str]:
                         ["ss", "-tlpn", f"sport = :{port}"],
                         capture_output=True,
                         text=True,
+                        encoding='utf-8',
+                        errors='replace',
                         timeout=5,
                     )
                     if result.returncode == 0 and result.stdout:
@@ -518,6 +539,8 @@ def check_nodejs_availability() -> Tuple[bool, str]:
             capture_output=True,
             check=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             shell=is_windows
         )
         node_version = result.stdout.strip()
@@ -537,6 +560,8 @@ def check_nodejs_availability() -> Tuple[bool, str]:
             ["npm", "--version"],
             capture_output=True,
             check=True,
+            encoding='utf-8',
+            errors='replace',
             shell=is_windows
         )
     except (FileNotFoundError, subprocess.CalledProcessError):
@@ -548,6 +573,8 @@ def check_nodejs_availability() -> Tuple[bool, str]:
             ["npx", "--version"],
             capture_output=True,
             check=True,
+            encoding='utf-8',
+            errors='replace',
             shell=is_windows
         )
     except (FileNotFoundError, subprocess.CalledProcessError):
@@ -612,6 +639,8 @@ def check_openagents_studio_package() -> Tuple[bool, bool, str]:
             ["npm", "list", "-g", "openagents-studio", "--prefix", openagents_prefix],
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             shell=is_windows
         )
         
@@ -636,6 +665,8 @@ def check_openagents_studio_package() -> Tuple[bool, bool, str]:
             ["npm", "view", "openagents-studio", "version"],
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             shell=is_windows
         )
         
@@ -736,6 +767,8 @@ def install_openagents_studio_package(progress=None, task_id=None) -> None:
             install_cmd,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             timeout=600,  # 10 minute timeout for npm install
             shell=is_windows
         )
@@ -778,6 +811,11 @@ def launch_studio_with_package(studio_port: int = 8050) -> subprocess.Popen:
     env["PORT"] = str(studio_port)
     env["HOST"] = "0.0.0.0"
     env["DANGEROUSLY_DISABLE_HOST_CHECK"] = "true"
+    
+    # Force UTF-8 encoding for subprocess on Windows
+    if is_windows:
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
 
     # On Windows, increase Node.js memory limit to avoid buffer allocation errors
     # Also disable source maps which can cause memory issues
@@ -824,6 +862,8 @@ def launch_studio_with_package(studio_port: int = 8050) -> subprocess.Popen:
                 text=True,
                 bufsize=1,
                 universal_newlines=True,
+                encoding='utf-8',
+                errors='replace',
                 shell=True
             )
             return process
@@ -859,6 +899,8 @@ def launch_studio_with_package(studio_port: int = 8050) -> subprocess.Popen:
                 text=True,
                 bufsize=1,
                 universal_newlines=True,
+                encoding='utf-8',
+                errors='replace',
             )
             return process
         except Exception as e:
@@ -884,6 +926,8 @@ def launch_studio_with_package(studio_port: int = 8050) -> subprocess.Popen:
             text=True,
             bufsize=1,
             universal_newlines=True,
+            encoding='utf-8',
+            errors='replace',
         )
         return process
     except FileNotFoundError:
@@ -928,6 +972,8 @@ def launch_studio_frontend(studio_port: int = 8050) -> subprocess.Popen:
                 cwd=studio_dir,
                 capture_output=True,
                 text=True,
+                encoding='utf-8',
+                errors='replace',
                 timeout=300,  # 5 minute timeout for npm install
                 shell=is_windows
             )
@@ -949,6 +995,11 @@ def launch_studio_frontend(studio_port: int = 8050) -> subprocess.Popen:
     env["PORT"] = str(studio_port)
     env["HOST"] = "0.0.0.0"
     env["DANGEROUSLY_DISABLE_HOST_CHECK"] = "true"
+    
+    # Force UTF-8 encoding for subprocess on Windows
+    if is_windows:
+        env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUTF8"] = "1"
 
     # On Windows, increase Node.js memory limit and optimize file watching
     if is_windows:
@@ -971,6 +1022,8 @@ def launch_studio_frontend(studio_port: int = 8050) -> subprocess.Popen:
             text=True,
             bufsize=1,
             universal_newlines=True,
+            encoding='utf-8',
+            errors='replace',
             shell=is_windows
         )
         return process
@@ -1110,36 +1163,50 @@ def studio_command(args) -> None:
     def frontend_monitor(process):
         """Monitor frontend process output and detect when it's ready."""
         ready_detected = False
-        for line in iter(process.stdout.readline, ""):
-            if line:
-                # Print frontend output with prefix using Rich
-                console.print(f"[dim]\\[Studio][/dim] {line.rstrip()}")
+        try:
+            for line in iter(process.stdout.readline, ""):
+                if line and line.strip():  # Check for both None and empty strings
+                    # Print frontend output with prefix using Rich
+                    console.print(f"[dim]\\[Studio][/dim] {line.rstrip()}")
 
-                # Detect when the development server is ready
-                if not ready_detected and (
-                    "webpack compiled" in line.lower()
-                    or "compiled successfully" in line.lower()
-                    or "local:" in line.lower()
-                ):
-                    ready_detected = True
-                    studio_url = f"http://localhost:{studio_port}"
+                    # Detect when the development server is ready
+                    if not ready_detected and (
+                        "webpack compiled" in line.lower()
+                        or "compiled successfully" in line.lower()
+                        or "local:" in line.lower()
+                    ):
+                        ready_detected = True
+                        studio_url = f"http://localhost:{studio_port}"
 
-                    if not no_browser:
-                        # Wait a moment then open browser
-                        time.sleep(2)
-                        console.print(f"[green]🌐 Opening studio in browser: {studio_url}[/green]")
-                        webbrowser.open(studio_url)
-                    else:
-                        console.print(f"[green]🌐 Studio is ready at: {studio_url}[/green]")
+                        if not no_browser:
+                            # Wait a moment then open browser
+                            time.sleep(2)
+                            console.print(f"[green]🌐 Opening studio in browser: {studio_url}[/green]")
+                            webbrowser.open(studio_url)
+                        else:
+                            console.print(f"[green]🌐 Studio is ready at: {studio_url}[/green]")
+        except Exception as e:
+            console.print(f"[yellow]⚠️  Frontend monitor error: {e}[/yellow]")
 
     async def run_studio():
         """Run the complete studio setup."""
         frontend_process = None
 
         try:
-            # Start frontend using the installed package
-            console.print(f"[blue]🎨 Launching studio frontend on port {studio_port}...[/blue]")
-            frontend_process = launch_studio_with_package(studio_port)
+            # Check if we should use local studio directory (for development)
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(os.path.dirname(script_dir))
+            local_studio_dir = os.path.join(project_root, "studio")
+            use_local = os.path.exists(local_studio_dir) and os.path.exists(os.path.join(local_studio_dir, "package.json"))
+            
+            # Start frontend using local directory or installed package
+            if use_local:
+                console.print(f"[blue]🎨 Launching studio frontend from local directory on port {studio_port}...[/blue]")
+                console.print(f"[dim]Using local studio: {local_studio_dir}[/dim]")
+                frontend_process = launch_studio_frontend(studio_port)
+            else:
+                console.print(f"[blue]🎨 Launching studio frontend from installed package on port {studio_port}...[/blue]")
+                frontend_process = launch_studio_with_package(studio_port)
 
             # Start monitoring frontend output in background thread
             frontend_thread = threading.Thread(

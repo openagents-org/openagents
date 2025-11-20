@@ -21,6 +21,11 @@ class AgentWorldNetworkMod(BaseMod):
     and maintains global game state.
     """
     
+    # Mod metadata
+    requires_adapter = True  # This mod requires an agent adapter
+    description = "AgentWorld game integration mod for OpenAgents"
+    version = "1.0.0"
+    
     def __init__(self, mod_name: str = "openagents.mods.games.agentworld"):
         super().__init__(mod_name=mod_name)
         

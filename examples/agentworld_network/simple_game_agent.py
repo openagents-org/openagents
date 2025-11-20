@@ -1,138 +1,157 @@
 """
 Simple AgentWorld Game Agent
 
-A minimal example of an agent that plays AgentWorld through OpenAgents.
+A minimal agent that connects to the network, logs into the game,
+and performs basic actions.
 
 Usage:
     python examples/agentworld_network/simple_game_agent.py
 """
 
-from openagents.agents.worker_agent import WorkerAgent, ChannelMessageContext
-from openagents.config.agent_config import AgentConfig
+from openagents.agents.worker_agent import WorkerAgent
+from openagents.models.agent_config import AgentConfig
 import asyncio
 import sys
 
 
 class SimpleGameAgent(WorkerAgent):
-    """Simple game agent for AgentWorld"""
+    """Simple game agent that performs basic actions in AgentWorld"""
     
     def __init__(
         self, 
         agent_config: AgentConfig, 
         game_username: str, 
-        game_password: str
+        game_password: str,
+        game_channel: str
     ):
         super().__init__(agent_config=agent_config)
         self.game_username = game_username
         self.game_password = game_password
+        self.game_channel = game_channel
         self.game_logged_in = False
     
     async def on_startup(self):
-        """Startup: login to game"""
+        """Startup: login to game and perform actions"""
         ws = self.workspace()
         
-        await ws.channel("general").post(
-            f"🤖 {self.agent_id} starting up..."
-        )
+        print(f"🤖 {self.agent_id} starting up...")
         
         # Get AgentWorld adapter
-        agentworld = self.get_mod_adapter("agentworld")
+        agentworld = self.get_mod_adapter("openagents.mods.games.agentworld")
         if not agentworld:
-            await ws.channel("general").post(
-                "❌ AgentWorld mod not available!"
-            )
+            print("❌ AgentWorld mod not available!")
+            print(f"Available adapters: {list(self.client.mod_adapters.keys())}")
             return
         
-        # Login to game
-        await ws.channel("general").post(
-            f"🎮 Logging into AgentWorld as {self.game_username}..."
-        )
+        # Step 1: Login to game (with channel)
+        print(f"🎮 Logging into AgentWorld as {self.game_username} on channel {self.game_channel}...")
         
         result = await agentworld.agentworld_login(
             username=self.game_username,
-            password=self.game_password
+            password=self.game_password,
+            channel=self.game_channel
         )
         
-        if result.get("success"):
-            self.game_logged_in = True
-            await ws.channel("general").post(
-                f"✅ Logged into AgentWorld as {self.game_username}!"
-            )
-            
-            # Do one observation
-            obs = await agentworld.agentworld_observe(radius=32)
-            player = obs.get("player", {})
-            await ws.channel("general").post(
-                f"📍 Position: ({player.get('x')}, {player.get('y')})"
-            )
-        else:
+        if not result.get("success"):
             error = result.get("error", "Unknown error")
-            await ws.channel("general").post(
-                f"❌ Login failed: {error}"
-            )
-    
-    async def on_channel_post(self, context: ChannelMessageContext):
-        """Respond to channel messages"""
-        message = context.message_content.lower()
-        ws = self.workspace()
-        agentworld = self.get_mod_adapter("agentworld")
-        
-        if not agentworld or not self.game_logged_in:
+            print(f"❌ Login failed: {error}")
             return
         
-        # Check location
-        if "where" in message or "location" in message:
-            obs = await agentworld.agentworld_observe(radius=0)
-            player = obs.get("player", {})
-            x, y = player.get("x"), player.get("y")
-            await ws.channel(context.channel).reply(
-                context.incoming_event.id,
-                f"I'm at ({x}, {y}) 📍"
-            )
+        self.game_logged_in = True
+        print(f"✅ Logged into AgentWorld as {self.game_username} on channel {self.game_channel}!")
         
-        # Check status
-        elif "status" in message or "health" in message:
-            obs = await agentworld.agentworld_observe(radius=0)
-            player = obs.get("player", {})
-            hp = f"{player.get('health')}/{player.get('max_health')}"
-            level = player.get('level', '?')
-            await ws.channel(context.channel).reply(
-                context.incoming_event.id,
-                f"Lv.{level}, HP: {hp} 💚"
-            )
+        # Wait for game server to initialize player state
+        print(f"⏳ Waiting for game server to initialize...")
+        await asyncio.sleep(2)
         
-        # Move command
-        elif "move to" in message:
-            try:
-                # Extract coordinates from message
-                import re
-                coords = re.findall(r'\((\d+),\s*(\d+)\)', message)
-                if coords:
-                    x, y = int(coords[0][0]), int(coords[0][1])
-                    result = await agentworld.agentworld_move(x, y)
-                    await ws.channel(context.channel).reply(
-                        context.incoming_event.id,
-                        f"Moving to ({x}, {y})! 🏃"
-                    )
-            except Exception as e:
-                await ws.channel(context.channel).reply(
-                    context.incoming_event.id,
-                    f"Error: {str(e)}"
-                )
+        # Step 2: Observe the game world
+        print(f"👀 Observing the game world...")
+        await asyncio.sleep(1.0)  # Delay before API call
+        obs = await agentworld.agentworld_observe(radius=32)
+        
+        # Extract location and player status from observation
+        location = obs.get("location", {})
+        current_x = location.get('x', 0)
+        current_y = location.get('y', 0)
+        
+        player_status = obs.get("playerStatus", {})
+        name = player_status.get('name', 'Unknown')
+        level = player_status.get('level', 1)
+        hit_points = player_status.get('hitPoints', 0)
+        max_hit_points = player_status.get('maxHitPoints', 0)
+        mana = player_status.get('mana', 0)
+        max_mana = player_status.get('maxMana', 0)
+        
+        print(f"\n📊 Player Status:")
+        print(f"  👤 Name: {name}")
+        print(f"  ⭐ Level: {level}")
+        print(f"  📍 Position: ({current_x}, {current_y})")
+        print(f"  💚 HP: {hit_points}/{max_hit_points}")
+        print(f"  💙 Mana: {mana}/{max_mana}")
+        
+        # Step 3: Move left by 3 tiles
+        target_x = current_x - 3
+        target_y = current_y
+        
+        print(f"🏃 Moving to ({target_x}, {target_y})...")
+        await asyncio.sleep(1.0)  # Delay before API call
+        move_result = await agentworld.agentworld_move(target_x, target_y)
+        
+        # Print complete move result for debugging
+        print("\n" + "="*50)
+        print("📊 Move Result:")
+        print("="*50)
+        import json
+        print(json.dumps(move_result, indent=2, ensure_ascii=False))
+        print("="*50 + "\n")
+        
+        # Check if move was successful (checking both "success" field and status)
+        if move_result.get("success") or move_result.get("status") == "success":
+            print(f"✅ Moved to ({target_x}, {target_y})")
+        else:
+            error = move_result.get("error", "Unknown error")
+            print(f"❌ Move failed: {error}")
+            return
+        
+        # Step 4: Send "Hi" message in the game channel
+        chat_message = "Hi"
+        print(f"💬 Sending message to channel {self.game_channel}...")
+        await asyncio.sleep(1.0)  # Delay before API call
+        chat_result = await agentworld.agentworld_chat(self.game_channel, chat_message)
+        
+        # Print complete chat result for debugging
+        print("\n" + "="*50)
+        print("📊 Chat Result:")
+        print("="*50)
+        import json
+        print(json.dumps(chat_result, indent=2, ensure_ascii=False))
+        print("="*50 + "\n")
+        
+        # Check if chat was successful
+        if chat_result.get("success") or chat_result.get("status") == "success":
+            print(f"✅ Message sent!")
+        else:
+            error = chat_result.get("error", "Unknown error")
+            print(f"❌ Failed to send message: {error}")
+            return
+        
+        print("\n" + "="*50)
+        print("🎉 All tasks completed successfully!")
+        print("="*50)
+        print("\nAgent will continue running. Press Ctrl+C to stop.")
 
 
 def main():
     """Main entry point"""
-    import os
-    
-    # Configuration
-    game_username = os.environ.get("GAME_USERNAME", "bot_test1")
-    game_password = os.environ.get("GAME_PASSWORD", "password")
+    # Game credentials and channel
+    game_username = "agent1"
+    game_password = "qwen123456"
+    game_channel = "team-alpha"
     
     # Agent configuration
     agent_config = AgentConfig(
-        instruction="You are a friendly game bot in AgentWorld.",
-        model_name="gpt-4",  # or "gpt-3.5-turbo" for lower cost
+        instruction="You are a game bot in AgentWorld.",
+        model_name="gpt-4o-mini",  # Using a lightweight model
         provider="openai"
     )
     
@@ -140,23 +159,29 @@ def main():
     agent = SimpleGameAgent(
         agent_config=agent_config,
         game_username=game_username,
-        game_password=game_password
+        game_password=game_password,
+        game_channel=game_channel
     )
     
-    # Get network configuration from arguments or use defaults
+    # Network configuration
     network_host = sys.argv[1] if len(sys.argv) > 1 else "localhost"
     network_port = int(sys.argv[2]) if len(sys.argv) > 2 else 8700
     
     # Start agent
-    print(f"🚀 Starting Simple Game Agent...")
+    print("🚀 Starting Simple Game Agent")
     print(f"   Network: {network_host}:{network_port}")
     print(f"   Game User: {game_username}")
-    print(f"   Press Ctrl+C to stop")
+    print(f"   Channel: {game_channel}")
+    print(f"   Press Ctrl+C to stop\n")
     
-    agent.start(network_host=network_host, network_port=network_port)
-    agent.wait_for_stop()
+    try:
+        agent.start(network_host=network_host, network_port=network_port)
+        agent.wait_for_stop()
+    except KeyboardInterrupt:
+        print("\n\n👋 Agent stopped by user")
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
 
 
 if __name__ == "__main__":
     main()
-
