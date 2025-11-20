@@ -18,6 +18,11 @@ const SidebarContent: React.FC = () => {
 
     const pathname = location.pathname;
 
+    // AgentWorld 不显示侧边栏
+    if (pathname.startsWith("/agentworld")) {
+      return null
+    }
+
     if (pathname.startsWith("/messaging")) {
       return <MessagingSidebar />
     }

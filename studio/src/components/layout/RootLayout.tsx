@@ -7,7 +7,7 @@ import {
   OpenAgentsContext,
 } from "@/context/OpenAgentsProvider";
 import { useAuthStore } from "@/stores/authStore";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 
 interface RootLayoutProps {
   children: ReactNode;
@@ -53,6 +53,10 @@ const RootLayout: React.FC<RootLayoutProps> = ({ children }) => {
 const RootLayoutContent: React.FC<RootLayoutProps> = ({ children }) => {
   const context = useContext(OpenAgentsContext);
   const isConnected = context?.isConnected || false;
+  const location = useLocation();
+
+  // 判断当前路由是否需要隐藏侧边栏
+  const shouldHideSidebar = location.pathname.startsWith("/agentworld");
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-slate-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
@@ -67,7 +71,7 @@ const RootLayoutContent: React.FC<RootLayoutProps> = ({ children }) => {
           {/* Middle content area: sidebar + main content */}
           <div className="flex-1 flex overflow-hidden">
             {/* Feature sidebar - now self-managed, automatically displays corresponding content based on route */}
-            <Sidebar />
+            {!shouldHideSidebar && <Sidebar />}
 
             {/* Main content area */}
             <main className="flex-1 flex flex-col overflow-hidden m-1 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 bg-gradient-to-br from-white via-blue-50 to-purple-50 dark:bg-gray-800">
