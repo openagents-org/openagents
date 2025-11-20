@@ -51,21 +51,7 @@ const InterviewerHubView: React.FC = () => {
       try {
         const agentId = connectionStatus?.agentId || connector.getAgentId()
 
-        // First, ensure channel exists by trying to subscribe/join
-        console.log(`🔗 Initializing channel: ${channelName}`)
-        try {
-          await connector.sendEvent({
-            event_name: "thread.channel.subscribe",
-            source_id: agentId,
-            destination_id: "mod:openagents.mods.workspace.messaging",
-            payload: {
-              channel_name: channelName,
-            },
-          })
-          console.log(`✅ Subscribed to channel: ${channelName}`)
-        } catch (err) {
-          console.warn(`⚠️ Channel subscribe failed (channel may already exist):`, err)
-        }
+        console.log(`🔗 Loading message history for channel: ${channelName}`)
 
         // Load message history
         const response = await connector.sendEvent({
@@ -92,12 +78,14 @@ const InterviewerHubView: React.FC = () => {
 
           setMessages(historyMessages)
         } else {
-          console.log(`📜 No message history found for ${channelName}`)
+          // Channel doesn't exist yet or has no messages - this is normal for new channels
+          console.log(`📜 No message history found for ${channelName} (${response.message || "channel not created yet"})`)
           setMessages([])
         }
       } catch (error) {
-        console.error("Failed to load message history:", error)
-        setMessagesError("Failed to load message history")
+        // Don't show error for channel not existing - it will be created when first message is sent
+        console.log("Channel not found, will be created when first message is sent:", error)
+        setMessages([])
       } finally {
         setLoadingMessages(false)
       }
@@ -111,19 +99,21 @@ const InterviewerHubView: React.FC = () => {
     if (!isConnected || !connector || !channelName) return
 
     const handleChannelMessage = (event: any) => {
-      // Listen for thread.channel_message.posted event
-      if (event.event_name === "thread.channel_message.posted") {
-        const messageData = event.payload || {}
-        const eventChannelName = messageData.channel_name
+      // Listen for thread.channel_message.notification event (sent by messaging mod)
+      if (event.event_name === "thread.channel_message.notification") {
+        const payload = event.payload || {}
+        const eventChannelName = payload.channel
 
         if (eventChannelName === channelName) {
-          console.log(`📨 Received message for ${channelName}:`, messageData)
+          console.log(`📨 Received message for ${channelName}:`, event)
 
+          // Extract message data from the event
+          // The notification event has: source_id (sender), event_id (message ID), timestamp, payload (content)
           const unifiedMessage: UnifiedMessage = {
-            id: messageData.message_id || `msg-${Date.now()}`,
-            senderId: messageData.sender_id || "",
-            content: messageData.content?.text || "",
-            timestamp: String(messageData.timestamp || Date.now()),
+            id: event.event_id || `msg-${Date.now()}`,
+            senderId: event.source_id || "",
+            content: payload.content?.text || "",
+            timestamp: String(event.timestamp || Date.now()),
             type: "channel_message",
             channel: channelName,
           }
