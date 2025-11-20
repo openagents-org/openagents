@@ -31,9 +31,9 @@ const navItems: NavigationItem[] = [
     ),
   },
   {
-    label: "Discussion",
+    label: "Interviewer Hub",
     description: "Stay in sync with recruiters",
-    to: "/interview/discussion",
+    to: "/interview/interviewer-hub",
     icon: (
       <svg
         className="w-5 h-5"
@@ -50,38 +50,18 @@ const navItems: NavigationItem[] = [
       </svg>
     ),
   },
-  {
-    label: "My Interviews",
-    description: "Review and manage schedules",
-    to: "/interview/my-interviews",
-    icon: (
-      <svg
-        className="w-5 h-5"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={1.5}
-          d="M8 7V3m8 4V3m-9 8h10m-9 4h6m-9 6h12a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-        />
-      </svg>
-    ),
-  },
 ];
 
 const InterviewSidebar: React.FC = () => {
   const location = useLocation();
-  const { jobs, notifications, interviews, assessmentStatus } =
+  const { jobs, notifications, interviews, assessmentStatus, userInfo } =
     useInterviewPortalStore();
 
   const stats = useMemo(() => {
     return [
       {
-        label: "Open Roles",
-        value: jobs.length,
+        label: "Online Agents",
+        value: 0, // TODO: Implement network.agents.list event to get actual count
       },
       {
         label: "Unread Notices",
@@ -92,7 +72,7 @@ const InterviewSidebar: React.FC = () => {
         value: interviews.length,
       },
     ];
-  }, [jobs.length, notifications, interviews.length]);
+  }, [notifications, interviews.length]);
 
   return (
     <div className="h-full flex flex-col bg-white/60 dark:bg-gray-900/60 backdrop-blur">
@@ -148,22 +128,48 @@ const InterviewSidebar: React.FC = () => {
         })}
       </nav>
 
-      <div className="mt-auto border-t border-gray-200 dark:border-gray-700 px-5 py-4 space-y-3">
-        <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-          Today's Snapshot
-        </p>
-        <div className="space-y-2">
-          {stats.map((stat) => (
-            <div
-              key={stat.label}
-              className="flex items-center justify-between text-sm text-gray-700 dark:text-gray-200"
-            >
-              <span>{stat.label}</span>
-              <span className="font-semibold text-gray-900 dark:text-gray-100">
-                {stat.value}
-              </span>
+      <div className="mt-auto space-y-0">
+        {userInfo && (
+          <div className="border-t border-gray-200 dark:border-gray-700 px-5 py-4 space-y-3">
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              User Information
+            </p>
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-md">
+                  {userInfo.first_name.charAt(0).toUpperCase()}
+                  {userInfo.last_name.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                    {userInfo.first_name} {userInfo.last_name}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {userInfo.email}
+                  </p>
+                </div>
+              </div>
             </div>
-          ))}
+          </div>
+        )}
+
+        <div className="border-t border-gray-200 dark:border-gray-700 px-5 py-4 space-y-3">
+          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+            Network Information
+          </p>
+          <div className="space-y-2">
+            {stats.map((stat) => (
+              <div
+                key={stat.label}
+                className="flex items-center justify-between text-sm text-gray-700 dark:text-gray-200"
+              >
+                <span>{stat.label}</span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100">
+                  {stat.value}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>

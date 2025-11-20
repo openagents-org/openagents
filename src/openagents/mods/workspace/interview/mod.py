@@ -280,6 +280,74 @@ class Interview:
         return result
 
 
+class UserInfo:
+    """User (job candidate) information."""
+
+    def __init__(
+        self,
+        user_id: str,
+        email: str,
+        first_name: str,
+        last_name: str,
+        registered_at: float,
+        updated_at: Optional[float] = None,
+        general_assessment_link: Optional[str] = None,
+        general_assessment_application_id: Optional[str] = None,
+        general_assessment_practice_session_id: Optional[str] = None,
+        tasks: Optional[List[Dict[str, Any]]] = None,
+        interview_invite_decisions: Optional[Dict[str, Dict[str, Any]]] = None,
+    ):
+        self.user_id = user_id
+        self.email = email
+        self.first_name = first_name
+        self.last_name = last_name
+        self.registered_at = registered_at
+        self.updated_at = updated_at or registered_at
+        self.general_assessment_link = general_assessment_link
+        self.general_assessment_application_id = general_assessment_application_id
+        self.general_assessment_practice_session_id = general_assessment_practice_session_id
+        self.tasks = tasks or []
+        # Track interview invite decisions: {job_id: {agent_id: decision_data, last_notified: timestamp}}
+        self.interview_invite_decisions = interview_invite_decisions or {}
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dict."""
+        result = {
+            "user_id": self.user_id,
+            "email": self.email,
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "registered_at": int(self.registered_at),
+            "updated_at": int(self.updated_at),
+            "tasks": self.tasks,
+            "interview_invite_decisions": self.interview_invite_decisions,
+        }
+        if self.general_assessment_link:
+            result["general_assessment_link"] = self.general_assessment_link
+        if self.general_assessment_application_id:
+            result["general_assessment_application_id"] = self.general_assessment_application_id
+        if self.general_assessment_practice_session_id:
+            result["general_assessment_practice_session_id"] = self.general_assessment_practice_session_id
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "UserInfo":
+        """Create from dict."""
+        return cls(
+            user_id=data["user_id"],
+            email=data["email"],
+            first_name=data["first_name"],
+            last_name=data["last_name"],
+            registered_at=data["registered_at"],
+            updated_at=data.get("updated_at", data["registered_at"]),
+            general_assessment_link=data.get("general_assessment_link"),
+            general_assessment_application_id=data.get("general_assessment_application_id"),
+            general_assessment_practice_session_id=data.get("general_assessment_practice_session_id"),
+            tasks=data.get("tasks", []),
+            interview_invite_decisions=data.get("interview_invite_decisions", {}),
+        )
+
+
 class InterviewNetworkMod(BaseMod):
     """Network mod for AI interview with private resume access."""
 
@@ -288,31 +356,45 @@ class InterviewNetworkMod(BaseMod):
         self.topics: Dict[str, InterviewTopic] = {}
         self.files: Dict[str, Dict[str, Any]] = {}  # file_id -> file_metadata
         self.file_storage_path: Optional[Path] = None
+        self.users_storage_path: Optional[Path] = None  # Storage for user info
         self.jobs: Dict[str, Job] = {}  # job_id -> Job
         self.notifications: Dict[str, Notification] = {}  # notification_id -> Notification
         self.interviews: Dict[str, Interview] = {}  # interview_id -> Interview
+        self.monitoring_task: Optional[Any] = None  # Assessment monitoring task
+        self.is_monitoring = False  # Flag to control monitoring loop
 
     def bind_network(self, network):
         """Bind network and initialize file storage."""
         super().bind_network(network)
-        
+
         # Initialize file storage path
         storage_path = self.get_storage_path()
         if storage_path:
             self.file_storage_path = storage_path / "files"
             self.file_storage_path.mkdir(exist_ok=True)
             logger.info(f"Interview file storage initialized at {self.file_storage_path}")
-            
+
+            # Initialize users storage path
+            self.users_storage_path = storage_path / "users"
+            self.users_storage_path.mkdir(exist_ok=True)
+            logger.info(f"Interview users storage initialized at {self.users_storage_path}")
+
             # Load existing file metadata if any
             self._load_file_metadata()
         else:
             logger.warning("No storage path available for interview file uploads")
-        
-        # Initialize test data if empty
-        if not self.jobs:
-            self._init_test_jobs()
-        if not self.interviews:
-            self._init_test_interviews()
+
+        # Initialize test data if empty - DISABLED to use only real data from API
+        # if not self.jobs:
+        #     self._init_test_jobs()
+        # if not self.interviews:
+        #     self._init_test_interviews()
+
+        # Start assessment completion monitoring task
+        import asyncio
+        self.is_monitoring = True
+        self.monitoring_task = asyncio.create_task(self._monitor_assessment_completions())
+        logger.info("Started assessment completion monitoring")
 
     def _load_file_metadata(self):
         """Load file metadata from storage."""
@@ -342,189 +424,6 @@ class InterviewNetworkMod(BaseMod):
         except Exception as e:
             logger.error(f"Failed to save file metadata: {e}")
 
-    def _init_test_jobs(self):
-        """Initialize test job data."""
-        current_time = time.time()
-        
-        # Test job 1: Senior Software Engineer
-        job1 = Job(
-            job_id="test_job_001",
-            title="Senior Software Engineer",
-            company_name="Tech Company",
-            posted_agent_id=BROADCAST_AGENT_ID,
-            posted_date=current_time - 86400,  # 1 day ago
-            detailed_description="We are looking for an experienced Senior Software Engineer to join our team. You will be responsible for designing and developing scalable software solutions, collaborating with cross-functional teams, and mentoring junior developers.",
-            image_url="",
-            requirements=["5+ years of experience", "Strong knowledge of React and TypeScript", "Experience with AWS"],
-            salary_range="$120,000 - $180,000",
-            location="San Francisco, CA",
-            status="open",
-        )
-        self.jobs[job1.job_id] = job1
-        
-        # Test job 2: Full Stack Developer
-        job2 = Job(
-            job_id="test_job_002",
-            title="Full Stack Developer",
-            company_name="Innovation Labs",
-            posted_agent_id=BROADCAST_AGENT_ID,
-            posted_date=current_time - 172800,  # 2 days ago
-            detailed_description="Join our dynamic team as a Full Stack Developer. You'll work on cutting-edge web applications, build RESTful APIs, and create intuitive user interfaces. Experience with modern JavaScript frameworks and cloud technologies is essential.",
-            image_url="",
-            requirements=["3+ years of experience", "JavaScript, Node.js, Vue.js", "MongoDB, GraphQL"],
-            salary_range="$100,000 - $150,000",
-            location="New York, NY",
-            status="open",
-        )
-        self.jobs[job2.job_id] = job2
-        
-        # Test job 3: DevOps Engineer
-        job3 = Job(
-            job_id="test_job_003",
-            title="DevOps Engineer",
-            company_name="Cloud Solutions Inc",
-            posted_agent_id=BROADCAST_AGENT_ID,
-            posted_date=current_time - 259200,  # 3 days ago
-            detailed_description="We're seeking a DevOps Engineer to help us build and maintain our infrastructure. You'll work with Kubernetes, CI/CD pipelines, and cloud platforms to ensure our systems are scalable, reliable, and secure.",
-            image_url="",
-            requirements=["4+ years of experience", "Kubernetes, Terraform, Jenkins", "Azure, Linux"],
-            salary_range="$110,000 - $160,000",
-            location="Remote",
-            status="open",
-        )
-        self.jobs[job3.job_id] = job3
-        
-        # Test job 4: Machine Learning Engineer
-        job4 = Job(
-            job_id="test_job_004",
-            title="Machine Learning Engineer",
-            company_name="AI Innovations",
-            posted_agent_id=BROADCAST_AGENT_ID,
-            posted_date=current_time - 345600,  # 4 days ago
-            detailed_description="Looking for a Machine Learning Engineer to develop and deploy ML models. You'll work on NLP, computer vision, and recommendation systems. Strong background in deep learning frameworks and data science is required.",
-            image_url="",
-            requirements=["3+ years of experience", "Python, TensorFlow, PyTorch", "MLOps, NLP"],
-            salary_range="$130,000 - $200,000",
-            location="Seattle, WA",
-            status="open",
-        )
-        self.jobs[job4.job_id] = job4
-        
-        # Test job 5: Frontend Developer
-        job5 = Job(
-            job_id="test_job_005",
-            title="Frontend Developer",
-            company_name="Design Studio",
-            posted_agent_id=BROADCAST_AGENT_ID,
-            posted_date=current_time - 432000,  # 5 days ago
-            detailed_description="Join our creative team as a Frontend Developer. You'll create beautiful, responsive web interfaces using modern frameworks. Strong design sense and attention to detail are essential for this role.",
-            image_url="",
-            requirements=["2+ years of experience", "React, CSS, Sass", "Webpack, Figma"],
-            salary_range="$90,000 - $140,000",
-            location="Los Angeles, CA",
-            status="open",
-        )
-        self.jobs[job5.job_id] = job5
-        
-        # Test job 6: Backend Engineer
-        job6 = Job(
-            job_id="test_job_006",
-            title="Backend Engineer",
-            company_name="Data Systems",
-            posted_agent_id=BROADCAST_AGENT_ID,
-            posted_date=current_time - 518400,  # 6 days ago
-            detailed_description="We need a Backend Engineer to build robust server-side applications. You'll design databases, create APIs, and optimize system performance. Experience with microservices architecture is a plus.",
-            image_url="",
-            requirements=["3+ years of experience", "Java, Spring Boot", "PostgreSQL, Redis", "Microservices"],
-            salary_range="$110,000 - $160,000",
-            location="Austin, TX",
-            status="open",
-        )
-        self.jobs[job6.job_id] = job6
-        
-        logger.info(f"Initialized {len(self.jobs)} test jobs")
-
-    def _init_test_interviews(self):
-        """Initialize test interview data."""
-        current_time = time.time()
-        
-        # Test interview 1: Scheduled virtual interview
-        interview1 = Interview(
-            interview_id="interview_001",
-            job_id="test_job_001",
-            interview_url="https://meet.example.com/interview/001",
-            interview_type="virtual",
-            created_at=current_time - 86400,  # 1 day ago
-            duration_minutes=60,
-            notes="Please prepare for technical questions about React and TypeScript.",
-            status="scheduled",
-        )
-        interview1.updated_at = current_time - 3600  # 1 hour ago
-        self.interviews[interview1.interview_id] = interview1
-        
-        # Test interview 2: Scheduled virtual interview
-        interview2 = Interview(
-            interview_id="interview_002",
-            job_id="test_job_002",
-            interview_url="https://meet.example.com/interview/002",
-            interview_type="virtual",
-            created_at=current_time - 172800,  # 2 days ago
-            duration_minutes=45,
-            notes="Focus on system design and architecture discussions.",
-            status="scheduled",
-        )
-        interview2.updated_at = current_time - 7200  # 2 hours ago
-        self.interviews[interview2.interview_id] = interview2
-        
-        # Test interview 3: Completed interview
-        interview3 = Interview(
-            interview_id="interview_003",
-            job_id="test_job_003",
-            interview_url="https://meet.example.com/interview/003",
-            interview_type="virtual",
-            created_at=current_time - 259200,  # 3 days ago
-            duration_minutes=90,
-            notes="Interview completed successfully.",
-            status="completed",
-        )
-        interview3.updated_at = current_time - 86400  # 1 day ago
-        interview3.results = {
-            "score": 85,
-            "feedback": "Strong technical skills demonstrated.",
-        }
-        self.interviews[interview3.interview_id] = interview3
-        
-        # Test interview 4: Scheduled onsite interview
-        interview4 = Interview(
-            interview_id="interview_004",
-            job_id="test_job_004",
-            interview_url="",  # Empty URL for onsite
-            interview_type="onsite",
-            created_at=current_time - 43200,  # 12 hours ago
-            duration_minutes=120,
-            notes="Onsite interview at company headquarters. Please arrive 15 minutes early.",
-            status="scheduled",
-        )
-        interview4.updated_at = current_time - 1800  # 30 minutes ago
-        self.interviews[interview4.interview_id] = interview4
-        
-        # Test interview 5: Cancelled interview
-        interview5 = Interview(
-            interview_id="interview_005",
-            job_id="test_job_005",
-            interview_url="https://meet.example.com/interview/005",
-            interview_type="virtual",
-            created_at=current_time - 345600,  # 4 days ago
-            duration_minutes=60,
-            notes="Interview cancelled due to scheduling conflict.",
-            status="cancelled",
-        )
-        interview5.updated_at = current_time - 172800  # 2 days ago
-        interview5.cancelled_at = current_time - 172800
-        interview5.cancellation_reason = "Scheduling conflict"
-        self.interviews[interview5.interview_id] = interview5
-        
-        logger.info(f"Initialized {len(self.interviews)} test interviews")
 
     def _validate_pdf_content(self, file_content: bytes) -> bool:
         """Validate PDF file by checking magic number."""
@@ -554,15 +453,49 @@ class InterviewNetworkMod(BaseMod):
         # Owner can access
         if agent_id == topic.owner_id:
             return True
-        
+
         # Check agent group via network
         if hasattr(self, "network") and self.network:
             agent_group = self.network.topology.agent_group_membership.get(agent_id)
             # interviewer and admin groups can access
             if agent_group in ("interviewer", "admin"):
                 return True
-        
+
         return False
+
+    def _get_user_file_path(self, user_id: str) -> Path:
+        """Get file path for user data."""
+        if not self.users_storage_path:
+            raise RuntimeError("Users storage path not initialized")
+        return self.users_storage_path / f"{user_id}.json"
+
+    def _load_user_info(self, user_id: str) -> Optional[UserInfo]:
+        """Load user info from file."""
+        try:
+            user_file = self._get_user_file_path(user_id)
+            if not user_file.exists():
+                return None
+
+            import json
+            with open(user_file, 'r') as f:
+                data = json.load(f)
+            return UserInfo.from_dict(data)
+        except Exception as e:
+            logger.error(f"Failed to load user info for {user_id}: {e}")
+            return None
+
+    def _save_user_info(self, user_info: UserInfo) -> bool:
+        """Save user info to file."""
+        try:
+            user_file = self._get_user_file_path(user_info.user_id)
+            import json
+            with open(user_file, 'w') as f:
+                json.dump(user_info.to_dict(), f, indent=2)
+            logger.info(f"Saved user info for {user_info.user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save user info for {user_info.user_id}: {e}")
+            return False
 
     @mod_event_handler("interview.file.upload")
     async def _upload_file(self, event: Event) -> EventResponse:
@@ -753,395 +686,6 @@ class InterviewNetworkMod(BaseMod):
             data={"file": file_metadata}
         )
 
-    @mod_event_handler("interview.topic.create")
-    async def _create_topic(self, event: Event) -> EventResponse:
-        """Create interview topic with PDF resume (required)."""
-        payload = event.payload
-        title = payload.get("title")
-        content = payload.get("content")
-        resume_url = payload.get("resume_url")
-        resume_blob = payload.get("resume_blob")  # Optional base64 blob
-
-        # Validate required fields
-        if not title or not content:
-            return EventResponse(
-                success=False,
-                message="Missing required fields: title and content"
-            )
-
-        # Require PDF resume
-        if not resume_url or not self._validate_pdf(resume_url):
-            return EventResponse(
-                success=False,
-                message="PDF resume is required for interview topics"
-            )
-
-        # Create topic
-        topic_id = str(uuid.uuid4())
-        topic = InterviewTopic(
-            topic_id=topic_id,
-            title=title,
-            content=content,
-            resume_url=resume_url,
-            owner_id=event.source_id,
-            timestamp=time.time(),
-        )
-
-        # Store optional blob for preview
-        if resume_blob:
-            topic.resume_blob = resume_blob
-
-        self.topics[topic_id] = topic
-        logger.info(f"Created interview topic {topic_id} by {event.source_id}")
-
-        # Broadcast notification (without blob to save bandwidth)
-        await self._broadcast_event("interview.topic.created", {
-            "topic": topic.to_dict()
-        }, event.source_id)
-
-        return EventResponse(
-            success=True,
-            message="Interview topic created successfully",
-            data={"topic_id": topic_id, "topic": topic.to_dict(include_blob=True)}
-        )
-
-    @mod_event_handler("interview.topic.delete")
-    async def _delete_topic(self, event: Event) -> EventResponse:
-        """Delete interview topic."""
-        payload = event.payload
-        topic_id = payload.get("topic_id")
-        
-        if not topic_id or topic_id not in self.topics:
-            return EventResponse(
-                success=False,
-                message="Topic not found"
-            )
-        
-        topic = self.topics[topic_id]
-        
-        # Check access
-        if not self._can_access_topic(event.source_id, topic):
-            return EventResponse(
-                success=False,
-                message="Unauthorized to delete this topic"
-            )
-        
-        # Only owner can delete
-        if event.source_id != topic.owner_id:
-            return EventResponse(
-                success=False,
-                message="Only topic owner can delete"
-            )
-        
-        del self.topics[topic_id]
-        logger.info(f"Deleted interview topic {topic_id}")
-        
-        # Broadcast notification
-        await self._broadcast_event("interview.topic.deleted", {
-            "topic_id": topic_id
-        }, event.source_id)
-        
-        return EventResponse(
-            success=True,
-            message="Topic deleted successfully",
-            data={"topic_id": topic_id}
-        )
-
-    @mod_event_handler("interview.comment.create")
-    async def _create_comment(self, event: Event) -> EventResponse:
-        """Create comment on topic."""
-        payload = event.payload
-        topic_id = payload.get("topic_id")
-        content = payload.get("content")
-        parent_comment_id = payload.get("parent_comment_id")
-        
-        if not topic_id or topic_id not in self.topics:
-            return EventResponse(
-                success=False,
-                message="Topic not found"
-            )
-        
-        topic = self.topics[topic_id]
-        
-        # Check access
-        if not self._can_access_topic(event.source_id, topic):
-            return EventResponse(
-                success=False,
-                message="Unauthorized to access this topic"
-            )
-        
-        if not content:
-            return EventResponse(
-                success=False,
-                message="Content is required"
-            )
-        
-        # Calculate depth
-        depth = 0
-        if parent_comment_id:
-            if parent_comment_id not in topic.comments:
-                return EventResponse(
-                    success=False,
-                    message="Parent comment not found"
-                )
-            parent = topic.comments[parent_comment_id]
-            depth = parent.depth + 1
-            
-            # Enforce max depth
-            if depth >= MAX_COMMENT_DEPTH:
-                return EventResponse(
-                    success=False,
-                    message=f"Maximum comment depth ({MAX_COMMENT_DEPTH}) reached"
-                )
-        
-        # Create comment
-        comment_id = str(uuid.uuid4())
-        comment = InterviewComment(
-            comment_id=comment_id,
-            topic_id=topic_id,
-            content=content,
-            author_id=event.source_id,
-            timestamp=time.time(),
-            parent_comment_id=parent_comment_id,
-            depth=depth,
-        )
-        
-        topic.comments[comment_id] = comment
-        topic.comment_count += 1
-        topic.last_activity = comment.timestamp
-        
-        # Update tree structure
-        if parent_comment_id:
-            topic.comment_tree[parent_comment_id].append(comment_id)
-        else:
-            topic.root_comments.append(comment_id)
-        
-        logger.info(f"Created comment {comment_id} on topic {topic_id}")
-        
-        # Broadcast notification
-        event_name = "interview.comment.replied" if parent_comment_id else "interview.comment.created"
-        await self._broadcast_event(event_name, {
-            "comment": comment.to_dict(),
-            "topic_id": topic_id
-        }, event.source_id)
-        
-        return EventResponse(
-            success=True,
-            message="Comment created successfully",
-            data={"comment_id": comment_id, "comment": comment.to_dict()}
-        )
-
-    @mod_event_handler("interview.comment.reply")
-    async def _reply_comment(self, event: Event) -> EventResponse:
-        """Reply to comment (alias for create with parent_comment_id)."""
-        return await self._create_comment(event)
-
-    @mod_event_handler("interview.comment.delete")
-    async def _delete_comment(self, event: Event) -> EventResponse:
-        """Delete comment and all its children recursively."""
-        payload = event.payload
-        topic_id = payload.get("topic_id")
-        comment_id = payload.get("comment_id")
-        
-        if not topic_id or topic_id not in self.topics:
-            return EventResponse(
-                success=False,
-                message="Topic not found"
-            )
-        
-        topic = self.topics[topic_id]
-        
-        # Check access
-        if not self._can_access_topic(event.source_id, topic):
-            return EventResponse(
-                success=False,
-                message="Unauthorized to access this topic"
-            )
-        
-        if not comment_id or comment_id not in topic.comments:
-            return EventResponse(
-                success=False,
-                message="Comment not found"
-            )
-        
-        comment = topic.comments[comment_id]
-        
-        # Only author or admin can delete
-        agent_group = None
-        if hasattr(self, "network") and self.network:
-            agent_group = self.network.topology.agent_group_membership.get(event.source_id)
-        
-        if event.source_id != comment.author_id and agent_group != "admin":
-            return EventResponse(
-                success=False,
-                message="Only comment author or admin can delete"
-            )
-        
-        # Recursive delete all children
-        deleted_count = self._recursive_delete_comment(topic, comment_id)
-        
-        logger.info(f"Deleted comment {comment_id} and {deleted_count-1} children")
-        
-        # Broadcast notification
-        await self._broadcast_event("interview.comment.deleted", {
-            "comment_id": comment_id,
-            "topic_id": topic_id,
-            "deleted_count": deleted_count
-        }, event.source_id)
-        
-        return EventResponse(
-            success=True,
-            message=f"Comment and {deleted_count-1} replies deleted successfully",
-            data={"comment_id": comment_id, "deleted_count": deleted_count}
-        )
-
-    def _recursive_delete_comment(self, topic: InterviewTopic, comment_id: str) -> int:
-        """Recursively soft-delete comment and all children."""
-        if comment_id not in topic.comments:
-            return 0
-        
-        count = 1
-        comment = topic.comments[comment_id]
-        comment.deleted = True
-        topic.comment_count -= 1
-        
-        # Recursively delete children
-        if comment_id in topic.comment_tree:
-            for child_id in topic.comment_tree[comment_id]:
-                count += self._recursive_delete_comment(topic, child_id)
-        
-        return count
-
-    @mod_event_handler("interview.topic.list")
-    async def _list_topics(self, event: Event) -> EventResponse:
-        """List interview topics (only accessible ones)."""
-        payload = event.payload
-        limit = int(payload.get("limit", 50))
-        offset = int(payload.get("offset", 0))
-        
-        # Filter topics by access
-        accessible_topics = [
-            topic for topic in self.topics.values()
-            if self._can_access_topic(event.source_id, topic)
-        ]
-        
-        # Sort by last activity
-        accessible_topics.sort(key=lambda t: t.last_activity, reverse=True)
-        
-        # Paginate
-        total_count = len(accessible_topics)
-        paginated_topics = accessible_topics[offset:offset + limit]
-        topics_data = [t.to_dict() for t in paginated_topics]
-        
-        return EventResponse(
-            success=True,
-            message="Topics retrieved successfully",
-            data={
-                "topics": topics_data,
-                "total_count": total_count,
-                "offset": offset,
-                "limit": limit,
-                "has_more": offset + limit < total_count,
-            }
-        )
-
-    @mod_event_handler("interview.topic.search")
-    async def _search_topics(self, event: Event) -> EventResponse:
-        """Search interview topics (only accessible ones)."""
-        payload = event.payload
-        query = payload.get("query", "").lower()
-        limit = int(payload.get("limit", 50))
-        offset = int(payload.get("offset", 0))
-        
-        # Filter and search
-        matching_topics = []
-        for topic in self.topics.values():
-            if self._can_access_topic(event.source_id, topic):
-                if query in topic.title.lower() or query in topic.content.lower():
-                    matching_topics.append(topic)
-        
-        # Sort by relevance (last activity for now)
-        matching_topics.sort(key=lambda t: t.last_activity, reverse=True)
-        
-        # Paginate
-        total_count = len(matching_topics)
-        paginated_topics = matching_topics[offset:offset + limit]
-        topics_data = [t.to_dict() for t in paginated_topics]
-        
-        return EventResponse(
-            success=True,
-            message="Search completed successfully",
-            data={
-                "topics": topics_data,
-                "query": query,
-                "total_count": total_count,
-                "offset": offset,
-                "limit": limit,
-                "has_more": offset + limit < total_count,
-            }
-        )
-
-    @mod_event_handler("interview.topic.get")
-    async def _get_topic(self, event: Event) -> EventResponse:
-        """Get single interview topic with comments."""
-        payload = event.payload
-        topic_id = payload.get("topic_id")
-
-        if not topic_id or topic_id not in self.topics:
-            return EventResponse(
-                success=False,
-                message="Topic not found"
-            )
-
-        topic = self.topics[topic_id]
-
-        # Check access
-        if not self._can_access_topic(event.source_id, topic):
-            return EventResponse(
-                success=False,
-                message="Unauthorized to access this topic"
-            )
-
-        return EventResponse(
-            success=True,
-            message="Topic retrieved successfully",
-            data={"topic": topic.to_dict(include_comments=True, include_blob=True)}
-        )
-
-    @mod_event_handler("interview.topic.list_by_user")
-    async def _list_by_user(self, event: Event) -> EventResponse:
-        """List topics by specific user (only accessible ones)."""
-        payload = event.payload
-        user_id = payload.get("user_id", event.source_id)
-        limit = int(payload.get("limit", 50))
-        offset = int(payload.get("offset", 0))
-        
-        # Filter by user and access
-        user_topics = [
-            topic for topic in self.topics.values()
-            if topic.owner_id == user_id and self._can_access_topic(event.source_id, topic)
-        ]
-        
-        # Sort by timestamp
-        user_topics.sort(key=lambda t: t.timestamp, reverse=True)
-        
-        # Paginate
-        total_count = len(user_topics)
-        paginated_topics = user_topics[offset:offset + limit]
-        topics_data = [t.to_dict() for t in paginated_topics]
-        
-        return EventResponse(
-            success=True,
-            message="User topics retrieved successfully",
-            data={
-                "topics": topics_data,
-                "user_id": user_id,
-                "total_count": total_count,
-                "offset": offset,
-                "limit": limit,
-                "has_more": offset + limit < total_count,
-            }
-        )
 
     async def _broadcast_event(self, event_name: str, payload: Dict[str, Any], source_id: str):
         """Broadcast notification event."""
@@ -1542,6 +1086,878 @@ class InterviewNetworkMod(BaseMod):
                 "reason": reason,
                 "success": True,
             }
+        )
+
+    @mod_event_handler("interview.user.register")
+    async def _register_user(self, event: Event) -> EventResponse:
+        """Register or update user (job candidate) information.
+
+        Expected payload:
+        {
+            "email": "user@example.com",
+            "first_name": "John",
+            "last_name": "Doe"
+        }
+        """
+        payload = event.payload
+        email = payload.get("email", "").strip()
+        first_name = payload.get("first_name", "").strip()
+        last_name = payload.get("last_name", "").strip()
+
+        # Validate required fields
+        if not email or not first_name or not last_name:
+            return EventResponse(
+                success=False,
+                message="Missing required fields: email, first_name, and last_name are required"
+            )
+
+        # Basic email validation
+        if "@" not in email or "." not in email.split("@")[1]:
+            return EventResponse(
+                success=False,
+                message="Invalid email format"
+            )
+
+        # Use agent_id as user_id (one user per agent/connection)
+        user_id = event.source_id
+        current_time = time.time()
+
+        # Check if user already exists
+        existing_user = self._load_user_info(user_id)
+
+        if existing_user:
+            # Update existing user
+            existing_user.email = email
+            existing_user.first_name = first_name
+            existing_user.last_name = last_name
+            existing_user.updated_at = current_time
+            user_info = existing_user
+            is_new = False
+        else:
+            # Create new user with initial general assessment task
+            initial_task = {
+                "task_id": f"general_assessment_{user_id}",
+                "name": "Complete General Assessment",
+                "link": None,  # Will be generated when user clicks
+                "status": "pending",
+                "result": None,  # Will be populated when task is completed
+                "created_timestamp": int(current_time),
+            }
+
+            # Hack codes
+            initial_task["link"] = "https://app.readymojo.com/interview-flow/job_simulationtest_eng-conv-5/0bb4bdbe-147c-46d0-b7f4-1323ee66a78e/action/prep/ee956873-8099-4a60-b2b3-0a7772751c35/"
+            initial_task["status"] = "in_progress"
+
+            user_info = UserInfo(
+                user_id=user_id,
+                email=email,
+                first_name=first_name,
+                last_name=last_name,
+                registered_at=current_time,
+                tasks=[initial_task],
+            )
+            is_new = True
+
+        # Save to file
+        if not self._save_user_info(user_info):
+            return EventResponse(
+                success=False,
+                message="Failed to save user information"
+            )
+
+        logger.info(f"{'Registered new' if is_new else 'Updated'} user: {email} ({user_id})")
+
+        return EventResponse(
+            success=True,
+            message=f"User information {'registered' if is_new else 'updated'} successfully",
+            data={
+                "user": user_info.to_dict(),
+                "is_new": is_new,
+            }
+        )
+
+    @mod_event_handler("interview.user.get")
+    async def _get_user(self, event: Event) -> EventResponse:
+        """Get user (job candidate) information.
+
+        Optional payload:
+        {
+            "user_id": "specific_user_id"  # If omitted, uses event.source_id
+        }
+        """
+        payload = event.payload or {}
+        user_id = payload.get("user_id", event.source_id)
+
+        # Load user info from file
+        user_info = self._load_user_info(user_id)
+
+        if not user_info:
+            return EventResponse(
+                success=False,
+                message="User information not found. Please register first.",
+                data={
+                    "registered": False,
+                }
+            )
+
+        logger.info(f"Retrieved user info for {user_id}")
+
+        return EventResponse(
+            success=True,
+            message="User information retrieved successfully",
+            data={
+                "user": user_info.to_dict(),
+                "registered": True,
+            }
+        )
+
+    @mod_event_handler("interview.get_general_assessment_link")
+    async def _get_general_assessment_link(self, event: Event) -> EventResponse:
+        """Get or create general assessment link for user.
+
+        Expected payload:
+        {
+            "job_id": "job_simulationtest_eng-conv-5",  # Optional, defaults to general assessment job
+            "peakmojo_api_url": "http://localhost:9500",  # Optional, defaults to localhost
+            "skip_email": false  # Optional, defaults to false
+        }
+        """
+        import uuid
+        import json
+
+        payload = event.payload or {}
+        user_id = event.source_id
+
+        # Load user info
+        user_info = self._load_user_info(user_id)
+        if not user_info:
+            return EventResponse(
+                success=False,
+                message="User not registered. Please register first."
+            )
+
+        # Hack codes
+        user_info.general_assessment_link = "https://app.readymojo.com/interview-flow/job_simulationtest_eng-conv-5/0bb4bdbe-147c-46d0-b7f4-1323ee66a78e/action/prep/ee956873-8099-4a60-b2b3-0a7772751c35/"
+        user_info.general_assessment_application_id = "0bb4bdbe-147c-46d0-b7f4-1323ee66a78e"
+        user_info.general_assessment_practice_session_id = "ee956873-8099-4a60-b2b3-0a7772751c35"
+
+        # Check if link is already cached
+        if user_info.general_assessment_link:
+            logger.info(f"Returning cached general assessment link for {user_id}")
+            return EventResponse(
+                success=True,
+                message="General assessment link retrieved from cache",
+                data={
+                    "assessment_link": user_info.general_assessment_link,
+                    "application_id": user_info.general_assessment_application_id,
+                    "practice_session_id": user_info.general_assessment_practice_session_id,
+                    "cached": True,
+                }
+            )
+
+        # Get parameters
+        job_id = payload.get("job_id", "job_simulationtest_eng-conv-5")
+        api_url = payload.get("peakmojo_api_url", "http://localhost:9500")
+        skip_email = payload.get("skip_email", False)
+
+        try:
+            # Create application
+            import httpx
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                application_data = {
+                    "job_id": job_id,
+                    "user_email": user_info.email,
+                    "first_name": user_info.first_name,
+                    "last_name": user_info.last_name,
+                    "skip_email": skip_email
+                }
+
+                logger.info(f"Creating application for {user_info.email} for job {job_id}")
+                response = await client.post(
+                    f"{api_url}/api/applications",
+                    json=application_data,
+                    headers={
+                        "accept": "application/json",
+                        "Content-Type": "application/json"
+                    }
+                )
+
+                if response.status_code not in [200, 201]:
+                    error_detail = response.text
+                    logger.error(f"Failed to create application: {response.status_code} - {error_detail}")
+                    return EventResponse(
+                        success=False,
+                        message=f"Failed to create application: {response.status_code}"
+                    )
+
+                application_response = response.json()
+
+                # The API returns assessment_url, practice_session_id, and application_id directly
+                assessment_link = application_response.get("assessment_url")
+                practice_session_id = application_response.get("practice_session_id")
+                application_id = application_response.get("application_id")
+
+                if not assessment_link or not application_id or not practice_session_id:
+                    logger.error(f"Missing required fields in response: {application_response}")
+                    return EventResponse(
+                        success=False,
+                        message="Incomplete response from API"
+                    )
+
+                # Update user info with cached link
+                user_info.general_assessment_link = assessment_link
+                user_info.general_assessment_application_id = application_id
+                user_info.general_assessment_practice_session_id = practice_session_id
+                user_info.updated_at = time.time()
+
+                # Save updated user info
+                if not self._save_user_info(user_info):
+                    logger.error(f"Failed to save user info after creating assessment link")
+                    # Continue anyway, link is still valid
+
+                logger.info(f"Created general assessment link for {user_id}: {assessment_link}")
+
+                return EventResponse(
+                    success=True,
+                    message="General assessment link created successfully",
+                    data={
+                        "assessment_link": assessment_link,
+                        "application_id": application_id,
+                        "practice_session_id": practice_session_id,
+                        "cached": False,
+                    }
+                )
+
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP error creating assessment link: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Network error: {str(e)}"
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error creating assessment link: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Failed to create assessment link: {str(e)}"
+            )
+
+    @mod_event_handler("interview.task.start")
+    async def _start_task(self, event: Event) -> EventResponse:
+        """Start a task (e.g., general assessment).
+
+        This generates the necessary link and opens it for the user.
+
+        Expected payload:
+        {
+            "task_id": "general_assessment_..."
+        }
+        """
+        payload = event.payload or {}
+        task_id = payload.get("task_id")
+        user_id = event.source_id
+
+        if not task_id:
+            return EventResponse(
+                success=False,
+                message="Missing required field: task_id"
+            )
+
+        # Load user info
+        user_info = self._load_user_info(user_id)
+        if not user_info:
+            return EventResponse(
+                success=False,
+                message="User not registered. Please register first."
+            )
+
+        # Find the task
+        task = None
+        task_index = None
+        for idx, t in enumerate(user_info.tasks):
+            if t.get("task_id") == task_id:
+                task = t
+                task_index = idx
+                break
+
+        if not task:
+            return EventResponse(
+                success=False,
+                message=f"Task not found: {task_id}"
+            )
+
+        # Handle general assessment task
+        if task_id.startswith("general_assessment_"):
+            # Get or create assessment link
+            assessment_response = await self._get_general_assessment_link(event)
+
+            if not assessment_response.success:
+                return assessment_response
+
+            assessment_link = assessment_response.data.get("assessment_link")
+
+            # Update task with link and status
+            user_info.tasks[task_index]["link"] = assessment_link
+            user_info.tasks[task_index]["status"] = "in_progress"
+            user_info.updated_at = time.time()
+
+            # Save updated user info
+            if not self._save_user_info(user_info):
+                return EventResponse(
+                    success=False,
+                    message="Failed to save task update"
+                )
+
+            logger.info(f"Started task {task_id} for user {user_id}")
+
+            return EventResponse(
+                success=True,
+                message="Task started successfully",
+                data={
+                    "task": user_info.tasks[task_index],
+                    "assessment_link": assessment_link,
+                }
+            )
+
+        # Handle other task types in the future
+        return EventResponse(
+            success=False,
+            message=f"Unknown task type: {task_id}"
+        )
+
+    @mod_event_handler("interview.admin.get_all_users")
+    async def _get_all_users(self, event: Event) -> EventResponse:
+        """Get all users who were active in the last 72 hours (admin only).
+
+        Access Control:
+        - Only agents in the "admin" group can access this endpoint
+
+        Returns:
+        {
+            "success": true,
+            "users": [
+                {
+                    "user_id": "...",
+                    "email": "...",
+                    "first_name": "...",
+                    "last_name": "...",
+                    "registered_at": 1234567890,
+                    "updated_at": 1234567890,
+                    "tasks": [...]
+                },
+                ...
+            ],
+            "count": 10,
+            "cutoff_time": 1234567890
+        }
+        """
+        # Verify admin access
+        agent_group = None
+        if hasattr(self, "network") and self.network:
+            agent_group = self.network.topology.agent_group_membership.get(event.source_id)
+
+        if agent_group != "admin":
+            logger.warning(f"Unauthorized access attempt to admin.get_all_users by {event.source_id} (group: {agent_group})")
+            return EventResponse(
+                success=False,
+                message="Access denied: admin privileges required"
+            )
+
+        if not self.users_storage_path:
+            return EventResponse(
+                success=False,
+                message="User storage not initialized"
+            )
+
+        # Calculate cutoff time (72 hours ago)
+        current_time = time.time()
+        cutoff_time = current_time - (72 * 60 * 60)  # 72 hours in seconds
+
+        active_users = []
+
+        try:
+            # Iterate through all user files
+            import json
+            for user_file in self.users_storage_path.glob("*.json"):
+                try:
+                    with open(user_file, 'r') as f:
+                        user_data = json.load(f)
+
+                    # Check if user was active in last 72 hours
+                    updated_at = user_data.get("updated_at", 0)
+                    if updated_at >= cutoff_time:
+                        active_users.append(user_data)
+
+                except Exception as e:
+                    logger.warning(f"Failed to load user file {user_file}: {e}")
+                    continue
+
+            # Sort by updated_at (most recent first)
+            active_users.sort(key=lambda u: u.get("updated_at", 0), reverse=True)
+
+            logger.info(f"Admin {event.source_id} retrieved {len(active_users)} active users (last 72h)")
+
+            return EventResponse(
+                success=True,
+                message=f"Retrieved {len(active_users)} active users",
+                data={
+                    "users": active_users,
+                    "count": len(active_users),
+                    "cutoff_time": int(cutoff_time)
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to retrieve all users: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Failed to retrieve users: {str(e)}"
+            )
+
+    @mod_event_handler("interview.admin.update_user_task")
+    async def _update_user_task(self, event: Event) -> EventResponse:
+        """Update a user's task (admin only).
+
+        Access Control:
+        - Only agents in the "admin" group can access this endpoint
+
+        Input:
+        {
+            "user_id": "agent_abc123",
+            "task_id": "general_assessment_agent_abc123",
+            "updates": {
+                "name": "New Task Name",  # Optional
+                "link": "https://...",     # Optional
+                "status": "completed",     # Optional: pending, in_progress, completed
+                "result": {...}            # Optional: any JSON object
+            }
+        }
+
+        Returns:
+        {
+            "success": true,
+            "message": "Task updated successfully",
+            "data": {
+                "task": {...},  # Updated task object
+                "updated_keys": ["status", "result"]  # List of updated fields
+            }
+        }
+        """
+        # Verify admin access
+        agent_group = None
+        if hasattr(self, "network") and self.network:
+            agent_group = self.network.topology.agent_group_membership.get(event.source_id)
+
+        if agent_group != "admin":
+            logger.warning(f"Unauthorized access attempt to admin.update_user_task by {event.source_id} (group: {agent_group})")
+            return EventResponse(
+                success=False,
+                message="Access denied: admin privileges required"
+            )
+
+        payload = event.payload
+        user_id = payload.get("user_id")
+        task_id = payload.get("task_id")
+        updates = payload.get("updates", {})
+
+        if not user_id or not task_id:
+            return EventResponse(
+                success=False,
+                message="Missing required fields: user_id and task_id"
+            )
+
+        if not updates:
+            return EventResponse(
+                success=False,
+                message="No updates provided"
+            )
+
+        # Load user info
+        user_info = self._load_user_info(user_id)
+        if not user_info:
+            return EventResponse(
+                success=False,
+                message=f"User not found: {user_id}"
+            )
+
+        # Find task
+        task_index = None
+        for i, task in enumerate(user_info.tasks):
+            if task.get("task_id") == task_id:
+                task_index = i
+                break
+
+        if task_index is None:
+            return EventResponse(
+                success=False,
+                message=f"Task not found: {task_id}"
+            )
+
+        # Track updated keys
+        updated_keys = []
+        valid_update_keys = ["name", "link", "status", "result"]
+
+        # Apply updates
+        for key, value in updates.items():
+            if key not in valid_update_keys:
+                logger.warning(f"Ignoring invalid update key: {key}")
+                continue
+
+            # Validate status values
+            if key == "status" and value not in ["pending", "in_progress", "completed"]:
+                return EventResponse(
+                    success=False,
+                    message=f"Invalid status value: {value}"
+                )
+
+            user_info.tasks[task_index][key] = value
+            updated_keys.append(key)
+
+        # Update user timestamp
+        user_info.updated_at = time.time()
+
+        # Save updated user info
+        if not self._save_user_info(user_info):
+            return EventResponse(
+                success=False,
+                message="Failed to save task update"
+            )
+
+        updated_task = user_info.tasks[task_index]
+
+        logger.info(f"Admin {event.source_id} updated task {task_id} for user {user_id}: {updated_keys}")
+
+        # Broadcast notification to interviewer group
+        await self._broadcast_event(
+            "interview.notification.user_task_updated",
+            {
+                "user_id": user_id,
+                "task": updated_task,
+                "updated_keys": updated_keys,
+                "updated_by": event.source_id,
+                "timestamp": int(user_info.updated_at)
+            },
+            event.source_id
+        )
+
+        return EventResponse(
+            success=True,
+            message="Task updated successfully",
+            data={
+                "task": updated_task,
+                "updated_keys": updated_keys
+            }
+        )
+
+    @mod_event_handler("interview.record_invite_decision")
+    async def _record_invite_decision(self, event: Event) -> EventResponse:
+        """Record an interview invite decision for a user-job pair.
+
+        This event allows agents to record whether they want to invite a user
+        for an interview for a specific job. Once a decision is recorded,
+        automatic notifications for this user-job pair will stop.
+
+        Input:
+        {
+            "user_id": "agent_abc123",
+            "job_id": "job_simulationtest_eng-conv-5",
+            "decision": "invite",  // or "reject", "pending"
+            "interview_link": "https://...",  // Optional: if decision is "invite" and link provided, creates a task
+            "reason": "Strong technical skills...",  // Optional
+            "notes": "Follow up in 2 weeks"  // Optional
+        }
+
+        Returns:
+        {
+            "success": true,
+            "message": "Decision recorded successfully",
+            "data": {
+                "user_id": "agent_abc123",
+                "job_id": "job_simulationtest_eng-conv-5",
+                "decision": "invite",
+                "decided_by": "interviewer_agent",
+                "decided_at": 1234567890
+            }
+        }
+        """
+        payload = event.payload
+        user_id = payload.get("user_id")
+        job_id = payload.get("job_id")
+        decision = payload.get("decision")
+        interview_link = payload.get("interview_link")
+        reason = payload.get("reason")
+        notes = payload.get("notes")
+
+        # Validate required fields
+        if not user_id or not job_id or not decision:
+            return EventResponse(
+                success=False,
+                message="Missing required fields: user_id, job_id, and decision"
+            )
+
+        # Validate decision value
+        valid_decisions = ["invite", "reject", "pending"]
+        if decision not in valid_decisions:
+            return EventResponse(
+                success=False,
+                message=f"Invalid decision value. Must be one of: {', '.join(valid_decisions)}"
+            )
+
+        # Load user info
+        user_info = self._load_user_info(user_id)
+        if not user_info:
+            return EventResponse(
+                success=False,
+                message=f"User not found: {user_id}"
+            )
+
+        # Check if job exists
+        if job_id not in self.jobs:
+            return EventResponse(
+                success=False,
+                message=f"Job not found: {job_id}"
+            )
+
+        job = self.jobs[job_id]
+
+        # Record decision
+        current_time = time.time()
+
+        if job_id not in user_info.interview_invite_decisions:
+            user_info.interview_invite_decisions[job_id] = {}
+
+        user_info.interview_invite_decisions[job_id].update({
+            "decision": decision,
+            "decided_by": event.source_id,
+            "decided_at": current_time,
+        })
+
+        # Add optional fields if provided
+        if reason:
+            user_info.interview_invite_decisions[job_id]["reason"] = reason
+        if notes:
+            user_info.interview_invite_decisions[job_id]["notes"] = notes
+        if interview_link:
+            user_info.interview_invite_decisions[job_id]["interview_link"] = interview_link
+
+        # If decision is "invite" and interview_link is provided, create a task
+        task_created = False
+        new_task = None
+        if decision == "invite" and interview_link:
+            task_id = f"interview_{job_id}_{user_id}"
+
+            # Check if task already exists
+            existing_task = None
+            for task in user_info.tasks:
+                if task.get("task_id") == task_id:
+                    existing_task = task
+                    break
+
+            if not existing_task:
+                # Create new interview task
+                new_task = {
+                    "task_id": task_id,
+                    "name": f"Interview for {job.title}",
+                    "link": interview_link,
+                    "status": "pending",
+                    "result": None,
+                    "created_timestamp": int(current_time),
+                    "job_id": job_id,
+                    "job_title": job.title,
+                    "company_name": job.company_name,
+                }
+                user_info.tasks.append(new_task)
+                task_created = True
+                logger.info(
+                    f"Created interview task {task_id} for user {user_id} and job {job_id}"
+                )
+
+        # Update user timestamp
+        user_info.updated_at = current_time
+
+        # Save updated user info
+        if not self._save_user_info(user_info):
+            return EventResponse(
+                success=False,
+                message="Failed to save decision"
+            )
+
+        logger.info(
+            f"Agent {event.source_id} recorded decision '{decision}' for user {user_id} "
+            f"and job {job_id}" + (f" with interview link" if interview_link else "")
+        )
+
+        # Broadcast notification about the decision
+        notification_data = {
+            "user_id": user_id,
+            "job_id": job_id,
+            "decision": decision,
+            "decided_by": event.source_id,
+            "decided_at": int(current_time),
+            "reason": reason,
+            "notes": notes,
+            "interview_link": interview_link,
+            "task_created": task_created,
+        }
+        if task_created and new_task:
+            notification_data["task"] = new_task
+
+        await self._broadcast_event(
+            "interview.notification.invite_decision_recorded",
+            notification_data,
+            event.source_id
+        )
+
+        response_data = {
+            "user_id": user_id,
+            "job_id": job_id,
+            "decision": decision,
+            "decided_by": event.source_id,
+            "decided_at": int(current_time),
+            "reason": reason,
+            "notes": notes,
+            "interview_link": interview_link,
+            "task_created": task_created,
+        }
+        if task_created and new_task:
+            response_data["task"] = new_task
+
+        return EventResponse(
+            success=True,
+            message="Decision recorded successfully" + (", interview task created" if task_created else ""),
+            data=response_data
+        )
+
+    async def _monitor_assessment_completions(self):
+        """Periodically monitor for completed assessments and notify agents."""
+        import asyncio
+
+        MONITOR_INTERVAL = 60  # Check every 60 seconds
+        NOTIFICATION_COOLDOWN = 300  # 5 minutes cooldown per job per user
+        ACTIVE_USER_WINDOW = 72 * 60 * 60  # 72 hours
+
+        while self.is_monitoring:
+            try:
+                await self._check_and_notify_completed_assessments(
+                    active_window=ACTIVE_USER_WINDOW,
+                    cooldown=NOTIFICATION_COOLDOWN
+                )
+            except Exception as e:
+                logger.error(f"Error in assessment monitoring: {e}", exc_info=True)
+
+            await asyncio.sleep(MONITOR_INTERVAL)
+
+    async def _check_and_notify_completed_assessments(
+        self,
+        active_window: float,
+        cooldown: float
+    ):
+        """Check for users with completed assessments and send notifications."""
+        if not self.users_storage_path:
+            return
+
+        current_time = time.time()
+        cutoff_time = current_time - active_window
+
+        # Get all active users
+        import json
+        for user_file in self.users_storage_path.glob("*.json"):
+            try:
+                with open(user_file, 'r') as f:
+                    user_data = json.load(f)
+
+                # Check if user is active
+                updated_at = user_data.get("updated_at", 0)
+                if updated_at < cutoff_time:
+                    continue
+
+                user_info = UserInfo.from_dict(user_data)
+
+                # Check if user has completed general assessment
+                general_assessment_result = self._get_general_assessment_result(user_info)
+                if not general_assessment_result:
+                    continue  # No completed assessment
+
+                # Check each job for notification
+                for job_id, job in self.jobs.items():
+                    await self._check_and_send_job_notification(
+                        user_info=user_info,
+                        job=job,
+                        assessment_result=general_assessment_result,
+                        current_time=current_time,
+                        cooldown=cooldown
+                    )
+
+            except Exception as e:
+                logger.warning(f"Failed to process user file {user_file}: {e}")
+                continue
+
+    def _get_general_assessment_result(self, user_info: UserInfo) -> Optional[Dict[str, Any]]:
+        """Get general assessment result if completed."""
+        for task in user_info.tasks:
+            if (task.get("task_id", "").startswith("general_assessment_") and
+                task.get("status") == "completed" and
+                task.get("result") is not None):
+                return task.get("result")
+        return None
+
+    async def _check_and_send_job_notification(
+        self,
+        user_info: UserInfo,
+        job: "Job",
+        assessment_result: Dict[str, Any],
+        current_time: float,
+        cooldown: float
+    ):
+        """Check and send notification for a specific job if needed."""
+        job_id = job.job_id
+
+        # Check if notification was already sent recently
+        if job_id in user_info.interview_invite_decisions:
+            last_notified = user_info.interview_invite_decisions[job_id].get("last_notified", 0)
+            if current_time - last_notified < cooldown:
+                # Still in cooldown period
+                return
+
+            # Check if decision already recorded
+            if "decision" in user_info.interview_invite_decisions[job_id]:
+                # Decision already made, no need to notify again
+                return
+
+        # Send notification directly to the agent who posted the job
+        notification_payload = {
+            "user_info": {
+                "user_id": user_info.user_id,
+                "email": user_info.email,
+                "first_name": user_info.first_name,
+                "last_name": user_info.last_name,
+                "registered_at": int(user_info.registered_at),
+            },
+            "general_assessment_result": assessment_result,
+            "job": job.to_dict(),
+            "timestamp": int(current_time)
+        }
+
+        # Send notification directly to the agent who posted this job
+        from openagents.models.event import Event
+        notification_event = Event(
+            event_name="interview.notification.general_assessment_completed",
+            destination_id=job.posted_agent_id,
+            source_id="mod:openagents.mods.workspace.interview",
+            payload=notification_payload
+        )
+        await self.send_event(notification_event)
+
+        # Update last notified timestamp
+        if job_id not in user_info.interview_invite_decisions:
+            user_info.interview_invite_decisions[job_id] = {}
+        user_info.interview_invite_decisions[job_id]["last_notified"] = current_time
+
+        # Save updated user info
+        self._save_user_info(user_info)
+
+        logger.info(
+            f"Sent assessment completion notification for user {user_info.user_id} "
+            f"and job {job_id} to agent {job.posted_agent_id}"
         )
 
 

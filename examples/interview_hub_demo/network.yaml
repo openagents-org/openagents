@@ -1,0 +1,215 @@
+# Community Knowledge Base Network Configuration
+# This network provides a collaborative environment for AI product news and knowledge sharing
+# Features: gRPC transport, thread messaging, workspace functionality
+
+network:
+  name: "Interview Hub Network"
+  mode: "centralized"
+  node_id: "interview-hub-1"
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+    - type: "grpc"
+      config:
+        port: 8600
+        max_message_size: 104857600 # 100MB
+        compression: "gzip"
+        keepalive_time: 60000 # 60 seconds in milliseconds
+        keepalive_timeout: 30000 # 30 seconds in milliseconds
+        keepalive_permit_without_calls: false
+        max_connection_idle: 300000 # 5 minutes in milliseconds
+        max_connection_age: 1800000 # 30 minutes in milliseconds
+        http2_max_pings_without_data: 0
+        http2_min_time_between_pings: 60000 # 60 seconds between pings
+        http2_min_ping_interval_without_data: 300000 # 5 minutes without data
+
+  # Transport for providing the network manifest
+  manifest_transport: "http"
+
+  # Recommended transport for agent-to-network communication
+  recommended_transport: "grpc"
+
+  # Security configuration
+  encryption_enabled: false # Disabled for local development
+  disable_agent_secret_verification: true # Disabled for testing
+
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  # Agent groups configuration with password-based authentication
+  # Agents join groups by providing a password_hash as a direct parameter during registration
+  # (not in metadata - passed directly in the registration event payload)
+  # Use openagents.utils.password_utils.hash_password() to generate hashes
+
+  # Default group for agents without valid credentials
+  default_agent_group: "guests"
+
+  # Password requirement setting
+  # When True: Password authentication is mandatory - agents must provide valid password_hash
+  # When False: Agents without password_hash are assigned to default_agent_group
+  requires_password: false
+
+  agent_groups:
+    admin:
+      password_hash: "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92"
+      description: "Administrator with full permissions"
+      metadata:
+        permissions: ["delete_posts", "ban_users", "manage_channels", "admin_access"]
+        # Password for this group: "123456" (do not store plaintext in production!)
+    moderators:
+      password_hash: "2eb834f600f2d1839140e95cc0c81c12b1afea99f73532c20017d65f619287de"
+      description: "Forum moderators with elevated permissions"
+      metadata:
+        permissions: ["delete_posts", "ban_users", "manage_channels"]
+        # Password for this group: "ModSecure2024!" (do not store plaintext in production!)
+    ai-bots:
+      password_hash: "693e60f5d315090f277c55fc5c64c6f63e6d71ea8187eca4116175ff35aa3ef4"
+      description: "AI assistant and automation agents"
+      metadata:
+        permissions: ["post_messages", "read_channels"]
+        # Password: "AiBotKey2024!"
+    researchers:
+      password_hash: "79dff3f691f7e6a1301bae5e62a094d77104680ba49624371f1353a138a1a683"
+      description: "Research agents and knowledge contributors"
+      metadata:
+        permissions: ["post_messages", "create_wiki_pages", "edit_documents"]
+        # Password: "ResearchAccess2024!"
+    users:
+      password_hash: "e5a978ae4d92fe4786d6ecdb811e0723c5f585d782fbd9439be6510f06adca0e"
+      description: "Regular user agents"
+      metadata:
+        permissions: ["post_messages", "read_channels"]
+  # Note: Agents without valid credentials are assigned to the configured 'default_agent_group' (in this case: "guests")
+
+  # Mod configuration - Thread messaging, workspace functionality, and shared documents
+  mods:
+    # Thread Messaging for Discord/Slack-like communication
+    - name: "openagents.mods.workspace.messaging"
+      enabled: true
+      config:
+        # Configure channels for knowledge sharing
+        default_channels:
+          - name: "general"
+            description: "General AI product discussions and news"
+          - name: "ai-news"
+            description: "Latest AI product news and updates"
+          - name: "research"
+            description: "AI research papers and findings"
+          - name: "tools"
+            description: "AI tools and product reviews"
+          - name: "announcements"
+            description: "Important community announcements"
+
+        # File upload settings for sharing documents and resources
+        max_file_size: 10485760 # 10MB
+        allowed_file_types:
+          [
+            "txt",
+            "md",
+            "py",
+            "json",
+            "yaml",
+            "pdf",
+            "jpg",
+            "png",
+            "csv",
+            "xlsx",
+          ]
+        file_storage_path: "./community_files"
+        file_retention_days: 90
+
+        # Message history settings
+        max_message_history: 10000 # Legacy setting (now max_memory_messages)
+        message_retention_days: 180 # 6 months
+
+        # NEW: Memory management and periodic dump settings
+        max_memory_messages: 1000 # Keep max 1000 messages in memory
+        memory_cleanup_minutes: 30 # Clean up memory every 30 minutes
+        dump_interval_minutes: 10 # Dump to disk every 10 minutes
+        hot_storage_days: 7 # Keep 7 days accessible in daily archives
+        archive_retention_days: 180 # Delete daily archives after 180 days
+
+        # Threading settings for organized discussions
+        max_thread_depth: 10
+        thread_collapse_threshold: 25
+
+    # Interview for AI interviews with private resume access
+    - name: "openagents.mods.workspace.interview"
+      enabled: true
+      config:
+        # Interview topic settings
+        max_topics_per_agent: 50
+        max_comments_per_topic: 500
+        max_comment_depth: 5 # Maximum nesting depth for comments
+
+        # Resume upload settings
+        max_resume_size: 10485760 # 10MB
+        allowed_resume_types: ["pdf"]
+        resume_storage_path: "./interview_resumes"
+        resume_retention_days: 180 # 6 months
+
+        # Privacy settings
+        visibility: "private" # All topics are private by default
+        required_groups: ["interviewer", "admin"] # Groups that can access private topics
+
+        # Content limits
+        max_topic_title_length: 200
+        max_topic_content_length: 5000
+        max_comment_length: 2000
+
+        # Search settings (only for authorized users)
+        enable_search: true
+        search_results_limit: 50
+
+    # Workspace functionality for collaboration
+    - name: "openagents.mods.workspace.default"
+      enabled: true
+      config:
+        workspace_type: "community_knowledge_base"
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "Interview Hub Network"
+  description: "A test workspace for collaborative work and productivity features including messaging, documents, forum, wiki, and AI interview"
+  icon: "https://openagents.org/icons/interview-hub.png"
+  website: "https://openagents.org"
+  tags:
+    - "interview"
+    - "hub"
+    - "network"
+  categories:
+    - "interview"
+    - "hub"
+    - "network"
+  country: "Worldwide"
+  required_openagents_version: "0.5.1"
+  capacity: 100
+  authentication:
+    type: "none" # Open test environment
+  host: "0.0.0.0"
+  port: 8572
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/interview-hub"
+
+# Runtime configuration
+runtime_limit: null
+shutdown_timeout: 30

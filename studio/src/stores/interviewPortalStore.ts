@@ -14,6 +14,7 @@ export interface JobSummary {
   created_at?: number
   status?: string
   metadata?: Record<string, unknown>
+  image_url?: string
 }
 
 export interface JobDetail extends JobSummary {
@@ -63,8 +64,32 @@ export interface AssessmentStatus {
   [key: string]: unknown
 }
 
+export interface UserTask {
+  task_id: string
+  name: string
+  link: string | null
+  status: "pending" | "in_progress" | "completed"
+  result: any | null
+  created_timestamp: number
+}
+
+export interface UserInfo {
+  user_id: string
+  email: string
+  first_name: string
+  last_name: string
+  registered_at: number
+  updated_at: number
+  tasks?: UserTask[]
+}
+
 interface InterviewPortalState {
   connection: HttpEventConnector | null
+
+  userInfo: UserInfo | null
+  userInfoLoading: boolean
+  userInfoError: string | null
+  userInfoChecked: boolean
 
   jobs: JobSummary[]
   jobsLoading: boolean
@@ -93,6 +118,14 @@ interface InterviewPortalState {
   interviewsFetched: boolean
 
   setConnection: (connection: HttpEventConnector | null) => void
+
+  checkUserInfo: (force?: boolean) => Promise<void>
+  registerUser: (data: {
+    email: string
+    first_name: string
+    last_name: string
+  }) => Promise<boolean>
+  startTask: (taskId: string) => Promise<{ success: boolean; link?: string }>
 
   loadJobs: (force?: boolean) => Promise<void>
   loadJobDetail: (jobId: string, force?: boolean) => Promise<void>
@@ -215,6 +248,11 @@ export const useInterviewPortalStore = create<InterviewPortalState>(
   (set, get) => ({
     connection: null,
 
+    userInfo: null,
+    userInfoLoading: false,
+    userInfoError: null,
+    userInfoChecked: false,
+
     jobs: [],
     jobsLoading: false,
     jobsError: null,
@@ -243,6 +281,132 @@ export const useInterviewPortalStore = create<InterviewPortalState>(
 
     setConnection: (connection) => {
       set({ connection })
+    },
+
+    checkUserInfo: async (force = false) => {
+      const { connection, userInfoChecked } = get()
+      if (!connection) {
+        console.warn("InterviewPortal: No connection available for checkUserInfo")
+        return
+      }
+
+      if (userInfoChecked && !force) {
+        return
+      }
+
+      set({ userInfoLoading: true, userInfoError: null })
+
+      try {
+        const response = await connection.sendEvent({
+          event_name: "interview.user.get",
+          destination_id: INTERVIEW_DESTINATION,
+          payload: {},
+        })
+
+        if (response.success && response.data?.registered) {
+          const user = response.data.user as UserInfo
+          set({
+            userInfo: user,
+            userInfoLoading: false,
+            userInfoChecked: true,
+          })
+        } else {
+          // User not registered yet
+          set({
+            userInfo: null,
+            userInfoLoading: false,
+            userInfoChecked: true,
+          })
+        }
+      } catch (error: any) {
+        console.error("InterviewPortal: checkUserInfo error", error)
+        set({
+          userInfoError: error?.message || "Failed to check user info",
+          userInfoLoading: false,
+          userInfoChecked: true,
+        })
+      }
+    },
+
+    registerUser: async (data) => {
+      const { connection } = get()
+      if (!connection) {
+        toast.error("No connection available")
+        return false
+      }
+
+      try {
+        const response = await connection.sendEvent({
+          event_name: "interview.user.register",
+          destination_id: INTERVIEW_DESTINATION,
+          payload: data,
+        })
+
+        if (response.success && response.data?.user) {
+          const user = response.data.user as UserInfo
+          set({
+            userInfo: user,
+            userInfoChecked: true,
+          })
+          return true
+        }
+
+        const message = response.message || "Failed to register user"
+        toast.error(message)
+        return false
+      } catch (error: any) {
+        console.error("InterviewPortal: registerUser error", error)
+        toast.error(error?.message || "Failed to register user")
+        return false
+      }
+    },
+
+    startTask: async (taskId: string) => {
+      const { connection, userInfo } = get()
+      if (!connection) {
+        toast.error("No connection available")
+        return { success: false }
+      }
+
+      if (!userInfo) {
+        toast.error("User not registered")
+        return { success: false }
+      }
+
+      try {
+        const response = await connection.sendEvent({
+          event_name: "interview.task.start",
+          destination_id: INTERVIEW_DESTINATION,
+          payload: { task_id: taskId },
+        })
+
+        if (response.success && response.data?.assessment_link) {
+          const assessmentLink = response.data.assessment_link
+          const updatedTask = response.data.task
+
+          // Update local user info with the updated task
+          const updatedTasks = userInfo.tasks?.map((task) =>
+            task.task_id === taskId ? updatedTask : task
+          )
+
+          set({
+            userInfo: {
+              ...userInfo,
+              tasks: updatedTasks,
+            },
+          })
+
+          return { success: true, link: assessmentLink }
+        }
+
+        const message = response.message || "Failed to start task"
+        toast.error(message)
+        return { success: false }
+      } catch (error: any) {
+        console.error("InterviewPortal: startTask error", error)
+        toast.error(error?.message || "Failed to start task")
+        return { success: false }
+      }
     },
 
     loadJobs: async (force = false) => {

@@ -185,6 +185,7 @@ plans/
 
 showcase/
 local_test/
+private_networks/
 
 settings.local.json
 .vscode/

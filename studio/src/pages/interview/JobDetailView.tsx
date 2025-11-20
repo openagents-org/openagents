@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useInterviewPortalStore } from "@/stores/interviewPortalStore";
 import type { JobDetail } from "@/stores/interviewPortalStore";
+import ReactMarkdown from "react-markdown";
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
   title,
@@ -92,18 +93,39 @@ const JobDetailView: React.FC = () => {
     <div className="h-full w-full flex flex-col overflow-hidden">
       <header className="px-8 py-6 border-b border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-900/80">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            <div className="text-sm text-blue-600 font-semibold uppercase tracking-wide mb-2">
-              Job Detail
+          <div className="flex gap-4 flex-1 min-w-0">
+            <div className="shrink-0">
+              {job?.image_url ? (
+                <img
+                  src={job.image_url}
+                  alt={`${job.company} logo`}
+                  className="w-20 h-20 rounded-xl object-cover border-2 border-gray-200 dark:border-gray-700"
+                  onError={(e) => {
+                    // Replace with placeholder on error
+                    e.currentTarget.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Crect width='80' height='80' fill='%23E5E7EB'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='32' fill='%239CA3AF'%3E%3C/text%3E%3C/svg%3E"
+                  }}
+                />
+              ) : (
+                <div className="w-20 h-20 rounded-xl bg-gradient-to-br from-blue-100 to-blue-200 dark:from-blue-900/40 dark:to-blue-800/40 border-2 border-gray-200 dark:border-gray-700 flex items-center justify-center">
+                  <span className="text-3xl font-bold text-blue-600 dark:text-blue-300">
+                    {job?.company?.charAt(0)?.toUpperCase() || "?"}
+                  </span>
+                </div>
+              )}
             </div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 break-words">
-              {job?.title || "Loading..."}
-            </h1>
-            {job?.company && (
-              <p className="mt-2 text-gray-600 dark:text-gray-300 text-sm md:text-base">
-                {job.company} · {job.location || "Remote friendly"}
-              </p>
-            )}
+            <div className="flex-1 min-w-0">
+              <div className="text-sm text-blue-600 font-semibold uppercase tracking-wide mb-2">
+                Job Detail
+              </div>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 break-words">
+                {job?.title || "Loading..."}
+              </h1>
+              {job?.company && (
+                <p className="mt-2 text-gray-600 dark:text-gray-300 text-sm md:text-base">
+                  {job.company} · {job.location || "Remote"}
+                </p>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -138,27 +160,13 @@ const JobDetailView: React.FC = () => {
           </div>
         ) : job ? (
           <>
-            <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <InfoItem label="Company" value={job.company} />
-              <InfoItem label="Location" value={job.location || "Remote friendly"} />
-              <InfoItem label="Employment Type" value={employmentType} />
-              <InfoItem label="Experience Level" value={experienceLevel} />
-              <InfoItem label="Salary Range" value={salaryRange} />
-              <InfoItem
-                label="Work Style"
-                value={
-                  remoteFlag === undefined
-                    ? "Not specified"
-                    : remoteFlag
-                    ? "Remote available"
-                    : "On-site required"
-                }
-              />
-            </section>
-
             {job?.description && (
               <Section title="Overview">
-                <p>{job.description}</p>
+                <div className="prose prose-sm dark:prose-invert max-w-none">
+                  <ReactMarkdown>
+                    {job.description}
+                  </ReactMarkdown>
+                </div>
               </Section>
             )}
 
