@@ -24,6 +24,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { toast } from "sonner";
 import { isProjectChannel, extractProjectIdFromChannel } from "@/utils/projectUtils";
 import ProjectChatRoom from "./components/ProjectChatRoom";
+import RightSidebar from "../interview/RightSidebar";
 
 const ThreadMessagingViewEventBased: React.FC = () => {
   const { agentName } = useAuthStore();
@@ -36,6 +37,11 @@ const ThreadMessagingViewEventBased: React.FC = () => {
   // 检查当前频道是否为项目频道
   const isProjectChannelActive = useMemo(() => {
     return currentChannel ? isProjectChannel(currentChannel) : false;
+  }, [currentChannel]);
+
+  // Check if current channel is a chatroom (interview hub)
+  const isChatroomChannel = useMemo(() => {
+    return currentChannel ? currentChannel.startsWith("chatroom-") : false;
   }, [currentChannel]);
 
   // 调试日志：监听选择状态变化
@@ -103,6 +109,7 @@ const ThreadMessagingViewEventBased: React.FC = () => {
     author: string;
   } | null>(null);
   const [announcement, setAnnouncement] = useState<string>("");
+  const [showingJobDetails, setShowingJobDetails] = useState<boolean>(false);
 
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -631,12 +638,14 @@ const ThreadMessagingViewEventBased: React.FC = () => {
   }
 
   return (
-    <div className="thread-messaging-view h-full flex flex-col bg-white dark:bg-gray-900">
-      {/* Notification Permission Overlay */}
-      <NotificationPermissionOverlay />
+    <div className="thread-messaging-view h-full flex bg-white dark:bg-gray-900">
+      {/* Main content area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Notification Permission Overlay */}
+        <NotificationPermissionOverlay />
 
       {/* Header */}
-      <div className="thread-header flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+      <div className="thread-header flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:border-gray-800">
         <div className="flex items-center space-x-3">
           <div
             className="w-3 h-3 rounded-full"
@@ -887,6 +896,10 @@ const ThreadMessagingViewEventBased: React.FC = () => {
           )}
         </>
       </div>
+      </div>
+
+      {/* Right Sidebar for Chatroom Channels */}
+      {isChatroomChannel && <RightSidebar />}
     </div>
   );
 };
