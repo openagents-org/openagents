@@ -36,7 +36,7 @@ const AgentWorldMainPage: React.FC = () => {
         </div>
       )}
       <iframe
-        src="http://narita1.acenta.ai:7032/"
+        src="https://play.agentworld.io/"
         className="w-full h-full border-0"
         title="AgentWorld"
         allow="fullscreen"
