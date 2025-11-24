@@ -49,11 +49,15 @@ class ProjectStartMessage(BaseProjectMessage):
         collaborators: Optional[List[str]] = None,
         **kwargs
     ):
-        super().__init__(event_name="project.start", source_id=source_id, **kwargs)
-        self.template_id = template_id
-        self.goal = goal
-        self.name = name
-        self.collaborators = collaborators or []
+        super().__init__(
+            event_name="project.start", 
+            source_id=source_id, 
+            template_id=template_id,
+            goal=goal,
+            name=name,
+            collaborators=collaborators or [],
+            **kwargs
+        )
 
 
 class ProjectStopMessage(BaseProjectMessage):
@@ -63,9 +67,13 @@ class ProjectStopMessage(BaseProjectMessage):
     reason: Optional[str] = None
     
     def __init__(self, project_id: str, source_id: str, reason: Optional[str] = None, **kwargs):
-        super().__init__(event_name="project.stop", source_id=source_id, **kwargs)
-        self.project_id = project_id
-        self.reason = reason
+        super().__init__(
+            event_name="project.stop", 
+            source_id=source_id, 
+            project_id=project_id,
+            reason=reason,
+            **kwargs
+        )
 
 
 class ProjectCompleteMessage(BaseProjectMessage):
@@ -75,9 +83,13 @@ class ProjectCompleteMessage(BaseProjectMessage):
     summary: str
     
     def __init__(self, project_id: str, summary: str, source_id: str, **kwargs):
-        super().__init__(event_name="project.complete", source_id=source_id, **kwargs)
-        self.project_id = project_id
-        self.summary = summary
+        super().__init__(
+            event_name="project.complete", 
+            source_id=source_id, 
+            project_id=project_id,
+            summary=summary,
+            **kwargs
+        )
 
 
 class ProjectGetMessage(BaseProjectMessage):
@@ -86,8 +98,7 @@ class ProjectGetMessage(BaseProjectMessage):
     project_id: str
     
     def __init__(self, project_id: str, source_id: str, **kwargs):
-        super().__init__(event_name="project.get", source_id=source_id, **kwargs)
-        self.project_id = project_id
+        super().__init__(event_name="project.get", source_id=source_id, project_id=project_id, **kwargs)
 
 
 # Messaging Messages
@@ -109,11 +120,15 @@ class ProjectMessageSendMessage(BaseProjectMessage):
         attachments: Optional[List[Dict[str, Any]]] = None,
         **kwargs
     ):
-        super().__init__(event_name="project.message.send", source_id=source_id, **kwargs)
-        self.project_id = project_id
-        self.content = content
-        self.reply_to_id = reply_to_id
-        self.attachments = attachments or []
+        super().__init__(
+            event_name="project.message.send", 
+            source_id=source_id,
+            project_id=project_id,
+            content=content,
+            reply_to_id=reply_to_id,
+            attachments=attachments or [],
+            **kwargs
+        )
 
 
 # Global State Messages
@@ -126,10 +141,14 @@ class ProjectGlobalStateSetMessage(BaseProjectMessage):
     value: Any
     
     def __init__(self, project_id: str, key: str, value: Any, source_id: str, **kwargs):
-        super().__init__(event_name="project.global_state.set", source_id=source_id, **kwargs)
-        self.project_id = project_id
-        self.key = key
-        self.value = value
+        super().__init__(
+            event_name="project.global_state.set", 
+            source_id=source_id,
+            project_id=project_id,
+            key=key,
+            value=value,
+            **kwargs
+        )
 
 
 class ProjectGlobalStateGetMessage(BaseProjectMessage):
@@ -139,9 +158,13 @@ class ProjectGlobalStateGetMessage(BaseProjectMessage):
     key: str
     
     def __init__(self, project_id: str, key: str, source_id: str, **kwargs):
-        super().__init__(event_name="project.global_state.get", source_id=source_id, **kwargs)
-        self.project_id = project_id
-        self.key = key
+        super().__init__(
+            event_name="project.global_state.get", 
+            source_id=source_id,
+            project_id=project_id,
+            key=key,
+            **kwargs
+        )
 
 
 class ProjectGlobalStateListMessage(BaseProjectMessage):

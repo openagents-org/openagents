@@ -87,6 +87,17 @@ async def orchestrate_agent(
     incoming_thread_id = context.incoming_thread_id
     event_threads = context.event_threads
 
+    # Print colored box for orchestration start
+    from openagents.utils.cli_display import print_box
+
+    event_text = incoming_message.text_representation or incoming_message.event_name
+    lines = [
+        f"Thread: {incoming_thread_id}",
+        f"Event:  {event_text}",
+    ]
+
+    print_box("🎯 STARTING ORCHESTRATION", lines, color_code="\033[95m")
+
     verbose_print(
         f">>> Orchestrating agent response to: {incoming_message.text_representation} (thread:{incoming_thread_id})"
     )
@@ -200,6 +211,24 @@ async def orchestrate_agent(
 
             # Check if the model wants to call tools
             if response.get("tool_calls"):
+                # Print colored box for tool calls
+                from openagents.utils.cli_display import print_box
+
+                lines = []
+                for tool_call in response["tool_calls"]:
+                    tool_name = tool_call["name"]
+                    args_str = str(tool_call["arguments"])
+
+                    lines.append(f"Tool: {tool_name}")
+                    lines.append(f"Args: {args_str}")
+                    lines.append("─" * 66)  # Separator
+
+                # Remove last separator
+                if lines and lines[-1].startswith("─"):
+                    lines.pop()
+
+                print_box("🔧 AGENT TOOL CALL", lines, color_code="\033[93m")
+
                 for tool_call in response["tool_calls"]:
                     verbose_print(
                         f">>> tool >>> {tool_call['name']}({tool_call['arguments']})"

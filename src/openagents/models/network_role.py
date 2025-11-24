@@ -12,6 +12,7 @@ class NetworkRole(str, Enum):
 
     AGENT = "agent"
     CHANNEL = "channel"
+    GROUP = "group"
     MOD = "mod"
     SYSTEM = "system"
     UNKNOWN = "unknown"

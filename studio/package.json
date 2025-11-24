@@ -1,6 +1,6 @@
 {
   "name": "openagents-studio",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "OpenAgents Studio - Web interface for OpenAgents networks",
   "proxy": "http://localhost:5000",
   "bin": {

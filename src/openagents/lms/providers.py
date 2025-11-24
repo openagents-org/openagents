@@ -375,6 +375,8 @@ class SimpleGenericProvider(BaseModelProvider):
                 "openai package is required for generic provider. Install with: pip install openai"
             )
 
+        if not api_key:
+            logger.warning(f"No API key provided for model {model_name}, using dummy key")
         self.client = AsyncOpenAI(base_url=api_base, api_key=api_key or "dummy")
 
     async def chat_completion(

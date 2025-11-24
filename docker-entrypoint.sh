@@ -17,7 +17,7 @@ trap cleanup SIGTERM SIGINT
 
 # Start the OpenAgents Network in the background
 echo "🌐 Starting OpenAgents Network on ports 8700 (HTTP) and 8600 (gRPC)..."
-openagents network start /app/examples/default_network/network.yaml &
+openagents network start /network &
 NETWORK_PID=$!
 
 # Wait for network to be ready

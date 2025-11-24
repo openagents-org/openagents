@@ -22,7 +22,6 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
     def __init__(self, mod_name: str = "project.default"):
         """Initialize the project agent adapter."""
         super().__init__(mod_name=mod_name)
-        self._pending_responses: Dict[str, asyncio.Future] = {}
 
     def get_tools(self) -> List[AgentTool]:
         """Get the tools provided by this adapter."""
@@ -31,18 +30,19 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
             AgentTool(
                 name="list_project_templates",
                 description="List all available project templates",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {},
                     "additionalProperties": False
-                }
+                },
+                func=self.list_project_templates
             ),
             
             # Project Lifecycle
             AgentTool(
                 name="start_project",
                 description="Start a new project from a template",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "template_id": {
@@ -65,13 +65,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["template_id", "goal"],
                     "additionalProperties": False
-                }
+                },
+                func=self.start_project
             ),
             
             AgentTool(
                 name="stop_project", 
                 description="Stop a running project",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -85,13 +86,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id"],
                     "additionalProperties": False
-                }
+                },
+                func=self.stop_project
             ),
             
             AgentTool(
                 name="complete_project",
                 description="Mark a project as completed",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -105,13 +107,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id", "summary"],
                     "additionalProperties": False
-                }
+                },
+                func=self.complete_project
             ),
             
             AgentTool(
                 name="get_project",
                 description="Get detailed information about a project",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -121,14 +124,15 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id"],
                     "additionalProperties": False
-                }
+                },
+                func=self.get_project
             ),
             
             # Project Messaging
             AgentTool(
                 name="send_project_message",
                 description="Send a message to the project channel",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -165,14 +169,15 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id", "content"],
                     "additionalProperties": False
-                }
+                },
+                func=self.send_project_message
             ),
             
             # Global State Management
             AgentTool(
                 name="set_project_global_state",
                 description="Set a global state value for the project",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -189,13 +194,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id", "key", "value"],
                     "additionalProperties": False
-                }
+                },
+                func=self.set_project_global_state
             ),
             
             AgentTool(
                 name="get_project_global_state",
                 description="Get a global state value for the project",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -209,13 +215,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id", "key"],
                     "additionalProperties": False
-                }
+                },
+                func=self.get_project_global_state
             ),
             
             AgentTool(
                 name="list_project_global_state",
                 description="List all global state for the project",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -225,13 +232,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id"],
                     "additionalProperties": False
-                }
+                },
+                func=self.list_project_global_state
             ),
             
             AgentTool(
                 name="delete_project_global_state",
                 description="Delete a global state value for the project",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -245,14 +253,15 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id", "key"],
                     "additionalProperties": False
-                }
+                },
+                func=self.delete_project_global_state
             ),
             
             # Agent State Management
             AgentTool(
                 name="set_project_agent_state",
                 description="Set your agent-specific state for the project",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -269,13 +278,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id", "key", "value"],
                     "additionalProperties": False
-                }
+                },
+                func=self.set_project_agent_state
             ),
             
             AgentTool(
                 name="get_project_agent_state",
                 description="Get your agent-specific state for the project",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -289,13 +299,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id", "key"],
                     "additionalProperties": False
-                }
+                },
+                func=self.get_project_agent_state
             ),
             
             AgentTool(
                 name="list_project_agent_state",
                 description="List all your agent-specific state for the project",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -305,13 +316,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id"],
                     "additionalProperties": False
-                }
+                },
+                func=self.list_project_agent_state
             ),
             
             AgentTool(
                 name="delete_project_agent_state",
                 description="Delete your agent-specific state for the project",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -325,14 +337,15 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id", "key"],
                     "additionalProperties": False
-                }
+                },
+                func=self.delete_project_agent_state
             ),
             
             # Artifact Management
             AgentTool(
                 name="set_project_artifact",
                 description="Set a project artifact (document, file, etc.)",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -350,13 +363,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id", "key", "value"],
                     "additionalProperties": False
-                }
+                },
+                func=self.set_project_artifact
             ),
             
             AgentTool(
                 name="get_project_artifact",
                 description="Get a project artifact",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -370,13 +384,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id", "key"],
                     "additionalProperties": False
-                }
+                },
+                func=self.get_project_artifact
             ),
             
             AgentTool(
                 name="list_project_artifacts",
                 description="List all artifact keys for the project",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -386,13 +401,14 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id"],
                     "additionalProperties": False
-                }
+                },
+                func=self.list_project_artifacts
             ),
             
             AgentTool(
                 name="delete_project_artifact",
                 description="Delete a project artifact",
-                parameters={
+                input_schema={
                     "type": "object",
                     "properties": {
                         "project_id": {
@@ -406,7 +422,8 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
                     },
                     "required": ["project_id", "key"],
                     "additionalProperties": False
-                }
+                },
+                func=self.delete_project_artifact
             )
         ]
 
@@ -598,60 +615,49 @@ class DefaultProjectAgentAdapter(BaseModAdapter):
     # Utility Methods
 
     async def _send_and_wait_for_response(self, message, timeout: float = 10.0) -> Dict[str, Any]:
-        """Send a message and wait for response."""
-        request_id = message.event_id
-
-        # Create future for response
-        future = asyncio.Future()
-        self._pending_responses[request_id] = future
-
+        """Send a message and get direct response."""
         # Send message via event system
+        # Get all message fields using model_dump()
+        message_data = message.model_dump()
+        
+        # Remove fields that shouldn't be in the payload
+        payload = {
+            key: value for key, value in message_data.items()
+            if key not in ['event_name', 'source_id', 'event_id', 'timestamp', 'payload', 'metadata']
+        }
+        
         event = Event(
             event_name=message.event_name,
             source_id=self._agent_id,
             relevant_mod="openagents.mods.workspace.project",
-            payload={
-                attr: getattr(message, attr)
-                for attr in dir(message)
-                if not attr.startswith('_') and not callable(getattr(message, attr))
-                and attr not in ['event_name', 'source_id', 'event_id', 'timestamp', 'payload']
-            }
+            payload=payload
         )
 
         try:
-            await self._connector.send_message(event)
+            response = await self._connector.send_event(event)
 
-            # Wait for response
-            response = await asyncio.wait_for(future, timeout=timeout)
-            return response
+            # Convert EventResponse to dict format
+            return {
+                "success": response.success,
+                "message": response.message,
+                "data": response.data
+            }
 
-        except asyncio.TimeoutError:
-            logger.warning(f"Timeout waiting for response to {request_id}")
-            return {"success": False, "error": "Request timeout"}
         except Exception as e:
-            logger.error(f"Error sending message or waiting for response: {e}")
+            logger.error(f"Error sending message: {e}")
             return {"success": False, "error": str(e)}
-        finally:
-            # Clean up
-            self._pending_responses.pop(request_id, None)
 
     async def handle_message(self, message) -> None:
         """Handle incoming messages."""
         if isinstance(message, Event):
-            # Handle project responses
-            if message.event_name == "project.response":
-                payload = message.payload
-                # Look for request correlation (by event_id or other means)
-                # For now, handle as general response
-
             # Handle project notifications
-            elif message.event_name.startswith("project.notification."):
+            if message.event_name.startswith("project.notification."):
                 await self._handle_project_notification(message)
 
     async def _handle_project_notification(self, message: Event) -> None:
         """Handle project notifications."""
         event_name = message.event_name
-        payload = message.payload
+        payload = message.payload or {}
 
         logger.info(f"Received project notification: {event_name}")
 

@@ -13,6 +13,11 @@ from openagents.config.prompt_templates import (
 )
 from openagents.models.mcp_config import MCPServerConfig
 
+# Import with TYPE_CHECKING to avoid circular imports
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from openagents.models.tool_config import AgentToolConfig
+
 
 class AgentTriggerConfigItem(BaseModel):
     """Trigger for an agent."""
@@ -96,6 +101,12 @@ class AgentConfig(BaseModel):
     mcps: List[MCPServerConfig] = Field(
         default_factory=list,
         description="List of MCP servers to connect to for additional tools and capabilities"
+    )
+
+    # Custom tools defined in YAML
+    tools: List['AgentToolConfig'] = Field(
+        default_factory=list,
+        description="List of custom tools to make available to this agent"
     )
 
     @field_validator("model_name")
@@ -263,6 +274,12 @@ class AgentConfig(BaseModel):
 
         with open(file_path, "w") as f:
             yaml.dump(output, f, default_flow_style=False, sort_keys=False)
+
+
+# Rebuild the model to resolve forward references after imports
+# Import AgentToolConfig here to ensure it's available during model rebuild
+from openagents.models.tool_config import AgentToolConfig
+AgentConfig.model_rebuild()
 
 
 # Factory functions for common configurations

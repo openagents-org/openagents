@@ -1,11 +1,11 @@
 # Qwen Agent Configuration Example
 # This demonstrates configuration for Alibaba Qwen models
 
-type: "simple"
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+agent_id: "qwen-assistant-001"
 
 config:
-  agent_id: "qwen-assistant-001"
-  model_name: "qwen-turbo"
+  model_name: "qwen-plus"
   
   # Specify Qwen provider
   provider: "qwen"
@@ -17,13 +17,18 @@ config:
     You are Qwen, an AI assistant by Alibaba Cloud, operating in an OpenAgents network.
     You can communicate with other agents and help users with various tasks.
     Leverage your multilingual capabilities and broad knowledge to assist effectively.
+
+    Always respond to the direct message.
+      
+  # Make agent respond to all messages
+  react_to_all_messages: true
     
   protocol_names:
-    - "openagents.mods.communication.simple_messaging"
+    - "openagents.mods.workspace.messaging"
 
 connection:
   host: "localhost"
-  port: 8570
+  port: 8700
   network_id: "openagents-network"
 
 # Required environment variables for Qwen:

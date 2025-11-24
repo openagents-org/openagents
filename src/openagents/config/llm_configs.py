@@ -4,6 +4,7 @@ This module contains the configuration mappings for different AI model providers
 including their API endpoints, supported models, and provider types.
 """
 
+import os
 from typing import Dict, List, Any, Optional
 from enum import Enum
 
@@ -32,9 +33,14 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
     "openai": {
         "provider": "openai",
         "models": ["gpt-4", "gpt-4-turbo", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
+        "API_KEY_ENV_VAR": "OPENAI_API_KEY",
     },
     # Azure OpenAI
-    "azure": {"provider": "openai", "models": ["gpt-4", "gpt-4-turbo", "gpt-35-turbo"]},
+    "azure": {
+        "provider": "openai",
+        "models": ["gpt-4", "gpt-4-turbo", "gpt-35-turbo"],
+        "API_KEY_ENV_VAR": "AZURE_OPENAI_API_KEY",
+    },
     # Anthropic Claude
     "claude": {
         "provider": "anthropic",
@@ -43,6 +49,7 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
             "claude-3-5-haiku-20241022",
             "claude-3-opus-20240229",
         ],
+        "API_KEY_ENV_VAR": "ANTHROPIC_API_KEY",
     },
     # AWS Bedrock
     "bedrock": {
@@ -51,29 +58,34 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
             "anthropic.claude-3-sonnet-20240229-v1:0",
             "anthropic.claude-3-haiku-20240307-v1:0",
         ],
+        "API_KEY_ENV_VAR": "BEDROCK_API_KEY",
     },
     # Google Gemini
     "gemini": {
         "provider": "gemini",
         "models": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"],
+        "API_KEY_ENV_VAR": "GEMINI_API_KEY",
     },
     # DeepSeek
     "deepseek": {
         "provider": "generic",
         "api_base": "https://api.deepseek.com/v1",
         "models": ["deepseek-chat", "deepseek-coder"],
+        "API_KEY_ENV_VAR": "DEEPSEEK_API_KEY",
     },
     # Qwen
     "qwen": {
         "provider": "generic",
         "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "models": ["qwen-turbo", "qwen-plus", "qwen-max"],
+        "API_KEY_ENV_VAR": "DASHSCOPE_API_KEY",
     },
     # Grok (xAI)
     "grok": {
         "provider": "generic",
         "api_base": "https://api.x.ai/v1",
         "models": ["grok-beta"],
+        "API_KEY_ENV_VAR": "XAI_API_KEY",
     },
     # Mistral AI
     "mistral": {
@@ -85,12 +97,14 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
             "mistral-small-latest",
             "mixtral-8x7b-instruct",
         ],
+        "API_KEY_ENV_VAR": "MISTRAL_API_KEY",
     },
     # Cohere
     "cohere": {
         "provider": "generic",
         "api_base": "https://api.cohere.ai/v1",
         "models": ["command-r-plus", "command-r", "command"],
+        "API_KEY_ENV_VAR": "COHERE_API_KEY",
     },
     # Together AI (hosts many open models)
     "together": {
@@ -100,6 +114,7 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
             "meta-llama/Llama-2-70b-chat-hf",
             "mistralai/Mixtral-8x7B-Instruct-v0.1",
         ],
+        "API_KEY_ENV_VAR": "TOGETHER_API_KEY",
     },
     # Perplexity
     "perplexity": {
@@ -109,6 +124,7 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
             "llama-3.1-sonar-huge-128k-online",
             "llama-3.1-sonar-large-128k-online",
         ],
+        "API_KEY_ENV_VAR": "PERPLEXITY_API_KEY",
     },
 }
 
@@ -274,6 +290,9 @@ def create_model_provider(
         GeminiProvider,
         SimpleGenericProvider,
     )
+
+    if not api_key and MODEL_CONFIGS[provider].get("API_KEY_ENV_VAR"):
+        api_key = os.getenv(MODEL_CONFIGS[provider].get("API_KEY_ENV_VAR"))
 
     if provider == "openai" or provider == "azure":
         return OpenAIProvider(

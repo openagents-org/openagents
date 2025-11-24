@@ -1,0 +1,37 @@
+# Test Agent with Custom Tools
+# Configuration for pytest testing of custom tool loading
+
+type: "openagents.agents.simple_agent.SimpleAutoAgent"
+agent_id: "test-agent-with-tools"
+
+config:
+  model_name: "gpt-4o-mini"
+  provider: "openai"
+  instruction: |
+    You are a helpful test agent with custom tools.
+    
+    When asked to perform calculations, use your add_numbers tool.
+    When asked to greet someone, use your greet_user tool.
+    When asked to process text, use your process_text tool.
+    
+    Always use the appropriate tool for the requested task.
+
+  tools:
+    - name: "add_numbers"
+      description: "Add two numbers together"
+      implementation: "test_tools.add_numbers"
+      
+    - name: "greet_user"
+      description: "Greet a user with a custom greeting"
+      implementation: "test_tools.greet_user"
+      
+    - name: "process_text"
+      description: "Process text with various operations"
+      implementation: "test_tools.process_text"
+
+  # Enable responding to all messages for testing
+  react_to_all_messages: true
+
+connection:
+  host: "localhost"
+  port: 8570

@@ -204,6 +204,19 @@ class EventGateway:
             else:
                 logger.warning(f"Channel {channel_id} has no members")
 
+        # Handle group-based delivery
+        elif destination.role == NetworkRole.GROUP:
+            group_id = destination.desitnation_id
+            logger.debug(f"Delivering event to group: {group_id}")
+            group_members = self._get_group_members(group_id)
+            if group_members:
+                logger.info(f"Delivering event to {len(group_members)} agents in group '{group_id}'")
+                for agent_id in group_members:
+                    if agent_id != event.source_id:  # Don't deliver to sender
+                        await self.deliver_to_agent(event, agent_id)
+            else:
+                logger.warning(f"Group '{group_id}' has no members or does not exist")
+
         # Handle direct delivery to target agent
         elif destination.role == NetworkRole.AGENT:
             if destination.desitnation_id == "broadcast":
@@ -410,6 +423,49 @@ class EventGateway:
             logger.debug(f"Removed channel: {channel_id}")
         else:
             logger.debug(f"Channel {channel_id} does not exist")
+
+    def _get_group_members(self, group_id: str) -> List[str]:
+        """
+        Get the list of agent IDs that belong to a specific group.
+        
+        Args:
+            group_id: The ID of the agent group
+            
+        Returns:
+            List of agent IDs in the group, empty list if group not found
+        """
+        try:
+            # Access network configuration to get agent groups
+            if hasattr(self.network, 'config') and hasattr(self.network.config, 'agent_groups'):
+                agent_groups = self.network.config.agent_groups
+                if group_id in agent_groups:
+                    group_info = agent_groups[group_id]
+                    
+                    # Handle Pydantic AgentGroupConfig objects
+                    if hasattr(group_info, 'metadata'):
+                        metadata = group_info.metadata
+                        if isinstance(metadata, dict) and 'agents' in metadata:
+                            agents = metadata['agents']
+                            logger.debug(f"Found {len(agents)} agents in group '{group_id}': {agents}")
+                            return agents
+                    
+                    # Handle dictionary format (backward compatibility)
+                    elif isinstance(group_info, dict):
+                        if 'metadata' in group_info and 'agents' in group_info['metadata']:
+                            agents = group_info['metadata']['agents']
+                            logger.debug(f"Found {len(agents)} agents in group '{group_id}': {agents}")
+                            return agents
+                        elif 'agents' in group_info:
+                            agents = group_info['agents']
+                            logger.debug(f"Found {len(agents)} agents in group '{group_id}': {agents}")
+                            return agents
+                    
+            logger.debug(f"Group '{group_id}' not found or has no agents defined")
+            return []
+            
+        except Exception as e:
+            logger.error(f"Error looking up group members for '{group_id}': {e}")
+            return []
 
     async def cleanup_agent(self, agent_id: str):
         """

@@ -231,7 +231,13 @@ class Event(BaseModel):
                 target_id = "system"
             # General case
             elif ":" in self.destination_id:
-                role, target_id = self.destination_id.split(":", 1)
+                role_str, target_id = self.destination_id.split(":", 1)
+                try:
+                    role = NetworkRole(role_str)
+                except ValueError:
+                    # Unknown role, default to AGENT for backward compatibility
+                    role = NetworkRole.AGENT
+                    target_id = self.destination_id
             else:
                 role = NetworkRole.AGENT
                 target_id = self.destination_id

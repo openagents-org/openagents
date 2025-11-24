@@ -49,7 +49,7 @@ COPY --from=studio-builder /app/studio/build /app/studio/build
 RUN npm install -g serve
 
 # Copy network configuration
-COPY examples/default_network/ ./examples/default_network/
+COPY examples/default_network/ /network/
 
 # Copy startup script
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh

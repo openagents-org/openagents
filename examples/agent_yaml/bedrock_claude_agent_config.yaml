@@ -23,7 +23,6 @@ config:
 
 connection:
   host: "localhost"
-  port: 8570
   network_id: "openagents-network"
 
 # Required AWS configuration:

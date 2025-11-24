@@ -29,7 +29,7 @@ class CollaboratorAgent(AgentRunner):
             logger.debug(
                 f"Trigger found for event: {context.incoming_event.event_name}, responding with trigger instruction"
             )
-            await self.run_agent(context=context, user_instruction=trigger.instruction)
+            await self.run_agent(context=context, instruction=trigger.instruction)
         else:
             if self.agent_config is not None and self.agent_config.react_to_all_messages:
                 logger.debug(

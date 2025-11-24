@@ -19,8 +19,8 @@ services:
     volumes:
       # Persist data between restarts
       - openagents-data:/app/data
-      # Optional: Mount custom network config
-      # - ./my-network.yaml:/app/examples/default_network/network.yaml:ro
+      # Optional: Mount custom network folder
+      # - ./my-network:/network:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8700/health"]

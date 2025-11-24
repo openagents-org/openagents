@@ -192,3 +192,7 @@ settings.local.json
 
 # Network database
 network.db
+
+# Project management
+projects
+private_networks

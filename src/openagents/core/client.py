@@ -467,15 +467,51 @@ class AgentClient:
                     )
                     return None
 
-                print(f"🚀 Sending event via connector...")
-                print(f"   Final processed event name: {processed_event.event_name}")
-                print(
-                    f"   Final processed event target: {processed_event.destination_id}"
-                )
+                # Get outgoing event payload preview for better logging
+                import json
+                out_payload_preview = "None"
+                if processed_event.payload:
+                    try:
+                        # Try to format payload as JSON for readability
+                        payload_str = json.dumps(processed_event.payload, indent=2, default=str)
+                        # Truncate if too long
+                        if len(payload_str) > 500:
+                            out_payload_preview = payload_str[:500] + "..."
+                        else:
+                            out_payload_preview = payload_str
+                    except:
+                        out_payload_preview = str(processed_event.payload)[:500]
+
+                # Print colored box for sending event
+                from openagents.utils.cli_display import print_box
+
+                lines = [
+                    f"Event:  {processed_event.event_name}",
+                    f"Source: {self.agent_id}",
+                    f"Target: {processed_event.destination_id or 'None'}",
+                    "─" * 66,  # Separator
+                ]
+
+                # Add payload lines
+                for line in out_payload_preview.split('\n'):
+                    lines.append(line)
+
+                print_box("📤 SENDING EVENT", lines, color_code="\033[92m")
+                
                 verbose_print(f"🚀 Sending event via connector...")
                 result = await self.connector.send_event(processed_event)
                 self._event_id_map[processed_event.event_id] = processed_event
-                print(f"✅ Event sent via connector - result: {result}")
+                
+                # Enhanced result logging
+                success = getattr(result, 'success', 'Unknown') if result else False
+                message = getattr(result, 'message', 'No message') if result else 'No result'
+                
+                print(f"✅ EVENT SENT: {processed_event.event_name}")
+                print(f"   Success: {success}")
+                print(f"   Message: {message}")
+                if hasattr(result, 'data') and result.data:
+                    print(f"   Response data keys: {list(result.data.keys()) if isinstance(result.data, dict) else 'Not a dict'}")
+                
                 verbose_print(f"✅ Event sent via connector successfully")
                 return result
             else:
@@ -628,23 +664,39 @@ class AgentClient:
         Args:
             event: The event to handle
         """
-        print(
-            f"🔧 CLIENT: Handling Event from {event.source_id}, event={event.event_name}"
-        )
-        print(
-            f"🔧 CLIENT: Event payload keys: {list(event.payload.keys()) if event.payload else 'None'}"
-        )
-        print(
-            f"🔧 CLIENT: Agent ID: {self.agent_id}, Event target: {event.destination_id}"
-        )
+        # Get event payload preview for better logging
+        import json
+        payload_preview = "None"
+        if event.payload:
+            try:
+                # Try to format payload as JSON for readability
+                payload_str = json.dumps(event.payload, indent=2, default=str)
+                # Truncate if too long
+                if len(payload_str) > 500:
+                    payload_preview = payload_str[:500] + "..."
+                else:
+                    payload_preview = payload_str
+            except:
+                payload_preview = str(event.payload)[:500]
+
+        # Print colored box for received event
+        from openagents.utils.cli_display import print_box
+
+        lines = [
+            f"Event:  {event.event_name}",
+            f"Source: {event.source_id}",
+            f"Target: {event.destination_id or 'None'}",
+            "─" * 66,  # Separator
+        ]
+
+        # Add payload lines
+        for line in payload_preview.split('\n'):
+            lines.append(line)
+
+        print_box("📥 RECEIVED EVENT", lines, color_code="\033[96m")
+
         logger.info(
-            f"🔧 CLIENT: Handling Event from {event.source_id}, event={event.event_name}"
-        )
-        logger.info(
-            f"🔧 CLIENT: Event payload keys: {list(event.payload.keys()) if event.payload else 'None'}"
-        )
-        logger.info(
-            f"🔧 CLIENT: Agent ID: {self.agent_id}, Event target: {event.destination_id}"
+            f"📥 RECEIVED EVENT: {event.event_name} | Source: {event.source_id} | Target: {event.destination_id or 'None'}"
         )
 
         # Notify any waiting functions

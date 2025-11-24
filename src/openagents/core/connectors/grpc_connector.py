@@ -16,6 +16,7 @@ from openagents.models.event_response import EventResponse
 from openagents.models.messages import Event, EventNames
 from openagents.models.event import Event
 from openagents.core.connectors.base import NetworkConnector
+from openagents.utils.cli_display import print_box
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +235,32 @@ class GRPCNetworkConnector(NetworkConnector):
         Returns:
             EventResponse: The response from the server
         """
+        # Display the event being sent in a box
+        import json
+
+        # Format payload for display
+        if not message.event_name.startswith("system."):
+            payload_str = json.dumps(
+                {k: v for k, v in (message.payload or {}).items() if v is not None}, 
+                indent=2, 
+                default=str
+            )
+            if len(payload_str) > 500:
+                payload_preview = payload_str[:500] + "..."
+            else:
+                payload_preview = payload_str
+
+            lines = [
+                f"Event:  {message.event_name}",
+                f"Source: {message.source_id}",
+                f"Target: {message.destination_id or 'None'}",
+                "─" * 66,
+            ]
+            for line in payload_preview.split('\n'):
+                lines.append(line)
+
+            print_box("📤 SENDING EVENT (GRPC)", lines, color_code="\033[92m")
+            
         if not self.is_connected:
             logger.debug(f"Agent {self.agent_id} is not connected to gRPC network")
             return self._create_error_response("Agent is not connected to gRPC network")

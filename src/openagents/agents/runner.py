@@ -60,6 +60,7 @@ class AgentRunner(ABC):
         self._tools = []
         self._mcp_tools = []
         self._mod_tools = []
+        self._custom_tools = []
         self._supported_mods = None
         self._running = False
         self._processed_message_ids = set()
@@ -94,8 +95,8 @@ class AgentRunner(ABC):
             else:
                 self._network_client = AgentClient(agent_id=self._agent_id)
 
-        # Update tools if we have mod information
-        if self._supported_mods is not None:
+        # Update tools if we have mod information or custom tools
+        if self._supported_mods is not None or (self._agent_config and self._agent_config.tools):
             self.update_tools()
 
     @property
@@ -112,13 +113,58 @@ class AgentRunner(ABC):
         self._mod_tools = self.client.get_tools()
         # Add MCP tools if available
         self._mcp_tools = self._mcp_connector.get_mcp_tools()
+        # Add custom tools from agent configuration
+        self._custom_tools = self._load_custom_tools()
 
-        all_tools = self._mod_tools + self._mcp_tools
+        all_tools = self._mod_tools + self._mcp_tools + self._custom_tools
         
         # Log info about all available tools
         tool_names = [tool.name for tool in all_tools]
         logger.info(f"Updated available tools for agent {self._agent_id}: {tool_names}")
         self._tools = all_tools
+
+    def _load_custom_tools(self) -> List[AgentTool]:
+        """Load custom tools from agent configuration.
+        
+        Returns:
+            List of AgentTool instances from the agent configuration
+        """
+        custom_tools = []
+        
+        if self._agent_config and self._agent_config.tools:
+            from openagents.models.tool_config import create_tools_from_configs
+            import sys
+            import os
+            
+            # Save original sys.path to restore later
+            original_path = sys.path.copy()
+            
+            try:
+                # Try to add common tool paths to sys.path
+                current_dir = os.getcwd()
+                possible_tool_paths = [
+                    current_dir,
+                    os.path.join(current_dir, "private_networks", "yaml_coordinator_test_network"),
+                    os.path.join(current_dir, "tools"),
+                ]
+                
+                for path in possible_tool_paths:
+                    if os.path.exists(path) and path not in sys.path:
+                        sys.path.insert(0, path)
+                
+                custom_tools = create_tools_from_configs(self._agent_config.tools)
+                logger.info(f"Loaded {len(custom_tools)} custom tools from agent config")
+                for tool in custom_tools:
+                    logger.debug(f"Loaded custom tool: {tool.name}")
+            except Exception as e:
+                logger.error(f"Failed to load custom tools from agent config: {e}")
+                # Don't fail the entire agent initialization for tool loading errors
+                custom_tools = []
+            finally:
+                # Restore original sys.path
+                sys.path = original_path
+        
+        return custom_tools
 
     @staticmethod
     def from_yaml(
@@ -218,12 +264,14 @@ class AgentRunner(ABC):
             disable_mcp: Whether to disable MCP tools
             disable_mods: Whether to disable network interaction with mods
         """
-        # Get tools from MCP and mods
+        # Get tools from MCP, mods, and custom tools
         tools = []
         if not disable_mcp:
             tools.extend(self._mcp_tools)
         if not disable_mods:
             tools.extend(self._mod_tools)
+        # Always include custom tools from agent configuration
+        tools.extend(self._custom_tools)
         
         return await orchestrate_agent(
             context=context,
@@ -343,14 +391,11 @@ class AgentRunner(ABC):
                 unprocessed_count = 0
 
                 for thread_id, thread in event_threads.items():
-                    print(f"   Thread {thread_id}: {len(thread.events)} messages")
+                    # Only log thread summary once when messages change, not on every poll
                     for message in thread.events:
                         total_messages += 1
                         # Check if message hasn't been processed (regardless of requires_response)
                         message_id = str(message.message_id)
-                        print(
-                            f"     Message {message_id[:8]}... from {message.source_id}, processed={message_id in self._processed_message_ids}"
-                        )
                         if message_id not in self._processed_message_ids:
                             unprocessed_count += 1
                             # Find the earliest unprocessed message by timestamp
@@ -363,14 +408,39 @@ class AgentRunner(ABC):
 
                 # If we found an unprocessed message, process it
                 if unprocessed_message and unprocessed_thread_id:
-                    print(
-                        f"🔧 AGENT_RUNNER: Found unprocessed message {unprocessed_message.message_id[:8]}... from {unprocessed_message.source_id}"
-                    )
-                    print(
-                        f"🎯 Processing message {unprocessed_message.message_id[:8]}... from {unprocessed_message.source_id}"
-                    )
-                    # logger.info(f"🔧 AGENT_RUNNER: Found unprocessed message {unprocessed_message.message_id[:8]}... from {unprocessed_message.source_id}")
-                    # print(f"🎯 Processing message {unprocessed_message.message_id[:8]}... from {unprocessed_message.source_id}")
+                    # Get message payload for better logging
+                    import json
+                    msg_payload_preview = "None"
+                    if hasattr(unprocessed_message, 'payload') and unprocessed_message.payload:
+                        try:
+                            payload_str = json.dumps(unprocessed_message.payload, indent=2, default=str)
+                            if len(payload_str) > 300:
+                                msg_payload_preview = payload_str[:300] + "..."
+                            else:
+                                msg_payload_preview = payload_str
+                        except:
+                            msg_payload_preview = str(unprocessed_message.payload)[:300]
+
+                    event_name = getattr(unprocessed_message, 'event_name', 'unknown')
+                    destination_id = getattr(unprocessed_message, 'destination_id', None)
+
+                    # Commented out - too verbose for normal operation
+                    # # Print colored box for event processing
+                    # from openagents.utils.cli_display import print_box
+                    #
+                    # lines = [
+                    #     f"Event:  {event_name}",
+                    #     f"Source: {unprocessed_message.source_id}",
+                    #     f"Target: {destination_id or 'None'}",
+                    #     "─" * 66,  # Separator
+                    # ]
+                    #
+                    # # Add payload lines
+                    # for line in msg_payload_preview.split('\n'):
+                    #     lines.append(line)
+                    #
+                    # print_box("🎯 AGENT PROCESSING EVENT", lines, color_code="\033[94m")
+
                     # Mark the message as processed to avoid processing it again
                     self._processed_message_ids.add(str(unprocessed_message.message_id))
 
@@ -399,13 +469,18 @@ class AgentRunner(ABC):
                         event_threads=filtered_threads,
                         incoming_thread_id=unprocessed_thread_id,
                     )
-                    print(
-                        f"🔧 AGENT_RUNNER: Calling react method for message {unprocessed_message.message_id[:8]}..."
-                    )
+                    print(f"🔧 AGENT_RUNNER: Calling react method for event {event_name}")
+                    
+                    import time
+                    start_time = time.time()
                     await self.react(context)
-                    print(
-                        f"🔧 AGENT_RUNNER: react method completed for message {unprocessed_message.message_id[:8]}"
-                    )
+                    elapsed = time.time() - start_time
+                    
+                    print(f"✅ AGENT RESPONSE COMPLETED: {unprocessed_message.message_id[:8]}")
+                    print(f"   Processing time: {elapsed:.2f}s")
+                    if elapsed > 1.0:
+                        print(f"   🤖 LLM API call detected (response time > 1s)")
+                    print(f"   Message marked as processed")
                 else:
                     await asyncio.sleep(self._interval or 1)
                     # print("😴 No unprocessed messages found, sleeping...")
@@ -612,6 +687,7 @@ class AgentRunner(ABC):
         network_port: Optional[int] = None,
         network_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        password_hash: Optional[str] = None,
     ):
         """Public async method for starting the agent runner.
 
@@ -626,7 +702,7 @@ class AgentRunner(ABC):
         Raises:
             Exception: If the agent fails to start or connect
         """
-        await self._async_start(network_host, network_port, network_id, metadata)
+        await self._async_start(network_host, network_port, network_id, metadata, password_hash)
 
     async def _async_stop(self):
         """Async implementation of stopping the agent runner.
@@ -733,4 +809,5 @@ class AgentRunner(ABC):
 
     def send_human_message(self, message: str):
         # TODO: Implement this
+        _ = message  # Silence unused variable warning
         pass
