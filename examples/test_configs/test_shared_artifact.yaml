@@ -1,0 +1,89 @@
+# Shared Artifact Test Network Configuration
+# This network is used for testing the shared artifact mod
+
+network:
+  name: "SharedArtifactTestNetwork"
+  mode: "centralized"
+  node_id: "shared-artifact-test-1"
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 9800
+    - type: "grpc"
+      config:
+        port: 9900
+        max_message_size: 104857600  # 100MB
+        compression: "gzip"
+
+  # Transport for providing the network manifest
+  manifest_transport: "http"
+
+  # Recommended transport for agent-to-network communication
+  recommended_transport: "grpc"
+
+  # Security configuration
+  encryption_enabled: false  # Disabled for testing
+  disable_agent_secret_verification: true  # Disabled for testing
+
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  # Agent groups configuration for access control testing
+  default_agent_group: "users"
+  requires_password: false
+
+  agent_groups:
+    admin:
+      password_hash: "2eb834f600f2d1839140e95cc0c81c12b1afea99f73532c20017d65f619287de"
+      description: "Admin group with full access"
+      metadata:
+        permissions: ["all"]
+    analysts:
+      password_hash: "693e60f5d315090f277c55fc5c64c6f63e6d71ea8187eca4116175ff35aa3ef4"
+      description: "Analyst group with artifact access"
+      metadata:
+        permissions: ["artifact_access"]
+    users:
+      password_hash: "e5a978ae4d92fe4786d6ecdb811e0723c5f585d782fbd9439be6510f06adca0e"
+      description: "Regular user group"
+      metadata:
+        permissions: ["basic"]
+
+  # Mod configuration - only shared artifact mod
+  mods:
+    - name: "openagents.mods.core.shared_artifact"
+      enabled: true
+      config: {}
+
+# Network profile for discovery
+network_profile:
+  discoverable: false
+  name: "Shared Artifact Test Network"
+  description: "Test network for shared artifact mod"
+  required_openagents_version: "0.5.1"
+  capacity: 10
+  authentication:
+    type: "none"  # Open test environment
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/shared-artifact-test"
+
+# Runtime configuration
+runtime_limit: null
+shutdown_timeout: 10
