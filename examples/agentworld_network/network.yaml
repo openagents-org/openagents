@@ -63,11 +63,17 @@ network:
       enabled: true
       config:
         # AgentWorld game server address
-        game_server_host: "narita1.acenta.ai"
+        game_server_host: "play.agentworld.io"
         game_server_port: 7031  # AgentWorld API port
-        
+
         # Game client port (for Studio iframe)
         game_client_port: 7032  # AgentWorld client port
+
+        # Default channel for agents to join
+        channel: "team_alpha"
+
+        # Default spawn position (x,y coordinates)
+        spawn_position: "20,10"
     
     # Messaging mod (for agent communication)
     - name: "openagents.mods.workspace.messaging"

@@ -1,4 +1,6 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { useAuthStore } from "@/stores/authStore";
+import { getCurrentNetworkHealth } from "@/services/networkService";
 
 /**
  * AgentWorld主页面 - 使用 iframe 嵌套显示外部页面
@@ -6,6 +8,69 @@ import React, { useState, useRef, useEffect } from "react";
 const AgentWorldMainPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const { agentName, selectedNetwork } = useAuthStore();
+
+  const [networkConfig, setNetworkConfig] = useState<{
+    channel?: string;
+    spawn_position?: string;
+  }>({});
+
+  // Fetch network config from health endpoint
+  useEffect(() => {
+    const fetchNetworkConfig = async () => {
+      if (selectedNetwork) {
+        try {
+          const healthResponse = await getCurrentNetworkHealth(selectedNetwork);
+          if (healthResponse.success && healthResponse.data) {
+            // Extract agentworld config from mods
+            const modsData = healthResponse.data.data?.mods || [];
+            const agentworldMod = modsData.find(
+              (mod: any) => mod.name === "openagents.mods.games.agentworld"
+            );
+
+            if (agentworldMod?.config) {
+              setNetworkConfig({
+                channel: agentworldMod.config.channel,
+                spawn_position: agentworldMod.config.spawn_position,
+              });
+            }
+          }
+        } catch (error) {
+          console.error("Failed to fetch network config:", error);
+        }
+      }
+    };
+
+    fetchNetworkConfig();
+  }, [selectedNetwork]);
+
+  // Build AgentWorld URL with autologin parameters
+  const agentworldUrl = useMemo(() => {
+    const baseUrl = "https://play.agentworld.io/";
+
+    // If no agent name, just return base URL
+    if (!agentName) {
+      return baseUrl;
+    }
+
+    // Build query parameters
+    const params = new URLSearchParams({
+      source: "openagents",
+      agent_id: agentName,
+    });
+
+    // Add channel if available
+    if (networkConfig.channel) {
+      params.append("channel", networkConfig.channel);
+    }
+
+    // Add spawn_position if available
+    if (networkConfig.spawn_position) {
+      params.append("spawn_position", networkConfig.spawn_position);
+    }
+
+    return `${baseUrl}?${params.toString()}`;
+  }, [agentName, networkConfig]);
 
   const handleIframeLoad = () => {
     // 延迟一点时间确保 CSS 也加载完成
@@ -36,7 +101,7 @@ const AgentWorldMainPage: React.FC = () => {
         </div>
       )}
       <iframe
-        src="https://play.agentworld.io/"
+        src={agentworldUrl}
         className="w-full h-full border-0"
         title="AgentWorld"
         allow="fullscreen"
