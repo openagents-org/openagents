@@ -4,6 +4,26 @@ from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field, validator
 
 
+class ModUISidebarConfig(BaseModel):
+    """Sidebar configuration for mod UI."""
+
+    label: str = Field(..., description="Display label for the sidebar item")
+    icon: str = Field(..., description="Icon name for the sidebar item")
+    position: int = Field(5, description="Position in the sidebar (lower numbers appear first)")
+
+
+class ModUIConfig(BaseModel):
+    """UI configuration for a mod."""
+
+    enabled: bool = Field(True, description="Whether the UI is enabled")
+    entry: str = Field(..., description="Path to the pre-built UI entry file (relative to mod directory)")
+    route: str = Field(..., description="Route path for the UI component")
+    sidebar: Optional[ModUISidebarConfig] = Field(None, description="Sidebar configuration")
+    permissions: List[str] = Field(
+        default_factory=list, description="Required permissions for accessing the UI"
+    )
+
+
 class ModManifest(BaseModel):
     """Manifest for a mod."""
 
@@ -34,4 +54,7 @@ class ModManifest(BaseModel):
     )
     requires_adapter: bool = Field(
         True, description="Whether the mod requires an agent adapter"
+    )
+    ui: Optional[ModUIConfig] = Field(
+        None, description="UI configuration for the mod"
     )

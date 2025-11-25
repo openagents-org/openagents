@@ -761,6 +761,198 @@ def install_openagents_studio_package(progress=None, task_id=None) -> None:
         raise RuntimeError("npm command not found. Please install Node.js and npm.")
 
 
+def _find_studio_build_dir() -> Optional[str]:
+    """Find the studio build directory from the installed package.
+    
+    Returns:
+        Optional[str]: Path to the studio build directory, or None if not found
+    """
+    # Try importlib.resources first (for installed packages)
+    try:
+        studio_resources = files("openagents").joinpath("studio", "build")
+        if studio_resources.is_dir():
+            # Check if index.html exists
+            try:
+                index_file = studio_resources.joinpath("index.html")
+                if index_file.is_file():
+                    return str(studio_resources)
+            except (AttributeError, TypeError):
+                pass
+    except (ModuleNotFoundError, AttributeError, TypeError):
+        pass
+    
+    # Try to find build directory in multiple locations
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    package_dir = os.path.dirname(script_dir)  # src/openagents
+    project_root = os.path.dirname(os.path.dirname(script_dir))  # project root
+    
+    possible_paths = [
+        # In installed package (src/openagents/studio/build)
+        os.path.join(package_dir, "studio", "build"),
+        # In current project root (development: studio/build)
+        os.path.join(project_root, "studio", "build"),
+        # Alternative: relative to package
+        os.path.join(os.path.dirname(package_dir), "studio", "build"),
+    ]
+    
+    # Check other possible paths
+    for path in possible_paths:
+        if path and os.path.exists(path) and os.path.isdir(path):
+            index_html = os.path.join(path, "index.html")
+            if os.path.exists(index_html):
+                return path
+    
+    return None
+
+
+def _create_studio_handler(build_dir):
+    """Create a custom HTTP request handler for serving Studio static files.
+    
+    Args:
+        build_dir: Directory containing the built static files
+        
+    Returns:
+        A handler class configured for the build directory
+    """
+    from openagents.utils.mod_ui_loader import discover_all_mod_uis, get_mod_ui_static_path
+    
+    # Discover all mod UIs at startup
+    mod_uis = discover_all_mod_uis()
+    
+    class StudioHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+        """Custom HTTP request handler for serving Studio static files with SPA routing support."""
+        
+        def __init__(self, *args, **kwargs):
+            # Change to build directory before initializing
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(build_dir)
+                super().__init__(*args, **kwargs)
+            finally:
+                os.chdir(original_cwd)
+        
+        def translate_path(self, path):
+            """Translate URL path to file system path."""
+            # Parse the path
+            path = urlparse(path).path
+            # Remove leading slash
+            path = path.lstrip('/')
+            
+            # Check if this is a mod UI request (/mod-ui/{mod_name}/...)
+            if path.startswith('mod-ui/'):
+                mod_path_parts = path.split('/')
+                if len(mod_path_parts) >= 3:
+                    mod_name = mod_path_parts[1]
+                    mod_file_path = '/'.join(mod_path_parts[2:])
+                    
+                    # Try to find the mod UI static path
+                    mod_ui_path = get_mod_ui_static_path(mod_name)
+                    if mod_ui_path:
+                        full_mod_path = mod_ui_path / mod_file_path
+                        if full_mod_path.exists():
+                            return str(full_mod_path)
+            
+            # If path is empty or just '/', serve index.html
+            if not path or path == '/':
+                return os.path.join(build_dir, 'index.html')
+            
+            # Check if file exists
+            full_path = os.path.join(build_dir, path)
+            if os.path.exists(full_path) and os.path.isfile(full_path):
+                return full_path
+            
+            # For SPA routing, if the path doesn't exist as a file, serve index.html
+            # This allows React Router to handle client-side routing
+            return os.path.join(build_dir, 'index.html')
+        
+        def end_headers(self):
+            """Add CORS headers and custom headers."""
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+            super().end_headers()
+        
+        def log_message(self, format, *args):
+            """Suppress default logging, we'll handle it ourselves."""
+            pass
+    
+    return StudioHTTPRequestHandler
+
+
+def launch_studio_static(studio_port: int = 8050) -> subprocess.Popen:
+    """Launch studio using Python's built-in HTTP server to serve static files.
+    
+    This function does not require Node.js and serves pre-built static files.
+    
+    Args:
+        studio_port: Port for the studio frontend
+        
+    Returns:
+        subprocess.Popen: The HTTP server process
+        
+    Raises:
+        RuntimeError: If studio build directory is not found
+    """
+    build_dir = _find_studio_build_dir()
+    
+    if not build_dir:
+        raise RuntimeError(
+            "Studio build directory not found. "
+            "Please ensure the package was installed with the built frontend files. "
+            "If you're a developer, run 'npm run build' in the studio directory first."
+        )
+    
+    logging.info(f"Serving studio static files from {build_dir} on port {studio_port}")
+    
+    # Create a custom handler class for the build directory
+    HandlerClass = _create_studio_handler(build_dir)
+    
+    # Create and start the server in a separate thread
+    httpd = socketserver.TCPServer(("", studio_port), HandlerClass)
+    httpd.allow_reuse_address = True
+    
+    def run_server():
+        try:
+            httpd.serve_forever()
+        except Exception as e:
+            logging.error(f"HTTP server error: {e}")
+    
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+    
+    # Wait a moment to ensure server started
+    time.sleep(0.5)
+    
+    # Create a mock process object that behaves like subprocess.Popen
+    class MockProcess:
+        def __init__(self, httpd, thread):
+            self.httpd = httpd
+            self.thread = thread
+            self.returncode = None
+            self.stdout = None
+            self.stderr = None
+        
+        def wait(self):
+            """Wait for the server thread to finish."""
+            self.thread.join()
+        
+        def terminate(self):
+            """Shutdown the HTTP server."""
+            if self.httpd:
+                self.httpd.shutdown()
+                self.httpd.server_close()
+        
+        def kill(self):
+            """Kill the HTTP server."""
+            self.terminate()
+        
+        def poll(self):
+            """Check if server is still running."""
+            return None if self.thread.is_alive() else 0
+    
+    return MockProcess(httpd, server_thread)
+
+
 def launch_studio_with_package(studio_port: int = 8050) -> subprocess.Popen:
     """Launch studio using the installed openagents-studio package.
 

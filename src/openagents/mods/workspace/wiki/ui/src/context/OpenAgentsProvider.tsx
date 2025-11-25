@@ -1,5 +1,5 @@
 /**
- * Simplified OpenAgents Provider - focused on connection state management
+ * Simplified OpenAgents Provider for Wiki Mod UI
  *
  * Responsibilities:
  * 1. Maintain a single HttpEventConnector instance
@@ -18,12 +18,9 @@ import React, {
   ReactNode,
 } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { HttpEventConnector } from "@/services/eventConnector";
-import { useAuthStore } from "@/stores/authStore";
-import { useChatStore } from "@/stores/chatStore";
-import { useDocumentStore } from "@/stores/documentStore";
-import { eventRouter } from "@/services/eventRouter";
-import { notificationService } from "@/services/notificationService";
+import { HttpEventConnector } from "../services/eventConnector";
+import { useAuthStore } from "../stores/authStore";
+import { eventRouter } from "../services/eventRouter";
 import { toast } from "sonner";
 
 // Simplified connection state enum
@@ -75,9 +72,6 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
   children,
 }) => {
   const { agentName, selectedNetwork, getPasswordHash } = useAuthStore();
-  const { selectChannel, selectDirectMessage } = useChatStore();
-  const { setConnection, setupEventListeners, cleanupEventListeners } =
-    useDocumentStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [connector, setConnector] = useState<HttpEventConnector | null>(null);
@@ -86,9 +80,6 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
   });
 
   const connectorRef = useRef<HttpEventConnector | null>(null);
-  const globalNotificationHandlerRef = useRef<((event: any) => void) | null>(
-    null
-  );
 
   // Clean up connector
   const cleanUpConnector = useCallback(() => {
@@ -106,20 +97,11 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
       // Cleanup event router
       eventRouter.cleanup();
 
-      // Cleanup global notification handler
-      if (globalNotificationHandlerRef.current) {
-        eventRouter.offChatEvent(globalNotificationHandlerRef.current);
-        globalNotificationHandlerRef.current = null;
-      }
-
-      // Cleanup document event listeners
-      cleanupEventListeners();
-
       connectorTemp.disconnect().catch((error) => {
         console.warn("Error during connector cleanup:", error);
       });
     }
-  }, [cleanupEventListeners]);
+  }, []);
 
   // Set up connection event listeners
   const setupConnectionListeners = useCallback(
@@ -134,10 +116,8 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
           isUsingModifiedId: connector.isUsingModifiedId(),
         });
 
-        // Set up global document event listeners
-        console.log("🔧 Setting up global document event listeners");
-        setConnection(connector);
-        setupEventListeners();
+        // Initialize event router with this connector
+        eventRouter.initialize(connector);
       });
 
       // Connection disconnected
@@ -218,143 +198,17 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
           useAuthStore.getState().clearNetwork();
           useAuthStore.getState().clearAgentName();
           useAuthStore.getState().clearPasswordHash();
-          useChatStore.getState().clearAllChatData();
 
           // Navigate to network selection
-          navigate("/network-selection", { replace: true });
+          navigate("/", { replace: true });
         }, 2000); // 2 second delay to show notification
       });
 
       // Initialize event router with this connector
       eventRouter.initialize(connector);
     },
-    [setConnection, setupEventListeners, navigate]
+    [navigate]
   );
-
-  // Set up global notification listener (only active on non-messaging pages)
-  const setupGlobalNotificationListener = useCallback(() => {
-    const isMessagingPage =
-      location.pathname === "/messaging" ||
-      location.pathname.startsWith("/messaging/");
-
-    // Clean up existing global listener
-    if (globalNotificationHandlerRef.current) {
-      eventRouter.offChatEvent(globalNotificationHandlerRef.current);
-      globalNotificationHandlerRef.current = null;
-    }
-
-    // Only set up global notification listener on non-messaging pages when connected
-    if (
-      !isMessagingPage &&
-      connectionStatus.state === ConnectionState.CONNECTED
-    ) {
-      console.log(
-        "🔔 Setting up global notification listener (not on messaging page)"
-      );
-
-      const globalNotificationHandler = (event: any) => {
-        console.log(
-          "🔔 Global notification handler received event:",
-          event.event_name,
-          event
-        );
-
-        // Handle channel message notifications
-        if (
-          event.event_name === "thread.channel_message.notification" &&
-          event.payload
-        ) {
-          const messageData = event.payload;
-          if (messageData.channel && messageData.content) {
-            const senderName =
-              event.sender_id || event.source_id || "Unknown user";
-            const content =
-              typeof messageData.content === "string"
-                ? messageData.content
-                : messageData.content.text || "";
-
-            notificationService.showChatNotification(
-              senderName,
-              messageData.channel,
-              content,
-              messageData.message_type
-            );
-          }
-        }
-
-        // Handle reply message notifications
-        else if (
-          event.event_name === "thread.reply.notification" &&
-          event.payload
-        ) {
-          const messageData = event.payload;
-          if (messageData.channel && messageData.content) {
-            const senderName =
-              messageData.original_sender || event.source_id || "Unknown user";
-            const content =
-              typeof messageData.content === "string"
-                ? messageData.content
-                : messageData.content.text || "";
-
-            // Check if this is a reply to the current user's message
-            const currentUserId = connectionStatus.agentId || agentName;
-            if (
-              messageData.reply_to_id &&
-              currentUserId &&
-              messageData.original_sender !== currentUserId
-            ) {
-              notificationService.showReplyNotification(
-                senderName,
-                messageData.channel,
-                content
-              );
-            } else {
-              // Regular reply message notification
-              notificationService.showChatNotification(
-                senderName,
-                messageData.channel,
-                content,
-                messageData.message_type
-              );
-            }
-          }
-        }
-
-        // Handle direct message notifications
-        else if (
-          event.event_name === "thread.direct_message.notification" &&
-          event.payload
-        ) {
-          const messageData = event.payload;
-          if (messageData.content) {
-            const senderName =
-              event.source_id || messageData.sender_id || "Unknown user";
-            const content =
-              typeof messageData.content === "string"
-                ? messageData.content
-                : messageData.content.text || "";
-
-            notificationService.showDirectMessageNotification(
-              senderName,
-              content
-            );
-          }
-        }
-      };
-
-      globalNotificationHandlerRef.current = globalNotificationHandler;
-      eventRouter.onChatEvent(globalNotificationHandler);
-    } else if (isMessagingPage) {
-      console.log(
-        "🔔 On messaging page, global notification listener disabled (chatStore handles notifications)"
-      );
-    }
-  }, [
-    location.pathname,
-    connectionStatus.state,
-    connectionStatus.agentId,
-    agentName,
-  ]);
 
   // Initialize connector
   const initializeConnector = useCallback(() => {
@@ -419,11 +273,6 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
     };
   }, [cleanUpConnector]);
 
-  // Listen to route changes and connection status, auto setup/cleanup global notification listener
-  useEffect(() => {
-    setupGlobalNotificationListener();
-  }, [setupGlobalNotificationListener]);
-
   // API methods
   const connect = useCallback(async (): Promise<boolean> => {
     if (!connector) {
@@ -475,70 +324,6 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
     }));
   }, []);
 
-  // Global notification click handling
-  const handleNotificationClick = useCallback(
-    (event: CustomEvent) => {
-      const { channel, sender } = event.detail;
-
-      console.log("🔔 Global notification clicked:", {
-        channel,
-        sender,
-        currentPath: location.pathname,
-      });
-
-      // Ensure on messaging page
-      if (
-        location.pathname !== "/messaging" &&
-        !location.pathname.startsWith("/messaging/")
-      ) {
-        console.log("🔄 Navigating to messaging page from global handler...");
-        navigate("/messaging");
-
-        // Wait for page to load before selecting
-        setTimeout(() => {
-          if (channel) {
-            console.log(`🔄 Selecting channel from global handler: ${channel}`);
-            selectChannel(channel);
-          } else if (sender) {
-            console.log(
-              `🔄 Selecting direct message from global handler: ${sender}`
-            );
-            selectDirectMessage(sender);
-          }
-        }, 100);
-      } else {
-        // Already on messaging page, select directly
-        if (channel) {
-          console.log(`🔄 Selecting channel: ${channel}`);
-          selectChannel(channel);
-        } else if (sender) {
-          console.log(`🔄 Selecting direct message: ${sender}`);
-          selectDirectMessage(sender);
-        }
-      }
-    },
-    [location.pathname, navigate, selectChannel, selectDirectMessage]
-  );
-
-  // Global notification click event listener
-  useEffect(() => {
-    const handleNotificationClickEvent = (event: Event) => {
-      console.log("🔔 Notification clicked event:", event);
-      handleNotificationClick(event as CustomEvent);
-    };
-
-    console.log("🔔 Setting up global notification-click listener");
-    window.addEventListener("notification-click", handleNotificationClickEvent);
-
-    return () => {
-      console.log("🔔 Cleaning up global notification-click listener");
-      window.removeEventListener(
-        "notification-click",
-        handleNotificationClickEvent
-      );
-    };
-  }, [handleNotificationClick]);
-
   const isConnected = connectionStatus.state === ConnectionState.CONNECTED;
 
   const value: OpenAgentsContextType = {
@@ -575,3 +360,4 @@ export const useOpenAgents = (): OpenAgentsContextType => {
   }
   return context;
 };
+

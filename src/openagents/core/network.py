@@ -545,6 +545,24 @@ class AgentNetwork:
             elif isinstance(profile, dict):
                 network_profile_data = profile
         
+        # Get mod UI information
+        mod_ui_info = {}
+        try:
+            from openagents.utils.mod_ui_loader import discover_all_mod_uis
+            
+            all_mod_uis = discover_all_mod_uis()
+            for mod_name, ui_config in all_mod_uis.items():
+                if ui_config.enabled:
+                    mod_ui_info[mod_name] = {
+                        "enabled": True,
+                        "entry": ui_config.entry,
+                        "route": ui_config.route,
+                        "sidebar": ui_config.sidebar.model_dump() if ui_config.sidebar else None,
+                        "permissions": ui_config.permissions,
+                    }
+        except Exception as e:
+            logger.warning(f"Failed to discover mod UIs: {e}")
+        
         stats = {
             "network_id": self.network_id,
             "network_name": self.network_name,
@@ -566,6 +584,7 @@ class AgentNetwork:
             "default_agent_group": self.config.default_agent_group,
             "requires_password": self.config.requires_password,
             "mods": [mod.model_dump() for mod in self.config.mods],
+            "mod_uis": mod_ui_info,
             "topology_mode": (
                 self.config.mode
                 if isinstance(self.config.mode, str)

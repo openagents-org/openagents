@@ -437,6 +437,46 @@ export const updateRouteVisibility = (
   }
 }
 
+// Mod UI routes storage
+const modUIRoutes: RouteConfig[] = []
+
+/**
+ * Add a mod UI route dynamically
+ */
+export const addModUIRoute = (route: RouteConfig) => {
+  // Check if route already exists
+  const existingIndex = modUIRoutes.findIndex((r) => r.path === route.path)
+  if (existingIndex >= 0) {
+    modUIRoutes[existingIndex] = route
+  } else {
+    modUIRoutes.push(route)
+  }
+}
+
+/**
+ * Remove a mod UI route
+ */
+export const removeModUIRoute = (path: string) => {
+  const index = modUIRoutes.findIndex((r) => r.path === path)
+  if (index >= 0) {
+    modUIRoutes.splice(index, 1)
+  }
+}
+
+/**
+ * Get all mod UI routes
+ */
+export const getModUIRoutes = (): RouteConfig[] => {
+  return modUIRoutes
+}
+
+/**
+ * Get all routes including mod UI routes
+ */
+export const getAllRoutesWithModUI = (): RouteConfig[] => {
+  return [...dynamicRouteConfig, ...modUIRoutes]
+}
+
 // export const updateQuickActionVisibility = (actionId: string, visible: boolean) => {
 //   const action = quickActionConfig.find(a => a.id === actionId);
 //   if (action) {

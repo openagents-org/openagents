@@ -160,3 +160,4 @@ if (typeof window !== 'undefined') {
   // @ts-ignore
   window.__EVENT_ROUTER__ = eventRouter;
 }
+

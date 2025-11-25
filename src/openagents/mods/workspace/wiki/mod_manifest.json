@@ -88,5 +88,16 @@
         "wiki_new_pages",
         "wiki_recent_changes",
         "wiki_page_{page_path}_proposals"
-    ]
+    ],
+    "ui": {
+        "enabled": true,
+        "entry": "./ui/dist/index.js",
+        "route": "/wiki",
+        "sidebar": {
+            "label": "Wiki",
+            "icon": "BookOpenIcon",
+            "position": 2
+        },
+        "permissions": []
+    }
 }

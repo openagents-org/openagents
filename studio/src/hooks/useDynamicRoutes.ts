@@ -1,10 +1,13 @@
-import { useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { getCurrentNetworkHealth } from '@/services/networkService';
 import {
   generateRouteConfigFromHealth,
   updateRouteVisibilityFromModules,
 } from '@/utils/moduleUtils';
+import { loadModUIsFromHealth } from '@/utils/modUILoader';
+import { addModUIRoute } from '@/config/routeConfig';
+import ModUIWrapper from '@/components/mod/ModUIWrapper';
 
 /**
  * Hook to manage dynamic route configuration based on network health
@@ -60,6 +63,28 @@ export const useDynamicRoutes = () => {
         defaultRoute: routeConfig.defaultRoute,
         networkId: routeConfig.networkId,
       });
+
+      // Load mod UIs and register routes
+      try {
+        const loadedModUIs = await loadModUIsFromHealth(healthResult.data);
+        console.log(`✅ Loaded ${loadedModUIs.length} mod UIs`);
+        
+        // Register mod UI routes
+        loadedModUIs.forEach((modUI) => {
+          if (modUI.component && !modUI.error && modUI.config.enabled) {
+            addModUIRoute({
+              path: modUI.config.route,
+              element: () => React.createElement(ModUIWrapper, { modName: modUI.modName }),
+              requiresAuth: true,
+              requiresLayout: true,
+              title: modUI.config.sidebar?.label || modUI.modName,
+            });
+            console.log(`✅ Registered mod UI route: ${modUI.config.route} for ${modUI.modName}`);
+          }
+        });
+      } catch (error) {
+        console.error('❌ Failed to load mod UIs:', error);
+      }
 
       // Update route visibility
       updateRouteVisibilityFromModules(routeConfig.enabledModules);
