@@ -195,3 +195,5 @@ network.db
 # Project management
 projects
 private_networks
+
+node_modules/
