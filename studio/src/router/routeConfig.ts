@@ -4,6 +4,7 @@ export {
   dynamicRouteConfig as routes,
   specialRoutes,
   getAllRoutes,
+  getAllRoutesWithModUI,
   getVisibleNavigationRoutes,
   getNavigationRoutesByGroup,
   updateRouteVisibility

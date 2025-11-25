@@ -1,0 +1,276 @@
+import React from "react";
+import { ThreadChannel, AgentInfo } from "../types/events";
+import { useOpenAgents } from "../context/OpenAgentsProvider";
+import { useChatStore, setChatStoreContext } from "../stores/chatStore";
+import { useAuthStore } from "../stores/authStore";
+
+// Section Header Component
+const SectionHeader: React.FC<{ title: string }> = React.memo(({ title }) => (
+  <div className="px-5 my-3">
+    <div className="flex items-center">
+      <div className="text-xs font-bold text-gray-400 tracking-wide select-none">
+        {title}
+      </div>
+      <div className="ml-2 h-px bg-gray-200 dark:bg-gray-700 flex-1"></div>
+    </div>
+  </div>
+));
+SectionHeader.displayName = "SectionHeader";
+
+// Channel List Item Component
+const ChannelItem: React.FC<{
+  channel: ThreadChannel;
+  isActive: boolean;
+  unreadCount: number;
+  onClick: () => void;
+}> = React.memo(({ channel, isActive, unreadCount, onClick }) => (
+  <li>
+    <button
+      onClick={onClick}
+      className={`w-full text-left text-sm truncate px-2 py-2 font-medium rounded transition-colors
+        ${
+          isActive
+            ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-300 border-l-2 border-indigo-500 dark:border-indigo-400 pl-2 shadow-sm"
+            : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 pl-2.5"
+        }
+      `}
+      title={channel.description || channel.name}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center min-w-0">
+          <span className="mr-2 text-gray-400">#</span>
+          <span className="truncate">{channel.name}</span>
+        </div>
+        {unreadCount > 0 && (
+          <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[1.25rem] text-center">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
+      </div>
+    </button>
+  </li>
+));
+ChannelItem.displayName = "ChannelItem";
+
+// Agent List Item Component
+const AgentItem: React.FC<{
+  agent: AgentInfo;
+  isActive: boolean;
+  unreadCount: number;
+  onClick: () => void;
+}> = React.memo(({ agent, isActive, unreadCount, onClick }) => (
+  <li>
+    <button
+      onClick={onClick}
+      className={`w-full text-left text-sm truncate px-2 py-2 font-medium rounded transition-colors
+        ${
+          isActive
+            ? "bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-300 border-l-2 border-indigo-500 dark:border-indigo-400 pl-2 shadow-sm"
+            : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 pl-2.5"
+        }
+      `}
+      title={agent.metadata?.display_name || agent.agent_id}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center min-w-0">
+          <div
+            className={`w-2 h-2 rounded-full mr-2 ${
+              agent.metadata?.status === "online"
+                ? "bg-green-500"
+                : "bg-gray-400"
+            }`}
+          />
+          <span className="truncate">
+            {agent.metadata?.display_name || agent.agent_id}
+          </span>
+        </div>
+        {unreadCount > 0 && (
+          <span className="ml-2 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[1.25rem] text-center">
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
+      </div>
+    </button>
+  </li>
+));
+AgentItem.displayName = "AgentItem";
+
+// Chat Sidebar Content Component - 使用 chatStore 获取数据
+const MessagingSidebar: React.FC = () => {
+  const { connector, connectionStatus, isConnected } = useOpenAgents();
+  const { agentName } = useAuthStore();
+
+  // 设置 chatStore 的 context 引用
+  React.useEffect(() => {
+    setChatStoreContext({ connector, connectionStatus, isConnected });
+  }, [connector, connectionStatus, isConnected]);
+
+  // 使用agentName作为fallback，如果connectionStatus.agentId不可用
+  const currentUserId = ('agentId' in connectionStatus ? connectionStatus.agentId : undefined) || agentName || undefined;
+
+  // 使用 chatStore 获取数据和选择状态
+  const {
+    currentChannel,
+    currentDirectMessage,
+    selectChannel,
+    selectDirectMessage,
+    channels,
+    channelsLoading,
+    channelsLoaded,
+    agents,
+    agentsLoading,
+    agentsLoaded,
+    loadChannels,
+    loadAgents,
+    restorePersistedSelection,
+    initializeWithDefaultSelection,
+  } = useChatStore();
+
+  // 加载初始数据 - 仅在未加载时调用
+  React.useEffect(() => {
+    if (isConnected) {
+      if (!channelsLoaded && !channelsLoading) {
+        console.log('MessagingSidebar: Loading channels...');
+        loadChannels();
+      }
+      if (!agentsLoaded && !agentsLoading) {
+        console.log('MessagingSidebar: Loading agents...');
+        loadAgents();
+      }
+    }
+  }, [isConnected, channelsLoaded, channelsLoading, agentsLoaded, agentsLoading, loadChannels, loadAgents]);
+
+  // 处理选择恢复和默认选择 - 在数据加载完成后执行
+  React.useEffect(() => {
+    const handleSelectionInitialization = async () => {
+      // 检查是否已经有选择（可能是从持久化恢复的）
+      if (currentChannel || currentDirectMessage) {
+        console.log('MessagingSidebar: Already has selection, skipping initialization');
+        return;
+      }
+
+      // 只有在两者都加载完成时才执行初始化
+      if (!channelsLoaded || !agentsLoaded) {
+        console.log('MessagingSidebar: Waiting for data to load before selection initialization');
+        return;
+      }
+
+      console.log('MessagingSidebar: Data loaded, attempting selection restoration/initialization');
+
+      try {
+        // 尝试恢复持久化的选择
+        await restorePersistedSelection();
+
+        // 如果恢复后仍然没有选择，使用默认选择
+        // 需要再次检查，因为 restorePersistedSelection 可能会设置选择
+        const state = useChatStore.getState();
+        if (!state.currentChannel && !state.currentDirectMessage) {
+          console.log('MessagingSidebar: No persisted selection restored, using default selection');
+          await initializeWithDefaultSelection();
+        }
+      } catch (error) {
+        console.error('MessagingSidebar: Error during selection initialization:', error);
+        // 如果出错，使用默认选择
+        await initializeWithDefaultSelection();
+      }
+    };
+
+    handleSelectionInitialization();
+  }, [channelsLoaded, agentsLoaded, currentChannel, currentDirectMessage, restorePersistedSelection, initializeWithDefaultSelection]);
+
+  // 过滤出当前用户
+  const filteredAgents = React.useMemo(() => {
+    return agents.filter(agent => agent.agent_id !== currentUserId);
+  }, [agents, currentUserId]);
+
+  // 调试信息
+  console.log("MessagingSidebar Debug:", {
+    connectionStatus: 'state' in connectionStatus ? connectionStatus.state : connectionStatus,
+    connectionAgentId: 'agentId' in connectionStatus ? connectionStatus.agentId : undefined,
+    networkAgentName: agentName,
+    currentUserId,
+    isConnected,
+    channelsCount: channels.length,
+    agentsCount: filteredAgents.length,
+    isChannelLoading: channelsLoading,
+    isDirectLoading: agentsLoading,
+    channelsLoaded,
+    agentsLoaded,
+    currentChannel,
+    currentDirectMessage,
+  });
+
+  // TODO: 实现 unreadCounts 逻辑
+  const unreadCounts: Record<string, number> = {};
+
+  // 频道选择处理 - 现在使用 chatStore
+  const onChannelSelect = (channel: string) => {
+    selectChannel(channel);
+  };
+
+  // 私信选择处理 - 现在使用 chatStore
+  const onDirectMessageSelect = (agentId: string) => {
+    selectDirectMessage(agentId);
+  };
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Channels Section */}
+      <SectionHeader title="CHANNELS" />
+      <div className="px-3">
+        {channelsLoading && channels.length === 0 ? (
+          <div className="text-gray-500 text-sm px-2 py-2 text-center">
+            Loading channels...
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {channels.map((channel) => (
+              <ChannelItem
+                key={channel.name}
+                channel={channel}
+                isActive={currentChannel === channel.name}
+                unreadCount={unreadCounts[channel.name] || 0}
+                onClick={() => onChannelSelect(channel.name)}
+              />
+            ))}
+            {channels.length === 0 && !channelsLoading && (
+              <div className="text-gray-500 text-sm px-2 py-2 text-center">
+                No channels available
+              </div>
+            )}
+          </ul>
+        )}
+      </div>
+
+      {/* Direct Messages Section */}
+      <SectionHeader title="DIRECT MESSAGES" />
+      <div className="flex-1 overflow-y-auto px-3 custom-scrollbar">
+        {agentsLoading && filteredAgents.length === 0 ? (
+          <div className="text-gray-500 text-sm px-2 py-2 text-center">
+            Loading agents...
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {filteredAgents.map((agent) => (
+              <AgentItem
+                key={agent.agent_id}
+                agent={agent}
+                isActive={currentDirectMessage === agent.agent_id}
+                unreadCount={unreadCounts[agent.agent_id] || 0}
+                onClick={() => onDirectMessageSelect(agent.agent_id)}
+              />
+            ))}
+            {filteredAgents.length === 0 && !agentsLoading && (
+              <div className="text-gray-500 text-sm px-2 py-2 text-center">
+                No agents online
+              </div>
+            )}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default React.memo(MessagingSidebar);
+
