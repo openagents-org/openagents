@@ -1,0 +1,36 @@
+{
+  "name": "@openagents/documents-mod-ui",
+  "version": "1.0.0",
+  "description": "UI components for Documents mod",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "monaco-editor": "^0.52.0",
+    "crypto-js": "^4.2.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0",
+    "sonner": "^1.3.0",
+    "y-monaco": "^0.1.3",
+    "y-protocols": "^1.0.6",
+    "yjs": "^13.6.14",
+    "zustand": "^4.4.0"
+  },
+  "devDependencies": {
+    "@types/crypto-js": "^4.2.2",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.3.3",
+    "typescript": "^5.0.0",
+    "vite": "^4.4.0"
+  }
+}
+
