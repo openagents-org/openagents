@@ -664,8 +664,14 @@ class AgentClient:
         This method handles thread name assignment and adds the event to the
         corresponding thread in _event_threads.
 
+        Note:
+            If the event's thread_name is None, this method will modify it
+            to an auto-generated value based on the event_name. This is a
+            side effect that mutates the input event.
+
         Args:
-            event: The event to add to threads
+            event: The event to add to threads. The event's thread_name attribute
+                   may be modified if it was None.
         """
         # If no thread_name is set, automatically generate one from the event name
         if event.thread_name is None:
