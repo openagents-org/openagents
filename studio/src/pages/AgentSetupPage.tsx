@@ -12,15 +12,18 @@ import { useAuthStore } from "@/stores/authStore";
 import { useNavigate } from "react-router-dom";
 import { verifyPasswordWithBackend } from "@/utils/passwordHash";
 import { networkFetch } from "@/utils/httpClient";
+import { isInterviewHubMode } from "@/config/interviewHubConfig";
 
 const AgentNamePicker: React.FC = () => {
   const navigate = useNavigate();
   const {
     selectedNetwork,
+    agentName,
     setAgentName,
     clearAgentName,
     clearNetwork,
     setPasswordHash,
+    getDefaultRoute,
   } = useAuthStore();
 
   const [pageAgentName, setPageAgentName] = useState<string | null>(null);
@@ -30,12 +33,34 @@ const AgentNamePicker: React.FC = () => {
   const [passwordError, setPasswordError] = useState<string>("");
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
 
+  // Auto-connect in Interview Hub mode
+  useEffect(() => {
+    console.log("🎯 Interview Hub Mode Check:", {
+      isInterviewHubMode: isInterviewHubMode(),
+      agentName,
+      selectedNetwork: selectedNetwork?.host,
+    });
+
+    if (isInterviewHubMode() && agentName && selectedNetwork) {
+      console.log("🎯 Interview Hub Mode: Auto-connecting with agent name:", agentName);
+      console.log("🚀 Navigating to /interview");
+      // Navigate directly to the interview page
+      navigate("/interview");
+    } else if (isInterviewHubMode()) {
+      console.log("⚠️ Interview Hub Mode enabled but missing requirements:", {
+        hasAgentName: !!agentName,
+        hasSelectedNetwork: !!selectedNetwork,
+      });
+    }
+  }, [agentName, selectedNetwork, navigate]);
+
   const handleRandomize = useCallback(() => {
     setPageAgentName(generateRandomAgentName());
   }, [setPageAgentName]);
 
-  // Load saved agent name
+  // Load saved agent name (skip in Interview Hub mode)
   useEffect(() => {
+    if (isInterviewHubMode()) return; // Skip in Interview Hub mode
     if (!selectedNetwork) return;
     const savedName = getSavedAgentNameForNetwork(
       selectedNetwork.host,
@@ -50,8 +75,10 @@ const AgentNamePicker: React.FC = () => {
     }
   }, [selectedNetwork, handleRandomize, setPageAgentName]);
 
-  // Fetch network configuration to determine if password is required
+  // Fetch network configuration to determine if password is required (skip in Interview Hub mode)
   useEffect(() => {
+    if (isInterviewHubMode()) return; // Skip in Interview Hub mode
+
     const fetchNetworkConfig = async () => {
       if (!selectedNetwork) return;
 
@@ -152,9 +179,48 @@ const AgentNamePicker: React.FC = () => {
     setPasswordHash(hash);
     setAgentName(agentNameTrimmed);
 
-    // Navigate to messaging
-    navigate("/messaging");
+    // Navigate to default route based on enabled modules
+    const defaultRoute = getDefaultRoute();
+    navigate(defaultRoute);
   };
+
+  // Show loading screen in Interview Hub mode while redirecting
+  if (isInterviewHubMode()) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-5 bg-gradient-to-br from-indigo-400 to-purple-500 dark:from-blue-800 dark:to-violet-800">
+        <div className="max-w-lg w-full text-center rounded-2xl p-10 bg-white shadow-2xl shadow-black/25 dark:bg-gray-800 dark:shadow-black/50">
+          <div className="flex flex-col items-center justify-center gap-4">
+            <svg
+              className="animate-spin h-12 w-12 text-blue-500"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              ></circle>
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>
+            <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-50">
+              Connecting to Interview Hub...
+            </h2>
+            <p className="text-gray-600 dark:text-gray-300">
+              Please wait while we set up your session.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center p-5 bg-gradient-to-br from-indigo-400 to-purple-500 dark:from-blue-800 dark:to-violet-800">

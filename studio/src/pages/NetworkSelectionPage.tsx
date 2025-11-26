@@ -2,8 +2,14 @@ import React from "react";
 import OpenAgentsLogo from "@/assets/images/openagents-logo-trans-white.png";
 import LocalNetwork from "@/components/network/LocalNetwork";
 import ManualNetwork from "@/components/network/ManualNetwork";
+import InterviewHubLogin from "@/components/interview/InterviewHubLogin";
+import { isInterviewHubMode } from "@/config/interviewHubConfig";
 
 const NetworkSelectionView: React.FC = () => {
+  // Check if Interview Hub mode is enabled
+  if (isInterviewHubMode()) {
+    return <InterviewHubLogin />;
+  }
   const Header = React.memo(() => {
     return (
       <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-8 text-white">

@@ -2,6 +2,7 @@ import React, { useContext, useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { OpenAgentsContext } from "@/context/OpenAgentsProvider";
 import { useInterviewPortalStore } from "@/stores/interviewPortalStore";
+import { isInterviewHubMode } from "@/config/interviewHubConfig";
 import JobListView from "./JobListView";
 import JobDetailView from "./JobDetailView";
 import InterviewerHubView from "./InterviewerHubView";
@@ -26,6 +27,7 @@ const InterviewMainPage: React.FC = () => {
   } = useInterviewPortalStore();
 
   const [showRegistrationModal, setShowRegistrationModal] = useState(false);
+  const [autoRegistrationAttempted, setAutoRegistrationAttempted] = useState(false);
 
   useEffect(() => {
     if (connection) {
@@ -44,14 +46,53 @@ const InterviewMainPage: React.FC = () => {
     checkUserInfo();
   }, [connection, isConnected, checkUserInfo]);
 
-  // Show registration modal if user is not registered
+  // Auto-register in Interview Hub mode
+  useEffect(() => {
+    if (
+      isInterviewHubMode() &&
+      connection &&
+      isConnected &&
+      userInfoChecked &&
+      !userInfo &&
+      !autoRegistrationAttempted
+    ) {
+      // Try to get stored user info from localStorage
+      const storedUserInfoStr = localStorage.getItem('interview_hub_user_info');
+      if (storedUserInfoStr) {
+        try {
+          const storedUserInfo = JSON.parse(storedUserInfoStr);
+          console.log('🎯 Interview Hub Mode: Auto-registering user', storedUserInfo);
+
+          setAutoRegistrationAttempted(true);
+          registerUser(storedUserInfo).then((success) => {
+            if (success) {
+              // Clear the stored info after successful registration
+              localStorage.removeItem('interview_hub_user_info');
+            }
+          });
+        } catch (error) {
+          console.error('Failed to parse stored user info:', error);
+          setAutoRegistrationAttempted(true);
+        }
+      } else {
+        setAutoRegistrationAttempted(true);
+      }
+    }
+  }, [connection, isConnected, userInfoChecked, userInfo, autoRegistrationAttempted, registerUser]);
+
+  // Show registration modal if user is not registered (and not in auto-registration mode)
   useEffect(() => {
     if (userInfoChecked && !userInfo) {
-      setShowRegistrationModal(true);
+      // In Interview Hub mode, only show modal if auto-registration failed
+      if (isInterviewHubMode()) {
+        setShowRegistrationModal(autoRegistrationAttempted);
+      } else {
+        setShowRegistrationModal(true);
+      }
     } else {
       setShowRegistrationModal(false);
     }
-  }, [userInfoChecked, userInfo]);
+  }, [userInfoChecked, userInfo, autoRegistrationAttempted]);
 
   useEffect(() => {
     console.log("connection", connection, isConnected);

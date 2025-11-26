@@ -53,6 +53,11 @@ const RootLayout: React.FC<RootLayoutProps> = ({ children }) => {
 const RootLayoutContent: React.FC<RootLayoutProps> = ({ children }) => {
   const context = useContext(OpenAgentsContext);
   const isConnected = context?.isConnected || false;
+  const { moduleState } = useAuthStore();
+
+  // Hide ModSidebar when interview mod is enabled
+  const isInterviewModEnabled = moduleState.enabledModules.includes("interview");
+  const shouldHideModSidebar = isInterviewModEnabled;
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-slate-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
@@ -61,8 +66,8 @@ const RootLayoutContent: React.FC<RootLayoutProps> = ({ children }) => {
 
       {context && isConnected && (
         <>
-          {/* Left module navigation bar */}
-          <ModSidebar />
+          {/* Left module navigation bar - hidden when interview mod is enabled */}
+          {!shouldHideModSidebar && <ModSidebar />}
 
           {/* Middle content area: sidebar + main content */}
           <div className="flex-1 flex overflow-hidden">

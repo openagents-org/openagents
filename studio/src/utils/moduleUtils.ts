@@ -88,8 +88,13 @@ export const getDefaultRoute = (enabledModules: string[]): string => {
     return "/profile"
   }
 
+  // Special handling for interview mod - redirect to interview page
+  if (enabledModules.includes("interview")) {
+    return "/interview"
+  }
+
   // 按优先级排序模块
-  const priorityOrder = ["messaging", "documents", "forum", "interview", "wiki"]
+  const priorityOrder = ["messaging", "documents", "forum", "wiki"]
 
   for (const priority of priorityOrder) {
     if (enabledModules.includes(priority)) {

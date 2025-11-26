@@ -8,6 +8,7 @@ import { useConfirm } from "@/context/ConfirmContext";
 import { useThemeStore } from "@/stores/themeStore";
 import SidebarContent from "./SidebarContent";
 import { useAuthStore } from "@/stores/authStore";
+import { isInterviewHubMode } from "@/config/interviewHubConfig";
 
 // Header Component - cached component because content is static
 const SidebarHeader: React.FC = React.memo(() => (
@@ -15,7 +16,7 @@ const SidebarHeader: React.FC = React.memo(() => (
     <div className="flex items-center justify-center">
       {/* <OpenAgentsLogo className="w-10 h-10 mr-2 text-gray-900 dark:text-white" /> */}
       <span className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent dark:bg-none dark:text-white">
-        OpenAgents Studio
+        {isInterviewHubMode() ? "Peak Mojo x OpenAgents" : "OpenAgents Studio"}
       </span>
     </div>
   </div>

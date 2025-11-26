@@ -59,7 +59,7 @@ const InterviewerHubView: React.FC = () => {
           source_id: agentId,
           destination_id: "mod:openagents.mods.workspace.messaging",
           payload: {
-            channel_name: channelName,
+            channel: channelName,  // Use "channel" not "channel_name" to match backend expectation
             limit: 100,
           },
         })
@@ -99,13 +99,16 @@ const InterviewerHubView: React.FC = () => {
     if (!isConnected || !connector || !channelName) return
 
     const handleChannelMessage = (event: any) => {
-      // Listen for thread.channel_message.notification event (sent by messaging mod)
-      if (event.event_name === "thread.channel_message.notification") {
+      // Listen for both channel message and reply notification events
+      const isChannelMessage = event.event_name === "thread.channel_message.notification"
+      const isReplyMessage = event.event_name === "thread.reply.notification"
+
+      if (isChannelMessage || isReplyMessage) {
         const payload = event.payload || {}
         const eventChannelName = payload.channel
 
         if (eventChannelName === channelName) {
-          console.log(`📨 Received message for ${channelName}:`, event)
+          console.log(`📨 Received ${isReplyMessage ? 'reply' : 'message'} for ${channelName}:`, event)
 
           // Extract message data from the event
           // The notification event has: source_id (sender), event_id (message ID), timestamp, payload (content)
@@ -114,7 +117,7 @@ const InterviewerHubView: React.FC = () => {
             senderId: event.source_id || "",
             content: payload.content?.text || "",
             timestamp: String(event.timestamp || Date.now()),
-            type: "channel_message",
+            type: isReplyMessage ? "reply_message" : "channel_message",
             channel: channelName,
           }
 

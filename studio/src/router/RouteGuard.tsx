@@ -7,6 +7,7 @@ import { useDynamicRoutes } from "@/hooks/useDynamicRoutes"
 import { isRouteAvailable } from "@/utils/moduleUtils"
 import { fetchNetworkById } from "@/services/networkService"
 import { clearAllOpenAgentsDataForLogout } from "@/utils/cookies"
+import { isInterviewHubMode } from "@/config/interviewHubConfig"
 
 interface RouteGuardProps {
   children: React.ReactNode
@@ -157,6 +158,9 @@ const RouteGuard: React.FC<RouteGuardProps> = ({ children }) => {
   if (currentPath === "/") {
     // If user is fully setup (has network and agent), redirect to default route or show network selection
     if (selectedNetwork && agentName) {
+      // In Interview Hub mode, always redirect to interview page
+      const targetRoute = isInterviewHubMode() ? "/interview" : defaultRoute
+
       // Check if there's a network-id parameter
       if (networkIdParam) {
         // network-id checking is handled by useEffect above
@@ -171,15 +175,15 @@ const RouteGuard: React.FC<RouteGuardProps> = ({ children }) => {
 
         // Check completed and networks match (otherwise state would be cleared)
         console.log(
-          `🔄 Root path with network-id: Network check passed, redirecting to ${defaultRoute}`
+          `🔄 Root path with network-id: Network check passed, redirecting to ${targetRoute}`
         )
-        return <Navigate to={defaultRoute} replace />
+        return <Navigate to={targetRoute} replace />
       } else {
         // No network-id parameter, normal redirect to default route
         console.log(
-          `🔄 Root path: User setup complete, redirecting to ${defaultRoute}`
+          `🔄 Root path: User setup complete, redirecting to ${targetRoute}`
         )
-        return <Navigate to={defaultRoute} replace />
+        return <Navigate to={targetRoute} replace />
       }
     }
     // If user is not fully setup, show NetworkSelectionPage (which is served under /)
@@ -245,17 +249,22 @@ const RouteGuard: React.FC<RouteGuardProps> = ({ children }) => {
     // Check if route is available in enabled modules
     // Special case: project routes (/project and /project/:projectId) are always available
     // as they provide project management and private chat room functionality
+    // Special case: interview routes in Interview Hub mode are always available
     const isProjectRoute = currentPath.startsWith("/project")
+    const isInterviewRoute = currentPath.startsWith("/interview")
+    const isInterviewHubModeActive = isInterviewHubMode()
 
     if (
       isModulesLoaded &&
       !isProjectRoute &&
+      !(isInterviewRoute && isInterviewHubModeActive) &&
       !isRouteAvailable(currentPath, enabledModules)
     ) {
+      const targetRoute = isInterviewHubModeActive ? "/interview" : defaultRoute
       console.log(
-        `🔄 Route ${currentPath} not available in enabled modules, redirecting to ${defaultRoute}`
+        `🔄 Route ${currentPath} not available in enabled modules, redirecting to ${targetRoute}`
       )
-      return <Navigate to={defaultRoute} replace />
+      return <Navigate to={targetRoute} replace />
     }
 
     // Setup complete, allow access to authenticated route
@@ -264,10 +273,11 @@ const RouteGuard: React.FC<RouteGuardProps> = ({ children }) => {
 
   // Handle invalid paths - redirect to appropriate page
   if (selectedNetwork && agentName) {
+    const targetRoute = isInterviewHubMode() ? "/interview" : defaultRoute
     console.log(
-      `🔄 Invalid route ${currentPath} with complete setup, redirecting to ${defaultRoute}`
+      `🔄 Invalid route ${currentPath} with complete setup, redirecting to ${targetRoute}`
     )
-    return <Navigate to={defaultRoute} replace />
+    return <Navigate to={targetRoute} replace />
   } else {
     console.log(
       `🔄 Invalid route ${currentPath} without setup, redirecting to /`

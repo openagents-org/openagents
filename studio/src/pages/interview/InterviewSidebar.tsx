@@ -1,6 +1,7 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useInterviewPortalStore } from "@/stores/interviewPortalStore";
+import { isInterviewHubMode } from "@/config/interviewHubConfig";
 
 interface NavigationItem {
   label: string;
@@ -54,34 +55,19 @@ const navItems: NavigationItem[] = [
 
 const InterviewSidebar: React.FC = () => {
   const location = useLocation();
-  const { jobs, notifications, interviews, assessmentStatus, userInfo } =
+  const { assessmentStatus, userInfo } =
     useInterviewPortalStore();
-
-  const stats = useMemo(() => {
-    return [
-      {
-        label: "Online Agents",
-        value: 0, // TODO: Implement network.agents.list event to get actual count
-      },
-      {
-        label: "Unread Notices",
-        value: notifications.filter((item) => !item.read).length,
-      },
-      {
-        label: "Scheduled Interviews",
-        value: interviews.length,
-      },
-    ];
-  }, [notifications, interviews.length]);
 
   return (
     <div className="h-full flex flex-col bg-white/60 dark:bg-gray-900/60 backdrop-blur">
       <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-        <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
-          Interview Workspace
-        </p>
-        <h2 className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">
-          Interview Hub
+        {!isInterviewHubMode() && (
+          <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
+            Interview Workspace
+          </p>
+        )}
+        <h2 className={`${isInterviewHubMode() ? "" : "mt-1 "}text-xl font-bold text-gray-900 dark:text-gray-100`}>
+          {isInterviewHubMode() ? "AI Interview Hub" : "Interview Hub"}
         </h2>
         {assessmentStatus && (
           <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-900/40 dark:bg-blue-900/20 px-3 py-2">
@@ -153,24 +139,6 @@ const InterviewSidebar: React.FC = () => {
           </div>
         )}
 
-        <div className="border-t border-gray-200 dark:border-gray-700 px-5 py-4 space-y-3">
-          <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-            Network Information
-          </p>
-          <div className="space-y-2">
-            {stats.map((stat) => (
-              <div
-                key={stat.label}
-                className="flex items-center justify-between text-sm text-gray-700 dark:text-gray-200"
-              >
-                <span>{stat.label}</span>
-                <span className="font-semibold text-gray-900 dark:text-gray-100">
-                  {stat.value}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );
