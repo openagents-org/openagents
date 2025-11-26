@@ -501,6 +501,9 @@ class AgentClient:
                 verbose_print(f"🚀 Sending event via connector...")
                 result = await self.connector.send_event(processed_event)
                 self._event_id_map[processed_event.event_id] = processed_event
+
+                # Add sent event to local event threads for client-local threading
+                self._add_event_to_thread(processed_event)
                 
                 # Enhanced result logging
                 success = getattr(result, 'success', 'Unknown') if result else False
@@ -655,6 +658,29 @@ class AgentClient:
         """
         return self._event_threads
 
+    def _add_event_to_thread(self, event: Event) -> None:
+        """Add an event to the appropriate thread.
+
+        This method handles thread name assignment and adds the event to the
+        corresponding thread in _event_threads.
+
+        Args:
+            event: The event to add to threads
+        """
+        # If no thread_name is set, automatically generate one from the event name
+        if event.thread_name is None:
+            if "." in event.event_name:
+                event.thread_name = "thread:" + event.event_name.rsplit(".", 1)[0]
+            else:
+                event.thread_name = "thread:" + event.event_name
+
+        # Create thread if it doesn't exist
+        if event.thread_name not in self._event_threads:
+            self._event_threads[event.thread_name] = EventThread()
+
+        # Add the event to the thread
+        self._event_threads[event.thread_name].add_event(event)
+
     async def _handle_event(self, event: Event) -> None:
         """Handle an incoming event from the network.
 
@@ -726,21 +752,10 @@ class AgentClient:
 
         if processed_event is None:
             return
-        # If no mod adapter classified the event, automatically classify using the event name
-        if event.thread_name is None:
-            # Create a thread ID for the Event
-            if "." in event.event_name:
-                event.thread_name = "thread:" + event.event_name.rsplit(".", 1)[0]
-            else:
-                event.thread_name = "thread:" + event.event_name
 
-        # Try to add the event to any available mod adapter's event threads
-        if event.thread_name not in self._event_threads:
-            self._event_threads[event.thread_name] = EventThread()
-
-        # Add the Event to the thread
+        # Add the event to the appropriate thread
         self._event_id_map[event.event_id] = event
-        self._event_threads[event.thread_name].add_event(event)
+        self._add_event_to_thread(event)
     
     def get_cached_event(self, event_id: str) -> Optional[Event]:
         """Get an event by its ID from the cache."""
