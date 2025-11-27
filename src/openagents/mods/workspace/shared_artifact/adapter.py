@@ -112,7 +112,7 @@ class SharedArtifactAdapter(BaseModAdapter):
             message = Event(
                 event_name="shared_artifact.create",
                 source_id=self.agent_id,
-                relevant_mod="openagents.mods.core.shared_artifact",
+                relevant_mod="openagents.mods.workspace.shared_artifact",
                 visibility=EventVisibility.MOD_ONLY,
                 payload={
                     "content": content,
@@ -178,7 +178,7 @@ class SharedArtifactAdapter(BaseModAdapter):
             message = Event(
                 event_name="shared_artifact.get",
                 source_id=self.agent_id,
-                relevant_mod="openagents.mods.core.shared_artifact",
+                relevant_mod="openagents.mods.workspace.shared_artifact",
                 visibility=EventVisibility.MOD_ONLY,
                 payload={"artifact_id": artifact_id},
             )
@@ -242,7 +242,7 @@ class SharedArtifactAdapter(BaseModAdapter):
             message = Event(
                 event_name="shared_artifact.update",
                 source_id=self.agent_id,
-                relevant_mod="openagents.mods.core.shared_artifact",
+                relevant_mod="openagents.mods.workspace.shared_artifact",
                 visibility=EventVisibility.MOD_ONLY,
                 payload={"artifact_id": artifact_id, "content": content},
             )
@@ -305,7 +305,7 @@ class SharedArtifactAdapter(BaseModAdapter):
             message = Event(
                 event_name="shared_artifact.delete",
                 source_id=self.agent_id,
-                relevant_mod="openagents.mods.core.shared_artifact",
+                relevant_mod="openagents.mods.workspace.shared_artifact",
                 visibility=EventVisibility.MOD_ONLY,
                 payload={"artifact_id": artifact_id},
             )
@@ -370,7 +370,7 @@ class SharedArtifactAdapter(BaseModAdapter):
             message = Event(
                 event_name="shared_artifact.list",
                 source_id=self.agent_id,
-                relevant_mod="openagents.mods.core.shared_artifact",
+                relevant_mod="openagents.mods.workspace.shared_artifact",
                 visibility=EventVisibility.MOD_ONLY,
                 payload=payload,
             )

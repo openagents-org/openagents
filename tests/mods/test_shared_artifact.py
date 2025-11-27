@@ -165,7 +165,7 @@ async def test_create_artifact(admin_client):
             "mime_type": "application/json",
             "allowed_agent_groups": [],  # Public - accessible by all
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     print("📤 Creating artifact...")
@@ -198,7 +198,7 @@ async def test_create_and_get_artifact(admin_client):
             "mime_type": "application/json",
             "allowed_agent_groups": [],
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     create_response = await admin_client.send_event(create_event)
@@ -212,7 +212,7 @@ async def test_create_and_get_artifact(admin_client):
         event_name="shared_artifact.get",
         source_id="admin_agent",
         payload={"artifact_id": artifact_id},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     get_response = await admin_client.send_event(get_event)
@@ -251,7 +251,7 @@ async def test_update_artifact(admin_client):
             "mime_type": "text/plain",
             "allowed_agent_groups": [],
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     create_response = await admin_client.send_event(create_event)
@@ -265,7 +265,7 @@ async def test_update_artifact(admin_client):
             "artifact_id": artifact_id,
             "content": "Updated value",
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     update_response = await admin_client.send_event(update_event)
@@ -279,7 +279,7 @@ async def test_update_artifact(admin_client):
         event_name="shared_artifact.get",
         source_id="admin_agent",
         payload={"artifact_id": artifact_id},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     get_response = await admin_client.send_event(get_event)
@@ -306,7 +306,7 @@ async def test_delete_artifact(admin_client):
             "mime_type": "text/plain",
             "allowed_agent_groups": [],
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     create_response = await admin_client.send_event(create_event)
@@ -317,7 +317,7 @@ async def test_delete_artifact(admin_client):
         event_name="shared_artifact.delete",
         source_id="admin_agent",
         payload={"artifact_id": artifact_id},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     delete_response = await admin_client.send_event(delete_event)
@@ -331,7 +331,7 @@ async def test_delete_artifact(admin_client):
         event_name="shared_artifact.get",
         source_id="admin_agent",
         payload={"artifact_id": artifact_id},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     get_response = await admin_client.send_event(get_event)
@@ -360,7 +360,7 @@ async def test_list_artifacts(admin_client):
             "mime_type": "application/json",
             "allowed_agent_groups": [],
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
     response = await admin_client.send_event(create_json)
     artifacts.append(response.data["artifact_id"])
@@ -375,7 +375,7 @@ async def test_list_artifacts(admin_client):
             "mime_type": "text/plain",
             "allowed_agent_groups": [],
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
     response = await admin_client.send_event(create_text)
     artifacts.append(response.data["artifact_id"])
@@ -385,7 +385,7 @@ async def test_list_artifacts(admin_client):
         event_name="shared_artifact.list",
         source_id="admin_agent",
         payload={},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     list_response = await admin_client.send_event(list_event)
@@ -403,7 +403,7 @@ async def test_list_artifacts(admin_client):
         event_name="shared_artifact.list",
         source_id="admin_agent",
         payload={"mime_type": "application/json"},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     list_json_response = await admin_client.send_event(list_json_event)
@@ -438,7 +438,7 @@ async def test_binary_artifact(admin_client):
             "mime_type": "image/png",
             "allowed_agent_groups": [],
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     create_response = await admin_client.send_event(create_event)
@@ -452,7 +452,7 @@ async def test_binary_artifact(admin_client):
         event_name="shared_artifact.get",
         source_id="admin_agent",
         payload={"artifact_id": artifact_id},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     get_response = await admin_client.send_event(get_event)
@@ -487,7 +487,7 @@ async def test_access_control_restricted_artifact(admin_client, analyst_client, 
             "mime_type": "text/plain",
             "allowed_agent_groups": ["admin", "analysts"],
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     create_response = await admin_client.send_event(create_event)
@@ -500,7 +500,7 @@ async def test_access_control_restricted_artifact(admin_client, analyst_client, 
         event_name="shared_artifact.get",
         source_id="analyst_agent",
         payload={"artifact_id": artifact_id},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     analyst_response = await analyst_client.send_event(get_event_analyst)
@@ -513,7 +513,7 @@ async def test_access_control_restricted_artifact(admin_client, analyst_client, 
         event_name="shared_artifact.get",
         source_id="user_agent",
         payload={"artifact_id": artifact_id},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     user_response = await user_client.send_event(get_event_user)
@@ -542,7 +542,7 @@ async def test_list_filters_by_access_control(admin_client, user_client):
             "mime_type": "text/plain",
             "allowed_agent_groups": ["admin"],
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
     await admin_client.send_event(create_restricted)
 
@@ -556,7 +556,7 @@ async def test_list_filters_by_access_control(admin_client, user_client):
             "mime_type": "text/plain",
             "allowed_agent_groups": [],
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
     await admin_client.send_event(create_public)
 
@@ -565,7 +565,7 @@ async def test_list_filters_by_access_control(admin_client, user_client):
         event_name="shared_artifact.list",
         source_id="admin_agent",
         payload={},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
     admin_response = await admin_client.send_event(admin_list)
     admin_count = len(admin_response.data["artifacts"])
@@ -575,7 +575,7 @@ async def test_list_filters_by_access_control(admin_client, user_client):
         event_name="shared_artifact.list",
         source_id="user_agent",
         payload={},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
     user_response = await user_client.send_event(user_list)
     user_count = len(user_response.data["artifacts"])
@@ -599,7 +599,7 @@ async def test_get_nonexistent_artifact(admin_client):
         event_name="shared_artifact.get",
         source_id="admin_agent",
         payload={"artifact_id": "nonexistent-artifact-id-12345"},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     response = await admin_client.send_event(get_event)
@@ -629,7 +629,7 @@ async def test_update_restricted_artifact_access_denied(admin_client, user_clien
             "mime_type": "text/plain",
             "allowed_agent_groups": ["admin"],
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     create_response = await admin_client.send_event(create_event)
@@ -643,7 +643,7 @@ async def test_update_restricted_artifact_access_denied(admin_client, user_clien
             "artifact_id": artifact_id,
             "content": "Hacked content",
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     update_response = await user_client.send_event(update_event)
@@ -672,7 +672,7 @@ async def test_delete_restricted_artifact_access_denied(admin_client, user_clien
             "mime_type": "text/plain",
             "allowed_agent_groups": ["admin"],
         },
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     create_response = await admin_client.send_event(create_event)
@@ -683,7 +683,7 @@ async def test_delete_restricted_artifact_access_denied(admin_client, user_clien
         event_name="shared_artifact.delete",
         source_id="user_agent",
         payload={"artifact_id": artifact_id},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     delete_response = await user_client.send_event(delete_event)
@@ -697,7 +697,7 @@ async def test_delete_restricted_artifact_access_denied(admin_client, user_clien
         event_name="shared_artifact.get",
         source_id="admin_agent",
         payload={"artifact_id": artifact_id},
-        relevant_mod="openagents.mods.core.shared_artifact",
+        relevant_mod="openagents.mods.workspace.shared_artifact",
     )
 
     get_response = await admin_client.send_event(get_event)

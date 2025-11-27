@@ -152,7 +152,7 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     try {
       const response = await connection.sendEvent({
         event_name: "shared_artifact.get",
-        destination_id: "mod:openagents.mods.core.shared_artifact",
+        destination_id: "mod:openagents.mods.workspace.shared_artifact",
         payload: {
           artifact_id: artifactId,
         },
@@ -201,7 +201,7 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
 
       const response = await connection.sendEvent({
         event_name: "shared_artifact.create",
-        destination_id: "mod:openagents.mods.core.shared_artifact",
+        destination_id: "mod:openagents.mods.workspace.shared_artifact",
         payload,
       });
 
@@ -243,7 +243,7 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     try {
       const response = await connection.sendEvent({
         event_name: "shared_artifact.update",
-        destination_id: "mod:openagents.mods.core.shared_artifact",
+        destination_id: "mod:openagents.mods.workspace.shared_artifact",
         payload: {
           artifact_id: artifactId,
           content: content,
@@ -282,7 +282,7 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
     try {
       const response = await connection.sendEvent({
         event_name: "shared_artifact.delete",
-        destination_id: "mod:openagents.mods.core.shared_artifact",
+        destination_id: "mod:openagents.mods.workspace.shared_artifact",
         payload: {
           artifact_id: artifactId,
         },

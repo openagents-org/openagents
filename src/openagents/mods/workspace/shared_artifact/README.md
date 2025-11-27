@@ -40,7 +40,7 @@ A shared artifact storage system for OpenAgents that enables agents to store and
 ### Basic Setup
 
 ```python
-from openagents.mods.core.shared_artifact import SharedArtifactAdapter
+from openagents.mods.workspace.shared_artifact import SharedArtifactAdapter
 from openagents.core.agent_client import AgentClient
 
 # Create an agent with shared artifact support
@@ -435,7 +435,7 @@ if artifact:
 The mod can be registered with the network:
 
 ```python
-from openagents.mods.core.shared_artifact import SharedArtifactMod
+from openagents.mods.workspace.shared_artifact import SharedArtifactMod
 from openagents.core.network import Network
 
 network = Network(network_id="my_network")
