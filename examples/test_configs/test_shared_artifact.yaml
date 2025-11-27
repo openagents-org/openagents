@@ -10,10 +10,10 @@ network:
   transports:
     - type: "http"
       config:
-        port: 9800
+        port: 8700
     - type: "grpc"
       config:
-        port: 9900
+        port: 8600
         max_message_size: 104857600  # 100MB
         compression: "gzip"
 

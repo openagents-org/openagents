@@ -7,6 +7,7 @@ import AgentSetupPage from "@/pages/AgentSetupPage"
 import MessagingMainPage from "@/pages/messaging/MessagingMainPage"
 import ProjectMainPage from "@/pages/project/ProjectMainPage"
 import ForumMainPage from "@/pages/forum/ForumMainPage"
+import ArtifactMainPage from "@/pages/artifact/ArtifactMainPage"
 import WikiMainPage from "@/pages/wiki/WikiMainPage"
 import DocumentsMainPage from "@/pages/documents/DocumentsMainPage"
 import ProjectChatRoom from "@/pages/messaging/components/ProjectChatRoom"
@@ -51,6 +52,23 @@ export const NavigationIcons = {
     )
   ),
   Forum: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z",
+      })
+    )
+  ),
+  Artifact: React.memo(() =>
     React.createElement(
       "svg",
       {
@@ -239,6 +257,21 @@ export const dynamicRouteConfig: RouteConfig[] = [
     },
   },
   {
+    path: "/artifact/*",
+    element: ArtifactMainPage,
+    title: "Artifact",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.ARTIFACT,
+      label: "Artifact",
+      icon: "Artifact",
+      visible: true,
+      order: 2.2,
+      group: "primary",
+    },
+  },
+  {
     path: "/wiki/*",
     element: WikiMainPage,
     title: "Wiki",
@@ -402,9 +435,10 @@ export const getVisibleNavigationRoutes = () => {
 
 // Utility function: get navigation routes by group
 export const getNavigationRoutesByGroup = (group: "primary" | "secondary") => {
-  return getVisibleNavigationRoutes().filter(
+  const visibleRoutes = getVisibleNavigationRoutes();
+  return visibleRoutes.filter(
     (route) => route.navigationConfig?.group === group
-  )
+  );
 }
 
 // // Utility function: get visible quick actions

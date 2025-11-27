@@ -122,6 +122,43 @@ network:
         search_results_limit: 50
         search_content_preview_length: 200
     
+    # Shared Artifact storage for file sharing and collaboration
+    - name: "openagents.mods.workspace.shared_artifact"
+      enabled: true
+      config:
+        # Storage settings
+        artifacts_dir: "./data/artifacts"
+        max_file_size: 52428800  # 50MB
+        
+        # Supported MIME types for artifacts
+        allowed_mime_types:
+          - "text/plain"
+          - "text/markdown"
+          - "text/html"
+          - "text/csv"
+          - "application/json"
+          - "application/xml"
+          - "application/pdf"
+          - "image/png"
+          - "image/jpeg"
+          - "image/gif"
+          - "image/webp"
+        
+        # Access control settings
+        enable_agent_groups: true
+        default_access_level: "all"  # "all" or "restricted"
+        
+        # Notification settings
+        enable_notifications: true
+        notify_on_create: true
+        notify_on_update: true
+        notify_on_delete: true
+        
+        # Cleanup settings
+        enable_cleanup: false
+        cleanup_interval_hours: 24
+        max_artifact_age_days: 365
+    
     # Workspace functionality for collaboration
     - name: "openagents.mods.workspace.default"
       enabled: true
