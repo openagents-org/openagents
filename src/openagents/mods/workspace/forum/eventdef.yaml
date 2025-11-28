@@ -409,6 +409,7 @@ components:
       title: Create Topic
       summary: Create a new forum topic
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/TopicCreatePayload'
 
@@ -417,6 +418,7 @@ components:
       title: Edit Topic
       summary: Edit an existing forum topic
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/TopicEditPayload'
 
@@ -425,6 +427,7 @@ components:
       title: Delete Topic
       summary: Delete a forum topic
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/TopicDeletePayload'
 
@@ -433,6 +436,7 @@ components:
       title: Post Comment
       summary: Post a top-level comment on a topic
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/CommentPostPayload'
 
@@ -441,6 +445,7 @@ components:
       title: Reply to Comment
       summary: Reply to an existing comment
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/CommentReplyPayload'
 
@@ -449,6 +454,7 @@ components:
       title: Edit Comment
       summary: Edit an existing comment
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/CommentEditPayload'
 
@@ -457,6 +463,7 @@ components:
       title: Delete Comment
       summary: Delete a comment
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/CommentDeletePayload'
 
@@ -465,6 +472,7 @@ components:
       title: Cast Vote
       summary: Cast a vote on a topic or comment
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/VoteCastPayload'
 
@@ -473,6 +481,7 @@ components:
       title: Remove Vote
       summary: Remove a vote from a topic or comment
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/VoteRemovePayload'
 
@@ -481,6 +490,7 @@ components:
       title: List Topics
       summary: List all forum topics
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/TopicsListPayload'
 
@@ -489,6 +499,7 @@ components:
       title: Search Topics
       summary: Search topics by keywords
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/TopicsSearchPayload'
 
@@ -497,6 +508,7 @@ components:
       title: Get Topic
       summary: Get a specific topic with all comments
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/TopicGetPayload'
 
@@ -505,6 +517,7 @@ components:
       title: Get Popular Topics
       summary: Get popular topics
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/PopularTopicsPayload'
 
@@ -513,6 +526,7 @@ components:
       title: Get Recent Topics
       summary: Get recent topics
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/RecentTopicsPayload'
 
@@ -521,6 +535,7 @@ components:
       title: Get User Topics
       summary: Get topics created by a user
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/UserTopicsPayload'
 
@@ -529,6 +544,7 @@ components:
       title: Get User Comments
       summary: Get comments made by a user
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/UserCommentsPayload'
 
@@ -538,6 +554,7 @@ components:
       title: Topic Create Response
       summary: Response to topic creation
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/TopicCreateResponsePayload'
 
@@ -546,6 +563,7 @@ components:
       title: Topic Edit Response
       summary: Response to topic edit
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/TopicEditResponsePayload'
 
@@ -554,6 +572,7 @@ components:
       title: Topic Delete Response
       summary: Response to topic deletion
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/TopicDeleteResponsePayload'
 
@@ -562,6 +581,7 @@ components:
       title: Comment Post Response
       summary: Response to comment posting
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/CommentPostResponsePayload'
 
@@ -570,6 +590,7 @@ components:
       title: Vote Response
       summary: Response to voting operation
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/VoteResponsePayload'
 
@@ -578,6 +599,7 @@ components:
       title: Query Response
       summary: Response to query operation
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/QueryResponsePayload'
 
@@ -587,6 +609,7 @@ components:
       title: Topic Created Notification
       summary: Notification when a topic is created
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/TopicNotificationPayload'
 
@@ -595,6 +618,7 @@ components:
       title: Topic Edited Notification
       summary: Notification when a topic is edited
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/TopicNotificationPayload'
 
@@ -603,6 +627,7 @@ components:
       title: Topic Deleted Notification
       summary: Notification when a topic is deleted
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/TopicNotificationPayload'
 
@@ -611,6 +636,7 @@ components:
       title: Comment Posted Notification
       summary: Notification when a comment is posted
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/CommentNotificationPayload'
 
@@ -619,6 +645,7 @@ components:
       title: Comment Replied Notification
       summary: Notification when a comment is replied to
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/CommentNotificationPayload'
 
@@ -627,6 +654,7 @@ components:
       title: Comment Edited Notification
       summary: Notification when a comment is edited
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/CommentNotificationPayload'
 
@@ -635,6 +663,7 @@ components:
       title: Comment Deleted Notification
       summary: Notification when a comment is deleted
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/CommentNotificationPayload'
 
@@ -643,6 +672,7 @@ components:
       title: Vote Notification
       summary: Notification when a vote is cast
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/VoteNotificationPayload'
 

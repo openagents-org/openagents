@@ -3,7 +3,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { profileSelectors } from "@/stores/profileStore";
 
 const AgentInfoCard: React.FC = () => {
-  const { agentName } = useAuthStore();
+  const { agentName, agentGroup } = useAuthStore();
   const lastUpdated = profileSelectors.useLastUpdated();
   const connectionLatency = profileSelectors.useConnectionLatency();
   const isOnline = profileSelectors.useIsOnline();
@@ -46,6 +46,11 @@ const AgentInfoCard: React.FC = () => {
                 <div className="text-sm text-gray-600 dark:text-gray-400">
                   AI Agent
                 </div>
+                {agentGroup && (
+                  <div className="mt-1 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200">
+                    👥 {agentGroup}
+                  </div>
+                )}
               </div>
             </div>
           </div>

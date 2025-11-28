@@ -450,18 +450,28 @@ class AgentRunner(ABC):
                         continue
 
                     # Create a copy of conversation threads that doesn't include future messages
+                    # But always include the agent's own messages so it can see what it said
                     current_time = unprocessed_message.timestamp
                     filtered_threads = {}
 
                     for thread_id, thread in event_threads.items():
                         # Create a new thread with only messages up to the current message's timestamp
+                        # Exception: always include agent's own messages regardless of timestamp
+                        # This ensures the agent can see its own previous responses in the conversation
                         filtered_thread = EventThread()
                         filtered_thread.events = [
                             msg
                             for msg in thread.events
-                            if msg.timestamp <= current_time
+                            if msg.timestamp <= current_time or msg.source_id == self.agent_id
                         ]
                         filtered_threads[thread_id] = filtered_thread
+
+                    # Apply reaction delay if configured
+                    if self._agent_config and self._agent_config.reaction_delay:
+                        delay = self._agent_config.get_reaction_delay()
+                        if delay > 0:
+                            print(f"⏳ Applying reaction delay: {delay:.2f}s")
+                            await asyncio.sleep(delay)
 
                     # Create EventContext and call react
                     context = EventContext(

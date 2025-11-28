@@ -1,0 +1,78 @@
+# Demo 0: Hello World
+# The simplest possible OpenAgents demo - one agent that replies to any message
+
+network:
+  name: "HelloWorld"
+  mode: "centralized"
+  node_id: "hello-world-1"
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+    - type: "grpc"
+      config:
+        port: 8600
+        max_message_size: 104857600
+        compression: "gzip"
+        keepalive_time: 60000
+        keepalive_timeout: 30000
+
+  manifest_transport: "http"
+  recommended_transport: "grpc"
+
+  # Security configuration
+  encryption_enabled: false
+
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+
+  # Connection management
+  max_connections: 10
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  # Mod configuration
+  mods:
+    - name: "openagents.mods.workspace.messaging"
+      enabled: true
+      config:
+        default_channels:
+          - name: "general"
+            description: "General chat channel"
+        max_thread_depth: 5
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "Hello World"
+  description: "The simplest OpenAgents demo - one agent that replies to any message"
+  tags:
+    - "demo"
+    - "hello-world"
+    - "beginner"
+  categories:
+    - "demo"
+  country: "Worldwide"
+  required_openagents_version: "0.6.13"
+  capacity: 10
+  authentication:
+    type: "none"
+  host: "0.0.0.0"
+  port: 8700
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/hello-world"
+
+runtime_limit: null
+shutdown_timeout: 30

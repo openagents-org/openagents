@@ -18,6 +18,9 @@ interface NetworkState {
   agentName: string | null;
   setAgentName: (name: string | null) => void;
   clearAgentName: () => void;
+  agentGroup: string | null;
+  setAgentGroup: (group: string | null) => void;
+  clearAgentGroup: () => void;
   passwordHashEncrypted: string | null; // Store encrypted version
   setPasswordHash: (hash: string | null) => void; // Encrypts before storing
   getPasswordHash: () => string | null; // Decrypts when retrieving
@@ -42,6 +45,7 @@ export const useAuthStore = create<NetworkState>()(
     (set, get) => ({
       selectedNetwork: null,
       agentName: null,
+      agentGroup: null,
       passwordHashEncrypted: null,
 
       // Initialize module state
@@ -67,6 +71,14 @@ export const useAuthStore = create<NetworkState>()(
 
       clearAgentName: () => {
         set({ agentName: null });
+      },
+
+      setAgentGroup: (group: string | null) => {
+        set({ agentGroup: group });
+      },
+
+      clearAgentGroup: () => {
+        set({ agentGroup: null });
       },
 
       setPasswordHash: (hash: string | null) => {
@@ -113,6 +125,7 @@ export const useAuthStore = create<NetworkState>()(
         set({ selectedNetwork: null });
         get().clearModules();
         get().clearPasswordHash();
+        get().clearAgentGroup();
       },
 
       // Module management actions
@@ -158,9 +171,10 @@ export const useAuthStore = create<NetworkState>()(
       partialize: (state) => ({
         selectedNetwork: state.selectedNetwork,
         agentName: state.agentName,
+        agentGroup: state.agentGroup,
         passwordHashEncrypted: state.passwordHashEncrypted, // Persist encrypted password hash
         moduleState: state.moduleState,
-      }), // persist network, agent, encrypted password hash, and module state
+      }), // persist network, agent, agent group, encrypted password hash, and module state
     }
   )
 );

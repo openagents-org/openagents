@@ -1,0 +1,154 @@
+asyncapi: '3.0.0'
+info:
+  title: OpenAgents [Mod Name] API
+  version: '1.0.0'
+  description: |
+    Event definition for the OpenAgents [Mod Name] mod.
+    
+    ## Features
+    - [Feature 1]
+    - [Feature 2]
+    - [Feature 3]
+
+  contact:
+    name: OpenAgents Team
+  license:
+    name: MIT
+
+defaultContentType: application/json
+
+channels:
+  # Operation channels
+  operationExample:
+    address: mod_name.operation.example
+    messages:
+      operationExampleMessage:
+        $ref: '#/components/messages/OperationExampleMessage'
+
+  # Response channels
+  operationExampleResponse:
+    address: mod_name.operation.example.response
+    messages:
+      operationExampleResponse:
+        $ref: '#/components/messages/OperationExampleResponse'
+
+  # Notification channels
+  exampleNotification:
+    address: mod_name.notification.example
+    messages:
+      exampleNotification:
+        $ref: '#/components/messages/ExampleNotification'
+
+operations:
+  # Send operations (agent-initiated requests)
+  performOperation:
+    action: send
+    channel:
+      $ref: '#/channels/operationExample'
+    summary: Perform an example operation
+
+  # Receive operations (responses and notifications)
+  receiveOperationResponse:
+    action: receive
+    channel:
+      $ref: '#/channels/operationExampleResponse'
+    summary: Receive operation response
+
+  receiveNotification:
+    action: receive
+    channel:
+      $ref: '#/channels/exampleNotification'
+    summary: Receive example notification
+
+components:
+  parameters:
+    exampleId:
+      description: The unique identifier of an example entity
+
+    agentId:
+      description: The unique identifier of an agent in the OpenAgents network
+
+  messages:
+    # Operation messages (agent-initiated requests)
+    OperationExampleMessage:
+      name: OperationExampleMessage
+      title: Example Operation
+      summary: Perform an example operation
+      contentType: application/json
+      x_event_type: operation
+      payload:
+        $ref: '#/components/schemas/OperationExamplePayload'
+
+    # Response messages (responses to operations)
+    OperationExampleResponse:
+      name: OperationExampleResponse
+      title: Operation Example Response
+      summary: Response to example operation
+      contentType: application/json
+      x_event_type: response
+      payload:
+        $ref: '#/components/schemas/OperationExampleResponsePayload'
+
+    # Notification messages (broadcast events)
+    ExampleNotification:
+      name: ExampleNotification
+      title: Example Notification
+      summary: Notification when an example event occurs
+      contentType: application/json
+      x_event_type: notification
+      payload:
+        $ref: '#/components/schemas/ExampleNotificationPayload'
+
+  schemas:
+    # Operation payload schemas
+    OperationExamplePayload:
+      type: object
+      required:
+        - example_field
+      properties:
+        example_field:
+          type: string
+          description: An example field
+          example: "example_value"
+        optional_field:
+          type: string
+          description: An optional field
+          example: "optional_value"
+
+    # Response payload schemas
+    OperationExampleResponsePayload:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: Whether the operation was successful
+        result:
+          type: string
+          description: Result data (only present if success=true)
+          example: "result_value"
+        error:
+          type: string
+          description: Error message if unsuccessful
+          example: "Error message"
+
+    # Notification payload schemas
+    ExampleNotificationPayload:
+      type: object
+      required:
+        - event_type
+        - timestamp
+      properties:
+        event_type:
+          type: string
+          description: Type of event that occurred
+          example: "example_created"
+        timestamp:
+          type: integer
+          description: Unix timestamp when the event occurred
+          example: 1699564800
+        data:
+          type: object
+          description: Event-specific data
+          additionalProperties: true

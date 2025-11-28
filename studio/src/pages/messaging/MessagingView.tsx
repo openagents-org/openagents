@@ -440,11 +440,6 @@ const ThreadMessagingViewEventBased: React.FC = () => {
             // Use project.message.send for project channels
             try {
               const agentId = connectionStatus.agentId || connector.getAgentId();
-              const channelMessagesList = channelMessages.get(currentChannel) || [];
-              const isFirstMessage = channelMessagesList.length === 0;
-
-              // If this is the first message, the goal will be set from the message content
-              // The backend should handle updating the project goal from the first message
 
               // Send message using project.message.send
               const messageResponse = await connector.sendEvent({
@@ -502,7 +497,6 @@ const ThreadMessagingViewEventBased: React.FC = () => {
       sendChannelMessage,
       sendDirectMessage,
       isProjectChannelActive,
-      channelMessages,
       connector,
       connectionStatus.agentId,
     ]

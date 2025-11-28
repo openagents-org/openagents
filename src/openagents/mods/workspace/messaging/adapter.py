@@ -243,7 +243,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             payload=payload,
         )
 
-        await self.connector.send_event(direct_msg)
+        await self.agent_client.send_event(direct_msg)
         logger.debug(f"Sent direct message to {target_agent_id}")
 
     async def send_channel_message(
@@ -330,7 +330,9 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         )
         logger.info(f"🔧 ADAPTER: Event destination_id={message.destination_id}")
 
-        await self.connector.send_event(message)
+        # Use agent_client.send_event() instead of connector directly
+        # This ensures the event is stored in _event_threads so agents can see their own messages
+        await self.agent_client.send_event(message)
         logger.debug(f"Sent channel message to {channel}")
         return True
 
@@ -493,7 +495,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             if hasattr(self.connector, "send_mod_message"):
                 await self.connector.send_mod_message(message)
             else:
-                await self.connector.send_event(message)
+                await self.agent_client.send_event(message)
             logger.debug(f"Initiated file upload for {file_path.name}")
 
             # Wait for response with timeout
@@ -570,7 +572,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         message = reply_msg
         message.relevant_mod = "openagents.mods.workspace.messaging"
 
-        await self.connector.send_event(message)
+        await self.agent_client.send_event(message)
         logger.debug(f"Sent reply to message {reply_to_id} in channel {channel}")
 
     async def retrieve_channel_messages(
@@ -629,7 +631,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             "timestamp": message.timestamp,
         }
 
-        await self.connector.send_event(message)
+        await self.agent_client.send_event(message)
         logger.debug(
             f"Requested channel messages for {channel} (limit={limit}, offset={offset})"
         )
@@ -690,7 +692,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             "timestamp": message.timestamp,
         }
 
-        await self.connector.send_event(message)
+        await self.agent_client.send_event(message)
         logger.debug(
             f"Requested direct messages with {target_agent_id} (limit={limit}, offset={offset})"
         )
@@ -751,7 +753,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             "timestamp": message.timestamp,
         }
 
-        await self.connector.send_event(message)
+        await self.agent_client.send_event(message)
         logger.debug("Requested channels list")
 
         # Wait for response with timeout
@@ -835,7 +837,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             payload=reaction_msg.model_dump(),
         )
 
-        await self.connector.send_event(message)
+        await self.agent_client.send_event(message)
         logger.debug(
             f"Sent {action} reaction {reaction_type} for message {target_message_id}"
         )

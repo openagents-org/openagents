@@ -23,6 +23,7 @@ class BaseModAdapter(ABC):
         self._mod_name = mod_name
         self._agent_id = None
         self._connector = None
+        self._agent_client = None
 
     def bind_agent(self, agent_id: str) -> None:
         """Bind this mod adapter to an agent.
@@ -39,6 +40,23 @@ class BaseModAdapter(ABC):
             connector: The connector to bind to
         """
         self._connector = connector
+
+    def bind_client(self, client) -> None:
+        """Bind this mod adapter to an agent client.
+
+        Args:
+            client: The AgentClient to bind to
+        """
+        self._agent_client = client
+
+    @property
+    def agent_client(self):
+        """Get the agent client for the mod adapter.
+
+        Returns:
+            AgentClient: The agent client for the mod adapter
+        """
+        return self._agent_client
 
     @property
     def connector(self) -> GRPCNetworkConnector:

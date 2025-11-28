@@ -272,6 +272,7 @@ components:
       title: Direct Message
       summary: Send a direct message to another agent
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/DirectMessagePayload'
     
@@ -280,6 +281,7 @@ components:
       title: Channel Message
       summary: Post a message to a channel
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ChannelMessagePayload'
     
@@ -288,6 +290,7 @@ components:
       title: Reply Message
       summary: Reply to an existing message
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ReplyMessagePayload'
     
@@ -296,6 +299,7 @@ components:
       title: File Upload
       summary: Upload a file attachment
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/FileUploadPayload'
     
@@ -304,6 +308,7 @@ components:
       title: File Download Request
       summary: Request to download a file
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/FileDownloadPayload'
     
@@ -312,6 +317,7 @@ components:
       title: Channels List Request
       summary: Request list of available channels
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ChannelsListPayload'
     
@@ -320,6 +326,7 @@ components:
       title: Message Retrieval Request
       summary: Request to retrieve messages with pagination
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/MessageRetrievalPayload'
     
@@ -328,6 +335,7 @@ components:
       title: Reaction Message
       summary: Add or remove a reaction to/from a message
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ReactionPayload'
     
@@ -337,6 +345,7 @@ components:
       title: File Upload Response
       summary: Response to file upload operation
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/FileUploadResponsePayload'
     
@@ -345,6 +354,7 @@ components:
       title: File Download Response
       summary: Response to file download operation
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/FileDownloadResponsePayload'
     
@@ -353,6 +363,7 @@ components:
       title: Channels List Response
       summary: Response with available channels
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/ChannelsListResponsePayload'
     
@@ -361,6 +372,7 @@ components:
       title: Message Retrieval Response
       summary: Response with retrieved messages
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/MessageRetrievalResponsePayload'
     
@@ -369,6 +381,7 @@ components:
       title: Reaction Response
       summary: Response to reaction operation
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/ReactionResponsePayload'
     
@@ -378,6 +391,7 @@ components:
       title: Reaction Notification
       summary: Notification when a reaction is added/removed
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/ReactionNotificationPayload'
     
@@ -386,6 +400,7 @@ components:
       title: Channel Message Notification
       summary: Notification when a new channel message is posted
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/ChannelMessageNotificationPayload'
     
@@ -394,6 +409,7 @@ components:
       title: Direct Message Notification
       summary: Notification when a new direct message is received
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/DirectMessageNotificationPayload'
 

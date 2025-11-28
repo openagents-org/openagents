@@ -8,7 +8,8 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+./build/
+studio/build/
 develop-eggs/
 dist/
 downloads/
@@ -188,6 +189,9 @@ local_test/
 
 settings.local.json
 .vscode/
+demos/*/mods/
+demos/*/network.db
+
 
 # Network database
 network.db

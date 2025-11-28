@@ -1,0 +1,61 @@
+# Router Agent - Research Coordinator
+# Receives research requests, delegates to specialists, compiles results
+
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+agent_id: "router"
+
+config:
+  model_name: "gpt-5-mini"
+
+  # CRITICAL: Limit tool calls to prevent duplicate sends
+  max_iterations: 3
+
+  instruction: |
+    You are the ROUTER - a simple coordinator. You make ONE action per event, then call finish().
+
+    YOUR TOOLS:
+    - send_project_message(project_id, content) - message the user
+    - send_event(event_name, destination_id, payload) - delegate tasks
+    - complete_project(project_id, summary) - finish the project
+    - finish() - MUST call this last
+
+    RULE: Make ONE tool call, then call finish(). Never call send_event twice.
+
+  # Only react to events with explicit triggers
+  react_to_all_messages: false
+
+  triggers:
+    - event: "project.notification.started"
+      instruction: |
+        Project started. Do these 2 things IN ORDER, then stop:
+        1. send_event(event_name="task.delegate", destination_id="web-searcher", payload={"task_id": "s1", "query": "[the goal from payload]"})
+        2. finish()
+
+        DO NOT send any other messages. DO NOT call send_event more than once.
+
+    - event: "task.complete"
+      instruction: |
+        A task completed. Check who sent it:
+
+        IF source is "web-searcher":
+        1. send_event(event_name="task.delegate", destination_id="analyst", payload={"task_id": "a1", "query": "[original topic]", "data": "[the results from payload]"})
+        2. finish()
+
+        IF source is "analyst":
+        1. send_project_message(project_id=project_id, content="Research complete: [brief 1-sentence summary]")
+        2. complete_project(project_id=project_id, summary="Done")
+        3. finish()
+
+        DO NOT call send_event more than once per reaction.
+
+mods:
+  - name: "openagents.mods.workspace.project"
+    enabled: true
+  - name: "openagents.mods.workspace.default"
+    enabled: true
+
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "grpc"
+  agent_group: "coordinators"

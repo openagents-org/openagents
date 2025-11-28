@@ -24,6 +24,9 @@ except ImportError:
     # Python < 3.9 fallback
     from importlib_resources import files
 from typing import List, Optional, Dict, Any, Tuple
+import http.server
+import socketserver
+from urllib.parse import urlparse
 
 import typer
 from rich.console import Console
@@ -761,8 +764,183 @@ def install_openagents_studio_package(progress=None, task_id=None) -> None:
         raise RuntimeError("npm command not found. Please install Node.js and npm.")
 
 
+def _find_studio_build_dir() -> Optional[str]:
+    """Find the studio build directory from the installed package.
+    
+    Returns:
+        Optional[str]: Path to the studio build directory, or None if not found
+    """
+    # Try importlib.resources first (for installed packages)
+    try:
+        studio_resources = files("openagents").joinpath("studio", "build")
+        if studio_resources.is_dir():
+            # Check if index.html exists
+            try:
+                index_file = studio_resources.joinpath("index.html")
+                if index_file.is_file():
+                    return str(studio_resources)
+            except (AttributeError, TypeError):
+                pass
+    except (ModuleNotFoundError, AttributeError, TypeError):
+        pass
+    
+    # Try to find build directory in multiple locations
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    package_dir = os.path.dirname(script_dir)  # src/openagents
+    project_root = os.path.dirname(os.path.dirname(script_dir))  # project root
+    
+    possible_paths = [
+        # In installed package (src/openagents/studio/build)
+        os.path.join(package_dir, "studio", "build"),
+        # In current project root (development: studio/build)
+        os.path.join(project_root, "studio", "build"),
+        # Alternative: relative to package
+        os.path.join(os.path.dirname(package_dir), "studio", "build"),
+    ]
+    
+    # Check other possible paths
+    for path in possible_paths:
+        if path and os.path.exists(path) and os.path.isdir(path):
+            index_html = os.path.join(path, "index.html")
+            if os.path.exists(index_html):
+                return path
+    
+    return None
+
+
+def _create_studio_handler(build_dir):
+    """Create a custom HTTP request handler for serving Studio static files.
+    
+    Args:
+        build_dir: Directory containing the built static files
+        
+    Returns:
+        A handler class configured for the build directory
+    """
+    class StudioHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
+        """Custom HTTP request handler for serving Studio static files with SPA routing support."""
+        
+        def __init__(self, *args, **kwargs):
+            # Change to build directory before initializing
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(build_dir)
+                super().__init__(*args, **kwargs)
+            finally:
+                os.chdir(original_cwd)
+        
+        def translate_path(self, path):
+            """Translate URL path to file system path."""
+            # Parse the path
+            path = urlparse(path).path
+            # Remove leading slash
+            path = path.lstrip('/')
+            
+            # If path is empty or just '/', serve index.html
+            if not path or path == '/':
+                return os.path.join(build_dir, 'index.html')
+            
+            # Check if file exists
+            full_path = os.path.join(build_dir, path)
+            if os.path.exists(full_path) and os.path.isfile(full_path):
+                return full_path
+            
+            # For SPA routing, if the path doesn't exist as a file, serve index.html
+            # This allows React Router to handle client-side routing
+            return os.path.join(build_dir, 'index.html')
+        
+        def end_headers(self):
+            """Add CORS headers and custom headers."""
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Pragma', 'no-cache')
+            self.send_header('Expires', '0')
+            super().end_headers()
+        
+        def log_message(self, format, *args):
+            """Suppress default logging, we'll handle it ourselves."""
+            pass
+    
+    return StudioHTTPRequestHandler
+
+
+def launch_studio_static(studio_port: int = 8050) -> subprocess.Popen:
+    """Launch studio using Python's built-in HTTP server to serve static files.
+    
+    This function does not require Node.js and serves pre-built static files.
+    
+    Args:
+        studio_port: Port for the studio frontend
+        
+    Returns:
+        subprocess.Popen: The HTTP server process
+        
+    Raises:
+        RuntimeError: If studio build directory is not found
+    """
+    build_dir = _find_studio_build_dir()
+    
+    if not build_dir:
+        raise RuntimeError(
+            "Studio build directory not found. "
+            "Please ensure the package was installed with the built frontend files. "
+            "If you're a developer, run 'npm run build' in the studio directory first."
+        )
+    
+    logging.info(f"Serving studio static files from {build_dir} on port {studio_port}")
+    
+    # Create a custom handler class for the build directory
+    HandlerClass = _create_studio_handler(build_dir)
+    
+    # Create and start the server in a separate thread
+    httpd = socketserver.TCPServer(("", studio_port), HandlerClass)
+    httpd.allow_reuse_address = True
+    
+    def run_server():
+        try:
+            httpd.serve_forever()
+        except Exception as e:
+            logging.error(f"HTTP server error: {e}")
+    
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+    
+    # Wait a moment to ensure server started
+    time.sleep(0.5)
+    
+    # Create a mock process object that behaves like subprocess.Popen
+    class MockProcess:
+        def __init__(self, httpd, thread):
+            self.httpd = httpd
+            self.thread = thread
+            self.returncode = None
+            self.stdout = None
+            self.stderr = None
+        
+        def wait(self):
+            """Wait for the server thread to finish."""
+            self.thread.join()
+        
+        def terminate(self):
+            """Shutdown the HTTP server."""
+            if self.httpd:
+                self.httpd.shutdown()
+                self.httpd.server_close()
+        
+        def kill(self):
+            """Kill the HTTP server."""
+            self.terminate()
+        
+        def poll(self):
+            """Check if server is still running."""
+            return None if self.thread.is_alive() else 0
+    
+    return MockProcess(httpd, server_thread)
+
+
 def launch_studio_with_package(studio_port: int = 8050) -> subprocess.Popen:
     """Launch studio using the installed openagents-studio package.
+    
+    Falls back to static file server if npm package is not available.
 
     Args:
         studio_port: Port for the studio frontend
@@ -806,11 +984,9 @@ def launch_studio_with_package(studio_port: int = 8050) -> subprocess.Popen:
                 break
 
         if not studio_dir:
-            raise RuntimeError(
-                f"openagents-studio package directory not found.\n"
-                f"Searched in: {', '.join(possible_studio_dirs)}\n"
-                f"Try reinstalling with: pip install --upgrade openagents"
-            )
+            # Fallback to static file server
+            logging.info("npm package not found, falling back to static file server (no Node.js required)")
+            return launch_studio_static(studio_port)
 
         try:
             # Call craco directly to avoid the Unix-style env var syntax in npm scripts
@@ -827,12 +1003,10 @@ def launch_studio_with_package(studio_port: int = 8050) -> subprocess.Popen:
                 shell=True
             )
             return process
-        except Exception as e:
-            raise RuntimeError(
-                f"Failed to run openagents-studio with npx: {e}\n"
-                f"Make sure Node.js and npm are properly installed.\n"
-                f"Try reinstalling with: pip install --upgrade openagents"
-            )
+        except (FileNotFoundError, Exception) as e:
+            # Fallback to static file server if npm/npx is not available
+            logging.info(f"Failed to start with npm (Node.js may not be installed), falling back to static file server: {e}")
+            return launch_studio_static(studio_port)
 
     # On Unix-like systems, try to find the binary first
     possible_bin_paths = [
@@ -861,12 +1035,10 @@ def launch_studio_with_package(studio_port: int = 8050) -> subprocess.Popen:
                 universal_newlines=True,
             )
             return process
-        except Exception as e:
-            raise RuntimeError(
-                f"openagents-studio binary not found in any of: {', '.join(possible_bin_paths)}\n"
-                f"Also failed to run with npx: {e}\n"
-                f"Try reinstalling with: pip install --upgrade openagents"
-            )
+        except (FileNotFoundError, Exception) as e:
+            # Fallback to static file server if npm/npx is not available
+            logging.info(f"Failed to start with npm (Node.js may not be installed), falling back to static file server: {e}")
+            return launch_studio_static(studio_port)
 
     # Set up environment with PATH including ~/.openagents/bin
     current_path = env.get("PATH", "")
@@ -886,8 +1058,10 @@ def launch_studio_with_package(studio_port: int = 8050) -> subprocess.Popen:
             universal_newlines=True,
         )
         return process
-    except FileNotFoundError:
-        raise RuntimeError(f"Failed to execute openagents-studio binary: {studio_bin}")
+    except (FileNotFoundError, Exception) as e:
+        # Fallback to static file server if binary execution fails
+        logging.info(f"Failed to execute npm binary, falling back to static file server: {e}")
+        return launch_studio_static(studio_port)
 
 
 def launch_studio_frontend(studio_port: int = 8050) -> subprocess.Popen:
@@ -998,33 +1172,43 @@ def studio_command(args) -> None:
         startup_task = progress.add_task("🚀 Starting OpenAgents Studio...", total=None)
 
         try:
-            # Check Node.js/npm availability first
-            progress.update(startup_task, description="🔍 Checking Node.js/npm availability...")
-            is_available, error_msg = check_nodejs_availability()
-            if not is_available:
-                console.print(Panel(
-                    error_msg,
-                    title="[red]❌ Node.js Requirements[/red]",
-                    border_style="red"
-                ))
-                raise typer.Exit(1)
-
-            # Check and install openagents-studio package if needed
-            progress.update(startup_task, description="📦 Checking openagents-studio package...")
-            is_installed, is_latest, installed_version = check_openagents_studio_package()
-
-            if not is_installed:
-                # Create a separate task for installation with progress bar
-                install_task = progress.add_task("📦 Installing openagents-studio package...", total=100)
-                install_openagents_studio_package(progress, install_task)
-                progress.remove_task(install_task)
-            elif not is_latest:
-                # Create a separate task for update with progress bar
-                install_task = progress.add_task(f"📦 Updating openagents-studio from {installed_version}...", total=100)
-                install_openagents_studio_package(progress, install_task)
-                progress.remove_task(install_task)
+            # Check if we have a pre-built studio (no Node.js required)
+            progress.update(startup_task, description="🔍 Checking for pre-built frontend...")
+            build_dir = _find_studio_build_dir()
+            use_static_server = build_dir is not None
+            
+            if use_static_server:
+                console.print(f"[green]✅ Found pre-built frontend at: {build_dir}[/green]")
+                console.print("[blue]ℹ️  Running in static mode (Node.js not required)[/blue]")
             else:
-                console.print(f"[green]✅ openagents-studio package up-to-date ({installed_version})[/green]")
+                # No pre-built frontend, need Node.js
+                console.print("[yellow]⚠️  Pre-built frontend not found, checking Node.js...[/yellow]")
+                progress.update(startup_task, description="🔍 Checking Node.js/npm availability...")
+                is_available, error_msg = check_nodejs_availability()
+                if not is_available:
+                    console.print(Panel(
+                        error_msg,
+                        title="[red]❌ Node.js Requirements[/red]",
+                        border_style="red"
+                    ))
+                    raise typer.Exit(1)
+
+                # Check and install openagents-studio package if needed
+                progress.update(startup_task, description="📦 Checking openagents-studio package...")
+                is_installed, is_latest, installed_version = check_openagents_studio_package()
+
+                if not is_installed:
+                    # Create a separate task for installation with progress bar
+                    install_task = progress.add_task("📦 Installing openagents-studio package...", total=100)
+                    install_openagents_studio_package(progress, install_task)
+                    progress.remove_task(install_task)
+                elif not is_latest:
+                    # Create a separate task for update with progress bar
+                    install_task = progress.add_task(f"📦 Updating openagents-studio from {installed_version}...", total=100)
+                    install_openagents_studio_package(progress, install_task)
+                    progress.remove_task(install_task)
+                else:
+                    console.print(f"[green]✅ openagents-studio package up-to-date ({installed_version})[/green]")
 
             # Extract arguments
             network_host = args.host
@@ -1109,6 +1293,19 @@ def studio_command(args) -> None:
 
     def frontend_monitor(process):
         """Monitor frontend process output and detect when it's ready."""
+        # Check if this is a static file server (MockProcess) which doesn't have stdout
+        if hasattr(process, 'httpd') or (hasattr(process, 'stdout') and process.stdout is None):
+            # Static file server - it's ready immediately
+            studio_url = f"http://localhost:{studio_port}"
+            if not no_browser:
+                time.sleep(1)  # Brief delay to ensure server is ready
+                console.print(f"[green]🌐 Opening studio in browser: {studio_url}[/green]")
+                webbrowser.open(studio_url)
+            else:
+                console.print(f"[green]🌐 Studio is ready at: {studio_url}[/green]")
+            return
+        
+        # For npm-based servers, monitor stdout
         ready_detected = False
         for line in iter(process.stdout.readline, ""):
             if line:
@@ -1137,18 +1334,37 @@ def studio_command(args) -> None:
         frontend_process = None
 
         try:
-            # Start frontend using the installed package
+            # Start frontend - use static server if build exists, otherwise use npm
             console.print(f"[blue]🎨 Launching studio frontend on port {studio_port}...[/blue]")
-            frontend_process = launch_studio_with_package(studio_port)
+            if use_static_server:
+                # Use static file server (no Node.js required)
+                frontend_process = launch_studio_static(studio_port)
+            else:
+                # Use npm package (requires Node.js)
+                frontend_process = launch_studio_with_package(studio_port)
 
-            # Start monitoring frontend output in background thread
-            frontend_thread = threading.Thread(
-                target=frontend_monitor, args=(frontend_process,), daemon=True
+            # Check if this is a static file server (no Node.js required)
+            is_static_server = hasattr(frontend_process, 'httpd') or (
+                hasattr(frontend_process, 'stdout') and frontend_process.stdout is None
             )
-            frontend_thread.start()
+            
+            if is_static_server:
+                # Static file server starts immediately, no need to monitor stdout
+                studio_url = f"http://localhost:{studio_port}"
+                console.print(f"[green]✅ Studio is ready at: {studio_url}[/green]")
+                if not no_browser:
+                    await asyncio.sleep(1)  # Brief delay to ensure server is ready
+                    console.print(f"[green]🌐 Opening studio in browser: {studio_url}[/green]")
+                    webbrowser.open(studio_url)
+            else:
+                # Start monitoring frontend output in background thread for npm-based servers
+                frontend_thread = threading.Thread(
+                    target=frontend_monitor, args=(frontend_process,), daemon=True
+                )
+                frontend_thread.start()
 
-            # Small delay to let frontend start
-            await asyncio.sleep(2)
+                # Small delay to let frontend start
+                await asyncio.sleep(2)
 
             if skip_network:
                 # Just wait for frontend without starting network

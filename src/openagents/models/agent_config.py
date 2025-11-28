@@ -1,8 +1,10 @@
 """Configuration models for OpenAgents agents."""
 
 import os
+import re
+import random
 import yaml
-from typing import List, Optional
+from typing import List, Optional, Union
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from openagents.config.llm_configs import MODEL_CONFIGS, LLMProviderType
@@ -107,6 +109,12 @@ class AgentConfig(BaseModel):
     tools: List['AgentToolConfig'] = Field(
         default_factory=list,
         description="List of custom tools to make available to this agent"
+    )
+
+    # Reaction delay configuration
+    reaction_delay: Optional[Union[int, float, str]] = Field(
+        default=None,
+        description="Delay before reacting to messages. Can be a number (seconds) or 'random(min, max)' for random delay"
     )
 
     @field_validator("model_name")
@@ -231,6 +239,30 @@ class AgentConfig(BaseModel):
             System prompt template to use
         """
         return self.system_prompt_template or self.instruction
+
+    def get_reaction_delay(self) -> float:
+        """Compute the reaction delay in seconds.
+
+        Supports fixed delays (int/float) and random delays using 'random(min, max)' format.
+
+        Returns:
+            float: Delay in seconds (0 if not configured or invalid format)
+        """
+        if self.reaction_delay is None:
+            return 0
+
+        if isinstance(self.reaction_delay, (int, float)):
+            return float(self.reaction_delay)
+
+        if isinstance(self.reaction_delay, str):
+            # Parse "random(min, max)" format
+            match = re.match(r'random\s*\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)', self.reaction_delay)
+            if match:
+                min_val = float(match.group(1))
+                max_val = float(match.group(2))
+                return random.uniform(min_val, max_val)
+
+        return 0
 
     @classmethod
     def from_yaml(cls, file_path: str) -> "AgentConfig":

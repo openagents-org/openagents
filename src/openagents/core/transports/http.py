@@ -7,6 +7,7 @@ This module provides the HTTP transport implementation for agent communication.
 import json
 import logging
 import time
+import html
 from typing import Dict, Any, Optional
 
 from openagents.config.globals import (
@@ -43,6 +44,8 @@ class HttpTransport(Transport):
 
     def setup_routes(self):
         """Setup HTTP routes."""
+        # Root path handler
+        self.app.router.add_get("/", self.root_handler)
         # Add both /health and /api/health for compatibility
         self.app.router.add_get("/api/health", self.health_check)
         self.app.router.add_post("/api/register", self.register_agent)
@@ -135,6 +138,254 @@ class HttpTransport(Transport):
         return web.json_response(
             {"success": True, "status": "healthy", "data": network_stats}
         )
+
+    async def root_handler(self, request):
+        """Handle requests to root path with a welcome page."""
+        logger.debug("HTTP root path requested")
+
+        # Try to get network stats for the welcome page
+        try:
+            health_check_event = Event(
+                event_name=SYSTEM_EVENT_HEALTH_CHECK,
+                source_id="http_transport",
+                destination_id="system:system",
+                payload={},
+            )
+            event_response = await self.call_event_handler(health_check_event)
+            
+            if event_response and event_response.success and event_response.data:
+                network_stats = event_response.data
+                network_name = network_stats.get("network_name", "OpenAgents Network")
+                agent_count = network_stats.get("agent_count", 0)
+                is_running = network_stats.get("is_running", False)
+                uptime = network_stats.get("uptime_seconds", 0)
+                network_profile = network_stats.get("network_profile", {})
+                description = network_profile.get("description", "")
+            else:
+                network_name = "OpenAgents Network"
+                agent_count = 0
+                is_running = False
+                uptime = 0
+                description = ""
+        except Exception as e:
+            logger.warning(f"Failed to get network stats for root handler: {e}")
+            network_name = "OpenAgents Network"
+            agent_count = 0
+            is_running = False
+            uptime = 0
+            description = ""
+
+        # Escape HTML to prevent XSS attacks
+        network_name_escaped = html.escape(network_name)
+        description_escaped = html.escape(description)
+        
+        # Get additional network profile information safely
+        network_profile = {}
+        if 'network_stats' in locals() and network_stats is not None:
+            try:
+                network_profile = network_stats.get("network_profile", {})
+            except (AttributeError, TypeError):
+                network_profile = {}
+        
+        website = network_profile.get("website", "https://openagents.org")
+        tags = network_profile.get("tags", [])
+        
+        # Validate and escape additional fields for security
+        # Validate website URL - only allow http/https schemes to prevent javascript: or data: injection
+        if not website.startswith(('http://', 'https://')):
+            website = "https://openagents.org"
+        website_escaped = html.escape(website)
+        
+        # Limit displayed tags to avoid cluttering the UI
+        MAX_DISPLAYED_TAGS = 8
+
+        # Build HTML welcome page - focused on network identity and profile
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{network_name_escaped} - OpenAgents Agent Network</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }}
+        .card {{
+            background: white;
+            border-radius: 20px;
+            padding: 60px 50px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+        }}
+        h1 {{
+            font-size: 2.5em;
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }}
+        .subtitle {{
+            font-size: 1.3em;
+            color: #667eea;
+            margin-bottom: 30px;
+            font-weight: 600;
+        }}
+        .status-badge {{
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 24px;
+            border-radius: 50px;
+            font-weight: 600;
+            font-size: 1.1em;
+            margin: 20px 0;
+        }}
+        .status-badge.online {{
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            color: #155724;
+        }}
+        .status-badge.offline {{
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            color: #721c24;
+        }}
+        .description {{
+            font-size: 1.1em;
+            color: #4a5568;
+            line-height: 1.8;
+            margin: 30px 0;
+            padding: 0 20px;
+        }}
+        .stats-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 40px 0;
+        }}
+        .stat-card {{
+            background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+            padding: 25px;
+            border-radius: 15px;
+            border: 2px solid #e2e8f0;
+        }}
+        .stat-value {{
+            font-size: 2.5em;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 5px;
+        }}
+        .stat-label {{
+            font-size: 0.95em;
+            color: #718096;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        .tags {{
+            margin: 30px 0;
+        }}
+        .tag {{
+            display: inline-block;
+            background: #e7f3ff;
+            color: #667eea;
+            padding: 8px 16px;
+            border-radius: 20px;
+            margin: 5px;
+            font-size: 0.9em;
+            font-weight: 500;
+        }}
+        .footer {{
+            margin-top: 40px;
+            padding-top: 30px;
+            border-top: 2px solid #e2e8f0;
+        }}
+        .footer-text {{
+            color: #718096;
+            font-size: 0.95em;
+            margin-bottom: 15px;
+        }}
+        .links {{
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }}
+        .link {{
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            padding: 8px 16px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }}
+        .link:hover {{
+            background: #f7fafc;
+            transform: translateY(-2px);
+        }}
+        @media (max-width: 600px) {{
+            .card {{
+                padding: 40px 30px;
+            }}
+            h1 {{
+                font-size: 2em;
+            }}
+            .stats-grid {{
+                grid-template-columns: 1fr;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>{network_name_escaped}</h1>
+        <div class="subtitle">OpenAgents Agent Network</div>
+        
+        <div class="status-badge {'online' if is_running else 'offline'}">
+            <span>{'🟢' if is_running else '🔴'}</span>
+            <span>{'Online' if is_running else 'Offline'}</span>
+        </div>
+        
+        {f'<div class="description">{description_escaped}</div>' if description_escaped else ''}
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">{agent_count}</div>
+                <div class="stat-label">Connected Agents</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{int(uptime)}</div>
+                <div class="stat-label">Uptime (seconds)</div>
+            </div>
+        </div>
+        
+        {f'''<div class="tags">
+            {''.join([f'<span class="tag">{html.escape(tag)}</span>' for tag in tags[:MAX_DISPLAYED_TAGS]])}
+        </div>''' if tags else ''}
+        
+        <div class="footer">
+            <div class="footer-text">Powered by OpenAgents</div>
+            <div class="links">
+                <a href="{website_escaped}" target="_blank" class="link">🌐 Network Website</a>
+                <a href="https://openagents.org" target="_blank" class="link">📚 Documentation</a>
+                <a href="https://github.com/openagents-org/openagents" target="_blank" class="link">💻 GitHub</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>"""
+
+        return web.Response(text=html_content, content_type='text/html')
 
     async def register_agent(self, request):
         """Handle agent registration via HTTP."""

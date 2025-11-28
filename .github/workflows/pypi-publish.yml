@@ -12,6 +12,24 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: studio/package-lock.json
+
+    - name: Build Studio frontend
+      run: |
+        cd studio
+        npm ci
+        npm run build
+
+    - name: Copy Studio build to package
+      run: |
+        mkdir -p src/openagents/studio
+        cp -r studio/build src/openagents/studio/
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:

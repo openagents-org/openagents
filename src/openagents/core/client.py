@@ -282,6 +282,7 @@ class AgentClient:
             # Call on_connect for each mod adapter
             for mod_adapter in self.mod_adapters.values():
                 mod_adapter.bind_connector(self.connector)
+                mod_adapter.bind_client(self)  # Bind the client so adapters can use send_event with event tracking
                 mod_adapter.on_connect()
 
             # Register unified event handler for all message types
@@ -392,6 +393,7 @@ class AgentClient:
         mod_adapter.initialize()
         if self.connector is not None:
             mod_adapter.bind_connector(self.connector)
+            mod_adapter.bind_client(self)  # Bind the client so adapters can use send_event with event tracking
             mod_adapter.on_connect()
         logger.info(f"Registered mod adapter {class_name} with agent {self.agent_id}")
         return True
@@ -501,7 +503,21 @@ class AgentClient:
                 verbose_print(f"🚀 Sending event via connector...")
                 result = await self.connector.send_event(processed_event)
                 self._event_id_map[processed_event.event_id] = processed_event
-                
+
+                # Add outgoing event to event_threads so agents can see their own messages
+                # This ensures the conversation context includes both incoming and outgoing messages
+                if processed_event.thread_name is None:
+                    # Compute thread_name using same logic as _handle_event for incoming events
+                    if "." in processed_event.event_name:
+                        processed_event.thread_name = "thread:" + processed_event.event_name.rsplit(".", 1)[0]
+                    else:
+                        processed_event.thread_name = "thread:" + processed_event.event_name
+
+
+                if processed_event.thread_name not in self._event_threads:
+                    self._event_threads[processed_event.thread_name] = EventThread()
+                self._event_threads[processed_event.thread_name].add_event(processed_event)
+
                 # Enhanced result logging
                 success = getattr(result, 'success', 'Unknown') if result else False
                 message = getattr(result, 'message', 'No message') if result else 'No result'

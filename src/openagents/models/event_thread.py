@@ -15,7 +15,12 @@ class EventThread(BaseModel):
     def add_event(self, message: Event):
         """
         Add a message to the message thread.
+        Skips adding if an event with the same event_id already exists (deduplication).
         """
+        # Check for duplicate event_id to prevent adding the same event twice
+        # This can happen when an agent sends a message and also receives it back from the network
+        if any(e.event_id == message.event_id for e in self.events):
+            return
         self.events.append(message)
 
     def get_events(self) -> List[Event]:

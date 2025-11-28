@@ -146,7 +146,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col bg-white dark:bg-gray-900">
       {/* Header */}
       <div
         className={`border-b ${
@@ -155,18 +155,10 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
       >
         <div className="flex items-center justify-between">
           <div className="flex flex-col">
-            <h1
-              className={`text-2xl font-bold ${
-                currentTheme === "dark" ? "text-gray-200" : "text-gray-800"
-              }`}
-            >
+            <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">
               Shared Documents
             </h1>
-            <p
-              className={`text-sm ${
-                currentTheme === "dark" ? "text-gray-400" : "text-gray-600"
-              }`}
-            >
+            <p className="text-sm text-gray-600 dark:text-gray-400">
               Open the same document in different browser windows to start
               real-time collaborative editing
             </p>

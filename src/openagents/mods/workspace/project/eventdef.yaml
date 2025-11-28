@@ -380,6 +380,7 @@ components:
       title: Project Template List Request
       description: Request to list all available project templates
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/EmptyPayload'
 
@@ -389,6 +390,7 @@ components:
       title: Project Start Request
       description: Request to start a new project
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectStartPayload'
 
@@ -397,6 +399,7 @@ components:
       title: Project Stop Request
       description: Request to stop a project
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectStopPayload'
 
@@ -405,6 +408,7 @@ components:
       title: Project Complete Request
       description: Request to complete a project
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectCompletePayload'
 
@@ -413,6 +417,7 @@ components:
       title: Project Get Request
       description: Request to get project details
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectGetPayload'
 
@@ -422,6 +427,7 @@ components:
       title: Project Message Send Request
       description: Request to send a message to project channel
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectMessageSendPayload'
 
@@ -431,6 +437,7 @@ components:
       title: Project Global State Set Request
       description: Request to set project global state
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectGlobalStateSetPayload'
 
@@ -439,6 +446,7 @@ components:
       title: Project Global State Get Request
       description: Request to get project global state
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectGlobalStateGetPayload'
 
@@ -447,6 +455,7 @@ components:
       title: Project Global State List Request
       description: Request to list project global state
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectGlobalStateListPayload'
 
@@ -455,6 +464,7 @@ components:
       title: Project Global State Delete Request
       description: Request to delete project global state
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectGlobalStateDeletePayload'
 
@@ -464,6 +474,7 @@ components:
       title: Project Agent State Set Request
       description: Request to set agent-specific state
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectAgentStateSetPayload'
 
@@ -472,6 +483,7 @@ components:
       title: Project Agent State Get Request
       description: Request to get agent-specific state
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectAgentStateGetPayload'
 
@@ -480,6 +492,7 @@ components:
       title: Project Agent State List Request
       description: Request to list agent-specific state
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectAgentStateListPayload'
 
@@ -488,6 +501,7 @@ components:
       title: Project Agent State Delete Request
       description: Request to delete agent-specific state
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectAgentStateDeletePayload'
 
@@ -497,6 +511,7 @@ components:
       title: Project Artifact Set Request
       description: Request to set project artifact
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectArtifactSetPayload'
 
@@ -505,6 +520,7 @@ components:
       title: Project Artifact Get Request
       description: Request to get project artifact
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectArtifactGetPayload'
 
@@ -513,6 +529,7 @@ components:
       title: Project Artifact List Request
       description: Request to list project artifacts
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectArtifactListPayload'
 
@@ -521,6 +538,7 @@ components:
       title: Project Artifact Delete Request
       description: Request to delete project artifact
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/ProjectArtifactDeletePayload'
 
@@ -530,6 +548,7 @@ components:
       title: Project Started Notification
       description: Notification sent when a project is started
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/ProjectStartedNotificationPayload'
 
@@ -538,6 +557,7 @@ components:
       title: Project Stopped Notification
       description: Notification sent when a project is stopped
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/ProjectStoppedNotificationPayload'
 
@@ -546,6 +566,7 @@ components:
       title: Project Completed Notification
       description: Notification sent when a project is completed
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/ProjectCompletedNotificationPayload'
 
@@ -554,6 +575,7 @@ components:
       title: Project Message Received Notification
       description: Notification sent when a project message is received
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/ProjectMessageReceivedNotificationPayload'
 
@@ -562,6 +584,7 @@ components:
       title: Project Artifact Updated Notification
       description: Notification sent when a project artifact is updated
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/ProjectArtifactUpdatedNotificationPayload'
 

@@ -401,4 +401,4 @@ When registered with an agent, the mod provides the following tools:
 
 ## API Reference
 
-See [asyncapi.yaml](./asyncapi.yaml) for complete API specification.
+See [eventdef.yaml](./eventdef.yaml) for complete API specification.

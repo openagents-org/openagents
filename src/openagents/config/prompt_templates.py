@@ -25,7 +25,7 @@ DEFAULT_AGENT_USER_PROMPT_TEMPLATE = """
         </thread>
         {% endfor %}
     </threads>
-    
+
     <current_interaction>
         <incoming_thread_id>{{ context.incoming_thread_id }}</incoming_thread_id>
         <incoming_message sender="{{ context.incoming_event.source_id }}" event_id="{{ context.incoming_event.event_id }}">
@@ -76,7 +76,7 @@ DEFAULT_LLM_USER_PROMPT_TEMPLATE = """
         </thread>
         {% endfor %}
     </threads>
-    
+
     <current_interaction>
         <incoming_thread_id>{{ context.incoming_thread_id }}</incoming_thread_id>
         <incoming_message sender="{{ context.incoming_event.source_id }}" event_id="{{ context.incoming_event.event_id }}">

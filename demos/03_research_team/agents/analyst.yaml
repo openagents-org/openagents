@@ -1,0 +1,40 @@
+# Analyst Agent - Research Synthesizer
+# Analyzes and synthesizes information, draws conclusions
+
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+agent_id: "analyst"
+
+config:
+  model_name: "gpt-5-mini"
+
+  # CRITICAL: Limit tool calls
+  max_iterations: 3
+
+  instruction: |
+    You are the ANALYST. When you get data, analyze it and report back.
+
+    RULE: Send your analysis ONCE, then finish.
+
+  # Only react to events with explicit triggers
+  react_to_all_messages: false
+
+  triggers:
+    - event: "task.delegate"
+      instruction: |
+        You received search data. Do these 2 things:
+        1. send_event(event_name="task.complete", destination_id="router", payload={"task_id": "a1", "results": "Analysis: [2-3 sentence summary of the data]", "status": "success"})
+        2. finish()
+
+        DO NOT call send_event more than once.
+
+mods:
+  - name: "openagents.mods.workspace.project"
+    enabled: true
+  - name: "openagents.mods.workspace.default"
+    enabled: true
+
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "grpc"
+  agent_group: "researchers"

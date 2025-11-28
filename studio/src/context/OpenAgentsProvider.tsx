@@ -74,7 +74,7 @@ interface OpenAgentsProviderProps {
 export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
   children,
 }) => {
-  const { agentName, selectedNetwork, getPasswordHash } = useAuthStore();
+  const { agentName, selectedNetwork, getPasswordHash, setAgentGroup } = useAuthStore();
   const { selectChannel, selectDirectMessage } = useChatStore();
   const { setConnection, setupEventListeners, cleanupEventListeners } =
     useDocumentStore();
@@ -125,7 +125,7 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
   const setupConnectionListeners = useCallback(
     (connector: HttpEventConnector) => {
       // Connection successful
-      connector.on("connected", (data: any) => {
+      connector.on("connected", async (data: any) => {
         console.log("✅ Connected to OpenAgents network:", data);
         setConnectionStatus({
           state: ConnectionState.CONNECTED,
@@ -133,6 +133,21 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
           originalAgentId: connector.getOriginalAgentId(),
           isUsingModifiedId: connector.isUsingModifiedId(),
         });
+
+        // Fetch agent group from health data
+        try {
+          const healthData = await connector.getNetworkHealth();
+          const currentAgentId = connector.getAgentId();
+          if (healthData && healthData.agents && healthData.agents[currentAgentId]) {
+            const agentGroup = healthData.agents[currentAgentId].group;
+            if (agentGroup) {
+              console.log(`👥 Agent group detected: ${agentGroup}`);
+              setAgentGroup(agentGroup);
+            }
+          }
+        } catch (error) {
+          console.error("Failed to fetch agent group:", error);
+        }
 
         // Set up global document event listeners
         console.log("🔧 Setting up global document event listeners");
@@ -180,7 +195,7 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
       });
 
       // Reconnection successful
-      connector.on("reconnected", (data: any) => {
+      connector.on("reconnected", async (data: any) => {
         console.log("🔄 ✅ Reconnected successfully:", data);
         setConnectionStatus({
           state: ConnectionState.CONNECTED,
@@ -190,6 +205,21 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
           reconnectAttempt: undefined,
           maxReconnectAttempts: undefined,
         });
+
+        // Re-fetch agent group after reconnection
+        try {
+          const healthData = await connector.getNetworkHealth();
+          const currentAgentId = connector.getAgentId();
+          if (healthData && healthData.agents && healthData.agents[currentAgentId]) {
+            const agentGroup = healthData.agents[currentAgentId].group;
+            if (agentGroup) {
+              console.log(`👥 Agent group re-detected after reconnection: ${agentGroup}`);
+              setAgentGroup(agentGroup);
+            }
+          }
+        } catch (error) {
+          console.error("Failed to re-fetch agent group:", error);
+        }
       });
 
       // Connection lost
@@ -217,6 +247,7 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
           // Clear stores
           useAuthStore.getState().clearNetwork();
           useAuthStore.getState().clearAgentName();
+          useAuthStore.getState().clearAgentGroup();
           useAuthStore.getState().clearPasswordHash();
           useChatStore.getState().clearAllChatData();
 
@@ -228,7 +259,7 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
       // Initialize event router with this connector
       eventRouter.initialize(connector);
     },
-    [setConnection, setupEventListeners, navigate]
+    [setConnection, setupEventListeners, navigate, setAgentGroup]
   );
 
   // Set up global notification listener (only active on non-messaging pages)

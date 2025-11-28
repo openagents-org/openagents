@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openagents"
-version = "0.6.15"
+version = "0.6.16"
 description = "A flexible framework for building multi-agent systems with customizable protocols"
 readme = "README.md"
 authors = [
@@ -128,7 +128,13 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-openagents = ["protocols/*/protocol_manifest.json", "configs/*.yaml", "templates/*.yaml", "templates/default_workspace/*.yaml"]
+openagents = [
+    "protocols/*/protocol_manifest.json", 
+    "configs/*.yaml", 
+    "templates/*.yaml", 
+    "templates/default_workspace/*.yaml",
+    "studio/build/**/*"
+]
 
 # Pytest configuration
 [tool.pytest.ini_options]

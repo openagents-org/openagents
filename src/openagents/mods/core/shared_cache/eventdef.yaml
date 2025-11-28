@@ -171,6 +171,7 @@ components:
       title: Cache Create
       summary: Create a new cache entry
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/CacheCreatePayload'
 
@@ -179,6 +180,7 @@ components:
       title: Cache Get
       summary: Retrieve a cache entry
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/CacheGetPayload'
 
@@ -187,6 +189,7 @@ components:
       title: Cache Update
       summary: Update a cache entry
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/CacheUpdatePayload'
 
@@ -195,6 +198,7 @@ components:
       title: Cache Delete
       summary: Delete a cache entry
       contentType: application/json
+      x_event_type: operation
       payload:
         $ref: '#/components/schemas/CacheDeletePayload'
 
@@ -204,6 +208,7 @@ components:
       title: Cache Create Response
       summary: Response to cache creation operation
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/CacheCreateResponsePayload'
 
@@ -212,6 +217,7 @@ components:
       title: Cache Get Response
       summary: Response to cache retrieval operation
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/CacheGetResponsePayload'
 
@@ -220,6 +226,7 @@ components:
       title: Cache Update Response
       summary: Response to cache update operation
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/CacheUpdateResponsePayload'
 
@@ -228,6 +235,7 @@ components:
       title: Cache Delete Response
       summary: Response to cache deletion operation
       contentType: application/json
+      x_event_type: response
       payload:
         $ref: '#/components/schemas/CacheDeleteResponsePayload'
 
@@ -237,6 +245,7 @@ components:
       title: Cache Created Notification
       summary: Notification when a cache entry is created
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/CacheNotificationPayload'
 
@@ -245,6 +254,7 @@ components:
       title: Cache Updated Notification
       summary: Notification when a cache entry is updated
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/CacheNotificationPayload'
 
@@ -253,6 +263,7 @@ components:
       title: Cache Deleted Notification
       summary: Notification when a cache entry is deleted
       contentType: application/json
+      x_event_type: notification
       payload:
         $ref: '#/components/schemas/CacheNotificationPayload'
 

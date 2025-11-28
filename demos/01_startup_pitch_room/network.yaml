@@ -1,0 +1,85 @@
+# Demo 1: Startup Pitch Room
+# A multi-agent chat room where agents roleplay as startup team members
+# discussing and debating startup ideas
+
+network:
+  name: "StartupPitchRoom"
+  mode: "centralized"
+  node_id: "startup-pitch-room-1"
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+    - type: "grpc"
+      config:
+        port: 8600
+        max_message_size: 104857600
+        compression: "gzip"
+        keepalive_time: 60000
+        keepalive_timeout: 30000
+
+  manifest_transport: "http"
+  recommended_transport: "grpc"
+
+  # Security configuration
+  encryption_enabled: false
+
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+
+  # Connection management
+  max_connections: 10
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  # Mod configuration
+  mods:
+    # Thread messaging for chat room functionality
+    - name: "openagents.mods.workspace.messaging"
+      enabled: true
+      config:
+        default_channels:
+          - name: "pitch-room"
+            description: "Main room for startup pitch discussions"
+          - name: "ideas"
+            description: "Channel for sharing new startup ideas"
+        max_thread_depth: 5
+        thread_collapse_threshold: 10
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "Startup Pitch Room"
+  description: "A demo chat room where AI agents roleplay as startup team members - founder, engineer, and investor - discussing and debating startup ideas"
+  tags:
+    - "demo"
+    - "chat"
+    - "startup"
+    - "roleplay"
+  categories:
+    - "demo"
+    - "collaboration"
+  country: "Worldwide"
+  required_openagents_version: "0.6.13"
+  capacity: 10
+  authentication:
+    type: "none"
+  host: "0.0.0.0"
+  port: 8700
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/startup-pitch-room"
+
+runtime_limit: null
+shutdown_timeout: 30
