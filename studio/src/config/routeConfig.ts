@@ -7,11 +7,13 @@ import AgentSetupPage from "@/pages/AgentSetupPage"
 import MessagingMainPage from "@/pages/messaging/MessagingMainPage"
 import ProjectMainPage from "@/pages/project/ProjectMainPage"
 import ForumMainPage from "@/pages/forum/ForumMainPage"
+import ArtifactMainPage from "@/pages/artifact/ArtifactMainPage"
 import WikiMainPage from "@/pages/wiki/WikiMainPage"
 import DocumentsMainPage from "@/pages/documents/DocumentsMainPage"
 // import ProjectChatRoom from "@/pages/messaging/components/ProjectChatRoom"
 // import SettingsMainPage from "@/pages/settings/SettingsMainPage";
 import ProfileMainPage from "@/pages/profile/ProfileMainPage"
+import ReadmeMainPage from "@/pages/readme/ReadmeMainPage"
 // import McpMainPage from "@/pages/mcp/McpMainPage";
 
 // Navigation icon components
@@ -51,6 +53,23 @@ export const NavigationIcons = {
     )
   ),
   Forum: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z",
+      })
+    )
+  ),
+  Artifact: React.memo(() =>
     React.createElement(
       "svg",
       {
@@ -137,6 +156,23 @@ export const NavigationIcons = {
         strokeLinejoin: "round",
         strokeWidth: 2,
         d: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z",
+      })
+    )
+  ),
+  Readme: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
       })
     )
   ),
@@ -239,6 +275,21 @@ export const dynamicRouteConfig: RouteConfig[] = [
     },
   },
   {
+    path: "/artifact/*",
+    element: ArtifactMainPage,
+    title: "Artifact",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.ARTIFACT,
+      label: "Artifact",
+      icon: "Artifact",
+      visible: true,
+      order: 2.2,
+      group: "primary",
+    },
+  },
+  {
     path: "/wiki/*",
     element: WikiMainPage,
     title: "Wiki",
@@ -298,6 +349,21 @@ export const dynamicRouteConfig: RouteConfig[] = [
       visible: true,
       order: 5,
       group: "secondary",
+    },
+  },
+  {
+    path: "/readme/*",
+    element: ReadmeMainPage,
+    title: "README",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.README,
+      label: "README",
+      icon: "Readme",
+      visible: true,
+      order: 3.5,
+      group: "primary",
     },
   },
   // {
@@ -402,9 +468,10 @@ export const getVisibleNavigationRoutes = () => {
 
 // Utility function: get navigation routes by group
 export const getNavigationRoutesByGroup = (group: "primary" | "secondary") => {
-  return getVisibleNavigationRoutes().filter(
+  const visibleRoutes = getVisibleNavigationRoutes();
+  return visibleRoutes.filter(
     (route) => route.navigationConfig?.group === group
-  )
+  );
 }
 
 // // Utility function: get visible quick actions

@@ -1,42 +1,49 @@
-import React, { useMemo } from "react";
+import React from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   NavigationIcons,
   getNavigationRoutesByGroup,
 } from "@/config/routeConfig";
+import { useAuthStore } from "@/stores/authStore";
 import ModIcon from "./ModIcon";
 import logo from "@/assets/images/open-agents-logo.png";
 
 const ModSidebar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  
+  // 获取模块状态，让组件响应模块变化
+  // 当 enabledModules 变化时，组件会重新渲染，从而重新计算路由配置
+  // 这个订阅确保在模块状态更新时，侧边栏会显示最新的路由
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const enabledModules = useAuthStore((state) => state.moduleState.enabledModules);
 
   // Generate icon groups using dynamic configuration
-  const iconGroups = useMemo(() => {
-    const primaryRoutes = getNavigationRoutesByGroup("primary");
-    const secondaryRoutes = getNavigationRoutesByGroup("secondary");
+  // 直接计算，不使用 useMemo，确保每次渲染都获取最新的路由配置
+  // 因为 dynamicRouteConfig 的 visible 属性可能被外部函数动态修改
+  const primaryRoutes = getNavigationRoutesByGroup("primary");
+  const secondaryRoutes = getNavigationRoutesByGroup("secondary");
 
-    return [
-      // Primary group (main features)
-      primaryRoutes.map((route) => ({
-        key: route.navigationConfig!.key,
-        label: route.navigationConfig!.label,
-        icon: React.createElement(
-          NavigationIcons[route.navigationConfig!.icon]
-        ),
-        route: route.path.replace("/*", ""), // Remove wildcard
-      })),
-      // Secondary group (settings-related)
-      secondaryRoutes.map((route) => ({
-        key: route.navigationConfig!.key,
-        label: route.navigationConfig!.label,
-        icon: React.createElement(
-          NavigationIcons[route.navigationConfig!.icon]
-        ),
-        route: route.path.replace("/*", ""), // Remove wildcard
-      })),
-    ];
-  }, []);
+  const iconGroups = [
+    // Primary group (main features)
+    primaryRoutes.map((route) => ({
+      key: route.navigationConfig!.key,
+      label: route.navigationConfig!.label,
+      icon: React.createElement(
+        NavigationIcons[route.navigationConfig!.icon]
+      ),
+      route: route.path.replace("/*", ""), // Remove wildcard
+    })),
+    // Secondary group (settings-related)
+    secondaryRoutes.map((route) => ({
+      key: route.navigationConfig!.key,
+      label: route.navigationConfig!.label,
+      icon: React.createElement(
+        NavigationIcons[route.navigationConfig!.icon]
+      ),
+      route: route.path.replace("/*", ""), // Remove wildcard
+    })),
+  ];
 
   // Check if current route is active
   const isRouteActive = (route: string) => {
@@ -79,15 +86,17 @@ const ModSidebar: React.FC = () => {
 
       {/* Top Icons - main features */}
       <div className="flex flex-col space-y-3 flex-1">
-        {iconGroups[0].map((iconConfig) => (
-          <ModIcon
-            key={iconConfig.key}
-            isActive={isRouteActive(iconConfig.route)}
-            onClick={() => handleNavigation(iconConfig.route)}
-            label={iconConfig.label}
-            icon={iconConfig.icon}
-          />
-        ))}
+        {(() => {
+          return iconGroups[0].map((iconConfig) => (
+            <ModIcon
+              key={iconConfig.key}
+              isActive={isRouteActive(iconConfig.route)}
+              onClick={() => handleNavigation(iconConfig.route)}
+              label={iconConfig.label}
+              icon={iconConfig.icon}
+            />
+          ));
+        })()}
       </div>
 
       {/* Bottom Icons - settings-related */}
@@ -102,9 +111,9 @@ const ModSidebar: React.FC = () => {
           />
         ))}
       </div>
+
     </div>
   );
 };
 
-// Cache entire ModSidebar component
-export default React.memo(ModSidebar);
+export default ModSidebar;

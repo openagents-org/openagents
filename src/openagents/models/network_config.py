@@ -146,6 +146,12 @@ class NetworkConfig(BaseModel):
     message_queue_size: int = Field(1000, description="Maximum message queue size")
     message_timeout: float = Field(30.0, description="Message timeout in seconds")
 
+    # README content (Markdown format)
+    readme: Optional[str] = Field(
+        None,
+        description="Optional README content in Markdown format. Displayed to users in OpenAgents Studio.",
+    )
+
     # Agent groups configuration
     agent_groups: Dict[str, AgentGroupConfig] = Field(
         default_factory=dict,

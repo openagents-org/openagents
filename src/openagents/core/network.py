@@ -496,6 +496,33 @@ class AgentNetwork:
         """
         return self.topology.get_agent_connection(agent_id)
 
+    def get_readme(self) -> Optional[str]:
+        """Get network README content.
+
+        Resolution priority:
+        1. Inline readme in network config (config.readme)
+        2. README.md file in workspace directory
+
+        Returns:
+            Optional[str]: README content in Markdown format, or None if not available
+        """
+        # Priority 1: Inline readme in config
+        if self.config.readme:
+            return self.config.readme
+
+        # Priority 2: README.md file in workspace
+        if self.workspace_manager and self.workspace_manager.workspace_path:
+            readme_file = self.workspace_manager.workspace_path / "README.md"
+            if readme_file.exists():
+                try:
+                    return readme_file.read_text(encoding="utf-8")
+                except Exception as e:
+                    logger.warning(f"Failed to read README.md file: {e}")
+                    return None
+
+        # No README available
+        return None
+
     def get_network_stats(self) -> Dict[str, Any]:
         """Get network statistics.
 
@@ -536,6 +563,9 @@ class AgentNetwork:
                 "metadata": {},
             })
 
+        # Get README content (resolved from config or file)
+        readme_content = self.get_readme()
+
         # Include network_profile if available
         network_profile_data = None
         if hasattr(self.config, "network_profile") and self.config.network_profile:
@@ -543,8 +573,12 @@ class AgentNetwork:
             if hasattr(profile, "model_dump"):
                 network_profile_data = profile.model_dump(mode="json", exclude_none=False)
             elif isinstance(profile, dict):
-                network_profile_data = profile
-        
+                network_profile_data = dict(profile)  # Make a copy to avoid modifying original
+
+            # Add resolved readme to network_profile if not already set
+            if network_profile_data and readme_content and not network_profile_data.get("readme"):
+                network_profile_data["readme"] = readme_content
+
         stats = {
             "network_id": self.network_id,
             "network_name": self.network_name,
@@ -577,11 +611,12 @@ class AgentNetwork:
             "manifest_transport": self.config.manifest_transport,
             "recommended_transport": self.config.recommended_transport,
             "max_connections": self.config.max_connections,
+            "readme": readme_content,
         }
-        
+
         if network_profile_data:
             stats["network_profile"] = network_profile_data
-        
+
         return stats
 
     async def process_external_event(self, event: Event) -> EventResponse:
