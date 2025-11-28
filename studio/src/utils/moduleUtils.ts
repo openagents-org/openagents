@@ -59,17 +59,25 @@ export const getEnabledModules = (healthResponse: HealthResponse): string[] => {
 export const updateRouteVisibilityFromModules = (
   enabledModules: string[]
 ): void => {
-  // 首先隐藏所有主要路由（保留 Settings, Profile, Project 和 Artifact 始终可见）
+  // 首先隐藏所有主要路由（保留 Settings, Profile, Project, Artifact 和 Readme 始终可见）
   Object.values(PLUGIN_NAME_ENUM).forEach((plugin) => {
     if (
       plugin !== PLUGIN_NAME_ENUM.SETTINGS &&
       plugin !== PLUGIN_NAME_ENUM.PROFILE &&
       plugin !== PLUGIN_NAME_ENUM.PROJECT &&
-      plugin !== PLUGIN_NAME_ENUM.ARTIFACT
+      plugin !== PLUGIN_NAME_ENUM.ARTIFACT &&
+      plugin !== PLUGIN_NAME_ENUM.README
     ) {
       updateRouteVisibility(plugin, false)
     }
   })
+
+  // 确保始终可见的路由保持可见
+  updateRouteVisibility(PLUGIN_NAME_ENUM.SETTINGS, true)
+  updateRouteVisibility(PLUGIN_NAME_ENUM.PROFILE, true)
+  updateRouteVisibility(PLUGIN_NAME_ENUM.PROJECT, true)
+  updateRouteVisibility(PLUGIN_NAME_ENUM.ARTIFACT, true)
+  updateRouteVisibility(PLUGIN_NAME_ENUM.README, true)
 
   // 然后启用可用的模块
   enabledModules.forEach((moduleName) => {
@@ -129,6 +137,7 @@ export const isRouteAvailable = (
     "network-selection",
     "agent-setup",
     "artifact", // Artifact 始终可用，类似 Project
+    "readme", // README 始终可用，显示网络文档
   ]
   if (alwaysAvailableRoutes.includes(routeName)) {
     return true

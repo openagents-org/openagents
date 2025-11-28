@@ -13,6 +13,7 @@ import DocumentsMainPage from "@/pages/documents/DocumentsMainPage"
 import ProjectChatRoom from "@/pages/messaging/components/ProjectChatRoom"
 // import SettingsMainPage from "@/pages/settings/SettingsMainPage";
 import ProfileMainPage from "@/pages/profile/ProfileMainPage"
+import ReadmeMainPage from "@/pages/readme/ReadmeMainPage"
 // import McpMainPage from "@/pages/mcp/McpMainPage";
 
 // Navigation icon components
@@ -155,6 +156,23 @@ export const NavigationIcons = {
         strokeLinejoin: "round",
         strokeWidth: 2,
         d: "M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z",
+      })
+    )
+  ),
+  Readme: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
       })
     )
   ),
@@ -331,6 +349,21 @@ export const dynamicRouteConfig: RouteConfig[] = [
       visible: true,
       order: 5,
       group: "secondary",
+    },
+  },
+  {
+    path: "/readme/*",
+    element: ReadmeMainPage,
+    title: "README",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.README,
+      label: "README",
+      icon: "Readme",
+      visible: true,
+      order: 3.5,
+      group: "primary",
     },
   },
   // {

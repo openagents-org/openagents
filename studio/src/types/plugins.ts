@@ -8,4 +8,5 @@ export enum PLUGIN_NAME_ENUM {
   SETTINGS = "settings",
   PROFILE = "profile",
   MCP = "mcp",
+  README = "readme",
 }
