@@ -70,6 +70,11 @@ class NetworkProfile(BaseModel):
         description="A description of the network's purpose and capabilities",
     )
 
+    readme: Optional[str] = Field(
+        None,
+        description="README content in Markdown format. Resolved from config or README.md file.",
+    )
+
     icon: Optional[str] = Field(None, description="URL to the network's icon image")
 
     website: Optional[str] = Field(None, description="URL to the network's website")
