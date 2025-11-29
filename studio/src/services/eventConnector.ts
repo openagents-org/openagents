@@ -519,8 +519,9 @@ export class HttpEventConnector {
           // Clear network state
           useAuthStore.getState().clearNetwork();
           useAuthStore.getState().clearAgentName();
+          useAuthStore.getState().clearAgentGroup(); // Clear agent group
           useAuthStore.getState().clearPasswordHash(); // Explicitly clear password hash
-          console.log("🧹 Network state and password hash cleared");
+          console.log("🧹 Network state, agent group and password hash cleared");
 
           // Clear chat store data
           useChatStore.getState().clearAllChatData();
