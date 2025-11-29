@@ -2,10 +2,10 @@
 Integration tests for event threading functionality.
 
 This module tests that get_event_threads() correctly returns event threads
-after sending events. This addresses the issue reported in GitHub issue
+after sending events. This addresses the issue reported in GitHub issue #189
 where get_event_threads() was returning an empty dictionary.
 
-See: https://github.com/openagents-org/openagents/issues/XXX
+See: https://github.com/openagents-org/openagents/issues/189
 """
 
 import pytest
@@ -214,7 +214,7 @@ async def test_event_thread_ordering(connected_client):
         )
 
 
-@pytest.mark.asyncio 
+@pytest.mark.asyncio
 async def test_event_thread_deduplication(connected_client):
     """
     Test that the same event is not added twice to a thread (deduplication).
