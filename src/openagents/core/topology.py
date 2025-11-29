@@ -55,12 +55,18 @@ class NetworkTopology(ABC):
         pass
 
     @abstractmethod
-    async def register_agent(self, agent_info: AgentConnection, password_hash: Optional[str] = None) -> bool:
+    async def register_agent(
+        self,
+        agent_info: AgentConnection,
+        password_hash: Optional[str] = None,
+        requested_group: Optional[str] = None
+    ) -> bool:
         """Register an agent with the network.
 
         Args:
             agent_info: Information about the agent to register
             password_hash: Password hash for group authentication (optional)
+            requested_group: Explicitly requested group name (optional)
 
         Returns:
             bool: True if registration successful
@@ -163,8 +169,89 @@ class NetworkTopology(ABC):
         for transport in self.transports.values():
             transport.register_event_handler(handler)
 
-    def _assign_agent_to_group(self, agent_id: str, metadata: Dict[str, Any], password_hash: Optional[str] = None) -> Optional[str]:
-        """Assign agent to a group based on password hash matching.
+    def _assign_agent_to_group(
+        self,
+        agent_id: str,
+        metadata: Dict[str, Any],
+        requested_group: Optional[str] = None,
+        password_hash: Optional[str] = None
+    ) -> Optional[str]:
+        """Assign agent to a group based on explicit group selection or password hash matching.
+
+        If requested_group is specified, validate it and verify password if required.
+        Otherwise, fall back to legacy password-hash matching behavior.
+
+        Args:
+            agent_id: ID of the agent
+            metadata: Agent metadata (unused for group assignment)
+            requested_group: Explicitly requested group name (optional)
+            password_hash: Password hash for group authentication (direct parameter)
+
+        Returns:
+            Optional[str]: Name of the assigned group, or None if registration should be rejected
+        """
+        # If explicit group is requested, use new behavior
+        if requested_group:
+            return self._assign_to_requested_group(agent_id, requested_group, password_hash)
+
+        # Otherwise, use legacy password-hash matching behavior
+        return self._legacy_assign_by_password(agent_id, metadata, password_hash)
+
+    def _assign_to_requested_group(
+        self,
+        agent_id: str,
+        requested_group: str,
+        password_hash: Optional[str] = None
+    ) -> Optional[str]:
+        """Assign agent to explicitly requested group with password verification.
+
+        Args:
+            agent_id: ID of the agent
+            requested_group: Name of the group to join
+            password_hash: Password hash for group authentication
+
+        Returns:
+            Optional[str]: Name of the assigned group, or None if registration should be rejected
+        """
+        # Check if requested group exists
+        if requested_group not in self.config.agent_groups:
+            # Check if it's the default group (may not be in agent_groups)
+            if requested_group == self.config.default_agent_group:
+                # Default group with no password requirement
+                self.agent_group_membership[agent_id] = requested_group
+                logger.info(f"Agent {agent_id} assigned to default group '{requested_group}'")
+                return requested_group
+
+            logger.warning(f"Agent {agent_id} requested invalid group '{requested_group}'")
+            return None
+
+        group_config = self.config.agent_groups[requested_group]
+
+        # Check if group requires password
+        if group_config.password_hash:
+            if not password_hash:
+                logger.warning(
+                    f"Agent {agent_id} registration rejected: password required for group '{requested_group}'"
+                )
+                return None
+            if password_hash != group_config.password_hash:
+                logger.warning(
+                    f"Agent {agent_id} registration rejected: invalid password for group '{requested_group}'"
+                )
+                return None
+
+        # Password valid or not required - assign to group
+        self.agent_group_membership[agent_id] = requested_group
+        logger.info(f"Agent {agent_id} assigned to requested group '{requested_group}'")
+        return requested_group
+
+    def _legacy_assign_by_password(
+        self,
+        agent_id: str,
+        metadata: Dict[str, Any],
+        password_hash: Optional[str] = None
+    ) -> Optional[str]:
+        """Legacy behavior: assign agent to group based on password hash matching.
 
         Agent provides password_hash during registration. Server compares against stored hash.
 
@@ -389,10 +476,20 @@ class CentralizedTopology(NetworkTopology):
         logger.info("Centralized topology shutdown")
         return True
 
-    async def register_agent(self, agent_info: AgentConnection, password_hash: Optional[str] = None) -> bool:
+    async def register_agent(
+        self,
+        agent_info: AgentConnection,
+        password_hash: Optional[str] = None,
+        requested_group: Optional[str] = None
+    ) -> bool:
         """Register an agent with the centralized registry."""
-        # Assign agent to group based on metadata and password_hash
-        assigned_group = self._assign_agent_to_group(agent_info.agent_id, agent_info.metadata, password_hash)
+        # Assign agent to group based on metadata, requested_group and password_hash
+        assigned_group = self._assign_agent_to_group(
+            agent_info.agent_id,
+            agent_info.metadata,
+            requested_group=requested_group,
+            password_hash=password_hash
+        )
 
         # If group assignment returns None, reject registration
         if assigned_group is None:
@@ -542,15 +639,25 @@ class DecentralizedTopology(NetworkTopology):
         logger.info("Decentralized topology shutdown")
         return True
 
-    async def register_agent(self, agent_info: AgentConnection, password_hash: Optional[str] = None) -> bool:
+    async def register_agent(
+        self,
+        agent_info: AgentConnection,
+        password_hash: Optional[str] = None,
+        requested_group: Optional[str] = None
+    ) -> bool:
         """Register an agent in the decentralized network."""
         try:
             # Add to local DHT
             self.dht_table[agent_info.agent_id] = agent_info
             self.agent_registry[agent_info.agent_id] = agent_info
 
-            # Assign agent to group based on metadata and password_hash
-            assigned_group = self._assign_agent_to_group(agent_info.agent_id, agent_info.metadata, password_hash)
+            # Assign agent to group based on metadata, requested_group and password_hash
+            assigned_group = self._assign_agent_to_group(
+                agent_info.agent_id,
+                agent_info.metadata,
+                requested_group=requested_group,
+                password_hash=password_hash
+            )
 
             # Announce to connected peers
             await self._announce_agent(agent_info)

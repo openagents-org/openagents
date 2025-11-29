@@ -413,6 +413,7 @@ class HttpTransport(Transport):
                     "certificate": data.get("certificate", None),
                     "force_reconnect": True,
                     "password_hash": data.get("password_hash", None),
+                    "agent_group": data.get("agent_group", None),
                 },
             )
             # Process the registration event through the event handler
@@ -435,10 +436,12 @@ class HttpTransport(Transport):
                     f"✅ Successfully registered HTTP agent {agent_id} with network {network_name}"
                 )
                 
-                # Extract secret from response data
+                # Extract secret and assigned_group from response data
                 secret = ""
+                assigned_group = None
                 if event_response.data and isinstance(event_response.data, dict):
                     secret = event_response.data.get("secret", "")
+                    assigned_group = event_response.data.get("assigned_group")
                 
                 return web.json_response(
                     {
@@ -446,6 +449,7 @@ class HttpTransport(Transport):
                         "network_name": network_name,
                         "network_id": network_id,
                         "secret": secret,
+                        "assigned_group": assigned_group,
                     }
                 )
             else:

@@ -21,6 +21,7 @@ export interface ConnectionOptions {
   metadata?: any;
   timeout?: number;
   passwordHash?: string | null;
+  agentGroup?: string | null;
 }
 
 export interface EventHandler {
@@ -43,12 +44,14 @@ export class HttpEventConnector {
   private timeout: number;
   private secret: string | null = null;
   private passwordHash: string | null = null;
+  private agentGroup: string | null = null;
 
   constructor(options: ConnectionOptions) {
     this.agentId = options.agentId;
     this.originalAgentId = options.agentId;
     this.timeout = options.timeout || 30000;
     this.passwordHash = options.passwordHash || null;
+    this.agentGroup = options.agentGroup || null;
 
     // Store host and port for network requests
     this.baseUrl = `http://${options.host}:${options.port}/api`;
@@ -101,6 +104,7 @@ export class HttpEventConnector {
             platform: "web",
           },
           password_hash: this.passwordHash || undefined,
+          agent_group: this.agentGroup || undefined,
         }
       );
 

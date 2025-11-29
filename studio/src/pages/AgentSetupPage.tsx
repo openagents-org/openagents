@@ -10,8 +10,17 @@ import {
 } from "@/utils/utils";
 import { useAuthStore } from "@/stores/authStore";
 import { useNavigate } from "react-router-dom";
-import { verifyPasswordWithBackend } from "@/utils/passwordHash";
+import { hashPassword } from "@/utils/passwordHash";
 import { networkFetch } from "@/utils/httpClient";
+
+// Interface for group configuration from /api/health
+interface GroupConfig {
+  name: string;
+  description?: string;
+  has_password: boolean;
+  agent_count?: number;
+  metadata?: Record<string, any>;
+}
 
 const AgentNamePicker: React.FC = () => {
   const navigate = useNavigate();
@@ -21,14 +30,20 @@ const AgentNamePicker: React.FC = () => {
     clearAgentName,
     clearNetwork,
     setPasswordHash,
+    setAgentGroup,
   } = useAuthStore();
 
   const [pageAgentName, setPageAgentName] = useState<string | null>(null);
   const [savedAgentName, setSavedAgentName] = useState<string | null>(null);
   const [password, setPassword] = useState<string>("");
-  const [requiresPassword, setRequiresPassword] = useState<boolean>(false);
   const [passwordError, setPasswordError] = useState<string>("");
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
+
+  // Group selection state
+  const [availableGroups, setAvailableGroups] = useState<GroupConfig[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [defaultGroup, setDefaultGroup] = useState<string>("guests");
+  const [isLoadingGroups, setIsLoadingGroups] = useState<boolean>(true);
 
   const handleRandomize = useCallback(() => {
     setPageAgentName(generateRandomAgentName());
@@ -50,11 +65,12 @@ const AgentNamePicker: React.FC = () => {
     }
   }, [selectedNetwork, handleRandomize, setPageAgentName]);
 
-  // Fetch network configuration to determine if password is required
+  // Fetch network configuration and available groups
   useEffect(() => {
     const fetchNetworkConfig = async () => {
       if (!selectedNetwork) return;
 
+      setIsLoadingGroups(true);
       try {
         const response = await networkFetch(
           selectedNetwork.host,
@@ -70,18 +86,36 @@ const AgentNamePicker: React.FC = () => {
 
         if (response.ok) {
           const healthData = await response.json();
-          const configRequiresPassword =
-            healthData.data?.requires_password || false;
-          setRequiresPassword(configRequiresPassword);
-          console.log("Network requires password:", configRequiresPassword);
+
+          // Extract group configuration
+          const groupConfig: GroupConfig[] = healthData.data?.group_config || [];
+          const defaultGroupName = healthData.data?.default_agent_group || "guests";
+
+          setAvailableGroups(groupConfig);
+          setDefaultGroup(defaultGroupName);
+
+          // Pre-select the default group
+          setSelectedGroup(defaultGroupName);
+
+          console.log("Available groups:", groupConfig);
+          console.log("Default group:", defaultGroupName);
+          console.log("Network requires password:", healthData.data?.requires_password || false);
         }
       } catch (error) {
         console.error("Failed to fetch network config:", error);
+      } finally {
+        setIsLoadingGroups(false);
       }
     };
 
     fetchNetworkConfig();
   }, [selectedNetwork]);
+
+  // Get the selected group's configuration
+  const selectedGroupConfig = availableGroups.find(g => g.name === selectedGroup);
+
+  // Determine if password is required based on selected group
+  const selectedGroupRequiresPassword = selectedGroupConfig?.has_password ?? false;
 
   const onBack = useCallback(() => {
     clearAgentName();
@@ -93,9 +127,9 @@ const AgentNamePicker: React.FC = () => {
     const agentNameTrimmed = pageAgentName?.trim();
     if (!agentNameTrimmed || !selectedNetwork) return;
 
-    // Validate password requirement
-    if (requiresPassword && !password.trim()) {
-      setPasswordError("Password is required for this network");
+    // Validate password requirement for selected group
+    if (selectedGroupRequiresPassword && !password.trim()) {
+      setPasswordError(`Password is required for the '${selectedGroup}' group`);
       return;
     }
 
@@ -105,33 +139,19 @@ const AgentNamePicker: React.FC = () => {
     try {
       let passwordHash: string | null = null;
 
-      // If user entered a password, verify it with backend
+      // If password is provided, hash it
       if (password.trim()) {
-        const result = await verifyPasswordWithBackend(
-          password,
-          selectedNetwork.host,
-          selectedNetwork.port
-        );
-
-        if (!result.success) {
-          setPasswordError(
-            result.error || "Invalid password. Please check your credentials."
-          );
-          setIsVerifying(false);
-          return;
-        }
-
-        passwordHash = result.passwordHash || null;
-        console.log(`Password verified - matched group: ${result.groupName}`);
-      } else if (!requiresPassword) {
-        // No password entered and it's optional - connect as guest
-        console.log("Connecting as guest (no password provided)");
+        passwordHash = await hashPassword(password);
+        console.log(`Password hashed for group: ${selectedGroup}`);
+      } else if (!selectedGroupRequiresPassword) {
+        // No password needed for this group
+        console.log(`Connecting to group '${selectedGroup}' (no password required)`);
       }
 
       // Proceed with connection
       proceedWithConnection(passwordHash);
     } catch (error) {
-      console.error("Failed to verify password:", error);
+      console.error("Failed to process password:", error);
       setPasswordError("Failed to connect to network. Please try again.");
       setIsVerifying(false);
     }
@@ -148,8 +168,9 @@ const AgentNamePicker: React.FC = () => {
       agentNameTrimmed
     );
 
-    // Store the password hash in authStore so it can be accessed by HttpEventConnector
+    // Store the password hash and selected group in authStore
     setPasswordHash(hash);
+    setAgentGroup(selectedGroup);
     setAgentName(agentNameTrimmed);
 
     // Navigate to messaging
@@ -170,8 +191,7 @@ const AgentNamePicker: React.FC = () => {
             Join OpenAgents Network
           </h1>
           <p className="text-base leading-relaxed text-gray-500 dark:text-gray-300">
-            Choose your agent name to connect to the network and start
-            collaborating with other agents.
+            Choose your agent name and group to connect to the network.
           </p>
         </div>
 
@@ -250,60 +270,99 @@ const AgentNamePicker: React.FC = () => {
             </div>
           </div>
 
-          {/* Password Input */}
+          {/* Agent Group Selection */}
           <div className="mb-4 text-left">
             <label
-              htmlFor="password"
+              htmlFor="agentGroup"
               className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300"
             >
-              Password{" "}
-              {!requiresPassword && (
-                <span className="text-gray-400 font-normal">(Optional)</span>
-              )}
-              {requiresPassword && <span className="text-red-500 ml-1">*</span>}
+              Agent Group
             </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setPasswordError(""); // Clear error when user types
-              }}
-              className={`w-full px-4 py-3 border-2 rounded-lg text-base transition-all duration-150 focus:outline-none focus:ring-3 bg-white text-gray-800 focus:border-blue-500 focus:ring-blue-500/10 dark:bg-gray-600 dark:text-gray-50 dark:focus:border-blue-400 dark:focus:ring-blue-400/10 ${
-                passwordError
-                  ? "border-red-500 dark:border-red-400"
-                  : "border-gray-300 dark:border-gray-500"
-              }`}
-              placeholder="Enter password to join a group..."
-              autoComplete="off"
-            />
-
-            {/* Password Error */}
-            {passwordError && (
-              <div className="text-red-500 dark:text-red-400 text-sm mt-2 flex items-start gap-1">
-                <span className="mt-0.5">⚠️</span>
-                <span>{passwordError}</span>
+            {isLoadingGroups ? (
+              <div className="w-full px-4 py-3 border-2 border-gray-300 dark:border-gray-500 rounded-lg bg-gray-50 dark:bg-gray-600 text-gray-500 dark:text-gray-400">
+                Loading groups...
               </div>
+            ) : (
+              <select
+                id="agentGroup"
+                value={selectedGroup || ""}
+                onChange={(e) => {
+                  setSelectedGroup(e.target.value);
+                  setPassword(""); // Clear password when group changes
+                  setPasswordError("");
+                }}
+                className="w-full px-4 py-3 border-2 rounded-lg text-base transition-all duration-150 focus:outline-none focus:ring-3 bg-white border-gray-300 text-gray-800 focus:border-blue-500 focus:ring-blue-500/10 dark:bg-gray-600 dark:border-gray-500 dark:text-gray-50 dark:focus:border-blue-400 dark:focus:ring-blue-400/10"
+              >
+                {availableGroups.map((group) => (
+                  <option key={group.name} value={group.name}>
+                    {group.has_password ? "🔒 " : ""}
+                    {group.name}
+                    {group.name === defaultGroup ? " (default)" : ""}
+                  </option>
+                ))}
+              </select>
             )}
 
-            {/* Password Hint */}
-            <div className="text-xs mt-2 leading-relaxed text-gray-500 dark:text-gray-400">
-              {requiresPassword ? (
-                <>
-                  <span className="text-amber-600 dark:text-amber-400 font-semibold">
-                    ⚠️ Password is required
-                  </span>{" "}
-                  to connect to this network
-                </>
-              ) : (
-                <>
-                  💡 Leave empty to connect as guest, or enter password to join
-                  a specific group
-                </>
-              )}
-            </div>
+            {/* Group Description */}
+            {selectedGroupConfig && (
+              <div className="text-xs mt-2 leading-relaxed text-gray-500 dark:text-gray-400">
+                ℹ️ {selectedGroupConfig.description || `${selectedGroup} group`}
+              </div>
+            )}
           </div>
+
+          {/* Password Input - Only show if selected group requires password */}
+          {selectedGroupRequiresPassword && (
+            <div className="mb-4 text-left">
+              <label
+                htmlFor="password"
+                className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300"
+              >
+                Password <span className="text-red-500 ml-1">*</span>
+              </label>
+              <input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setPasswordError(""); // Clear error when user types
+                }}
+                className={`w-full px-4 py-3 border-2 rounded-lg text-base transition-all duration-150 focus:outline-none focus:ring-3 bg-white text-gray-800 focus:border-blue-500 focus:ring-blue-500/10 dark:bg-gray-600 dark:text-gray-50 dark:focus:border-blue-400 dark:focus:ring-blue-400/10 ${
+                  passwordError
+                    ? "border-red-500 dark:border-red-400"
+                    : "border-gray-300 dark:border-gray-500"
+                }`}
+                placeholder={`Enter password for '${selectedGroup}' group...`}
+                autoComplete="off"
+              />
+
+              {/* Password Error */}
+              {passwordError && (
+                <div className="text-red-500 dark:text-red-400 text-sm mt-2 flex items-start gap-1">
+                  <span className="mt-0.5">⚠️</span>
+                  <span>{passwordError}</span>
+                </div>
+              )}
+
+              {/* Password Hint */}
+              <div className="text-xs mt-2 leading-relaxed text-gray-500 dark:text-gray-400">
+                <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                  🔒 Password required
+                </span>{" "}
+                for the '{selectedGroup}' group
+              </div>
+            </div>
+          )}
+
+          {/* No password required notice */}
+          {!selectedGroupRequiresPassword && selectedGroup && (
+            <div className="mb-4 text-left">
+              <div className="text-xs leading-relaxed text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                ✓ No password required for the '{selectedGroup}' group
+              </div>
+            </div>
+          )}
 
           {/* Submit Buttons */}
           <div className="flex gap-3 mt-4">
@@ -317,9 +376,9 @@ const AgentNamePicker: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={!isValidName(pageAgentName) || isVerifying}
+              disabled={!isValidName(pageAgentName) || isVerifying || isLoadingGroups}
               className={`flex-[2] px-6 py-3 border-none rounded-lg text-base font-semibold cursor-pointer transition-all duration-150 text-white ${
-                !isValidName(pageAgentName) || isVerifying
+                !isValidName(pageAgentName) || isVerifying || isLoadingGroups
                   ? "bg-gray-300 dark:bg-gray-500 cursor-not-allowed"
                   : "bg-blue-500 hover:bg-blue-600 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-500/30"
               }`}
@@ -347,7 +406,7 @@ const AgentNamePicker: React.FC = () => {
                         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                       ></path>
                     </svg>
-                    <span>Verifying...</span>
+                    <span>Connecting...</span>
                   </>
                 ) : (
                   <>

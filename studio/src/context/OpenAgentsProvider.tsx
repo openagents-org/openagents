@@ -74,7 +74,7 @@ interface OpenAgentsProviderProps {
 export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
   children,
 }) => {
-  const { agentName, selectedNetwork, getPasswordHash, setAgentGroup } = useAuthStore();
+  const { agentName, selectedNetwork, getPasswordHash, agentGroup, setAgentGroup } = useAuthStore();
   const { selectChannel, selectDirectMessage } = useChatStore();
   const { setConnection, setupEventListeners, cleanupEventListeners } =
     useDocumentStore();
@@ -406,6 +406,7 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
       host: selectedNetwork.host,
       port: selectedNetwork.port,
       hasPasswordHash: !!passwordHash,
+      agentGroup: agentGroup,
     });
 
     const newConnector = new HttpEventConnector({
@@ -413,6 +414,7 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
       host: selectedNetwork.host,
       port: selectedNetwork.port,
       passwordHash: passwordHash,
+      agentGroup: agentGroup,
     });
 
     // Set up connection status listeners
@@ -435,6 +437,7 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
     selectedNetwork?.host,
     selectedNetwork?.port,
     getPasswordHash,
+    agentGroup,
     setupConnectionListeners,
   ]);
 
