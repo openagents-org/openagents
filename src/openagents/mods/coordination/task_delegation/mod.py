@@ -95,12 +95,19 @@ class TaskDelegationMod(BaseMod):
     - Notifications for task lifecycle events
     """
 
+    # Default interval for checking task timeouts (in seconds)
+    DEFAULT_TIMEOUT_CHECK_INTERVAL = 10
+
     def __init__(self, mod_name: str = "openagents.mods.coordination.task_delegation"):
         """Initialize the task delegation mod."""
         super().__init__(mod_name)
         self.tasks: Dict[str, Task] = {}
         self._timeout_task: Optional[asyncio.Task] = None
         self._shutdown_event: asyncio.Event = asyncio.Event()
+        # Timeout check interval can be configured via config
+        self._timeout_check_interval = self.config.get(
+            "timeout_check_interval", self.DEFAULT_TIMEOUT_CHECK_INTERVAL
+        )
         logger.info("Initializing Task Delegation network mod")
 
     def bind_network(self, network) -> bool:
@@ -116,14 +123,18 @@ class TaskDelegationMod(BaseMod):
         return result
 
     def _start_timeout_checker(self):
-        """Start the background task that checks for timed-out tasks."""
+        """Start the background task that checks for timed-out tasks.
+        
+        The task will only start if there is a running event loop.
+        If no loop is available, logging will indicate this.
+        """
 
         async def timeout_checker():
             """Background task to check for timed-out tasks."""
             logger.info("Task delegation timeout checker started")
             while not self._shutdown_event.is_set():
                 try:
-                    await asyncio.sleep(10)  # Check every 10 seconds
+                    await asyncio.sleep(self._timeout_check_interval)
                     await self._check_timeouts()
                 except asyncio.CancelledError:
                     logger.info("Timeout checker task cancelled")
@@ -135,9 +146,10 @@ class TaskDelegationMod(BaseMod):
         try:
             loop = asyncio.get_running_loop()
             self._timeout_task = loop.create_task(timeout_checker())
+            logger.debug("Timeout checker task created successfully")
         except RuntimeError:
             # No running event loop, will be started when network runs
-            pass
+            logger.debug("No running event loop, timeout checker will be started later")
 
     async def _check_timeouts(self):
         """Check for tasks that have exceeded their timeout duration."""
@@ -207,7 +219,13 @@ class TaskDelegationMod(BaseMod):
             logger.error(f"Failed to send {event_name} notification: {e}")
 
     def _get_storage_path(self) -> Path:
-        """Get the storage path for tasks."""
+        """Get the storage path for tasks.
+        
+        This method creates the tasks directory if it doesn't exist.
+        
+        Returns:
+            Path: The path to the tasks storage directory.
+        """
         storage_path = self.get_storage_path() / "tasks"
         storage_path.mkdir(parents=True, exist_ok=True)
         return storage_path

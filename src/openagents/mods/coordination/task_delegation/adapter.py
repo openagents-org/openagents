@@ -29,9 +29,6 @@ class TaskDelegationAdapter(BaseModAdapter):
     def __init__(self):
         """Initialize the task delegation adapter."""
         super().__init__(mod_name="openagents.mods.coordination.task_delegation")
-        self._assigned_task_handlers = {}
-        self._progress_handlers = {}
-        self._completion_handlers = {}
         logger.info("Initializing Task Delegation adapter")
 
     def get_tools(self) -> List[AgentTool]:
