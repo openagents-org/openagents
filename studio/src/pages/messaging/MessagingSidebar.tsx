@@ -95,20 +95,20 @@ const AgentItem: React.FC<{
 ));
 AgentItem.displayName = "AgentItem";
 
-// Chat Sidebar Content Component - 使用 chatStore 获取数据
+// Chat Sidebar Content Component - Use chatStore to get data
 const MessagingSidebar: React.FC = () => {
   const { connector, connectionStatus, isConnected } = useOpenAgents();
   const { agentName } = useAuthStore();
 
-  // 设置 chatStore 的 context 引用
+  // Set chatStore context reference
   React.useEffect(() => {
     setChatStoreContext({ connector, connectionStatus, isConnected });
   }, [connector, connectionStatus, isConnected]);
 
-  // 使用agentName作为fallback，如果connectionStatus.agentId不可用
+  // Use agentName as fallback if connectionStatus.agentId is unavailable
   const currentUserId = ('agentId' in connectionStatus ? connectionStatus.agentId : undefined) || agentName || undefined;
 
-  // 使用 chatStore 获取数据和选择状态
+  // Use chatStore to get data和选择状态
   const {
     currentChannel,
     currentDirectMessage,
@@ -126,7 +126,7 @@ const MessagingSidebar: React.FC = () => {
     initializeWithDefaultSelection,
   } = useChatStore();
 
-  // 加载初始数据 - 仅在未加载时调用
+  // Load initial data - only call when not loaded
   React.useEffect(() => {
     if (isConnected) {
       if (!channelsLoaded && !channelsLoading) {
@@ -140,16 +140,16 @@ const MessagingSidebar: React.FC = () => {
     }
   }, [isConnected, channelsLoaded, channelsLoading, agentsLoaded, agentsLoading, loadChannels, loadAgents]);
 
-  // 处理选择恢复和默认选择 - 在数据加载完成后执行
+  // Handle selection restoration and default selection - execute after data loading completes
   React.useEffect(() => {
     const handleSelectionInitialization = async () => {
-      // 检查是否已经有选择（可能是从持久化恢复的）
+      // Check if there is already a selection (may be restored from persistence)
       if (currentChannel || currentDirectMessage) {
         console.log('MessagingSidebar: Already has selection, skipping initialization');
         return;
       }
 
-      // 只有在两者都加载完成时才执行初始化
+      // Only execute initialization when both are loaded
       if (!channelsLoaded || !agentsLoaded) {
         console.log('MessagingSidebar: Waiting for data to load before selection initialization');
         return;
@@ -158,11 +158,11 @@ const MessagingSidebar: React.FC = () => {
       console.log('MessagingSidebar: Data loaded, attempting selection restoration/initialization');
 
       try {
-        // 尝试恢复持久化的选择
+        // Try to restore persisted selection
         await restorePersistedSelection();
 
-        // 如果恢复后仍然没有选择，使用默认选择
-        // 需要再次检查，因为 restorePersistedSelection 可能会设置选择
+        // If still no selection after restoration, use default selection
+        // Need to check again, because restorePersistedSelection may set selection
         const state = useChatStore.getState();
         if (!state.currentChannel && !state.currentDirectMessage) {
           console.log('MessagingSidebar: No persisted selection restored, using default selection');
@@ -170,7 +170,7 @@ const MessagingSidebar: React.FC = () => {
         }
       } catch (error) {
         console.error('MessagingSidebar: Error during selection initialization:', error);
-        // 如果出错，使用默认选择
+        // If error occurs, use default selection
         await initializeWithDefaultSelection();
       }
     };
@@ -178,12 +178,12 @@ const MessagingSidebar: React.FC = () => {
     handleSelectionInitialization();
   }, [channelsLoaded, agentsLoaded, currentChannel, currentDirectMessage, restorePersistedSelection, initializeWithDefaultSelection]);
 
-  // 过滤出当前用户
+  // Filter out current user
   const filteredAgents = React.useMemo(() => {
     return agents.filter(agent => agent.agent_id !== currentUserId);
   }, [agents, currentUserId]);
 
-  // 调试信息
+  // Debug information
   console.log("MessagingSidebar Debug:", {
     connectionStatus: 'state' in connectionStatus ? connectionStatus.state : connectionStatus,
     connectionAgentId: 'agentId' in connectionStatus ? connectionStatus.agentId : undefined,
@@ -200,15 +200,15 @@ const MessagingSidebar: React.FC = () => {
     currentDirectMessage,
   });
 
-  // TODO: 实现 unreadCounts 逻辑
+  // TODO: Implement unreadCounts logic
   const unreadCounts: Record<string, number> = {};
 
-  // 频道选择处理 - 现在使用 chatStore
+  // Channel selection handling - now using chatStore
   const onChannelSelect = (channel: string) => {
     selectChannel(channel);
   };
 
-  // 私信选择处理 - 现在使用 chatStore
+  // DM selection handling - now using chatStore
   const onDirectMessageSelect = (agentId: string) => {
     selectDirectMessage(agentId);
   };

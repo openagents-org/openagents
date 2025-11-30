@@ -10,7 +10,7 @@ interface McpRouterViewProps {
 
 const ITEMS_PER_PAGE = 9; // 3 items per row * 3 rows
 
-// 添加获取认证令牌的函数
+// Add function to get auth token
 const getAuthToken = async (): Promise<string> => {
   const auth = getAuth();
   const currentUser = auth.currentUser;

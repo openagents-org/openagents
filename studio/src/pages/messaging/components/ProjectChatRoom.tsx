@@ -296,7 +296,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
       }
     }
 
-    // 注册事件监听器
+    // Register event listener
     connector.on("rawEvent", handleProjectMessage)
 
     return () => {

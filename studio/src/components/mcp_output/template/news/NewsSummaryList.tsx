@@ -29,7 +29,7 @@ const NewsSummaryList: React.FC<NewsSummaryListProps> = ({
     );
   }
 
-  // 根据columns参数动态生成grid类名
+  // Dynamically generate grid class name based on columns parameter
   const gridClassName = `grid grid-cols-1 sm:grid-cols-2 gap-4 ${
     columns >= 3 ? 'md:grid-cols-3' : ''
   } ${

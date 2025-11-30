@@ -3,7 +3,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { getCurrentNetworkHealth } from "@/services/networkService";
 
 /**
- * AgentWorld主页面 - 使用 iframe 嵌套显示外部页面
+ * AgentWorld主页面 - Use iframe to display external page
  */
 const AgentWorldMainPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
@@ -81,7 +81,7 @@ const AgentWorldMainPage: React.FC = () => {
   }, [agentName, networkConfig]);
 
   const handleIframeLoad = () => {
-    // 延迟一点时间确保 CSS 也加载完成
+    // Delay to ensure CSS is also loaded
     timeoutRef.current = setTimeout(() => {
       setIsLoading(false);
     }, 500);
@@ -89,7 +89,7 @@ const AgentWorldMainPage: React.FC = () => {
 
   useEffect(() => {
     return () => {
-      // 清理定时器
+      // Clean up timer
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }

@@ -20,19 +20,19 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
   showLineNumbers = true
 }) => {
 
-  // 计算差异
+  // Calculate differences
   const changes = useMemo(() => {
     return diffLines(oldValue, newValue);
   }, [oldValue, newValue]);
 
-  // 渲染差异行
+  // Render diff lines
   const renderChanges = () => {
     let oldLineNumber = 1;
     let newLineNumber = 1;
 
     return changes.map((change: Change, index: number) => {
       const lines = change.value.split('\n');
-      // 移除最后一个空行
+      // Remove the last empty line
       if (lines[lines.length - 1] === '') {
         lines.pop();
       }
@@ -45,10 +45,10 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
 
         if (change.added) {
           changeType = 'insert';
-          displayOldLine = 0; // 不显示旧行号
+          displayOldLine = 0; // Don't show old line number
         } else if (change.removed) {
           changeType = 'delete';
-          displayNewLine = 0; // 不显示新行号
+          displayNewLine = 0; // Don't show new line number
         }
 
         // 更新行号

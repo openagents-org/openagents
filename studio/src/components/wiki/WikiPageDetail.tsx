@@ -25,14 +25,14 @@ const WikiPageDetail: React.FC = () => {
     clearError,
   } = useWikiStore();
 
-  // 设置连接
+  // Set connection
   useEffect(() => {
     if (openAgentsService) {
       setConnection(openAgentsService);
     }
   }, [openAgentsService, setConnection]);
 
-  // 加载页面详情
+  // Load page details
   useEffect(() => {
     if (pagePath && openAgentsService) {
       const decodedPagePath = decodeURIComponent(pagePath);
@@ -45,7 +45,7 @@ const WikiPageDetail: React.FC = () => {
     };
   }, [pagePath, openAgentsService, loadPage, setSelectedPage]);
 
-  // 初始化编辑内容
+  // Initialize edit content
   useEffect(() => {
     if (selectedPage && showEditModal) {
       setEditContent(selectedPage.wiki_content);
@@ -137,7 +137,7 @@ const WikiPageDetail: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full">
-      {/* 头部 */}
+      {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
         <div className="flex items-center space-x-3">
           <button
@@ -189,7 +189,7 @@ const WikiPageDetail: React.FC = () => {
         </div>
       </div>
 
-      {/* 页面内容 */}
+      {/* Page content */}
       <div className="flex-1 overflow-y-auto px-6 py-6 dark:bg-gray-900">
         <div className="max-w-none">
           <MarkdownRenderer
@@ -199,7 +199,7 @@ const WikiPageDetail: React.FC = () => {
         </div>
       </div>
 
-      {/* 编辑模态框 */}
+      {/* Edit modal */}
       {showEditModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="w-full max-w-4xl h-5/6 mx-4 flex flex-col rounded-lg bg-white dark:bg-gray-800">

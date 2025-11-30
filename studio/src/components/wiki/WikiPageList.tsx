@@ -30,14 +30,14 @@ const WikiPageList: React.FC = () => {
     cleanupEventListeners,
   } = useWikiStore();
 
-  // 设置连接
+  // Set connection
   useEffect(() => {
     if (openAgentsService) {
       setConnection(openAgentsService);
     }
   }, [openAgentsService, setConnection]);
 
-  // 加载页面（等待连接建立）
+  // Load pages (wait for connection to be established)
   useEffect(() => {
     if (openAgentsService && isConnected) {
       console.log("WikiPageList: Connection ready, loading pages");
@@ -46,7 +46,7 @@ const WikiPageList: React.FC = () => {
     }
   }, [openAgentsService, isConnected, loadPages, loadProposals]);
 
-  // 设置wiki事件监听器
+  // Set up wiki event listeners
   useEffect(() => {
     if (openAgentsService) {
       console.log("WikiPageList: Setting up wiki event listeners");
@@ -69,10 +69,10 @@ const WikiPageList: React.FC = () => {
   }, [searchQuery, searchPages]);
 
   const handlePageClick = (pagePath: string) => {
-    // 先找到对应的页面对象
+    // First find the corresponding page object
     const page = pages.find((p) => p.page_path === pagePath);
 
-    // 如果找到页面，记录到recent pages
+    // If page found, record to recent pages
     if (page) {
       console.log("WikiPageList: Adding page to recent pages:", page.title);
       addRecentPage(page);
@@ -133,7 +133,7 @@ const WikiPageList: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full">
-      {/* 头部 */}
+      {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
@@ -145,7 +145,7 @@ const WikiPageList: React.FC = () => {
         </div>
 
         <div className="flex items-center space-x-3">
-          {/* 待审核提案按钮 */}
+          {/* Pending proposals button */}
           {proposals.filter((p) => p.status === "pending").length > 0 && (
             <button
               onClick={() => navigate("/wiki/proposals")}
@@ -171,7 +171,7 @@ const WikiPageList: React.FC = () => {
             </button>
           )}
 
-          {/* 创建页面按钮 */}
+          {/* Create page button */}
           <button
             onClick={() => setShowCreateModal(true)}
             className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
@@ -194,7 +194,7 @@ const WikiPageList: React.FC = () => {
         </div>
       </div>
 
-      {/* 搜索栏 */}
+      {/* Search bar */}
       <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
         <div className="relative">
           <input
@@ -220,7 +220,7 @@ const WikiPageList: React.FC = () => {
         </div>
       </div>
 
-      {/* 页面列表 */}
+      {/* Page list */}
       <div className="flex-1 overflow-y-hidden py-6 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
         {pages.length === 0 ? (
           <div className="text-center py-12 h-full flex flex-col items-center justify-center">
@@ -289,7 +289,7 @@ const WikiPageList: React.FC = () => {
         )}
       </div>
 
-      {/* 创建页面模态框 */}
+      {/* Create page modal */}
       <WikiCreateModal
         isOpen={showCreateModal}
         onClose={() => setShowCreateModal(false)}

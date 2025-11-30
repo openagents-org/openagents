@@ -36,7 +36,7 @@ const WikiEditor: React.FC<WikiEditorProps> = ({
   const [currentMode, setCurrentMode] = useState<EditorMode>(modes[0] || 'edit');
   const { theme } = useThemeStore();
 
-  // 确保当前模式在可用模式列表中
+  // Ensure current mode is in available modes list
   useEffect(() => {
     if (!modes.includes(currentMode)) {
       setCurrentMode(modes[0] || 'edit');

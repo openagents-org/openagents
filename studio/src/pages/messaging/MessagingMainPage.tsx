@@ -3,19 +3,19 @@ import { Routes, Route } from "react-router-dom";
 import MessagingView from "./MessagingView";
 import ProjectChatRoom from "./components/ProjectChatRoom";
 /**
- * 聊天主页面 - 使用 chatStore 统一架构
+ * 聊天主页面 - Use chatStore unified architecture
  */
 const MessagingMainPage: React.FC = () => {
 
   return (
     <Routes>
-      {/* 项目私密聊天室独立路由 */}
+      {/* Project private chat room independent route */}
       <Route
         path="project/:projectId"
         element={<ProjectChatRoom />}
       />
 
-      {/* 默认聊天视图 */}
+      {/* Default chat view */}
       <Route
         index
         element={
@@ -23,7 +23,7 @@ const MessagingMainPage: React.FC = () => {
         }
       />
 
-      {/* 其他聊天相关的子路由可以在这里添加 */}
+      {/* Other chat-related sub-routes can be added here */}
     </Routes>
   );
 };

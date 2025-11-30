@@ -5,7 +5,7 @@ import { getAuth } from 'firebase/auth';
 import { toast } from "sonner";
 import { useConfirm } from '../../context/ConfirmContext';
 
-// 添加获取认证令牌的函数
+// Add function to get auth token
 const getAuthToken = async (): Promise<string> => {
   const auth = getAuth();
   const currentUser = auth.currentUser;
@@ -25,12 +25,12 @@ interface McpServerInfo {
   model?: string;
 }
 
-// 修改服务器数据类型
+// Modify server data type
 interface ServerConfig {
   url?: string;
   type?: string;
   model?: string;
-  [key: string]: any;  // 允许其他任意属性
+  [key: string]: any;  // Allow other arbitrary properties
 }
 
 const McpServerView: React.FC = () => {
@@ -41,13 +41,13 @@ const McpServerView: React.FC = () => {
   // Toast is imported from sonner
   const { confirm } = useConfirm();
 
-  // 跟踪组件可见性
+  // Track component visibility
   useEffect(() => {
     setIsVisible(true);
     return () => setIsVisible(false);
   }, []);
 
-  // 在组件挂载和可见性变化时加载服务器
+  // Load servers when component mounts and visibility changes
   useEffect(() => {
     if (isVisible) {
       console.log('McpServerView is visible, loading servers...');
@@ -55,13 +55,13 @@ const McpServerView: React.FC = () => {
     }
   }, [isVisible]);
 
-  // 定期刷新服务器列表 (每10秒)
+  // Periodically refresh server list (每10秒)
   useEffect(() => {
     if (!isVisible) return;
     
     const refreshInterval = setInterval(() => {
       console.log('Auto-refreshing server list...');
-      loadServers(false); // 静默加载(不显示加载动画)
+      loadServers(false); // Silent load (without loading animation)
     }, 10000);
     
     return () => clearInterval(refreshInterval);
@@ -76,7 +76,7 @@ const McpServerView: React.FC = () => {
       
       console.log('Loading MCP servers...');
       
-      // 使用API获取服务器列表
+      // Use API to get server list
       const response = await fetch('/api/mcp/get-servers', {
         headers: {
           'Authorization': `Bearer ${await getAuthToken()}`
@@ -90,7 +90,7 @@ const McpServerView: React.FC = () => {
       const availableServers = await response.json();
       console.log(`Loaded ${Object.keys(availableServers).length} MCP servers:`, Object.keys(availableServers).join(', '));
       
-      // 检查每个服务器的连接状态
+      // Check connection status of each server
       const serverStatuses = await Promise.all(
         Object.keys(availableServers)
           .filter(name => name !== 'updatedAt') // Filter out the updatedAt metadata field
@@ -114,7 +114,7 @@ const McpServerView: React.FC = () => {
           })
       );
       
-      // 创建服务器状态查找表
+      // Create server status lookup table
       const serverStatusMap = Object.fromEntries(
         serverStatuses.map(({ name, isRunning }) => [name, isRunning])
       );
@@ -123,7 +123,7 @@ const McpServerView: React.FC = () => {
       const serverList: McpServerInfo[] = Object.entries(availableServers)
         .filter(([name]) => name !== 'updatedAt') // Filter out the updatedAt metadata field
         .map(([name, configData]) => {
-          // 类型转换
+          // Type conversion
           const config = configData as ServerConfig;
           
           // Generate a description based on the server name and type
@@ -197,7 +197,7 @@ const McpServerView: React.FC = () => {
         return; // User cancelled the deletion
       }
       
-      // 通过API删除服务器
+      // Delete server via API
       const response = await fetch('/api/mcp/delete-server', {
         method: 'POST',
         headers: {

@@ -25,12 +25,12 @@ const ForumTopicItem: React.FC<ForumTopicItemProps> = React.memo(({
       onClick={handleClick}
       className="p-4 rounded-lg border cursor-pointer transition-all hover:shadow-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750 hover:border-gray-300 dark:hover:border-gray-600"
     >
-      {/* 话题标题 */}
+      {/* Topic title */}
       <h3 className="text-lg font-semibold mb-2 line-clamp-2 text-gray-900 dark:text-gray-100">
         {topic.title}
       </h3>
 
-      {/* 话题内容预览 */}
+      {/* Topic content preview */}
       <div className="text-sm line-clamp-3">
         <MarkdownRenderer
           content={topic.content}
@@ -40,10 +40,10 @@ const ForumTopicItem: React.FC<ForumTopicItemProps> = React.memo(({
         />
       </div>
 
-      {/* 元信息栏 */}
+      {/* Meta information bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          {/* 投票数 */}
+          {/* Vote count */}
           <div className="flex items-center space-x-1">
             <span className="text-gray-400">🔥</span>
             <span className="text-sm text-gray-500 dark:text-gray-400">
@@ -51,7 +51,7 @@ const ForumTopicItem: React.FC<ForumTopicItemProps> = React.memo(({
             </span>
           </div>
 
-          {/* 评论数 */}
+          {/* Comment count */}
           <div className="flex items-center space-x-1">
             <svg
               className="w-4 h-4 text-gray-500 dark:text-gray-400"
@@ -67,7 +67,7 @@ const ForumTopicItem: React.FC<ForumTopicItemProps> = React.memo(({
           </div>
         </div>
 
-        {/* 作者和时间 */}
+        {/* Author and time */}
         <div className="text-xs text-gray-400 dark:text-gray-500">
           by {topic.owner_id} • {timeAgo}
         </div>

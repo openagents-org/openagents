@@ -22,20 +22,20 @@ const ForumTopicList: React.FC = () => {
     cleanupEventListeners,
   } = useForumStore();
 
-  // 设置连接
+  // Set connection
   useEffect(() => {
     if (openAgentsService) {
       setConnection(openAgentsService);
     }
   }, [openAgentsService, setConnection]);
 
-  // 初始化权限数据
+  // Initialize permission data
   useEffect(() => {
     const initializePermissions = async () => {
       if (!openAgentsService) return;
 
       try {
-        // 获取当前agent ID
+        // Get currentagent ID
         const agentId = openAgentsService.getAgentId();
         if (agentId) {
           console.log("ForumTopicList: Setting agentId:", agentId);
@@ -56,7 +56,7 @@ const ForumTopicList: React.FC = () => {
     initializePermissions();
   }, [openAgentsService, setGroupsData, setAgentId]);
 
-  // 加载话题（等待连接建立）
+  // Load topics (wait for connection to be established)
   useEffect(() => {
     if (openAgentsService && isConnected) {
       console.log("ForumTopicList: Connection ready, loading topics");
@@ -121,7 +121,7 @@ const ForumTopicList: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full ">
-      {/* 头部 */}
+      {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between   bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">

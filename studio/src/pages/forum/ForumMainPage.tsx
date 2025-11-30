@@ -4,18 +4,18 @@ import ForumTopicList from "@/components/forum/ForumTopicList";
 import ForumTopicDetail from "@/components/forum/ForumTopicDetail";
 
 /**
- * Forum主页面 - 处理Forum相关的所有功能
+ * Forum主页面 - Handle all Forum-related features
  */
 const ForumMainPage: React.FC = () => {
   return (
     <Routes>
-      {/* 话题列表页 */}
+      {/* Topic list page */}
       <Route
         index
         element={<ForumTopicList />}
       />
 
-      {/* 话题详情页 */}
+      {/* Topic detail page */}
       <Route
         path=":topicId"
         element={<ForumTopicDetail />}

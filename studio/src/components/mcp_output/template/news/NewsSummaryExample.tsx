@@ -1,7 +1,7 @@
 import React from 'react';
 import NewsSummaryList, { NewsSummaryItem } from './NewsSummaryList';
 
-// 示例数据
+// Example data
 const exampleNewsItems: NewsSummaryItem[] = [
   {
     id: '1',
@@ -24,7 +24,7 @@ const exampleNewsItems: NewsSummaryItem[] = [
     date: 'June 10, 2023',
     source: 'Health Journal',
     url: 'https://example.com/news/3',
-    // 故意不提供图片以使用placeholder
+    // Intentionally not providing image to useplaceholder
   },
   {
     id: '4',
@@ -50,7 +50,7 @@ const exampleNewsItems: NewsSummaryItem[] = [
   }
 ];
 
-// 没有图片的新闻，用于演示placeholder
+// News without image, for demonstrationplaceholder
 const noImageNewsItems: NewsSummaryItem[] = [
   {
     id: '7',
@@ -81,7 +81,7 @@ const NewsSummaryExample: React.FC = () => {
         columns={3}
       />
       
-      {/* 演示不同列数的布局 */}
+      {/* Demonstrate layout with different column counts */}
       <div className="mt-10">
         <NewsSummaryList 
           newsItems={exampleNewsItems.slice(0, 4)} 
@@ -90,7 +90,7 @@ const NewsSummaryExample: React.FC = () => {
         />
       </div>
 
-      {/* 演示placeholder效果 */}
+      {/* Demonstrate placeholder effect */}
       <div className="mt-10">
         <NewsSummaryList 
           newsItems={noImageNewsItems} 

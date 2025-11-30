@@ -3,14 +3,14 @@ import { Routes, Route, useNavigate } from "react-router-dom";
 import McpView from "@/components/mcp/McpView";
 
 /**
- * MCP 主页面 - 处理 MCP 相关的所有功能
+ * MCP 主页面 - Handle all MCP-related features
  */
 const McpMainPage: React.FC = () => {
   const navigate = useNavigate();
 
   return (
     <Routes>
-      {/* 默认 MCP 视图 */}
+      {/* Default MCP view */}
       <Route
         index
         element={<McpView />}

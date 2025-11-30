@@ -112,7 +112,7 @@ const ForumSidebar: React.FC = () => {
     cleanupEventListeners,
   } = useForumStore();
 
-  // 获取热门话题（缓存计算结果）
+  // Get hot topics (cached calculation result)
   const popularTopics = useMemo(() => {
     const popular = getPopularTopics();
     console.log(
@@ -134,17 +134,17 @@ const ForumSidebar: React.FC = () => {
     return popular;
   }, [topics, getPopularTopics, groupsData]);
 
-  // 检查当前是否在某个话题详情页
+  // Check if currently on a topic detail page
   const currentTopicId = location.pathname.match(/^\/forum\/([^/]+)$/)?.[1];
 
-  // 设置连接
+  // Set connection
   useEffect(() => {
     if (openAgentsService) {
       setConnection(openAgentsService);
     }
   }, [openAgentsService, setConnection]);
 
-  // 加载话题（等待连接建立）
+  // Load topics (wait for connection to be established)
   useEffect(() => {
     if (openAgentsService && isConnected && topics.length === 0) {
       console.log("ForumSidebar: Connection ready, loading topics");
@@ -152,7 +152,7 @@ const ForumSidebar: React.FC = () => {
     }
   }, [openAgentsService, isConnected, loadTopics, topics.length]);
 
-  // 设置forum事件监听器
+  // Set up forum event listeners
   useEffect(() => {
     if (openAgentsService) {
       console.log("ForumSidebar: Setting up forum event listeners");
@@ -165,7 +165,7 @@ const ForumSidebar: React.FC = () => {
     }
   }, [openAgentsService, setupEventListeners, cleanupEventListeners]);
 
-  // // 分类数据（静态）
+  // // Category data (static)
   // const forumCategories = [
   //   { name: "General Discussion", id: "general" },
   //   { name: "Q&A", id: "qa" },
@@ -173,13 +173,13 @@ const ForumSidebar: React.FC = () => {
   //   { name: "Bug Reports", id: "bugs" },
   // ];
 
-  // // 分类选择处理
+  // // Category selection handling
   // const onCategorySelect = (categoryId: string) => {
-  //   // 导航到论坛列表页（将来可以添加分类过滤）
+  //   // Navigate to forum list page (can add category filter in future)
   //   navigate('/forum');
   // };
 
-  // 话题选择处理
+  // Topic selection handling
   const onTopicSelect = (topicId: string) => {
     navigate(`/forum/${topicId}`);
   };
@@ -194,7 +194,7 @@ const ForumSidebar: React.FC = () => {
             <ForumCategoryItem
               key={category.id}
               name={category.name}
-              isActive={false} // 暂时不支持分类过滤，所以都不高亮
+              isActive={false} // Category filtering not supported yet, so none are highlighted
               onClick={() => onCategorySelect(category.id)}
             />
           ))}

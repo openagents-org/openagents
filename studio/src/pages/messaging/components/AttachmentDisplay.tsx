@@ -2,18 +2,18 @@ import React from 'react';
 import { buildNetworkUrl } from '@/utils/httpClient';
 
 interface AttachmentDisplayProps {
-  // 新的统一附件格式
+  // New unified attachment format
   attachments?: Array<{
     fileId: string;
     filename: string;
     size: number;
     fileType?: string;
   }>;
-  // 兼容旧格式（可选）
+  // Compatible with old format（可选）
   attachment_file_id?: string;
   attachment_filename?: string;
   attachment_size?: number | string;
-  // 兼容旧格式数组（可选）
+  // Compatible with old format数组（可选）
   legacyAttachments?: Array<{
     file_id: string;
     filename: string;
@@ -144,15 +144,15 @@ const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
     </div>
   );
 
-  // 合并所有附件到统一格式
+  // Merge all attachments to unified format
   const allAttachments: Array<{fileId: string, filename: string, size: number}> = [];
 
-  // 新格式附件
+  // New format attachments
   if (attachments && attachments.length > 0) {
     allAttachments.push(...attachments);
   }
 
-  // 兼容旧格式数组
+  // Compatible with old format数组
   if (legacyAttachments && legacyAttachments.length > 0) {
     allAttachments.push(...legacyAttachments.map(att => ({
       fileId: att.file_id,
@@ -161,7 +161,7 @@ const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
     })));
   }
 
-  // 兼容旧格式单个附件
+  // Compatible with old format single attachment
   if (attachment_file_id && attachment_filename && allAttachments.length === 0) {
     allAttachments.push({
       fileId: attachment_file_id,

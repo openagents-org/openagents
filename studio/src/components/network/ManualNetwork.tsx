@@ -254,7 +254,7 @@ export default function ManualNetwork() {
       </h2>
 
       <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-6">
-        {/* Tab 切换按钮 */}
+        {/* Tab Toggle button */}
         <div className="flex border-b border-gray-300 dark:border-gray-600 mb-4">
           {tabList.map((tab) => (
             <button
@@ -271,7 +271,7 @@ export default function ManualNetwork() {
           ))}
         </div>
 
-        {/* Tab 内容 */}
+        {/* Tab Content */}
         {activeTab === "quick-connect" && savedConnection ? (
           <div className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6 mb-4">
             <div className="flex-1">

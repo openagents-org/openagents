@@ -32,10 +32,10 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
     getTotalComments,
   } = useForumStore();
 
-  // 使用实时计算的评论总数
+  // Use real-time calculated total comment count
   const totalComments = getTotalComments();
 
-  // 设置连接
+  // Set connection
   useEffect(() => {
     if (openAgentsService) {
       console.log("ForumTopicDetail: Setting connection");
@@ -43,7 +43,7 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
     }
   }, [openAgentsService, setConnection]);
 
-  // 加载话题详情（等待连接建立）
+  // Load topic details (wait for connection to be established)
   useEffect(() => {
     if (topicId && openAgentsService && isConnected) {
       console.log(
@@ -63,7 +63,7 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
     }
   }, [topicId, openAgentsService, isConnected, loadTopicDetail]);
 
-  // 组件卸载时重置选中话题
+  // Reset selected topic when component unmounts
   useEffect(() => {
     return () => {
       console.log("ForumTopicDetail: Cleanup - resetting selected topic");
@@ -91,7 +91,7 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
     return success;
   };
 
-  // 显示连接等待状态
+  // Display connection waiting status
   if (!openAgentsService || !isConnected) {
     return (
       <div className="flex-1 flex items-center justify-center dark:bg-gray-900">
@@ -157,7 +157,7 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full">
-      {/* 头部导航 */}
+      {/* Header导航 */}
       <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
         <button
           onClick={handleBack}
@@ -180,12 +180,12 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
         </button>
       </div>
 
-      {/* 主要内容 - 使用全宽度 */}
+      {/* 主要Content - 使用全宽度 */}
       <div className="flex-1 flex flex-col overflow-hidden dark:bg-gray-900 border-gray-200 dark:border-gray-700">
         <div className="flex-1 flex flex-col overflow-y-auto">
-          {/* 话题内容 */}
+          {/* 话题Content */}
           <div className="p-6 border-b bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700">
-            {/* 话题标题 */}
+            {/* Topic title */}
             <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100">
               {selectedTopic.title}
             </h1>
@@ -198,7 +198,7 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
               <span>{totalComments} comments</span>
             </div>
 
-            {/* 话题内容 */}
+            {/* 话题Content */}
             <div className="mb-4">
               <MarkdownRenderer content={selectedTopic.content} />
             </div>
@@ -249,7 +249,7 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
             </div>
           </div>
 
-          {/* 评论标题 */}
+          {/* 评论Title */}
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               Comments ({totalComments})

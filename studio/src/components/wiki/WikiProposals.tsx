@@ -26,29 +26,29 @@ const WikiProposals: React.FC = () => {
     clearError,
   } = useWikiStore();
 
-  // 设置连接
+  // Set connection
   useEffect(() => {
     if (openAgentsService) {
       setConnection(openAgentsService);
     }
   }, [openAgentsService, setConnection]);
 
-  // 加载提案
+  // Load proposals
   useEffect(() => {
     if (openAgentsService) {
       console.log("WikiProposals: Loading proposals");
       loadProposals();
-      loadPages(); // 确保我们有页面数据
+      loadPages(); // Ensure we have page data
     }
   }, [openAgentsService, loadProposals, loadPages]);
 
-  // 获取页面内容用于diff对比
+  // 获取Page content用于diff对比
   const getPageContent = async (pagePath: string): Promise<string> => {
     if (pageContents[pagePath]) {
       return pageContents[pagePath];
     }
 
-    // 首先查找pages中是否已有该页面
+    // First check if the page already exists in pages
     const existingPage = pages.find((page) => page.page_path === pagePath);
     if (existingPage) {
       const content = existingPage.wiki_content || "";
@@ -56,10 +56,10 @@ const WikiProposals: React.FC = () => {
       return content;
     }
 
-    // 如果没有，尝试加载页面详情
+    // If not, try to load page details
     try {
       await loadPage(pagePath);
-      // 这里我们需要从store中获取最新加载的页面
+      // Here we need to get the latest loaded page from the store
       const updatedPages = pages;
       const loadedPage = updatedPages.find(
         (page) => page.page_path === pagePath
@@ -97,7 +97,7 @@ const WikiProposals: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full dark:bg-gray-900">
-      {/* 头部 */}
+      {/* Header */}
       <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
         <div className="flex items-center space-x-3">
           <button
@@ -129,7 +129,7 @@ const WikiProposals: React.FC = () => {
         </div>
       </div>
 
-      {/* 错误提示 */}
+      {/* Error message */}
       {pagesError && (
         <div className="mx-6 mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
           <p className="text-red-700 dark:text-red-300 text-sm">{pagesError}</p>
@@ -142,7 +142,7 @@ const WikiProposals: React.FC = () => {
         </div>
       )}
 
-      {/* 提案列表 */}
+      {/* Proposals list */}
       <div className="flex-1 overflow-y-auto px-6 py-6 dark:bg-gray-900">
         {pendingProposals.length === 0 ? (
           <div className="text-center py-12 h-full flex flex-col items-center justify-center">
