@@ -1,0 +1,66 @@
+{
+    "mod_name": "task_delegation",
+    "version": "1.0.0",
+    "description": "A task delegation mod for OpenAgents that provides structured task delegation between agents with status tracking, timeout support, and notifications",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "TaskDelegationAdapter",
+    "network_mod_class": "TaskDelegationMod",
+    "capabilities": [
+        "task_delegation",
+        "task_status_tracking",
+        "task_timeout",
+        "progress_reporting",
+        "task_notifications"
+    ],
+    "requires_adapter": true,
+    "studio_interface": false,
+    "dependencies": [],
+    "metadata": {
+        "default_timeout_seconds": 300,
+        "status_values": [
+            "in_progress",
+            "completed",
+            "failed",
+            "timed_out"
+        ],
+        "core_features": [
+            "delegate_tasks_to_agents",
+            "track_task_status",
+            "report_progress",
+            "auto_timeout_handling",
+            "query_delegated_tasks",
+            "query_assigned_tasks",
+            "task_lifecycle_notifications"
+        ],
+        "tools": [
+            "delegate_task",
+            "report_task_progress",
+            "complete_task",
+            "fail_task",
+            "list_tasks",
+            "get_task"
+        ]
+    },
+    "process_events": [
+        "task.delegate",
+        "task.report",
+        "task.complete",
+        "task.fail",
+        "task.list",
+        "task.get"
+    ],
+    "generate_events": [
+        "task.delegate.response",
+        "task.report.response",
+        "task.complete.response",
+        "task.fail.response",
+        "task.list.response",
+        "task.get.response",
+        "task.notification.assigned",
+        "task.notification.progress",
+        "task.notification.completed",
+        "task.notification.failed",
+        "task.notification.timeout"
+    ]
+}

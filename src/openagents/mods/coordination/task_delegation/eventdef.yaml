@@ -1,0 +1,787 @@
+asyncapi: '3.0.0'
+info:
+  title: OpenAgents Task Delegation Mod API
+  version: '1.0.0'
+  description: |
+    A task delegation mod for OpenAgents that provides structured task delegation 
+    between agents with status tracking, timeout support, and notifications.
+    
+    ## Features
+    - Delegate tasks to specific agents
+    - Track task status (in_progress, completed, failed, timed_out)
+    - Report intermediate progress
+    - Auto-timeout for tasks that take too long
+    - Query delegated and assigned tasks
+    - Notifications for task lifecycle events
+    
+  contact:
+    name: OpenAgents Team
+  license:
+    name: MIT
+
+defaultContentType: application/json
+
+channels:
+  taskDelegate:
+    address: task.delegate
+    messages:
+      taskDelegate:
+        $ref: '#/components/messages/TaskDelegateMessage'
+  
+  taskReport:
+    address: task.report
+    messages:
+      taskReport:
+        $ref: '#/components/messages/TaskReportMessage'
+  
+  taskComplete:
+    address: task.complete
+    messages:
+      taskComplete:
+        $ref: '#/components/messages/TaskCompleteMessage'
+  
+  taskFail:
+    address: task.fail
+    messages:
+      taskFail:
+        $ref: '#/components/messages/TaskFailMessage'
+  
+  taskList:
+    address: task.list
+    messages:
+      taskList:
+        $ref: '#/components/messages/TaskListMessage'
+  
+  taskGet:
+    address: task.get
+    messages:
+      taskGet:
+        $ref: '#/components/messages/TaskGetMessage'
+  
+  taskDelegateResponse:
+    address: task.delegate.response
+    messages:
+      taskDelegateResponse:
+        $ref: '#/components/messages/TaskDelegateResponse'
+  
+  taskReportResponse:
+    address: task.report.response
+    messages:
+      taskReportResponse:
+        $ref: '#/components/messages/TaskReportResponse'
+  
+  taskCompleteResponse:
+    address: task.complete.response
+    messages:
+      taskCompleteResponse:
+        $ref: '#/components/messages/TaskCompleteResponse'
+  
+  taskFailResponse:
+    address: task.fail.response
+    messages:
+      taskFailResponse:
+        $ref: '#/components/messages/TaskFailResponse'
+  
+  taskListResponse:
+    address: task.list.response
+    messages:
+      taskListResponse:
+        $ref: '#/components/messages/TaskListResponse'
+  
+  taskGetResponse:
+    address: task.get.response
+    messages:
+      taskGetResponse:
+        $ref: '#/components/messages/TaskGetResponse'
+  
+  taskNotificationAssigned:
+    address: task.notification.assigned
+    messages:
+      taskNotificationAssigned:
+        $ref: '#/components/messages/TaskAssignedNotification'
+  
+  taskNotificationProgress:
+    address: task.notification.progress
+    messages:
+      taskNotificationProgress:
+        $ref: '#/components/messages/TaskProgressNotification'
+  
+  taskNotificationCompleted:
+    address: task.notification.completed
+    messages:
+      taskNotificationCompleted:
+        $ref: '#/components/messages/TaskCompletedNotification'
+  
+  taskNotificationFailed:
+    address: task.notification.failed
+    messages:
+      taskNotificationFailed:
+        $ref: '#/components/messages/TaskFailedNotification'
+  
+  taskNotificationTimeout:
+    address: task.notification.timeout
+    messages:
+      taskNotificationTimeout:
+        $ref: '#/components/messages/TaskTimeoutNotification'
+
+operations:
+  delegateTask:
+    action: send
+    channel:
+      $ref: '#/channels/taskDelegate'
+    summary: Delegate a task to another agent
+  
+  reportProgress:
+    action: send
+    channel:
+      $ref: '#/channels/taskReport'
+    summary: Report progress on an assigned task
+  
+  completeTask:
+    action: send
+    channel:
+      $ref: '#/channels/taskComplete'
+    summary: Mark a task as completed
+  
+  failTask:
+    action: send
+    channel:
+      $ref: '#/channels/taskFail'
+    summary: Mark a task as failed
+  
+  listTasks:
+    action: send
+    channel:
+      $ref: '#/channels/taskList'
+    summary: List tasks (delegated or assigned)
+  
+  getTask:
+    action: send
+    channel:
+      $ref: '#/channels/taskGet'
+    summary: Get details of a specific task
+  
+  receiveDelegateResponse:
+    action: receive
+    channel:
+      $ref: '#/channels/taskDelegateResponse'
+    summary: Receive response for task delegation
+  
+  receiveReportResponse:
+    action: receive
+    channel:
+      $ref: '#/channels/taskReportResponse'
+    summary: Receive response for progress report
+  
+  receiveCompleteResponse:
+    action: receive
+    channel:
+      $ref: '#/channels/taskCompleteResponse'
+    summary: Receive response for task completion
+  
+  receiveFailResponse:
+    action: receive
+    channel:
+      $ref: '#/channels/taskFailResponse'
+    summary: Receive response for task failure
+  
+  receiveListResponse:
+    action: receive
+    channel:
+      $ref: '#/channels/taskListResponse'
+    summary: Receive response for task list
+  
+  receiveGetResponse:
+    action: receive
+    channel:
+      $ref: '#/channels/taskGetResponse'
+    summary: Receive response for task get
+  
+  receiveAssignedNotification:
+    action: receive
+    channel:
+      $ref: '#/channels/taskNotificationAssigned'
+    summary: Receive notification when assigned a task
+  
+  receiveProgressNotification:
+    action: receive
+    channel:
+      $ref: '#/channels/taskNotificationProgress'
+    summary: Receive notification when progress is reported
+  
+  receiveCompletedNotification:
+    action: receive
+    channel:
+      $ref: '#/channels/taskNotificationCompleted'
+    summary: Receive notification when task is completed
+  
+  receiveFailedNotification:
+    action: receive
+    channel:
+      $ref: '#/channels/taskNotificationFailed'
+    summary: Receive notification when task fails
+  
+  receiveTimeoutNotification:
+    action: receive
+    channel:
+      $ref: '#/channels/taskNotificationTimeout'
+    summary: Receive notification when task times out
+
+components:
+  messages:
+    TaskDelegateMessage:
+      name: TaskDelegateMessage
+      title: Task Delegate
+      summary: Delegate a task to another agent
+      contentType: application/json
+      x_event_type: operation
+      payload:
+        $ref: '#/components/schemas/TaskDelegatePayload'
+    
+    TaskReportMessage:
+      name: TaskReportMessage
+      title: Task Report
+      summary: Report progress on an assigned task
+      contentType: application/json
+      x_event_type: operation
+      payload:
+        $ref: '#/components/schemas/TaskReportPayload'
+    
+    TaskCompleteMessage:
+      name: TaskCompleteMessage
+      title: Task Complete
+      summary: Mark a task as completed
+      contentType: application/json
+      x_event_type: operation
+      payload:
+        $ref: '#/components/schemas/TaskCompletePayload'
+    
+    TaskFailMessage:
+      name: TaskFailMessage
+      title: Task Fail
+      summary: Mark a task as failed
+      contentType: application/json
+      x_event_type: operation
+      payload:
+        $ref: '#/components/schemas/TaskFailPayload'
+    
+    TaskListMessage:
+      name: TaskListMessage
+      title: Task List
+      summary: List tasks with filters
+      contentType: application/json
+      x_event_type: operation
+      payload:
+        $ref: '#/components/schemas/TaskListPayload'
+    
+    TaskGetMessage:
+      name: TaskGetMessage
+      title: Task Get
+      summary: Get details of a specific task
+      contentType: application/json
+      x_event_type: operation
+      payload:
+        $ref: '#/components/schemas/TaskGetPayload'
+    
+    TaskDelegateResponse:
+      name: TaskDelegateResponse
+      title: Task Delegate Response
+      summary: Response to task delegation
+      contentType: application/json
+      x_event_type: response
+      payload:
+        $ref: '#/components/schemas/TaskDelegateResponsePayload'
+    
+    TaskReportResponse:
+      name: TaskReportResponse
+      title: Task Report Response
+      summary: Response to progress report
+      contentType: application/json
+      x_event_type: response
+      payload:
+        $ref: '#/components/schemas/TaskReportResponsePayload'
+    
+    TaskCompleteResponse:
+      name: TaskCompleteResponse
+      title: Task Complete Response
+      summary: Response to task completion
+      contentType: application/json
+      x_event_type: response
+      payload:
+        $ref: '#/components/schemas/TaskCompleteResponsePayload'
+    
+    TaskFailResponse:
+      name: TaskFailResponse
+      title: Task Fail Response
+      summary: Response to task failure
+      contentType: application/json
+      x_event_type: response
+      payload:
+        $ref: '#/components/schemas/TaskFailResponsePayload'
+    
+    TaskListResponse:
+      name: TaskListResponse
+      title: Task List Response
+      summary: Response with list of tasks
+      contentType: application/json
+      x_event_type: response
+      payload:
+        $ref: '#/components/schemas/TaskListResponsePayload'
+    
+    TaskGetResponse:
+      name: TaskGetResponse
+      title: Task Get Response
+      summary: Response with task details
+      contentType: application/json
+      x_event_type: response
+      payload:
+        $ref: '#/components/schemas/TaskGetResponsePayload'
+    
+    TaskAssignedNotification:
+      name: TaskAssignedNotification
+      title: Task Assigned Notification
+      summary: Notification when a task is assigned
+      contentType: application/json
+      x_event_type: notification
+      payload:
+        $ref: '#/components/schemas/TaskAssignedNotificationPayload'
+    
+    TaskProgressNotification:
+      name: TaskProgressNotification
+      title: Task Progress Notification
+      summary: Notification when progress is reported
+      contentType: application/json
+      x_event_type: notification
+      payload:
+        $ref: '#/components/schemas/TaskProgressNotificationPayload'
+    
+    TaskCompletedNotification:
+      name: TaskCompletedNotification
+      title: Task Completed Notification
+      summary: Notification when a task is completed
+      contentType: application/json
+      x_event_type: notification
+      payload:
+        $ref: '#/components/schemas/TaskCompletedNotificationPayload'
+    
+    TaskFailedNotification:
+      name: TaskFailedNotification
+      title: Task Failed Notification
+      summary: Notification when a task fails
+      contentType: application/json
+      x_event_type: notification
+      payload:
+        $ref: '#/components/schemas/TaskFailedNotificationPayload'
+    
+    TaskTimeoutNotification:
+      name: TaskTimeoutNotification
+      title: Task Timeout Notification
+      summary: Notification when a task times out
+      contentType: application/json
+      x_event_type: notification
+      payload:
+        $ref: '#/components/schemas/TaskTimeoutNotificationPayload'
+
+  schemas:
+    TaskDelegatePayload:
+      type: object
+      required:
+        - assignee_id
+        - description
+      properties:
+        assignee_id:
+          type: string
+          description: ID of the agent to assign the task to
+          example: "agent_bob"
+        description:
+          type: string
+          description: Description of the task
+          example: "Search for information about AI trends"
+        payload:
+          type: object
+          description: Task data/parameters
+          example:
+            query: "AI trends 2025"
+            sources: ["web", "news"]
+        timeout_seconds:
+          type: integer
+          description: Timeout duration in seconds
+          default: 300
+          example: 300
+    
+    TaskReportPayload:
+      type: object
+      required:
+        - task_id
+        - progress
+      properties:
+        task_id:
+          type: string
+          description: ID of the task
+          example: "task-uuid-123"
+        progress:
+          type: object
+          required:
+            - message
+          properties:
+            message:
+              type: string
+              description: Progress message
+              example: "Searching web sources..."
+            data:
+              type: object
+              description: Optional progress data
+              example:
+                sources_checked: 3
+    
+    TaskCompletePayload:
+      type: object
+      required:
+        - task_id
+      properties:
+        task_id:
+          type: string
+          description: ID of the task
+          example: "task-uuid-123"
+        result:
+          type: object
+          description: Result data on completion
+          example:
+            findings: ["Finding 1", "Finding 2"]
+            summary: "AI is advancing rapidly..."
+    
+    TaskFailPayload:
+      type: object
+      required:
+        - task_id
+        - error
+      properties:
+        task_id:
+          type: string
+          description: ID of the task
+          example: "task-uuid-123"
+        error:
+          type: string
+          description: Error message
+          example: "Unable to complete search"
+    
+    TaskListPayload:
+      type: object
+      properties:
+        filter:
+          type: object
+          properties:
+            role:
+              type: string
+              enum: ["delegated_by_me", "assigned_to_me"]
+              description: Filter by role
+              default: "delegated_by_me"
+            status:
+              type: array
+              items:
+                type: string
+                enum: ["in_progress", "completed", "failed", "timed_out"]
+              description: Filter by status
+        limit:
+          type: integer
+          description: Maximum results to return
+          default: 20
+          minimum: 1
+          maximum: 100
+        offset:
+          type: integer
+          description: Number of results to skip
+          default: 0
+          minimum: 0
+    
+    TaskGetPayload:
+      type: object
+      required:
+        - task_id
+      properties:
+        task_id:
+          type: string
+          description: ID of the task
+          example: "task-uuid-123"
+    
+    TaskDelegateResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the delegation was successful
+        message:
+          type: string
+          description: Response message
+        data:
+          type: object
+          properties:
+            task_id:
+              type: string
+              description: ID of the created task
+            status:
+              type: string
+              description: Initial status of the task
+            created_at:
+              type: number
+              description: Creation timestamp
+    
+    TaskReportResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the report was successful
+        message:
+          type: string
+          description: Response message
+        data:
+          type: object
+          properties:
+            task_id:
+              type: string
+              description: ID of the task
+            progress_count:
+              type: integer
+              description: Total number of progress reports
+    
+    TaskCompleteResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the completion was successful
+        message:
+          type: string
+          description: Response message
+        data:
+          type: object
+          properties:
+            task_id:
+              type: string
+              description: ID of the task
+            status:
+              type: string
+              description: Task status
+            completed_at:
+              type: number
+              description: Completion timestamp
+    
+    TaskFailResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the fail operation was successful
+        message:
+          type: string
+          description: Response message
+        data:
+          type: object
+          properties:
+            task_id:
+              type: string
+              description: ID of the task
+            status:
+              type: string
+              description: Task status
+            completed_at:
+              type: number
+              description: Failure timestamp
+    
+    TaskListResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the list operation was successful
+        message:
+          type: string
+          description: Response message
+        data:
+          type: object
+          properties:
+            tasks:
+              type: array
+              items:
+                $ref: '#/components/schemas/TaskSummary'
+            total_count:
+              type: integer
+              description: Total number of tasks matching filter
+            has_more:
+              type: boolean
+              description: Whether there are more tasks
+    
+    TaskGetResponsePayload:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the get operation was successful
+        message:
+          type: string
+          description: Response message
+        data:
+          $ref: '#/components/schemas/TaskDetail'
+    
+    TaskSummary:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: Unique task ID
+        delegator_id:
+          type: string
+          description: ID of the agent who delegated
+        assignee_id:
+          type: string
+          description: ID of the agent assigned
+        description:
+          type: string
+          description: Task description
+        status:
+          type: string
+          enum: ["in_progress", "completed", "failed", "timed_out"]
+          description: Task status
+        timeout_seconds:
+          type: integer
+          description: Timeout duration
+        created_at:
+          type: number
+          description: Creation timestamp
+    
+    TaskDetail:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: Unique task ID
+        delegator_id:
+          type: string
+          description: ID of the agent who delegated
+        assignee_id:
+          type: string
+          description: ID of the agent assigned
+        description:
+          type: string
+          description: Task description
+        payload:
+          type: object
+          description: Task data/parameters
+        status:
+          type: string
+          enum: ["in_progress", "completed", "failed", "timed_out"]
+          description: Task status
+        timeout_seconds:
+          type: integer
+          description: Timeout duration
+        created_at:
+          type: number
+          description: Creation timestamp
+        completed_at:
+          type: number
+          description: Completion timestamp (if finished)
+        progress_reports:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProgressReport'
+          description: Array of progress updates
+        result:
+          type: object
+          description: Result data (if completed)
+        error:
+          type: string
+          description: Error message (if failed)
+    
+    ProgressReport:
+      type: object
+      properties:
+        timestamp:
+          type: number
+          description: When progress was reported
+        message:
+          type: string
+          description: Progress message
+        data:
+          type: object
+          description: Optional progress data
+    
+    TaskAssignedNotificationPayload:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: ID of the assigned task
+        delegator_id:
+          type: string
+          description: ID of the delegating agent
+        description:
+          type: string
+          description: Task description
+        payload:
+          type: object
+          description: Task data/parameters
+        timeout_seconds:
+          type: integer
+          description: Timeout duration
+    
+    TaskProgressNotificationPayload:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: ID of the task
+        assignee_id:
+          type: string
+          description: ID of the agent reporting progress
+        progress:
+          type: object
+          properties:
+            message:
+              type: string
+              description: Progress message
+            data:
+              type: object
+              description: Optional progress data
+    
+    TaskCompletedNotificationPayload:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: ID of the completed task
+        assignee_id:
+          type: string
+          description: ID of the agent who completed
+        result:
+          type: object
+          description: Result data
+    
+    TaskFailedNotificationPayload:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: ID of the failed task
+        assignee_id:
+          type: string
+          description: ID of the agent who failed
+        error:
+          type: string
+          description: Error message
+    
+    TaskTimeoutNotificationPayload:
+      type: object
+      properties:
+        task_id:
+          type: string
+          description: ID of the timed out task
+        delegator_id:
+          type: string
+          description: ID of the delegating agent
+        assignee_id:
+          type: string
+          description: ID of the assigned agent
+        description:
+          type: string
+          description: Task description
