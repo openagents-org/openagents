@@ -182,7 +182,7 @@ class UniversalNotificationService {
       config: config
     });
 
-    // 同步权限状态
+    // Sync permission status
     this.permission = Notification.permission;
 
     if (this.permission !== 'granted') {
@@ -330,7 +330,7 @@ class UniversalNotificationService {
    * Check if notifications should be shown (always show notifications now)
    */
   private shouldShowNotification(): boolean {
-    // 移除窗口活跃状态检查，始终显示通知
+    // Remove window active state check, always show notifications
     return true;
   }
 
@@ -353,7 +353,7 @@ class UniversalNotificationService {
       console.log('System notification not supported or permission denied');
     }
 
-    // 注释掉浏览器内通知降级逻辑
+    // Commented out in-browser notification fallback logic
     // if (!systemNotification) {
     //   console.log('Falling back to in-browser notification');
     //   this.showInBrowserNotification(config);
@@ -462,7 +462,7 @@ class UniversalNotificationService {
     return {
       systemSupported: 'Notification' in window && this.permission === 'granted',
       permission: this.permission,
-      // fallbackAvailable: !!this.fallbackContainer, // 注释掉：不再使用浏览器内通知
+      // fallbackAvailable: !!this.fallbackContainer, // Commented out: no longer using in-browser notifications
       isInitialized: this.isInitialized
     };
   }

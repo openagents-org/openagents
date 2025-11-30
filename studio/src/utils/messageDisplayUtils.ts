@@ -1,12 +1,12 @@
 /**
- * 消息显示相关的工具函数
- * 从JSX组件中提取的公共逻辑
+ * Message display related utility functions
+ * Common logic extracted from JSX components
  */
 
 import { UnifiedMessage, MessageUtils } from "@/types/message";
 
 /**
- * 格式化相对时间戳
+ * Format relative timestamp
  */
 export function formatRelativeTimestamp(timestamp: string | number): string {
   const time = MessageUtils.parseTimestamp(timestamp);
@@ -15,43 +15,43 @@ export function formatRelativeTimestamp(timestamp: string | number): string {
   const now = Date.now();
   const diff = now - time;
 
-  // 小于1分钟
+  // Less than 1 minute
   if (diff < 60 * 1000) {
     return 'Just now';
   }
 
-  // 小于1小时
+  // Less than 1 hour
   if (diff < 60 * 60 * 1000) {
     const minutes = Math.floor(diff / (60 * 1000));
     return `${minutes}m ago`;
   }
 
-  // 小于24小时
+  // Less than 24 hours
   if (diff < 24 * 60 * 60 * 1000) {
     const hours = Math.floor(diff / (60 * 60 * 1000));
     return `${hours}h ago`;
   }
 
-  // 小于7天
+  // Less than 7 days
   if (diff < 7 * 24 * 60 * 60 * 1000) {
     const days = Math.floor(diff / (24 * 60 * 60 * 1000));
     return `${days}d ago`;
   }
 
-  // 超过7天，显示具体日期
+  // More than 7 days, show specific date
   return new Date(time).toLocaleDateString();
 }
 
 
 /**
- * 检查用户是否是消息的作者
+ * Check if user is the author of the message
  */
 export function isMessageAuthor(message: UnifiedMessage, currentUserId: string): boolean {
   return message.senderId === currentUserId;
 }
 
 /**
- * 获取消息的线程样式类名
+ * Get message thread style class name
  */
 export function getThreadStyleClass(level: number): string {
   const levelClasses = [
@@ -65,7 +65,7 @@ export function getThreadStyleClass(level: number): string {
 }
 
 /**
- * 获取消息的背景样式类名
+ * Get message background style class name
  */
 export function getMessageBackgroundClass(isOwnMessage: boolean): string {
   return isOwnMessage
@@ -74,21 +74,21 @@ export function getMessageBackgroundClass(isOwnMessage: boolean): string {
 }
 
 /**
- * 生成临时消息ID
+ * Generate temporary message ID
  */
 export function generateTempMessageId(): string {
   return `temp_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
 /**
- * 检查消息是否为空内容
+ * Check if message content is empty
  */
 export function isEmptyMessage(content: string): boolean {
   return !content || content.trim().length === 0;
 }
 
 /**
- * 截取消息内容用于预览
+ * Truncate message content for preview
  */
 export function truncateMessageContent(content: string, maxLength: number = 100): string {
   if (content.length <= maxLength) {
@@ -98,42 +98,42 @@ export function truncateMessageContent(content: string, maxLength: number = 100)
 }
 
 /**
- * 检查消息是否包含附件
+ * Check if message has attachments
  */
 export function hasAttachments(message: UnifiedMessage): boolean {
   return Boolean(message.attachments && message.attachments.length > 0);
 }
 
 /**
- * 获取附件总数
+ * Get total attachment count
  */
 export function getAttachmentCount(message: UnifiedMessage): number {
   return message.attachments?.length || 0;
 }
 
 /**
- * 检查消息是否为回复
+ * Check if message is a reply
  */
 export function isReplyMessage(message: UnifiedMessage): boolean {
   return Boolean(message.replyToId && message.type === 'reply_message');
 }
 
 /**
- * 检查消息是否包含引用
+ * Check if message has a quoted message
  */
 export function hasQuotedMessage(message: UnifiedMessage): boolean {
   return Boolean(message.quotedMessageId && message.quotedText);
 }
 
 /**
- * 计算反应总数
+ * Calculate total reactions
  */
 export function getTotalReactions(reactions: { [key: string]: number } = {}): number {
   return Object.values(reactions).reduce((total, count) => total + count, 0);
 }
 
 /**
- * 获取最受欢迎的反应
+ * Get the most popular reaction
  */
 export function getTopReaction(reactions: { [key: string]: number } = {}): { type: string; count: number } | null {
   let topType = '';
@@ -150,7 +150,7 @@ export function getTopReaction(reactions: { [key: string]: number } = {}): { typ
 }
 
 /**
- * 过滤有效的反应（计数 > 0）
+ * Filter valid reactions (count > 0)
  */
 export function getValidReactions(reactions: { [key: string]: number } = {}): { [key: string]: number } {
   const validReactions: { [key: string]: number } = {};
@@ -165,7 +165,7 @@ export function getValidReactions(reactions: { [key: string]: number } = {}): { 
 }
 
 /**
- * 构建线程结构的轻量级版本
+ * Lightweight version of building thread structure
  */
 export interface MessageTreeNode {
   message: UnifiedMessage;
@@ -177,7 +177,7 @@ export function buildMessageTree(messages: UnifiedMessage[]): MessageTreeNode[] 
   const messageMap = new Map<string, MessageTreeNode>();
   const rootNodes: MessageTreeNode[] = [];
 
-  // 第一遍：创建所有节点
+  // First pass: create all nodes
   messages.forEach(message => {
     messageMap.set(message.id, {
       message,
@@ -186,7 +186,7 @@ export function buildMessageTree(messages: UnifiedMessage[]): MessageTreeNode[] 
     });
   });
 
-  // 第二遍：建立父子关系
+  // Second pass: establish parent-child relationships
   messages.forEach(message => {
     const node = messageMap.get(message.id)!;
 
@@ -196,11 +196,11 @@ export function buildMessageTree(messages: UnifiedMessage[]): MessageTreeNode[] 
         parent.children.push(node);
         node.level = parent.level + 1;
       } else {
-        // 父消息不存在，作为根节点
+        // Parent message doesn't exist, treat as root node
         rootNodes.push(node);
       }
     } else {
-      // 没有回复ID，作为根节点
+      // No reply ID, treat as root node
       rootNodes.push(node);
     }
   });
@@ -209,14 +209,14 @@ export function buildMessageTree(messages: UnifiedMessage[]): MessageTreeNode[] 
 }
 
 /**
- * 检查消息是否应该显示线程折叠按钮
+ * Check if message should show thread collapse button
  */
 export function shouldShowThreadCollapseButton(node: MessageTreeNode): boolean {
   return node.children.length > 0;
 }
 
 /**
- * 获取线程统计信息
+ * Get thread statistics
  */
 export function getThreadStats(node: MessageTreeNode): { replyCount: number; maxDepth: number } {
   let replyCount = node.children.length;

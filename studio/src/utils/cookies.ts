@@ -315,7 +315,7 @@ export const clearAllOpenAgentsDataForLogout = (): void => {
 
   // Clear all OpenAgents related localStorage except theme
   try {
-    // Thread store (channels, current selection) - 这个最重要
+    // Thread store (channels, current selection) - this is the most important
     const threadData = localStorage.getItem("openagents_thread");
     console.log("📋 Thread data before cleanup:", threadData);
     localStorage.removeItem("openagents_thread");

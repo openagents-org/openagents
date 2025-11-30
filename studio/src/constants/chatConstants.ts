@@ -1,12 +1,12 @@
 /**
- * Chat 功能相关的统一常量定义
- * 避免在多个组件中重复定义相同的常量
+ * Unified constant definitions for Chat functionality
+ * Avoid repeating the same constants across multiple components
  */
 
 import { ConnectionStatusEnum } from "@/types/connection";
 
 /**
- * 连接状态颜色映射
+ * Connection status color mapping
  */
 export const CONNECTED_STATUS_COLOR = {
   [ConnectionStatusEnum.CONNECTED]: "#10b981",
@@ -18,7 +18,7 @@ export const CONNECTED_STATUS_COLOR = {
 } as const;
 
 /**
- * 反应表情映射 - 完整版本
+ * Reaction emoji mapping - full version
  */
 export const REACTION_EMOJIS = {
   "+1": "👍",
@@ -44,7 +44,7 @@ export const REACTION_EMOJIS = {
 } as const;
 
 /**
- * 反应选择器中显示的表情 - 精选版本
+ * Emojis displayed in reaction picker - curated version
  */
 export const REACTION_PICKER_EMOJIS = [
   { type: '+1', emoji: '👍' },
@@ -58,7 +58,7 @@ export const REACTION_PICKER_EMOJIS = [
 ] as const;
 
 /**
- * 消息显示相关的CSS样式
+ * CSS styles for message display
  */
 export const MESSAGE_DISPLAY_STYLES = `
   .quote-author:before {
@@ -80,12 +80,12 @@ export const MESSAGE_DISPLAY_STYLES = `
 ` as const;
 
 /**
- * 反应表情类型
+ * Reaction emoji type
  */
 export type ReactionType = keyof typeof REACTION_EMOJIS;
 
 /**
- * 获取反应表情
+ * Get reaction emoji
  */
 export function getReactionEmoji(reactionType: string): string {
   return REACTION_EMOJIS[reactionType as ReactionType] || reactionType;

@@ -21,17 +21,17 @@ const ProfileSidebar: React.FC = () => {
   const isActive = (path: string) => {
     const currentPath = location.pathname;
     
-    // 精确匹配
+    // Exact match
     if (currentPath === path) {
       return true;
     }
     
-    // 对于 /profile 路径，只在精确匹配时高亮（不包括子路由）
+    // For /profile path, only highlight on exact match (not including sub-routes)
     if (path === "/profile") {
-      return false; // 已经在上面处理了精确匹配
+      return false; // Already handled exact match above
     }
     
-    // 对于其他路径，支持以该路径开头的匹配（用于嵌套路由）
+    // For other paths, support matching paths that start with this path (for nested routes)
     return currentPath.startsWith(path + "/");
   };
 

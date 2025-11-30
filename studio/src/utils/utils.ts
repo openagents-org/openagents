@@ -39,23 +39,23 @@ export const getAvatarInitials = (name: string | null): string => {
 };
 
 /**
- * 安全地解析日期字符串，处理各种可能的格式问题
- * @param dateString - 日期字符串
- * @returns Date 对象，如果解析失败返回当前时间
+ * Safely parse date string, handling various possible format issues
+ * @param dateString - Date string
+ * @returns Date object, returns current time if parsing fails
  */
 export const parseDate = (dateString: string): Date => {
   if (!dateString) return new Date();
 
-  // 尝试直接解析
+  // Try direct parsing
   let date = new Date(dateString);
 
-  // 检查是否是有效日期
+  // Check if it's a valid date
   if (isNaN(date.getTime())) {
     console.warn(`Invalid date string: ${dateString}, using current time`);
     return new Date();
   }
 
-  // 检查是否是异常的早期日期（如1970年）
+  // Check for abnormally early dates (like 1970)
   const year = date.getFullYear();
   if (year < 1990 || year > 2100) {
     console.warn(
@@ -68,9 +68,9 @@ export const parseDate = (dateString: string): Date => {
 };
 
 /**
- * 格式化时间戳为相对时间显示（支持多种时间戳格式）
- * @param timestamp - 时间戳（可以是字符串或数字，支持Unix时间戳、毫秒时间戳、ISO字符串等）
- * @returns 格式化后的相对时间字符串
+ * Format timestamp as relative time display (supports multiple timestamp formats)
+ * @param timestamp - Timestamp (can be string or number, supports Unix timestamp, millisecond timestamp, ISO string, etc.)
+ * @returns Formatted relative time string
  */
 export const formatRelativeTimestamp = (timestamp: string | number): string => {
   try {
@@ -140,34 +140,34 @@ export const formatRelativeTimestamp = (timestamp: string | number): string => {
 };
 
 /**
- * 格式化日期为相对时间显示（简化版本，用于日期字符串）
- * @param dateString - 日期字符串
- * @returns 格式化后的相对时间字符串
- * @deprecated 推荐使用 formatRelativeTimestamp，功能更强大
+ * Format date as relative time display (simplified version for date strings)
+ * @param dateString - Date string
+ * @returns Formatted relative time string
+ * @deprecated Recommend using formatRelativeTimestamp, more powerful
  */
 export const formatRelativeDate = (dateString: string): string => {
   return formatRelativeTimestamp(dateString);
 };
 
 /**
- * 格式化时间戳为具体的日期时间显示
- * @param timestamp - 时间戳（秒级Unix时间戳）
- * @param options - 格式选项
- * @returns 格式化后的日期时间字符串
+ * Format timestamp as specific date time display
+ * @param timestamp - Timestamp (seconds-level Unix timestamp)
+ * @param options - Format options
+ * @returns Formatted date time string
  */
 export const formatDateTime = (timestamp: number, options?: {
   includeTime?: boolean;
   locale?: string;
 }): string => {
-  const { includeTime = true, locale = 'zh-CN' } = options || {};
+  const { includeTime = true, locale = 'en-US' } = options || {};
 
   if (!timestamp || timestamp <= 0) {
     return 'Unknown date';
   }
 
-  // 检测时间戳格式：如果是10位数的秒级时间戳，转换为毫秒级
+  // Detect timestamp format: if 10 digits (seconds-level), convert to milliseconds
   let milliseconds = timestamp;
-  if (timestamp < 10000000000) { // 10位数，说明是秒级时间戳
+  if (timestamp < 10000000000) { // 10 digits means seconds-level timestamp
     milliseconds = timestamp * 1000;
   }
 

@@ -29,17 +29,17 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
   const { agentName } = useAuthStore()
   const { theme: currentTheme } = useThemeStore()
 
-  // 使用新的 OpenAgents context
+  // Use the new OpenAgents context
   const { connector, connectionStatus, isConnected } = useOpenAgents()
 
   // Router hooks for pending project support
   const location = useLocation()
   const navigate = useNavigate()
 
-  // 从路由参数中获取 projectId（优先使用路由参数）
+  // Get projectId from route params (route params take priority)
   const { projectId: routeProjectId } = useParams<{ projectId: string }>()
 
-  // 优先使用路由参数，如果没有则使用 props
+  // Prefer route params, fallback to props
   const routeOrPropProjectId = routeProjectId || propProjectId
 
   // Check if this is a pending project (waiting for first message to start)
@@ -52,8 +52,8 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
   // Actual projectId - null if pending
   const projectId = isPendingProject ? null : routeOrPropProjectId
 
-  // 如果没有提供 channelName，根据 projectId 生成（需要从后端获取完整信息）
-  // 但为了保持独立，我们先尝试从 project.get 获取信息
+  // If no channelName provided, generate from projectId (need to get full info from backend)
+  // But to keep it independent, we first try to get info from project.get
   const [projectInfo, setProjectInfo] = useState<{
     channelName?: string
     name?: string
@@ -65,7 +65,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
     completed_timestamp?: number
   } | null>(null)
 
-  // 如果没有提供 channelName，尝试从项目信息获取
+  // If no channelName provided, try to get from project info
   const channelName =
     propChannelName ||
     projectInfo?.channelName ||
@@ -78,7 +78,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
     projectInfo?.status === "stopped" ||
     projectInfo?.status === "failed"
 
-  // 项目私密聊天室独立维护消息列表，不依赖messaging服务
+  // Project private chat room maintains its own message list, independent of messaging service
   const [messages, setMessages] = useState<UnifiedMessage[]>([])
   const [sendingMessage, setSendingMessage] = useState<boolean>(false)
   const [messagesError, setMessagesError] = useState<string | null>(null)
@@ -222,12 +222,12 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
     propChannelName,
   ])
 
-  // 监听项目消息通知 - 项目私密聊天室通过project mod的事件接收消息
+  // Listen for project message notifications - project private chat room receives messages through project mod events
   useEffect(() => {
     if (!isConnected || !connector) return
 
     const handleProjectMessage = (event: any) => {
-      // 监听 project.notification.message_received 事件
+      // Listen for project.notification.message_received events
       if (event.event_name === "project.notification.message_received") {
         const messageData = event.payload || {}
         const eventProjectId = messageData.project_id
@@ -238,12 +238,12 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
             messageData
           )
 
-          // 将项目消息转换为UnifiedMessage格式
+          // Convert project message to UnifiedMessage format
           const messageId =
             messageData.message_id || `project-msg-${Date.now()}`
           let messageContent = messageData.content?.text || ""
 
-          // 添加附件信息到消息内容中（如果有附件）
+          // Add attachment info to message content (if any)
           if (
             messageData.attachments &&
             Array.isArray(messageData.attachments) &&
@@ -266,19 +266,19 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
             channel: channelName,
           }
 
-          // 检查是否有临时的乐观消息需要替换，或是否已存在该消息
+          // Check if there is a temporary optimistic message to replace, or if this message already exists
           setMessages((prev) => {
-            // 检查消息是否已存在（避免重复）
+            // Check if message already exists (avoid duplicates)
             const messageExists = prev.some(
               (msg) => msg.id === unifiedMessage.id
             )
             if (messageExists) {
-              return prev // 消息已存在，不重复添加
+              return prev // Message already exists, don't add duplicate
             }
 
-            // 移除临时消息（如果有相同内容的临时消息）
+            // Remove temporary message (if there is a matching temporary message with same content)
             const filtered = prev.filter((msg) => {
-              // 如果消息ID是临时的，且发送者和内容匹配，则移除
+              // If message ID is temporary and sender and content match, remove it
               if (
                 msg.id.startsWith("temp-") &&
                 msg.senderId === unifiedMessage.senderId &&
@@ -289,7 +289,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
               return true
             })
 
-            // 添加真实消息
+            // Add real message
             return [...filtered, unifiedMessage]
           })
         }
@@ -304,14 +304,14 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
     }
   }, [isConnected, connector, projectId, channelName, connectionStatus.agentId])
 
-  // 智能自动滚动：只有当用户已经在底部附近时才滚动到底部
+  // Smart auto-scroll: only scroll to bottom when user is already near bottom
   useEffect(() => {
     const container = messagesContainerRef.current
     const messagesEnd = messagesEndRef.current
 
     if (!container || !messagesEnd) return
 
-    // 检查是否有新消息被添加
+    // Check if new messages were added
     const isNewMessage = messages.length > (prevMessagesLength.current ?? 0)
     const currentScrollHeight = container.scrollHeight
     const previousScrollHeight = prevScrollHeight.current || 0
@@ -320,31 +320,31 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
     prevScrollHeight.current = currentScrollHeight
 
     if (isNewMessage) {
-      // 对于新消息，需要检查用户在新内容添加之前是否在底部附近
+      // For new messages, check if user was near bottom before new content was added
       const { scrollTop, clientHeight } = container
       const originalDistanceFromBottom =
         previousScrollHeight - scrollTop - clientHeight
       const isNearBottom = originalDistanceFromBottom < 100
 
       if (isNearBottom) {
-        // 用户之前就在底部附近，自动滚动到新消息
+        // User was already near bottom, auto-scroll to new message
         messagesEnd.scrollIntoView({ behavior: "smooth" })
       }
     } else {
-      // 不是新消息（例如初始加载、频道切换），总是滚动到底部
+      // Not new messages (e.g., initial load, channel switch), always scroll to bottom
       messagesEnd.scrollIntoView({ behavior: "smooth" })
     }
   }, [messages])
 
-  // 项目私密聊天室不加载历史消息，只显示实时接收的消息
-  // 如果需要历史消息，可以通过project.get接口获取
+  // Project private chat room doesn't load history messages, only shows real-time received messages
+  // If history messages are needed, they can be fetched via project.get API
 
-  // 监听项目完成通知
+  // Listen for project completion notifications
   useEffect(() => {
     if (!isConnected || !connector) return
 
     const handleProjectCompletion = (event: any) => {
-      // 监听 project.notification.completed 事件
+      // Listen for project.notification.completed events
       if (event.event_name === "project.notification.completed") {
         const projectData = event.payload || {}
         const eventProjectId = projectData.project_id
@@ -393,7 +393,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
         }
       }
 
-      // 监听 project.notification.stopped 事件
+      // Listen for project.notification.stopped events
       if (event.event_name === "project.notification.stopped") {
         const projectData = event.payload || {}
         const eventProjectId = projectData.project_id
@@ -442,7 +442,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
       }
     }
 
-    // 注册事件监听器
+    // Register event listener
     connector.on("rawEvent", handleProjectCompletion)
 
     return () => {
@@ -450,7 +450,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
     }
   }, [isConnected, connector, projectId, channelName])
 
-  // 发送消息处理
+  // Handle sending messages
   const handleSendMessage = useCallback(
     async (
       content: string,
@@ -519,7 +519,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
       try {
         const agentId = connectionStatus.agentId || connector.getAgentId()
 
-        // 构建 payload
+        // Build payload
         const payload: any = {
           project_id: projectId,
           content: {
@@ -527,7 +527,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
           },
         }
 
-        // 添加附件（如果有）
+        // Add attachment (if any)
         if (attachmentData) {
           payload.attachments = [
             {
@@ -538,7 +538,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
           ]
         }
 
-        // 使用 project.message.send 发送消息
+        // Use project.message.send to send message
         const messageResponse = await connector.sendEvent({
           event_name: "project.message.send",
           source_id: agentId,
@@ -552,7 +552,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
             messageId: messageResponse.data?.message_id,
           })
 
-          // 立即添加乐观消息到列表（实时反馈）
+          // Immediately add optimistic message to list (real-time feedback)
           const agentId = connectionStatus.agentId || connector.getAgentId()
           let messageContent = content.trim()
           if (attachmentData) {
@@ -571,7 +571,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
 
           setMessages((prev) => [...prev, optimisticMessage])
 
-          // 消息会通过project.notification.message_received事件自动更新
+          // Message will be automatically updated via project.notification.message_received event
         } else {
           throw new Error(
             messageResponse.message || "Failed to send project message"
@@ -598,7 +598,7 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
     ]
   )
 
-  // 获取连接状态颜色
+  // Get connection status color
   const getConnectionStatusColor = useMemo(() => {
     return (
       CONNECTED_STATUS_COLOR[connectionStatus.state] ||
@@ -606,12 +606,12 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
     )
   }, [connectionStatus.state])
 
-  // 清除错误的函数
+  // Clear error function
   const clearError = useCallback(() => {
     setMessagesError(null)
   }, [])
 
-  // 按时间戳排序消息
+  // Sort messages by timestamp
   const sortedMessages = useMemo(() => {
     return [...messages].sort((a, b) => {
       const parseTimestamp = (timestamp: string | number): number => {
@@ -619,18 +619,18 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
 
         const timestampStr = String(timestamp)
 
-        // 处理 ISO 字符串格式 (例如 '2025-09-22T20:20:09.000Z')
+        // Handle ISO string format (e.g., '2025-09-22T20:20:09.000Z')
         if (timestampStr.includes("T") || timestampStr.includes("-")) {
           const time = new Date(timestampStr).getTime()
           return isNaN(time) ? 0 : time
         }
 
-        // 处理 Unix 时间戳（秒或毫秒）
+        // Handle Unix timestamp (seconds or milliseconds)
         const num = parseInt(timestampStr)
         if (isNaN(num)) return 0
 
-        // 如果时间戳看起来是秒（典型范围：10位数字）
-        // 转换为毫秒。否则假设它已经是毫秒
+        // If timestamp looks like seconds (typical range: 10 digits)
+        // Convert to milliseconds. Otherwise assume it's already in milliseconds
         if (num < 10000000000) {
           return num * 1000
         } else {

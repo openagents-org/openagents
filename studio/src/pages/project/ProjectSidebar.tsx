@@ -247,7 +247,7 @@ const ProjectSidebar: React.FC = () => {
         </div>
       </div>
 
-      {/* New Project 对话框 */}
+      {/* New Project dialog */}
       {showProjectDialog && (
         <ProjectTemplateDialog
           onClose={() => setShowProjectDialog(false)}

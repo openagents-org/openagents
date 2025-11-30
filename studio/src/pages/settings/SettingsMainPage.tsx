@@ -2,12 +2,12 @@ import React from "react";
 import { Routes, Route } from "react-router-dom";
 
 /**
- * 设置主页面 - 处理设置相关的所有功能
+ * Settings main page - handles all settings-related features
  */
 const SettingsMainPage: React.FC = () => {
   return (
     <Routes>
-      {/* 默认设置视图 */}
+      {/* Default settings view */}
       <Route
         index
         element={

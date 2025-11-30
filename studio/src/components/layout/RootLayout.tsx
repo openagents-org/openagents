@@ -55,7 +55,7 @@ const RootLayoutContent: React.FC<RootLayoutProps> = ({ children }) => {
   const isConnected = context?.isConnected || false;
   const location = useLocation();
 
-  // 判断当前路由是否需要隐藏侧边栏
+  // Determine if current route should hide the sidebar
   const shouldHideSidebar = location.pathname.startsWith("/agentworld");
 
   return (

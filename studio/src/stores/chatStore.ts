@@ -2172,7 +2172,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         
         const projectData = event.payload || {};
         const projectId = projectData.project_id;
-        const summary = projectData.summary || "项目已完成";
+        const summary = projectData.summary || "Project completed";
         
         if (projectId) {
           console.log(`🎉 Project ${projectId} completed: ${summary}`);
@@ -2196,7 +2196,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               id: `project-completion-${Date.now()}`,
               senderId: "system",
               timestamp: new Date().toISOString(),
-              content: `🎉 项目已完成\n\n${summary}`,
+              content: `🎉 Project completed\n\n${summary}`,
               type: "channel_message",
               channel: projectChannel,
             };

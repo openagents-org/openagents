@@ -58,8 +58,8 @@ export enum EventNames {
 }
 
 /**
- * @deprecated 请使用 RawThreadMessage from types/message.ts
- * 这个接口保留用于后端兼容性，新代码应使用统一的消息类型系统
+ * @deprecated Please use RawThreadMessage from types/message.ts
+ * This interface is retained for backend compatibility, new code should use the unified message type system
  */
 export interface ThreadMessage {
   message_id: string;
@@ -94,7 +94,7 @@ export interface ThreadMessage {
   }>;
 }
 
-// 重新导出 RawThreadMessage 作为主要类型
+// Re-export RawThreadMessage as the primary type
 export type { RawThreadMessage as ThreadMessageNew } from './message';
 
 export interface ThreadChannel {

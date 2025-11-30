@@ -5,18 +5,18 @@ import WikiPageDetail from "@/components/wiki/WikiPageDetail";
 import WikiProposals from "@/components/wiki/WikiProposals";
 
 /**
- * Wiki主页面 - 处理Wiki相关的所有功能
+ * Wiki main page - handles all Wiki-related features
  */
 const WikiMainPage: React.FC = () => {
   return (
     <Routes>
-      {/* 默认Wiki列表视图 */}
+      {/* Default Wiki list view */}
       <Route index element={<WikiPageList />} />
 
-      {/* Wiki页面详情 */}
+      {/* Wiki page detail */}
       <Route path="detail/:pagePath" element={<WikiPageDetail />} />
 
-      {/* Wiki提案管理 */}
+      {/* Wiki proposals management */}
       <Route path="proposals" element={<WikiProposals />} />
     </Routes>
   );

@@ -17,7 +17,7 @@ const StarButton: React.FC<StarButtonProps> = ({
   disabled = false,
   showLabel = false
 }) => {
-  // 根据尺寸配置
+  // Size configuration
   const sizeConfig = {
     small: {
       iconSize: 'w-3.5 h-3.5',
@@ -58,7 +58,7 @@ const StarButton: React.FC<StarButtonProps> = ({
     </svg>
   );
 
-  // 按钮样式 - 使用 Tailwind CSS dark 模式类
+  // Button styles - using Tailwind CSS dark mode classes
   const getButtonClass = () => `
     ${config.buttonPadding}
     rounded-md
@@ -78,7 +78,7 @@ const StarButton: React.FC<StarButtonProps> = ({
     }
   `;
 
-  // 数字颜色 - 使用 Tailwind CSS dark 模式类
+  // Number color - using Tailwind CSS dark mode classes
   const getCountColor = () => {
     if (isStarred) {
       return 'text-yellow-600 dark:text-yellow-400';

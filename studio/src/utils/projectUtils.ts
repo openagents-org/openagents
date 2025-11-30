@@ -1,7 +1,7 @@
 import { HealthResponse } from "./moduleUtils";
 
 /**
- * 检查项目模式是否启用
+ * Check if project mode is enabled
  */
 export const isProjectModeEnabled = (healthData: HealthResponse | null): boolean => {
   if (!healthData?.data?.mods) {
@@ -14,7 +14,7 @@ export const isProjectModeEnabled = (healthData: HealthResponse | null): boolean
 };
 
 /**
- * 项目模板接口定义
+ * Project template interface definition
  */
 export interface ProjectTemplate {
   template_id: string;
@@ -25,8 +25,8 @@ export interface ProjectTemplate {
 }
 
 /**
- * 从健康数据中获取项目模板列表（备用方法）
- * 主要应该使用 project.template.list 事件获取
+ * Get project templates list from health data (fallback method)
+ * Should primarily use project.template.list event to get templates
  */
 export const getProjectTemplatesFromHealth = (
   healthData: HealthResponse | null
@@ -54,7 +54,7 @@ export const getProjectTemplatesFromHealth = (
 };
 
 /**
- * 检查频道是否为项目频道
+ * Check if channel is a project channel
  */
 export const isProjectChannel = (channelName: string): boolean => {
   const normalizedName = channelName.startsWith("#") 
@@ -64,7 +64,7 @@ export const isProjectChannel = (channelName: string): boolean => {
 };
 
 /**
- * 从项目频道名称中提取项目 ID
+ * Extract project ID from project channel name
  * Channel format: project-{template_id}-{project_id}
  */
 export const extractProjectIdFromChannel = (channelName: string): string | null => {

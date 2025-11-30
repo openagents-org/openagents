@@ -1,18 +1,18 @@
 import { ThreadChannel, AgentInfo } from "./events";
 
 /**
- * Thread state - 保持向后兼容
+ * Thread state - maintain backward compatibility
  */
 export interface ThreadState {
   currentChannel?: string | null;
   currentDirectMessage?: string | null;
-  // 向后兼容字段 - 由组件层管理，不存储在store中
+  // Backward compatibility fields - managed by component layer, not stored in store
   channels?: ThreadChannel[];
   agents?: AgentInfo[];
 }
 
 /**
- * 完整的线程数据状态（由hooks管理）
+ * Complete thread data state (managed by hooks)
  */
 export interface ThreadDataState {
   channels: ThreadChannel[];

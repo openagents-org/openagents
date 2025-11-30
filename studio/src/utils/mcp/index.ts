@@ -1,6 +1,6 @@
 /**
- * MCP (Model Context Protocol) 工具集
- * 注意: 核心功能已移至后端，此文件仅保留前端所需工具
+ * MCP (Model Context Protocol) toolset
+ * Note: Core functionality has been moved to backend, this file only retains frontend tools
  */
 
 import { marketplaceService } from './marketplaceService';

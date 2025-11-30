@@ -170,12 +170,12 @@ body {
   background-color: #78350f;
 }
 
-/* 添加在文件顶部，预先设置深色模式样式，预防主题闪烁 */
+/* Add at the top of file, pre-set dark mode styles to prevent theme flashing */
 :root {
   color-scheme: light dark;
 }
 
-/* 默认颜色变量 - 亮色模式 */
+/* Default color variables - light mode */
 :root {
   --bg-primary: #ffffff;
   --bg-secondary: #f3f4f6;
@@ -184,7 +184,7 @@ body {
   --border-color: #e5e7eb;
 }
 
-/* 深色模式颜色变量 */
+/* Dark mode color variables */
 .dark {
   --bg-primary: #1f2937;
   --bg-secondary: #111827;
@@ -193,7 +193,7 @@ body {
   --border-color: #374151;
 }
 
-/* 设置初始的背景色和文本色以避免闪烁 */
+/* Set initial background and text color to avoid flashing */
 body {
   background-color: var(--bg-primary);
   color: var(--text-primary);

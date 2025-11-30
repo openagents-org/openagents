@@ -1,7 +1,7 @@
 /**
  * Event Log Service
- * 用于记录和管理发送和接收的事件日志
- * 支持本地存储持久化
+ * Used to record and manage sent and received event logs
+ * Supports localStorage persistence
  */
 
 import { Event, EventResponse } from "@/types/events";
@@ -11,7 +11,7 @@ export interface EventLogEntry {
   event: Event;
   direction: "sent" | "received";
   timestamp: number;
-  response?: EventResponse; // 仅对发送的事件有效
+  response?: EventResponse; // Only valid for sent events
 }
 
 export interface HttpRequestLogEntry {
@@ -31,7 +31,7 @@ export interface HttpRequestLogEntry {
 }
 
 const STORAGE_KEY = "openagents_event_logs";
-const MAX_LOGS = 1000; // 最大保存日志数量
+const MAX_LOGS = 1000; // Maximum number of logs to save
 
 type LogEntry = EventLogEntry | HttpRequestLogEntry;
 
@@ -42,14 +42,14 @@ class EventLogService {
   private storageEnabled = false;
 
   constructor() {
-    // 检查是否支持 localStorage
+    // Check if localStorage is supported
     try {
       const testKey = "__localStorage_test__";
       localStorage.setItem(testKey, "test");
       localStorage.removeItem(testKey);
       this.storageEnabled = true;
       
-      // 从 localStorage 加载日志
+      // Load logs from localStorage
       this.loadLogsFromStorage();
     } catch (e) {
       console.warn("localStorage is not available, event logs will not be persisted:", e);
@@ -58,7 +58,7 @@ class EventLogService {
   }
 
   /**
-   * 从 localStorage 加载日志
+   * Load logs from localStorage
    */
   private loadLogsFromStorage(): void {
     if (!this.storageEnabled) return;
@@ -68,7 +68,7 @@ class EventLogService {
       if (stored) {
         const parsedLogs = JSON.parse(stored);
         if (Array.isArray(parsedLogs)) {
-          // 验证日志数据的有效性（支持事件日志和 HTTP 请求日志）
+          // Validate log data (supports event logs and HTTP request logs)
           const validLogs = parsedLogs.filter((log: any) => {
             if (!log || typeof log.id !== "string" || typeof log.timestamp !== "number") {
               return false;
@@ -100,7 +100,7 @@ class EventLogService {
       }
     } catch (error) {
       console.error("Failed to load event logs from localStorage:", error);
-      // 如果加载失败，清空可能损坏的数据
+      // If loading fails, clear potentially corrupted data
       try {
         localStorage.removeItem(STORAGE_KEY);
       } catch (e) {
@@ -110,34 +110,34 @@ class EventLogService {
   }
 
   /**
-   * 保存日志到 localStorage
+   * Save logs to localStorage
    */
   private saveLogsToStorage(): void {
     if (!this.storageEnabled) return;
 
     try {
-      // 只保存最新的 maxLogs 条日志
+      // Only save the latest maxLogs entries
       const logsToSave = this.logs.slice(0, this.maxLogs);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(logsToSave));
     } catch (error) {
       console.error("Failed to save event logs to localStorage:", error);
-      // 如果存储失败（可能是存储空间不足），尝试清理旧日志
+      // If storage fails (possibly due to quota exceeded), try to clean up old logs
       try {
-        // 如果存储空间不足，只保留最近的一半日志
+        // If quota exceeded, keep only the most recent half of logs
         const reducedLogs = this.logs.slice(0, Math.floor(this.maxLogs / 2));
         localStorage.setItem(STORAGE_KEY, JSON.stringify(reducedLogs));
         this.logs = reducedLogs;
         console.warn("Storage quota exceeded, reduced logs to half");
       } catch (e) {
         console.error("Failed to reduce logs size:", e);
-        // 如果还是失败，禁用存储
+        // If still fails, disable storage
         this.storageEnabled = false;
       }
     }
   }
 
   /**
-   * 记录发送的事件
+   * Log sent event
    */
   logSentEvent(event: Event, response?: EventResponse): void {
     const entry: EventLogEntry = {
@@ -152,7 +152,7 @@ class EventLogService {
   }
 
   /**
-   * 记录接收的事件
+   * Log received event
    */
   logReceivedEvent(event: Event): void {
     const entry: EventLogEntry = {
@@ -166,7 +166,7 @@ class EventLogService {
   }
 
   /**
-   * 记录 HTTP 请求
+   * Log HTTP request
    */
   logHttpRequest(entry: Omit<HttpRequestLogEntry, "id" | "type" | "timestamp">): void {
     const logEntry: HttpRequestLogEntry = {
@@ -180,32 +180,32 @@ class EventLogService {
   }
 
   /**
-   * 添加日志条目
+   * Add log entry
    */
   private addLog(entry: LogEntry): void {
-    this.logs.unshift(entry); // 添加到开头，最新的在前面
+    this.logs.unshift(entry); // Add to beginning, newest first
 
-    // 限制日志数量
+    // Limit log count
     if (this.logs.length > this.maxLogs) {
       this.logs = this.logs.slice(0, this.maxLogs);
     }
 
-    // 保存到本地存储
+    // Save to localStorage
     this.saveLogsToStorage();
 
-    // 通知监听者
+    // Notify listeners
     this.notifyListeners();
   }
 
   /**
-   * 获取所有日志（按时间倒序）
+   * Get all logs (in reverse chronological order)
    */
   getAllLogs(): LogEntry[] {
     return [...this.logs];
   }
 
   /**
-   * 获取分页日志
+   * Get paginated logs
    */
   getLogs(page: number, pageSize: number): {
     logs: LogEntry[];
@@ -224,12 +224,12 @@ class EventLogService {
   }
 
   /**
-   * 清空日志
+   * Clear logs
    */
   clearLogs(): void {
     this.logs = [];
     
-    // 清空本地存储
+    // Clear localStorage
     if (this.storageEnabled) {
       try {
         localStorage.removeItem(STORAGE_KEY);
@@ -242,7 +242,7 @@ class EventLogService {
   }
 
   /**
-   * 订阅日志更新
+   * Subscribe to log updates
    */
   subscribe(listener: (logs: LogEntry[]) => void): () => void {
     this.listeners.add(listener);
@@ -252,7 +252,7 @@ class EventLogService {
   }
 
   /**
-   * 通知所有监听者
+   * Notify all listeners
    */
   private notifyListeners(): void {
     this.listeners.forEach((listener) => {
@@ -265,6 +265,6 @@ class EventLogService {
   }
 }
 
-// 导出单例
+// Export singleton
 export const eventLogService = new EventLogService();
 

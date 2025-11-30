@@ -75,14 +75,14 @@ const WikiSidebar: React.FC = () => {
     cleanupEventListeners,
   } = useWikiStore();
 
-  // 获取最近点击访问的页面（过滤后的有效页面）
+  // Get recently clicked pages (filtered valid pages)
   const recentPages = useMemo(() => {
     const currentPagePaths = new Set(pages.map((p) => p.page_path));
     const validRecentPages = recentPagesData.filter((recentPage) =>
       currentPagePaths.has(recentPage.page_path)
     );
 
-    // 将recent page data转换为WikiPage格式以保持组件兼容性
+    // Convert recent page data to WikiPage format for component compatibility
     const recentWikiPages = validRecentPages.map((recentPage) => {
       const fullPageData = pages.find(
         (p) => p.page_path === recentPage.page_path
@@ -109,7 +109,7 @@ const WikiSidebar: React.FC = () => {
     return recentWikiPages;
   }, [recentPagesData, pages]);
 
-  // 检查当前是否在某个页面详情页
+  // Check if currently on a page detail view
   const currentPagePath = location.pathname.match(
     /^\/wiki\/detail\/(.+)$/
   )?.[1];
@@ -117,14 +117,14 @@ const WikiSidebar: React.FC = () => {
     ? decodeURIComponent(currentPagePath)
     : null;
 
-  // 设置连接
+  // Set connection
   useEffect(() => {
     if (openAgentsService) {
       setConnection(openAgentsService);
     }
   }, [openAgentsService, setConnection]);
 
-  // 加载页面（等待连接建立）
+  // Load pages (wait for connection to be established)
   useEffect(() => {
     if (openAgentsService && isConnected && pages.length === 0) {
       console.log("WikiSidebar: Connection ready, loading pages");
@@ -132,7 +132,7 @@ const WikiSidebar: React.FC = () => {
     }
   }, [openAgentsService, isConnected, loadPages, pages.length]);
 
-  // 设置wiki事件监听器
+  // Set up wiki event listeners
   useEffect(() => {
     if (openAgentsService) {
       console.log("WikiSidebar: Setting up wiki event listeners");
@@ -145,9 +145,9 @@ const WikiSidebar: React.FC = () => {
     }
   }, [openAgentsService, setupEventListeners, cleanupEventListeners]);
 
-  // 页面选择处理
+  // Page selection handler
   const onPageSelect = (pagePath: string) => {
-    // 先找到对应的页面对象并记录到recent pages
+    // Find the corresponding page object and add it to recent pages
     const page = pages.find((p) => p.page_path === pagePath);
     if (page) {
       console.log("WikiSidebar: Adding page to recent pages:", page.title);

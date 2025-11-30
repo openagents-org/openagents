@@ -79,7 +79,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
       }}
     >
       <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-800">
-        {/* 评论头部 */}
+        {/* Comment header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-3">
             <span className="font-medium text-gray-700 dark:text-gray-300">
@@ -90,7 +90,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
             </span>
           </div>
 
-          {/* 投票按钮 */}
+          {/* Vote buttons */}
           <div className="flex items-center space-x-2">
             <button
               onClick={() => handleVote('upvote')}
@@ -113,14 +113,14 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
           </div>
         </div>
 
-        {/* 评论内容 */}
+        {/* Comment content */}
         <div className="mb-3">
           <MarkdownRenderer
             content={comment.content}
           />
         </div>
 
-        {/* 回复按钮 */}
+        {/* Reply button */}
         {comment.thread_level < maxDepth && (
           <button
             onClick={() => setShowReplyForm(!showReplyForm)}
@@ -130,7 +130,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
           </button>
         )}
 
-        {/* 回复表单 */}
+        {/* Reply form */}
         {showReplyForm && (
           <div className="mt-4 p-3 rounded-lg border border-dashed border-gray-400">
             <div className="flex items-center justify-between mb-2">
@@ -200,7 +200,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
         )}
       </div>
 
-      {/* 递归渲染子评论 */}
+      {/* Recursively render child comments */}
       {comment.replies && comment.replies.length > 0 && (
         <div className="mt-3">
           <ForumCommentThread

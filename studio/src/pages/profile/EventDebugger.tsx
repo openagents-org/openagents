@@ -143,7 +143,7 @@ const EventDebugger: React.FC = () => {
         const errorMessage = err.message || "Failed to send event";
         setError(errorMessage);
       
-      // 即使失败也记录响应
+      // Record response even on failure
       const errorResponse: EventResponse = {
         success: false,
         message: errorMessage,

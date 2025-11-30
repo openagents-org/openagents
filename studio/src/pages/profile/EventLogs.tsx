@@ -104,17 +104,17 @@ const EventLogs: React.FC = () => {
     setCurrentPage(1);
   }, [activeTab, filterMode]);
 
-  // 加载日志
+  // Load logs
   useEffect(() => {
     const loadLogs = () => {
       const allLogs = eventLogService.getAllLogs();
       setLogs(allLogs);
     };
 
-    // 初始加载
+    // Initial load
     loadLogs();
 
-    // 订阅更新
+    // Subscribe to updates
     const unsubscribe = eventLogService.subscribe((updatedLogs) => {
       setLogs(updatedLogs);
     });
@@ -124,7 +124,7 @@ const EventLogs: React.FC = () => {
     };
   }, []);
 
-  // 切换展开/折叠
+  // Toggle expand/collapse
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => {
       const newSet = new Set(prev);
@@ -137,7 +137,7 @@ const EventLogs: React.FC = () => {
     });
   };
 
-  // 清空日志
+  // Clear logs
   const handleClearLogs = () => {
     if (window.confirm("Are you sure you want to clear all event logs?")) {
       eventLogService.clearLogs();
@@ -159,7 +159,7 @@ const EventLogs: React.FC = () => {
     });
   };
 
-  // 格式化 JSON
+  // Format JSON
   const formatJSON = (obj: any) => {
     try {
       return JSON.stringify(obj, null, 2);

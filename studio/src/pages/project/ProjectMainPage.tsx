@@ -3,21 +3,21 @@ import { Routes, Route } from "react-router-dom"
 import ProjectChatRoom from "@/pages/messaging/components/ProjectChatRoom"
 
 /**
- * Project主页面
- * 路由: /project/*
+ * Project main page
+ * Route: /project/*
  *
- * 该页面提供项目管理和私人聊天室功能
- * - 左侧：项目列表和New Project按钮
- * - 右侧：基于选中项目ID的私人聊天室
+ * This page provides project management and private chat room functionality
+ * - Left side: Project list and New Project button
+ * - Right side: Private chat room based on selected project ID
  */
 const ProjectMainPage: React.FC = () => {
   return (
     <div className="h-full bg-white dark:bg-gray-900">
       <Routes>
-        {/* 默认路由 - 显示项目列表和选择提示 */}
+        {/* Default route - display project list and selection prompt */}
         <Route index element={<ProjectChatRoom />} />
 
-        {/* 特定项目的聊天室 - 通过projectId参数 */}
+        {/* Specific project chat room - via projectId parameter */}
         <Route path=":projectId" element={<ProjectChatRoom />} />
       </Routes>
     </div>

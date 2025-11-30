@@ -83,14 +83,14 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-        {/* 背景遮罩 */}
+        {/* Background overlay */}
         <div
           className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
         />
 
-        {/* 模态框 */}
+        {/* Modal */}
         <div className="absolute inline-block w-full max-w-2xl left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 overflow-hidden text-left align-middle transition-all transform shadow-xl rounded-lg bg-white dark:bg-gray-800">
-          {/* 头部 */}
+          {/* Header */}
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
@@ -107,9 +107,9 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
             </div>
           </div>
 
-          {/* 内容 */}
+          {/* Content */}
           <div className="px-6 py-4 space-y-4">
-            {/* 标题输入 */}
+            {/* Title input */}
             <div>
               <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
                 Title
@@ -123,7 +123,7 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
               />
             </div>
 
-            {/* 内容输入 */}
+            {/* Content input */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -263,7 +263,7 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
             </div>
           </div>
 
-          {/* 底部按钮 */}
+          {/* Footer buttons */}
           <div className="px-6 py-4 border-t flex justify-end space-x-3 border-gray-200 dark:border-gray-700">
             <button
               onClick={handleClose}

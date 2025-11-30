@@ -6,7 +6,7 @@ interface ChatResponse {
 // Store active requests for aborting
 const activeRequests = new Map<string, AbortController>();
 
-// 将SSE事件解析为JSON对象
+// Parse SSE event to JSON object
 const parseSSEEvent = (eventText: string): any => {
   try {
     // Try direct JSON parsing first for the backend format
@@ -40,14 +40,14 @@ export const sendChatMessage = async (
   activeRequests.set(conversationId, abortController);
 
   try {
-    // --- 调用后端 API --- 
+    // --- Call backend API --- 
     const backendHeaders: Record<string, string> = {
         'Content-Type': 'application/json'
     };
 
     if (streamOutput && onChunk) {
-      // 创建带有 AbortSignal 的 fetch 请求
-      console.log('发送流式请求:', {
+      // Create fetch request with AbortSignal
+      console.log('Sending streaming request:', {
         url: '/api/chat',
         message: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
         conversationId,
@@ -66,16 +66,16 @@ export const sendChatMessage = async (
       });
 
       if (!response.ok) {
-        let errorBody = `服务器错误: ${response.status}`;
+        let errorBody = `Server error: ${response.status}`;
         try {
             const errorData = await response.json();
             errorBody = errorData.error || errorBody;
-        } catch (e) { /* 忽略解析错误 */ }
+        } catch (e) { /* Ignore parsing error */ }
         throw new Error(errorBody);
       }
 
       if (!response.body) {
-        throw new Error('响应主体不可读');
+        throw new Error('Response body is not readable');
       }
 
       const reader = response.body.getReader();
@@ -83,20 +83,20 @@ export const sendChatMessage = async (
       let fullMessage = '';
 
       try {
-        console.log('开始读取流式响应...');
+        console.log('Starting to read streaming response...');
         
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            console.log('流式响应读取完成');
+            console.log('Streaming response reading completed');
             break;
           }
 
-          // 简单解码当前数据块
+          // Simple decode of current data chunk
           const chunk = decoder.decode(value, { stream: true });
-          console.log('收到原始数据:', chunk);
+          console.log('Received raw data:', chunk);
           
-          // 尝试将块直接解析为JSON
+          // Try to parse the chunk directly as JSON
           try {
             const lines = chunk.split('\n').filter(line => line.trim());
             
@@ -105,23 +105,23 @@ export const sendChatMessage = async (
               if (!data) continue;
               
               if (data.type === 'start') {
-                console.log('流式响应开始, 对话ID:', data.conversationId);
+                console.log('Streaming response started, conversation ID:', data.conversationId);
               } else if (data.type === 'chunk' && data.chunk) {
-                console.log('接收到文本块:', data.chunk);
+                console.log('Received text chunk:', data.chunk);
                 onChunk(data.chunk);
                 fullMessage += data.chunk;
               } else if (data.type === 'end' && data.message) {
-                console.log('流式响应结束, 完整消息已接收');
+                console.log('Streaming response ended, complete message received');
                 fullMessage = data.message; // Use complete message from end event
                 if (onComplete) {
                   onComplete(fullMessage);
                 }
               } else if (data.type === 'error') {
-                throw new Error(data.error || '未知流式响应错误');
+                throw new Error(data.error || 'Unknown streaming response error');
               }
             }
           } catch (parseError) {
-            console.error('解析数据块时出错:', parseError);
+            console.error('Error parsing data chunk:', parseError);
           }
         }
 
@@ -130,17 +130,17 @@ export const sendChatMessage = async (
           conversationId
         };
       } catch (streamError) {
-        console.error('处理流式响应时出错:', streamError);
+        console.error('Error processing streaming response:', streamError);
         if (onError) onError(streamError);
         throw streamError;
       } finally {
         reader.releaseLock();
         activeRequests.delete(conversationId);
-        console.log('清理流式请求资源完成');
+        console.log('Cleanup of streaming request resources completed');
       }
     } else {
-      // 非流式响应请求
-      console.log('发送非流式请求:', {
+      // Non-streaming request
+      console.log('Sending non-streaming request:', {
         url: '/api/chat',
         message: message.substring(0, 50) + (message.length > 50 ? '...' : ''),
         conversationId,
@@ -159,16 +159,16 @@ export const sendChatMessage = async (
       });
       
       if (!response.ok) {
-        let errorBody = `服务器错误: ${response.status}`;
+        let errorBody = `Server error: ${response.status}`;
         try {
             const errorData = await response.json();
             errorBody = errorData.error || errorBody;
-        } catch (e) { /* 忽略解析错误 */ }
+        } catch (e) { /* Ignore parsing error */ }
         throw new Error(errorBody);
       }
       
       const data = await response.json();
-      console.log('收到非流式响应:', {
+      console.log('Received non-streaming response:', {
         conversationId,
         messageLength: data.message ? data.message.length : 0
       });
@@ -182,9 +182,9 @@ export const sendChatMessage = async (
   } catch (error: any) {
     // Check if this was an abort error
     if (error.name === 'AbortError') {
-      console.log('请求已中止');
+      console.log('Request aborted');
     } else {
-      console.error('发送聊天消息时出错:', error);
+      console.error('Error sending chat message:', error);
       if (onError) {
         onError(error);
       }

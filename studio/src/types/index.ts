@@ -1,7 +1,7 @@
 // Common type definitions for the application
 import { NetworkConnection } from "@/types/connection";
 
-// 导出新的统一消息类型
+// Export new unified message types
 export type {
   UnifiedMessage,
   RawThreadMessage,
@@ -26,8 +26,8 @@ export {
   FEED_SORT_FIELDS,
 } from "./feed";
 
-// 注意：这个接口保留用于工具相关的消息处理，新的消息应使用 types/message.ts 中的 UnifiedMessage
-// @deprecated 对于普通消息，请使用 UnifiedMessage from types/message.ts
+// Note: This interface is retained for tool-related message handling, new messages should use UnifiedMessage from types/message.ts
+// @deprecated For regular messages, please use UnifiedMessage from types/message.ts
 export interface Message {
   id: string;
   sender: "user" | "assistant" | "system";
@@ -42,7 +42,7 @@ export interface Message {
     result?: any;
     error?: string;
   };
-  // 添加工具元数据以支持持久化
+  // Add tool metadata to support persistence
   toolMetadata?: {
     sections: ToolSection[];
   };

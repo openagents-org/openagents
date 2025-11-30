@@ -13,14 +13,14 @@ import EventLogs from "./EventLogs";
 import EventDebugger from "./EventDebugger";
 
 /**
- * 个人资料主页面 - 处理个人资料相关的所有功能
+ * Profile main page - handles all profile-related features
  */
 const ProfileMainPage: React.FC = () => {
   return (
 
     <Routes>
 
-      {/* 默认个人资料视图 */}
+      {/* Default profile view */}
       <Route index element={<ProfileDashboard />} />
 
       {/* Profile edit subpage */}
@@ -68,7 +68,7 @@ const ProfileMainPage: React.FC = () => {
 };
 
 /**
- * 主要的 Profile Dashboard 组件
+ * Main Profile Dashboard component
  */
 const ProfileDashboard: React.FC = () => {
   const {

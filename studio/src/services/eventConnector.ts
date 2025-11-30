@@ -245,7 +245,7 @@ export class HttpEventConnector {
         );
       }
 
-      // 记录到事件日志
+      // Log to event log
       eventLogService.logSentEvent(event, eventResponse);
 
       return eventResponse;
@@ -259,7 +259,7 @@ export class HttpEventConnector {
         event_name: event.event_name,
       };
 
-      // 记录失败的事件到日志
+      // Log failed event to log
       eventLogService.logSentEvent(event, errorResponse);
 
       return errorResponse;
@@ -553,7 +553,7 @@ export class HttpEventConnector {
         `📨 Received event: ${event.event_name} from source_id: ${event.source_id}`
       );
 
-      // 记录到事件日志
+      // Log to event log
       eventLogService.logReceivedEvent(event);
 
       // Emit specific event

@@ -1,39 +1,39 @@
 /**
- * 统一的消息类型定义和数据适配器
- * 解决后端返回的direct message和channel message格式不一致的问题
+ * Unified message type definitions and data adapters
+ * Solves the inconsistent format issue between direct message and channel message returned from backend
  */
 
-// 统一的消息类型 - 前端内部使用
+// Unified message type - for internal frontend use
 export interface UnifiedMessage {
-  // 基础信息
+  // Basic information
   id: string;
   senderId: string;
   timestamp: string;
   content: string;
 
-  // 消息类型
+  // Message type
   type: 'direct_message' | 'channel_message' | 'reply_message';
 
-  // 频道信息（仅频道消息）
+  // Channel information (channel messages only)
   channel?: string;
 
-  // 私信目标（仅私信）
+  // DM target (direct messages only)
   targetUserId?: string;
 
-  // 回复信息
+  // Reply information
   replyToId?: string;
   threadLevel?: number;
 
-  // 引用信息
+  // Quote information
   quotedMessageId?: string;
   quotedText?: string;
 
-  // 反应
+  // Reactions
   reactions?: {
     [reactionType: string]: number;
   };
 
-  // 附件
+  // Attachments
   attachments?: Array<{
     fileId: string;
     filename: string;
@@ -41,7 +41,7 @@ export interface UnifiedMessage {
     fileType?: string;
   }>;
 
-  // 线程信息
+  // Thread information
   threadInfo?: {
     isRoot: boolean;
     threadLevel?: number;
@@ -49,7 +49,7 @@ export interface UnifiedMessage {
   };
 }
 
-// 原始的后端消息格式（from events.ts ThreadMessage）
+// Original backend message format (from events.ts ThreadMessage)
 export interface RawThreadMessage {
   message_id?: string;
   sender_id?: string;
@@ -58,7 +58,7 @@ export interface RawThreadMessage {
   timestamp: string;
   content: {
     text: string;
-  } | string | any; // 支持多种content格式
+  } | string | any; // Support multiple content formats
   message_type: 'direct_message' | 'channel_message' | 'reply_message';
   channel?: string;
   target_agent_id?: string;
@@ -86,7 +86,7 @@ export interface RawThreadMessage {
   }>;
 }
 
-// 旧的消息格式（from types/index.ts Message）
+// Legacy message format (from types/index.ts Message)
 export interface LegacyMessage {
   id: string;
   sender: "user" | "assistant" | "system";
@@ -104,16 +104,16 @@ export interface LegacyMessage {
 }
 
 /**
- * 数据适配器 - 将后端数据转换为统一格式
+ * Data adapters - convert backend data to unified format
  */
 export class MessageAdapter {
   /**
-   * 将RawThreadMessage转换为UnifiedMessage
+   * Convert RawThreadMessage to UnifiedMessage
    */
   static fromRawThreadMessage(raw: RawThreadMessage): UnifiedMessage {
     const attachments: UnifiedMessage['attachments'] = [];
 
-    // 处理单个附件（旧格式）
+    // Handle single attachment (legacy format)
     if (raw.attachment_file_id && raw.attachment_filename) {
       attachments.push({
         fileId: raw.attachment_file_id,
@@ -124,7 +124,7 @@ export class MessageAdapter {
       });
     }
 
-    // 处理多个附件（新格式）
+    // Handle multiple attachments (new format)
     if (raw.attachments) {
       attachments.push(...raw.attachments.map(att => ({
         fileId: att.file_id,
@@ -136,21 +136,21 @@ export class MessageAdapter {
 
     const isDirectMessage = raw?.payload?.message_type === 'direct_message';
 
-    // 处理不同的content格式
+    // Handle different content formats
     let content = '';
     if (raw.content) {
       if (typeof raw.content === 'string') {
-        // content是字符串
+        // content is a string
         content = raw.content;
       } else if (typeof raw.content === 'object' && raw.content.text !== undefined) {
-        // content是对象，包含text字段（即使text是空字符串也是合法的）
+        // content is an object with text field (even if text is empty string it's valid)
         content = raw.content.text;
       } else if (typeof raw.content === 'object') {
-        // content是对象但没有text字段，尝试其他字段或转换
+        // content is an object but without text field, try other fields or convert
         console.warn('MessageAdapter: Content object missing text field:', raw.content);
         content = raw.content.message || raw.content.value || String(raw.content);
       } else {
-        // 其他情况，尝试转换为字符串
+        // Other cases, try to convert to string
         console.warn('MessageAdapter: Unexpected content format:', raw.content);
         content = String(raw.content);
       }
@@ -159,7 +159,7 @@ export class MessageAdapter {
     return {
       id: (isDirectMessage ? raw.event_id : raw.message_id) || '',
       senderId: (isDirectMessage ? raw.source_id : raw.sender_id) || '',
-      timestamp: raw.timestamp, // isDirectMessage ? 10位 : 位,
+      timestamp: raw.timestamp, // 10 digits vs 13 digits,
       content: isDirectMessage ? raw.payload.content.text : content,
       type: isDirectMessage ? raw.payload.message_type : raw.message_type,
       channel: isDirectMessage ? '' : raw.channel,
@@ -179,12 +179,12 @@ export class MessageAdapter {
   }
 
   /**
-   * 将LegacyMessage转换为UnifiedMessage
+   * Convert LegacyMessage to UnifiedMessage
    */
   static fromLegacyMessage(legacy: LegacyMessage): UnifiedMessage {
     const attachments: UnifiedMessage['attachments'] = [];
 
-    // 处理单个附件（旧格式）
+    // Handle single attachment (legacy format)
     if (legacy.attachment_file_id && legacy.attachment_filename) {
       attachments.push({
         fileId: legacy.attachment_file_id,
@@ -195,7 +195,7 @@ export class MessageAdapter {
       });
     }
 
-    // 处理多个附件（新格式）
+    // Handle multiple attachments (new format)
     if (legacy.attachments) {
       attachments.push(...legacy.attachments.map(att => ({
         fileId: att.file_id,
@@ -210,13 +210,13 @@ export class MessageAdapter {
       senderId: legacy.sender,
       timestamp: legacy.timestamp,
       content: legacy.text,
-      type: 'channel_message', // LegacyMessage没有类型信息，默认为频道消息
+      type: 'channel_message', // LegacyMessage has no type info, default to channel message
       attachments: attachments.length > 0 ? attachments : undefined,
     };
   }
 
   /**
-   * 将UnifiedMessage转换为发送给后端的格式
+   * Convert UnifiedMessage to format for backend
    */
   static toRawThreadMessage(unified: UnifiedMessage): Partial<RawThreadMessage> {
     const raw: Partial<RawThreadMessage> = {
@@ -236,17 +236,17 @@ export class MessageAdapter {
       reactions: unified.reactions,
     };
 
-    // 处理附件
+    // Handle attachments
     if (unified.attachments && unified.attachments.length > 0) {
       if (unified.attachments.length === 1) {
-        // 单个附件 - 使用旧格式字段
+        // Single attachment - use legacy format fields
         const attachment = unified.attachments[0];
         raw.attachment_file_id = attachment.fileId;
         raw.attachment_filename = attachment.filename;
         raw.attachment_size = attachment.size;
       }
 
-      // 多个附件 - 使用新格式数组
+      // Multiple attachments - use new format array
       raw.attachments = unified.attachments.map(att => ({
         file_id: att.fileId,
         filename: att.filename,
@@ -255,7 +255,7 @@ export class MessageAdapter {
       }));
     }
 
-    // 处理线程信息
+    // Handle thread info
     if (unified.threadInfo) {
       raw.thread_info = {
         is_root: unified.threadInfo.isRoot,
@@ -268,14 +268,14 @@ export class MessageAdapter {
   }
 
   /**
-   * 批量转换消息数组
+   * Batch convert message array
    */
   static fromRawThreadMessages(rawMessages: RawThreadMessage[]): UnifiedMessage[] {
     return rawMessages.map(raw => this.fromRawThreadMessage(raw));
   }
 
   /**
-   * 批量转换旧格式消息数组
+   * Batch convert legacy format message array
    */
   static fromLegacyMessages(legacyMessages: LegacyMessage[]): UnifiedMessage[] {
     return legacyMessages.map(legacy => this.fromLegacyMessage(legacy));
@@ -283,11 +283,11 @@ export class MessageAdapter {
 }
 
 /**
- * 消息工具函数
+ * Message utility functions
  */
 export class MessageUtils {
   /**
-   * 格式化用户名显示
+   * Format username display
    */
   static formatUsername(senderId: string, currentUserId: string): string {
     if (senderId === currentUserId) {
@@ -298,7 +298,7 @@ export class MessageUtils {
       return 'Unknown';
     }
 
-    // 如果包含@，取@之前的部分
+    // If contains @, take the part before @
     if (senderId.includes("@")) {
       const namePart = senderId.split("@")[0];
       if (namePart.includes("_")) {
@@ -310,7 +310,7 @@ export class MessageUtils {
       return namePart;
     }
 
-    // 如果包含下划线，格式化显示
+    // If contains underscore, format for display
     if (senderId.includes("_")) {
       return senderId
         .split("_")
@@ -318,29 +318,29 @@ export class MessageUtils {
         .join(" ");
     }
 
-    // 否则只是首字母大写
+    // Otherwise just capitalize first letter
     return senderId.charAt(0).toUpperCase() + senderId.slice(1);
   }
 
   /**
-   * 解析时间戳
+   * Parse timestamp
    */
   static parseTimestamp(timestamp: string | number): number {
     if (!timestamp) return 0;
 
     const timestampStr = String(timestamp);
 
-    // 处理ISO字符串格式
+    // Handle ISO string format
     if (timestampStr.includes("T") || timestampStr.includes("-")) {
       const time = new Date(timestampStr).getTime();
       return isNaN(time) ? 0 : time;
     }
 
-    // 处理Unix时间戳
+    // Handle Unix timestamp
     const num = parseInt(timestampStr);
     if (isNaN(num)) return 0;
 
-    // 如果是秒级时间戳，转换为毫秒
+    // If it's a seconds-level timestamp, convert to milliseconds
     if (num < 10000000000) {
       return num * 1000;
     } else {
@@ -349,7 +349,7 @@ export class MessageUtils {
   }
 
   /**
-   * 按时间戳排序消息
+   * Sort messages by timestamp
    */
   static sortMessagesByTimestamp(messages: UnifiedMessage[]): UnifiedMessage[] {
     return [...messages].sort((a, b) => {
@@ -360,7 +360,7 @@ export class MessageUtils {
   }
 
   /**
-   * 过滤频道消息
+   * Filter channel messages
    */
   static filterChannelMessages(messages: UnifiedMessage[], channel: string): UnifiedMessage[] {
     return messages.filter(message =>
@@ -370,7 +370,7 @@ export class MessageUtils {
   }
 
   /**
-   * 过滤私信消息
+   * Filter direct messages
    */
   static filterDirectMessages(
     messages: UnifiedMessage[],
@@ -386,7 +386,7 @@ export class MessageUtils {
   }
 
   /**
-   * 构建线程结构
+   * Build thread structure
    */
   static buildThreadStructure(messages: UnifiedMessage[]): {
     structure: { [messageId: string]: { message: UnifiedMessage; children: string[]; level: number } };
@@ -395,7 +395,7 @@ export class MessageUtils {
     const structure: { [messageId: string]: { message: UnifiedMessage; children: string[]; level: number } } = {};
     const rootMessages: string[] = [];
 
-    // 第一遍：组织消息并识别根消息
+    // First pass: organize messages and identify root messages
     messages.forEach((message) => {
       structure[message.id] = {
         message,
@@ -403,28 +403,28 @@ export class MessageUtils {
         level: message.threadLevel || 0,
       };
 
-      // 只有带reply_to_id的才被认为是回复
+      // Only messages with reply_to_id are considered replies
       if (!message.replyToId) {
         rootMessages.push(message.id);
       }
     });
 
-    // 跟踪孤立的回复
+    // Track orphaned replies
     const orphanedReplies: string[] = [];
 
-    // 第二遍：建立父子关系
+    // Second pass: establish parent-child relationships
     messages.forEach((message) => {
       if (message.replyToId) {
         if (structure[message.replyToId]) {
           structure[message.replyToId].children.push(message.id);
         } else {
-          // 父消息不存在 - 作为孤立回复处理
+          // Parent message doesn't exist - treat as orphaned reply
           orphanedReplies.push(message.id);
         }
       }
     });
 
-    // 将孤立回复作为根消息显示
+    // Display orphaned replies as root messages
     rootMessages.push(...orphanedReplies);
 
     return { structure, rootMessageIds: rootMessages };

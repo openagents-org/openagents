@@ -9,13 +9,13 @@ interface ToolPanelProps {
   toolSection: ToolSection | null;
 }
 
-// 自定义的Markdown渲染组件
+// Custom Markdown rendering component
 const CustomReactMarkdown: React.FC<{children: string}> = ({ children }) => {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        // 自定义pre标签的渲染
+        // Custom pre tag rendering
         pre: (props) => (
           <pre 
             className="whitespace-pre-wrap break-words max-w-full overflow-x-auto"
@@ -23,7 +23,7 @@ const CustomReactMarkdown: React.FC<{children: string}> = ({ children }) => {
             {...props}
           />
         ),
-        // 自定义code标签的渲染
+        // Custom code tag rendering
         code: ({className, children, ...props}: any) => {
           const match = /language-(\w+)/.exec(className || '');
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -31,7 +31,7 @@ const CustomReactMarkdown: React.FC<{children: string}> = ({ children }) => {
           const isInline = !className || !match;
           
           if (!isInline) {
-            // 代码块
+            // Code block
             return (
               <div className="max-w-full overflow-x-auto">
                 <pre 
@@ -46,7 +46,7 @@ const CustomReactMarkdown: React.FC<{children: string}> = ({ children }) => {
             );
           }
           
-          // 行内代码
+          // Inline code
           return (
             <code 
               className={`whitespace-pre-wrap break-words ${className || ''}`}
@@ -57,7 +57,7 @@ const CustomReactMarkdown: React.FC<{children: string}> = ({ children }) => {
             </code>
           );
         },
-        // 自定义p标签的渲染
+        // Custom p tag rendering
         p: (props) => (
           <p 
             className="whitespace-pre-wrap break-words"
@@ -76,56 +76,56 @@ const ToolPanel: React.FC<ToolPanelProps> = ({ isOpen, onClose, toolSection }) =
   const [isAnimating, setIsAnimating] = useState(false);
   const [isVisible, setIsVisible] = useState(isOpen);
   
-  // 确保组件挂载时状态正确
+  // Ensure state is correct when component mounts
   useEffect(() => {
-    // 如果初始状态为打开，则应用打开动画
+    // If initial state is open, apply open animation
     if (isOpen) {
       requestAnimationFrame(() => {
         setIsAnimating(true);
       });
     }
-  }, [isOpen]); // 添加isOpen作为依赖项
+  }, [isOpen]); // Add isOpen as dependency
 
   useEffect(() => {
     if (isOpen) {
-      // 首先显示面板但保持在初始位置（transform: translateX(100%)）
-      setIsAnimating(false); // 先设置为false，确保初始状态正确
+      // First show panel but keep in initial position (transform: translateX(100%))
+      setIsAnimating(false); // First set to false to ensure correct initial state
       setIsVisible(true);
       
-      // 使用requestAnimationFrame确保DOM更新后再应用动画
+      // Use requestAnimationFrame to ensure DOM updates before applying animation
       requestAnimationFrame(() => {
-        // 在下一帧应用打开动画
+        // Apply open animation in the next frame
         requestAnimationFrame(() => {
-          setIsAnimating(true); // 然后设置为true触发过渡动画
+          setIsAnimating(true); // Then set to true to trigger transition animation
         });
       });
       
     } else {
-      // 开始关闭动画
+      // Start close animation
       setIsAnimating(false);
       
-      // 等待动画完成后隐藏面板
+      // Wait for animation to complete then hide panel
       const timer = setTimeout(() => {
         setIsVisible(false);
-      }, 400); // 与过渡持续时间相同
+      }, 400); // Same as transition duration
       return () => clearTimeout(timer);
     }
   }, [isOpen]);
 
-  // 控制台输出，帮助调试 - 移动到单独的useEffect
+  // Console output for debugging - moved to separate useEffect
   useEffect(() => {
-    // 仅在工具部分变更时输出日志，避免与动画状态变化交互
+    // Only log when tool section changes, avoid interaction with animation state changes
     if (isOpen && toolSection) {
       console.log("Tool panel opened with section:", toolSection);
     }
   }, [isOpen, toolSection]);
 
-  // 如果面板既不可见也不在动画中，则不渲染任何内容
+  // If panel is neither visible nor animating, don't render anything
   if (!isVisible && !isOpen) return null;
 
-  // 增强的工具面板样式
+  // Enhanced tool panel styles
   const toolPanelStyles = `
-    /* 确保内容会正确换行 */
+    /* Ensure content wraps correctly */
     .tool-panel-content {
       white-space: pre-wrap !important;
       word-wrap: break-word !important;
@@ -134,7 +134,7 @@ const ToolPanel: React.FC<ToolPanelProps> = ({ isOpen, onClose, toolSection }) =
       max-width: 100% !important;
     }
     
-    /* 保持代码块的格式 */
+    /* Preserve code block formatting */
     .tool-panel-content pre {
       white-space: pre-wrap !important;
       overflow-x: auto;
@@ -143,14 +143,14 @@ const ToolPanel: React.FC<ToolPanelProps> = ({ isOpen, onClose, toolSection }) =
       border-radius: 0.5rem;
     }
     
-    /* 给行内代码添加样式 */
+    /* Add styles for inline code */
     .tool-panel-content code {
       white-space: pre-wrap !important;
       word-break: break-word !important;
       border-radius: 0.25rem;
     }
     
-    /* JSON内容的样式 */
+    /* JSON content styles */
     .tool-panel-json {
       white-space: pre-wrap !important;
       word-break: break-word !important;
@@ -163,14 +163,14 @@ const ToolPanel: React.FC<ToolPanelProps> = ({ isOpen, onClose, toolSection }) =
       border-radius: 0.5rem;
     }
     
-    /* 覆盖任何可能干扰换行的样式 */
+    /* Override any styles that may interfere with line wrapping */
     .tool-panel .overflow-auto {
       max-width: 100% !important;
       overflow-x: auto !important;
       border-radius: 0.5rem;
     }
     
-    /* 确保内容区域可以正确展示 */
+    /* Ensure content area displays correctly */
     .tool-panel-section {
       width: 100%;
       max-width: 100%;
@@ -187,7 +187,7 @@ const ToolPanel: React.FC<ToolPanelProps> = ({ isOpen, onClose, toolSection }) =
           onClick={onClose}
         />
         
-        {/* Sliding panel - 直接使用内联过渡样式，添加缩放效果 */}
+        {/* Sliding panel - using inline transition styles with scale effect */}
         <section 
           className={`absolute inset-y-4 right-4 w-full sm:w-3/4 md:w-1/2 lg:w-2/5 xl:w-1/3 tool-panel`}
           style={{
@@ -201,21 +201,21 @@ const ToolPanel: React.FC<ToolPanelProps> = ({ isOpen, onClose, toolSection }) =
             {/* Panel header */}
             <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center rounded-t-lg">
               <h2 className="text-lg font-medium text-gray-900 dark:text-white truncate max-w-[80%]">
-                {toolSection ? `工具: ${toolSection.name}` : '工具详情'}
+                {toolSection ? `Tool: ${toolSection.name}` : 'Tool Details'}
               </h2>
               <button
                 type="button"
                 className="text-gray-400 hover:text-gray-500 focus:outline-none dark:text-gray-300 dark:hover:text-gray-200"
                 onClick={onClose}
               >
-                <span className="sr-only">关闭面板</span>
+                <span className="sr-only">Close panel</span>
                 <svg className="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
             
-            {/* Panel content - 优化内部间距 */}
+            {/* Panel content - optimized internal spacing */}
             <div className="px-5 py-4 w-full max-w-full">
               {toolSection ? (
                 <div className="space-y-4 tool-panel-section w-full max-w-full">
@@ -228,23 +228,23 @@ const ToolPanel: React.FC<ToolPanelProps> = ({ isOpen, onClose, toolSection }) =
                         toolSection.type === 'tool_result' ? 'bg-green-500' : 'bg-red-500'
                       }`}></div>
                       <h3 className="text-md font-medium text-gray-900 dark:text-white">
-                        {toolSection.type === 'tool_start' ? '工具启动' : 
-                         toolSection.type === 'tool_execution' ? '工具执行中' : 
-                         toolSection.type === 'tool_result' ? '工具结果' : '工具错误'}
+                        {toolSection.type === 'tool_start' ? 'Tool Start' :
+                         toolSection.type === 'tool_execution' ? 'Tool Executing' :
+                         toolSection.type === 'tool_result' ? 'Tool Result' : 'Tool Error'}
                       </h3>
                     </div>
                   </div>
 
                   {/* Tool name */}
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400">工具名称</h4>
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400">Tool Name</h4>
                     <p className="mt-1 text-md text-gray-900 dark:text-white break-words">{toolSection.name}</p>
                   </div>
 
                   {/* Original content */}
                   {toolSection.content && (
                     <div className="w-full max-w-full">
-                      <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400">原始内容</h4>
+                      <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400">Original Content</h4>
                       <div className="mt-1 bg-gray-50 dark:bg-gray-900 p-3 rounded-lg overflow-auto max-h-40 w-full">
                         <div className="tool-panel-content prose prose-sm dark:prose-invert max-w-full w-full break-words">
                           <CustomReactMarkdown>
@@ -258,7 +258,7 @@ const ToolPanel: React.FC<ToolPanelProps> = ({ isOpen, onClose, toolSection }) =
                   {/* Tool input */}
                   {toolSection.input && (
                     <div className="w-full max-w-full">
-                      <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400">输入参数</h4>
+                      <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400">Input Parameters</h4>
                       <div className="mt-1 bg-gray-50 dark:bg-gray-900 p-3 rounded-lg overflow-auto w-full">
                         <pre className="tool-panel-json text-sm text-gray-900 dark:text-gray-100 break-words w-full" style={{ maxWidth: '100%', overflowWrap: 'break-word' }}>
                           {typeof toolSection.input === 'string' 
@@ -272,7 +272,7 @@ const ToolPanel: React.FC<ToolPanelProps> = ({ isOpen, onClose, toolSection }) =
                   {/* Tool result */}
                   {toolSection.result && (
                     <div className="w-full max-w-full">
-                      <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400">结果</h4>
+                      <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400">Result</h4>
                       <div className="mt-1 bg-gray-50 dark:bg-gray-900 p-3 rounded-lg overflow-auto w-full">
                         <div className="tool-panel-content prose prose-sm dark:prose-invert max-w-full w-full break-words" style={{ maxWidth: '100%' }}>
                           {typeof toolSection.result === 'string' ? (
@@ -292,7 +292,7 @@ const ToolPanel: React.FC<ToolPanelProps> = ({ isOpen, onClose, toolSection }) =
                   {/* Tool error */}
                   {toolSection.error && (
                     <div className="w-full max-w-full">
-                      <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400">错误</h4>
+                      <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400">Error</h4>
                       <div className="mt-1 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 rounded-lg w-full">
                         <p className="tool-panel-content text-sm text-red-800 dark:text-red-300 break-words w-full">{toolSection.error}</p>
                       </div>
@@ -300,7 +300,7 @@ const ToolPanel: React.FC<ToolPanelProps> = ({ isOpen, onClose, toolSection }) =
                   )}
                 </div>
               ) : (
-                <p className="text-gray-500 dark:text-gray-400">没有可用的工具详情</p>
+                <p className="text-gray-500 dark:text-gray-400">No tool details available</p>
               )}
             </div>
           </div>

@@ -19,7 +19,7 @@ const SidebarContent: React.FC = () => {
 
     const pathname = location.pathname;
 
-    // AgentWorld 不显示侧边栏
+    // AgentWorld does not display sidebar
     if (pathname.startsWith("/agentworld")) {
       return null
     }
