@@ -24,7 +24,7 @@ const exampleNewsItems: NewsSummaryItem[] = [
     date: 'June 10, 2023',
     source: 'Health Journal',
     url: 'https://example.com/news/3',
-    // Intentionally not providing image to useplaceholder
+    // Intentionally not providing image to use placeholder
   },
   {
     id: '4',
@@ -50,7 +50,7 @@ const exampleNewsItems: NewsSummaryItem[] = [
   }
 ];
 
-// News without image, for demonstrationplaceholder
+// News without image, for demonstration placeholder
 const noImageNewsItems: NewsSummaryItem[] = [
   {
     id: '7',

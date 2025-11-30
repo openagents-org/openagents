@@ -9,11 +9,11 @@ interface AttachmentDisplayProps {
     size: number;
     fileType?: string;
   }>;
-  // Compatible with old format（可选）
+  // Compatible with old format (optional)
   attachment_file_id?: string;
   attachment_filename?: string;
   attachment_size?: number | string;
-  // Compatible with old format数组（可选）
+  // Compatible with old format array (optional)
   legacyAttachments?: Array<{
     file_id: string;
     filename: string;
@@ -152,7 +152,7 @@ const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
     allAttachments.push(...attachments);
   }
 
-  // Compatible with old format数组
+  // Compatible with old format array
   if (legacyAttachments && legacyAttachments.length > 0) {
     allAttachments.push(...legacyAttachments.map(att => ({
       fileId: att.file_id,

@@ -55,7 +55,7 @@ const McpServerView: React.FC = () => {
     }
   }, [isVisible]);
 
-  // Periodically refresh server list (每10秒)
+  // Periodically refresh server list (every 10 seconds)
   useEffect(() => {
     if (!isVisible) return;
     

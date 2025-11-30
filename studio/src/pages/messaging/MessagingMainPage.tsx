@@ -3,7 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import MessagingView from "./MessagingView";
 import ProjectChatRoom from "./components/ProjectChatRoom";
 /**
- * 聊天主页面 - Use chatStore unified architecture
+ * Messaging main page - Use chatStore unified architecture
  */
 const MessagingMainPage: React.FC = () => {
 

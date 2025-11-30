@@ -108,7 +108,7 @@ const MessagingSidebar: React.FC = () => {
   // Use agentName as fallback if connectionStatus.agentId is unavailable
   const currentUserId = ('agentId' in connectionStatus ? connectionStatus.agentId : undefined) || agentName || undefined;
 
-  // Use chatStore to get data和选择状态
+  // Use chatStore to get data and selection state
   const {
     currentChannel,
     currentDirectMessage,

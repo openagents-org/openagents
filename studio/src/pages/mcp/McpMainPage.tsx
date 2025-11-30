@@ -3,7 +3,7 @@ import { Routes, Route, useNavigate } from "react-router-dom";
 import McpView from "@/components/mcp/McpView";
 
 /**
- * MCP 主页面 - Handle all MCP-related features
+ * MCP main page - Handle all MCP-related features
  */
 const McpMainPage: React.FC = () => {
   const navigate = useNavigate();

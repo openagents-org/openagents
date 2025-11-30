@@ -1,7 +1,7 @@
 /**
  * ForumView Refactoring notice
  *
- * 原来的 ForumView 组件已经被重构为模块化架构：
+ * Original ForumView component has been refactored to modular architecture:
  * - ForumTopicList: Topic list page
  * - ForumTopicDetail: Topic detail page
  * - ForumMainPage: Responsible for route configuration

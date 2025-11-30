@@ -4,7 +4,7 @@ import ForumTopicList from "@/components/forum/ForumTopicList";
 import ForumTopicDetail from "@/components/forum/ForumTopicDetail";
 
 /**
- * Forum主页面 - Handle all Forum-related features
+ * Forum main page - Handle all Forum-related features
  */
 const ForumMainPage: React.FC = () => {
   return (

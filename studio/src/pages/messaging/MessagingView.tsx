@@ -12,7 +12,7 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-// useNavigate 和 useLocation Moved to global handling, no longer needed here
+// useNavigate and useLocation moved to global handling, no longer needed here
 import { useOpenAgents } from "@/context/OpenAgentsProvider";
 import { useChatStore, setChatStoreContext } from "@/stores/chatStore";
 import MessageRenderer from "./components/MessageRenderer";

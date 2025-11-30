@@ -42,7 +42,7 @@ const WikiProposals: React.FC = () => {
     }
   }, [openAgentsService, loadProposals, loadPages]);
 
-  // 获取Page content用于diff对比
+  // Get page content for diff comparison
   const getPageContent = async (pagePath: string): Promise<string> => {
     if (pageContents[pagePath]) {
       return pageContents[pagePath];

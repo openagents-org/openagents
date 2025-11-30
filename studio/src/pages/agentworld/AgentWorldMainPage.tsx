@@ -3,7 +3,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { getCurrentNetworkHealth } from "@/services/networkService";
 
 /**
- * AgentWorld主页面 - Use iframe to display external page
+ * AgentWorld main page - Use iframe to display external page
  */
 const AgentWorldMainPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);

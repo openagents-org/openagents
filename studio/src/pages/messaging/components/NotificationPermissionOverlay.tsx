@@ -31,7 +31,7 @@ const NotificationPermissionOverlay: React.FC<
     }
   };
 
-  // Save"Do not show again"设置
+  // Save "Do not show again" setting
   const saveNeverShowAgain = () => {
     try {
       localStorage.setItem("notification-permission-never-show", "true");

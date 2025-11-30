@@ -51,7 +51,7 @@ const DiffViewer: React.FC<DiffViewerProps> = ({
           displayNewLine = 0; // Don't show new line number
         }
 
-        // 更新行号
+        // Update line numbers
         if (!change.added) {
           oldLineNumber++;
         }

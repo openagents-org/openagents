@@ -107,7 +107,7 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
     );
   }
 
-  // 显示加载状态
+  // Display loading state
   if (commentsLoading && !selectedTopic) {
     return (
       <div className="flex-1 flex items-center justify-center dark:bg-gray-900">
@@ -119,7 +119,7 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
     );
   }
 
-  // 显示错误状态
+  // Display error state
   if (commentsError || !selectedTopic) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -157,7 +157,7 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full">
-      {/* Header导航 */}
+      {/* Header navigation */}
       <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
         <button
           onClick={handleBack}
@@ -180,17 +180,17 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
         </button>
       </div>
 
-      {/* 主要Content - 使用全宽度 */}
+      {/* Main content - using full width */}
       <div className="flex-1 flex flex-col overflow-hidden dark:bg-gray-900 border-gray-200 dark:border-gray-700">
         <div className="flex-1 flex flex-col overflow-y-auto">
-          {/* 话题Content */}
+          {/* Topic content */}
           <div className="p-6 border-b bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700">
             {/* Topic title */}
             <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100">
               {selectedTopic.title}
             </h1>
 
-            {/* 话题元信息 */}
+            {/* Topic meta information */}
             <div className="flex items-center justify-between mb-4 text-sm text-gray-600 dark:text-gray-400">
               <span>
                 by {selectedTopic.owner_id} • {timeAgo}
@@ -198,12 +198,12 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
               <span>{totalComments} comments</span>
             </div>
 
-            {/* 话题Content */}
+            {/* Topic content */}
             <div className="mb-4">
               <MarkdownRenderer content={selectedTopic.content} />
             </div>
 
-            {/* 投票和添加评论按钮 */}
+            {/* Vote and add comment buttons */}
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <button
@@ -226,7 +226,7 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
                 </button>
               </div>
 
-              {/* 添加评论按钮 */}
+              {/* Add comment button */}
               <button
                 onClick={() => setIsAddCommentModalOpen(true)}
                 className="flex items-center space-x-2 px-4 py-2 rounded-md transition-colors bg-blue-600 text-white hover:bg-blue-700"
@@ -249,14 +249,14 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
             </div>
           </div>
 
-          {/* 评论Title */}
+          {/* Comments title */}
           <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               Comments ({totalComments})
             </h2>
           </div>
 
-          {/* 评论列表 - 可滚动的中间区域 */}
+          {/* Comments list - scrollable middle area */}
           <div className="py-4 pb-6">
             {commentsLoading ? (
               <div className="text-center py-8">
@@ -281,7 +281,7 @@ const ForumTopicDetail: React.FC<ForumTopicDetailProps> = () => {
         </div>
       </div>
 
-      {/* 添加评论弹窗 */}
+      {/* Add comment modal */}
       <ForumAddCommentModal
         isOpen={isAddCommentModalOpen}
         onClose={() => setIsAddCommentModalOpen(false)}
