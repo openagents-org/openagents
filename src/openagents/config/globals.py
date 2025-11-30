@@ -21,6 +21,7 @@ OPENCONVERT_DISCOVERY_MOD_NAME = "openagents.mods.discovery.openconvert_discover
 
 # Work mods
 SHARED_DOCUMENT_MOD_NAME = "openagents.mods.workspace.documents"
+TASK_QUEUE_MOD_NAME = "openagents.mods.workspace.task_queue"
 
 # ===== DEFAULT VALUES =====
 # Default configuration values
