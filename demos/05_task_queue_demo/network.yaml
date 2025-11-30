@@ -1,0 +1,30 @@
+network:
+  name: "Task Queue Demo Network"
+  description: "Demonstration of task queue and job scheduling"
+
+  transports:
+    - type: "http"
+      config:
+        host: "0.0.0.0"
+        port: 8703
+
+    - type: "grpc"
+      config:
+        host: "0.0.0.0"
+        port: 8603
+
+mods:
+  # Task Queue Mod
+  - path: openagents.mods.workspace.task_queue
+    config:
+      worker_timeout: 300  # 5 minutes
+      task_claim_timeout: 60  # 1 minute
+      enable_dead_letter: true
+      cleanup_interval: 300  # 5 minutes
+
+  # Messaging Mod (for communication)
+  - path: openagents.mods.workspace.messaging
+
+channels:
+  - name: "general"
+    description: "General discussion"
