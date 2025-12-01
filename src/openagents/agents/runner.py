@@ -40,6 +40,7 @@ class AgentRunner(ABC):
         client: Optional[AgentClient] = None,
         interval: Optional[int] = 1,
         ignored_sender_ids: Optional[List[str]] = None,
+        workspace_path: Optional[str] = None,
     ):
         """Initialize the agent runner.
 
@@ -50,11 +51,13 @@ class AgentRunner(ABC):
             client: Agent client to use for the agent. Optional, if provided, the runner will use the client to obtain required mod adapters.
             interval: Interval in seconds between checking for new messages.
             ignored_sender_ids: List of sender IDs to ignore.
+            workspace_path: Path to the workspace directory. If provided, enables LLM call logging to {workspace}/logs/llm/.
 
         Note:
             Either mod_names or mod_adapters should be provided, not both.
         """
         self._agent_id = agent_id
+        self._workspace_path = workspace_path
         self._preset_mod_names = mod_names
         self._network_client = client
         self._tools = []
@@ -278,7 +281,9 @@ class AgentRunner(ABC):
             agent_config=self.agent_config,
             tools=tools,
             user_instruction=instruction,
-            max_iterations=max_iterations,  
+            max_iterations=max_iterations,
+            workspace_path=self._workspace_path,
+            agent_id=self._agent_id,
         )
     
     def get_llm(self) -> BaseModelProvider:
@@ -317,6 +322,8 @@ class AgentRunner(ABC):
             max_iterations=max_iterations,
             disable_finish_tool=True,
             use_llm_user_prompt=True,
+            workspace_path=self._workspace_path,
+            agent_id=self._agent_id,
         )
     
     async def send_event(self, event: Event) -> Optional[EventResponse]:

@@ -7,9 +7,11 @@ extracted from SimpleAgentRunner to improve reusability and testability.
 
 import json
 import logging
+import time
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from pathlib import Path
+from typing import List, Optional, Union
 
 from jinja2 import Template
 
@@ -54,6 +56,8 @@ async def orchestrate_agent(
     max_iterations: Optional[int] = None,
     disable_finish_tool: Optional[bool] = False,
     use_llm_user_prompt: Optional[bool] = False,
+    workspace_path: Optional[Union[str, Path]] = None,
+    agent_id: Optional[str] = None,
 ) -> AgentTrajectory:
     """Orchestrate an agent's response to an incoming message.
 
@@ -68,7 +72,12 @@ async def orchestrate_agent(
         context: Event context containing incoming message and thread information
         agent_config: Agent configuration with model and prompt settings
         tools: Available tools for the agent to use
+        user_instruction: Optional user instruction to guide the agent
         max_iterations: Maximum number of conversation iterations
+        disable_finish_tool: Whether to disable the finish tool
+        use_llm_user_prompt: Whether to use LLM user prompt template
+        workspace_path: Path to workspace for LLM logging (optional)
+        agent_id: Agent ID for LLM logging (optional, defaults to source_id from context)
 
     Returns:
         AgentTrajectory containing all actions performed and summary
@@ -86,6 +95,16 @@ async def orchestrate_agent(
     incoming_message = context.incoming_event
     incoming_thread_id = context.incoming_thread_id
     event_threads = context.event_threads
+
+    # Initialize LLM logger if workspace_path is provided
+    llm_logger = None
+    if workspace_path:
+        try:
+            from openagents.lms.llm_logger import LLMCallLogger
+            effective_agent_id = agent_id or incoming_message.source_id or "unknown"
+            llm_logger = LLMCallLogger(Path(workspace_path), effective_agent_id)
+        except Exception as e:
+            logger.warning(f"Failed to initialize LLM logger: {e}")
 
     # Print colored box for orchestration start
     from openagents.utils.cli_display import print_box
@@ -162,8 +181,34 @@ async def orchestrate_agent(
         iteration += 1
 
         try:
-            # Call the model provider - async
-            response = await model_provider.chat_completion(messages, formatted_tools)
+            # Call the model provider - async, with timing for logging
+            call_start_time = time.time()
+            llm_error = None
+            response = None
+            try:
+                response = await model_provider.chat_completion(messages, formatted_tools)
+            except Exception as llm_exc:
+                llm_error = str(llm_exc)
+                raise
+            finally:
+                call_end_time = time.time()
+                latency_ms = int((call_end_time - call_start_time) * 1000)
+
+                # Log the LLM call if logger is available
+                if llm_logger:
+                    try:
+                        log_response = response if response else {"content": "", "tool_calls": []}
+                        await llm_logger.log_call(
+                            model_name=agent_config.model_name,
+                            provider=provider,
+                            messages=messages.copy(),
+                            tools=formatted_tools,
+                            response=log_response,
+                            latency_ms=latency_ms,
+                            error=llm_error,
+                        )
+                    except Exception as log_exc:
+                        logger.warning(f"Failed to log LLM call: {log_exc}")
 
             # Add the assistant's response to the conversation
             # Handle content and tool_calls properly for OpenAI API

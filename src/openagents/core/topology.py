@@ -251,6 +251,10 @@ class CentralizedTopology(NetworkTopology):
                     from .transports import HttpTransport
 
                     transport = HttpTransport(transport_config.config)
+                    # Set workspace_manager for LLM logs API if network_context is available
+                    if self.network_context and self.network_context.workspace_path:
+                        from openagents.core.workspace_manager import WorkspaceManager
+                        transport.workspace_manager = WorkspaceManager(self.network_context.workspace_path)
                 elif transport_type == TransportType.WEBSOCKET:
                     from .transports import WebSocketTransport
 
@@ -463,6 +467,10 @@ class DecentralizedTopology(NetworkTopology):
                     from .transports import HttpTransport
 
                     transport = HttpTransport(transport_config.get("config", {}))
+                    # Set workspace_manager for LLM logs API if network_context is available
+                    if self.network_context and self.network_context.workspace_path:
+                        from openagents.core.workspace_manager import WorkspaceManager
+                        transport.workspace_manager = WorkspaceManager(self.network_context.workspace_path)
                 elif transport_type == TransportType.WEBSOCKET:
                     from .transports import WebSocketTransport
 

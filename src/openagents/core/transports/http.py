@@ -40,6 +40,7 @@ class HttpTransport(Transport):
         self.app = web.Application(middlewares=[self.cors_middleware])
         self.site = None
         self.network_instance = None  # Reference to network instance
+        self.workspace_manager = None  # Reference to workspace manager for LLM logs
         self.setup_routes()
 
     def setup_routes(self):
@@ -52,6 +53,9 @@ class HttpTransport(Transport):
         self.app.router.add_post("/api/unregister", self.unregister_agent)
         self.app.router.add_get("/api/poll", self.poll_messages)
         self.app.router.add_post("/api/send_event", self.send_message)
+        # LLM Logs API endpoints
+        self.app.router.add_get("/api/agents/service/{agent_id}/llm-logs", self.get_llm_logs)
+        self.app.router.add_get("/api/agents/service/{agent_id}/llm-logs/{log_id}", self.get_llm_log_entry)
 
     @web.middleware
     async def cors_middleware(self, request, handler):
@@ -763,6 +767,122 @@ class HttpTransport(Transport):
         """Disconnect from a peer (HTTP doesn't maintain persistent connections)."""
         logger.debug(f"HTTP transport peer_disconnect called for {peer_id}")
         return True
+
+    async def get_llm_logs(self, request):
+        """Handle GET request for LLM logs for a service agent.
+
+        GET /api/agents/service/{agent_id}/llm-logs
+
+        Query Parameters:
+            limit: Number of entries to return (default: 50, max: 200)
+            offset: Pagination offset
+            model: Filter by model name
+            since: Only entries after this timestamp
+            has_error: Filter by error status (true/false)
+            search: Search in messages/completion
+        """
+        try:
+            agent_id = request.match_info.get("agent_id")
+            if not agent_id:
+                return web.json_response(
+                    {"success": False, "error": "agent_id is required"},
+                    status=400,
+                )
+
+            # Check if workspace_manager is available
+            if not self.workspace_manager:
+                return web.json_response(
+                    {"success": False, "error": "Workspace not configured"},
+                    status=500,
+                )
+
+            # Parse query parameters
+            limit = int(request.query.get("limit", 50))
+            offset = int(request.query.get("offset", 0))
+            model = request.query.get("model")
+            since_str = request.query.get("since")
+            since = float(since_str) if since_str else None
+            has_error_str = request.query.get("has_error")
+            has_error = None
+            if has_error_str is not None:
+                has_error = has_error_str.lower() == "true"
+            search = request.query.get("search")
+
+            # Create LLM log reader and get logs
+            from openagents.lms.llm_log_reader import LLMLogReader
+            reader = LLMLogReader(self.workspace_manager.workspace_path)
+
+            logs, total_count = reader.get_logs(
+                agent_id=agent_id,
+                limit=limit,
+                offset=offset,
+                model=model,
+                since=since,
+                has_error=has_error,
+                search=search,
+            )
+
+            return web.json_response({
+                "agent_id": agent_id,
+                "logs": logs,
+                "total_count": total_count,
+                "has_more": offset + len(logs) < total_count,
+            })
+
+        except ValueError as e:
+            return web.json_response(
+                {"success": False, "error": f"Invalid parameter: {str(e)}"},
+                status=400,
+            )
+        except Exception as e:
+            logger.error(f"Error getting LLM logs: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500,
+            )
+
+    async def get_llm_log_entry(self, request):
+        """Handle GET request for a specific LLM log entry.
+
+        GET /api/agents/service/{agent_id}/llm-logs/{log_id}
+        """
+        try:
+            agent_id = request.match_info.get("agent_id")
+            log_id = request.match_info.get("log_id")
+
+            if not agent_id or not log_id:
+                return web.json_response(
+                    {"success": False, "error": "agent_id and log_id are required"},
+                    status=400,
+                )
+
+            # Check if workspace_manager is available
+            if not self.workspace_manager:
+                return web.json_response(
+                    {"success": False, "error": "Workspace not configured"},
+                    status=500,
+                )
+
+            # Create LLM log reader and get the entry
+            from openagents.lms.llm_log_reader import LLMLogReader
+            reader = LLMLogReader(self.workspace_manager.workspace_path)
+
+            entry = reader.get_log_entry(agent_id, log_id)
+
+            if entry is None:
+                return web.json_response(
+                    {"success": False, "error": "Log entry not found"},
+                    status=404,
+                )
+
+            return web.json_response(entry)
+
+        except Exception as e:
+            logger.error(f"Error getting LLM log entry: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500,
+            )
 
     async def listen(self, address: str) -> bool:
         runner = web.AppRunner(self.app)
