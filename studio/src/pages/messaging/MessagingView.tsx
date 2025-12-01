@@ -52,7 +52,7 @@ const ThreadMessagingViewEventBased: React.FC = () => {
     setQuotingMessage(null);
   }, [currentChannel, currentDirectMessage]);
 
-  // These local states are for UI control, dont affect channel selection logic
+  // These local states are for UI control, don't affect channel selection logic
 
   // Use new OpenAgents context
   const { connector, connectionStatus, isConnected } = useOpenAgents();

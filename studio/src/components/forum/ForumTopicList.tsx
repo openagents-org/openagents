@@ -35,7 +35,7 @@ const ForumTopicList: React.FC = () => {
       if (!openAgentsService) return;
 
       try {
-        // Get currentagent ID
+        // Get current agent ID
         const agentId = openAgentsService.getAgentId();
         if (agentId) {
           console.log("ForumTopicList: Setting agentId:", agentId);

@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import { notificationService } from "@/services/notificationService";
 
 interface NotificationPermissionOverlayProps {
-  // Optional external controlprops
+  // Optional external control props
   className?: string;
 }
 
@@ -21,7 +21,7 @@ const NotificationPermissionOverlay: React.FC<
     location.pathname === "/messaging" ||
     location.pathname.startsWith("/messaging/");
 
-  // Check if user chose"Do not show again"
+  // Check if user chose "Don't show again"
   const checkNeverShowAgain = () => {
     try {
       const stored = localStorage.getItem("notification-permission-never-show");

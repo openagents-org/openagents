@@ -44,7 +44,7 @@ interface MessageRendererProps {
   renderMode?: 'flat' | 'threaded';
   // Maximum thread depth
   maxThreadDepth?: number;
-  // Whether its a direct message chat (DM)
+  // Whether it's a direct message chat (DM)
   isDMChat?: boolean;
   // Whether to disable reaction features (for project channel)
   disableReactions?: boolean;
@@ -76,7 +76,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
 
   // Message type detection and property extraction
   const getMessageProps = (message: SupportedMessage) => {
-    // Detect if its ThreadMessage type
+    // Detect if it's ThreadMessage type
     if ('message_id' in message) {
       const threadMsg = message as ThreadMessage;
       return {
