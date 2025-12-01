@@ -12,12 +12,10 @@ This test suite verifies the task delegation mod functionality:
 - Notifications
 """
 
-import asyncio
 import pytest
 import time
 import uuid
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from openagents.mods.coordination.task_delegation.mod import (
     TaskDelegationMod,
@@ -26,11 +24,9 @@ from openagents.mods.coordination.task_delegation.mod import (
     STATUS_COMPLETED,
     STATUS_FAILED,
     STATUS_TIMED_OUT,
-    DEFAULT_TIMEOUT_SECONDS,
 )
 from openagents.mods.coordination.task_delegation.adapter import TaskDelegationAdapter
 from openagents.models.event import Event
-from openagents.models.event_response import EventResponse
 
 
 @pytest.fixture

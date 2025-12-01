@@ -290,10 +290,18 @@ class TaskDelegationMod(BaseMod):
                 data={"error": "description is required"},
             )
 
+        # Get and validate timeout_seconds
+        timeout_seconds = payload.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
+        if not isinstance(timeout_seconds, (int, float)) or timeout_seconds <= 0:
+            return self._create_response(
+                success=False,
+                message="timeout_seconds must be a positive number",
+                data={"error": "timeout_seconds must be a positive number"},
+            )
+
         # Create the task
         task_id = str(uuid.uuid4())
         current_time = time.time()
-        timeout_seconds = payload.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
 
         task = Task(
             task_id=task_id,

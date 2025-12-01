@@ -220,11 +220,11 @@ class TaskDelegationAdapter(BaseModAdapter):
         Returns:
             Response containing task_id and status on success, or error on failure
         """
-        if self.connector is None:
-            logger.error("Cannot delegate task: connector not available")
+        if self.agent_client is None:
+            logger.error("Cannot delegate task: agent_client not available")
             return {
                 "success": False,
-                "error": "Connector not available",
+                "error": "Agent client not available",
             }
 
         event = Event(
@@ -274,11 +274,11 @@ class TaskDelegationAdapter(BaseModAdapter):
         Returns:
             Response indicating success or failure
         """
-        if self.connector is None:
-            logger.error("Cannot report progress: connector not available")
+        if self.agent_client is None:
+            logger.error("Cannot report progress: agent_client not available")
             return {
                 "success": False,
-                "error": "Connector not available",
+                "error": "Agent client not available",
             }
 
         event = Event(
@@ -327,11 +327,11 @@ class TaskDelegationAdapter(BaseModAdapter):
         Returns:
             Response indicating success or failure
         """
-        if self.connector is None:
-            logger.error("Cannot complete task: connector not available")
+        if self.agent_client is None:
+            logger.error("Cannot complete task: agent_client not available")
             return {
                 "success": False,
-                "error": "Connector not available",
+                "error": "Agent client not available",
             }
 
         event = Event(
@@ -377,11 +377,11 @@ class TaskDelegationAdapter(BaseModAdapter):
         Returns:
             Response indicating success or failure
         """
-        if self.connector is None:
-            logger.error("Cannot fail task: connector not available")
+        if self.agent_client is None:
+            logger.error("Cannot fail task: agent_client not available")
             return {
                 "success": False,
-                "error": "Connector not available",
+                "error": "Agent client not available",
             }
 
         event = Event(
@@ -431,11 +431,11 @@ class TaskDelegationAdapter(BaseModAdapter):
         Returns:
             Response containing list of tasks
         """
-        if self.connector is None:
-            logger.error("Cannot list tasks: connector not available")
+        if self.agent_client is None:
+            logger.error("Cannot list tasks: agent_client not available")
             return {
                 "success": False,
-                "error": "Connector not available",
+                "error": "Agent client not available",
             }
 
         event = Event(
@@ -480,11 +480,11 @@ class TaskDelegationAdapter(BaseModAdapter):
         Returns:
             Response containing task details
         """
-        if self.connector is None:
-            logger.error("Cannot get task: connector not available")
+        if self.agent_client is None:
+            logger.error("Cannot get task: agent_client not available")
             return {
                 "success": False,
-                "error": "Connector not available",
+                "error": "Agent client not available",
             }
 
         event = Event(
