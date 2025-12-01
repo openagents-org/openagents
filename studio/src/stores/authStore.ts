@@ -173,7 +173,13 @@ export const useAuthStore = create<NetworkState>()(
         agentName: state.agentName,
         agentGroup: state.agentGroup,
         passwordHashEncrypted: state.passwordHashEncrypted, // Persist encrypted password hash
-        moduleState: state.moduleState,
+        // Persist moduleState but exclude defaultRoute - it should be recalculated on each login
+        // to ensure fresh README availability check
+        moduleState: {
+          ...state.moduleState,
+          defaultRoute: null, // Don't persist - will be recalculated from health response
+          modulesLoaded: false, // Force reload on next login
+        },
       }), // persist network, agent, agent group, encrypted password hash, and module state
     }
   )

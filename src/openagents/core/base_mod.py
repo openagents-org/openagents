@@ -21,6 +21,7 @@ import tempfile
 # Use TYPE_CHECKING to avoid circular imports
 if TYPE_CHECKING:
     from openagents.core.workspace_manager import WorkspaceManager
+    from openagents.models.tool import AgentTool
 from openagents.models.event_response import EventResponse
 from openagents.models.messages import Event, EventNames
 
@@ -301,6 +302,17 @@ class BaseMod(ABC):
             Dict[str, Any]: Current network state
         """
         return {}
+
+    def get_tools(self) -> List["AgentTool"]:
+        """Get tools provided by this network mod for MCP exposure.
+
+        Override this method to expose tools at the network level via MCP.
+        By default, network mods don't expose tools.
+
+        Returns:
+            List[AgentTool]: Tools provided by this mod
+        """
+        return []
 
     def update_config(self, config: Dict[str, Any]) -> None:
         """Update the configuration for the mod.

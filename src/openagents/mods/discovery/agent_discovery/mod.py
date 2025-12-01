@@ -1,398 +1,428 @@
 """
-Network-level agent discovery protocol for OpenAgents.
+Network-level agent discovery mod for OpenAgents.
 
-This protocol allows agents to announce their capabilities to the network
+This mod allows agents to announce their capabilities to the network
 and for other agents to discover agents with specific capabilities.
+
+Features:
+- Capability management (set/get capabilities)
+- Agent search by capability filter
+- Agent listing
+- Connection/disconnection notifications
 """
 
-from typing import Dict, Any, Optional, List, Set
 import logging
+import time
 import copy
-from openagents.core.base_mod import BaseMod
-from openagents.models.messages import Event, EventNames
+from dataclasses import dataclass, field
+from typing import Dict, Any, Optional, List
+
+from openagents.core.base_mod import BaseMod, mod_event_handler
+from openagents.models.event import Event
+from openagents.models.event_response import EventResponse
 
 logger = logging.getLogger(__name__)
 
-# Protocol constants
-PROTOCOL_NAME = "openagents.mods.discovery.agent_discovery"
-ANNOUNCE_CAPABILITIES = "announce_capabilities"
-DISCOVER_AGENTS = "discover_agents"
+# Mod constants
+MOD_NAME = "openagents.mods.discovery.agent_discovery"
+
+
+@dataclass
+class AgentInfo:
+    """Information about a registered agent."""
+    agent_id: str
+    agent_group: Optional[str] = None
+    capabilities: Dict[str, Any] = field(default_factory=dict)
+    connected_at: float = field(default_factory=time.time)
 
 
 class AgentDiscoveryMod(BaseMod):
-    """Network protocol for agent capability discovery.
+    """Network mod for agent capability discovery.
 
-    This protocol allows agents to announce their capabilities to the network
+    This mod allows agents to announce their capabilities to the network
     and for other agents to discover agents with specific capabilities.
     """
 
     def __init__(self, network=None):
-        """Initialize the agent discovery protocol.
+        """Initialize the agent discovery mod.
 
         Args:
             network: The network to bind to
         """
-        super().__init__(PROTOCOL_NAME)
-        # Store agent capabilities: {agent_id: {"capabilities": {...}}}
-        self._agent_capabilities = {}
+        super().__init__(MOD_NAME)
+        # Store agent info: {agent_id: AgentInfo}
+        self._agent_registry: Dict[str, AgentInfo] = {}
         self._network = network
-        logger.info("Initializing agent_discovery protocol")
+        logger.info("Initializing agent_discovery mod")
 
     def initialize(self) -> bool:
-        """Initialize the protocol.
+        """Initialize the mod.
 
         Returns:
             bool: True if initialization was successful
         """
-        logger.info(f"Initializing {self.mod_name} protocol")
+        logger.info(f"Initializing {self.mod_name} mod")
         return True
 
     def shutdown(self) -> bool:
-        """Shutdown the protocol gracefully.
+        """Shutdown the mod gracefully.
 
         Returns:
             bool: True if shutdown was successful
         """
-        logger.info(f"Shutting down {self.mod_name} protocol")
+        logger.info(f"Shutting down {self.mod_name} mod")
+        self._agent_registry.clear()
         return True
 
-    def register_agent(
-        self, agent_id: str, capabilities: Dict[str, Any] = None
-    ) -> None:
-        """Register an agent with the protocol.
-
-        Args:
-            agent_id: The agent ID
-            capabilities: Optional initial capabilities
-        """
-        if capabilities:
-            self._update_agent_capabilities(agent_id, capabilities)
-            logger.info(
-                f"Agent {agent_id} registered with capabilities: {capabilities}"
-            )
-        else:
-            logger.info(f"Agent {agent_id} registered without capabilities")
-
-    def unregister_agent(self, agent_id: str) -> None:
-        """Unregister an agent from the protocol.
-
-        Args:
-            agent_id: The agent ID
-        """
-        if agent_id in self._agent_capabilities:
-            del self._agent_capabilities[agent_id]
-            logger.info(f"Agent {agent_id} unregistered")
-
     def get_state(self) -> Dict[str, Any]:
-        """Get the current state of the protocol.
+        """Get the current state of the mod.
 
         Returns:
-            Dict[str, Any]: Current protocol state
+            Dict[str, Any]: Current mod state
         """
-        logger.debug(f"Getting state, agent_capabilities: {self._agent_capabilities}")
-        # Create a deep copy to avoid reference issues
-        state_copy = copy.deepcopy(self._agent_capabilities)
-        logger.debug(f"Returning deep copied state: {state_copy}")
-        return {"agent_capabilities": state_copy}
+        return {
+            "agent_count": len(self._agent_registry),
+            "agents": {
+                agent_id: {
+                    "agent_group": info.agent_group,
+                    "capabilities": copy.deepcopy(info.capabilities),
+                    "connected_at": info.connected_at
+                }
+                for agent_id, info in self._agent_registry.items()
+            }
+        }
 
-    def handle_register_agent(self, agent_id: str, metadata: Dict[str, Any]) -> bool:
-        """Handle agent registration with this network protocol.
+    def _get_agent_group(self, agent_id: str) -> Optional[str]:
+        """Get agent group from network topology.
+
+        Args:
+            agent_id: The agent ID to get group for
+
+        Returns:
+            Optional[str]: The agent's group or None
+        """
+        if self.network and hasattr(self.network, 'topology'):
+            return self.network.topology.agent_group_membership.get(agent_id)
+        return None
+
+    async def handle_register_agent(
+        self, agent_id: str, metadata: Dict[str, Any]
+    ) -> Optional[EventResponse]:
+        """Handle agent registration with this network mod.
 
         Args:
             agent_id: Unique identifier for the agent
             metadata: Agent metadata including capabilities
 
         Returns:
-            bool: True if registration was successful
+            Optional[EventResponse]: Response to the event
         """
-        # Extract capabilities from metadata if available
-        if "capabilities" in metadata:
-            self._update_agent_capabilities(agent_id, metadata["capabilities"])
-            logger.info(
-                f"Agent {agent_id} registered with capabilities: {metadata['capabilities']}"
-            )
-        else:
-            logger.info(f"Agent {agent_id} registered without capabilities")
-        return True
+        # Get agent group from network topology if available
+        agent_group = self._get_agent_group(agent_id)
 
-    def handle_unregister_agent(self, agent_id: str) -> bool:
-        """Handle agent unregistration from this network protocol.
+        # Extract capabilities from metadata
+        capabilities = metadata.get("capabilities", {})
+
+        # Create agent info
+        agent_info = AgentInfo(
+            agent_id=agent_id,
+            agent_group=agent_group,
+            capabilities=copy.deepcopy(capabilities),
+            connected_at=time.time()
+        )
+        self._agent_registry[agent_id] = agent_info
+
+        logger.info(f"Agent {agent_id} registered with discovery mod")
+
+        # Send agent connected notification
+        await self._send_agent_connected_notification(agent_info)
+
+        return None
+
+    async def handle_unregister_agent(self, agent_id: str) -> Optional[EventResponse]:
+        """Handle agent unregistration from this network mod.
 
         Args:
             agent_id: Unique identifier for the agent
 
         Returns:
-            bool: True if unregistration was successful
+            Optional[EventResponse]: Response to the event
         """
-        if agent_id in self._agent_capabilities:
-            del self._agent_capabilities[agent_id]
-            logger.info(f"Agent {agent_id} unregistered, capabilities removed")
-        return True
+        if agent_id in self._agent_registry:
+            del self._agent_registry[agent_id]
+            logger.info(f"Agent {agent_id} unregistered from discovery mod")
 
-    async def process_protocol_message(self, message: Event) -> Optional[Event]:
-        """Process a protocol message.
+            # Send agent disconnected notification
+            await self._send_agent_disconnected_notification(agent_id, "disconnected")
+
+        return None
+
+    # Event handlers using the modern decorator pattern
+
+    @mod_event_handler("discovery.capabilities.set")
+    async def _handle_capabilities_set(self, event: Event) -> Optional[EventResponse]:
+        """Handle setting agent capabilities.
 
         Args:
-            message: The protocol message to process
+            event: The event containing capabilities to set
 
         Returns:
-            Optional response message
+            EventResponse with success status
         """
-        print(f"DIRECT DEBUG - process_protocol_message called with message: {message}")
+        source_id = event.source_id
+        payload = event.payload or {}
+        capabilities = payload.get("capabilities", {})
 
-        if not message or not message.content:
-            logger.warning("Received empty protocol message")
-            return
+        if not isinstance(capabilities, dict):
+            return EventResponse(
+                success=False,
+                message="Capabilities must be a dictionary",
+                data={"error": "Invalid capabilities format"}
+            )
 
-        action = message.content.get("action")
-        sender_id = message.sender_id
+        # Get or create agent info
+        if source_id not in self._agent_registry:
+            agent_group = self._get_agent_group(source_id)
+            
+            self._agent_registry[source_id] = AgentInfo(
+                agent_id=source_id,
+                agent_group=agent_group,
+                capabilities={},
+                connected_at=time.time()
+            )
 
-        print(f"PROTOCOL MESSAGE RECEIVED - From {sender_id}: {message.content}")
-        logger.debug(
-            f"PROTOCOL MESSAGE - Processing protocol message from {sender_id}: {message.content}"
+        # Update capabilities (full replace)
+        self._agent_registry[source_id].capabilities = copy.deepcopy(capabilities)
+
+        logger.info(f"Agent {source_id} updated capabilities")
+
+        # Send capabilities updated notification
+        await self._send_capabilities_updated_notification(source_id, capabilities)
+
+        return EventResponse(
+            success=True,
+            message="Capabilities updated",
+            data={
+                "agent_id": source_id,
+                "capabilities": capabilities
+            }
         )
-        logger.debug(
-            f"PROTOCOL MESSAGE - Message ID: {message.message_id}, Protocol: {message.mod}, Sender: {sender_id}"
-        )
 
-        if action == ANNOUNCE_CAPABILITIES:
-            # Agent is announcing its capabilities
-            capabilities = message.content.get("capabilities", {})
-            logger.debug(
-                f"PROTOCOL MESSAGE - Received capabilities announcement from {sender_id}: {capabilities}"
-            )
-            logger.debug(f"PROTOCOL MESSAGE - Capabilities type: {type(capabilities)}")
-            if "language_models" in capabilities:
-                logger.debug(
-                    f"PROTOCOL MESSAGE - Language models: {capabilities['language_models']}, type: {type(capabilities['language_models'])}"
-                )
-                logger.debug(
-                    f"PROTOCOL MESSAGE - Language models content: {capabilities['language_models']}"
-                )
-
-            # Get current capabilities
-            current_capabilities = self._agent_capabilities.get(sender_id, {})
-            logger.debug(
-                f"PROTOCOL MESSAGE - Current capabilities for {sender_id}: {current_capabilities}"
-            )
-            if current_capabilities and "language_models" in current_capabilities:
-                logger.debug(
-                    f"PROTOCOL MESSAGE - Current language models: {current_capabilities['language_models']}, type: {type(current_capabilities['language_models'])}"
-                )
-
-            # Make a deep copy of capabilities to avoid reference issues
-            capabilities_copy = copy.deepcopy(capabilities)
-            logger.debug(
-                f"PROTOCOL MESSAGE - Deep copied capabilities: {capabilities_copy}"
-            )
-
-            # Print direct comparison of language_models field
-            if (
-                "language_models" in capabilities
-                and current_capabilities
-                and "language_models" in current_capabilities
-            ):
-                logger.debug(
-                    f"PROTOCOL MESSAGE - DIRECT COMPARISON - New language_models: {capabilities['language_models']}, Current language_models: {current_capabilities['language_models']}"
-                )
-                logger.debug(
-                    f"PROTOCOL MESSAGE - Are they equal? {capabilities['language_models'] == current_capabilities['language_models']}"
-                )
-                logger.debug(
-                    f"PROTOCOL MESSAGE - ID of new language_models: {id(capabilities['language_models'])}, ID of current language_models: {id(current_capabilities['language_models'])}"
-                )
-
-            # Debug log before update
-            logger.debug(
-                f"PROTOCOL MESSAGE - BEFORE UPDATE - Agent capabilities dict: {self._agent_capabilities}"
-            )
-            logger.debug(
-                f"PROTOCOL MESSAGE - BEFORE UPDATE - Agent {sender_id} capabilities: {self._agent_capabilities.get(sender_id, {})}"
-            )
-
-            # Store the original agent capabilities for comparison
-            original_capabilities = copy.deepcopy(self._agent_capabilities)
-
-            # Update the agent capabilities
-            self._update_agent_capabilities(sender_id, capabilities_copy)
-
-            # Compare the original and updated capabilities
-            logger.debug(
-                f"PROTOCOL MESSAGE - COMPARISON - Original agent capabilities: {original_capabilities}"
-            )
-            logger.debug(
-                f"PROTOCOL MESSAGE - COMPARISON - Updated agent capabilities: {self._agent_capabilities}"
-            )
-            logger.debug(
-                f"PROTOCOL MESSAGE - COMPARISON - Are they equal? {original_capabilities == self._agent_capabilities}"
-            )
-
-            # Get updated capabilities
-            updated_capabilities = self._agent_capabilities.get(sender_id, {})
-            logger.debug(
-                f"PROTOCOL MESSAGE - Updated capabilities for {sender_id}: {updated_capabilities}"
-            )
-            if updated_capabilities and "language_models" in updated_capabilities:
-                logger.debug(
-                    f"PROTOCOL MESSAGE - Updated language models: {updated_capabilities['language_models']}, type: {type(updated_capabilities['language_models'])}"
-                )
-
-            # Print direct comparison after update
-            if (
-                "language_models" in capabilities
-                and updated_capabilities
-                and "language_models" in updated_capabilities
-            ):
-                logger.debug(
-                    f"PROTOCOL MESSAGE - AFTER UPDATE - New language_models: {capabilities['language_models']}, Updated language_models: {updated_capabilities['language_models']}"
-                )
-                logger.debug(
-                    f"PROTOCOL MESSAGE - Are they equal after update? {capabilities['language_models'] == updated_capabilities['language_models']}"
-                )
-                logger.debug(
-                    f"PROTOCOL MESSAGE - ID of new language_models: {id(capabilities['language_models'])}, ID of updated language_models: {id(updated_capabilities['language_models'])}"
-                )
-
-            # Debug log after update
-            logger.debug(
-                f"PROTOCOL MESSAGE - AFTER UPDATE - Agent capabilities dict: {self._agent_capabilities}"
-            )
-            logger.debug(
-                f"PROTOCOL MESSAGE - AFTER UPDATE - Agent {sender_id} capabilities: {self._agent_capabilities.get(sender_id, {})}"
-            )
-
-            logger.info(
-                f"PROTOCOL MESSAGE - Agent {sender_id} announced capabilities: {capabilities}"
-            )
-
-        elif action == DISCOVER_AGENTS:
-            # Agent is requesting to discover other agents with specific capabilities
-            query = message.payload.get("query", {})
-            results = self._discover_agents(query)
-
-            # Send response back to the requesting agent
-            response = Event(
-                event_name="discovery.results",
-                source_id=self.network.network_id,
-                relevant_mod=self.mod_name,
-                destination_id=sender_id,
-                payload={
-                    "action": "discovery_results",
-                    "query": query,
-                    "results": results,
-                },
-            )
-
-            await self.network.send_mod_message(response)
-            logger.info(
-                f"Sent discovery results to agent {sender_id} for query: {query}"
-            )
-
-    def _update_agent_capabilities(
-        self, agent_id: str, capabilities: Dict[str, Any]
-    ) -> None:
-        """Update the capabilities for an agent.
+    @mod_event_handler("discovery.capabilities.get")
+    async def _handle_capabilities_get(self, event: Event) -> Optional[EventResponse]:
+        """Handle getting agent capabilities.
 
         Args:
-            agent_id: The agent ID
-            capabilities: The capabilities to update
-        """
-        logger.debug(
-            f"Before update, agent {agent_id} capabilities: {self._agent_capabilities.get(agent_id, {})}"
-        )
-        logger.debug(f"Updating with: {capabilities}")
-
-        # If agent doesn't exist yet, create a new entry with a deep copy of capabilities
-        if agent_id not in self._agent_capabilities:
-            self._agent_capabilities[agent_id] = copy.deepcopy(capabilities)
-        else:
-            # For existing agents, completely replace the capabilities dictionary
-            # This ensures all fields are updated, including lists and nested structures
-            self._agent_capabilities[agent_id] = copy.deepcopy(capabilities)
-
-        logger.debug(
-            f"After update, agent {agent_id} capabilities: {self._agent_capabilities.get(agent_id, {})}"
-        )
-
-    def _discover_agents(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Discover agents matching the capability query.
-
-        Args:
-            query: Query parameters for capability matching
+            event: The event containing agent_id to get capabilities for
 
         Returns:
-            List[Dict[str, Any]]: List of matching agents with their capabilities
+            EventResponse with capabilities data
         """
-        results = []
+        payload = event.payload or {}
+        agent_id = payload.get("agent_id")
 
-        for agent_id, agent_capabilities in self._agent_capabilities.items():
-            # Check if the agent's capabilities match the query
-            if self._match_capabilities(query, agent_capabilities):
-                results.append(
-                    {
-                        "agent_id": agent_id,
-                        "capabilities": copy.deepcopy(agent_capabilities),
-                    }
-                )
+        if not agent_id:
+            return EventResponse(
+                success=False,
+                message="agent_id is required",
+                data={"error": "Missing agent_id"}
+            )
 
-        return results
+        if agent_id not in self._agent_registry:
+            return EventResponse(
+                success=True,
+                message="Agent not found or has no capabilities",
+                data={
+                    "agent_id": agent_id,
+                    "capabilities": None
+                }
+            )
+
+        agent_info = self._agent_registry[agent_id]
+        return EventResponse(
+            success=True,
+            message="Capabilities retrieved",
+            data={
+                "agent_id": agent_id,
+                "capabilities": copy.deepcopy(agent_info.capabilities)
+            }
+        )
+
+    @mod_event_handler("discovery.agents.search")
+    async def _handle_agents_search(self, event: Event) -> Optional[EventResponse]:
+        """Handle searching for agents by capability filter.
+
+        Args:
+            event: The event containing search filter
+
+        Returns:
+            EventResponse with matching agents
+        """
+        payload = event.payload or {}
+        filter_query = payload.get("filter", {})
+
+        matching_agents = []
+        for agent_id, agent_info in self._agent_registry.items():
+            if self._match_capabilities(filter_query, agent_info.capabilities):
+                matching_agents.append({
+                    "agent_id": agent_id,
+                    "agent_group": agent_info.agent_group,
+                    "capabilities": copy.deepcopy(agent_info.capabilities)
+                })
+
+        return EventResponse(
+            success=True,
+            message=f"Found {len(matching_agents)} matching agents",
+            data={
+                "agents": matching_agents,
+                "count": len(matching_agents)
+            }
+        )
+
+    @mod_event_handler("discovery.agents.list")
+    async def _handle_agents_list(self, event: Event) -> Optional[EventResponse]:
+        """Handle listing all connected agents.
+
+        Args:
+            event: The event containing optional filter
+
+        Returns:
+            EventResponse with all agents
+        """
+        payload = event.payload or {}
+        filter_query = payload.get("filter")
+
+        agents = []
+        for agent_id, agent_info in self._agent_registry.items():
+            # Apply filter if provided
+            if filter_query:
+                if not self._match_capabilities(filter_query, agent_info.capabilities):
+                    continue
+
+            agents.append({
+                "agent_id": agent_id,
+                "agent_group": agent_info.agent_group,
+                "capabilities": copy.deepcopy(agent_info.capabilities)
+            })
+
+        return EventResponse(
+            success=True,
+            message=f"Found {len(agents)} agents",
+            data={
+                "agents": agents,
+                "count": len(agents)
+            }
+        )
 
     def _match_capabilities(
         self, query: Dict[str, Any], capabilities: Dict[str, Any]
     ) -> bool:
-        """Match capabilities recursively.
+        """Match capabilities against a query filter.
+
+        Supports flexible matching:
+        - List matching: Check if any query item exists in agent's list
+        - Dict matching: Recursive matching for nested structures
+        - Scalar matching: Equality check
 
         Args:
             query: Query parameters for capability matching
             capabilities: Agent capabilities to match against
 
         Returns:
-            bool: True if capabilities match the query, False otherwise
+            bool: True if capabilities match the query
         """
-        # Check each key-value pair in the query
+        if not query:
+            return True
+
         for key, value in query.items():
             if key not in capabilities:
                 return False
 
-            # Handle different types of matching
+            agent_value = capabilities[key]
+
             if isinstance(value, list):
                 # For lists, check if any item in the query list is in the agent's list
-                agent_value = capabilities[key]
                 if not isinstance(agent_value, list):
                     return False
-
-                found_match = False
-                for item in value:
-                    if item in agent_value:
-                        found_match = True
-                        break
-
-                if not found_match:
+                if not any(item in agent_value for item in value):
                     return False
             elif isinstance(value, dict):
-                # For dicts, recursively check if the nested structure matches
-                agent_value = capabilities[key]
+                # For dicts, recursively check nested structure
                 if not isinstance(agent_value, dict):
                     return False
-
-                # Recursively check nested dictionaries
-                for sub_key, sub_value in value.items():
-                    if sub_key not in agent_value:
-                        return False
-
-                    if isinstance(sub_value, dict):
-                        # Recursively match nested dictionaries
-                        if not self._match_capabilities(
-                            {sub_key: sub_value}, {sub_key: agent_value[sub_key]}
-                        ):
-                            return False
-                    else:
-                        # For simple values, check for equality
-                        if agent_value[sub_key] != sub_value:
-                            return False
+                if not self._match_capabilities(value, agent_value):
+                    return False
             else:
                 # For simple values, check for equality
-                if capabilities[key] != value:
+                if agent_value != value:
                     return False
 
         return True
+
+    async def _send_agent_connected_notification(self, agent_info: AgentInfo) -> None:
+        """Send notification when an agent connects.
+
+        Args:
+            agent_info: Information about the connected agent
+        """
+        if not self.network:
+            return
+
+        notification = Event(
+            event_name="discovery.notification.agent_connected",
+            source_id=f"mod:{self.mod_name}",
+            destination_id="broadcast",
+            payload={
+                "agent_id": agent_info.agent_id,
+                "agent_group": agent_info.agent_group,
+                "capabilities": copy.deepcopy(agent_info.capabilities),
+                "connected_at": agent_info.connected_at
+            }
+        )
+        await self.send_event(notification)
+
+    async def _send_agent_disconnected_notification(
+        self, agent_id: str, reason: str
+    ) -> None:
+        """Send notification when an agent disconnects.
+
+        Args:
+            agent_id: ID of the disconnected agent
+            reason: Reason for disconnection
+        """
+        if not self.network:
+            return
+
+        notification = Event(
+            event_name="discovery.notification.agent_disconnected",
+            source_id=f"mod:{self.mod_name}",
+            destination_id="broadcast",
+            payload={
+                "agent_id": agent_id,
+                "reason": reason
+            }
+        )
+        await self.send_event(notification)
+
+    async def _send_capabilities_updated_notification(
+        self, agent_id: str, capabilities: Dict[str, Any]
+    ) -> None:
+        """Send notification when an agent's capabilities are updated.
+
+        Args:
+            agent_id: ID of the agent
+            capabilities: Updated capabilities
+        """
+        if not self.network:
+            return
+
+        notification = Event(
+            event_name="discovery.notification.capabilities_updated",
+            source_id=f"mod:{self.mod_name}",
+            destination_id="broadcast",
+            payload={
+                "agent_id": agent_id,
+                "capabilities": copy.deepcopy(capabilities)
+            }
+        )
+        await self.send_event(notification)

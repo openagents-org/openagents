@@ -1,0 +1,51 @@
+# Test configuration for network README feature
+# This config is used by tests/network/test_network_readme.py
+
+network:
+  name: "ReadmeTestNetwork"
+  mode: "centralized"
+  node_id: "readme-test-network-1"
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8799
+
+  # Minimal configuration for testing
+  encryption_enabled: false
+  max_connections: 10
+  connection_timeout: 10.0
+
+# Network profile with README content
+network_profile:
+  discoverable: false
+  name: "README Test Network"
+  description: "A test network for validating README resolution"
+  readme: |
+    # Test Network README
+
+    This is a test README loaded from network_profile.
+
+    ## Features
+    - Feature 1: Testing inline readme
+    - Feature 2: Priority over README.md file
+
+    ## Usage
+
+    ```python
+    from openagents import Agent
+
+    agent = Agent(agent_id="test-agent")
+    await agent.connect("http://localhost:8799")
+    ```
+
+    ## Notes
+
+    This README should take priority over any README.md file in the workspace.
+  required_openagents_version: "0.6.0"
+  host: "localhost"
+  port: 8799
+
+# Global settings
+log_level: "DEBUG"

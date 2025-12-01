@@ -57,6 +57,7 @@ class NetworkProfilePatch(BaseModel):
     discoverable: Optional[bool] = None
     name: Optional[str] = Field(None, min_length=1, max_length=128)
     description: Optional[str] = Field(None, max_length=2048)
+    readme: Optional[str] = Field(None, description="Detailed README/instructions for the network. Supports markdown. Used as MCP instructions if external_access.instruction is not set.")
     icon: Optional[HttpUrl] = None
     website: Optional[HttpUrl] = None
     tags: Optional[List[str]] = Field(None, max_length=32)
@@ -119,6 +120,7 @@ class NetworkProfileComplete(BaseModel):
     )
     name: str = Field(min_length=1, max_length=128)
     description: str = Field(max_length=2048)
+    readme: Optional[str] = Field(None, description="Detailed README/instructions for the network. Supports markdown. Used as MCP instructions if external_access.instruction is not set.")
     icon: Optional[HttpUrl] = None
     website: Optional[HttpUrl] = None
     tags: List[str] = Field(default_factory=list, max_length=32)

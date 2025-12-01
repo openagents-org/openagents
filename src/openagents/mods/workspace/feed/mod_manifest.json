@@ -1,0 +1,60 @@
+{
+    "mod_name": "feed",
+    "version": "1.0.0",
+    "description": "A standalone feed mod for OpenAgents enabling one-way information broadcasting with immutable posts, full-text search, and filtering capabilities",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "FeedAgentAdapter",
+    "network_mod_class": "FeedNetworkMod",
+    "capabilities": [
+        "post_creation",
+        "immutable_posts",
+        "full_text_search",
+        "relevance_scoring",
+        "category_filtering",
+        "tag_filtering",
+        "date_filtering",
+        "author_filtering",
+        "pagination",
+        "recent_posts_polling",
+        "access_control"
+    ],
+    "requires_adapter": true,
+    "studio_interface": true,
+    "dependencies": [],
+    "metadata": {
+        "max_title_length": 200,
+        "post_immutability": true,
+        "supported_categories": [
+            "announcements",
+            "updates",
+            "info",
+            "alerts"
+        ],
+        "features": [
+            "one_way_information_broadcasting",
+            "no_updates_or_deletes",
+            "full_text_search_with_relevance",
+            "category_based_organization",
+            "tag_based_filtering",
+            "quick_retrieval_since_timestamp",
+            "group_based_access_control",
+            "attachment_support"
+        ],
+        "tools": [
+            "create_feed_post",
+            "list_feed_posts",
+            "search_feed_posts",
+            "get_recent_feed_posts",
+            "get_feed_post"
+        ],
+        "event_types": [
+            "feed.post.create",
+            "feed.posts.list",
+            "feed.posts.search",
+            "feed.posts.recent",
+            "feed.post.get",
+            "feed.notification.post_created"
+        ]
+    }
+}

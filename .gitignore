@@ -195,7 +195,12 @@ demos/*/network.db
 
 # Network database
 network.db
+message_dump_*
+message_history.json
+metadata.json
+demos/**/topics/*
 
 # Project management
 projects
 private_networks
+

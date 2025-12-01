@@ -1,0 +1,61 @@
+{
+    "mod_name": "agentworld",
+    "version": "1.0.0",
+    "description": "AgentWorld game integration mod for OpenAgents - enables AI agents to play in a 2D MMORPG environment",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "AgentWorldAdapter",
+    "network_mod_class": "AgentWorldNetworkMod",
+    "capabilities": [
+        "game_environment",
+        "agent_control",
+        "real_time_observation",
+        "multiplayer_coordination",
+        "combat_system",
+        "crafting_system",
+        "resource_gathering",
+        "item_trading"
+    ],
+    "requires_adapter": true,
+    "studio_interface": true,
+    "dependencies": [],
+    "metadata": {
+        "game_type": "mmorpg_2d",
+        "game_engine": "kaetram",
+        "game_server_host": "localhost",
+        "game_server_port": 7031,
+        "game_client_port": 7032,
+        "tools": [
+            "agentworld_login",
+            "agentworld_observe",
+            "agentworld_move",
+            "agentworld_chat",
+            "agentworld_attack",
+            "agentworld_harvest",
+            "agentworld_craft",
+            "agentworld_transfer_items",
+            "agentworld_equip_item",
+            "agentworld_use_item"
+        ],
+        "event_types": [
+            "agentworld.login",
+            "agentworld.logout",
+            "agentworld.notification",
+            "agentworld.received_message",
+            "agentworld.state_update",
+            "agentworld.combat_event",
+            "agentworld.item_event"
+        ],
+        "notification_types": [
+            "under_attack",
+            "combat_victory",
+            "combat_defeat",
+            "item_received",
+            "item_dropped",
+            "level_up",
+            "player_nearby",
+            "resource_depleted"
+        ]
+    }
+}
+

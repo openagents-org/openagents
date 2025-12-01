@@ -18,6 +18,7 @@ class TransportType(str, Enum):
     GRPC = "grpc"
     WEBRTC = "webrtc"
     HTTP = "http"
+    MCP = "mcp"
 
 
 class ConnectionState(Enum):

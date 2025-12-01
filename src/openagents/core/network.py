@@ -48,6 +48,7 @@ from openagents.core.agent_identity import AgentIdentityManager
 from openagents.models.event import Event, EventNames, EventVisibility
 from openagents.core.event_gateway import EventGateway
 from openagents.core.secret_manager import SecretManager
+from openagents.models.network_context import NetworkContext
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,9 @@ class AgentNetwork:
         self.mods: OrderedDict[str, BaseMod] = OrderedDict()
         self.mod_manifests: Dict[str, Any] = {}
 
+        # Track dynamically loaded mod IDs (vs statically configured)
+        self._dynamic_mod_ids: Set[str] = set()
+
         # Agent identity management
         self.identity_manager = AgentIdentityManager()
 
@@ -108,6 +112,9 @@ class AgentNetwork:
 
         # Event gateway
         self.event_gateway = EventGateway(self)
+
+        # Set network context for MCP transport (must be after mods and event_gateway are initialized)
+        self.topology.network_context = self._create_network_context()
 
     @property
     def events(self) -> EventGateway:
@@ -121,6 +128,43 @@ class AgentNetwork:
             subscription = network.events.subscribe("agent1", ["project.*", "channel.message.*"])
         """
         return self.event_gateway
+
+    def _create_network_context(self) -> NetworkContext:
+        """Create a NetworkContext with shared data for components.
+
+        Returns:
+            NetworkContext: Context object with network data and callbacks
+        """
+        # Compute workspace path
+        workspace_path = self._compute_workspace_path()
+
+        # Create emit_event callback
+        async def emit_event(event: Event, enable_delivery: bool = True):
+            return await self.event_gateway.process_event(event, enable_delivery=enable_delivery)
+
+        return NetworkContext(
+            network_name=self.network_name,
+            workspace_path=workspace_path,
+            config=self.config,
+            mods=self.mods,
+            emit_event=emit_event,
+        )
+
+    def _compute_workspace_path(self) -> Optional[str]:
+        """Compute the workspace path based on config_path or workspace_manager."""
+        if self.config_path:
+            return str(Path(self.config_path).parent)
+        elif self.workspace_manager:
+            return str(self.workspace_manager.workspace_path)
+        return None
+
+    def _update_network_context(self) -> None:
+        """Update the network context after config_path is set.
+
+        This is called after load() sets config_path to ensure workspace_path is correct.
+        """
+        if self.topology.network_context:
+            self.topology.network_context.workspace_path = self._compute_workspace_path()
 
     @staticmethod
     def create_from_config(
@@ -255,11 +299,13 @@ class AgentNetwork:
                         f"Configuration file {config_path} must contain a 'network' section"
                     )
 
-                # Extract network profile from root level if present
+                # Extract network profile and external_access from root level if present
                 network_config_dict = config_dict["network"]
                 if "network_profile" in config_dict:
                     network_config_dict["network_profile"] = config_dict["network_profile"]
-                
+                if "external_access" in config_dict:
+                    network_config_dict["external_access"] = config_dict["external_access"]
+
                 network_config = NetworkConfig(**network_config_dict)
                 logger.info(f"Loaded network configuration from {config_path}")
 
@@ -270,6 +316,8 @@ class AgentNetwork:
 
                 # Store the config file path for later use (e.g., saving updates)
                 network.config_path = str(config_path.resolve())
+                # Update network context now that config_path is set
+                network._update_network_context()
 
                 # Load metadata if specified in config
                 if "metadata" in config_dict:
@@ -296,6 +344,10 @@ class AgentNetwork:
         """Register internal message handlers."""
         assert self.topology is not None
         self.topology.register_event_handler(self.process_external_event)
+        
+        # Register system event handlers for dynamic mod loading
+        self.event_gateway.system_command_processor.command_handlers["system.mod.load"] = self._handle_system_mod_load
+        self.event_gateway.system_command_processor.command_handlers["system.mod.unload"] = self._handle_system_mod_unload
 
     async def _log_event(self, event: Event):
         """Global event handler for logging and routing."""
@@ -546,6 +598,9 @@ class AgentNetwork:
                 "has_password": False,
             })
 
+        # Get README content (resolved from config or file)
+        readme_content = self.topology.network_context.get_readme() if self.topology.network_context else None
+
         # Include network_profile if available
         network_profile_data = None
         if hasattr(self.config, "network_profile") and self.config.network_profile:
@@ -554,6 +609,9 @@ class AgentNetwork:
                 network_profile_data = profile.model_dump(mode="json", exclude_none=False)
             elif isinstance(profile, dict):
                 network_profile_data = profile
+        
+        # Get dynamically loaded mods info
+        loaded_mods_info = self.get_loaded_mods()
         
         stats = {
             "network_id": self.network_id,
@@ -576,6 +634,11 @@ class AgentNetwork:
             "default_agent_group": self.config.default_agent_group,
             "requires_password": self.config.requires_password,
             "mods": [mod.model_dump() for mod in self.config.mods],
+            "dynamic_mods": {
+                "loaded": list(loaded_mods_info.keys()),
+                "count": len(loaded_mods_info),
+                "details": loaded_mods_info
+            },
             "topology_mode": (
                 self.config.mode
                 if isinstance(self.config.mode, str)
@@ -587,11 +650,12 @@ class AgentNetwork:
             "manifest_transport": self.config.manifest_transport,
             "recommended_transport": self.config.recommended_transport,
             "max_connections": self.config.max_connections,
+            "readme": readme_content,
         }
-        
+
         if network_profile_data:
             stats["network_profile"] = network_profile_data
-        
+
         return stats
 
     async def process_external_event(self, event: Event) -> EventResponse:
@@ -715,6 +779,195 @@ class AgentNetwork:
 
         logger.info(f"Created workspace with client ID: {client_id}")
         return workspace
+
+    async def load_mod(self, mod_path: str, config: dict = None) -> EventResponse:
+        """Dynamically load a mod at runtime.
+
+        Args:
+            mod_path: Module path to the mod (e.g., "openagents.mods.workspace.shared_artifact")
+            config: Optional configuration dictionary for the mod
+
+        Returns:
+            EventResponse: Response indicating success or failure
+        """
+        try:
+            # Extract mod_id from mod_path (last segment)
+            mod_id = mod_path.split(".")[-1]
+
+            # Check if already loaded (in self.mods by path)
+            if mod_path in self.mods:
+                return EventResponse(
+                    success=False,
+                    message=f"Mod '{mod_id}' is already loaded"
+                )
+            
+            # Dynamic import
+            import importlib
+            module = importlib.import_module(f"{mod_path}.mod")
+            
+            # Derive class name from mod_id (snake_case → PascalCase + "Mod")
+            class_name = "".join(word.capitalize() for word in mod_id.split("_")) + "Mod"
+            
+            # Try to get the class
+            if not hasattr(module, class_name):
+                # Fallback: search for any BaseMod subclass
+                for attr_name in dir(module):
+                    attr = getattr(module, attr_name)
+                    if (
+                        isinstance(attr, type)
+                        and issubclass(attr, BaseMod)
+                        and attr != BaseMod
+                    ):
+                        class_name = attr_name
+                        break
+                else:
+                    return EventResponse(
+                        success=False,
+                        message=f"Could not find mod class in module {mod_path}"
+                    )
+            
+            mod_class = getattr(module, class_name)
+            
+            # Instantiate the mod
+            mod_instance = mod_class(mod_path)
+            
+            # Set config if provided
+            if config:
+                mod_instance.update_config(config)
+            
+            # Bind network
+            mod_instance.bind_network(self)
+            
+            # Initialize the mod
+            mod_instance.initialize()
+            
+            # Set loaded_at timestamp
+            mod_instance.loaded_at = time.time()
+
+            # Add to network.mods so ModEventProcessor can process events through this mod
+            self.mods[mod_path] = mod_instance
+
+            # Track as dynamically loaded
+            self._dynamic_mod_ids.add(mod_id)
+            
+            logger.info(f"✅ Successfully loaded mod: {mod_id} from {mod_path}")
+            
+            return EventResponse(
+                success=True,
+                message=f"Successfully loaded mod: {mod_id}",
+                data={"mod_id": mod_id, "mod_path": mod_path}
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to load mod from {mod_path}: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Failed to load mod: {str(e)}"
+            )
+
+    async def unload_mod(self, mod_path: str) -> EventResponse:
+        """Dynamically unload a mod at runtime.
+
+        Args:
+            mod_path: Module path or mod_id to unload
+
+        Returns:
+            EventResponse: Response indicating success or failure
+        """
+        try:
+            # Extract mod_id from mod_path
+            mod_id = mod_path.split(".")[-1]
+
+            # Check if mod is dynamically loaded
+            if mod_id not in self._dynamic_mod_ids:
+                return EventResponse(
+                    success=False,
+                    message=f"Mod '{mod_id}' is not loaded"
+                )
+
+            # Get mod instance from self.mods
+            mod_instance = self.mods.get(mod_path)
+            if mod_instance:
+                # Shutdown the mod
+                mod_instance.shutdown()
+                # Remove from network.mods
+                del self.mods[mod_path]
+
+            # Remove from dynamic tracking
+            self._dynamic_mod_ids.discard(mod_id)
+            
+            logger.info(f"✅ Successfully unloaded mod: {mod_id}")
+            
+            return EventResponse(
+                success=True,
+                message=f"Successfully unloaded mod: {mod_id}",
+                data={"mod_id": mod_id}
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to unload mod {mod_path}: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Failed to unload mod: {str(e)}"
+            )
+
+    def get_loaded_mods(self) -> Dict[str, Dict[str, Any]]:
+        """Get information about all dynamically loaded mods.
+
+        Returns:
+            Dictionary mapping mod_id to mod information
+        """
+        result = {}
+        for mod_id in self._dynamic_mod_ids:
+            # Find mod instance in self.mods by matching mod_id
+            for mod_path, mod_instance in self.mods.items():
+                if mod_path.split(".")[-1] == mod_id:
+                    result[mod_id] = {
+                        "mod_id": mod_id,
+                        "mod_path": mod_instance._mod_name,
+                        "loaded_at": getattr(mod_instance, "loaded_at", None)
+                    }
+                    break
+        return result
+
+    async def _handle_system_mod_load(self, event: Event) -> EventResponse:
+        """Handle system.mod.load event.
+
+        Args:
+            event: Event with payload containing 'mod_path' and optional 'config'
+
+        Returns:
+            EventResponse: Response from load_mod
+        """
+        mod_path = event.payload.get("mod_path")
+        config = event.payload.get("config")
+        
+        if not mod_path:
+            return EventResponse(
+                success=False,
+                message="mod_path is required in payload"
+            )
+        
+        return await self.load_mod(mod_path, config)
+
+    async def _handle_system_mod_unload(self, event: Event) -> EventResponse:
+        """Handle system.mod.unload event.
+
+        Args:
+            event: Event with payload containing 'mod_path'
+
+        Returns:
+            EventResponse: Response from unload_mod
+        """
+        mod_path = event.payload.get("mod_path")
+        
+        if not mod_path:
+            return EventResponse(
+                success=False,
+                message="mod_path is required in payload"
+            )
+        
+        return await self.unload_mod(mod_path)
 
 
 def create_network(config: Union[NetworkConfig, str, Path]) -> AgentNetwork:

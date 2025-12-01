@@ -31,6 +31,7 @@ class NetworkTopology(ABC):
         self.transports: Dict[TransportType, Transport] = {}
         self.agent_registry: Dict[str, AgentConnection] = {}
         self.is_running = False
+        self.network_context = None  # NetworkContext for MCP transport, set after creation
 
         # Agent group membership tracking
         # Maps agent_id -> group_name
@@ -311,7 +312,6 @@ class NetworkTopology(ABC):
         if agent_id in self.agent_group_membership:
             del self.agent_group_membership[agent_id]
 
-
 class CentralizedTopology(NetworkTopology):
     """Centralized network topology using a coordinator/registry server."""
 
@@ -346,6 +346,13 @@ class CentralizedTopology(NetworkTopology):
                     from .transports import GRPCTransport
 
                     transport = GRPCTransport(transport_config.config)
+                elif transport_type == TransportType.MCP:
+                    from .transports import MCPTransport
+
+                    transport = MCPTransport(
+                        config=transport_config.config,
+                        context=self.network_context,  # NetworkContext set by AgentNetwork
+                    )
                 else:
                     logger.error(f"Unsupported transport type: {transport_type}")
                     continue

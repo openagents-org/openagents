@@ -1,0 +1,307 @@
+asyncapi: 3.0.0
+info:
+  title: OpenAgents Agent Discovery Mod API
+  version: 2.0.0
+  description: |
+    AsyncAPI specification for the OpenAgents agent_discovery mod.
+    
+    This mod provides agent discovery and capability management:
+    - Agent capability announcement and retrieval
+    - Agent search by capability filter
+    - Agent listing with optional filtering
+    - Connection/disconnection notification events
+
+defaultContentType: application/json
+
+channels:
+  discoveryCapabilitiesSet:
+    address: discovery.capabilities.set
+    description: Channel for setting agent capabilities
+    messages:
+      DiscoveryCapabilitiesSetMessage:
+        $ref: '#/components/messages/DiscoveryCapabilitiesSetMessage'
+
+  discoveryCapabilitiesGet:
+    address: discovery.capabilities.get
+    description: Channel for getting agent capabilities
+    messages:
+      DiscoveryCapabilitiesGetMessage:
+        $ref: '#/components/messages/DiscoveryCapabilitiesGetMessage'
+
+  discoveryAgentsSearch:
+    address: discovery.agents.search
+    description: Channel for searching agents by capability filter
+    messages:
+      DiscoveryAgentsSearchMessage:
+        $ref: '#/components/messages/DiscoveryAgentsSearchMessage'
+
+  discoveryAgentsList:
+    address: discovery.agents.list
+    description: Channel for listing all connected agents
+    messages:
+      DiscoveryAgentsListMessage:
+        $ref: '#/components/messages/DiscoveryAgentsListMessage'
+
+  discoveryNotificationAgentConnected:
+    address: discovery.notification.agent_connected
+    description: Channel for agent connected notifications
+    messages:
+      DiscoveryAgentConnectedNotification:
+        $ref: '#/components/messages/DiscoveryAgentConnectedNotification'
+
+  discoveryNotificationAgentDisconnected:
+    address: discovery.notification.agent_disconnected
+    description: Channel for agent disconnected notifications
+    messages:
+      DiscoveryAgentDisconnectedNotification:
+        $ref: '#/components/messages/DiscoveryAgentDisconnectedNotification'
+
+  discoveryNotificationCapabilitiesUpdated:
+    address: discovery.notification.capabilities_updated
+    description: Channel for capabilities updated notifications
+    messages:
+      DiscoveryCapabilitiesUpdatedNotification:
+        $ref: '#/components/messages/DiscoveryCapabilitiesUpdatedNotification'
+
+operations:
+  setCapabilities:
+    action: send
+    channel:
+      $ref: '#/channels/discoveryCapabilitiesSet'
+    messages:
+      - $ref: '#/channels/discoveryCapabilitiesSet/messages/DiscoveryCapabilitiesSetMessage'
+    description: Set agent capabilities
+
+  getCapabilities:
+    action: send
+    channel:
+      $ref: '#/channels/discoveryCapabilitiesGet'
+    messages:
+      - $ref: '#/channels/discoveryCapabilitiesGet/messages/DiscoveryCapabilitiesGetMessage'
+    description: Get agent capabilities by agent_id
+
+  searchAgents:
+    action: send
+    channel:
+      $ref: '#/channels/discoveryAgentsSearch'
+    messages:
+      - $ref: '#/channels/discoveryAgentsSearch/messages/DiscoveryAgentsSearchMessage'
+    description: Search agents by capability filter
+
+  listAgents:
+    action: send
+    channel:
+      $ref: '#/channels/discoveryAgentsList'
+    messages:
+      - $ref: '#/channels/discoveryAgentsList/messages/DiscoveryAgentsListMessage'
+    description: List all connected agents
+
+  onAgentConnected:
+    action: receive
+    channel:
+      $ref: '#/channels/discoveryNotificationAgentConnected'
+    messages:
+      - $ref: '#/channels/discoveryNotificationAgentConnected/messages/DiscoveryAgentConnectedNotification'
+    description: Receive agent connected notifications
+
+  onAgentDisconnected:
+    action: receive
+    channel:
+      $ref: '#/channels/discoveryNotificationAgentDisconnected'
+    messages:
+      - $ref: '#/channels/discoveryNotificationAgentDisconnected/messages/DiscoveryAgentDisconnectedNotification'
+    description: Receive agent disconnected notifications
+
+  onCapabilitiesUpdated:
+    action: receive
+    channel:
+      $ref: '#/channels/discoveryNotificationCapabilitiesUpdated'
+    messages:
+      - $ref: '#/channels/discoveryNotificationCapabilitiesUpdated/messages/DiscoveryCapabilitiesUpdatedNotification'
+    description: Receive capabilities updated notifications
+
+components:
+  messages:
+    DiscoveryCapabilitiesSetMessage:
+      name: DiscoveryCapabilitiesSetMessage
+      title: Set Capabilities Request
+      description: Request to set agent capabilities
+      contentType: application/json
+      x_event_type: operation
+      payload:
+        $ref: '#/components/schemas/CapabilitiesSetPayload'
+
+    DiscoveryCapabilitiesGetMessage:
+      name: DiscoveryCapabilitiesGetMessage
+      title: Get Capabilities Request
+      description: Request to get agent capabilities
+      contentType: application/json
+      x_event_type: operation
+      payload:
+        $ref: '#/components/schemas/CapabilitiesGetPayload'
+
+    DiscoveryAgentsSearchMessage:
+      name: DiscoveryAgentsSearchMessage
+      title: Search Agents Request
+      description: Request to search agents by capability filter
+      contentType: application/json
+      x_event_type: operation
+      payload:
+        $ref: '#/components/schemas/AgentsSearchPayload'
+
+    DiscoveryAgentsListMessage:
+      name: DiscoveryAgentsListMessage
+      title: List Agents Request
+      description: Request to list all connected agents
+      contentType: application/json
+      x_event_type: operation
+      payload:
+        $ref: '#/components/schemas/AgentsListPayload'
+
+    DiscoveryAgentConnectedNotification:
+      name: DiscoveryAgentConnectedNotification
+      title: Agent Connected Notification
+      description: Notification sent when an agent connects
+      contentType: application/json
+      x_event_type: notification
+      payload:
+        $ref: '#/components/schemas/AgentConnectedNotificationPayload'
+
+    DiscoveryAgentDisconnectedNotification:
+      name: DiscoveryAgentDisconnectedNotification
+      title: Agent Disconnected Notification
+      description: Notification sent when an agent disconnects
+      contentType: application/json
+      x_event_type: notification
+      payload:
+        $ref: '#/components/schemas/AgentDisconnectedNotificationPayload'
+
+    DiscoveryCapabilitiesUpdatedNotification:
+      name: DiscoveryCapabilitiesUpdatedNotification
+      title: Capabilities Updated Notification
+      description: Notification sent when agent capabilities are updated
+      contentType: application/json
+      x_event_type: notification
+      payload:
+        $ref: '#/components/schemas/CapabilitiesUpdatedNotificationPayload'
+
+  schemas:
+    CapabilitiesSetPayload:
+      type: object
+      required:
+        - capabilities
+      properties:
+        capabilities:
+          type: object
+          description: Agent capabilities dictionary
+          additionalProperties: true
+
+    CapabilitiesGetPayload:
+      type: object
+      required:
+        - agent_id
+      properties:
+        agent_id:
+          type: string
+          description: ID of the agent to get capabilities for
+
+    AgentsSearchPayload:
+      type: object
+      required:
+        - filter
+      properties:
+        filter:
+          type: object
+          description: Capability filter for searching agents
+          additionalProperties: true
+
+    AgentsListPayload:
+      type: object
+      properties:
+        filter:
+          type: object
+          description: Optional capability filter
+          additionalProperties: true
+
+    AgentConnectedNotificationPayload:
+      type: object
+      required:
+        - agent_id
+        - connected_at
+      properties:
+        agent_id:
+          type: string
+          description: ID of the connected agent
+        agent_group:
+          type: string
+          description: Group membership of the agent
+        capabilities:
+          type: object
+          description: Initial capabilities of the agent
+          additionalProperties: true
+        connected_at:
+          type: number
+          description: Unix timestamp when agent connected
+
+    AgentDisconnectedNotificationPayload:
+      type: object
+      required:
+        - agent_id
+        - reason
+      properties:
+        agent_id:
+          type: string
+          description: ID of the disconnected agent
+        reason:
+          type: string
+          description: Reason for disconnection
+
+    CapabilitiesUpdatedNotificationPayload:
+      type: object
+      required:
+        - agent_id
+        - capabilities
+      properties:
+        agent_id:
+          type: string
+          description: ID of the agent whose capabilities were updated
+        capabilities:
+          type: object
+          description: Updated capabilities
+          additionalProperties: true
+
+    AgentInfo:
+      type: object
+      required:
+        - agent_id
+        - connected_at
+      properties:
+        agent_id:
+          type: string
+          description: Agent identifier
+        agent_group:
+          type: string
+          description: Agent's group membership
+        capabilities:
+          type: object
+          description: Agent capabilities
+          additionalProperties: true
+        connected_at:
+          type: number
+          description: Connection timestamp
+
+    StandardResponse:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: Whether the operation succeeded
+        message:
+          type: string
+          description: Human-readable message
+        data:
+          type: object
+          description: Operation-specific data
+          additionalProperties: true

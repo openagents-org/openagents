@@ -294,7 +294,13 @@ async def test_project_artifacts():
 
 @pytest.mark.asyncio
 async def test_permission_system():
-    """Test project permission system."""
+    """Test project permission system.
+    
+    The permission system allows relaxed read access for project.get to support
+    Studio project mode where users might reconnect with a different agent_id.
+    Write operations (stop, complete, state changes, artifacts) still require
+    strict authorization.
+    """
     # Load config and set up mod
     config_path = Path(__file__).parent.parent.parent / "examples" / "test_configs" / "project_mode.yaml"
     
@@ -324,7 +330,8 @@ async def test_permission_system():
     response = await mod.process_system_message(start_event)
     project_id = response.data["project_id"]
     
-    # Try to access project with unauthorized agent
+    # Test 1: Read access (project.get) is allowed for any agent
+    # This is intentional to support Studio project mode reconnection scenarios
     get_event = Event(
         event_name="project.get",
         source_id="unauthorized-agent",
@@ -332,8 +339,52 @@ async def test_permission_system():
     )
     
     response = await mod.process_system_message(get_event)
+    assert response.success
+    assert "project" in response.data
+    
+    # Test 2: Write operations require strict authorization
+    # Test project.stop - should be denied
+    stop_event = Event(
+        event_name="project.stop",
+        source_id="unauthorized-agent",
+        payload={"project_id": project_id, "reason": "Test stop"}
+    )
+    
+    response = await mod.process_system_message(stop_event)
     assert not response.success
     assert "Access denied" in response.message
+    
+    # Test 3: Artifact operations require strict authorization
+    artifact_event = Event(
+        event_name="project.artifact.set",
+        source_id="unauthorized-agent",
+        payload={"project_id": project_id, "key": "test", "value": "data"}
+    )
+    
+    response = await mod.process_system_message(artifact_event)
+    assert not response.success
+    assert "Access denied" in response.message
+    
+    # Test 4: Global state operations require strict authorization
+    state_event = Event(
+        event_name="project.global_state.set",
+        source_id="unauthorized-agent",
+        payload={"project_id": project_id, "key": "test", "value": "data"}
+    )
+    
+    response = await mod.process_system_message(state_event)
+    assert not response.success
+    assert "Access denied" in response.message
+    
+    # Test 5: Authorized agent (agent1) can perform write operations
+    artifact_event_authorized = Event(
+        event_name="project.artifact.set",
+        source_id="agent1",
+        payload={"project_id": project_id, "key": "test_artifact", "value": "test_data"}
+    )
+    
+    response = await mod.process_system_message(artifact_event_authorized)
+    assert response.success
     
     print("✅ Permission system test passed!")
 

@@ -1,0 +1,112 @@
+# MCP Tools Test Network Configuration
+# Tests workspace tools (@tool decorator) and event tools (x-agent-tool extension)
+
+network:
+  name: "MCPToolsTestNetwork"
+  mode: "centralized"
+  node_id: "mcp-tools-test-1"
+
+  # Transport configuration - MCP enabled
+  transports:
+    - type: "http"
+      config:
+        port: 8780
+    - type: "mcp"
+      config:
+        port: 8880
+        endpoint: "/mcp"
+
+  # Transport for providing the network manifest
+  manifest_transport: "http"
+
+  # Security configuration
+  encryption_enabled: false
+  disable_agent_secret_verification: true
+
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  # Agent groups
+  default_agent_group: "guest"
+  requires_password: false
+
+  agent_groups:
+    guest:
+      description: "Guest agents with limited access"
+      password_hash: "guest_hash_test_456"
+      metadata:
+        permissions: ["view"]
+    workers:
+      description: "Worker agents with task execution permissions"
+      password_hash: "worker_hash_test_123"
+      metadata:
+        permissions: ["view", "execute_tasks"]
+
+  # Project mod for testing mod tool discovery via MCP
+  mods:
+    - name: "openagents.mods.workspace.project"
+      enabled: true
+      config:
+        max_concurrent_projects: 5
+        project_templates:
+          test_project:
+            name: "Test Project Template"
+            description: "A simple test project template"
+            agent_groups: ["guest", "workers"]
+            context: |
+              This is a test project for verifying MCP tool discovery.
+
+# Network profile
+network_profile:
+  discoverable: true
+  name: "MCP Tools Test Network"
+  description: "Test network for MCP workspace tools and event tools"
+  tags:
+    - "mcp"
+    - "tools"
+    - "test"
+  categories:
+    - "testing"
+  host: "0.0.0.0"
+  port: 8780
+
+# External access configuration
+external_access:
+  default_agent_group: "guest"
+
+  # Authentication - optional, can be enabled for testing
+  # auth_token: "test-secret-token"
+
+  # Instructions for MCP clients
+  instruction: |
+    This is a test network for MCP workspace tools, event tools, and mod tools.
+
+    Available tools:
+    - Workspace: add, subtract, multiply, divide, greet, farewell, get_current_time
+    - Events: delegate_task, report_status
+    - Project mod: list_project_templates, start_project, stop_project, etc.
+
+  # Tool filtering - null means all tools are exposed
+  exposed_tools: null
+  excluded_tools: null
+
+# Global settings
+log_level: "DEBUG"
+data_dir: "./data/mcp-tools-test"
+
+# Runtime configuration
+runtime_limit: null
+shutdown_timeout: 30

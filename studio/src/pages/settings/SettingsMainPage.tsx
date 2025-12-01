@@ -38,7 +38,7 @@ const SettingsMainPage: React.FC = () => {
         }
       />
 
-      {/* 网络设置子页面 */}
+      {/* Network settings subpage */}
       <Route
         path="network"
         element={
@@ -53,7 +53,7 @@ const SettingsMainPage: React.FC = () => {
         }
       />
 
-      {/* 主题设置子页面 */}
+      {/* Theme settings subpage */}
       <Route
         path="theme"
         element={

@@ -7,6 +7,9 @@ import ForumSidebar from "@/pages/forum/ForumSidebar"
 import WikiSidebar from "@/pages/wiki/WikiSidebar"
 import ProfileSidebar from "@/pages/profile/ProfileSidebar"
 import ProjectSidebar from "@/pages/project/ProjectSidebar"
+import FeedSidebar from "@/pages/feed/FeedSidebar"
+import ArtifactSidebar from "@/pages/artifact/ArtifactSidebar"
+import ReadmeSidebar from "@/pages/readme/ReadmeSidebar"
 
 // SidebarContent component - dynamically displays different sidebar content based on route
 // Each specific sidebar component manages its own data, no need to pass from outside
@@ -18,6 +21,11 @@ const SidebarContent: React.FC = () => {
 
     const pathname = location.pathname;
 
+    // AgentWorld 不显示侧边栏
+    if (pathname.startsWith("/agentworld")) {
+      return null
+    }
+
     if (pathname.startsWith("/messaging")) {
       return <MessagingSidebar />
     }
@@ -25,6 +33,10 @@ const SidebarContent: React.FC = () => {
     if (pathname.startsWith("/project")) {
       // ProjectSidebar gets needed data through hooks itself
       return <ProjectSidebar />
+    }
+
+    if (pathname.startsWith("/feed")) {
+      return <FeedSidebar />
     }
 
     if (pathname.startsWith("/forum")) {
@@ -40,6 +52,16 @@ const SidebarContent: React.FC = () => {
     if (pathname.startsWith("/documents")) {
       // DocumentsSidebar gets needed data through hooks itself
       return <DocumentsSidebar />
+    }
+
+    if (pathname.startsWith("/artifact")) {
+      // ArtifactSidebar gets needed data through hooks itself
+      return <ArtifactSidebar />
+    }
+
+    if (pathname.startsWith("/readme")) {
+      // ReadmeSidebar gets needed data through hooks itself
+      return <ReadmeSidebar />
     }
 
     if (pathname.startsWith("/settings")) {

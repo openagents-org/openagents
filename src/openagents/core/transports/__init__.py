@@ -12,6 +12,8 @@ from .base import Transport, Message
 from .websocket import WebSocketTransport, create_websocket_transport
 from .grpc import GRPCTransport, OpenAgentsGRPCServicer, create_grpc_transport
 from .http import HttpTransport
+from .mcp import MCPTransport, create_mcp_transport
+from openagents.models.network_context import NetworkContext
 
 # Import transport types and models
 from openagents.models.transport import (
@@ -33,10 +35,13 @@ __all__ = [
     "WebSocketTransport",
     "GRPCTransport",
     "HttpTransport",
+    "MCPTransport",
+    "NetworkContext",
     "OpenAgentsGRPCServicer",
     # Convenience functions
     "create_websocket_transport",
     "create_grpc_transport",
+    "create_mcp_transport",
     # Transport types and models
     "TransportType",
     "ConnectionState",

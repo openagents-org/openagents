@@ -16,7 +16,7 @@ const McpMainPage: React.FC = () => {
         element={<McpView />}
       />
 
-      {/* MCP 配置子页面 */}
+      {/* MCP configuration subpage */}
       <Route
         path="config"
         element={
@@ -31,7 +31,7 @@ const McpMainPage: React.FC = () => {
         }
       />
 
-      {/* MCP 状态子页面 */}
+      {/* MCP status subpage */}
       <Route
         path="status"
         element={

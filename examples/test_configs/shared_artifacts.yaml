@@ -1,0 +1,121 @@
+# Shared Artifacts Network Configuration
+# This network provides shared artifact storage for file sharing and collaboration
+
+network:
+  name: "SharedArtifactsNetwork"
+  mode: "centralized"
+  node_id: "shared-artifacts-1"
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+    - type: "grpc"
+      config:
+        port: 8600
+        max_message_size: 104857600  # 100MB
+        compression: "gzip"
+
+  # Transport for providing the network manifest
+  manifest_transport: "http"
+
+  # Recommended transport for agent-to-network communication
+  recommended_transport: "grpc"
+
+  # Security configuration
+  encryption_enabled: false  # Disabled for local development
+  disable_agent_secret_verification: true  # Disabled for testing
+
+  # Agent groups configuration for access control testing
+  default_agent_group: "users"
+  requires_password: false
+
+  agent_groups:
+    admin:
+      password_hash: "2eb834f600f2d1839140e95cc0c81c12b1afea99f73532c20017d65f619287de"
+      description: "Admin group with full access"
+      metadata:
+        permissions: ["all"]
+    analysts:
+      password_hash: "693e60f5d315090f277c55fc5c64c6f63e6d71ea8187eca4116175ff35aa3ef4"
+      description: "Analyst group with artifact access"
+      metadata:
+        permissions: ["artifact_access"]
+    users:
+      password_hash: "e5a978ae4d92fe4786d6ecdb811e0723c5f585d782fbd9439be6510f06adca0e"
+      description: "Regular user group"
+      metadata:
+        permissions: ["basic"]
+
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  # Mod configuration - Shared Artifact only
+  mods:
+    - name: "openagents.mods.workspace.shared_artifact"
+      enabled: true
+      config:
+        # Storage settings
+        artifacts_dir: "./data/artifacts"
+        max_file_size: 52428800  # 50MB
+
+        # Supported MIME types for artifacts
+        allowed_mime_types:
+          - "text/plain"
+          - "text/markdown"
+          - "text/html"
+          - "text/csv"
+          - "application/json"
+          - "application/xml"
+          - "application/pdf"
+          - "image/png"
+          - "image/jpeg"
+          - "image/gif"
+          - "image/webp"
+
+        # Access control settings
+        enable_agent_groups: true
+        default_access_level: "all"  # "all" or "restricted"
+
+        # Notification settings
+        enable_notifications: true
+        notify_on_create: true
+        notify_on_update: true
+        notify_on_delete: true
+
+        # Cleanup settings
+        enable_cleanup: false
+        cleanup_interval_hours: 24
+        max_artifact_age_days: 365
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "Shared Artifacts"
+  description: "Network for shared artifact storage and collaboration"
+  required_openagents_version: "0.6.8"
+  capacity: 100
+  authentication:
+    type: "none"
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/shared-artifacts"
+
+# Runtime configuration
+runtime_limit: null
+shutdown_timeout: 30

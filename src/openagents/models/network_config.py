@@ -7,6 +7,7 @@ from openagents.config.globals import DEFAULT_AGENT_GROUP
 from openagents.models.network_profile import NetworkProfile
 from openagents.models.transport import TransportType
 from openagents.models.network_role import NetworkRole
+from openagents.models.external_access import ExternalAccessConfig
 
 
 class NetworkMode(str, Enum):
@@ -235,6 +236,11 @@ class OpenAgentsConfig(BaseModel):
     # Network profile for discovery
     network_profile: Optional[NetworkProfile] = Field(
         None, description="Network profile"
+    )
+
+    # External access configuration for MCP and other external agents
+    external_access: Optional[ExternalAccessConfig] = Field(
+        None, description="Configuration for external agent access control (instructions, tool filtering)"
     )
 
     # Global settings

@@ -1,0 +1,568 @@
+asyncapi: '3.0.0'
+info:
+  title: OpenAgents Core Shared Artifact Mod API
+  version: '1.0.0'
+  description: |
+    A shared artifact storage system for OpenAgents with agent group-based access control.
+
+    ## Features
+    - Create artifacts with MIME type support (text and binary files)
+    - Optional natural language naming
+    - Agent group-based access control
+    - Get, update, delete, and list artifacts
+    - Real-time notifications for artifact changes
+    - Persistent file storage in workspace
+
+  contact:
+    name: OpenAgents Team
+  license:
+    name: MIT
+
+defaultContentType: application/json
+
+channels:
+  artifactCreate:
+    address: shared_artifact.create
+    messages:
+      artifactCreate:
+        $ref: '#/components/messages/ArtifactCreateMessage'
+
+  artifactGet:
+    address: shared_artifact.get
+    messages:
+      artifactGet:
+        $ref: '#/components/messages/ArtifactGetMessage'
+
+  artifactUpdate:
+    address: shared_artifact.update
+    messages:
+      artifactUpdate:
+        $ref: '#/components/messages/ArtifactUpdateMessage'
+
+  artifactDelete:
+    address: shared_artifact.delete
+    messages:
+      artifactDelete:
+        $ref: '#/components/messages/ArtifactDeleteMessage'
+
+  artifactList:
+    address: shared_artifact.list
+    messages:
+      artifactList:
+        $ref: '#/components/messages/ArtifactListMessage'
+
+  artifactCreateResponse:
+    address: shared_artifact.create.response
+    messages:
+      artifactCreateResponse:
+        $ref: '#/components/messages/ArtifactCreateResponse'
+
+  artifactGetResponse:
+    address: shared_artifact.get.response
+    messages:
+      artifactGetResponse:
+        $ref: '#/components/messages/ArtifactGetResponse'
+
+  artifactUpdateResponse:
+    address: shared_artifact.update.response
+    messages:
+      artifactUpdateResponse:
+        $ref: '#/components/messages/ArtifactUpdateResponse'
+
+  artifactDeleteResponse:
+    address: shared_artifact.delete.response
+    messages:
+      artifactDeleteResponse:
+        $ref: '#/components/messages/ArtifactDeleteResponse'
+
+  artifactListResponse:
+    address: shared_artifact.list.response
+    messages:
+      artifactListResponse:
+        $ref: '#/components/messages/ArtifactListResponse'
+
+  artifactCreatedNotification:
+    address: shared_artifact.notification.created
+    messages:
+      artifactCreatedNotification:
+        $ref: '#/components/messages/ArtifactCreatedNotification'
+
+  artifactUpdatedNotification:
+    address: shared_artifact.notification.updated
+    messages:
+      artifactUpdatedNotification:
+        $ref: '#/components/messages/ArtifactUpdatedNotification'
+
+  artifactDeletedNotification:
+    address: shared_artifact.notification.deleted
+    messages:
+      artifactDeletedNotification:
+        $ref: '#/components/messages/ArtifactDeletedNotification'
+
+operations:
+  createArtifact:
+    action: send
+    channel:
+      $ref: '#/channels/artifactCreate'
+    summary: Create a new artifact with optional agent group access control
+
+  getArtifact:
+    action: send
+    channel:
+      $ref: '#/channels/artifactGet'
+    summary: Retrieve an artifact by ID
+
+  updateArtifact:
+    action: send
+    channel:
+      $ref: '#/channels/artifactUpdate'
+    summary: Update an existing artifact
+
+  deleteArtifact:
+    action: send
+    channel:
+      $ref: '#/channels/artifactDelete'
+    summary: Delete an artifact
+
+  listArtifacts:
+    action: send
+    channel:
+      $ref: '#/channels/artifactList'
+    summary: List artifacts with optional filtering
+
+  # Receive operations
+  receiveArtifactCreateResponse:
+    action: receive
+    channel:
+      $ref: '#/channels/artifactCreateResponse'
+    summary: Receive artifact creation response
+
+  receiveArtifactGetResponse:
+    action: receive
+    channel:
+      $ref: '#/channels/artifactGetResponse'
+    summary: Receive artifact retrieval response
+
+  receiveArtifactUpdateResponse:
+    action: receive
+    channel:
+      $ref: '#/channels/artifactUpdateResponse'
+    summary: Receive artifact update response
+
+  receiveArtifactDeleteResponse:
+    action: receive
+    channel:
+      $ref: '#/channels/artifactDeleteResponse'
+    summary: Receive artifact deletion response
+
+  receiveArtifactListResponse:
+    action: receive
+    channel:
+      $ref: '#/channels/artifactListResponse'
+    summary: Receive artifact list response
+
+  receiveArtifactCreatedNotification:
+    action: receive
+    channel:
+      $ref: '#/channels/artifactCreatedNotification'
+    summary: Receive notification when an artifact is created
+
+  receiveArtifactUpdatedNotification:
+    action: receive
+    channel:
+      $ref: '#/channels/artifactUpdatedNotification'
+    summary: Receive notification when an artifact is updated
+
+  receiveArtifactDeletedNotification:
+    action: receive
+    channel:
+      $ref: '#/channels/artifactDeletedNotification'
+    summary: Receive notification when an artifact is deleted
+
+components:
+  parameters:
+    artifactId:
+      description: The unique identifier of an artifact (UUID)
+
+    agentId:
+      description: The unique identifier of an agent in the OpenAgents network
+
+    agentGroup:
+      description: The name of an agent group
+
+  messages:
+    ArtifactCreateMessage:
+      name: ArtifactCreateMessage
+      title: Artifact Create
+      summary: Create a new artifact
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactCreatePayload'
+
+    ArtifactGetMessage:
+      name: ArtifactGetMessage
+      title: Artifact Get
+      summary: Retrieve an artifact
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactGetPayload'
+
+    ArtifactUpdateMessage:
+      name: ArtifactUpdateMessage
+      title: Artifact Update
+      summary: Update an artifact
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactUpdatePayload'
+
+    ArtifactDeleteMessage:
+      name: ArtifactDeleteMessage
+      title: Artifact Delete
+      summary: Delete an artifact
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactDeletePayload'
+
+    ArtifactListMessage:
+      name: ArtifactListMessage
+      title: Artifact List
+      summary: List artifacts with optional filtering
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactListPayload'
+
+    # Response messages
+    ArtifactCreateResponse:
+      name: ArtifactCreateResponse
+      title: Artifact Create Response
+      summary: Response to artifact creation operation
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactCreateResponsePayload'
+
+    ArtifactGetResponse:
+      name: ArtifactGetResponse
+      title: Artifact Get Response
+      summary: Response to artifact retrieval operation
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactGetResponsePayload'
+
+    ArtifactUpdateResponse:
+      name: ArtifactUpdateResponse
+      title: Artifact Update Response
+      summary: Response to artifact update operation
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactUpdateResponsePayload'
+
+    ArtifactDeleteResponse:
+      name: ArtifactDeleteResponse
+      title: Artifact Delete Response
+      summary: Response to artifact deletion operation
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactDeleteResponsePayload'
+
+    ArtifactListResponse:
+      name: ArtifactListResponse
+      title: Artifact List Response
+      summary: Response to artifact list operation
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactListResponsePayload'
+
+    # Notification messages
+    ArtifactCreatedNotification:
+      name: ArtifactCreatedNotification
+      title: Artifact Created Notification
+      summary: Notification when an artifact is created
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactNotificationPayload'
+
+    ArtifactUpdatedNotification:
+      name: ArtifactUpdatedNotification
+      title: Artifact Updated Notification
+      summary: Notification when an artifact is updated
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactNotificationPayload'
+
+    ArtifactDeletedNotification:
+      name: ArtifactDeletedNotification
+      title: Artifact Deleted Notification
+      summary: Notification when an artifact is deleted
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ArtifactNotificationPayload'
+
+  schemas:
+    ArtifactCreatePayload:
+      type: object
+      required:
+        - content
+      properties:
+        name:
+          type: string
+          description: Optional natural language name for the artifact
+          example: "Monthly Sales Report"
+        content:
+          type: string
+          description: The content of the artifact (base64 encoded for binary files)
+          example: '{"result": 95}'
+        mime_type:
+          type: string
+          description: MIME type of the artifact content
+          default: "text/plain"
+          example: "application/json"
+        allowed_agent_groups:
+          type: array
+          items:
+            type: string
+          description: List of agent groups that can access this artifact (empty = all agents)
+          default: []
+          example: ["analysts", "admin"]
+
+    ArtifactGetPayload:
+      type: object
+      required:
+        - artifact_id
+      properties:
+        artifact_id:
+          type: string
+          description: UUID of the artifact to retrieve
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    ArtifactUpdatePayload:
+      type: object
+      required:
+        - artifact_id
+        - content
+      properties:
+        artifact_id:
+          type: string
+          description: UUID of the artifact to update
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        content:
+          type: string
+          description: New content for the artifact (base64 encoded for binary files)
+          example: '{"result": 97}'
+
+    ArtifactDeletePayload:
+      type: object
+      required:
+        - artifact_id
+      properties:
+        artifact_id:
+          type: string
+          description: UUID of the artifact to delete
+          example: "550e8400-e29b-41d4-a716-446655440000"
+
+    ArtifactListPayload:
+      type: object
+      properties:
+        mime_type:
+          type: string
+          description: Optional MIME type filter (e.g., 'application/json', 'image/png')
+          example: "application/json"
+
+    # Response payload schemas
+    ArtifactCreateResponsePayload:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: Whether the artifact creation was successful
+        artifact_id:
+          type: string
+          description: UUID of the created artifact (only present if success=true)
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        error:
+          type: string
+          description: Error message if unsuccessful
+          example: "content is required"
+
+    ArtifactGetResponsePayload:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: Whether the artifact retrieval was successful
+        artifact_id:
+          type: string
+          description: UUID of the artifact
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Optional natural language name of the artifact
+          example: "Monthly Sales Report"
+        content:
+          type: string
+          description: The artifact content (base64 encoded for binary files, only present if success=true)
+          example: '{"result": 95}'
+        mime_type:
+          type: string
+          description: MIME type of the artifact content
+          example: "application/json"
+        file_size:
+          type: integer
+          description: Size of the artifact file in bytes
+          example: 18
+        allowed_agent_groups:
+          type: array
+          items:
+            type: string
+          description: List of agent groups that can access this artifact
+          example: ["analysts", "admin"]
+        created_by:
+          type: string
+          description: ID of the agent who created the artifact
+          example: "agent_alice"
+        created_at:
+          type: integer
+          description: Unix timestamp when the artifact was created
+          example: 1699564800
+        updated_at:
+          type: integer
+          description: Unix timestamp when the artifact was last updated
+          example: 1699564800
+        error:
+          type: string
+          description: Error message if unsuccessful
+          example: "Artifact not found"
+
+    ArtifactUpdateResponsePayload:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: Whether the artifact update was successful
+        artifact_id:
+          type: string
+          description: UUID of the updated artifact (only present if success=true)
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        error:
+          type: string
+          description: Error message if unsuccessful
+          example: "Agent does not have permission to update this artifact"
+
+    ArtifactDeleteResponsePayload:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: Whether the artifact deletion was successful
+        artifact_id:
+          type: string
+          description: UUID of the deleted artifact (only present if success=true)
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        error:
+          type: string
+          description: Error message if unsuccessful
+          example: "Access denied"
+
+    ArtifactListResponsePayload:
+      type: object
+      required:
+        - success
+        - artifacts
+      properties:
+        success:
+          type: boolean
+          description: Whether the artifact listing was successful
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/ArtifactMetadata'
+          description: List of artifacts accessible to the requesting agent
+          example:
+            - artifact_id: "550e8400-e29b-41d4-a716-446655440000"
+              name: "Monthly Sales Report"
+              mime_type: "application/json"
+              file_size: 18
+              created_by: "agent_alice"
+              created_at: 1699564800
+              updated_at: 1699564800
+
+    # Notification payload schemas
+    ArtifactNotificationPayload:
+      type: object
+      required:
+        - artifact_id
+      properties:
+        artifact_id:
+          type: string
+          description: UUID of the artifact that was modified
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Optional natural language name of the artifact
+          example: "Monthly Sales Report"
+        mime_type:
+          type: string
+          description: MIME type of the artifact content
+          example: "application/json"
+        created_by:
+          type: string
+          description: ID of the agent who created the artifact
+          example: "agent_alice"
+        allowed_agent_groups:
+          type: array
+          items:
+            type: string
+          description: List of agent groups that can access this artifact
+          example: ["analysts", "admin"]
+
+    ArtifactMetadata:
+      type: object
+      required:
+        - artifact_id
+        - mime_type
+        - file_size
+        - created_by
+        - created_at
+        - updated_at
+      properties:
+        artifact_id:
+          type: string
+          description: UUID of the artifact
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          description: Optional natural language name of the artifact
+          example: "Monthly Sales Report"
+        mime_type:
+          type: string
+          description: MIME type of the artifact content
+          example: "application/json"
+        file_size:
+          type: integer
+          description: Size of the artifact file in bytes
+          example: 18
+        allowed_agent_groups:
+          type: array
+          items:
+            type: string
+          description: List of agent groups that can access this artifact
+          example: ["analysts", "admin"]
+        created_by:
+          type: string
+          description: ID of the agent who created the artifact
+          example: "agent_alice"
+        created_at:
+          type: integer
+          description: Unix timestamp when the artifact was created
+          example: 1699564800
+        updated_at:
+          type: integer
+          description: Unix timestamp when the artifact was last updated
+          example: 1699564800

@@ -13,6 +13,19 @@ export {
   MessageUtils,
 } from "./message";
 
+export type {
+  FeedPost,
+  FeedAttachment,
+  FeedFilters,
+  FeedCreatePayload,
+  FeedSearchPayload,
+} from "./feed";
+
+export {
+  FEED_CATEGORY_OPTIONS,
+  FEED_SORT_FIELDS,
+} from "./feed";
+
 // 注意：这个接口保留用于工具相关的消息处理，新的消息应使用 types/message.ts 中的 UnifiedMessage
 // @deprecated 对于普通消息，请使用 UnifiedMessage from types/message.ts
 export interface Message {

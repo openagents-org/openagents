@@ -17,7 +17,6 @@ SIMPLE_MESSAGING_MOD_NAME = "openagents.mods.communication.simple_messaging"
 
 # Discovery mods
 AGENT_DISCOVERY_MOD_NAME = "openagents.mods.discovery.agent_discovery"
-OPENCONVERT_DISCOVERY_MOD_NAME = "openagents.mods.discovery.openconvert_discovery"
 
 # Work mods
 SHARED_DOCUMENT_MOD_NAME = "openagents.mods.workspace.documents"

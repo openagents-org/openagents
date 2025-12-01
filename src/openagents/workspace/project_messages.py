@@ -107,7 +107,7 @@ class ProjectMessageSendMessage(BaseProjectMessage):
     """Message for sending a project message."""
     
     project_id: str
-    content: Dict[str, Any]
+    message_content: Dict[str, Any]  # Renamed from 'content' to avoid shadowing Event.content property
     reply_to_id: Optional[str] = None
     attachments: List[Dict[str, Any]] = Field(default_factory=list)
     
@@ -120,15 +120,21 @@ class ProjectMessageSendMessage(BaseProjectMessage):
         attachments: Optional[List[Dict[str, Any]]] = None,
         **kwargs
     ):
-        super().__init__(
-            event_name="project.message.send", 
-            source_id=source_id,
-            project_id=project_id,
-            content=content,
-            reply_to_id=reply_to_id,
-            attachments=attachments or [],
-            **kwargs
-        )
+        super().__init__(event_name="project.message.send", source_id=source_id, **kwargs)
+        self.project_id = project_id
+        self.message_content = content
+        self.reply_to_id = reply_to_id
+        self.attachments = attachments or []
+        
+        # Ensure content is in payload for backward compatibility with mod handlers
+        if not hasattr(self, "payload") or not isinstance(self.payload, dict):
+            self.payload = {}
+        self.payload["content"] = content
+        self.payload["project_id"] = project_id
+        if reply_to_id:
+            self.payload["reply_to_id"] = reply_to_id
+        if attachments:
+            self.payload["attachments"] = attachments
 
 
 # Global State Messages

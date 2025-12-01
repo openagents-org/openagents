@@ -13,6 +13,7 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { useChatStore } from "@/stores/chatStore";
 import { toast } from "sonner";
+import { eventLogService } from "./eventLogService";
 
 export interface ConnectionOptions {
   host: string;
@@ -248,16 +249,24 @@ export class HttpEventConnector {
         );
       }
 
+      // 记录到事件日志
+      eventLogService.logSentEvent(event, eventResponse);
+
       return eventResponse;
     } catch (error: any) {
       const errorMessage = `Failed to send event ${event.event_name}: ${error.message}`;
       console.error(errorMessage);
 
-      return {
+      const errorResponse: EventResponse = {
         success: false,
         message: errorMessage,
         event_name: event.event_name,
       };
+
+      // 记录失败的事件到日志
+      eventLogService.logSentEvent(event, errorResponse);
+
+      return errorResponse;
     }
   }
 
@@ -548,6 +557,9 @@ export class HttpEventConnector {
       console.log(
         `📨 Received event: ${event.event_name} from source_id: ${event.source_id}`
       );
+
+      // 记录到事件日志
+      eventLogService.logReceivedEvent(event);
 
       // Emit specific event
       this.emit(event.event_name, event);

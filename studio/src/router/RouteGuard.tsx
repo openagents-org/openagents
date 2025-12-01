@@ -157,6 +157,24 @@ const RouteGuard: React.FC<RouteGuardProps> = ({ children }) => {
   if (currentPath === "/") {
     // If user is fully setup (has network and agent), redirect to default route or show network selection
     if (selectedNetwork && agentName) {
+      // Wait for modules to load before redirecting - this ensures we get the correct defaultRoute
+      // (e.g., /readme if README content is available)
+      if (!isModulesLoaded) {
+        console.log(
+          `🔄 Root path: Waiting for modules to load before redirecting...`
+        )
+        return (
+          <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+              <p className="text-gray-600 dark:text-gray-400">
+                Loading...
+              </p>
+            </div>
+          </div>
+        )
+      }
+
       // Check if there's a network-id parameter
       if (networkIdParam) {
         // network-id checking is handled by useEffect above

@@ -1,15 +1,17 @@
 {
-    "protocol_name": "agent_discovery",
-    "version": "1.0.0",
-    "description": "A protocol that allows agents to announce their capabilities and for other agents to discover agents with specific capabilities",
+    "mod_name": "agent_discovery",
+    "version": "2.0.0",
+    "description": "Agent discovery mod for OpenAgents that allows agents to announce their capabilities, search for other agents by capability, and receive connection notifications",
     "authors": ["OpenAgents Team"],
     "license": "MIT",
     "agent_adapter_class": "AgentDiscoveryAdapter",
-    "network_protocol_class": "AgentDiscoveryProtocol",
+    "network_mod_class": "AgentDiscoveryMod",
     "capabilities": [
-        "capability_announcement",
-        "capability_discovery",
-        "capability_matching"
+        "capability_management",
+        "agent_discovery",
+        "capability_matching",
+        "agent_listing",
+        "connection_notifications"
     ],
     "requires_adapter": true,
     "studio_interface": false,
@@ -24,13 +26,14 @@
         ]
     },
     "process_events": [
-        "announce_capabilities",
-        "discover_agents",
-        "agent.connected",
-        "agent.disconnected",
-        "agent.capability.updated"
+        "discovery.capabilities.set",
+        "discovery.capabilities.get",
+        "discovery.agents.search",
+        "discovery.agents.list"
     ],
     "generate_events": [
-        "discovery_results"
+        "discovery.notification.agent_connected",
+        "discovery.notification.agent_disconnected",
+        "discovery.notification.capabilities_updated"
     ]
 } 

@@ -71,7 +71,7 @@ const NetworkProfile: React.FC = () => {
         console.log('📡 Health response:', healthResponse);
 
         // Try different possible field names for profile
-        const profile = healthResponse?.network_profile;
+        const profile = healthResponse?.data?.network_profile;
 
         if (profile) {
           console.log('✅ Found profile data:', profile);

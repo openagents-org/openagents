@@ -18,6 +18,7 @@ class EventRouterImpl implements EventRouter {
   private chatHandlers = new Set<(event: any) => void>();
   private wikiHandlers = new Set<(event: any) => void>();
   private documentHandlers = new Set<(event: any) => void>();
+  private feedHandlers = new Set<(event: any) => void>();
   private rawEventHandler: ((event: any) => void) | null = null;
 
   initialize(connection: any) {
@@ -100,6 +101,15 @@ class EventRouterImpl implements EventRouter {
           console.error(`EventRouter: Error in document event handler:`, error);
         }
       });
+    } else if (eventName.startsWith('feed.')) {
+      console.log(`EventRouter: Routing feed event: ${eventName}`);
+      this.feedHandlers.forEach(handler => {
+        try {
+          handler(event);
+        } catch (error) {
+          console.error(`EventRouter: Error in feed event handler:`, error);
+        }
+      });
     } else {
       console.log(`EventRouter: Unhandled event type: ${eventName}`);
     }
@@ -132,6 +142,11 @@ class EventRouterImpl implements EventRouter {
     console.log(`EventRouter: Added document event handler. Total: ${this.documentHandlers.size}`);
   }
 
+  onFeedEvent(handler: (event: any) => void) {
+    this.feedHandlers.add(handler);
+    console.log(`EventRouter: Added feed event handler. Total: ${this.feedHandlers.size}`);
+  }
+
   offForumEvent(handler: (event: any) => void) {
     this.forumHandlers.delete(handler);
     console.log(`EventRouter: Removed forum event handler. Total: ${this.forumHandlers.size}`);
@@ -150,6 +165,11 @@ class EventRouterImpl implements EventRouter {
   offDocumentEvent(handler: (event: any) => void) {
     this.documentHandlers.delete(handler);
     console.log(`EventRouter: Removed document event handler. Total: ${this.documentHandlers.size}`);
+  }
+
+  offFeedEvent(handler: (event: any) => void) {
+    this.feedHandlers.delete(handler);
+    console.log(`EventRouter: Removed feed event handler. Total: ${this.feedHandlers.size}`);
   }
 }
 

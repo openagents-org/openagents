@@ -70,6 +70,11 @@ class NetworkProfile(BaseModel):
         description="A description of the network's purpose and capabilities",
     )
 
+    readme: Optional[str] = Field(
+        default=None,
+        description="Detailed README/instructions for the network. Supports markdown. Used as MCP instructions if external_access.instruction is not set.",
+    )
+
     icon: Optional[str] = Field(None, description="URL to the network's icon image")
 
     website: Optional[str] = Field(None, description="URL to the network's website")

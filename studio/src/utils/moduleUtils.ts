@@ -4,11 +4,15 @@ import { updateRouteVisibility } from "@/config/routeConfig"
 // 模块名到插件枚举的映射
 const MODULE_PLUGIN_MAP: Record<string, PLUGIN_NAME_ENUM> = {
   messaging: PLUGIN_NAME_ENUM.MESSAGING,
+  feed: PLUGIN_NAME_ENUM.FEED,
   project: PLUGIN_NAME_ENUM.PROJECT,
   "openagents.mods.workspace.project": PLUGIN_NAME_ENUM.PROJECT,
   documents: PLUGIN_NAME_ENUM.DOCUMENTS,
   forum: PLUGIN_NAME_ENUM.FORUM,
   wiki: PLUGIN_NAME_ENUM.WIKI,
+  agentworld: PLUGIN_NAME_ENUM.AGENTWORLD,
+  "openagents.mods.games.agentworld": PLUGIN_NAME_ENUM.AGENTWORLD,
+  artifact: PLUGIN_NAME_ENUM.ARTIFACT,
 }
 
 // 从 API 健康检查响应中提取启用的模块
@@ -26,6 +30,11 @@ export interface HealthResponse {
     network_name: string
     is_running: boolean
     mods: ModuleInfo[]
+    readme?: string
+    network_profile?: {
+      readme?: string
+      [key: string]: any
+    }
     [key: string]: any
   }
 }
@@ -58,13 +67,16 @@ export const getEnabledModules = (healthResponse: HealthResponse): string[] => {
 export const updateRouteVisibilityFromModules = (
   enabledModules: string[]
 ): void => {
-  // 首先隐藏所有主要路由（只保留 Profile 始终可见，它不是一个 mod）
+  // 首先隐藏所有主要路由（只保留 Profile 和 README 始终可见，它们不是 mod）
   // Settings 如果作为 mod 存在，也应该由网络返回来控制
   Object.values(PLUGIN_NAME_ENUM).forEach((plugin) => {
-    if (plugin !== PLUGIN_NAME_ENUM.PROFILE) {
+    if (plugin !== PLUGIN_NAME_ENUM.PROFILE && plugin !== PLUGIN_NAME_ENUM.README) {
       updateRouteVisibility(plugin, false)
     }
   })
+
+  // 确保 README 始终可见
+  updateRouteVisibility(PLUGIN_NAME_ENUM.README, true)
 
   // 然后根据网络返回的 mods 启用对应的路由
   enabledModules.forEach((moduleName) => {
@@ -80,15 +92,22 @@ export const updateRouteVisibilityFromModules = (
 
 /**
  * 获取默认路由（第一个启用的模块）
+ * @param enabledModules - 启用的模块列表
+ * @param hasReadme - 是否有 README 内容可用
  */
-export const getDefaultRoute = (enabledModules: string[]): string => {
+export const getDefaultRoute = (enabledModules: string[], hasReadme: boolean = false): string => {
+  // If README content is available, prioritize the readme page
+  if (hasReadme) {
+    return "/readme"
+  }
+
   if (enabledModules.length === 0) {
     // 如果没有启用的模块，回退到 profile
     return "/profile"
   }
 
   // 按优先级排序模块
-  const priorityOrder = ["messaging", "documents", "forum", "wiki"]
+  const priorityOrder = ["messaging", "documents", "forum", "artifact", "wiki", "feed"]
 
   for (const priority of priorityOrder) {
     if (enabledModules.includes(priority)) {
@@ -126,6 +145,9 @@ export const isRouteAvailable = (
     "settings",
     "network-selection",
     "agent-setup",
+    "agentworld",
+    "artifact", // Artifact 始终可用，类似 Project
+    "readme", // README 始终可用，显示网络文档
   ]
   if (alwaysAvailableRoutes.includes(routeName)) {
     return true
@@ -141,7 +163,12 @@ export const generateRouteConfigFromHealth = (
   healthResponse: HealthResponse
 ) => {
   const enabledModules = getEnabledModules(healthResponse)
-  const defaultRoute = getDefaultRoute(enabledModules)
+
+  // Check if README content is available
+  const readmeContent = healthResponse.data?.network_profile?.readme || healthResponse.data?.readme || ""
+  const hasReadme = readmeContent.trim().length > 0
+
+  const defaultRoute = getDefaultRoute(enabledModules, hasReadme)
 
   return {
     enabledModules,

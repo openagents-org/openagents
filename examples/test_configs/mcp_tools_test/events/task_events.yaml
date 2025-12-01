@@ -1,0 +1,133 @@
+asyncapi: '3.0.0'
+info:
+  title: Task Events
+  version: '1.0.0'
+  description: |
+    Task-related events for testing MCP event tools.
+    These events can be triggered by external agents via MCP.
+
+channels:
+  task/delegate:
+    address: task.delegate
+    messages:
+      task.delegate:
+        $ref: '#/components/messages/TaskDelegate'
+    description: Channel for delegating tasks
+
+  task/status:
+    address: task.status
+    messages:
+      task.status:
+        $ref: '#/components/messages/TaskStatus'
+    description: Channel for task status updates
+
+operations:
+  delegateTask:
+    action: send
+    channel:
+      $ref: '#/channels/task~1delegate'
+    summary: Delegate a task to an agent
+    description: |
+      Emit an event to delegate a task to a specific agent.
+      This is a fire-and-forget operation.
+    x-agent-tool:
+      enabled: true
+      name: delegate_task
+      description: "Delegate a task to an agent for execution"
+
+  reportStatus:
+    action: send
+    channel:
+      $ref: '#/channels/task~1status'
+    summary: Report task status
+    description: |
+      Emit a status update event for a task.
+    x-agent-tool:
+      enabled: true
+      name: report_status
+      description: "Report the status of a task"
+
+  # This operation is NOT exposed as a tool (no x-agent-tool or enabled: false)
+  internalNotify:
+    action: send
+    channel:
+      $ref: '#/channels/task~1status'
+    summary: Internal notification (not exposed)
+    description: This operation is not exposed as an MCP tool
+
+components:
+  messages:
+    TaskDelegate:
+      name: task.delegate
+      title: Task Delegation
+      summary: Delegate a task to an agent
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/TaskDelegatePayload'
+
+    TaskStatus:
+      name: task.status
+      title: Task Status
+      summary: Task status update
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/TaskStatusPayload'
+
+  schemas:
+    TaskDelegatePayload:
+      type: object
+      description: Payload for task delegation
+      required:
+        - task_id
+        - task_type
+        - instructions
+      properties:
+        task_id:
+          type: string
+          description: Unique identifier for the task
+        task_type:
+          type: string
+          description: Type of task to execute
+          enum: ["analyze", "process", "generate", "review"]
+        instructions:
+          type: string
+          description: Detailed instructions for the task
+        assigned_agent:
+          type: string
+          description: ID of the agent to execute the task (optional)
+        priority:
+          type: string
+          enum: ["low", "medium", "high", "urgent"]
+          default: "medium"
+          description: Task priority level
+        metadata:
+          type: object
+          description: Additional task metadata
+          additionalProperties: true
+
+    TaskStatusPayload:
+      type: object
+      description: Payload for task status updates
+      required:
+        - task_id
+        - status
+      properties:
+        task_id:
+          type: string
+          description: ID of the task being reported
+        status:
+          type: string
+          enum: ["pending", "in_progress", "completed", "failed", "cancelled"]
+          description: Current status of the task
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Progress percentage (0-100)
+        message:
+          type: string
+          description: Status message or description
+        result:
+          type: object
+          description: Task result data (if completed)
+          additionalProperties: true

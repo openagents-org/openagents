@@ -7,12 +7,15 @@ import AgentSetupPage from "@/pages/AgentSetupPage"
 import MessagingMainPage from "@/pages/messaging/MessagingMainPage"
 import ProjectMainPage from "@/pages/project/ProjectMainPage"
 import ForumMainPage from "@/pages/forum/ForumMainPage"
+import ArtifactMainPage from "@/pages/artifact/ArtifactMainPage"
 import WikiMainPage from "@/pages/wiki/WikiMainPage"
 import DocumentsMainPage from "@/pages/documents/DocumentsMainPage"
-// import ProjectChatRoom from "@/pages/messaging/components/ProjectChatRoom"
 // import SettingsMainPage from "@/pages/settings/SettingsMainPage";
 import ProfileMainPage from "@/pages/profile/ProfileMainPage"
+import AgentWorldMainPage from "@/pages/agentworld/AgentWorldMainPage"
+import ReadmeMainPage from "@/pages/readme/ReadmeMainPage"
 // import McpMainPage from "@/pages/mcp/McpMainPage";
+import FeedMainPage from "@/pages/feed/FeedMainPage"
 
 // Navigation icon components
 export const NavigationIcons = {
@@ -51,6 +54,46 @@ export const NavigationIcons = {
     )
   ),
   Forum: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2v4l-4-4H9a1.994 1.994 0 01-1.414-.586m0 0L11 14h4a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2v4l.586-.586z",
+      })
+    )
+  ),
+  Feed: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M9 5a7 7 0 016.394 9.748l3.256 3.256a1 1 0 11-1.414 1.414l-3.256-3.256A7 7 0 119 5z",
+      }),
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M9 8v8",
+      })
+    )
+  ),
+  Artifact: React.memo(() =>
     React.createElement(
       "svg",
       {
@@ -140,6 +183,41 @@ export const NavigationIcons = {
       })
     )
   ),
+  AgentWorld: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z",
+      })
+    )
+  ),
+  Readme: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      // Information circle icon - intuitive for README/info
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+      })
+    )
+  ),
   // MCP: React.memo(() =>
   //   React.createElement("svg",
   //     {
@@ -209,6 +287,21 @@ export const dynamicRouteConfig: RouteConfig[] = [
     },
   },
   {
+    path: "/feed/*",
+    element: FeedMainPage,
+    title: "Feed",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.FEED,
+      label: "Info Feed",
+      icon: "Feed",
+      visible: true,
+      order: 1.2,
+      group: "primary",
+    },
+  },
+  {
     path: "/project/*",
     element: ProjectMainPage,
     title: "Project",
@@ -235,6 +328,21 @@ export const dynamicRouteConfig: RouteConfig[] = [
       icon: "Forum",
       visible: true,
       order: 2,
+      group: "primary",
+    },
+  },
+  {
+    path: "/artifact/*",
+    element: ArtifactMainPage,
+    title: "Artifact",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.ARTIFACT,
+      label: "Artifact",
+      icon: "Artifact",
+      visible: true,
+      order: 2.2,
       group: "primary",
     },
   },
@@ -268,6 +376,21 @@ export const dynamicRouteConfig: RouteConfig[] = [
       group: "primary",
     },
   },
+  {
+    path: "/agentworld/*",
+    element: AgentWorldMainPage,
+    title: "AgentWorld",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.AGENTWORLD,
+      label: "AgentWorld",
+      icon: "AgentWorld",
+      visible: true,
+      order: 3.5,
+      group: "primary",
+    },
+  },
 
   // Settings-related routes - these pages need full sidebar layout
   // {
@@ -298,6 +421,21 @@ export const dynamicRouteConfig: RouteConfig[] = [
       visible: true,
       order: 5,
       group: "secondary",
+    },
+  },
+  {
+    path: "/readme/*",
+    element: ReadmeMainPage,
+    title: "README",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.README,
+      label: "README",
+      icon: "Readme",
+      visible: true,
+      order: 3.5,
+      group: "primary",
     },
   },
   // {
@@ -402,9 +540,10 @@ export const getVisibleNavigationRoutes = () => {
 
 // Utility function: get navigation routes by group
 export const getNavigationRoutesByGroup = (group: "primary" | "secondary") => {
-  return getVisibleNavigationRoutes().filter(
+  const visibleRoutes = getVisibleNavigationRoutes();
+  return visibleRoutes.filter(
     (route) => route.navigationConfig?.group === group
-  )
+  );
 }
 
 // // Utility function: get visible quick actions

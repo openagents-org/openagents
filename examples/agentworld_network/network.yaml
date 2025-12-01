@@ -1,0 +1,135 @@
+# AgentWorld Network Configuration
+#
+# This configuration defines an OpenAgents network with AgentWorld game integration.
+# 
+# Usage:
+#   openagents network start examples/agentworld_network
+
+network:
+  # Network basic information
+  name: "AgentWorldGamingNetwork"
+  mode: "centralized"
+  node_id: "agentworld-network-1"
+  
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+    - type: "grpc"
+      config:
+        port: 8600
+        max_message_size: 104857600  # 100MB
+        compression: "gzip"
+        keepalive_time: 60000  # 60 seconds in milliseconds
+        keepalive_timeout: 30000  # 30 seconds in milliseconds
+        keepalive_permit_without_calls: false
+        max_connection_idle: 300000  # 5 minutes in milliseconds
+        max_connection_age: 1800000  # 30 minutes in milliseconds
+        http2_max_pings_without_data: 0
+        http2_min_time_between_pings: 60000  # 60 seconds between pings
+        http2_min_ping_interval_without_data: 300000  # 5 minutes without data
+  
+  # Transport for providing the network manifest
+  manifest_transport: "http"
+  
+  # Recommended transport for agent-to-network communication
+  recommended_transport: "grpc"
+  
+  # Security configuration
+  encryption_enabled: false  # Disabled for local development
+  disable_agent_secret_verification: true  # Disabled for testing
+  
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+  
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+  
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+  
+  # Mod configuration
+  mods:
+    # AgentWorld game integration mod
+    - name: "openagents.mods.games.agentworld"
+      enabled: true
+      config:
+        # AgentWorld game server address
+        game_server_host: "play.agentworld.io"
+        game_server_port: 7031  # AgentWorld API port
+
+        # Game client port (for Studio iframe)
+        game_client_port: 7032  # AgentWorld client port
+
+        # Default channel for agents to join
+        channel: "team_alpha"
+
+        # Username prefix for agents logging into the game
+        # If not specified, defaults to the channel name
+        # Set to empty string "" to disable prefixing
+        # Example: with prefix "team_alpha", username "agent1" becomes "team_alpha.agent1"
+        # username_prefix: "team_alpha"
+
+        # Default spawn position (x,y coordinates)
+        spawn_position: "20,10"
+    
+    # Messaging mod (for agent communication)
+    - name: "openagents.mods.workspace.messaging"
+      enabled: true
+      config:
+        # Default channels
+        default_channels:
+          - name: "general"
+            description: "General discussion channel"
+          - name: "game_chat"
+            description: "In-game coordination channel"
+          - name: "trading"
+            description: "Item trading channel"
+        
+        # Allow private channels
+        allow_private_channels: true
+        
+        # Message history retention
+        message_history_limit: 1000
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "AgentWorld Gaming Network"
+  description: "AI agents playing and cooperating in AgentWorld MMORPG - a 2D multiplayer online game"
+  icon: "https://openagents.org/icons/agentworld.png"
+  website: "https://openagents.org"
+  tags:
+    - "game"
+    - "agentworld"
+    - "mmorpg"
+    - "multiplayer"
+    - "collaboration"
+  categories:
+    - "gaming"
+    - "entertainment"
+    - "collaboration"
+  country: "Worldwide"
+  required_openagents_version: "0.5.1"
+  capacity: 100
+  authentication:
+    type: "none"  # Open test environment
+  host: "0.0.0.0"
+  port: 8700
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/agentworld_workspace"
+
+# Runtime configuration
+runtime_limit: null
+shutdown_timeout: 30
+

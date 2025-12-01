@@ -5,6 +5,8 @@
  * requests to HTTP-only OpenAgents networks through bridge.openagents.org proxy.
  */
 
+import { eventLogService } from "@/services/eventLogService";
+
 const PROXY_BASE_URL = 'https://bridge.openagents.org';
 
 export interface HttpClientOptions {
@@ -165,8 +167,81 @@ export const networkFetch = async (
   const url = buildNetworkUrl(host, port, endpoint);
   const headers = buildNetworkHeaders(host, port, options.headers);
   
-  return httpFetch(url, {
-    ...options,
-    headers
-  });
+  const method = options.method || "GET";
+  const startTime = Date.now();
+  
+  // Parse request body if present
+  let requestBody: any = undefined;
+  if (options.body) {
+    try {
+      if (typeof options.body === "string") {
+        requestBody = JSON.parse(options.body);
+      } else {
+        requestBody = options.body;
+      }
+    } catch {
+      requestBody = options.body;
+    }
+  }
+  
+  try {
+    const response = await httpFetch(url, {
+      ...options,
+      headers
+    });
+    
+    const duration = Date.now() - startTime;
+    
+    // Parse response body for logging (try to read it without consuming the stream)
+    let responseBody: any = undefined;
+    try {
+      const clone = response.clone();
+      const contentType = clone.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        responseBody = await clone.json();
+      } else {
+        const text = await clone.text();
+        if (text) {
+          try {
+            responseBody = JSON.parse(text);
+          } catch {
+            responseBody = text.substring(0, 500); // Limit text length
+          }
+        }
+      }
+    } catch {
+      // Ignore errors when parsing response body
+    }
+    
+    // Log HTTP request to EventLog
+    eventLogService.logHttpRequest({
+      method,
+      url,
+      host,
+      port,
+      endpoint,
+      requestBody,
+      responseStatus: response.status,
+      responseBody,
+      duration,
+    });
+    
+    return response;
+  } catch (error: any) {
+    const duration = Date.now() - startTime;
+    
+    // Log failed HTTP request
+    eventLogService.logHttpRequest({
+      method,
+      url,
+      host,
+      port,
+      endpoint,
+      requestBody,
+      duration,
+      error: error.message || "Request failed",
+    });
+    
+    throw error;
+  }
 };

@@ -9,13 +9,28 @@ interface MarkdownRendererProps {
   className?: string;
   truncate?: boolean;
   maxLength?: number;
+  addHeadingIds?: boolean;
 }
+
+/**
+ * Generate a URL-friendly ID from heading text
+ */
+const generateHeadingId = (text: React.ReactNode): string => {
+  const textContent = React.Children.toArray(text)
+    .map((child) => (typeof child === "string" ? child : ""))
+    .join("");
+  return textContent
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-");
+};
 
 const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   content,
   className = '',
   truncate = false,
-  maxLength = 200
+  maxLength = 200,
+  addHeadingIds = false
 }) => {
   // Truncate content if needed (for previews)
   const displayContent = truncate && content.length > maxLength 
@@ -30,32 +45,50 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
         components={{
           // Customize heading styles
           h1: ({ children }) => (
-            <h1 className="text-2xl font-bold mb-4 text-gray-800 dark:text-gray-200">
+            <h1
+              id={addHeadingIds ? generateHeadingId(children) : undefined}
+              className="text-2xl font-bold mb-4 text-gray-800 dark:text-gray-200 scroll-mt-4"
+            >
               {children}
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="text-xl font-semibold mb-3 text-gray-800 dark:text-gray-200">
+            <h2
+              id={addHeadingIds ? generateHeadingId(children) : undefined}
+              className="text-xl font-semibold mb-3 text-gray-800 dark:text-gray-200 scroll-mt-4"
+            >
               {children}
             </h2>
           ),
           h3: ({ children }) => (
-            <h3 className="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-300">
+            <h3
+              id={addHeadingIds ? generateHeadingId(children) : undefined}
+              className="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-300 scroll-mt-4"
+            >
               {children}
             </h3>
           ),
           h4: ({ children }) => (
-            <h4 className="text-base font-semibold mb-2 text-gray-700 dark:text-gray-300">
+            <h4
+              id={addHeadingIds ? generateHeadingId(children) : undefined}
+              className="text-base font-semibold mb-2 text-gray-700 dark:text-gray-300 scroll-mt-4"
+            >
               {children}
             </h4>
           ),
           h5: ({ children }) => (
-            <h5 className="text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">
+            <h5
+              id={addHeadingIds ? generateHeadingId(children) : undefined}
+              className="text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300 scroll-mt-4"
+            >
               {children}
             </h5>
           ),
           h6: ({ children }) => (
-            <h6 className="text-sm font-semibold mb-2 text-gray-600 dark:text-gray-400">
+            <h6
+              id={addHeadingIds ? generateHeadingId(children) : undefined}
+              className="text-sm font-semibold mb-2 text-gray-600 dark:text-gray-400 scroll-mt-4"
+            >
               {children}
             </h6>
           ),

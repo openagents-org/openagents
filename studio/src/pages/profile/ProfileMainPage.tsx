@@ -9,6 +9,8 @@ import AgentInfoCard from "./components/AgentInfoCard";
 import SystemInfoCard from "./components/SystemInfoCard";
 import AgentManagement from "./AgentManagement";
 import NetworkProfile from "./NetworkProfile";
+import EventLogs from "./EventLogs";
+import EventDebugger from "./EventDebugger";
 
 /**
  * 个人资料主页面 - 处理个人资料相关的所有功能
@@ -21,7 +23,7 @@ const ProfileMainPage: React.FC = () => {
       {/* 默认个人资料视图 */}
       <Route index element={<ProfileDashboard />} />
 
-      {/* 个人信息编辑子页面 */}
+      {/* Profile edit subpage */}
       <Route
         path="edit"
         element={
@@ -36,7 +38,7 @@ const ProfileMainPage: React.FC = () => {
         }
       />
 
-      {/* 安全设置子页面 */}
+      {/* Security settings subpage */}
       <Route
         path="security"
         element={
@@ -51,9 +53,15 @@ const ProfileMainPage: React.FC = () => {
         }
       />
 
-      {/* Agent Management 子页面 - Admin only */}
+      {/* Agent Management subpage - Admin only */}
       <Route path="agent-management" element={<AgentManagement />} />
       <Route path="network-profile" element={<NetworkProfile />} />
+      
+      {/* Event Logs subpage */}
+      <Route path="event-logs" element={<EventLogs />} />
+      
+      {/* Event Debugger subpage */}
+      <Route path="event-debugger" element={<EventDebugger />} />
       
     </Routes>
   );
