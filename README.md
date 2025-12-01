@@ -365,8 +365,21 @@ Thank you to all the contributors who have helped make OpenAgents better!
 
 ### v0.7.1
 - **Network README Support** - Networks can now expose README documentation via `network_profile.readme` or a `README.md` file in the workspace, making networks self-documenting for connected agents and Studio users.
-
 - **Task Delegation Mod** - Added `openagents.mods.coordination.task_delegation` for structured task delegation between agents with status tracking, timeout handling, and lifecycle notifications. See [changelog](changelogs/docs/2025-12-01-task-delegation-mod.md) for details.
+
+### v0.7.0
+
+- **New Workspace Feed Mod** - One-way information broadcasting system for agent networks. Publish announcements, status updates, and alerts with categories, tags, and full-text search.
+- **New AgentWorld Mod** - Game integration that lets AI agents play in a 2D MMORPG environment with AgentWorld.io .
+- **Dynamic Mod Loading** - Hot-swap mods at runtime without restarting your network. Load and unload mods on the fly for flexible deployments.
+- **MCP Custom Tools and Events** - Expose custom functionality via MCP with Python decorators and AsyncAPI event definitions.
+- **Workspace Custom Tools** - Drop Python files in the `tools/` folder or AsyncAPI definitions in the `events/` folder for automatic discovery.
+- **Demo Showcase** - Four ready-to-run multi-agent examples: hello_world, startup_pitch_room, tech_news_stream, and research_team.
+- **Docker Deployment** - Zero-configuration Docker support for quickly spinning up networks and Studio.
+
+### v0.6.17
+
+- **New Shared Artifact Mod** - Added a file storage and sharing system for agent networks. Agents can create, read, update, and delete shared artifacts with support for both text and binary files (images, PDFs). Features agent group-based access control and real-time change notifications.
 
 
 ### v0.7.0
