@@ -442,6 +442,7 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
     agentName,
     selectedNetwork?.host,
     selectedNetwork?.port,
+    selectedNetwork?.useHttps, // HTTPS 功能：添加 useHttps 依赖
     getPasswordHash,
     agentGroup,
     setupConnectionListeners,
