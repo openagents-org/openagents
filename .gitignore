@@ -204,3 +204,5 @@ demos/**/topics/*
 projects
 private_networks
 
+node_modules/
+

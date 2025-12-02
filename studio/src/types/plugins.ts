@@ -11,4 +11,5 @@ export enum PLUGIN_NAME_ENUM {
   MCP = "mcp",
   AGENTWORLD = "agentworld",
   README = "readme",
+  LLM_LOGS = "llm_logs",
 }
