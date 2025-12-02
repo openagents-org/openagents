@@ -102,18 +102,27 @@ export const areCookiesEnabled = (): boolean => {
 
 /**
  * Store manual connection details
+ * HTTPS 功能：添加 useHttps 参数以保存 HTTPS 连接状态
  */
-export const saveManualConnection = (host: string, port: string): void => {
-  const connectionData = JSON.stringify({ host, port, timestamp: Date.now() });
+export const saveManualConnection = (host: string, port: string, useHttps?: boolean): void => {
+  // HTTPS 功能：在保存的连接数据中包含 useHttps 状态
+  const connectionData = JSON.stringify({ 
+    host, 
+    port, 
+    useHttps: useHttps || false, // HTTPS 功能：默认为 false
+    timestamp: Date.now() 
+  });
   setCookie(MANUAL_CONNECTION_COOKIE_NAME, connectionData, { expires: 365 }); // 1 year
 };
 
 /**
  * Get saved manual connection details
+ * HTTPS 功能：返回包含 useHttps 的连接信息
  */
 export const getSavedManualConnection = (): {
   host: string;
   port: string;
+  useHttps?: boolean; // HTTPS 功能：返回 useHttps 状态
 } | null => {
   try {
     const connectionData = getCookie(MANUAL_CONNECTION_COOKIE_NAME);
@@ -121,7 +130,12 @@ export const getSavedManualConnection = (): {
 
     const parsed = JSON.parse(connectionData);
     if (parsed.host && parsed.port) {
-      return { host: parsed.host, port: parsed.port };
+      // HTTPS 功能：返回包含 useHttps 的连接信息
+      return { 
+        host: parsed.host, 
+        port: parsed.port,
+        useHttps: parsed.useHttps || false // HTTPS 功能：如果没有保存，默认为 false
+      };
     }
   } catch (error) {
     console.warn("Failed to parse saved manual connection:", error);

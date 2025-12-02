@@ -23,6 +23,7 @@ export interface ConnectionOptions {
   timeout?: number;
   passwordHash?: string | null;
   agentGroup?: string | null;
+  useHttps?: boolean; // HTTPS 功能：添加 useHttps 选项
 }
 
 export interface EventHandler {
@@ -35,6 +36,7 @@ export class HttpEventConnector {
   private baseUrl: string;
   private host: string;
   private port: number;
+  private useHttps: boolean; // HTTPS 功能：存储是否使用 HTTPS
   private connected = false;
   private isConnecting = false;
   private connectionAborted = false;
@@ -53,9 +55,11 @@ export class HttpEventConnector {
     this.timeout = options.timeout || 30000;
     this.passwordHash = options.passwordHash || null;
     this.agentGroup = options.agentGroup || null;
+    this.useHttps = options.useHttps || false; // HTTPS 功能：从选项中获取 useHttps
 
-    // Store host and port for network requests
-    this.baseUrl = `http://${options.host}:${options.port}/api`;
+    // HTTPS 功能：根据 useHttps 选择协议构造 baseUrl
+    const protocol = this.useHttps ? 'https' : 'http';
+    this.baseUrl = `${protocol}://${options.host}:${options.port}/api`;
     this.host = options.host;
     this.port = options.port;
   }
@@ -578,6 +582,7 @@ export class HttpEventConnector {
 
   /**
    * Send HTTP request helper with proxy support
+   * HTTPS 功能：使用 useHttps 参数构造请求
    */
   private async sendHttpRequest(
     endpoint: string,
@@ -590,9 +595,11 @@ export class HttpEventConnector {
       console.log(`🌐 ${method} ${endpoint}`, data ? { body: data } : "");
     }
 
-    const options: RequestInit & { timeout?: number } = {
+    // HTTPS 功能：将 useHttps 参数传递给 networkFetch
+    const options: RequestInit & { timeout?: number; useHttps?: boolean } = {
       method,
       timeout: this.timeout,
+      useHttps: this.useHttps, // HTTPS 功能：使用实例的 useHttps 属性
     };
 
     if (data && method === "POST") {

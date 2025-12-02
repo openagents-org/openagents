@@ -129,9 +129,12 @@ export const httpFetch = async (
 
 /**
  * Build URL for OpenAgents network endpoint with automatic proxy support
+ * HTTPS 功能：支持根据 useHttps 参数选择 http 或 https 协议
  */
-export const buildNetworkUrl = (host: string, port: number, endpoint: string): string => {
-  const baseUrl = `http://${host}:${port}`;
+export const buildNetworkUrl = (host: string, port: number, endpoint: string, useHttps: boolean = false): string => {
+  // HTTPS 功能：根据 useHttps 参数选择协议
+  const protocol = useHttps ? 'https' : 'http';
+  const baseUrl = `${protocol}://${host}:${port}`;
   const fullUrl = `${baseUrl}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
   
   const { url } = transformUrlForProxy(fullUrl);
@@ -140,9 +143,12 @@ export const buildNetworkUrl = (host: string, port: number, endpoint: string): s
 
 /**
  * Build headers for OpenAgents network request with automatic proxy support
+ * HTTPS 功能：支持根据 useHttps 参数选择协议
  */
-export const buildNetworkHeaders = (host: string, port: number, additionalHeaders: HeadersInit = {}): Headers => {
-  const baseUrl = `http://${host}:${port}`;
+export const buildNetworkHeaders = (host: string, port: number, additionalHeaders: HeadersInit = {}, useHttps: boolean = false): Headers => {
+  // HTTPS 功能：根据 useHttps 参数选择协议
+  const protocol = useHttps ? 'https' : 'http';
+  const baseUrl = `${protocol}://${host}:${port}`;
   const { headers: proxyHeaders } = transformUrlForProxy(baseUrl);
   
   const headers = new Headers(additionalHeaders);
@@ -157,15 +163,18 @@ export const buildNetworkHeaders = (host: string, port: number, additionalHeader
 
 /**
  * Convenience method for OpenAgents network requests
+ * HTTPS 功能：支持通过 options.useHttps 参数指定使用 HTTPS
  */
 export const networkFetch = async (
   host: string,
   port: number,
   endpoint: string,
-  options: RequestInit & HttpClientOptions = {}
+  options: RequestInit & HttpClientOptions & { useHttps?: boolean } = {}
 ): Promise<Response> => {
-  const url = buildNetworkUrl(host, port, endpoint);
-  const headers = buildNetworkHeaders(host, port, options.headers);
+  // HTTPS 功能：从 options 中提取 useHttps 参数
+  const useHttps = options.useHttps || false;
+  const url = buildNetworkUrl(host, port, endpoint, useHttps);
+  const headers = buildNetworkHeaders(host, port, options.headers, useHttps);
   
   const method = options.method || "GET";
   const startTime = Date.now();

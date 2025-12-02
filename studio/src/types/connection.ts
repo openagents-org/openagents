@@ -22,6 +22,7 @@ export interface NetworkConnection {
   port: number;
   status: ConnectionStatusEnum;
   latency?: number;
+  useHttps?: boolean; // HTTPS 功能：记录是否使用 HTTPS 连接
   networkInfo?: {
     name?: string;
     workspace_path?: string;

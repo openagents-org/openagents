@@ -68,33 +68,40 @@ export const detectLocalNetwork =
   };
 
 // Test connection to a specific network using HTTP port directly
+// HTTPS 功能：添加 useHttps 参数以支持 HTTPS 连接
 export const ManualNetworkConnection = async (
   host: string,
-  port: number
+  port: number,
+  useHttps: boolean = false
 ): Promise<NetworkConnection> => {
   const startTime = Date.now();
 
   try {
-    console.log(`Testing connection to network: ${host}:${port}`);
+    // HTTPS 功能：根据 useHttps 参数显示连接协议
+    const protocol = useHttps ? 'https' : 'http';
+    console.log(`Testing connection to network: ${protocol}://${host}:${port}`);
 
     // Use health check endpoint to test connectivity
+    // HTTPS 功能：将 useHttps 参数传递给 networkFetch
     const response = await networkFetch(host, port, "/api/health", {
       method: "GET",
       timeout: 5000, // 5 second timeout
       headers: {
         Accept: "application/json",
       },
+      useHttps: useHttps, // HTTPS 功能：传递 useHttps 参数
     });
 
     const latency = Date.now() - startTime;
 
     if (response.ok) {
-      console.log(`Successfully connected to ${host}:${port}`);
+      console.log(`Successfully connected to ${protocol}://${host}:${port}`);
       return {
         host,
         port,
         status: ConnectionStatusEnum.CONNECTED,
         latency,
+        useHttps, // HTTPS 功能：在返回的连接信息中包含 useHttps
       };
     } else {
       console.error(

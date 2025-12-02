@@ -15,6 +15,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 const DEFAULT_PORT = "8700";
+const DEFAULT_HTTPS_PORT = "443"; // HTTPS 功能：默认 HTTPS 端口
 
 const HOST_PORT_TAB = "host-port";
 const NETWORK_ID_TAB = "network-id";
@@ -31,11 +32,14 @@ export default function ManualNetwork() {
   const [tabList, setTabList] = useState<{ key: ConnectionTab; label: string }[]>([]);
   const [manualHost, setManualHost] = useState("");
   const [manualPort, setManualPort] = useState(DEFAULT_PORT);
+  // HTTPS 功能：添加 useHttps 状态，控制是否使用 HTTPS 协议
+  const [useHttps, setUseHttps] = useState(false);
   const [networkId, setNetworkId] = useState("");
   const [isLoadingConnection, setIsLoadingConnection] = useState(false);
   const [savedConnection, setSavedConnection] = useState<{
     host: string;
     port: string;
+    useHttps?: boolean; // HTTPS 功能：保存连接时记录是否使用 HTTPS
   } | null>(null);
   const [savedAgentName, setSavedAgentName] = useState<string | null>(null);
 
@@ -53,10 +57,14 @@ export default function ManualNetwork() {
     // Load saved manual connection
     const saved = getSavedManualConnection();
     if (saved) {
-      const { host, port } = saved;
+      const { host, port, useHttps: savedUseHttps } = saved;
       setSavedConnection(saved);
       setManualHost(host);
       setManualPort(port);
+      // HTTPS 功能：恢复保存的 useHttps 状态
+      if (savedUseHttps !== undefined) {
+        setUseHttps(savedUseHttps);
+      }
 
       // Also load saved agent name for this network
       const agentName = getSavedAgentNameForNetwork(host, port);
@@ -99,22 +107,38 @@ export default function ManualNetwork() {
     loadSavedInfoAndSetTab();
   }, [loadSavedInfoAndSetTab]);
 
+  // HTTPS 功能：当用户勾选/取消 HTTPS 时，自动调整端口
+  const handleHttpsToggle = (checked: boolean) => {
+    setUseHttps(checked);
+    if (checked) {
+      // 勾选 HTTPS 时，自动设置端口为 443（如果当前是默认的 8700）
+      if (manualPort === DEFAULT_PORT || manualPort === "") {
+        setManualPort(DEFAULT_HTTPS_PORT);
+      }
+    }
+    // 注意：取消勾选时不自动改回端口，保持用户输入
+  };
+
   const handleConnect = async (
     isQuickConnect: boolean,
     {
       host,
       port,
+      useHttps: connectionUseHttps,
     }: {
       host: string;
       port: string;
+      useHttps?: boolean; // HTTPS 功能：传递 useHttps 参数
     }
   ) => {
     setIsLoadingConnection(true);
     try {
-      const connection = await ManualNetworkConnection(host, parseInt(port));
+      // HTTPS 功能：调用 ManualNetworkConnection 时传递 useHttps 参数
+      const connection = await ManualNetworkConnection(host, parseInt(port), connectionUseHttps || false);
       if (connection.status === ConnectionStatusEnum.CONNECTED) {
         if (!isQuickConnect) {
-          saveManualConnection(host, port);
+          // HTTPS 功能：保存连接时包含 useHttps 状态
+          saveManualConnection(host, port, connectionUseHttps);
         }
         handleNetworkSelected(connection);
         navigate("/agent-setup");
@@ -132,9 +156,11 @@ export default function ManualNetwork() {
 
   const handleManualConnect = async () => {
     if (activeTab === HOST_PORT_TAB) {
+      // HTTPS 功能：手动连接时传递 useHttps 状态
       handleConnect(false, {
         host: manualHost,
         port: manualPort,
+        useHttps: useHttps,
       });
     } else if (activeTab === NETWORK_ID_TAB) {
       await handleNetworkIdConnect();
@@ -161,12 +187,19 @@ export default function ManualNetwork() {
       // Extract connection information
       let host = network.profile?.host;
       let port = network.profile?.port;
+      // HTTPS 功能新增：用于检测是否应该使用 HTTPS
+      let shouldUseHttps = false;
 
       // If no direct host/port, try to extract from connection endpoint
       if (!host || !port) {
         if (network.profile?.connection?.endpoint) {
           const endpoint = network.profile.connection.endpoint;
           console.log(`🔗 Parsing connection endpoint: ${endpoint}`);
+
+          // HTTPS 功能新增：检测 endpoint 是否使用 https 协议
+          if (endpoint.startsWith("https://")) {
+            shouldUseHttps = true;
+          }
 
           // Parse different endpoint formats
           if (endpoint.startsWith("modbus://")) {
@@ -206,9 +239,11 @@ export default function ManualNetwork() {
         return;
       }
 
+      // HTTPS 功能新增：使用检测到的协议类型
       handleConnect(false, {
         host,
-        port,
+        port: port.toString(),
+        useHttps: shouldUseHttps,
       });
     } catch (error: any) {
       toast.error(`Error connecting with network ID: ${error.message || error}`);
@@ -279,7 +314,8 @@ export default function ManualNetwork() {
                 Last Connected Server
               </h3>
               <p className="text-blue-600 dark:text-blue-500">
-                {savedConnection.host}:{savedConnection.port}
+                {/* HTTPS 功能：显示连接协议 */}
+                {savedConnection.useHttps ? 'https://' : 'http://'}{savedConnection.host}:{savedConnection.port}
               </p>
               {savedAgentName && (
                 <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
@@ -329,6 +365,25 @@ export default function ManualNetwork() {
                 />
               </div>
             </div>
+
+            {/* HTTPS 功能：添加 HTTPS 勾选框 */}
+            <div className="mt-4">
+              <label className="flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useHttps}
+                  onChange={(e) => handleHttpsToggle(e.target.checked)}
+                  className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 focus:ring-2 dark:border-gray-600 dark:bg-gray-800"
+                />
+                <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                  使用 HTTPS（自动使用 443 端口）
+                </span>
+              </label>
+              <p className="mt-1 ml-6 text-xs text-gray-500 dark:text-gray-400">
+                勾选后将使用 https:// 协议连接服务器
+              </p>
+            </div>
+
             <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
               Enter the host address and port number to connect directly
             </p>

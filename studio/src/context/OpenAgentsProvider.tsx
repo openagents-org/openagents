@@ -401,18 +401,24 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
     // Decrypt password hash before passing to connector
     const passwordHash = getPasswordHash();
 
+    // HTTPS 功能：从 selectedNetwork 中获取 useHttps 参数
+    const useHttps = selectedNetwork.useHttps || false;
+
     console.log("🔧 Initializing OpenAgents connector...", {
       agentId: agentName,
       host: selectedNetwork.host,
       port: selectedNetwork.port,
+      useHttps: useHttps, // HTTPS 功能：显示连接协议
       hasPasswordHash: !!passwordHash,
       agentGroup: agentGroup,
     });
 
+    // HTTPS 功能：创建连接器时传递 useHttps 参数
     const newConnector = new HttpEventConnector({
       agentId: agentName,
       host: selectedNetwork.host,
       port: selectedNetwork.port,
+      useHttps: useHttps, // HTTPS 功能：传递 useHttps 参数
       passwordHash: passwordHash,
       agentGroup: agentGroup,
     });
