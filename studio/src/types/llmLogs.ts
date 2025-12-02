@@ -3,28 +3,44 @@ export interface LLMLogEntry {
   timestamp: number; // Unix timestamp in milliseconds
   agent_id: string;
   model: string;
+  provider?: string; // e.g., "openai", "anthropic"
   latency_ms: number;
-  prompt: string;
-  completion: string;
-  error?: string;
+  prompt: string; // Full prompt or preview (from list endpoint)
+  completion: string; // Full completion or preview (from list endpoint)
+  preview?: string; // Preview text from list endpoint
+  error?: string | null;
   usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
+    prompt_tokens?: number; // Also mapped from input_tokens
+    completion_tokens?: number; // Also mapped from output_tokens
     total_tokens?: number;
   };
   messages?: Array<{
     role: string;
     content: string;
   }>;
+  tools?: Array<{
+    type: string;
+    function: {
+      name: string;
+      description?: string;
+      parameters?: any;
+    };
+  }>;
+  tool_calls?: Array<{
+    id: string;
+    name: string;
+    arguments: string; // JSON string
+  }>;
+  has_tool_calls?: boolean;
+  // Indicates if this entry has full details loaded
+  isDetailLoaded?: boolean;
 }
 
 export interface LLMLogFilters {
-  model?: string;
-  agent_id?: string;
-  startDate?: string; // YYYY-MM-DD
-  endDate?: string; // YYYY-MM-DD
-  hasError?: boolean;
-  searchQuery?: string;
+  model?: string; // Filter by model name
+  startDate?: string; // YYYY-MM-DD - converted to 'since' timestamp (Unix seconds)
+  hasError?: boolean; // Filter by error status (true/false)
+  searchQuery?: string; // Search in messages/completion - mapped to 'search' parameter
 }
 
 export interface LLMLogStats {

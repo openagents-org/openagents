@@ -62,16 +62,18 @@ export const getEnabledModules = (healthResponse: HealthResponse): string[] => {
 export const updateRouteVisibilityFromModules = (
   enabledModules: string[]
 ): void => {
-  // 首先隐藏所有主要路由（只保留 Profile 和 README 始终可见，它们不是 mod）
+  // 首先隐藏所有主要路由（只保留 Profile、README 和 LLM_LOGS 始终可见，它们不是 mod）
   // Settings 如果作为 mod 存在，也应该由网络返回来控制
   Object.values(PLUGIN_NAME_ENUM).forEach((plugin) => {
-    if (plugin !== PLUGIN_NAME_ENUM.PROFILE && plugin !== PLUGIN_NAME_ENUM.README) {
+    if (plugin !== PLUGIN_NAME_ENUM.PROFILE && plugin !== PLUGIN_NAME_ENUM.README && plugin !== PLUGIN_NAME_ENUM.LLM_LOGS) {
       updateRouteVisibility(plugin, false)
     }
   })
 
-  // 确保 README 始终可见
+  // 确保 Profile、README 和 LLM_LOGS 始终可见
+  updateRouteVisibility(PLUGIN_NAME_ENUM.PROFILE, true)
   updateRouteVisibility(PLUGIN_NAME_ENUM.README, true)
+  updateRouteVisibility(PLUGIN_NAME_ENUM.LLM_LOGS, true)
 
   // 然后根据网络返回的 mods 启用对应的路由
   enabledModules.forEach((moduleName) => {
@@ -136,6 +138,7 @@ export const isRouteAvailable = (
     "agentworld",
     "artifact", // Artifact 始终可用，类似 Project
     "readme", // README 始终可用，显示网络文档
+    "llm-logs", // LLM Logs 始终可用，用于查看 LLM 日志
   ]
   if (alwaysAvailableRoutes.includes(routeName)) {
     return true
