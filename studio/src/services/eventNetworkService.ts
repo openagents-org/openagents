@@ -36,6 +36,7 @@ export class EventNetworkService {
       port: this.connection.port,
       agentId: this.agentId,
       timeout: options.timeout,
+      useHttps: this.connection.useHttps,
     });
 
     this.setupEventHandlers();

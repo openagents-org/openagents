@@ -129,10 +129,10 @@ export const httpFetch = async (
 
 /**
  * Build URL for OpenAgents network endpoint with automatic proxy support
- * HTTPS 功能：支持根据 useHttps 参数选择 http 或 https 协议
+ * HTTPS Feature: Support selection of http or https protocol based on useHttps parameter
  */
 export const buildNetworkUrl = (host: string, port: number, endpoint: string, useHttps: boolean = false): string => {
-  // HTTPS 功能：根据 useHttps 参数选择协议
+  // HTTPS Feature: Select protocol based on useHttps parameter
   const protocol = useHttps ? 'https' : 'http';
   const baseUrl = `${protocol}://${host}:${port}`;
   const fullUrl = `${baseUrl}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
@@ -143,10 +143,10 @@ export const buildNetworkUrl = (host: string, port: number, endpoint: string, us
 
 /**
  * Build headers for OpenAgents network request with automatic proxy support
- * HTTPS 功能：支持根据 useHttps 参数选择协议
+ * HTTPS Feature: Support selection of http or https protocol based on useHttps parameter
  */
 export const buildNetworkHeaders = (host: string, port: number, additionalHeaders: HeadersInit = {}, useHttps: boolean = false): Headers => {
-  // HTTPS 功能：根据 useHttps 参数选择协议
+  // HTTPS Feature: Select protocol based on useHttps parameter
   const protocol = useHttps ? 'https' : 'http';
   const baseUrl = `${protocol}://${host}:${port}`;
   const { headers: proxyHeaders } = transformUrlForProxy(baseUrl);
@@ -163,7 +163,7 @@ export const buildNetworkHeaders = (host: string, port: number, additionalHeader
 
 /**
  * Convenience method for OpenAgents network requests
- * HTTPS 功能：支持通过 options.useHttps 参数指定使用 HTTPS
+ * HTTPS Feature: Support selection of http or https protocol based on options.useHttps parameter
  */
 export const networkFetch = async (
   host: string,
@@ -171,7 +171,7 @@ export const networkFetch = async (
   endpoint: string,
   options: RequestInit & HttpClientOptions & { useHttps?: boolean } = {}
 ): Promise<Response> => {
-  // HTTPS 功能：从 options 中提取 useHttps 参数
+  // HTTPS Feature: Extract useHttps parameter from options
   const useHttps = options.useHttps || false;
   const url = buildNetworkUrl(host, port, endpoint, useHttps);
   const headers = buildNetworkHeaders(host, port, options.headers, useHttps);

@@ -23,7 +23,7 @@ export interface ConnectionOptions {
   timeout?: number;
   passwordHash?: string | null;
   agentGroup?: string | null;
-  useHttps?: boolean; // HTTPS 功能：添加 useHttps 选项
+  useHttps?: boolean; // HTTPS Feature: Add useHttps option for HTTPS connections
 }
 
 export interface EventHandler {
@@ -36,7 +36,7 @@ export class HttpEventConnector {
   private baseUrl: string;
   private host: string;
   private port: number;
-  private useHttps: boolean; // HTTPS 功能：存储是否使用 HTTPS
+  private useHttps: boolean; // HTTPS Feature: Store whether to use HTTPS
   private connected = false;
   private isConnecting = false;
   private connectionAborted = false;
@@ -55,9 +55,9 @@ export class HttpEventConnector {
     this.timeout = options.timeout || 30000;
     this.passwordHash = options.passwordHash || null;
     this.agentGroup = options.agentGroup || null;
-    this.useHttps = options.useHttps || false; // HTTPS 功能：从选项中获取 useHttps
+    this.useHttps = options.useHttps || false; // HTTPS Feature: Get useHttps option from connection options
 
-    // HTTPS 功能：根据 useHttps 选择协议构造 baseUrl
+    // HTTPS Feature: Construct baseUrl based on useHttps option
     const protocol = this.useHttps ? 'https' : 'http';
     this.baseUrl = `${protocol}://${options.host}:${options.port}/api`;
     this.host = options.host;
@@ -582,7 +582,7 @@ export class HttpEventConnector {
 
   /**
    * Send HTTP request helper with proxy support
-   * HTTPS 功能：使用 useHttps 参数构造请求
+   * HTTPS Feature: Use useHttps parameter to construct request
    */
   private async sendHttpRequest(
     endpoint: string,
@@ -595,11 +595,11 @@ export class HttpEventConnector {
       console.log(`🌐 ${method} ${endpoint}`, data ? { body: data } : "");
     }
 
-    // HTTPS 功能：将 useHttps 参数传递给 networkFetch
+    // HTTPS Feature: Pass useHttps parameter to networkFetch
     const options: RequestInit & { timeout?: number; useHttps?: boolean } = {
       method,
       timeout: this.timeout,
-      useHttps: this.useHttps, // HTTPS 功能：使用实例的 useHttps 属性
+      useHttps: this.useHttps, // HTTPS Feature: Use instance's useHttps property
     };
 
     if (data && method === "POST") {

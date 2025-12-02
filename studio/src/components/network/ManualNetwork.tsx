@@ -15,7 +15,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 const DEFAULT_PORT = "8700";
-const DEFAULT_HTTPS_PORT = "443"; // HTTPS 功能：默认 HTTPS 端口
+const DEFAULT_HTTPS_PORT = "443"; // HTTPS Feature: Default HTTPS port
 
 const HOST_PORT_TAB = "host-port";
 const NETWORK_ID_TAB = "network-id";
@@ -32,14 +32,14 @@ export default function ManualNetwork() {
   const [tabList, setTabList] = useState<{ key: ConnectionTab; label: string }[]>([]);
   const [manualHost, setManualHost] = useState("");
   const [manualPort, setManualPort] = useState(DEFAULT_PORT);
-  // HTTPS 功能：添加 useHttps 状态，控制是否使用 HTTPS 协议
+  // HTTPS Feature: Add useHttps state to control whether to use HTTPS protocol
   const [useHttps, setUseHttps] = useState(false);
   const [networkId, setNetworkId] = useState("");
   const [isLoadingConnection, setIsLoadingConnection] = useState(false);
   const [savedConnection, setSavedConnection] = useState<{
     host: string;
     port: string;
-    useHttps?: boolean; // HTTPS 功能：保存连接时记录是否使用 HTTPS
+    useHttps?: boolean; // HTTPS Feature: Record whether HTTPS is used for the connection
   } | null>(null);
   const [savedAgentName, setSavedAgentName] = useState<string | null>(null);
 
@@ -61,7 +61,7 @@ export default function ManualNetwork() {
       setSavedConnection(saved);
       setManualHost(host);
       setManualPort(port);
-      // HTTPS 功能：恢复保存的 useHttps 状态
+      // HTTPS Feature: Restore saved useHttps state
       if (savedUseHttps !== undefined) {
         setUseHttps(savedUseHttps);
       }
@@ -107,11 +107,11 @@ export default function ManualNetwork() {
     loadSavedInfoAndSetTab();
   }, [loadSavedInfoAndSetTab]);
 
-  // HTTPS 功能：当用户勾选/取消 HTTPS 时，自动调整端口
+  // HTTPS Feature: When user toggles HTTPS, automatically adjust port
   const handleHttpsToggle = (checked: boolean) => {
     setUseHttps(checked);
     if (checked) {
-      // 勾选 HTTPS 时，自动设置端口为 443（如果当前是默认的 8700）
+      // HTTPS Feature: Automatically set port to 443 if default 8700 is used
       if (manualPort === DEFAULT_PORT || manualPort === "") {
         setManualPort(DEFAULT_HTTPS_PORT);
       }
@@ -128,16 +128,16 @@ export default function ManualNetwork() {
     }: {
       host: string;
       port: string;
-      useHttps?: boolean; // HTTPS 功能：传递 useHttps 参数
+      useHttps?: boolean; // HTTPS Feature: Pass useHttps parameter
     }
   ) => {
     setIsLoadingConnection(true);
     try {
-      // HTTPS 功能：调用 ManualNetworkConnection 时传递 useHttps 参数
+      // HTTPS Feature: Call ManualNetworkConnection with useHttps parameter
       const connection = await ManualNetworkConnection(host, parseInt(port), connectionUseHttps || false);
       if (connection.status === ConnectionStatusEnum.CONNECTED) {
         if (!isQuickConnect) {
-          // HTTPS 功能：保存连接时包含 useHttps 状态
+          // HTTPS Feature: Save connection with useHttps status
           saveManualConnection(host, port, connectionUseHttps);
         }
         handleNetworkSelected(connection);
@@ -156,7 +156,7 @@ export default function ManualNetwork() {
 
   const handleManualConnect = async () => {
     if (activeTab === HOST_PORT_TAB) {
-      // HTTPS 功能：手动连接时传递 useHttps 状态
+      // HTTPS Feature: Pass useHttps state when manually connecting
       handleConnect(false, {
         host: manualHost,
         port: manualPort,
@@ -187,7 +187,7 @@ export default function ManualNetwork() {
       // Extract connection information
       let host = network.profile?.host;
       let port = network.profile?.port;
-      // HTTPS 功能新增：用于检测是否应该使用 HTTPS
+      // HTTPS Feature: Add detection for HTTPS protocol in connection endpoint
       let shouldUseHttps = false;
 
       // If no direct host/port, try to extract from connection endpoint
@@ -196,7 +196,7 @@ export default function ManualNetwork() {
           const endpoint = network.profile.connection.endpoint;
           console.log(`🔗 Parsing connection endpoint: ${endpoint}`);
 
-          // HTTPS 功能新增：检测 endpoint 是否使用 https 协议
+          // HTTPS Feature: Detect HTTPS protocol in connection endpoint
           if (endpoint.startsWith("https://")) {
             shouldUseHttps = true;
           }
@@ -239,7 +239,7 @@ export default function ManualNetwork() {
         return;
       }
 
-      // HTTPS 功能新增：使用检测到的协议类型
+      // HTTPS Feature: Use detected protocol type for connection
       handleConnect(false, {
         host,
         port: port.toString(),
@@ -314,7 +314,7 @@ export default function ManualNetwork() {
                 Last Connected Server
               </h3>
               <p className="text-blue-600 dark:text-blue-500">
-                {/* HTTPS 功能：显示连接协议 */}
+                {/* HTTPS Feature: Display connection protocol */}
                 {savedConnection.useHttps ? 'https://' : 'http://'}{savedConnection.host}:{savedConnection.port}
               </p>
               {savedAgentName && (
@@ -366,7 +366,7 @@ export default function ManualNetwork() {
               </div>
             </div>
 
-            {/* HTTPS 功能：添加 HTTPS 勾选框 */}
+            {/* HTTPS Feature: Add HTTPS checkbox */}
             <div className="mt-4">
               <label className="flex items-center cursor-pointer">
                 <input
@@ -376,11 +376,11 @@ export default function ManualNetwork() {
                   className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 focus:ring-2 dark:border-gray-600 dark:bg-gray-800"
                 />
                 <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                  使用 HTTPS（自动使用 443 端口）
+                  Use HTTPS (automatically uses port 443)
                 </span>
               </label>
               <p className="mt-1 ml-6 text-xs text-gray-500 dark:text-gray-400">
-                勾选后将使用 https:// 协议连接服务器
+                When enabled, the connection to the server will use the https:// protocol
               </p>
             </div>
 

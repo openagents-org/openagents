@@ -81,7 +81,8 @@ export interface PasswordVerificationResult {
 export async function verifyPasswordWithBackend(
   password: string,
   networkHost: string,
-  networkPort: number
+  networkPort: number,
+  useHttps?: boolean
 ): Promise<PasswordVerificationResult> {
   if (!password || password.trim().length === 0) {
     return {
@@ -118,6 +119,7 @@ export async function verifyPasswordWithBackend(
           'Accept': 'application/json',
         },
         body: JSON.stringify(requestBody),
+        useHttps: useHttps,
       }
     );
 
@@ -186,9 +188,10 @@ export interface PasswordMatchResult {
 export async function findMatchingGroup(
   password: string,
   networkHost: string,
-  networkPort: number
+  networkPort: number,
+  useHttps?: boolean
 ): Promise<PasswordMatchResult> {
-  const result = await verifyPasswordWithBackend(password, networkHost, networkPort);
+  const result = await verifyPasswordWithBackend(password, networkHost, networkPort, useHttps);
 
   return {
     success: result.success && result.valid,
