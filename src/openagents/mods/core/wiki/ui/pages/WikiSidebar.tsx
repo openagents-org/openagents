@@ -186,3 +186,4 @@ const WikiSidebar: React.FC = () => {
 };
 
 export default React.memo(WikiSidebar);
+

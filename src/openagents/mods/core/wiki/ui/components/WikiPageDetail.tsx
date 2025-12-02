@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useWikiStore } from "@/stores/wikiStore";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer";
-import WikiEditor from "./components/WikiEditor";
+import WikiEditor from "./WikiEditor";
 import { OpenAgentsContext } from "@/context/OpenAgentsProvider";
 
 const WikiPageDetail: React.FC = () => {
@@ -268,3 +268,4 @@ const WikiPageDetail: React.FC = () => {
 };
 
 export default WikiPageDetail;
+

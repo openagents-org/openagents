@@ -143,3 +143,4 @@ const WikiEditor: React.FC<WikiEditorProps> = ({
 };
 
 export default WikiEditor;
+

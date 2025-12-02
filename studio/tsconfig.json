@@ -23,11 +23,15 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
-    }
+      "@/*": ["src/*"],
+      "@wiki/*": ["../src/openagents/mods/core/wiki/ui/*"]
+    },
+    "typeRoots": ["./node_modules/@types"],
+    "rootDirs": [".", "./src", "../src/openagents/mods/core/wiki/ui"]
   },
   "include": [
-    "src"
+    "src",
+    "../src/openagents/mods/core/wiki/ui"
   ],
   "exclude": [
     "node_modules"

@@ -8,7 +8,7 @@ import MessagingMainPage from "@/pages/messaging/MessagingMainPage"
 import ProjectMainPage from "@/pages/project/ProjectMainPage"
 import ForumMainPage from "@/pages/forum/ForumMainPage"
 import ArtifactMainPage from "@/pages/artifact/ArtifactMainPage"
-import WikiMainPage from "@/pages/wiki/WikiMainPage"
+import WikiMainPage from "@wiki/pages/WikiMainPage"
 import DocumentsMainPage from "@/pages/documents/DocumentsMainPage"
 // import SettingsMainPage from "@/pages/settings/SettingsMainPage";
 import ProfileMainPage from "@/pages/profile/ProfileMainPage"

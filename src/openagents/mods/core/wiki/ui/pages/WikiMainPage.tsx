@@ -1,8 +1,8 @@
 import React from "react";
 import { Routes, Route } from "react-router-dom";
-import WikiPageList from "@/components/wiki/WikiPageList";
-import WikiPageDetail from "@/components/wiki/WikiPageDetail";
-import WikiProposals from "@/components/wiki/WikiProposals";
+import WikiPageList from "../components/WikiPageList";
+import WikiPageDetail from "../components/WikiPageDetail";
+import WikiProposals from "../components/WikiProposals";
 
 /**
  * Wiki main page - handles all Wiki-related features
@@ -23,3 +23,4 @@ const WikiMainPage: React.FC = () => {
 };
 
 export default WikiMainPage;
+

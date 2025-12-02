@@ -2,7 +2,7 @@ import React, { useState, useEffect, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWikiStore } from "@/stores/wikiStore";
 import { useRecentPagesStore } from "@/stores/recentPagesStore";
-import WikiCreateModal from "./components/WikiCreateModal";
+import WikiCreateModal from "./WikiCreateModal";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer";
 import { formatDateTime } from "@/utils/utils";
 import { OpenAgentsContext } from "@/context/OpenAgentsProvider";
@@ -299,3 +299,4 @@ const WikiPageList: React.FC = () => {
 };
 
 export default WikiPageList;
+

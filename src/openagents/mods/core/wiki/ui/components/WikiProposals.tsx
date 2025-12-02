@@ -299,3 +299,4 @@ const WikiProposals: React.FC = () => {
 };
 
 export default WikiProposals;
+
