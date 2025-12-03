@@ -16,6 +16,7 @@ import AgentWorldMainPage from "@/pages/agentworld/AgentWorldMainPage"
 import ReadmeMainPage from "@/pages/readme/ReadmeMainPage"
 // import McpMainPage from "@/pages/mcp/McpMainPage";
 import FeedMainPage from "@/pages/feed/FeedMainPage"
+import PlaygroundMainPage from "@/pages/playground/PlaygroundMainPage"
 
 // Navigation icon components
 export const NavigationIcons = {
@@ -218,6 +219,24 @@ export const NavigationIcons = {
       })
     )
   ),
+  Playground: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      // Layout icon with chat, board, and artifacts - represents collaborative workspace
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z",
+      })
+    )
+  ),
   // MCP: React.memo(() =>
   //   React.createElement("svg",
   //     {
@@ -388,6 +407,21 @@ export const dynamicRouteConfig: RouteConfig[] = [
       icon: "AgentWorld",
       visible: true,
       order: 3.5,
+      group: "primary",
+    },
+  },
+  {
+    path: "/playground/*",
+    element: PlaygroundMainPage,
+    title: "Playground",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.PLAYGROUND,
+      label: "Playground",
+      icon: "Playground",
+      visible: true,
+      order: 1.8,
       group: "primary",
     },
   },
