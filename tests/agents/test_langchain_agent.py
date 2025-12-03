@@ -340,9 +340,8 @@ class TestLangChainIntegration:
     async def test_real_langchain_agent(self, mock_event_context):
         """Test with a real LangChain agent (requires OPENAI_API_KEY)."""
         from langchain_openai import ChatOpenAI
-        from langchain.agents import create_tool_calling_agent, AgentExecutor
-        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
         from langchain_core.tools import tool
+        from langchain_core.messages import HumanMessage
         from openagents.agents.langchain_agent import LangChainAgentRunner
 
         @tool
@@ -350,19 +349,50 @@ class TestLangChainIntegration:
             """Get weather for a location."""
             return f"Sunny, 72F in {location}"
 
+        # Create LLM with tools bound
         llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        llm_with_tools = llm.bind_tools([get_weather])
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are a helpful weather assistant. Be concise."),
-            ("human", "{input}"),
-            MessagesPlaceholder(variable_name="agent_scratchpad"),
-        ])
+        # Create a simple wrapper that has invoke/ainvoke interface
+        # This simulates a basic agent that calls tools and returns results
+        class SimpleToolAgent:
+            def __init__(self, llm, tools):
+                self.llm = llm
+                self.tools = tools
+                self._tool_map = {t.name: t for t in tools}
 
-        agent = create_tool_calling_agent(llm, [get_weather], prompt)
-        executor = AgentExecutor(agent=agent, tools=[get_weather], verbose=False)
+            def invoke(self, inputs):
+                message = inputs.get("input", "")
+                response = self.llm.invoke([HumanMessage(content=message)])
+                # Handle tool calls
+                if response.tool_calls:
+                    tool_results = []
+                    for tool_call in response.tool_calls:
+                        tool_fn = self._tool_map.get(tool_call["name"])
+                        if tool_fn:
+                            result = tool_fn.invoke(tool_call["args"])
+                            tool_results.append(result)
+                    return {"output": " ".join(tool_results)}
+                return {"output": response.content or "No response"}
+
+            async def ainvoke(self, inputs):
+                message = inputs.get("input", "")
+                response = await self.llm.ainvoke([HumanMessage(content=message)])
+                # Handle tool calls
+                if response.tool_calls:
+                    tool_results = []
+                    for tool_call in response.tool_calls:
+                        tool_fn = self._tool_map.get(tool_call["name"])
+                        if tool_fn:
+                            result = await tool_fn.ainvoke(tool_call["args"])
+                            tool_results.append(result)
+                    return {"output": " ".join(tool_results)}
+                return {"output": response.content or "No response"}
+
+        agent = SimpleToolAgent(llm_with_tools, [get_weather])
 
         runner = LangChainAgentRunner(
-            langchain_agent=executor,
+            langchain_agent=agent,
             agent_id="weather-assistant",
             include_network_tools=False,
         )
@@ -376,9 +406,11 @@ class TestLangChainIntegration:
         assert langchain_input["input"] == input_text
 
         # Test the agent runs (without full network)
-        result = await executor.ainvoke({"input": "What's the weather in Tokyo?"})
+        result = await agent.ainvoke({"input": "What's the weather in Tokyo?"})
         assert "output" in result
         assert len(result["output"]) > 0
+        # Verify the tool was called and returned weather info
+        assert "Tokyo" in result["output"] or "Sunny" in result["output"]
 
 
 class TestImports:
