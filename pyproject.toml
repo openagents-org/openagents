@@ -78,6 +78,13 @@ webrtc = [
     "aiortc>=1.6.0",          # WebRTC implementation
 ]
 
+# LangChain integration (optional)
+langchain = [
+    "langchain>=0.2.0",           # LangChain core framework
+    "langchain-core>=0.2.0",      # LangChain core components
+    "langchain-openai>=0.1.0",    # OpenAI integration for LangChain
+]
+
 # Development dependencies
 dev = [
     # Testing framework
@@ -109,7 +116,7 @@ docs = [
 
 # All optional dependencies
 all = [
-    "openagents[p2p,webrtc,dev,docs]",
+    "openagents[p2p,webrtc,langchain,dev,docs]",
 ]
 
 [project.urls]
