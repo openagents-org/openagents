@@ -527,9 +527,9 @@ class SharedCacheMod(BaseMod):
                     data={"success": False, "error": "filename is required"},
                 )
 
-            # Decode base64 data
+            # Decode base64 data with strict validation
             try:
-                file_bytes = base64.b64decode(file_data)
+                file_bytes = base64.b64decode(file_data, validate=True)
             except Exception as decode_error:
                 logger.error(f"Failed to decode base64 file data: {decode_error}")
                 return EventResponse(
