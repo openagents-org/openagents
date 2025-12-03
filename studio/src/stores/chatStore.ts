@@ -623,7 +623,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     console.log(`ChatStore: Sending message to #${channel}: "${content}"`, {
       hasAttachment: !!attachmentData,
-      attachmentData
+      filename: attachmentData?.filename,
+      fileSize: attachmentData?.size
     });
 
     // 1. Immediately add optimistic update message
@@ -756,7 +757,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       `ChatStore: Sending direct message to ${targetAgentId}: "${content}"`,
       {
         hasAttachment: !!attachmentData,
-        attachmentData
+        filename: attachmentData?.filename,
+        fileSize: attachmentData?.size
       }
     );
 

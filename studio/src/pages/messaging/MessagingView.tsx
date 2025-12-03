@@ -433,7 +433,8 @@ const ThreadMessagingViewEventBased: React.FC = () => {
         currentDirectMessage,
         isProjectChannel: isProjectChannelActive,
         hasAttachment: !!attachmentData,
-        attachmentData,
+        filename: attachmentData?.filename,
+        fileSize: attachmentData?.size,
       });
       setSendingMessage(true);
 
@@ -858,7 +859,8 @@ const ThreadMessagingViewEventBased: React.FC = () => {
                   replyingTo,
                   quotingMessage,
                   hasAttachment: !!attachmentData,
-                  attachmentData,
+                  filename: attachmentData?.filename,
+                  fileSize: attachmentData?.size,
                 });
 
                 // Use the replyTo parameter passed from MessageInput
