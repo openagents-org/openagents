@@ -88,11 +88,21 @@ interface ChatState {
   sendChannelMessage: (
     channel: string,
     content: string,
-    replyToId?: string
+    replyToId?: string,
+    attachmentData?: {
+      file_id: string;
+      filename: string;
+      size: number;
+    }
   ) => Promise<boolean>;
   sendDirectMessage: (
     targetAgentId: string,
-    content: string
+    content: string,
+    attachmentData?: {
+      file_id: string;
+      filename: string;
+      size: number;
+    }
   ) => Promise<boolean>;
   clearMessagesError: () => void;
 
@@ -601,12 +611,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sendChannelMessage: async (
     channel: string,
     content: string,
-    replyToId?: string
+    replyToId?: string,
+    attachmentData?: {
+      file_id: string;
+      filename: string;
+      size: number;
+    }
   ) => {
     const connection = get().getConnection();
     if (!connection || !content.trim()) return false;
 
-    console.log(`ChatStore: Sending message to #${channel}: "${content}"`);
+    console.log(`ChatStore: Sending message to #${channel}: "${content}"`, {
+      hasAttachment: !!attachmentData,
+      attachmentData
+    });
 
     // 1. Immediately add optimistic update message
     const tempId = get().addOptimisticChannelMessage(
@@ -622,6 +640,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         content: { text: content.trim() },
         message_type: replyToId ? "reply_message" : "channel_message",
       };
+
+      // Add attachment data if provided
+      if (attachmentData) {
+        payload.attachment_file_id = attachmentData.file_id;
+        payload.attachment_filename = attachmentData.filename;
+        payload.attachment_size = attachmentData.size;
+      }
 
       // If it's a reply message, add reply-related fields
       if (replyToId) {
@@ -715,12 +740,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  sendDirectMessage: async (targetAgentId: string, content: string) => {
+  sendDirectMessage: async (
+    targetAgentId: string,
+    content: string,
+    attachmentData?: {
+      file_id: string;
+      filename: string;
+      size: number;
+    }
+  ) => {
     const connection = get().getConnection();
     if (!connection || !content.trim()) return false;
 
     console.log(
-      `ChatStore: Sending direct message to ${targetAgentId}: "${content}"`
+      `ChatStore: Sending direct message to ${targetAgentId}: "${content}"`,
+      {
+        hasAttachment: !!attachmentData,
+        attachmentData
+      }
     );
 
     // 1. Immediately add optimistic update message
@@ -730,15 +767,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     );
 
     try {
+      const payload: any = {
+        target_agent_id: targetAgentId,
+        content: { text: content.trim() },
+        message_type: "direct_message",
+      };
+
+      // Add attachment data if provided
+      if (attachmentData) {
+        payload.attachment_file_id = attachmentData.file_id;
+        payload.attachment_filename = attachmentData.filename;
+        payload.attachment_size = attachmentData.size;
+      }
+
       const response = await connection.sendEvent({
         event_name: EventNames.THREAD_DIRECT_MESSAGE_SEND,
         source_id: connection.getAgentId(),
         destination_id: `agent:${targetAgentId}`,
-        payload: {
-          target_agent_id: targetAgentId,
-          content: { text: content.trim() },
-          message_type: "direct_message",
-        },
+        payload: payload,
       });
 
       if (response.success) {

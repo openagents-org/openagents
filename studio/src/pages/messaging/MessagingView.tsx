@@ -411,7 +411,12 @@ const ThreadMessagingViewEventBased: React.FC = () => {
       content: string,
       replyToId?: string,
       _quotedMessageId?: string,
-      _quotedText?: string
+      _quotedText?: string,
+      attachmentData?: {
+        file_id: string;
+        filename: string;
+        size: number;
+      }
     ) => {
       if (!content.trim() || sendingMessage) return;
 
@@ -427,6 +432,8 @@ const ThreadMessagingViewEventBased: React.FC = () => {
         currentChannel,
         currentDirectMessage,
         isProjectChannel: isProjectChannelActive,
+        hasAttachment: !!attachmentData,
+        attachmentData,
       });
       setSendingMessage(true);
 
@@ -441,6 +448,18 @@ const ThreadMessagingViewEventBased: React.FC = () => {
             try {
               const agentId = connectionStatus.agentId || connector.getAgentId();
 
+              const messageContent: any = {
+                type: "text",
+                message: content.trim(),
+              };
+
+              // Add attachment data if provided
+              if (attachmentData) {
+                messageContent.attachment_file_id = attachmentData.file_id;
+                messageContent.attachment_filename = attachmentData.filename;
+                messageContent.attachment_size = attachmentData.size;
+              }
+
               // Send message using project.message.send
               const messageResponse = await connector.sendEvent({
                 event_name: "project.message.send",
@@ -448,10 +467,7 @@ const ThreadMessagingViewEventBased: React.FC = () => {
                 destination_id: "mod:openagents.mods.workspace.project",
                 payload: {
                   project_id: projectId,
-                  content: {
-                    type: "text",
-                    message: content.trim(),
-                  },
+                  content: messageContent,
                   reply_to_id: replyToId,
                 },
               });
@@ -469,10 +485,10 @@ const ThreadMessagingViewEventBased: React.FC = () => {
             }
           } else {
             // Use regular channel message for non-project channels
-            success = await sendChannelMessage(currentChannel, content, replyToId);
+            success = await sendChannelMessage(currentChannel, content, replyToId, attachmentData);
           }
         } else if (currentDirectMessage) {
-          success = await sendDirectMessage(currentDirectMessage, content);
+          success = await sendDirectMessage(currentDirectMessage, content, attachmentData);
         } else {
           console.error("No channel or direct message selected");
           return;
@@ -828,7 +844,12 @@ const ThreadMessagingViewEventBased: React.FC = () => {
               onSendMessage={(
                 text: string,
                 replyTo?: string,
-                quotedMessageId?: string
+                quotedMessageId?: string,
+                attachmentData?: {
+                  file_id: string;
+                  filename: string;
+                  size: number;
+                }
               ) => {
                 console.log("🔧 MessageInput onSendMessage called:", {
                   text,
@@ -836,12 +857,14 @@ const ThreadMessagingViewEventBased: React.FC = () => {
                   quotedMessageId,
                   replyingTo,
                   quotingMessage,
+                  hasAttachment: !!attachmentData,
+                  attachmentData,
                 });
 
                 // Use the replyTo parameter passed from MessageInput
                 if (replyTo) {
                   // This is a reply (comment)
-                  handleSendMessage(text, replyTo);
+                  handleSendMessage(text, replyTo, undefined, undefined, attachmentData);
                   setReplyingTo(null);
                 } else if (quotingMessage && quotedMessageId) {
                   // This is a quote (independent message that references another)
@@ -849,12 +872,13 @@ const ThreadMessagingViewEventBased: React.FC = () => {
                     `> ${quotingMessage.text}\n\n${text}`,
                     undefined, // No replyToId for quotes
                     quotedMessageId,
-                    quotingMessage.text
+                    quotingMessage.text,
+                    attachmentData
                   );
                   setQuotingMessage(null);
                 } else {
                   // Regular message
-                  handleSendMessage(text);
+                  handleSendMessage(text, undefined, undefined, undefined, attachmentData);
                 }
               }}
               disabled={
