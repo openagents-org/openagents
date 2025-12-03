@@ -32,15 +32,16 @@ const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
   // Handle download for a single attachment
   const handleDownload = (fileId: string, filename: string) => {
     // Use a dummy agent_id for now - in a real implementation, this would come from context
-    const agentId = 'file-uploader-agent';
-    
-    // Build download URL with automatic proxy support for HTTPS frontend
+    const agentId = 'file-downloader-agent';
+
+    // Build download URL using cache endpoint with automatic proxy support for HTTPS frontend
+    // fileId is now cache_id from the shared cache
     const downloadUrl = buildNetworkUrl(
       window.location.hostname,
       9572,
-      `/api/workspace/download/${fileId}?agent_id=${agentId}`
+      `/api/cache/download/${fileId}?agent_id=${agentId}`
     );
-    
+
     // Create a temporary anchor element to trigger download
     const link = document.createElement('a');
     link.href = downloadUrl;

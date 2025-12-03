@@ -8,6 +8,8 @@ import json
 import logging
 import time
 import html
+import base64
+import os
 from typing import Dict, Any, Optional
 
 from openagents.config.globals import (
@@ -22,9 +24,12 @@ from aiohttp import web
 
 from .base import Transport
 from openagents.models.transport import TransportType, ConnectionState, ConnectionInfo
-from openagents.models.event import Event
+from openagents.models.event import Event, EventVisibility
 
 logger = logging.getLogger(__name__)
+
+# Maximum file size for uploads (50 MB)
+MAX_FILE_SIZE = 50 * 1024 * 1024
 
 
 class HttpTransport(Transport):
@@ -52,6 +57,10 @@ class HttpTransport(Transport):
         self.app.router.add_post("/api/unregister", self.unregister_agent)
         self.app.router.add_get("/api/poll", self.poll_messages)
         self.app.router.add_post("/api/send_event", self.send_message)
+        # Cache file upload/download endpoints
+        self.app.router.add_post("/api/cache/upload", self.cache_upload)
+        self.app.router.add_get("/api/cache/download/{cache_id}", self.cache_download)
+        self.app.router.add_get("/api/cache/info/{cache_id}", self.cache_info)
 
     @web.middleware
     async def cors_middleware(self, request, handler):
@@ -785,6 +794,232 @@ class HttpTransport(Transport):
         self.is_listening = True
         self.site = site  # Store the site for shutdown
         return True
+
+    async def cache_upload(self, request):
+        """Handle file upload to shared cache via HTTP multipart form."""
+        try:
+            # Check content type
+            content_type = request.content_type
+            if not content_type or 'multipart/form-data' not in content_type:
+                return web.json_response(
+                    {"success": False, "error": "Content-Type must be multipart/form-data"},
+                    status=400,
+                )
+
+            # Parse multipart form data
+            reader = await request.multipart()
+
+            file_data = None
+            filename = None
+            mime_type = "application/octet-stream"
+            agent_id = None
+            secret = None
+            allowed_agent_groups = []
+
+            async for part in reader:
+                if part.name == "file":
+                    filename = part.filename or "unnamed_file"
+                    mime_type = part.headers.get("Content-Type", "application/octet-stream")
+                    # Read file content
+                    file_content = await part.read(decode=False)
+                    if len(file_content) > MAX_FILE_SIZE:
+                        return web.json_response(
+                            {"success": False, "error": f"File size exceeds maximum allowed ({MAX_FILE_SIZE} bytes)"},
+                            status=413,
+                        )
+                    file_data = base64.b64encode(file_content).decode("utf-8")
+                elif part.name == "agent_id":
+                    agent_id = (await part.read(decode=True)).decode("utf-8")
+                elif part.name == "secret":
+                    secret = (await part.read(decode=True)).decode("utf-8")
+                elif part.name == "allowed_agent_groups":
+                    groups_str = (await part.read(decode=True)).decode("utf-8")
+                    if groups_str:
+                        allowed_agent_groups = [g.strip() for g in groups_str.split(",") if g.strip()]
+                elif part.name == "mime_type":
+                    mime_type = (await part.read(decode=True)).decode("utf-8")
+
+            if not file_data:
+                return web.json_response(
+                    {"success": False, "error": "No file provided"},
+                    status=400,
+                )
+
+            if not agent_id:
+                return web.json_response(
+                    {"success": False, "error": "agent_id is required"},
+                    status=400,
+                )
+
+            logger.info(f"HTTP cache upload: {filename} from {agent_id}")
+
+            # Create file upload event for the shared cache mod
+            upload_event = Event(
+                event_name="shared_cache.file.upload",
+                source_id=agent_id,
+                relevant_mod="openagents.mods.core.shared_cache",
+                visibility=EventVisibility.MOD_ONLY,
+                payload={
+                    "file_data": file_data,
+                    "filename": filename,
+                    "mime_type": mime_type,
+                    "allowed_agent_groups": allowed_agent_groups,
+                },
+                secret=secret,
+            )
+
+            # Process the upload event through the event handler
+            event_response = await self.call_event_handler(upload_event)
+
+            if event_response and event_response.success:
+                logger.info(f"✅ Successfully uploaded file {filename} to cache")
+                return web.json_response({
+                    "success": True,
+                    "cache_id": event_response.data.get("cache_id") if event_response.data else None,
+                    "filename": event_response.data.get("filename") if event_response.data else filename,
+                    "file_size": event_response.data.get("file_size") if event_response.data else None,
+                    "mime_type": event_response.data.get("mime_type") if event_response.data else mime_type,
+                })
+            else:
+                error_message = event_response.message if event_response else "No response from event handler"
+                logger.error(f"❌ Cache upload failed: {error_message}")
+                return web.json_response(
+                    {"success": False, "error": error_message},
+                    status=500,
+                )
+
+        except Exception as e:
+            logger.error(f"Error in HTTP cache_upload: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500,
+            )
+
+    async def cache_download(self, request):
+        """Handle file download from shared cache via HTTP."""
+        try:
+            cache_id = request.match_info.get("cache_id")
+            agent_id = request.query.get("agent_id")
+            secret = request.query.get("secret")
+
+            if not cache_id:
+                return web.json_response(
+                    {"success": False, "error": "cache_id is required"},
+                    status=400,
+                )
+
+            logger.info(f"HTTP cache download: {cache_id} by {agent_id}")
+
+            # Create file download event for the shared cache mod
+            download_event = Event(
+                event_name="shared_cache.file.download",
+                source_id=agent_id or "anonymous",
+                relevant_mod="openagents.mods.core.shared_cache",
+                visibility=EventVisibility.MOD_ONLY,
+                payload={"cache_id": cache_id},
+                secret=secret,
+            )
+
+            # Process the download event through the event handler
+            event_response = await self.call_event_handler(download_event)
+
+            if event_response and event_response.success and event_response.data:
+                data = event_response.data
+                file_data_b64 = data.get("file_data")
+                filename = data.get("filename", "download")
+                mime_type = data.get("mime_type", "application/octet-stream")
+
+                if file_data_b64:
+                    file_bytes = base64.b64decode(file_data_b64)
+
+                    # Return file as binary response
+                    response = web.Response(
+                        body=file_bytes,
+                        content_type=mime_type,
+                    )
+                    # Set content-disposition to suggest filename
+                    safe_filename = os.path.basename(filename)
+                    response.headers["Content-Disposition"] = f'attachment; filename="{safe_filename}"'
+                    response.headers["Content-Length"] = str(len(file_bytes))
+
+                    logger.info(f"✅ Successfully downloaded file {cache_id}")
+                    return response
+                else:
+                    return web.json_response(
+                        {"success": False, "error": "File data not found in response"},
+                        status=500,
+                    )
+            else:
+                error_message = event_response.message if event_response else "No response from event handler"
+                logger.error(f"❌ Cache download failed: {error_message}")
+                return web.json_response(
+                    {"success": False, "error": error_message},
+                    status=404 if "not found" in error_message.lower() else 403,
+                )
+
+        except Exception as e:
+            logger.error(f"Error in HTTP cache_download: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500,
+            )
+
+    async def cache_info(self, request):
+        """Get cache entry metadata without downloading the file."""
+        try:
+            cache_id = request.match_info.get("cache_id")
+            agent_id = request.query.get("agent_id")
+            secret = request.query.get("secret")
+
+            if not cache_id:
+                return web.json_response(
+                    {"success": False, "error": "cache_id is required"},
+                    status=400,
+                )
+
+            logger.debug(f"HTTP cache info: {cache_id} by {agent_id}")
+
+            # Create cache get event to retrieve metadata
+            get_event = Event(
+                event_name="shared_cache.get",
+                source_id=agent_id or "anonymous",
+                relevant_mod="openagents.mods.core.shared_cache",
+                visibility=EventVisibility.MOD_ONLY,
+                payload={"cache_id": cache_id},
+                secret=secret,
+            )
+
+            # Process the get event through the event handler
+            event_response = await self.call_event_handler(get_event)
+
+            if event_response and event_response.success and event_response.data:
+                data = event_response.data
+                # Return metadata without the actual value/file_data
+                return web.json_response({
+                    "success": True,
+                    "cache_id": data.get("cache_id"),
+                    "is_file": data.get("is_file", False),
+                    "filename": data.get("filename"),
+                    "file_size": data.get("file_size"),
+                    "mime_type": data.get("mime_type"),
+                    "created_by": data.get("created_by"),
+                    "created_at": data.get("created_at"),
+                    "updated_at": data.get("updated_at"),
+                    "allowed_agent_groups": data.get("allowed_agent_groups", []),
+                })
+            else:
+                error_message = event_response.message if event_response else "No response from event handler"
+                return web.json_response(
+                    {"success": False, "error": error_message},
+                    status=404 if "not found" in error_message.lower() else 403,
+                )
+
+        except Exception as e:
+            logger.error(f"Error in HTTP cache_info: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500,
+            )
 
 
 # Convenience function for creating HTTP transport

@@ -819,36 +819,36 @@ const MessageInput: React.FC<MessageInputProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!currentChannel || !currentAgentId) {
-      console.error("Missing channel or agent ID for file upload");
+    if (!currentAgentId) {
+      console.error("Missing agent ID for file upload");
       return;
     }
 
     try {
-      // Upload file using HTTP API
+      // Upload file using HTTP API to shared cache
       const formData = new FormData();
       formData.append("file", file);
       formData.append("agent_id", currentAgentId);
-      formData.append("channel", currentChannel);
-      formData.append("message", message || `Uploading file: ${file.name}`);
+      // Empty allowed_agent_groups means all agents can access
+      formData.append("allowed_agent_groups", "");
 
-      const response = await fetch(
-        // "http://cur2.acenta.ai:9572/api/workspace/upload",
-        "/api/workspace/upload",
-        {
-          method: "POST",
-          body: formData,
-        }
-      );
+      // Build the upload URL - use relative path for proxy support
+      const uploadUrl = `/api/cache/upload`;
+
+      const response = await fetch(uploadUrl, {
+        method: "POST",
+        body: formData,
+      });
 
       if (response.ok) {
         const result = await response.json();
         if (result.success) {
           // Store attachment data for later sending
+          // Use cache_id as file_id for compatibility
           const attachmentData = {
-            file_id: result.file_id,
+            file_id: result.cache_id,
             filename: result.filename,
-            size: result.size,
+            size: result.file_size,
           };
 
           setPendingAttachment(attachmentData);
@@ -858,7 +858,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             setMessage(`📎 ${result.filename} - `);
           }
         } else {
-          console.error("File upload failed:", result);
+          console.error("File upload failed:", result.error || result);
         }
       } else {
         console.error("HTTP error during file upload:", response.status);
