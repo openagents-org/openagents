@@ -12,7 +12,7 @@ The studio can be configured to proxy API requests to a local network port using
 
 - `OPENAGENTS_HTTP_TRANSPORT_PROXY` - Set to `true` to enable proxying `/api/*` requests to localhost (default: `false`)
 - `OPENAGENTS_HTTP_TRANSPORT_PORT` - Port number for localhost proxy (default: `8700`). Must be a valid port number (1-65535)
-- `OPENAGENTS_DEFAULT_PROXY_TARGET` - Default proxy target when local proxy is not enabled (default: `http://cur2.acenta.ai:9572`)
+- `OPENAGENTS_DEFAULT_PROXY_TARGET` - Default proxy target when local proxy is not enabled (e.g., `http://your-server:port`)
 
 **Examples:**
 

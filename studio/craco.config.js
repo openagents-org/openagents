@@ -14,12 +14,14 @@ const validatePort = (port) => {
     console.warn(`Invalid port number: ${port}. Using default port ${defaultPort}`);
     return defaultPort;
   }
-  return port;
+  return portNum.toString();
 };
 
 const httpTransportPort = validatePort(portFromEnv);
 
 // Configure proxy based on environment variables
+// Note: The default proxy target is a legacy configuration. 
+// It's recommended to set OPENAGENTS_DEFAULT_PROXY_TARGET explicitly for your deployment.
 const defaultProxyTarget = process.env.OPENAGENTS_DEFAULT_PROXY_TARGET || 'http://cur2.acenta.ai:9572';
 
 const proxyConfig = useHttpTransportProxy 
