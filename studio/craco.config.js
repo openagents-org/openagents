@@ -4,9 +4,24 @@ const path = require("path");
 // OPENAGENTS_HTTP_TRANSPORT_PROXY: Set to 'true' to proxy /api/* to localhost
 // OPENAGENTS_HTTP_TRANSPORT_PORT: Port number for localhost proxy (default: 8700)
 const useHttpTransportProxy = process.env.OPENAGENTS_HTTP_TRANSPORT_PROXY === 'true';
-const httpTransportPort = process.env.OPENAGENTS_HTTP_TRANSPORT_PORT || '8700';
+const defaultPort = '8700';
+const portFromEnv = process.env.OPENAGENTS_HTTP_TRANSPORT_PORT || defaultPort;
+
+// Validate port number
+const validatePort = (port) => {
+  const portNum = parseInt(port, 10);
+  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+    console.warn(`Invalid port number: ${port}. Using default port ${defaultPort}`);
+    return defaultPort;
+  }
+  return port;
+};
+
+const httpTransportPort = validatePort(portFromEnv);
 
 // Configure proxy based on environment variables
+const defaultProxyTarget = process.env.OPENAGENTS_DEFAULT_PROXY_TARGET || 'http://cur2.acenta.ai:9572';
+
 const proxyConfig = useHttpTransportProxy 
   ? {
       '/api': {
@@ -19,7 +34,7 @@ const proxyConfig = useHttpTransportProxy
     }
   : {
       '/api': {
-        target: 'http://cur2.acenta.ai:9572',
+        target: defaultProxyTarget,
         changeOrigin: true,
         secure: false,
         timeout: 60000, // 60 second timeout
