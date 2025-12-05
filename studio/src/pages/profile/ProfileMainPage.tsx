@@ -14,6 +14,7 @@ import EventLogs from "./EventLogs";
 import EventDebugger from "./EventDebugger";
 import ModManagementPage from "../mod-management/ModManagementPage";
 import EventsMainPage from "../events/EventsMainPage";
+import AvatarTest from "./AvatarTest";
 
 /**
  * Profile main page - handles all profile-related features
@@ -70,6 +71,9 @@ const ProfileMainPage: React.FC = () => {
       
       {/* Event Explorer subpage */}
       <Route path="events/*" element={<EventsMainPage />} />
+      
+      {/* Avatar Test subpage */}
+      <Route path="avatar-test" element={<AvatarTest />} />
       
     </Routes>
   );

@@ -9,7 +9,7 @@
  * 5. Support multiple rendering modes
  */
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { UnifiedMessage } from "@/types/message";
 import { ThreadMessage } from "@/types/events";
 import {
@@ -29,6 +29,8 @@ import {
 } from "@/constants/chatConstants";
 import MarkdownContent from "./MarkdownContent";
 import AttachmentDisplay from "./AttachmentDisplay";
+import Avatar from "@/components/avatar/Avatar";
+import { getBatchAvatars } from "@/services/avatarService";
 
 // Supported message types
 type SupportedMessage = UnifiedMessage | ThreadMessage;
@@ -75,11 +77,8 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
   const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null);
   const [hoveredMessage, setHoveredMessage] = useState<string | null>(null);
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(new Set());
+  const [avatarUrls, setAvatarUrls] = useState<Record<string, string | null>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Remove auto-scroll logic from MessageRenderer - MessagingView handles this
-  // This prevents duplicate scroll effects that conflict with each other
-
 
   // Message type detection and property extraction
   const getMessageProps = (message: SupportedMessage) => {
@@ -98,7 +97,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         id: threadMsg.message_id,
         senderId: threadMsg.sender_id,
         timestamp: threadMsg.timestamp,
-        content: threadMsg.content?.text || '',
+        content: threadMsg.content?.text || "",
         replyToId: threadMsg.reply_to_id,
         reactions: threadMsg.reactions,
         attachments,
@@ -117,6 +116,30 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
       };
     }
   };
+
+  // Extract unique participant IDs from messages
+  const participants = useMemo(() => {
+    const participantSet = new Set<string>();
+    messages.forEach((message) => {
+      const props = getMessageProps(message);
+      if (props.senderId) {
+        participantSet.add(props.senderId);
+      }
+    });
+    return Array.from(participantSet);
+  }, [messages]);
+
+  // Fetch avatars for all participants
+  useEffect(() => {
+    if (participants.length > 0 && networkHost && networkPort) {
+      getBatchAvatars(participants, networkHost, networkPort).then((avatars) => {
+        setAvatarUrls(avatars);
+      });
+    }
+  }, [participants.join(","), networkHost, networkPort]);
+
+  // Remove auto-scroll logic from MessageRenderer - MessagingView handles this
+  // This prevents duplicate scroll effects that conflict with each other
 
   // Format username
   const formatUsername = (senderId: string): string => {
@@ -257,6 +280,12 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         >
           {/* Message header */}
           <div className="flex items-center gap-2 mb-2 text-sm">
+            <Avatar
+              src={avatarUrls[messageProps.senderId] || null}
+              fallback={messageProps.senderId}
+              alt={formatUsername(messageProps.senderId)}
+              size={32}
+            />
             <span className="font-semibold text-slate-800 dark:text-slate-100">
               {isOwnMessage ? "You" : formatUsername(messageProps.senderId)}
             </span>
@@ -403,6 +432,12 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         >
           {/* Message header */}
           <div className="flex items-center gap-2 mb-2 text-sm">
+            <Avatar
+              src={avatarUrls[message.senderId] || null}
+              fallback={message.senderId}
+              alt={formatUsername(message.senderId)}
+              size={32}
+            />
             <span className="font-semibold text-slate-800 dark:text-slate-100">
               {isOwnMessage ? "You" : formatUsername(message.senderId)}
             </span>

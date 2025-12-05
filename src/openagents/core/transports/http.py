@@ -69,6 +69,10 @@ class HttpTransport(Transport):
         self.app.router.add_get("/api/events/mods", self.list_mods)
         self.app.router.add_get("/api/events/search", self.search_events)
         self.app.router.add_get("/api/events/{event_name}", self.get_event_detail)
+        
+        # Avatar API endpoints
+        self.app.router.add_get("/api/avatars/{agent_id}.png", self.get_avatar_image)
+        self.app.router.add_post("/api/avatars/batch", self.get_avatars_batch)
 
     @web.middleware
     async def cors_middleware(self, request, handler):
@@ -1243,6 +1247,165 @@ console.log(response);
         "python": python_example,
         "javascript": js_example,
     }
+
+
+    async def get_avatar_image(self, request):
+        """Handle avatar image file request.
+        
+        GET /api/avatars/{agent_id}.png
+        """
+        try:
+            agent_id = request.match_info.get("agent_id")
+            if not agent_id:
+                return web.json_response(
+                    {"success": False, "error": "agent_id is required"},
+                    status=400
+                )
+            
+            # Remove .png extension if present
+            if agent_id.endswith(".png"):
+                agent_id = agent_id[:-4]
+            
+            # Get avatar through event system
+            get_event = Event(
+                event_name="avatar.get",
+                source_id="http_transport",
+                relevant_mod="openagents.mods.misc.agent_avatar",
+                visibility=EventVisibility.MOD_ONLY,
+                payload={
+                    "agent_id": agent_id,
+                    "include_data": False
+                }
+            )
+            
+            event_response = await self.call_event_handler(get_event)
+            
+            if event_response and event_response.success and event_response.data:
+                has_avatar = event_response.data.get("has_avatar", False)
+                
+                if not has_avatar:
+                    # Return 404 or default placeholder
+                    return web.Response(
+                        status=404,
+                        text="Avatar not found"
+                    )
+                
+                # Get avatar file path through another event or direct access
+                # For now, we'll try to get the file through the mod
+                # We need to access the mod directly, but since we don't have direct access,
+                # we'll use a workaround: get the avatar data through event
+                get_data_event = Event(
+                    event_name="avatar.get",
+                    source_id="http_transport",
+                    relevant_mod="openagents.mods.misc.agent_avatar",
+                    visibility=EventVisibility.MOD_ONLY,
+                    payload={
+                        "agent_id": agent_id,
+                        "include_data": True
+                    }
+                )
+                
+                data_response = await self.call_event_handler(get_data_event)
+                
+                if data_response and data_response.success and data_response.data:
+                    avatar_data = data_response.data.get("avatar_data")
+                    if avatar_data:
+                        import base64
+                        image_bytes = base64.b64decode(avatar_data)
+                        
+                        # Calculate ETag
+                        import hashlib
+                        etag = hashlib.md5(image_bytes).hexdigest()
+                        
+                        # Check If-None-Match header for caching
+                        if_none_match = request.headers.get("If-None-Match")
+                        if if_none_match == f'"{etag}"':
+                            return web.Response(status=304)
+                        
+                        return web.Response(
+                            body=image_bytes,
+                            content_type="image/png",
+                            headers={
+                                "Cache-Control": "public, max-age=3600",
+                                "ETag": f'"{etag}"'
+                            }
+                        )
+                
+                return web.Response(
+                    status=404,
+                    text="Avatar file not found"
+                )
+            else:
+                return web.Response(
+                    status=404,
+                    text="Avatar not found"
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in HTTP get_avatar_image: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+    
+    async def get_avatars_batch(self, request):
+        """Handle batch avatar request.
+        
+        POST /api/avatars/batch
+        Request: {"agent_ids": ["alice", "bob", "charlie"]}
+        Response: {"avatars": {"alice": "/api/avatars/alice.png", "bob": null, ...}}
+        """
+        try:
+            data = await request.json()
+            agent_ids = data.get("agent_ids", [])
+            
+            if not isinstance(agent_ids, list):
+                return web.json_response(
+                    {"success": False, "error": "agent_ids must be a list"},
+                    status=400
+                )
+            
+            # Get avatars through event system
+            batch_event = Event(
+                event_name="avatar.get_batch",
+                source_id="http_transport",
+                relevant_mod="openagents.mods.misc.agent_avatar",
+                visibility=EventVisibility.MOD_ONLY,
+                payload={
+                    "agent_ids": agent_ids
+                }
+            )
+            
+            event_response = await self.call_event_handler(batch_event)
+            
+            if event_response and event_response.success and event_response.data:
+                avatars_data = event_response.data.get("avatars", {})
+                
+                # Convert to response format: map agent_id to avatar_url or null
+                result = {}
+                for agent_id, avatar_info in avatars_data.items():
+                    if avatar_info.get("has_avatar"):
+                        result[agent_id] = f"/api/avatars/{agent_id}.png"
+                    else:
+                        result[agent_id] = None
+                
+                return web.json_response({
+                    "success": True,
+                    "avatars": result
+                })
+            else:
+                error_message = event_response.message if event_response else "No response from event handler"
+                return web.json_response(
+                    {"success": False, "error": error_message},
+                    status=500
+                )
+                
+        except Exception as e:
+            logger.error(f"Error in HTTP get_avatars_batch: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
 
 
 # Convenience function for creating HTTP transport
