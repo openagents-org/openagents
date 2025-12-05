@@ -1,0 +1,69 @@
+# Test network configuration for AgentManager
+network:
+  name: "AgentManagerTest"
+  mode: "centralized"
+  node_id: "agent-manager-test-1"
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+        host: "0.0.0.0"
+
+  manifest_transport: "http"
+  recommended_transport: "http"
+
+  # Security configuration
+  encryption_enabled: false
+
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  # Mod configuration
+  # Note: Agents in agents/ directory are managed by AgentManager, not defined here
+  mods:
+    - name: "openagents.mods.workspace.messaging"
+      enabled: true
+      config:
+        default_channels:
+          - name: "general"
+            description: "General chat channel"
+        max_thread_depth: 5
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "Agent Manager Test Network"
+  description: "Test network for AgentManager process management features"
+  tags:
+    - "test"
+    - "agent-manager"
+  categories:
+    - "testing"
+  country: "Worldwide"
+  required_openagents_version: "0.7.0"
+  capacity: 10
+  authentication:
+    type: "none"
+  host: "0.0.0.0"
+  port: 8700
+
+# Global settings
+log_level: "INFO"
+runtime_limit: null
+shutdown_timeout: 30
+

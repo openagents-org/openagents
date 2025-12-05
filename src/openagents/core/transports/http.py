@@ -61,6 +61,13 @@ class HttpTransport(Transport):
         self.app.router.add_post("/api/cache/upload", self.cache_upload)
         self.app.router.add_get("/api/cache/download/{cache_id}", self.cache_download)
         self.app.router.add_get("/api/cache/info/{cache_id}", self.cache_info)
+        # Agent management endpoints
+        self.app.router.add_get("/api/agents/service", self.get_service_agents)
+        self.app.router.add_post("/api/agents/service/{agent_id}/start", self.start_service_agent)
+        self.app.router.add_post("/api/agents/service/{agent_id}/stop", self.stop_service_agent)
+        self.app.router.add_post("/api/agents/service/{agent_id}/restart", self.restart_service_agent)
+        self.app.router.add_get("/api/agents/service/{agent_id}/status", self.get_service_agent_status)
+        self.app.router.add_get("/api/agents/service/{agent_id}/logs/screen", self.get_service_agent_logs)
 
     @web.middleware
     async def cors_middleware(self, request, handler):
@@ -1016,6 +1023,217 @@ class HttpTransport(Transport):
 
         except Exception as e:
             logger.error(f"Error in HTTP cache_info: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500,
+            )
+    
+    # Agent Management API handlers
+    
+    async def get_service_agents(self, request):
+        """Get list of all service agents with their status."""
+        try:
+            if not self.network_instance or not hasattr(self.network_instance, "agent_manager"):
+                return web.json_response(
+                    {"success": False, "error": "Agent manager not available"},
+                    status=503,
+                )
+            
+            agent_manager = self.network_instance.agent_manager
+            agents_status = agent_manager.get_all_agents_status()
+            
+            return web.json_response({
+                "success": True,
+                "agents": agents_status
+            })
+        
+        except Exception as e:
+            logger.error(f"Error getting service agents: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500,
+            )
+    
+    async def start_service_agent(self, request):
+        """Start a specific service agent."""
+        try:
+            agent_id = request.match_info.get("agent_id")
+            
+            if not agent_id:
+                return web.json_response(
+                    {"success": False, "error": "agent_id is required"},
+                    status=400,
+                )
+            
+            if not self.network_instance or not hasattr(self.network_instance, "agent_manager"):
+                return web.json_response(
+                    {"success": False, "error": "Agent manager not available"},
+                    status=503,
+                )
+            
+            agent_manager = self.network_instance.agent_manager
+            result = await agent_manager.start_agent(agent_id)
+            
+            if result["success"]:
+                return web.json_response(result)
+            else:
+                return web.json_response(result, status=400)
+        
+        except Exception as e:
+            logger.error(f"Error starting service agent: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500,
+            )
+    
+    async def stop_service_agent(self, request):
+        """Stop a specific service agent."""
+        try:
+            agent_id = request.match_info.get("agent_id")
+            
+            if not agent_id:
+                return web.json_response(
+                    {"success": False, "error": "agent_id is required"},
+                    status=400,
+                )
+            
+            if not self.network_instance or not hasattr(self.network_instance, "agent_manager"):
+                return web.json_response(
+                    {"success": False, "error": "Agent manager not available"},
+                    status=503,
+                )
+            
+            agent_manager = self.network_instance.agent_manager
+            result = await agent_manager.stop_agent(agent_id)
+            
+            if result["success"]:
+                return web.json_response(result)
+            else:
+                return web.json_response(result, status=400)
+        
+        except Exception as e:
+            logger.error(f"Error stopping service agent: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500,
+            )
+    
+    async def restart_service_agent(self, request):
+        """Restart a specific service agent."""
+        try:
+            agent_id = request.match_info.get("agent_id")
+            
+            if not agent_id:
+                return web.json_response(
+                    {"success": False, "error": "agent_id is required"},
+                    status=400,
+                )
+            
+            if not self.network_instance or not hasattr(self.network_instance, "agent_manager"):
+                return web.json_response(
+                    {"success": False, "error": "Agent manager not available"},
+                    status=503,
+                )
+            
+            agent_manager = self.network_instance.agent_manager
+            result = await agent_manager.restart_agent(agent_id)
+            
+            if result["success"]:
+                return web.json_response(result)
+            else:
+                return web.json_response(result, status=400)
+        
+        except Exception as e:
+            logger.error(f"Error restarting service agent: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500,
+            )
+    
+    async def get_service_agent_status(self, request):
+        """Get status of a specific service agent."""
+        try:
+            agent_id = request.match_info.get("agent_id")
+            
+            if not agent_id:
+                return web.json_response(
+                    {"success": False, "error": "agent_id is required"},
+                    status=400,
+                )
+            
+            if not self.network_instance or not hasattr(self.network_instance, "agent_manager"):
+                return web.json_response(
+                    {"success": False, "error": "Agent manager not available"},
+                    status=503,
+                )
+            
+            agent_manager = self.network_instance.agent_manager
+            status = agent_manager.get_agent_status(agent_id)
+            
+            if status:
+                return web.json_response({
+                    "success": True,
+                    "status": status
+                })
+            else:
+                return web.json_response(
+                    {"success": False, "error": "Agent not found"},
+                    status=404,
+                )
+        
+        except Exception as e:
+            logger.error(f"Error getting service agent status: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500,
+            )
+    
+    async def get_service_agent_logs(self, request):
+        """Get recent log lines for a specific service agent."""
+        try:
+            agent_id = request.match_info.get("agent_id")
+            lines = int(request.query.get("lines", "100"))
+            
+            if not agent_id:
+                return web.json_response(
+                    {"success": False, "error": "agent_id is required"},
+                    status=400,
+                )
+            
+            # Validate lines parameter
+            if lines < 1 or lines > 10000:
+                return web.json_response(
+                    {"success": False, "error": "lines must be between 1 and 10000"},
+                    status=400,
+                )
+            
+            if not self.network_instance or not hasattr(self.network_instance, "agent_manager"):
+                return web.json_response(
+                    {"success": False, "error": "Agent manager not available"},
+                    status=503,
+                )
+            
+            agent_manager = self.network_instance.agent_manager
+            log_lines = agent_manager.get_agent_logs(agent_id, lines)
+            
+            if log_lines is not None:
+                return web.json_response({
+                    "success": True,
+                    "logs": log_lines
+                })
+            else:
+                return web.json_response(
+                    {"success": False, "error": "Agent not found or no logs available"},
+                    status=404,
+                )
+        
+        except ValueError:
+            return web.json_response(
+                {"success": False, "error": "Invalid lines parameter"},
+                status=400,
+            )
+        except Exception as e:
+            logger.error(f"Error getting service agent logs: {e}")
             return web.json_response(
                 {"success": False, "error": str(e)},
                 status=500,

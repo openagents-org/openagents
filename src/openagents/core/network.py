@@ -81,6 +81,13 @@ class AgentNetwork:
             from openagents.core.workspace_manager import create_temporary_workspace
 
             self.workspace_manager = create_temporary_workspace()
+        
+        # Agent manager for service agent process management
+        self.agent_manager = None
+        if self.workspace_manager:
+            from openagents.core.agent_manager import AgentManager
+            
+            self.agent_manager = AgentManager(self.workspace_manager.workspace_path)
 
         # Create topology
         topology_mode = (
@@ -378,6 +385,16 @@ class AgentNetwork:
 
             # Re-register message handlers after topology initialization
             self._register_internal_handlers()
+            
+            # Set network instance reference for all transports (needed for AgentManager API)
+            for transport in self.topology.transports.values():
+                if hasattr(transport, 'network_instance'):
+                    transport.network_instance = self
+            
+            # Start agent manager if available
+            if self.agent_manager:
+                if not await self.agent_manager.start():
+                    logger.warning("Failed to start agent manager, but continuing network initialization")
 
             self.is_running = True
             self.start_time = time.time()
@@ -396,6 +413,10 @@ class AgentNetwork:
         """
         try:
             self.is_running = False
+            
+            # Stop agent manager if available
+            if self.agent_manager:
+                await self.agent_manager.stop()
 
             # Shutdown topology
             await self.topology.shutdown()
