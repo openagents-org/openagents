@@ -70,13 +70,14 @@ export const updateRouteVisibilityFromModules = (
   // First hide all main routes (only keep Profile always visible, it's not a mod)
   // Settings should also be controlled by network if it exists as a mod
   Object.values(PLUGIN_NAME_ENUM).forEach((plugin) => {
-    if (plugin !== PLUGIN_NAME_ENUM.PROFILE && plugin !== PLUGIN_NAME_ENUM.README) {
+    if (plugin !== PLUGIN_NAME_ENUM.PROFILE && plugin !== PLUGIN_NAME_ENUM.README && plugin !== PLUGIN_NAME_ENUM.SERVICE_AGENTS) {
       updateRouteVisibility(plugin, false)
     }
   })
 
-  // Ensure README is always visible
+  // Ensure README and SERVICE_AGENTS are always visible
   updateRouteVisibility(PLUGIN_NAME_ENUM.README, true)
+  updateRouteVisibility(PLUGIN_NAME_ENUM.SERVICE_AGENTS, true)
 
   // Then enable routes based on mods returned from network
   enabledModules.forEach((moduleName) => {
@@ -146,6 +147,7 @@ export const isRouteAvailable = (
     "agentworld",
     "artifact", // Artifact 始终可用，类似 Project
     "readme", // README 始终可用，显示网络文档
+    "studio", // Studio 管理路由始终可用（如服务代理管理）
   ]
   if (alwaysAvailableRoutes.includes(routeName)) {
     return true

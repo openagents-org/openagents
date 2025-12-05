@@ -24,6 +24,17 @@ const ModSidebar: React.FC = () => {
   // 因为 dynamicRouteConfig 的 visible 属性可能被外部函数动态修改
   const primaryRoutes = getNavigationRoutesByGroup("primary");
   const secondaryRoutes = getNavigationRoutesByGroup("secondary");
+  
+  // Debug: Log routes to console
+  if (process.env.NODE_ENV === 'development') {
+    console.log("🔍 ModSidebar - Secondary routes:", secondaryRoutes.map(r => ({
+      key: r.navigationConfig?.key,
+      label: r.navigationConfig?.label,
+      visible: r.navigationConfig?.visible,
+      icon: r.navigationConfig?.icon,
+      path: r.path
+    })));
+  }
 
   // Extract README route to pin it at the top
   const readmeRoute = primaryRoutes.find(

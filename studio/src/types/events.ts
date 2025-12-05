@@ -54,7 +54,15 @@ export enum EventNames {
   SYSTEM_HEALTH_CHECK = 'system.health_check',
   SYSTEM_POLL_MESSAGES = 'system.poll_messages',
   SYSTEM_KICK_AGENT = 'system.kick_agent',
-  SYSTEM_KICKED = 'system.kicked'
+  SYSTEM_KICKED = 'system.kicked',
+  
+  // Service agent management events
+  SYSTEM_SERVICE_AGENTS_LIST = 'system.service_agents.list',
+  SYSTEM_SERVICE_AGENT_START = 'system.service_agent.start',
+  SYSTEM_SERVICE_AGENT_STOP = 'system.service_agent.stop',
+  SYSTEM_SERVICE_AGENT_RESTART = 'system.service_agent.restart',
+  SYSTEM_SERVICE_AGENT_STATUS = 'system.service_agent.status',
+  SYSTEM_SERVICE_AGENT_LOGS = 'system.service_agent.logs'
 }
 
 /**
