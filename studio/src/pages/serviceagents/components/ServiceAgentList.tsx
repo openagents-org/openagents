@@ -28,7 +28,7 @@ const ServiceAgentList: React.FC = () => {
       const data = await getServiceAgents();
       setAgents(data);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "获取服务代理列表失败";
+      const errorMessage = err instanceof Error ? err.message : "Failed to fetch service agents list";
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -55,22 +55,22 @@ const ServiceAgentList: React.FC = () => {
       switch (action) {
         case "start":
           await startServiceAgent(agentId);
-          toast.success(`服务代理 ${agentId} 已启动`);
+          toast.success(`Service agent ${agentId} started`);
           break;
         case "stop":
           await stopServiceAgent(agentId);
-          toast.success(`服务代理 ${agentId} 已停止`);
+          toast.success(`Service agent ${agentId} stopped`);
           break;
         case "restart":
           await restartServiceAgent(agentId);
-          toast.success(`服务代理 ${agentId} 已重启`);
+          toast.success(`Service agent ${agentId} restarted`);
           break;
       }
 
       // Refresh agents list after action
       await fetchAgents();
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "操作失败";
+      const errorMessage = err instanceof Error ? err.message : "Operation failed";
       toast.error(errorMessage);
     } finally {
       setActionLoading((prev) => ({ ...prev, [agentId]: false }));
@@ -94,19 +94,19 @@ const ServiceAgentList: React.FC = () => {
     }
   };
 
-  // Get status text in Chinese
+  // Get status text
   const getStatusText = (status: string) => {
     switch (status) {
       case "running":
-        return "运行中";
+        return "Running";
       case "stopped":
-        return "已停止";
+        return "Stopped";
       case "error":
-        return "错误";
+        return "Error";
       case "starting":
-        return "启动中";
+        return "Starting";
       case "stopping":
-        return "停止中";
+        return "Stopping";
       default:
         return status;
     }
@@ -119,7 +119,7 @@ const ServiceAgentList: React.FC = () => {
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           <span className="ml-3 text-gray-600 dark:text-gray-400">
-            加载服务代理列表...
+            Loading service agents list...
           </span>
         </div>
       </div>
@@ -147,7 +147,7 @@ const ServiceAgentList: React.FC = () => {
             </div>
             <div className="ml-3 flex-1">
               <h3 className="text-sm font-medium text-red-800 dark:text-red-200">
-                加载失败
+                Load failed
               </h3>
               <p className="mt-1 text-sm text-red-700 dark:text-red-300">
                 {error}
@@ -156,7 +156,7 @@ const ServiceAgentList: React.FC = () => {
                 onClick={fetchAgents}
                 className="mt-2 text-sm bg-red-100 dark:bg-red-800 text-red-800 dark:text-red-200 px-3 py-1 rounded hover:bg-red-200 dark:hover:bg-red-700 transition-colors"
               >
-                重试
+                Retry
               </button>
             </div>
           </div>
@@ -171,10 +171,10 @@ const ServiceAgentList: React.FC = () => {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            服务代理管理
+            Service Agents Management
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            管理和监控所有服务代理
+            Manage and monitor all service agents
           </p>
         </div>
 
@@ -203,7 +203,7 @@ const ServiceAgentList: React.FC = () => {
               d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
             />
           </svg>
-          {loading ? "刷新中..." : "刷新"}
+          {loading ? "Refreshing..." : "Refresh"}
         </button>
       </div>
 
@@ -224,10 +224,10 @@ const ServiceAgentList: React.FC = () => {
             />
           </svg>
           <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
-            暂无服务代理
+            No service agents
           </h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            当前没有可用的服务代理
+            No service agents available
           </p>
         </div>
       ) : (
@@ -269,14 +269,14 @@ const ServiceAgentList: React.FC = () => {
                       </div>
                       <div className="mt-2 flex items-center space-x-4 text-xs text-gray-500 dark:text-gray-500">
                         {agent.file_type && (
-                          <span>类型: {agent.file_type.toUpperCase()}</span>
+                          <span>Type: {agent.file_type.toUpperCase()}</span>
                         )}
                         {agent.pid && (
                           <span>PID: {agent.pid}</span>
                         )}
                         {agent.error_message && (
                           <span className="text-red-600 dark:text-red-400">
-                            错误: {agent.error_message}
+                            Error: {agent.error_message}
                           </span>
                         )}
                       </div>
@@ -313,7 +313,7 @@ const ServiceAgentList: React.FC = () => {
                             d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
                           />
                         </svg>
-                        查看详情
+                        View Details
                       </button>
 
                       {!isRunning && (
@@ -332,7 +332,7 @@ const ServiceAgentList: React.FC = () => {
                           {isLoading ? (
                             <>
                               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1.5"></div>
-                              启动中...
+                              Starting...
                             </>
                           ) : (
                             <>
@@ -355,7 +355,7 @@ const ServiceAgentList: React.FC = () => {
                                   d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                                 />
                               </svg>
-                              启动
+                              Start
                             </>
                           )}
                         </button>
@@ -378,7 +378,7 @@ const ServiceAgentList: React.FC = () => {
                             {isLoading ? (
                               <>
                                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-1.5"></div>
-                                停止中...
+                                Stopping...
                               </>
                             ) : (
                               <>
@@ -401,7 +401,7 @@ const ServiceAgentList: React.FC = () => {
                                     d="M9 10h6v4H9v-4z"
                                   />
                                 </svg>
-                                停止
+                                Stop
                               </>
                             )}
                           </button>
@@ -420,7 +420,7 @@ const ServiceAgentList: React.FC = () => {
                             {isLoading ? (
                               <>
                                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-1.5"></div>
-                                重启中...
+                                Restarting...
                               </>
                             ) : (
                               <>
@@ -437,7 +437,7 @@ const ServiceAgentList: React.FC = () => {
                                     d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                                   />
                                 </svg>
-                                重启
+                                Restart
                               </>
                             )}
                           </button>

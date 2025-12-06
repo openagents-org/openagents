@@ -60,7 +60,7 @@ const ServiceAgentDetail: React.FC = () => {
       setLogs(logsData.logs || []);
     } catch (err) {
       const errorMessage =
-        err instanceof Error ? err.message : "获取代理信息失败";
+        err instanceof Error ? err.message : "Failed to fetch agent information";
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -137,7 +137,7 @@ const ServiceAgentDetail: React.FC = () => {
         date = new Date(timestamp.replace(" ", "T"));
       }
       if (!isNaN(date.getTime())) {
-        return date.toLocaleString("zh-CN", {
+        return date.toLocaleString("en-US", {
           year: "numeric",
           month: "2-digit",
           day: "2-digit",
@@ -156,7 +156,7 @@ const ServiceAgentDetail: React.FC = () => {
     return (
       <div className="p-6 dark:bg-gray-900 h-full">
         <div className="text-red-600 dark:text-red-400">
-          无效的代理ID
+          Invalid agent ID
         </div>
       </div>
     );
@@ -168,7 +168,7 @@ const ServiceAgentDetail: React.FC = () => {
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           <span className="ml-3 text-gray-600 dark:text-gray-400">
-            加载代理信息...
+            Loading agent information...
           </span>
         </div>
       </div>
@@ -202,14 +202,14 @@ const ServiceAgentDetail: React.FC = () => {
                 d="M10 19l-7-7m0 0l7-7m-7 7h18"
               />
             </svg>
-            返回列表
+            Back to List
           </button>
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               {agentId}
             </h1>
             <p className="text-gray-600 dark:text-gray-400 mt-1">
-              服务代理详情和日志
+              Service agent details and logs
             </p>
           </div>
         </div>
@@ -239,7 +239,7 @@ const ServiceAgentDetail: React.FC = () => {
               d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
             />
           </svg>
-          {loading ? "刷新中..." : "刷新"}
+          {loading ? "Refreshing..." : "Refresh"}
         </button>
       </div>
 
@@ -247,22 +247,22 @@ const ServiceAgentDetail: React.FC = () => {
       {status && (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow mb-6 p-6">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-            状态信息
+            Status Information
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">状态</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Status</p>
               <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mt-1">
                 {status.status === "running"
-                  ? "运行中"
+                  ? "Running"
                   : status.status === "stopped"
-                  ? "已停止"
+                  ? "Stopped"
                   : status.status}
               </p>
             </div>
             {status.uptime !== undefined && status.uptime !== null && (
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">运行时间</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Uptime</p>
                 <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mt-1">
                   {Math.floor(status.uptime / 3600)}h{" "}
                   {Math.floor((status.uptime % 3600) / 60)}m
@@ -271,7 +271,7 @@ const ServiceAgentDetail: React.FC = () => {
             )}
             {status.pid !== undefined && status.pid !== null && (
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">进程ID</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Process ID</p>
                 <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mt-1">
                   {status.pid}
                 </p>
@@ -279,7 +279,7 @@ const ServiceAgentDetail: React.FC = () => {
             )}
             {status.file_type && (
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">文件类型</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">File Type</p>
                 <p className="text-lg font-medium text-gray-900 dark:text-gray-100 mt-1">
                   {status.file_type.toUpperCase()}
                 </p>
@@ -287,7 +287,7 @@ const ServiceAgentDetail: React.FC = () => {
             )}
             {status.error_message && (
               <div className="col-span-full">
-                <p className="text-sm text-gray-600 dark:text-gray-400">错误信息</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">Error Message</p>
                 <p className="text-sm text-red-600 dark:text-red-400 mt-1">
                   {status.error_message}
                 </p>
@@ -302,7 +302,7 @@ const ServiceAgentDetail: React.FC = () => {
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              日志查看器
+              Log Viewer
             </h2>
             <div className="flex items-center space-x-4">
               {/* Polling Status */}
@@ -310,7 +310,7 @@ const ServiceAgentDetail: React.FC = () => {
                 <div className="flex items-center space-x-2">
                   <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                   <span className="text-sm text-gray-600 dark:text-gray-400">
-                    实时轮询中
+                    Real-time polling
                   </span>
                 </div>
               )}
@@ -324,7 +324,7 @@ const ServiceAgentDetail: React.FC = () => {
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 <span className="text-sm text-gray-600 dark:text-gray-400">
-                  自动滚动
+                  Auto-scroll
                 </span>
               </label>
 
@@ -342,7 +342,7 @@ const ServiceAgentDetail: React.FC = () => {
                   text-sm focus:ring-blue-500 focus:border-blue-500
                 "
               >
-                <option value="ALL">所有级别</option>
+                <option value="ALL">All Levels</option>
                 <option value="INFO">INFO</option>
                 <option value="WARN">WARN</option>
                 <option value="ERROR">ERROR</option>
@@ -357,7 +357,7 @@ const ServiceAgentDetail: React.FC = () => {
                   transition-colors
                 "
               >
-                清空日志
+                Clear Logs
               </button>
             </div>
           </div>
@@ -371,7 +371,7 @@ const ServiceAgentDetail: React.FC = () => {
         >
           {filteredLogs.length === 0 ? (
             <div className="text-center text-gray-500 dark:text-gray-400 py-8">
-              暂无日志
+              No logs
             </div>
           ) : (
             <div className="space-y-1">
@@ -406,8 +406,8 @@ const ServiceAgentDetail: React.FC = () => {
 
         {/* Logs Footer */}
         <div className="p-4 border-t border-gray-200 dark:border-gray-700 text-sm text-gray-600 dark:text-gray-400">
-          共 {filteredLogs.length} 条日志
-          {logLevelFilter !== "ALL" && ` (已筛选: ${logLevelFilter})`}
+          Total {filteredLogs.length} logs
+          {logLevelFilter !== "ALL" && ` (Filtered: ${logLevelFilter})`}
         </div>
       </div>
     </div>

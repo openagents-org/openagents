@@ -465,7 +465,7 @@ export const dynamicRouteConfig: RouteConfig[] = [
     requiresLayout: true,
     navigationConfig: {
       key: PLUGIN_NAME_ENUM.SERVICE_AGENTS,
-      label: "服务代理",
+      label: "Service Agents",
       icon: "ServiceAgents",
       visible: true, // Visible to all authenticated users
       order: 6,
