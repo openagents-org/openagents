@@ -116,6 +116,10 @@ class HttpTransport(Transport):
         self.app.router.add_get("/api/events/search", self.search_events)
         self.app.router.add_get("/api/events/{event_name}", self.get_event_detail)
 
+        # Onboarding API endpoints
+        self.app.router.add_get("/api/network/summary", self.get_network_summary)
+        self.app.router.add_get("/api/agents/connected", self.get_connected_agents)
+
         # MCP routes (if serve_mcp: true)
         if self._serve_mcp:
             self.app.router.add_post("/mcp", self._handle_mcp_post)
@@ -275,9 +279,15 @@ class HttpTransport(Transport):
         )
 
     async def root_handler(self, request):
-        """Handle requests to root path with a welcome page."""
+        """Handle requests to root path with a welcome page or redirect to Studio."""
         logger.debug("HTTP root path requested")
+        
+        # If Studio is enabled, redirect to Studio
+        if self._serve_studio:
+            # Redirect to /studio - the Studio frontend will handle onboarding flow
+            return web.HTTPFound("/studio")
 
+        # Otherwise, show the traditional welcome page
         # Try to get network stats for the welcome page
         try:
             health_check_event = Event(
@@ -540,6 +550,134 @@ class HttpTransport(Transport):
 </html>"""
 
         return web.Response(text=html_content, content_type='text/html')
+
+    async def get_network_summary(self, request):
+        """Get network configuration summary for onboarding wizard."""
+        logger.debug("Network summary requested for onboarding")
+        
+        try:
+            # Get network stats via health check event
+            health_check_event = Event(
+                event_name=SYSTEM_EVENT_HEALTH_CHECK,
+                source_id="http_transport",
+                destination_id="system:system",
+                payload={},
+            )
+            event_response = await self.call_event_handler(health_check_event)
+            
+            if event_response and event_response.success and event_response.data:
+                network_stats = event_response.data
+                network_profile = network_stats.get("network_profile", {})
+                
+                # Build summary response
+                summary = {
+                    "name": network_stats.get("network_name", "OpenAgents Network"),
+                    "description": network_profile.get("description", ""),
+                    "network_id": network_stats.get("network_id", ""),
+                    "transports": {},
+                    "mods": [],
+                    "studio_enabled": self._serve_studio,
+                }
+                
+                # Extract transport information
+                transports = network_stats.get("transports", [])
+                for transport in transports:
+                    transport_type = transport.get("type", "")
+                    if transport_type == "http":
+                        summary["transports"]["http"] = {
+                            "enabled": True,
+                            "port": self.config.get("port", 8700)
+                        }
+                    elif transport_type == "grpc":
+                        summary["transports"]["grpc"] = {
+                            "enabled": True,
+                            "port": transport.get("port", 8600)
+                        }
+                
+                # Extract mod information
+                mods = network_stats.get("mods", [])
+                summary["mods"] = [mod.get("name", "") for mod in mods if isinstance(mod, dict)]
+                
+                return web.json_response({
+                    "success": True,
+                    "data": summary
+                })
+            else:
+                # Return minimal summary if health check fails
+                return web.json_response({
+                    "success": True,
+                    "data": {
+                        "name": "OpenAgents Network",
+                        "description": "",
+                        "network_id": "",
+                        "transports": {
+                            "http": {
+                                "enabled": True,
+                                "port": self.config.get("port", 8700)
+                            }
+                        },
+                        "mods": [],
+                        "studio_enabled": self._serve_studio,
+                    }
+                })
+                
+        except Exception as e:
+            logger.error(f"Failed to get network summary: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+
+    async def get_connected_agents(self, request):
+        """Get list of currently connected agents."""
+        logger.debug("Connected agents list requested")
+        
+        try:
+            # Get network stats via health check event
+            health_check_event = Event(
+                event_name=SYSTEM_EVENT_HEALTH_CHECK,
+                source_id="http_transport",
+                destination_id="system:system",
+                payload={},
+            )
+            event_response = await self.call_event_handler(health_check_event)
+            
+            if event_response and event_response.success and event_response.data:
+                network_stats = event_response.data
+                agents_dict = network_stats.get("agents", {})
+                
+                # Convert agents dict to list format
+                agents = []
+                for agent_id, agent_info in agents_dict.items():
+                    agents.append({
+                        "agent_id": agent_id,
+                        "name": agent_info.get("name", agent_id),
+                        "connected_at": agent_info.get("connected_at", ""),
+                        "status": "connected"
+                    })
+                
+                return web.json_response({
+                    "success": True,
+                    "data": {
+                        "agents": agents,
+                        "count": len(agents)
+                    }
+                })
+            else:
+                return web.json_response({
+                    "success": True,
+                    "data": {
+                        "agents": [],
+                        "count": 0
+                    }
+                })
+                
+        except Exception as e:
+            logger.error(f"Failed to get connected agents: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
 
     async def register_agent(self, request):
         """Handle agent registration via HTTP."""

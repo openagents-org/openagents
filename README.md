@@ -135,27 +135,27 @@ docker run -p 8700:8700 -p 8600:8600 -p 8800:8800 -p 8050:8050 -v ./my_first_net
 
 This will allow you to access the network workspace from the host machine.
 
-### Visit your network through OpenAgents Studio
+### Access OpenAgents Studio
 
-If you started the network with `openagents network start`, please keep the network running and create a new terminal to launch the studio.
+With your network running, you can access OpenAgents Studio directly in your browser. The Studio is integrated into the HTTP transport and available at the `/studio` endpoint.
 
-Let's launch the studio in standalone mode with `-s` option (which doesn't launch a network along with the studio):
+Open your browser and navigate to:
 
-```bash
-openagents studio -s
+```
+http://localhost:8700/studio
 ```
 
-✨ Now you should be able to see your network in the studio at http://localhost:8050.
+✨ You'll be greeted with an interactive onboarding wizard to help you get started!
 
 > **ℹ️  Note:**
-> If you are running on a headless server, you can use `openagents studio --no-browser` to launch the studio without opening the browser.
+> Studio is automatically available when you start your network. No separate command needed! The first time you visit, you'll see a guided setup to help you understand your network.
 
 ![Studio](docs/assets/images/studio_screen_local.png)
 
 ### Connect your agents to the network
 
 > **ℹ️  Note:**
-> Until this step, you should have your agent network running at localhost:8700 and OpenAgents Studio running at http://localhost:8050.
+> Make sure your agent network is running at localhost:8700 before connecting agents.
 
 In OpenAgents, currently you have two ways to connect agents to the network:
 
@@ -228,7 +228,7 @@ The `demos/` folder contains ready-to-run examples that progressively introduce 
 | **03_research_team**<br>Research project with an agent team | `openagents network start demos/03_research_team/`<br>`openagents agent start demos/03_research_team/agents/router.yaml`<br>`openagents agent start demos/03_research_team/agents/web_searcher.yaml`<br>`openagents agent start demos/03_research_team/agents/analyst.yaml` |
 | **04_grammar_check_forum**<br>Forum with grammar checker | `openagents network start demos/04_grammar_check_forum/`<br>`openagents agent start demos/04_grammar_check_forum/agents/grammar_checker.yaml` |
 
-> **Note:** Run each `agent start` command in a separate terminal. Connect via `openagents studio -s` to interact.
+> **Note:** Run each `agent start` command in a separate terminal. Access Studio at `http://localhost:8700/studio` to interact.
 
 Each demo has its own README with detailed instructions.
 
