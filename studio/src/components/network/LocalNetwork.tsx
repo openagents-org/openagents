@@ -33,7 +33,20 @@ const LocalNetworkShow = React.memo(
 
     const handleConnect = () => {
       handleNetworkSelected(localNetwork);
-      navigate("/agent-setup");
+      
+      // Check if onboarding should be shown
+      // Use a simple localStorage key to track if user has seen onboarding
+      const networkId = `${host}:${port}`;
+      const onboardingKey = `openagents_onboarding_progress_${networkId}`;
+      const hasSeenOnboarding = localStorage.getItem(onboardingKey);
+      
+      if (!hasSeenOnboarding) {
+        // First time - go to onboarding
+        navigate("/onboarding");
+      } else {
+        // Returning user - go to agent setup
+        navigate("/agent-setup");
+      }
     };
 
     return (
