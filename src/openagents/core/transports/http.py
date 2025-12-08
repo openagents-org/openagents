@@ -647,14 +647,15 @@ class HttpTransport(Transport):
                 agents_dict = network_stats.get("agents", {})
                 
                 # Convert agents dict to list format
-                agents = []
-                for agent_id, agent_info in agents_dict.items():
-                    agents.append({
+                agents = [
+                    {
                         "agent_id": agent_id,
                         "name": agent_info.get("name", agent_id),
                         "connected_at": agent_info.get("connected_at", ""),
                         "status": "connected"
-                    })
+                    }
+                    for agent_id, agent_info in agents_dict.items()
+                ]
                 
                 return web.json_response({
                     "success": True,

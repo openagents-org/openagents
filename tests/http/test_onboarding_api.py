@@ -60,6 +60,7 @@ async def test_network():
                 raise RuntimeError(
                     f"Failed to initialize network after {max_retries} attempts"
                 )
+            await asyncio.sleep(0.2)
 
     # Give network time to start up
     await asyncio.sleep(1.0)
@@ -164,6 +165,6 @@ async def test_connected_agents_api(test_network):
         # Clean up
         try:
             await client.disconnect()
-        except:
-            pass
+        except Exception as e:
+            print(f"Error disconnecting client: {e}")
         await asyncio.sleep(0.5)

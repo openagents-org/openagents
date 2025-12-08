@@ -31,7 +31,9 @@ const AgentConnectionStep: React.FC<AgentConnectionStepProps> = ({
   const networkUrl = `http://localhost:${httpPort}`;
 
   useEffect(() => {
-    // Poll for connected agents
+    // Poll for connected agents with a reasonable interval
+    const POLLING_INTERVAL_MS = 5000; // 5 seconds
+    
     const checkAgents = async () => {
       try {
         const response = await axios.get(`${networkUrl}/api/agents/connected`);
@@ -45,7 +47,7 @@ const AgentConnectionStep: React.FC<AgentConnectionStepProps> = ({
 
     setChecking(true);
     checkAgents();
-    const interval = setInterval(checkAgents, 3000); // Poll every 3 seconds
+    const interval = setInterval(checkAgents, POLLING_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [networkUrl]);

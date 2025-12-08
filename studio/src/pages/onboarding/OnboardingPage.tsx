@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
+import { OnboardingProgress } from '@/services/onboardingStorage';
 import ProgressIndicator from './components/ProgressIndicator';
 import ExitButton from './components/ExitButton';
 import WelcomeStep from './components/WelcomeStep';
@@ -78,6 +79,15 @@ const OnboardingPage: React.FC = () => {
     fetchNetworkData();
   }, [networkHost, networkPort, networkId]);
 
+  // Step names corresponding to progress.stepsCompleted keys
+  const STEP_NAMES: Array<keyof OnboardingProgress['stepsCompleted']> = [
+    'welcome',
+    'networkConfig',
+    'studioAccess',
+    'agentConnection',
+    'completion',
+  ];
+
   useEffect(() => {
     // Sync current step with progress
     if (progress) {
@@ -91,15 +101,8 @@ const OnboardingPage: React.FC = () => {
     updateStep(nextStep);
 
     // Mark current step as completed
-    const stepNames: Array<keyof typeof progress.stepsCompleted> = [
-      'welcome',
-      'networkConfig',
-      'studioAccess',
-      'agentConnection',
-      'completion',
-    ];
-    if (currentStep <= stepNames.length) {
-      completeStep(stepNames[currentStep - 1]);
+    if (currentStep > 0 && currentStep <= STEP_NAMES.length) {
+      completeStep(STEP_NAMES[currentStep - 1]);
     }
   };
 
@@ -189,7 +192,7 @@ const OnboardingPage: React.FC = () => {
           {currentStep === 4 && (
             <AgentConnectionStep
               httpPort={networkData.transports.http?.port || networkPort}
-              networkPath="./my_first_network"
+              networkPath={networkContext?.workspacePath || './my_network'}
               onBack={handleBack}
               onContinue={handleNext}
             />
