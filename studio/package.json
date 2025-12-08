@@ -67,8 +67,8 @@
     "cross-env": "^7.0.3"
   },
   "scripts": {
-    "start": "HOST=0.0.0.0 PORT=3000 DANGEROUSLY_DISABLE_HOST_CHECK=true craco start",
-    "start:win": "cross-env HOST=0.0.0.0 PORT=3000 DANGEROUSLY_DISABLE_HOST_CHECK=true craco start",
+    "start": "HOST=0.0.0.0 PORT=8050 DANGEROUSLY_DISABLE_HOST_CHECK=true craco start",
+    "start:win": "cross-env HOST=0.0.0.0 PORT=8050 DANGEROUSLY_DISABLE_HOST_CHECK=true craco start",
     "build": "craco build",
     "test": "craco test",
     "eject": "react-scripts eject",

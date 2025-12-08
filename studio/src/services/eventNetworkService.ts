@@ -36,6 +36,7 @@ export class EventNetworkService {
       port: this.connection.port,
       agentId: this.agentId,
       timeout: options.timeout,
+      useHttps: this.connection.useHttps,
     });
 
     this.setupEventHandlers();
@@ -308,6 +309,9 @@ export class EventNetworkService {
             });
           }
 
+          // Extract files from content.files
+          const files = msg.payload?.content?.files || msg.content?.files || [];
+
           return {
             message_id: msg.event_id || msg.message_id || `dm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             sender_id: msg.source_id || msg.sender_id || 'unknown',
@@ -317,7 +321,8 @@ export class EventNetworkService {
                 : msg.timestamp)
               : Date.now().toString(),
             content: {
-              text: msg.payload?.content?.text || msg.content?.text || ''
+              text: msg.payload?.content?.text || msg.content?.text || '',
+              files: files.length > 0 ? files : undefined,
             },
             message_type: 'direct_message' as const,
             target_agent_id: msg.payload?.target_agent_id || msg.target_agent_id || targetAgentId,
@@ -326,10 +331,6 @@ export class EventNetworkService {
             quoted_message_id: msg.payload?.quoted_message_id || msg.quoted_message_id,
             quoted_text: msg.payload?.quoted_text || msg.quoted_text,
             reactions: reactions,
-            attachment_file_id: msg.payload?.attachment_file_id || msg.attachment_file_id,
-            attachment_filename: msg.payload?.attachment_filename || msg.attachment_filename,
-            attachment_size: msg.payload?.attachment_size || msg.attachment_size,
-            attachments: msg.payload?.attachments || msg.attachments,
             // Keep original data for debugging
             payload: msg.payload,
             source_id: msg.source_id
@@ -582,8 +583,9 @@ export class EventNetworkService {
         payload: payload,
       });
 
-      // Extract text content from the payload
+      // Extract text content and files from the payload
       const textContent = payload.content?.text || "";
+      const files = payload.content?.files;
 
       return {
         message_id: event.event_id || "",
@@ -591,7 +593,10 @@ export class EventNetworkService {
         timestamp: event.timestamp
           ? new Date(event.timestamp * 1000).toISOString()
           : new Date().toISOString(),
-        content: { text: textContent },
+        content: {
+          text: textContent,
+          files: files,
+        },
         message_type: payload.message_type || "channel_message",
         channel: payload.channel,
         target_agent_id: payload.target_agent_id,
@@ -601,10 +606,6 @@ export class EventNetworkService {
         quoted_text: payload.quoted_text,
         thread_info: payload.thread_info,
         reactions: payload.reactions,
-        attachment_file_id: payload.attachment_file_id,
-        attachment_filename: payload.attachment_filename,
-        attachment_size: payload.attachment_size,
-        attachments: payload.attachments,
       };
     } catch (error) {
       console.error("Error parsing thread message:", error);

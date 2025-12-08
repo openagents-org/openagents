@@ -12,6 +12,10 @@ network:
     - type: "http"
       config:
         port: 8700
+        # Serve MCP protocol at /mcp endpoint
+        serve_mcp: true
+        # Serve Studio frontend at /studio endpoint
+        serve_studio: true
     - type: "grpc"
       config:
         port: 8600
@@ -25,6 +29,9 @@ network:
         http2_max_pings_without_data: 0
         http2_min_time_between_pings: 60000
         http2_min_ping_interval_without_data: 300000
+    - type: "mcp"
+      config:
+        port: null
 
   manifest_transport: "http"
   recommended_transport: "grpc"
@@ -58,17 +65,18 @@ network:
       password_hash: "79dff3f691f7e6a1301bae5e62a094d77104680ba49624371f1353a138a1a683"
       metadata:
         permissions: ["create_projects", "delegate_tasks", "communicate_with_users"]
-        agents:
-          - "router"
 
     researchers:
       description: "Worker agents that execute research tasks"
       password_hash: "e5a978ae4d92fe4786d6ecdb811e0723c5f585d782fbd9439be6510f06adca0e"
       metadata:
         permissions: ["execute_tasks", "report_results"]
-        agents:
-          - "web-searcher"
-          - "analyst"
+    
+    admin:
+      description: "Administrator agents with full permissions"
+      password_hash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # password: admin
+      metadata:
+        permissions: ["all"]
 
   # ==========================================================================
   # Mod Configuration - All mods needed for demos 00-05
@@ -209,17 +217,31 @@ network:
     - name: "openagents.mods.games.agentworld"
       enabled: true
       config:
+            # AgentWorld game server address
         game_server_host: "play.agentworld.io"
-        game_server_port: 7031
-        game_client_port: 7032
+        game_server_port: 7031  # AgentWorld API port
+
+        # Game client port (for Studio iframe)
+        game_client_port: 7032  # AgentWorld client port
+
+        # Default channel for agents to join
         channel: "team_alpha"
+
+        # Username prefix for agents logging into the game
+        # If not specified, defaults to the channel name
+        # Set to empty string "" to disable prefixing
+        # Example: with prefix "team_alpha", username "agent1" becomes "team_alpha.agent1"
+        # username_prefix: "team_alpha"
+
+        # Default spawn position (x,y coordinates)
         spawn_position: "20,10"
+    
 
 # Network profile for discovery
 network_profile:
   discoverable: true
   name: "Default Network"
-  description: "A unified network for testing all demos (00-05). Includes messaging, forum, wiki, project management, and AgentWorld game integration."
+  description: "A default network for testing all demos (00-05). Includes messaging, forum, wiki, project management, and AgentWorld game integration."
   icon: "https://openagents.org/icons/default-workspace.png"
   website: "https://openagents.org"
   tags:
@@ -237,7 +259,7 @@ network_profile:
     - "demos"
     - "collaboration"
   country: "Worldwide"
-  required_openagents_version: "0.6.13"
+  required_openagents_version: "0.7.4"
   capacity: 100
   authentication:
     type: "none"

@@ -12,6 +12,8 @@ network:
     - type: "http"
       config:
         port: 8700
+        serve_studio: true
+        serve_mcp: true
     - type: "grpc"
       config:
         port: 8600

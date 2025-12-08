@@ -10,6 +10,7 @@ import ProjectSidebar from "@/pages/project/ProjectSidebar"
 import FeedSidebar from "@/pages/feed/FeedSidebar"
 import ArtifactSidebar from "@/pages/artifact/ArtifactSidebar"
 import ReadmeSidebar from "@/pages/readme/ReadmeSidebar"
+import ServiceAgentsSidebar from "@/pages/serviceagents/ServiceAgentsSidebar"
 
 // SidebarContent component - dynamically displays different sidebar content based on route
 // Each specific sidebar component manages its own data, no need to pass from outside
@@ -95,6 +96,10 @@ const SidebarContent: React.FC = () => {
 
     if (pathname.startsWith("/profile")) {
       return <ProfileSidebar />
+    }
+
+    if (pathname.startsWith("/studio/agents/service")) {
+      return <ServiceAgentsSidebar />
     }
 
     if (pathname.startsWith("/mcp")) {

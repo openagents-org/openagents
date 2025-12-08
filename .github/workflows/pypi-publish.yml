@@ -30,6 +30,15 @@ jobs:
         mkdir -p src/openagents/studio
         cp -r studio/build src/openagents/studio/
 
+    - name: Copy default network template to package
+      run: |
+        mkdir -p src/openagents/templates/default_network
+        cp -r examples/default_network/* src/openagents/templates/default_network/
+        echo '# OpenAgents templates package' > src/openagents/templates/__init__.py
+        echo '# Default network template' > src/openagents/templates/default_network/__init__.py
+        # Create __init__.py for agents subpackage
+        echo '# Agent templates' > src/openagents/templates/default_network/agents/__init__.py
+
     - name: Set up Python
       uses: actions/setup-python@v4
       with:

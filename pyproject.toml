@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openagents"
-version = "0.7.2"
+version = "0.7.5"
 description = "A flexible framework for building multi-agent systems with customizable protocols"
 readme = "README.md"
 authors = [
@@ -129,10 +129,11 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 openagents = [
-    "protocols/*/protocol_manifest.json", 
-    "configs/*.yaml", 
-    "templates/*.yaml", 
-    "templates/default_workspace/*.yaml",
+    "protocols/*/protocol_manifest.json",
+    "configs/*.yaml",
+    "templates/**/*",
+    "templates/default_network/**/*",
+    "templates/default_network/agents/*",
     "studio/build/**/*"
 ]
 

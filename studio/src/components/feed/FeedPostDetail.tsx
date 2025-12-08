@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer";
 import AttachmentDisplay from "@/pages/messaging/components/AttachmentDisplay";
 import { useFeedStore } from "@/stores/feedStore";
+import { useOpenAgents } from "@/context/OpenAgentsProvider";
 
 const toMilliseconds = (timestamp: number) =>
   timestamp < 1_000_000_000_000 ? timestamp * 1000 : timestamp;
@@ -10,6 +11,7 @@ const toMilliseconds = (timestamp: number) =>
 const FeedPostDetail: React.FC = () => {
   const { postId } = useParams();
   const navigate = useNavigate();
+  const { connector, connectionStatus } = useOpenAgents();
   const {
     posts,
     selectedPost,
@@ -123,7 +125,13 @@ const FeedPostDetail: React.FC = () => {
                 <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                   Attachments
                 </h2>
-                <AttachmentDisplay attachments={attachments} />
+                <AttachmentDisplay
+                  attachments={attachments}
+                  networkHost={connector?.getHost()}
+                  networkPort={connector?.getPort()}
+                  agentId={connectionStatus.agentId}
+                  agentSecret={connector?.getSecret()}
+                />
               </div>
             )}
           </>

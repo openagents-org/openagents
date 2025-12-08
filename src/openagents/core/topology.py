@@ -337,7 +337,8 @@ class CentralizedTopology(NetworkTopology):
                 if transport_type == TransportType.HTTP:
                     from .transports import HttpTransport
 
-                    transport = HttpTransport(transport_config.config)
+                    workspace_path = self.network_context.workspace_path if self.network_context else None
+                    transport = HttpTransport(transport_config.config, workspace_path=workspace_path)
                 elif transport_type == TransportType.WEBSOCKET:
                     from .transports import WebSocketTransport
 
@@ -379,6 +380,16 @@ class CentralizedTopology(NetworkTopology):
                         else 8000
                     ),
                 )
+
+                # Handle port: null - transport can still be initialized but won't bind to a port
+                # (useful for MCP transport when serve_mcp is enabled on HTTP transport)
+                if transport_port is None:
+                    logger.info(
+                        f"{transport_type} transport initialized with port: null (standalone binding disabled)"
+                    )
+                    self.transports[transport_type] = transport
+                    continue
+
                 if not await transport.listen(f"{transport_host}:{transport_port}"):
                     logger.error(
                         f"Failed to start {transport_type} transport on {transport_host}:{transport_port}"
@@ -394,6 +405,23 @@ class CentralizedTopology(NetworkTopology):
             if not self.transports:
                 logger.error("No transports successfully initialized")
                 return False
+
+            # Initialize MCP on HTTP transport if serve_mcp is enabled
+            if TransportType.HTTP in self.transports:
+                http_transport = self.transports[TransportType.HTTP]
+                if hasattr(http_transport, "_serve_mcp") and http_transport._serve_mcp:
+                    # Set network context for MCP tool collection
+                    if hasattr(http_transport, "network_context"):
+                        http_transport.network_context = self.network_context
+                    # Initialize MCP tool collector (don't fail network startup if this fails)
+                    if hasattr(http_transport, "initialize_mcp"):
+                        try:
+                            http_transport.initialize_mcp()
+                        except Exception as e:
+                            logger.warning(
+                                f"HTTP transport MCP initialization failed: {e}. "
+                                f"MCP endpoint /mcp will be available but tools may not work."
+                            )
 
             self.is_running = True
             self.heartbeat_task = asyncio.create_task(self._heartbeat_monitor())
@@ -559,7 +587,8 @@ class DecentralizedTopology(NetworkTopology):
                 if transport_type == TransportType.HTTP:
                     from .transports import HttpTransport
 
-                    transport = HttpTransport(transport_config.get("config", {}))
+                    workspace_path = self.network_context.workspace_path if self.network_context else None
+                    transport = HttpTransport(transport_config.get("config", {}), workspace_path=workspace_path)
                 elif transport_type == TransportType.WEBSOCKET:
                     from .transports import WebSocketTransport
 

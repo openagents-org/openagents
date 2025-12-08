@@ -41,8 +41,7 @@
         ],
         "tools": [
             "send_direct_message",
-            "send_channel_message", 
-            "upload_file",
+            "send_channel_message",
             "reply_channel_message",
             "reply_direct_message",
             "list_channels",

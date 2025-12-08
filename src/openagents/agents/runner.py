@@ -53,6 +53,7 @@ class AgentRunner(ABC):
 
         Note:
             Either mod_names or mod_adapters should be provided, not both.
+            LLM call logging is handled via system events (sent to network for centralized storage).
         """
         self._agent_id = agent_id
         self._preset_mod_names = mod_names
@@ -278,7 +279,9 @@ class AgentRunner(ABC):
             agent_config=self.agent_config,
             tools=tools,
             user_instruction=instruction,
-            max_iterations=max_iterations,  
+            max_iterations=max_iterations,
+            agent_id=self._agent_id,
+            agent_client=self._network_client,
         )
     
     def get_llm(self) -> BaseModelProvider:
@@ -317,6 +320,8 @@ class AgentRunner(ABC):
             max_iterations=max_iterations,
             disable_finish_tool=True,
             use_llm_user_prompt=True,
+            agent_id=self._agent_id,
+            agent_client=self._network_client,
         )
     
     async def send_event(self, event: Event) -> Optional[EventResponse]:

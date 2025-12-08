@@ -129,9 +129,12 @@ export const httpFetch = async (
 
 /**
  * Build URL for OpenAgents network endpoint with automatic proxy support
+ * HTTPS Feature: Support selection of http or https protocol based on useHttps parameter
  */
-export const buildNetworkUrl = (host: string, port: number, endpoint: string): string => {
-  const baseUrl = `http://${host}:${port}`;
+export const buildNetworkUrl = (host: string, port: number, endpoint: string, useHttps: boolean = false): string => {
+  // HTTPS Feature: Select protocol based on useHttps parameter
+  const protocol = useHttps ? 'https' : 'http';
+  const baseUrl = `${protocol}://${host}:${port}`;
   const fullUrl = `${baseUrl}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
   
   const { url } = transformUrlForProxy(fullUrl);
@@ -140,9 +143,12 @@ export const buildNetworkUrl = (host: string, port: number, endpoint: string): s
 
 /**
  * Build headers for OpenAgents network request with automatic proxy support
+ * HTTPS Feature: Support selection of http or https protocol based on useHttps parameter
  */
-export const buildNetworkHeaders = (host: string, port: number, additionalHeaders: HeadersInit = {}): Headers => {
-  const baseUrl = `http://${host}:${port}`;
+export const buildNetworkHeaders = (host: string, port: number, additionalHeaders: HeadersInit = {}, useHttps: boolean = false): Headers => {
+  // HTTPS Feature: Select protocol based on useHttps parameter
+  const protocol = useHttps ? 'https' : 'http';
+  const baseUrl = `${protocol}://${host}:${port}`;
   const { headers: proxyHeaders } = transformUrlForProxy(baseUrl);
   
   const headers = new Headers(additionalHeaders);
@@ -157,15 +163,18 @@ export const buildNetworkHeaders = (host: string, port: number, additionalHeader
 
 /**
  * Convenience method for OpenAgents network requests
+ * HTTPS Feature: Support selection of http or https protocol based on options.useHttps parameter
  */
 export const networkFetch = async (
   host: string,
   port: number,
   endpoint: string,
-  options: RequestInit & HttpClientOptions = {}
+  options: RequestInit & HttpClientOptions & { useHttps?: boolean } = {}
 ): Promise<Response> => {
-  const url = buildNetworkUrl(host, port, endpoint);
-  const headers = buildNetworkHeaders(host, port, options.headers);
+  // HTTPS Feature: Extract useHttps parameter from options
+  const useHttps = options.useHttps || false;
+  const url = buildNetworkUrl(host, port, endpoint, useHttps);
+  const headers = buildNetworkHeaders(host, port, options.headers, useHttps);
   
   const method = options.method || "GET";
   const startTime = Date.now();

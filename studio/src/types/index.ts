@@ -5,7 +5,6 @@ import { NetworkConnection } from "@/types/connection";
 export type {
   UnifiedMessage,
   RawThreadMessage,
-  LegacyMessage
 } from "./message";
 
 export {
@@ -46,16 +45,6 @@ export interface Message {
   toolMetadata?: {
     sections: ToolSection[];
   };
-  // File attachment fields
-  attachment_file_id?: string;
-  attachment_filename?: string;
-  attachment_size?: number | string;
-  attachments?: Array<{
-    file_id: string;
-    filename: string;
-    size: number;
-    file_type?: string;
-  }>;
 }
 
 // Conversation types removed - not needed for chat module

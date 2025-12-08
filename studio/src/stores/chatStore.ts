@@ -88,7 +88,12 @@ interface ChatState {
   sendChannelMessage: (
     channel: string,
     content: string,
-    replyToId?: string
+    replyToId?: string,
+    attachmentData?: {
+      file_id: string;
+      filename: string;
+      size: number;
+    }
   ) => Promise<boolean>;
   sendDirectMessage: (
     targetAgentId: string,
@@ -601,12 +606,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sendChannelMessage: async (
     channel: string,
     content: string,
-    replyToId?: string
+    replyToId?: string,
+    attachmentData?: {
+      file_id: string;
+      filename: string;
+      size: number;
+    }
   ) => {
     const connection = get().getConnection();
     if (!connection || !content.trim()) return false;
 
-    console.log(`ChatStore: Sending message to #${channel}: "${content}"`);
+    console.log(`ChatStore: Sending message to #${channel}: "${content}"`, attachmentData ? `with attachment: ${attachmentData.filename}` : '');
 
     // 1. Immediately add optimistic update message
     const tempId = get().addOptimisticChannelMessage(
@@ -616,10 +626,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     );
 
     try {
+      // Build content object with text and optional files
+      const contentObj: any = { text: content.trim() };
+      if (attachmentData) {
+        contentObj.files = [{
+          file_id: attachmentData.file_id,
+          filename: attachmentData.filename,
+          size: attachmentData.size,
+          storage_type: "cache",
+        }];
+      }
+
       // Build payload
       const payload: any = {
         channel: channel,
-        content: { text: content.trim() },
+        content: contentObj,
         message_type: replyToId ? "reply_message" : "channel_message",
       };
 
@@ -2134,6 +2155,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
             replyToId: messageData.reply_to_id || event.reply_to_id,
             threadLevel: messageData.thread_level || 1,
             reactions: messageData.reactions,
+            // Extract files from content.files
+            attachments: messageData.content?.files?.map((f: any) => ({
+              fileId: f.file_id,
+              filename: f.filename,
+              size: f.size,
+              fileType: f.file_type,
+              storageType: f.storage_type,
+            })),
           };
 
           // Check if it's own message (may need to replace optimistic update message)

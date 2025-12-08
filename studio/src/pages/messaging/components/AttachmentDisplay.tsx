@@ -1,46 +1,43 @@
 import React from 'react';
-import { buildNetworkUrl } from '@/utils/httpClient';
 
 interface AttachmentDisplayProps {
-  // New unified attachment format
   attachments?: Array<{
     fileId: string;
     filename: string;
     size: number;
     fileType?: string;
   }>;
-  // Compatible with old format (optional)
-  attachment_file_id?: string;
-  attachment_filename?: string;
-  attachment_size?: number | string;
-  // Compatible with old format array (optional)
-  legacyAttachments?: Array<{
-    file_id: string;
-    filename: string;
-    size: number;
-    file_type?: string;
-  }>;
+  // Network connection details for download
+  networkHost?: string;
+  networkPort?: number;
+  agentId?: string;
+  agentSecret?: string | null;
 }
 
 const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
   attachments,
-  attachment_file_id,
-  attachment_filename,
-  attachment_size,
-  legacyAttachments
+  networkHost,
+  networkPort,
+  agentId: propsAgentId,
+  agentSecret,
 }) => {
   // Handle download for a single attachment
   const handleDownload = (fileId: string, filename: string) => {
-    // Use a dummy agent_id for now - in a real implementation, this would come from context
-    const agentId = 'file-uploader-agent';
-    
-    // Build download URL with automatic proxy support for HTTPS frontend
-    const downloadUrl = buildNetworkUrl(
-      window.location.hostname,
-      9572,
-      `/api/workspace/download/${fileId}?agent_id=${agentId}`
-    );
-    
+    const agentId = propsAgentId || 'anonymous';
+
+    // Build download URL using actual network connection details
+    const host = networkHost || window.location.hostname;
+    const port = networkPort || 8700;
+
+    // Build query params
+    const params = new URLSearchParams();
+    params.append('agent_id', agentId);
+    if (agentSecret) {
+      params.append('secret', agentSecret);
+    }
+
+    const downloadUrl = `http://${host}:${port}/api/cache/download/${fileId}?${params.toString()}`;
+
     // Create a temporary anchor element to trigger download
     const link = document.createElement('a');
     link.href = downloadUrl;
@@ -52,22 +49,19 @@ const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
   };
 
   // Format file size for display
-  const formatFileSize = (size: number | string): string => {
-    if (!size || size === '') return 'Unknown size';
-    
-    const numSize = typeof size === 'string' ? parseInt(size) : size;
-    if (isNaN(numSize)) return 'Unknown size';
-    
-    if (numSize < 1024) return `${numSize} bytes`;
-    if (numSize < 1024 * 1024) return `${(numSize / 1024).toFixed(1)} KB`;
-    if (numSize < 1024 * 1024 * 1024) return `${(numSize / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(numSize / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  const formatFileSize = (size: number): string => {
+    if (!size) return 'Unknown size';
+
+    if (size < 1024) return `${size} bytes`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
 
   // Get file icon based on filename extension
   const getFileIcon = (filename: string): React.ReactNode => {
     const extension = filename.split('.').pop()?.toLowerCase();
-    
+
     switch (extension) {
       case 'txt':
       case 'md':
@@ -113,77 +107,46 @@ const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
     }
   };
 
-  // Render a single attachment item
-  const renderAttachmentItem = (fileId: string, filename: string, size: number | string) => (
-    <div
-      key={fileId}
-      className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-    >
-      <div className="flex items-center space-x-3 flex-1 min-w-0">
-        <div className="flex-shrink-0 text-gray-500 dark:text-gray-400">
-          {getFileIcon(filename)}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-            {filename}
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {formatFileSize(size)}
-          </p>
-        </div>
-      </div>
-      <button
-        onClick={() => handleDownload(fileId, filename)}
-        className="flex-shrink-0 inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:hover:bg-blue-800 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-        Download
-      </button>
-    </div>
-  );
-
-  // Merge all attachments to unified format
-  const allAttachments: Array<{fileId: string, filename: string, size: number}> = [];
-
-  // New format attachments
-  if (attachments && attachments.length > 0) {
-    allAttachments.push(...attachments);
-  }
-
-  // Compatible with old format array
-  if (legacyAttachments && legacyAttachments.length > 0) {
-    allAttachments.push(...legacyAttachments.map(att => ({
-      fileId: att.file_id,
-      filename: att.filename,
-      size: att.size,
-    })));
-  }
-
-  // Compatible with old format single attachment
-  if (attachment_file_id && attachment_filename && allAttachments.length === 0) {
-    allAttachments.push({
-      fileId: attachment_file_id,
-      filename: attachment_filename,
-      size: typeof attachment_size === 'string' ? parseInt(attachment_size) || 0 : attachment_size || 0,
-    });
-  }
-
-  if (allAttachments.length === 0) {
+  if (!attachments || attachments.length === 0) {
     return null;
   }
 
   return (
     <div className="mt-3 space-y-2">
-      {allAttachments.length > 1 && (
+      {attachments.length > 1 && (
         <div className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
-          {allAttachments.length} files attached:
+          {attachments.length} files attached:
         </div>
       )}
-      {allAttachments.map(attachment =>
-        renderAttachmentItem(attachment.fileId, attachment.filename, attachment.size)
-      )}
+      {attachments.map(attachment => (
+        <div
+          key={attachment.fileId}
+          className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
+        >
+          <div className="flex items-center space-x-3 flex-1 min-w-0">
+            <div className="flex-shrink-0 text-gray-500 dark:text-gray-400">
+              {getFileIcon(attachment.filename)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                {attachment.filename}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {formatFileSize(attachment.size)}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => handleDownload(attachment.fileId, attachment.filename)}
+            className="flex-shrink-0 inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:hover:bg-blue-800 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Download
+          </button>
+        </div>
+      ))}
     </div>
   );
 };
