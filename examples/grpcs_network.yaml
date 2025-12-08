@@ -1,0 +1,92 @@
+# OpenAgents Network with gRPCS (TLS/SSL) Example
+# This network demonstrates secure gRPC communication with TLS
+
+network:
+  name: "SecureNetwork"
+  mode: "centralized"
+  node_id: "secure-network-1"
+
+  # Transport configuration with TLS enabled
+  transports:
+    - type: "grpc"
+      config:
+        port: 8600
+        host: "0.0.0.0"
+        max_message_size: 104857600  # 100MB
+        
+        # TLS Configuration
+        tls:
+          enabled: true
+          cert_file: "./certs/server.crt"
+          key_file: "./certs/server.key"
+          ca_file: "./certs/ca.crt"
+          require_client_cert: false  # Set to true for mTLS
+          min_version: "TLS1.2"
+    
+    - type: "http"
+      config:
+        port: 8700
+
+  # Transport for providing the network manifest
+  manifest_transport: "http"
+
+  # Recommended transport for agent-to-network communication
+  recommended_transport: "grpc"
+    
+  # Security configuration
+  encryption_enabled: true
+  disable_agent_secret_verification: false
+  
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+  
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+  
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  # Default agent group
+  default_agent_group: "guests"
+  requires_password: false
+
+  # Mod configuration
+  mods:
+    - name: "openagents.mods.communication.simple_messaging"
+      enabled: true
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "Secure Test Network"
+  description: "A test network with gRPCS (TLS/SSL) enabled"
+  icon: "https://openagents.org/icons/secure-network.png"
+  website: "https://openagents.org"
+  tags:
+    - "secure"
+    - "test"
+    - "tls"
+  categories:
+    - "testing"
+  country: "Worldwide"
+  required_openagents_version: "0.7.5"
+  capacity: 100
+  authentication:
+    type: "none"
+  host: "0.0.0.0"
+  port: 8700
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/secure-network"
+
+# Runtime configuration
+runtime_limit: null
+shutdown_timeout: 30

@@ -7,7 +7,7 @@ for development and testing purposes.
 
 import ipaddress
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional, Dict
 
@@ -63,8 +63,8 @@ class CertificateGenerator:
             .issuer_name(ca_subject)
             .public_key(ca_key.public_key())
             .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.utcnow())
-            .not_valid_after(datetime.utcnow() + timedelta(days=days_valid * 2))
+            .not_valid_before(datetime.now(timezone.utc))
+            .not_valid_after(datetime.now(timezone.utc) + timedelta(days=days_valid * 2))
             .add_extension(
                 x509.BasicConstraints(ca=True, path_length=0),
                 critical=True
@@ -118,8 +118,8 @@ class CertificateGenerator:
             .issuer_name(ca_subject)
             .public_key(server_key.public_key())
             .serial_number(x509.random_serial_number())
-            .not_valid_before(datetime.utcnow())
-            .not_valid_after(datetime.utcnow() + timedelta(days=days_valid))
+            .not_valid_before(datetime.now(timezone.utc))
+            .not_valid_after(datetime.now(timezone.utc) + timedelta(days=days_valid))
             .add_extension(
                 x509.SubjectAlternativeName(san_list),
                 critical=False
