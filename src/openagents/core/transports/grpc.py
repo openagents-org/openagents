@@ -389,10 +389,10 @@ class GRPCTransport(Transport):
 
     def _create_server_credentials(self, tls_config: Dict[str, Any]) -> grpc.ServerCredentials:
         """Create SSL server credentials from TLS configuration.
-        
+
         Args:
             tls_config: TLS configuration dictionary
-            
+
         Returns:
             grpc.ServerCredentials configured for TLS
         """
@@ -402,7 +402,11 @@ class GRPCTransport(Transport):
         require_client_cert = tls_config.get("require_client_cert", False)
 
         if not cert_file or not key_file:
-            raise ValueError("TLS enabled but cert_file and key_file not provided")
+            raise ValueError(
+                f"TLS enabled but required files missing - "
+                f"cert_file: {cert_file or 'not provided'}, "
+                f"key_file: {key_file or 'not provided'}"
+            )
 
         # Read certificate files
         with open(cert_file, 'rb') as f:
