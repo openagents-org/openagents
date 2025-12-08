@@ -513,16 +513,62 @@ class AgentRunner(ABC):
 
     async def _async_start(
         self,
+        url: Optional[str] = None,
         host: Optional[str] = None,
         port: Optional[int] = None,
         network_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         password_hash: Optional[str] = None,
+        ssl_ca_cert: Optional[str] = None,
+        ssl_client_cert: Optional[str] = None,
+        ssl_client_key: Optional[str] = None,
+        ssl_verify: bool = True,
     ):
         """Async implementation of starting the agent runner.
 
         This is the internal async implementation that should not be called directly.
+        
+        Args:
+            url: Connection string URL (e.g., "grpcs://host:port"). Takes precedence over host/port.
+            host: Server host (legacy, use url instead)
+            port: Server port (legacy, use url instead)
+            network_id: Network ID to join
+            metadata: Additional metadata for the agent
+            password_hash: Password hash for agent group auth
+            ssl_ca_cert: Path to CA certificate for TLS verification
+            ssl_client_cert: Path to client certificate for mTLS
+            ssl_client_key: Path to client private key for mTLS
+            ssl_verify: Whether to verify server certificate (default: True)
         """
+        # Parse URL if provided
+        use_tls = False
+        if url:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            
+            # Extract scheme to determine if TLS should be used
+            if parsed.scheme == "grpcs":
+                use_tls = True
+                host = parsed.hostname or host
+                port = parsed.port or port or 8600
+            elif parsed.scheme == "grpc":
+                use_tls = False
+                host = parsed.hostname or host
+                port = parsed.port or port or 8600
+            elif parsed.scheme == "https":
+                use_tls = True
+                host = parsed.hostname or host
+                port = parsed.port or port or 8700
+            elif parsed.scheme == "http":
+                use_tls = False
+                host = parsed.hostname or host
+                port = parsed.port or port or 8700
+            elif parsed.scheme == "openagents":
+                # Network discovery - extract network_id from path
+                network_id = parsed.path.lstrip('/') or parsed.hostname
+            else:
+                raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
+                
         # verbose_print(f"🚀 Agent {self._agent_id} starting...")
         try:
             connected = await self.client.connect(
@@ -531,6 +577,11 @@ class AgentRunner(ABC):
                 network_id=network_id,
                 metadata=metadata,
                 password_hash=password_hash,
+                use_tls=use_tls,
+                ssl_ca_cert=ssl_ca_cert,
+                ssl_client_cert=ssl_client_cert,
+                ssl_client_key=ssl_client_key,
+                ssl_verify=ssl_verify,
             )
             if not connected:
                 raise Exception("Failed to connect to server")
@@ -698,26 +749,40 @@ class AgentRunner(ABC):
 
     async def async_start(
         self,
+        url: Optional[str] = None,
         network_host: Optional[str] = None,
         network_port: Optional[int] = None,
         network_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         password_hash: Optional[str] = None,
+        ssl_ca_cert: Optional[str] = None,
+        ssl_client_cert: Optional[str] = None,
+        ssl_client_key: Optional[str] = None,
+        ssl_verify: bool = True,
     ):
         """Public async method for starting the agent runner.
 
         This is the public async API that should be used when starting agents in async contexts.
 
         Args:
-            host: Server host to connect to
-            port: Server port to connect to
+            url: Connection string URL (e.g., "grpcs://host:port"). Takes precedence over host/port.
+            network_host: Server host (legacy, use url instead)
+            network_port: Server port (legacy, use url instead)
             network_id: Network ID to join
             metadata: Additional metadata for the agent
+            password_hash: Password hash for agent group auth
+            ssl_ca_cert: Path to CA certificate for TLS verification
+            ssl_client_cert: Path to client certificate for mTLS
+            ssl_client_key: Path to client private key for mTLS
+            ssl_verify: Whether to verify server certificate (default: True)
 
         Raises:
             Exception: If the agent fails to start or connect
         """
-        await self._async_start(network_host, network_port, network_id, metadata, password_hash)
+        await self._async_start(
+            url, network_host, network_port, network_id, metadata, password_hash,
+            ssl_ca_cert, ssl_client_cert, ssl_client_key, ssl_verify
+        )
 
     async def _async_stop(self):
         """Async implementation of stopping the agent runner.
@@ -747,11 +812,16 @@ class AgentRunner(ABC):
 
     def start(
         self,
+        url: Optional[str] = None,
         network_host: Optional[str] = None,
         network_port: Optional[int] = None,
         network_id: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         password_hash: Optional[str] = None,
+        ssl_ca_cert: Optional[str] = None,
+        ssl_client_cert: Optional[str] = None,
+        ssl_client_key: Optional[str] = None,
+        ssl_verify: bool = True,
     ):
         """Start the agent runner.
 
@@ -759,11 +829,16 @@ class AgentRunner(ABC):
         This is a synchronous wrapper around the async implementation.
 
         Args:
-            host: Server host
-            port: Server port
-            network_id: Network ID
-            metadata: Additional metadata
-            password_hash: Password hash for agent group authentication
+            url: Connection string URL (e.g., "grpcs://host:port"). Takes precedence over host/port.
+            network_host: Server host (legacy, use url instead)
+            network_port: Server port (legacy, use url instead)
+            network_id: Network ID to join
+            metadata: Additional metadata for the agent
+            password_hash: Password hash for agent group auth
+            ssl_ca_cert: Path to CA certificate for TLS verification
+            ssl_client_cert: Path to client certificate for mTLS
+            ssl_client_key: Path to client private key for mTLS
+            ssl_verify: Whether to verify server certificate (default: True)
         """
         # Create a new event loop if one doesn't exist
         try:
@@ -775,7 +850,12 @@ class AgentRunner(ABC):
 
         # Run the async start method in the event loop
         try:
-            loop.run_until_complete(self._async_start(network_host, network_port, network_id, metadata, password_hash))
+            loop.run_until_complete(
+                self._async_start(
+                    url, network_host, network_port, network_id, metadata, password_hash,
+                    ssl_ca_cert, ssl_client_cert, ssl_client_key, ssl_verify
+                )
+            )
         except Exception as e:
             raise Exception(f"Failed to start agent: {str(e)}")
 

@@ -153,6 +153,11 @@ class AgentClient:
         metadata: Optional[Dict[str, Any]] = None,
         max_message_size: int = 104857600,
         password_hash: Optional[str] = None,
+        use_tls: bool = False,
+        ssl_ca_cert: Optional[str] = None,
+        ssl_client_cert: Optional[str] = None,
+        ssl_client_key: Optional[str] = None,
+        ssl_verify: bool = True,
     ) -> bool:
         """Connect to a network server.
 
@@ -164,6 +169,11 @@ class AgentClient:
             metadata: Metadata to send to the server
             max_message_size: Maximum WebSocket message size in bytes (default 10MB)
             password_hash: Password hash for agent group authentication
+            use_tls: Whether to use TLS/SSL for the connection
+            ssl_ca_cert: Path to CA certificate for server verification
+            ssl_client_cert: Path to client certificate for mTLS
+            ssl_client_key: Path to client private key for mTLS
+            ssl_verify: Whether to verify server certificate (default: True)
 
         Returns:
             bool: True if connection successful
@@ -261,6 +271,11 @@ class AgentClient:
                 metadata,
                 max_message_size,
                 password_hash,
+                use_tls=use_tls,
+                ssl_ca_cert=ssl_ca_cert,
+                ssl_client_cert=ssl_client_cert,
+                ssl_client_key=ssl_client_key,
+                ssl_verify=ssl_verify,
             )
         elif transport_type == "http":
             logger.info(f"Creating HTTP connector for agent {self.agent_id}")
@@ -318,6 +333,11 @@ class AgentClient:
         metadata: Optional[Dict[str, Any]] = None,
         max_message_size: int = 104857600,
         password_hash: Optional[str] = None,
+        use_tls: bool = False,
+        ssl_ca_cert: Optional[str] = None,
+        ssl_client_cert: Optional[str] = None,
+        ssl_client_key: Optional[str] = None,
+        ssl_verify: bool = True,
     ) -> bool:
         """Connect to a network server (alias for connect_to_server).
 
@@ -331,12 +351,19 @@ class AgentClient:
             metadata: Metadata to send to the server
             max_message_size: Maximum WebSocket message size in bytes (default 10MB)
             password_hash: Password hash for agent group authentication
+            use_tls: Whether to use TLS/SSL for the connection
+            ssl_ca_cert: Path to CA certificate for server verification
+            ssl_client_cert: Path to client certificate for mTLS
+            ssl_client_key: Path to client private key for mTLS
+            ssl_verify: Whether to verify server certificate (default: True)
 
         Returns:
             bool: True if connection successful
         """
         return await self.connect_to_server(
-            network_host, network_port, network_id, enforce_transport_type, metadata, max_message_size, password_hash
+            network_host, network_port, network_id, enforce_transport_type, 
+            metadata, max_message_size, password_hash,
+            use_tls, ssl_ca_cert, ssl_client_cert, ssl_client_key, ssl_verify
         )
 
     async def disconnect(self) -> bool:

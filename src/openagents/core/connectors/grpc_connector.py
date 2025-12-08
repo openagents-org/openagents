@@ -36,6 +36,11 @@ class GRPCNetworkConnector(NetworkConnector):
         metadata: Optional[Dict[str, Any]] = None,
         max_message_size: int = 104857600,
         password_hash: Optional[str] = None,
+        use_tls: bool = False,
+        ssl_ca_cert: Optional[str] = None,
+        ssl_client_cert: Optional[str] = None,
+        ssl_client_key: Optional[str] = None,
+        ssl_verify: bool = True,
     ):
         """Initialize a gRPC network connector.
 
@@ -46,6 +51,11 @@ class GRPCNetworkConnector(NetworkConnector):
             metadata: Agent metadata to send during registration
             max_message_size: Maximum message size in bytes (default 100MB)
             password_hash: Password hash for agent group authentication
+            use_tls: Whether to use TLS/SSL for the connection
+            ssl_ca_cert: Path to CA certificate for server verification
+            ssl_client_cert: Path to client certificate for mTLS
+            ssl_client_key: Path to client private key for mTLS
+            ssl_verify: Whether to verify server certificate (default: True)
         """
         # Initialize base connector
         super().__init__(host, port, agent_id, metadata)
@@ -53,6 +63,13 @@ class GRPCNetworkConnector(NetworkConnector):
         self.max_message_size = max_message_size
         self.password_hash = password_hash
         self.is_polling = True  # gRPC uses polling for message retrieval
+
+        # SSL/TLS configuration
+        self.use_tls = use_tls
+        self.ssl_ca_cert = ssl_ca_cert
+        self.ssl_client_cert = ssl_client_cert
+        self.ssl_client_key = ssl_client_key
+        self.ssl_verify = ssl_verify
 
         # gRPC components
         self.channel = None
@@ -119,7 +136,18 @@ class GRPCNetworkConnector(NetworkConnector):
             ]
 
             address = f"{self.host}:{self.port}"
-            self.channel = self.aio.insecure_channel(address, options=options)
+            
+            # Create channel based on TLS configuration
+            if self.use_tls:
+                credentials = self._create_client_credentials()
+                self.channel = self.aio.secure_channel(address, credentials, options=options)
+                logger.info(f"Connecting to gRPCS server at {address} (TLS enabled)")
+                if not self.ssl_verify:
+                    logger.warning("⚠️  SSL certificate verification is disabled - use only for development!")
+            else:
+                self.channel = self.aio.insecure_channel(address, options=options)
+                logger.info(f"Connecting to gRPC server at {address}")
+            
             self.stub = self.agent_service_pb2_grpc.AgentServiceStub(self.channel)
 
             # Test connection with heartbeat
@@ -160,7 +188,7 @@ class GRPCNetworkConnector(NetworkConnector):
             else:
                 logger.warning(f"No secret received from network for agent {self.agent_id}")
 
-            logger.info(f"Connected to gRPC network successfully")
+            logger.info(f"Connected to {'gRPCS' if self.use_tls else 'gRPC'} network successfully")
 
             # For now, skip bidirectional streaming and use unary calls
             # TODO: Implement proper streaming later
@@ -172,6 +200,40 @@ class GRPCNetworkConnector(NetworkConnector):
         except Exception as e:
             logger.error(f"gRPC connection error: {e}")
             return False
+
+    def _create_client_credentials(self) -> "grpc.ChannelCredentials":
+        """Create SSL client credentials.
+        
+        Returns:
+            grpc.ChannelCredentials configured for TLS
+        """
+        if not self.ssl_verify:
+            # Skip verification (development only)
+            logger.debug("Creating gRPC client credentials with verification disabled")
+            return self.grpc.ssl_channel_credentials()
+
+        # Load CA certificate
+        root_ca = None
+        if self.ssl_ca_cert:
+            with open(self.ssl_ca_cert, 'rb') as f:
+                root_ca = f.read()
+            logger.debug(f"Loaded CA certificate from {self.ssl_ca_cert}")
+
+        # Load client certificate for mTLS
+        client_cert = None
+        client_key = None
+        if self.ssl_client_cert:
+            with open(self.ssl_client_cert, 'rb') as f:
+                client_cert = f.read()
+            with open(self.ssl_client_key, 'rb') as f:
+                client_key = f.read()
+            logger.debug(f"Loaded client certificate from {self.ssl_client_cert} for mTLS")
+
+        return self.grpc.ssl_channel_credentials(
+            root_certificates=root_ca,
+            private_key=client_key,
+            certificate_chain=client_cert
+        )
 
     async def disconnect(self) -> bool:
         """Disconnect from the gRPC network server.

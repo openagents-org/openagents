@@ -363,11 +363,21 @@ class GRPCTransport(Transport):
             )
 
             listen_addr = f"{host}:{port}"
-            self.server.add_insecure_port(listen_addr)
+            
+            # Check if TLS is configured
+            tls_config = self.config.get("tls")
+            if tls_config and isinstance(tls_config, dict) and tls_config.get("enabled"):
+                # Create SSL server credentials
+                server_credentials = self._create_server_credentials(tls_config)
+                self.server.add_secure_port(listen_addr, server_credentials)
+                logger.info(f"gRPCS transport listening on {host}:{port} (TLS enabled)")
+            else:
+                # Non-TLS server
+                self.server.add_insecure_port(listen_addr)
+                logger.info(f"gRPC transport listening on {host}:{port}")
 
             await self.server.start()
             self.is_listening = True
-            logger.info(f"gRPC transport listening on {host}:{port}")
             return True
 
         except ImportError as e:
@@ -376,6 +386,51 @@ class GRPCTransport(Transport):
         except Exception as e:
             logger.error(f"Failed to start gRPC server: {e}")
             return False
+
+    def _create_server_credentials(self, tls_config: Dict[str, Any]) -> grpc.ServerCredentials:
+        """Create SSL server credentials from TLS configuration.
+        
+        Args:
+            tls_config: TLS configuration dictionary
+            
+        Returns:
+            grpc.ServerCredentials configured for TLS
+        """
+        cert_file = tls_config.get("cert_file")
+        key_file = tls_config.get("key_file")
+        ca_file = tls_config.get("ca_file")
+        require_client_cert = tls_config.get("require_client_cert", False)
+
+        if not cert_file or not key_file:
+            raise ValueError("TLS enabled but cert_file and key_file not provided")
+
+        # Read certificate files
+        with open(cert_file, 'rb') as f:
+            server_cert = f.read()
+        with open(key_file, 'rb') as f:
+            server_key = f.read()
+
+        # Optional CA certificate for client verification
+        root_ca = None
+        if ca_file:
+            with open(ca_file, 'rb') as f:
+                root_ca = f.read()
+
+        # Create credentials
+        if require_client_cert and root_ca:
+            # mTLS: require and verify client certificates
+            logger.info("Creating gRPC server credentials with mTLS (client cert required)")
+            return grpc.ssl_server_credentials(
+                [(server_key, server_cert)],
+                root_certificates=root_ca,
+                require_client_auth=True
+            )
+        else:
+            # Server-only TLS
+            logger.info("Creating gRPC server credentials with TLS (no client cert)")
+            return grpc.ssl_server_credentials(
+                [(server_key, server_cert)]
+            )
 
     async def peer_connect(self, peer_id: str, metadata: Dict[str, Any] = None) -> bool:
         """Connect to a gRPC peer."""
