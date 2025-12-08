@@ -103,11 +103,11 @@ class CertificateGenerator:
         san_list = [x509.DNSName(common_name)]
         if san_names:
             san_list.extend([x509.DNSName(name) for name in san_names])
-        
+
         # Always include localhost
         if "localhost" not in [common_name] + (san_names or []):
             san_list.append(x509.DNSName("localhost"))
-        
+
         # Add IP addresses
         san_list.append(x509.IPAddress(ipaddress.IPv4Address("127.0.0.1")))
         san_list.append(x509.IPAddress(ipaddress.IPv6Address("::1")))
