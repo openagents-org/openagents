@@ -215,6 +215,13 @@ network:
         channel: "team_alpha"
         spawn_position: "20,10"
 
+    # --------------------------------------------------------------------------
+    # Agent Avatar (Studio Integration)
+    # --------------------------------------------------------------------------
+    - name: "openagents.mods.misc.agent_avatar"
+      enabled: true
+      config: {}
+
 # Network profile for discovery
 network_profile:
   discoverable: true

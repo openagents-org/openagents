@@ -45,6 +45,7 @@ class ModEventProcessor:
             network: The network instance this processor belongs to
         """
         self.mods = mods
+        logger.info(f"ModEventProcessor initialized with {len(mods)} mods: {list(mods.keys())}")
 
     async def process_event(self, event: Event) -> Optional[EventResponse]:
         """Process an event through the appropriate pipeline.
@@ -87,11 +88,14 @@ class ModEventProcessor:
                         message=f"Error in mod {target_mod}.process_event: {e}",
                     )
             else:
-                logger.warning(f"Target mod {target_mod} not found")
+                available_mods = list(self.mods.keys())
+                logger.warning(
+                    f"Target mod {target_mod} not found. Available mods: {available_mods}"
+                )
                 return EventResponse(
                     success=False,
                     event=incoming_event,
-                    message=f"Target mod {target_mod} not found",
+                    message=f"Target mod {target_mod} not found. Available mods: {available_mods}",
                 )
         else:
             # Process through all mods in order, skipping the source mod if event came from a mod

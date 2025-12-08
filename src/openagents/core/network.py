@@ -212,7 +212,7 @@ class AgentNetwork:
                 for mod_name, mod_instance in mods.items():
                     mod_instance.bind_network(network)
                     network.mods[mod_name] = mod_instance
-                    logger.info(f"Registered network mod: {mod_name}")
+                    logger.info(f"Registered network mod: {mod_name} (class: {type(mod_instance).__name__})")
 
                 logger.info(f"Successfully loaded {len(mods)} network mods")
 

@@ -1266,15 +1266,16 @@ console.log(response);
             if agent_id.endswith(".png"):
                 agent_id = agent_id[:-4]
             
-            # Get avatar through event system
+            # Get avatar data directly through event system (include_data=True for efficiency)
             get_event = Event(
                 event_name="avatar.get",
                 source_id="http_transport",
+                destination_id="mod:openagents.mods.misc.agent_avatar",
                 relevant_mod="openagents.mods.misc.agent_avatar",
                 visibility=EventVisibility.MOD_ONLY,
                 payload={
                     "agent_id": agent_id,
-                    "include_data": False
+                    "include_data": True  # Get image data directly
                 }
             )
             
@@ -1284,52 +1285,34 @@ console.log(response);
                 has_avatar = event_response.data.get("has_avatar", False)
                 
                 if not has_avatar:
-                    # Return 404 or default placeholder
+                    # Return 404 if no avatar
                     return web.Response(
                         status=404,
                         text="Avatar not found"
                     )
                 
-                # Get avatar file path through another event or direct access
-                # For now, we'll try to get the file through the mod
-                # We need to access the mod directly, but since we don't have direct access,
-                # we'll use a workaround: get the avatar data through event
-                get_data_event = Event(
-                    event_name="avatar.get",
-                    source_id="http_transport",
-                    relevant_mod="openagents.mods.misc.agent_avatar",
-                    visibility=EventVisibility.MOD_ONLY,
-                    payload={
-                        "agent_id": agent_id,
-                        "include_data": True
-                    }
-                )
-                
-                data_response = await self.call_event_handler(get_data_event)
-                
-                if data_response and data_response.success and data_response.data:
-                    avatar_data = data_response.data.get("avatar_data")
-                    if avatar_data:
-                        import base64
-                        image_bytes = base64.b64decode(avatar_data)
-                        
-                        # Calculate ETag
-                        import hashlib
-                        etag = hashlib.md5(image_bytes).hexdigest()
-                        
-                        # Check If-None-Match header for caching
-                        if_none_match = request.headers.get("If-None-Match")
-                        if if_none_match == f'"{etag}"':
-                            return web.Response(status=304)
-                        
-                        return web.Response(
-                            body=image_bytes,
-                            content_type="image/png",
-                            headers={
-                                "Cache-Control": "public, max-age=3600",
-                                "ETag": f'"{etag}"'
-                            }
-                        )
+                # Get avatar data from response
+                avatar_data = event_response.data.get("avatar_data")
+                if avatar_data:
+                    image_bytes = base64.b64decode(avatar_data)
+                    
+                    # Calculate ETag for caching
+                    import hashlib
+                    etag = hashlib.md5(image_bytes).hexdigest()
+                    
+                    # Check If-None-Match header for caching
+                    if_none_match = request.headers.get("If-None-Match")
+                    if if_none_match == f'"{etag}"':
+                        return web.Response(status=304)
+                    
+                    return web.Response(
+                        body=image_bytes,
+                        content_type="image/png",
+                        headers={
+                            "Cache-Control": "public, max-age=3600",
+                            "ETag": f'"{etag}"'
+                        }
+                    )
                 
                 return web.Response(
                     status=404,
@@ -1369,6 +1352,7 @@ console.log(response);
             batch_event = Event(
                 event_name="avatar.get_batch",
                 source_id="http_transport",
+                destination_id="mod:openagents.mods.misc.agent_avatar",
                 relevant_mod="openagents.mods.misc.agent_avatar",
                 visibility=EventVisibility.MOD_ONLY,
                 payload={

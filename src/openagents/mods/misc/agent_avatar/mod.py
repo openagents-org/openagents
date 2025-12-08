@@ -21,6 +21,10 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
     logging.warning("PIL (Pillow) not available. Avatar image processing will not work.")
+    # Create a dummy Image class for type hints when PIL is not available
+    class Image:
+        class Image:
+            pass
 
 from openagents.core.base_mod import BaseMod, mod_event_handler
 from openagents.models.event import Event
@@ -40,7 +44,7 @@ class AvatarInfo:
     file_size: Optional[int] = None
 
 
-def crop_center_square(img: Image.Image) -> Image.Image:
+def crop_center_square(img: "Image.Image") -> "Image.Image":
     """Crop image to center square."""
     width, height = img.size
     size = min(width, height)

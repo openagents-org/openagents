@@ -88,6 +88,7 @@ class AgentAvatarAdapter(BaseModAdapter):
             message = Event(
                 event_name="avatar.set",
                 source_id=self.agent_id,
+                destination_id="mod:openagents.mods.misc.agent_avatar",
                 relevant_mod="openagents.mods.misc.agent_avatar",
                 visibility=EventVisibility.MOD_ONLY,
                 payload={
@@ -146,6 +147,7 @@ class AgentAvatarAdapter(BaseModAdapter):
             message = Event(
                 event_name="avatar.clear",
                 source_id=self.agent_id,
+                destination_id="mod:openagents.mods.misc.agent_avatar",
                 relevant_mod="openagents.mods.misc.agent_avatar",
                 visibility=EventVisibility.MOD_ONLY,
                 payload={}
@@ -210,6 +212,7 @@ class AgentAvatarAdapter(BaseModAdapter):
             message = Event(
                 event_name="avatar.get",
                 source_id=self.agent_id,
+                destination_id="mod:openagents.mods.misc.agent_avatar",
                 relevant_mod="openagents.mods.misc.agent_avatar",
                 visibility=EventVisibility.MOD_ONLY,
                 payload={
@@ -271,6 +274,7 @@ class AgentAvatarAdapter(BaseModAdapter):
             message = Event(
                 event_name="avatar.get_batch",
                 source_id=self.agent_id,
+                destination_id="mod:openagents.mods.misc.agent_avatar",
                 relevant_mod="openagents.mods.misc.agent_avatar",
                 visibility=EventVisibility.MOD_ONLY,
                 payload={
