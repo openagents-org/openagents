@@ -120,6 +120,12 @@ class AgentNetwork:
         # Event gateway
         self.event_gateway = EventGateway(self)
 
+        # Network profile (will be loaded from config if available)
+        self.network_profile: Optional[Any] = None  # Type annotation for network profile
+
+        # Publishing service (initialized if publishing config exists)
+        self.publishing_service: Optional[Any] = None  # Type annotation for publishing service
+
         # Set network context for MCP transport (must be after mods and event_gateway are initialized)
         self.topology.network_context = self._create_network_context()
 
@@ -327,6 +333,31 @@ class AgentNetwork:
                 # Update network context now that config_path is set
                 network._update_network_context()
 
+                # Load network profile if specified
+                if "network_profile" in config_dict:
+                    try:
+                        from openagents.models.network_profile import NetworkProfile
+                        network.network_profile = NetworkProfile(**config_dict["network_profile"])
+                        logger.info("Loaded network profile from configuration")
+                    except Exception as e:
+                        logger.warning(f"Failed to load network profile: {e}")
+
+                # Load publishing configuration if specified
+                if "network" in config_dict and "publishing" in config_dict["network"]:
+                    try:
+                        from openagents.models.publishing_config import PublishingConfig
+                        from openagents.services.publishing_service import NetworkPublishingService
+                        
+                        publishing_config = PublishingConfig(**config_dict["network"]["publishing"])
+                        network.publishing_service = NetworkPublishingService(publishing_config)
+                        logger.info("Initialized network publishing service")
+                        
+                        # If network profile exists and publishing is configured, mark it for potential auto-publish
+                        if network.network_profile and publishing_config.get_api_key():
+                            logger.info("Network is ready for publishing to discovery registry")
+                    except Exception as e:
+                        logger.warning(f"Failed to initialize publishing service: {e}")
+
                 # Load metadata if specified in config
                 if "metadata" in config_dict:
                     network.metadata.update(config_dict["metadata"])
@@ -418,6 +449,11 @@ class AgentNetwork:
             # Stop agent manager if available
             if self.agent_manager:
                 await self.agent_manager.stop()
+
+            # Shutdown publishing service if available
+            if self.publishing_service:
+                await self.publishing_service.shutdown()
+                logger.info("Publishing service shutdown complete")
 
             # Shutdown topology
             await self.topology.shutdown()

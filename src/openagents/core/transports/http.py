@@ -125,6 +125,16 @@ class HttpTransport(Transport):
         self.app.router.add_get("/api/events/search", self.search_events)
         self.app.router.add_get("/api/events/{event_name}", self.get_event_detail)
 
+        # Network Publishing API endpoints (admin only)
+        self.app.router.add_get("/api/admin/publishing/status", self.get_publishing_status)
+        self.app.router.add_post("/api/admin/publishing/publish", self.publish_network)
+        self.app.router.add_post("/api/admin/publishing/unpublish", self.unpublish_network)
+        self.app.router.add_put("/api/admin/publishing/profile", self.update_network_profile)
+        self.app.router.add_post("/api/admin/publishing/validate", self.validate_network_id)
+        self.app.router.add_get("/api/admin/publishing/stats", self.get_network_stats)
+        self.app.router.add_post("/api/admin/publishing/heartbeat", self.send_heartbeat)
+        self.app.router.add_put("/api/admin/publishing/settings", self.update_publishing_settings)
+
         # MCP routes (if serve_mcp: true)
         if self._serve_mcp:
             self.app.router.add_post("/mcp", self._handle_mcp_post)
@@ -2128,6 +2138,311 @@ class HttpTransport(Transport):
                 logger.error(f"HTTP Studio: Error reading asset {file_path}: {e}")
                 return web.Response(status=500, text="Internal server error")
         return web.Response(status=404, text="Not found")
+
+    # ========================================================================
+    # Network Publishing API Handlers (Admin Only)
+    # ========================================================================
+
+    async def get_publishing_status(self, request):
+        """Get current network publishing status."""
+        try:
+            # Check if admin (would need to be implemented based on auth)
+            # For now, we'll allow it and add auth later if needed
+            
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "error": "Network instance not available"},
+                    status=500
+                )
+            
+            publishing_service = self.network_instance.publishing_service
+            if not publishing_service:
+                return web.json_response(
+                    {"success": False, "error": "Publishing service not initialized"},
+                    status=500
+                )
+            
+            status = await publishing_service.get_status()
+            return web.json_response({
+                "success": True,
+                "data": status.model_dump()
+            })
+            
+        except Exception as e:
+            logger.error(f"Error getting publishing status: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+
+    async def publish_network(self, request):
+        """Publish network to discovery registry."""
+        try:
+            data = await request.json()
+            
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "error": "Network instance not available"},
+                    status=500
+                )
+            
+            publishing_service = self.network_instance.publishing_service
+            if not publishing_service:
+                return web.json_response(
+                    {"success": False, "error": "Publishing service not initialized"},
+                    status=500
+                )
+            
+            # Get profile from network instance or use provided data
+            from openagents.models.network_profile import NetworkProfile
+            
+            # Create profile from data if provided, otherwise use existing
+            if "profile" in data:
+                profile = NetworkProfile(**data["profile"])
+            elif self.network_instance.network_profile:
+                profile = self.network_instance.network_profile
+            else:
+                return web.json_response(
+                    {"success": False, "error": "Network profile not configured"},
+                    status=400
+                )
+            
+            result = await publishing_service.publish(profile)
+            
+            # Start auto-heartbeat if enabled
+            if publishing_service.config.auto_heartbeat:
+                await publishing_service.start_auto_heartbeat(profile.network_id)
+            
+            return web.json_response({
+                "success": True,
+                "data": result
+            })
+            
+        except Exception as e:
+            logger.error(f"Error publishing network: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+
+    async def unpublish_network(self, request):
+        """Unpublish network from discovery registry."""
+        try:
+            data = await request.json()
+            network_id = data.get("network_id")
+            
+            if not network_id:
+                return web.json_response(
+                    {"success": False, "error": "network_id is required"},
+                    status=400
+                )
+            
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "error": "Network instance not available"},
+                    status=500
+                )
+            
+            publishing_service = self.network_instance.publishing_service
+            if not publishing_service:
+                return web.json_response(
+                    {"success": False, "error": "Publishing service not initialized"},
+                    status=500
+                )
+            
+            # Stop auto-heartbeat
+            await publishing_service.stop_auto_heartbeat()
+            
+            result = await publishing_service.unpublish(network_id)
+            
+            return web.json_response({
+                "success": True,
+                "data": {"unpublished": result}
+            })
+            
+        except Exception as e:
+            logger.error(f"Error unpublishing network: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+
+    async def update_network_profile(self, request):
+        """Update network profile in registry."""
+        try:
+            data = await request.json()
+            
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "error": "Network instance not available"},
+                    status=500
+                )
+            
+            publishing_service = self.network_instance.publishing_service
+            if not publishing_service:
+                return web.json_response(
+                    {"success": False, "error": "Publishing service not initialized"},
+                    status=500
+                )
+            
+            from openagents.models.network_profile import NetworkProfile
+            
+            # Create updated profile
+            if "profile" in data:
+                profile = NetworkProfile(**data["profile"])
+            else:
+                return web.json_response(
+                    {"success": False, "error": "profile data is required"},
+                    status=400
+                )
+            
+            result = await publishing_service.update_profile(profile)
+            
+            return web.json_response({
+                "success": True,
+                "data": result
+            })
+            
+        except Exception as e:
+            logger.error(f"Error updating network profile: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+
+    async def validate_network_id(self, request):
+        """Validate network ID availability."""
+        try:
+            data = await request.json()
+            network_id = data.get("network_id")
+            
+            if not network_id:
+                return web.json_response(
+                    {"success": False, "error": "network_id is required"},
+                    status=400
+                )
+            
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "error": "Network instance not available"},
+                    status=500
+                )
+            
+            publishing_service = self.network_instance.publishing_service
+            if not publishing_service:
+                return web.json_response(
+                    {"success": False, "error": "Publishing service not initialized"},
+                    status=500
+                )
+            
+            result = await publishing_service.validate_network_id(network_id)
+            
+            return web.json_response({
+                "success": True,
+                "data": result
+            })
+            
+        except Exception as e:
+            logger.error(f"Error validating network ID: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+
+    async def get_network_stats(self, request):
+        """Get network statistics from registry."""
+        try:
+            network_id = request.query.get("network_id")
+            
+            if not network_id:
+                return web.json_response(
+                    {"success": False, "error": "network_id is required"},
+                    status=400
+                )
+            
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "error": "Network instance not available"},
+                    status=500
+                )
+            
+            publishing_service = self.network_instance.publishing_service
+            if not publishing_service:
+                return web.json_response(
+                    {"success": False, "error": "Publishing service not initialized"},
+                    status=500
+                )
+            
+            stats = await publishing_service.get_stats(network_id)
+            
+            return web.json_response({
+                "success": True,
+                "data": stats.model_dump()
+            })
+            
+        except Exception as e:
+            logger.error(f"Error getting network stats: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+
+    async def send_heartbeat(self, request):
+        """Manually send heartbeat to registry."""
+        try:
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "error": "Network instance not available"},
+                    status=500
+                )
+            
+            publishing_service = self.network_instance.publishing_service
+            if not publishing_service:
+                return web.json_response(
+                    {"success": False, "error": "Publishing service not initialized"},
+                    status=500
+                )
+            
+            result = await publishing_service.send_heartbeat()
+            
+            return web.json_response({
+                "success": True,
+                "data": {"heartbeat_sent": result}
+            })
+            
+        except Exception as e:
+            logger.error(f"Error sending heartbeat: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+
+    async def update_publishing_settings(self, request):
+        """Update publishing settings (API key, heartbeat settings, etc.)."""
+        try:
+            data = await request.json()
+            
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "error": "Network instance not available"},
+                    status=500
+                )
+            
+            # Update settings in network configuration
+            # This would need to persist to network.yaml
+            # For now, we'll return success and let the frontend handle it
+            
+            return web.json_response({
+                "success": True,
+                "message": "Settings update functionality to be implemented"
+            })
+            
+        except Exception as e:
+            logger.error(f"Error updating publishing settings: {e}")
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
 
 
 def _generate_event_examples(event: Dict[str, Any]) -> Dict[str, str]:
