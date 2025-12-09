@@ -1,0 +1,115 @@
+# Example Network Configuration with Publishing
+
+network:
+  name: "MyPublishedNetwork"
+  mode: "centralized"
+  node_id: "my-network-1"
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+        serve_mcp: true
+        serve_studio: true
+
+  # Publishing configuration (NEW)
+  publishing:
+    # API key for publishing to discovery registry
+    # Use env: prefix to load from environment variable (recommended)
+    api_key: "env:OPENAGENTS_API_KEY"
+    # Or set directly (not recommended for production):
+    # api_key: "oa-your-api-key-here"
+    
+    # Automatically send heartbeats to keep network online
+    auto_heartbeat: true
+    
+    # Heartbeat interval in minutes (default: 5)
+    heartbeat_interval_minutes: 5
+    
+    # Discovery server URL (default: https://endpoint.openagents.org/v1)
+    discovery_server: "https://endpoint.openagents.org/v1"
+
+  # Agent groups configuration
+  default_agent_group: "guest"
+  requires_password: false
+  
+  agent_groups:
+    admin:
+      description: "Administrator agents with full permissions"
+      password_hash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # password: admin
+      metadata:
+        permissions: ["all"]
+
+  # Mods configuration
+  mods:
+    - name: "openagents.mods.workspace.default"
+      enabled: true
+
+# Network profile for discovery (NEW)
+network_profile:
+  # Whether the network should be discoverable in the directory
+  discoverable: true
+  
+  # Unique network identifier (lowercase, alphanumeric, hyphens)
+  network_id: "my-published-network"
+  
+  # Human-readable network name
+  name: "My Published Network"
+  
+  # Description of the network (supports markdown)
+  description: "A collaborative AI network for research and experimentation"
+  
+  # Optional icon URL
+  icon: "https://example.com/icon.png"
+  
+  # Optional website URL
+  website: "https://mynetwork.example.com"
+  
+  # Tags for discovery and search
+  tags:
+    - "research"
+    - "ai"
+    - "collaboration"
+  
+  # Categories (choose from predefined list)
+  categories:
+    - "Research"
+    - "Education"
+  
+  # Country or region
+  country: "United States"
+  
+  # Maximum number of agents that can connect
+  capacity: 100
+  
+  # Network host and port (from transport config)
+  host: "0.0.0.0"
+  port: 8700
+  
+  # Minimum OpenAgents version required
+  required_openagents_version: "0.7.5"
+  
+  # Authentication configuration
+  authentication:
+    type: "none"
+  
+  # Detailed README/instructions (supports markdown)
+  readme: |
+    ## Welcome to My Published Network
+
+    This network provides a collaborative environment for AI research.
+
+    ### Features
+    - Real-time messaging
+    - Project management
+    - Forum discussions
+    - Wiki documentation
+
+    ### Getting Started
+    1. Install OpenAgents: `pip install openagents`
+    2. Connect: `openagents connect openagents://my-published-network`
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/my-network"
