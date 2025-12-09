@@ -19,6 +19,7 @@ import ModManagementPage from "@/pages/mod-management/ModManagementPage"
 import FeedMainPage from "@/pages/feed/FeedMainPage"
 import LLMLogsMainPage from "@/pages/llmlogs/LLMLogsMainPage"
 import ServiceAgentsMainPage from "@/pages/serviceagents/ServiceAgentsMainPage"
+import PublishingPage from "@/pages/admin/PublishingPage"
 
 // Navigation icon components
 export const NavigationIcons = {
@@ -312,7 +313,26 @@ export const NavigationIcons = {
   //     })
   //   )
   // ),
+  Publishing: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      // Globe/publish icon
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+      })
+    )
+  ),
 }
+
 
 // Route configuration interface
 export interface RouteConfig {
@@ -576,6 +596,21 @@ export const dynamicRouteConfig: RouteConfig[] = [
   //     group: 'secondary',
   //   },
   // },
+  {
+    path: "/admin/publishing",
+    element: PublishingPage,
+    title: "Network Publishing",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.PUBLISHING,
+      label: "Publishing",
+      icon: "Publishing",
+      visible: true, // Will be hidden dynamically for non-admin users
+      order: 8,
+      group: "secondary",
+    },
+  },
 ]
 
 // // Quick action configuration - quick actions independent of routes

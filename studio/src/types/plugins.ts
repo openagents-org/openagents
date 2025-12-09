@@ -15,4 +15,5 @@ export enum PLUGIN_NAME_ENUM {
   EVENTS = "events",
   LLM_LOGS = "llm_logs",
   SERVICE_AGENTS = "service-agents",
+  PUBLISHING = "publishing",
 }
