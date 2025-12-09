@@ -13,6 +13,8 @@ const MODULE_PLUGIN_MAP: Record<string, PLUGIN_NAME_ENUM> = {
   agentworld: PLUGIN_NAME_ENUM.AGENTWORLD,
   "openagents.mods.games.agentworld": PLUGIN_NAME_ENUM.AGENTWORLD,
   artifact: PLUGIN_NAME_ENUM.ARTIFACT,
+  playground: PLUGIN_NAME_ENUM.PLAYGROUND,
+  "openagents.mods.workspace.playground": PLUGIN_NAME_ENUM.PLAYGROUND,
 }
 
 // Extract enabled modules from API health check response

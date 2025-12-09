@@ -1,0 +1,69 @@
+{
+    "mod_name": "playground",
+    "version": "1.0.0",
+    "description": "Interactive Playground mod that combines real-time chat, Kanban boards, and shared artifacts for collaborative research sessions and interactive demos",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "PlaygroundAdapter",
+    "network_mod_class": "PlaygroundMod",
+    "capabilities": [
+        "playground_sessions",
+        "integrated_chat",
+        "integrated_kanban",
+        "shared_artifacts",
+        "collaborative_research",
+        "real_time_notifications"
+    ],
+    "requires_adapter": true,
+    "studio_interface": true,
+    "dependencies": [
+        "openagents.mods.coordination.kanban",
+        "openagents.mods.workspace.messaging"
+    ],
+    "metadata": {
+        "session_statuses": ["created", "active", "paused", "completed", "archived"],
+        "core_features": [
+            "create_playground_sessions",
+            "join_leave_sessions",
+            "integrated_kanban_board",
+            "shared_artifacts",
+            "task_creation_from_chat",
+            "real_time_participant_updates",
+            "session_completion_summary"
+        ],
+        "tools": [
+            "playground_create",
+            "playground_start",
+            "playground_get",
+            "playground_list",
+            "playground_join",
+            "playground_leave",
+            "playground_complete",
+            "playground_artifact_set",
+            "playground_artifact_get",
+            "playground_artifact_list",
+            "playground_task_create"
+        ]
+    },
+    "process_events": [
+        "playground.create",
+        "playground.start",
+        "playground.get",
+        "playground.list",
+        "playground.join",
+        "playground.leave",
+        "playground.complete",
+        "playground.artifact.set",
+        "playground.artifact.get",
+        "playground.artifact.list",
+        "playground.artifact.delete",
+        "playground.task.create"
+    ],
+    "generate_events": [
+        "playground.notification.started",
+        "playground.notification.joined",
+        "playground.notification.left",
+        "playground.notification.completed",
+        "playground.notification.artifact_updated"
+    ]
+}

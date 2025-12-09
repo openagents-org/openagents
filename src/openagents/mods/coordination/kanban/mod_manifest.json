@@ -1,0 +1,77 @@
+{
+    "mod_name": "kanban",
+    "version": "1.0.0",
+    "description": "A Kanban board mod for OpenAgents that provides visual task boards with customizable columns, cards, and real-time notifications for the Interactive Playground",
+    "authors": ["OpenAgents Team"],
+    "license": "MIT",
+    "agent_adapter_class": "KanbanAdapter",
+    "network_mod_class": "KanbanMod",
+    "capabilities": [
+        "kanban_boards",
+        "kanban_columns",
+        "kanban_cards",
+        "card_movement",
+        "wip_limits",
+        "real_time_notifications"
+    ],
+    "requires_adapter": true,
+    "studio_interface": true,
+    "dependencies": [],
+    "metadata": {
+        "default_columns": [
+            {"column_id": "todo", "name": "To Do", "position": 0},
+            {"column_id": "in_progress", "name": "In Progress", "position": 1},
+            {"column_id": "review", "name": "Review", "position": 2},
+            {"column_id": "done", "name": "Done", "position": 3}
+        ],
+        "priority_levels": ["low", "medium", "high", "urgent"],
+        "core_features": [
+            "create_boards",
+            "customize_columns",
+            "create_cards",
+            "move_cards_between_columns",
+            "assign_cards_to_agents",
+            "label_and_prioritize_cards",
+            "wip_limits_per_column",
+            "real_time_board_updates",
+            "project_integration"
+        ],
+        "tools": [
+            "kanban_create_board",
+            "kanban_get_board",
+            "kanban_list_boards",
+            "kanban_create_card",
+            "kanban_update_card",
+            "kanban_move_card",
+            "kanban_delete_card",
+            "kanban_list_cards",
+            "kanban_add_column"
+        ]
+    },
+    "process_events": [
+        "kanban.board.create",
+        "kanban.board.get",
+        "kanban.board.list",
+        "kanban.board.update",
+        "kanban.board.delete",
+        "kanban.column.add",
+        "kanban.column.update",
+        "kanban.column.delete",
+        "kanban.card.create",
+        "kanban.card.get",
+        "kanban.card.update",
+        "kanban.card.move",
+        "kanban.card.delete",
+        "kanban.card.list"
+    ],
+    "generate_events": [
+        "kanban.notification.board_created",
+        "kanban.notification.board_updated",
+        "kanban.notification.board_deleted",
+        "kanban.notification.column_added",
+        "kanban.notification.card_created",
+        "kanban.notification.card_updated",
+        "kanban.notification.card_moved",
+        "kanban.notification.card_deleted"
+    ]
+}
