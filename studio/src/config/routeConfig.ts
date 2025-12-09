@@ -329,12 +329,6 @@ export const dynamicRouteConfig: RouteConfig[] = [
     title: "Agent Setup",
     requiresLayout: false,
   },
-  {
-    path: "/onboarding",
-    element: OnboardingPage,
-    title: "Onboarding",
-    requiresLayout: false,
-  },
 
   // Main feature routes - these pages need full sidebar layout
   {

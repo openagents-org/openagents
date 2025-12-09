@@ -8,6 +8,7 @@ import axios from 'axios';
 import { useNetworkContext } from '@/context/NetworkContext';
 import { useOnboardingProgress } from '@/hooks/useOnboardingProgress';
 import { OnboardingProgress } from '@/services/onboardingStorage';
+import { useIsAdmin } from '@/hooks/useIsAdmin';
 import ProgressIndicator from './components/ProgressIndicator';
 import ExitButton from './components/ExitButton';
 import WelcomeStep from './components/WelcomeStep';
@@ -34,6 +35,7 @@ const OnboardingPage: React.FC = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const [networkData, setNetworkData] = useState<NetworkSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const { isAdmin, isLoading: isAdminLoading } = useIsAdmin();
 
   // Get network ID from context or use default
   const networkId = networkContext?.networkId || 'local_network';
@@ -114,59 +116,89 @@ const OnboardingPage: React.FC = () => {
 
   const handleFinish = () => {
     completeOnboarding();
-    navigate('/messaging');
+    navigate('/profile');
   };
 
   const handleSkip = () => {
     skipOnboarding();
+    navigate('/profile');
   };
+
+  // Check admin access
+  if (isAdminLoading) {
+    return (
+      <div className="p-6 dark:bg-gray-900 h-full flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Checking permissions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="p-6 dark:bg-gray-900 h-full">
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6">
+          <div className="flex items-center">
+            <svg className="w-6 h-6 text-yellow-600 dark:text-yellow-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <h3 className="text-lg font-semibold text-yellow-800 dark:text-yellow-400">Admin Access Required</h3>
+              <p className="text-yellow-700 dark:text-yellow-500 mt-1">
+                The onboarding wizard is only accessible to network administrators.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || !networkData) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50 flex items-center justify-center">
+      <div className="p-6 dark:bg-gray-900 h-full flex items-center justify-center">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-4"></div>
-          <p className="text-gray-600">Loading onboarding...</p>
+          <p className="text-gray-600 dark:text-gray-400">Loading onboarding...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
+    <div className="p-6 dark:bg-gray-900 h-full">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center">
-            <svg
-              className="w-8 h-8 text-blue-500 mr-3"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-              />
-            </svg>
-            <div>
-              <h1 className="text-xl font-bold text-gray-900">OpenAgents Setup</h1>
-              <p className="text-sm text-gray-600">Get started with your network</p>
-            </div>
+      <div className="mb-6 flex items-center justify-between">
+        <div className="flex items-center">
+          <svg
+            className="w-8 h-8 text-blue-500 mr-3"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M13 10V3L4 14h7v7l9-11h-7z"
+            />
+          </svg>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Network Setup Wizard</h1>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Guide users through network configuration</p>
           </div>
-          <ExitButton onSkip={handleSkip} />
         </div>
+        <ExitButton onSkip={handleSkip} />
       </div>
 
       {/* Progress Indicator */}
       <ProgressIndicator currentStep={currentStep} />
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="bg-white rounded-xl shadow-lg p-8 min-h-[500px]">
-          {currentStep === 1 && (
+      <div className="max-w-5xl mx-auto">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-8 min-h-[500px]">{currentStep === 1 && (
             <WelcomeStep
               networkName={networkData.name}
               onContinue={handleNext}
@@ -205,29 +237,6 @@ const OnboardingPage: React.FC = () => {
             />
           )}
         </div>
-      </div>
-
-      {/* Footer */}
-      <div className="text-center py-6 text-gray-500 text-sm">
-        <p>Need help? Visit our{' '}
-          <a
-            href="https://openagents.org/docs"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 hover:underline"
-          >
-            documentation
-          </a>
-          {' '}or join our{' '}
-          <a
-            href="https://discord.gg/openagents"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-500 hover:underline"
-          >
-            Discord community
-          </a>
-        </p>
       </div>
     </div>
   );

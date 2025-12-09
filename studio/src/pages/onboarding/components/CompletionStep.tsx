@@ -15,7 +15,7 @@ const CompletionStep: React.FC<CompletionStepProps> = ({ networkName, onFinish }
 
   const handleFinish = () => {
     onFinish();
-    navigate('/messaging');
+    navigate('/profile');
   };
 
   return (

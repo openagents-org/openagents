@@ -14,6 +14,7 @@ import EventLogs from "./EventLogs";
 import EventDebugger from "./EventDebugger";
 import ModManagementPage from "../mod-management/ModManagementPage";
 import EventsMainPage from "../events/EventsMainPage";
+import OnboardingPage from "../onboarding/OnboardingPage";
 
 /**
  * Profile main page - handles all profile-related features
@@ -61,6 +62,9 @@ const ProfileMainPage: React.FC = () => {
       <Route path="network-profile" element={<NetworkProfile />} />
       <Route path="agent-groups" element={<AgentGroupsManagement />} />
       <Route path="mod-management" element={<ModManagementPage />} />
+      
+      {/* Onboarding wizard - Admin only */}
+      <Route path="onboarding" element={<OnboardingPage />} />
       
       {/* Event Logs subpage */}
       <Route path="event-logs" element={<EventLogs />} />

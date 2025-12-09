@@ -15,7 +15,7 @@ const ExitButton: React.FC<ExitButtonProps> = ({ onSkip }) => {
 
   const handleExit = () => {
     onSkip();
-    navigate('/messaging');
+    navigate('/profile');
   };
 
   return (
