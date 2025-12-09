@@ -5,6 +5,7 @@
  */
 
 import React, { useState } from 'react';
+import { toast } from 'sonner';
 
 interface ApiKeyManagerProps {
   apiKeyConfigured: boolean;
@@ -13,6 +14,35 @@ interface ApiKeyManagerProps {
 export const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ apiKeyConfigured }) => {
   const [showKey, setShowKey] = useState(false);
   const [apiKey, setApiKey] = useState('');
+
+  const handleSaveKey = () => {
+    if (!apiKey.trim()) {
+      toast.error('Please enter an API key');
+      return;
+    }
+    
+    // Note: API key should be saved to network.yaml manually or via file system API
+    // For now, show instructions to the user
+    toast.info('Please add this API key to your network.yaml file under network.publishing.api_key');
+    
+    // Example instructions
+    const instructions = `
+Add the following to your network.yaml:
+
+network:
+  publishing:
+    api_key: "${apiKey}"
+    auto_heartbeat: true
+    heartbeat_interval_minutes: 5
+`;
+    
+    console.log(instructions);
+    
+    // Optionally copy to clipboard
+    navigator.clipboard.writeText(instructions).then(() => {
+      toast.success('Configuration copied to clipboard!');
+    });
+  };
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
@@ -52,11 +82,11 @@ export const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ apiKeyConfigured }
 
           <div className="flex gap-2">
             <button
-              onClick={() => alert('Save functionality to be implemented')}
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+              onClick={handleSaveKey}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
               disabled={!apiKey}
             >
-              Save Key
+              Copy Configuration
             </button>
             <a
               href="https://openagents.org/dashboard"
@@ -66,6 +96,11 @@ export const ApiKeyManager: React.FC<ApiKeyManagerProps> = ({ apiKeyConfigured }
             >
               Get API Key →
             </a>
+          </div>
+          
+          <div className="text-xs text-gray-500 dark:text-gray-500 bg-gray-50 dark:bg-gray-900/50 p-3 rounded">
+            <p className="font-medium mb-1">💡 Configuration Instructions:</p>
+            <p>Add the API key to your network.yaml file under the <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">network.publishing.api_key</code> field, then restart your network.</p>
           </div>
         </div>
       )}

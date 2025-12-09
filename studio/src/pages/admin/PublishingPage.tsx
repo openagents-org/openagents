@@ -145,7 +145,9 @@ const PublishingPage: React.FC = () => {
           isOpen={isEditorOpen}
           onClose={() => setIsEditorOpen(false)}
           onSave={handleSaveProfile}
-          currentProfile={null} // Will be populated from status
+          // TODO: Pass actual profile data from network.yaml or API
+          // Currently null means creating a new profile
+          currentProfile={null}
           networkId={status.network_id || ''}
         />
       )}
