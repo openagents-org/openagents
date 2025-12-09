@@ -411,7 +411,12 @@ const ThreadMessagingViewEventBased: React.FC = () => {
       content: string,
       replyToId?: string,
       _quotedMessageId?: string,
-      _quotedText?: string
+      _quotedText?: string,
+      attachmentData?: {
+        file_id: string;
+        filename: string;
+        size: number;
+      }
     ) => {
       if (!content.trim() || sendingMessage) return;
 
@@ -469,10 +474,11 @@ const ThreadMessagingViewEventBased: React.FC = () => {
             }
           } else {
             // Use regular channel message for non-project channels
-            success = await sendChannelMessage(currentChannel, content, replyToId);
+            success = await sendChannelMessage(currentChannel, content, replyToId, attachmentData);
           }
         } else if (currentDirectMessage) {
           success = await sendDirectMessage(currentDirectMessage, content);
+          // TODO: Add attachment support for direct messages
         } else {
           console.error("No channel or direct message selected");
           return;
@@ -815,6 +821,9 @@ const ThreadMessagingViewEventBased: React.FC = () => {
                   isDMChat={!!currentDirectMessage}
                   disableReactions={isProjectChannelActive}
                   disableQuotes={isProjectChannelActive}
+                  networkHost={connector?.getHost()}
+                  networkPort={connector?.getPort()}
+                  agentSecret={connector?.getSecret()}
                 />
               );
             })()}
@@ -828,7 +837,12 @@ const ThreadMessagingViewEventBased: React.FC = () => {
               onSendMessage={(
                 text: string,
                 replyTo?: string,
-                quotedMessageId?: string
+                quotedMessageId?: string,
+                attachmentData?: {
+                  file_id: string;
+                  filename: string;
+                  size: number;
+                }
               ) => {
                 console.log("🔧 MessageInput onSendMessage called:", {
                   text,
@@ -836,12 +850,13 @@ const ThreadMessagingViewEventBased: React.FC = () => {
                   quotedMessageId,
                   replyingTo,
                   quotingMessage,
+                  attachmentData,
                 });
 
                 // Use the replyTo parameter passed from MessageInput
                 if (replyTo) {
                   // This is a reply (comment)
-                  handleSendMessage(text, replyTo);
+                  handleSendMessage(text, replyTo, undefined, undefined, attachmentData);
                   setReplyingTo(null);
                 } else if (quotingMessage && quotedMessageId) {
                   // This is a quote (independent message that references another)
@@ -849,12 +864,13 @@ const ThreadMessagingViewEventBased: React.FC = () => {
                     `> ${quotingMessage.text}\n\n${text}`,
                     undefined, // No replyToId for quotes
                     quotedMessageId,
-                    quotingMessage.text
+                    quotingMessage.text,
+                    attachmentData
                   );
                   setQuotingMessage(null);
                 } else {
                   // Regular message
-                  handleSendMessage(text);
+                  handleSendMessage(text, undefined, undefined, undefined, attachmentData);
                 }
               }}
               disabled={
@@ -873,6 +889,8 @@ const ThreadMessagingViewEventBased: React.FC = () => {
               currentChannel={currentChannel || undefined}
               currentDirectMessage={currentDirectMessage || undefined}
               currentAgentId={connectionStatus.agentId || agentName || ""}
+              currentAgentSecret={connector?.getSecret() || null}
+              networkBaseUrl={connector?.getBaseUrl()}
               replyingTo={replyingTo}
               quotingMessage={quotingMessage}
               onCancelReply={cancelReply}

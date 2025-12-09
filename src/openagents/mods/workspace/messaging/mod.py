@@ -1661,14 +1661,14 @@ class ThreadMessagingNetworkMod(BaseMod):
                 # Extract message data based on the type of object
                 if isinstance(msg, Event):
                     # For Event objects, convert to the expected message format
-                    # Extract text content using the helper function
-                    text_content = self._extract_text_from_event(msg)
+                    # Extract content (text and files) from payload
+                    content_data = self._extract_content_from_event(msg)
 
                     msg_data = {
                         "message_id": msg.event_id,
                         "sender_id": msg.source_id,
                         "timestamp": msg.timestamp,
-                        "content": {"text": text_content},
+                        "content": content_data,
                         "channel": msg_channel,
                         "message_type": (
                             msg.payload.get("message_type", "channel_message")
@@ -1688,22 +1688,6 @@ class ThreadMessagingNetworkMod(BaseMod):
                         ),
                         "quoted_text": (
                             msg.payload.get("quoted_text") if msg.payload else None
-                        ),
-                        "attachment_file_id": (
-                            msg.payload.get("attachment_file_id")
-                            if msg.payload
-                            else None
-                        ),
-                        "attachment_filename": (
-                            msg.payload.get("attachment_filename")
-                            if msg.payload
-                            else None
-                        ),
-                        "attachment_size": (
-                            msg.payload.get("attachment_size") if msg.payload else None
-                        ),
-                        "attachments": (
-                            msg.payload.get("attachments") if msg.payload else None
                         ),
                     }
                 else:
@@ -2173,6 +2157,33 @@ class ThreadMessagingNetworkMod(BaseMod):
             return event.payload["content"].get("text", "")
         else:
             return ""
+
+    def _extract_content_from_event(self, event: Event) -> Dict[str, Any]:
+        """Extract full content (text and files) from an Event object's payload.
+
+        This handles the nested content structure: payload.content
+
+        Args:
+            event: The Event object to extract content from
+
+        Returns:
+            Dict with text and optionally files
+        """
+        if not event or not event.payload:
+            return {"text": ""}
+
+        # Handle nested content structure (payload.content)
+        if "content" in event.payload and isinstance(event.payload["content"], dict):
+            content = event.payload["content"]
+            result = {"text": content.get("text", "")}
+
+            # Include files if present
+            if "files" in content and content["files"]:
+                result["files"] = content["files"]
+
+            return result
+        else:
+            return {"text": ""}
 
     def _get_quoted_text(self, quoted_message_id: str) -> str:
         """Get the text content of a quoted message with author information.

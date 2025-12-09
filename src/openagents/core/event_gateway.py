@@ -157,6 +157,15 @@ class EventGateway:
         """
         # Override the timestamp to the current time
         event.timestamp = int(time.time())
+
+        # Auto-populate source_agent_group for agent sources
+        if event.source_id:
+            parsed_source = event.parse_source()
+            if parsed_source.role == NetworkRole.AGENT:
+                event.source_agent_group = self.network.topology.agent_group_membership.get(
+                    parsed_source.source_id, None
+                )
+
         # Process the event through the pipeline
         response = None
         if event.event_name.startswith("system."):

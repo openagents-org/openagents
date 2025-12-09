@@ -32,6 +32,8 @@ from openagents.config.globals import (
     SYSTEM_EVENT_VERIFY_PASSWORD,
     SYSTEM_EVENT_KICK_AGENT,
     SYSTEM_EVENT_UPDATE_NETWORK_PROFILE,
+    SYSTEM_EVENT_UPDATE_AGENT_GROUPS,
+    SYSTEM_EVENT_REPORT_LLM_LOG,
     SYSTEM_NOTIFICATION_AGENT_KICKED,
 )
 from openagents.models.event import Event
@@ -80,6 +82,8 @@ class SystemCommandProcessor:
             SYSTEM_EVENT_VERIFY_PASSWORD: self.handle_verify_password,
             SYSTEM_EVENT_KICK_AGENT: self.handle_kick_agent,
             SYSTEM_EVENT_UPDATE_NETWORK_PROFILE: self.handle_update_network_profile,
+            SYSTEM_EVENT_UPDATE_AGENT_GROUPS: self.handle_update_agent_groups,
+            SYSTEM_EVENT_REPORT_LLM_LOG: self.handle_report_llm_log,
         }
 
     async def process_command(self, system_event: Event) -> Optional[EventResponse]:
@@ -1239,5 +1243,555 @@ class SystemCommandProcessor:
                 data={
                     "type": "system_response",
                     "command": "update_network_profile",
+                }
+            )
+
+    def _check_admin_access(self, agent_id: str) -> bool:
+        """Check if agent has admin access.
+        
+        Args:
+            agent_id: ID of the agent to check
+            
+        Returns:
+            bool: True if agent is in admin group, False otherwise
+        """
+        if not self.network or not self.network.topology:
+            return False
+        agent_group = self.network.topology.agent_group_membership.get(agent_id)
+        return agent_group == "admin"
+
+    def _get_agent_group_info(self) -> Dict[str, Any]:
+        """Get current agent groups information for API response.
+        
+        Returns:
+            Dict containing agent_groups, default_agent_group, and requires_password
+        """
+        # Build groups dictionary: group_name -> list of agent_ids
+        groups: Dict[str, List[str]] = {}
+        for agent_id, group_name in self.network.topology.agent_group_membership.items():
+            if group_name not in groups:
+                groups[group_name] = []
+            groups[group_name].append(agent_id)
+
+        # Build agent group info
+        agent_groups_info: Dict[str, Dict[str, Any]] = {}
+        for group_name, group_cfg in self.network.config.agent_groups.items():
+            members = groups.get(group_name, [])
+            permissions = group_cfg.metadata.get("permissions", []) if isinstance(group_cfg.metadata, dict) else []
+            
+            agent_groups_info[group_name] = {
+                "name": group_name,
+                "description": group_cfg.description,
+                "has_password": bool(group_cfg.password_hash),
+                "member_count": len(members),
+                "members": members,
+                "permissions": permissions if isinstance(permissions, list) else [],
+                "metadata": group_cfg.metadata,
+                "is_default": group_name == self.network.config.default_agent_group,
+            }
+
+        # Add default group if not in agent_groups
+        default_group_name = self.network.config.default_agent_group
+        if default_group_name not in agent_groups_info:
+            members = groups.get(default_group_name, [])
+            agent_groups_info[default_group_name] = {
+                "name": default_group_name,
+                "description": "Default group for agents without specific credentials",
+                "has_password": False,
+                "member_count": len(members),
+                "members": members,
+                "permissions": [],
+                "metadata": {},
+                "is_default": True,
+            }
+
+        return {
+            "agent_groups": agent_groups_info,
+            "default_agent_group": self.network.config.default_agent_group,
+            "requires_password": self.network.config.requires_password,
+        }
+
+    async def handle_update_agent_groups(self, event: Event) -> EventResponse:
+        """Handle the update_agent_groups command.
+        
+        Allows admin agents to update agent group configuration at runtime.
+        
+        Actions:
+        - create: Create new agent group
+        - update: Update existing agent group
+        - delete: Delete agent group
+        - set_default: Set default agent group
+        - set_requires_password: Toggle password requirement
+        """
+        requesting_agent_id = event.payload.get("agent_id", event.source_id)
+        action = event.payload.get("action")
+        
+        if not requesting_agent_id:
+            return EventResponse(
+                success=False,
+                message="Missing requesting agent_id",
+                data={
+                    "type": "system_response",
+                    "command": "update_agent_groups",
+                }
+            )
+        
+        # Check admin access
+        if not self._check_admin_access(requesting_agent_id):
+            self.logger.warning(
+                f"Unauthorized agent groups update attempt by {requesting_agent_id}"
+            )
+            return EventResponse(
+                success=False,
+                message="Access denied. Admin group required.",
+                data={
+                    "type": "system_response",
+                    "command": "update_agent_groups",
+                    "requesting_agent": requesting_agent_id,
+                }
+            )
+        
+        if not action:
+            return EventResponse(
+                success=False,
+                message="Missing 'action' parameter",
+                data={
+                    "type": "system_response",
+                    "command": "update_agent_groups",
+                }
+            )
+        
+        try:
+            from openagents.utils.password_utils import hash_password
+            from openagents.models.network_config import AgentGroupConfig
+            import yaml
+            import os
+            import tempfile
+            import shutil
+            import threading
+            from pathlib import Path
+            import re
+            
+            # Validate group name format
+            def validate_group_name(name: str) -> tuple[bool, str]:
+                if not name or not isinstance(name, str):
+                    return False, "Group name must be a non-empty string"
+                if len(name) < 1 or len(name) > 64:
+                    return False, "Group name must be 1-64 characters"
+                if not re.match(r'^[a-zA-Z0-9_]+$', name):
+                    return False, "Group name must contain only alphanumeric characters and underscores"
+                return True, ""
+            
+            if action == "create":
+                group_name = event.payload.get("group_name")
+                group_config = event.payload.get("group_config", {})
+                
+                if not group_name:
+                    return EventResponse(
+                        success=False,
+                        message="Missing 'group_name' parameter for create action",
+                    )
+                
+                # Validate group name
+                is_valid, error_msg = validate_group_name(group_name)
+                if not is_valid:
+                    return EventResponse(
+                        success=False,
+                        message=f"Invalid group name: {error_msg}",
+                    )
+                
+                # Check if group already exists
+                if group_name in self.network.config.agent_groups:
+                    return EventResponse(
+                        success=False,
+                        message=f"Group '{group_name}' already exists",
+                    )
+                
+                # Validate description
+                description = group_config.get("description", "")
+                if len(description) > 512:
+                    return EventResponse(
+                        success=False,
+                        message="Description must be 512 characters or less",
+                    )
+                
+                # Validate password
+                password = group_config.get("password")
+                password_hash = None
+                if password:
+                    if len(password) < 4:
+                        return EventResponse(
+                            success=False,
+                            message="Password must be at least 4 characters",
+                        )
+                    password_hash = hash_password(password)
+                
+                # Validate permissions
+                permissions = group_config.get("permissions", [])
+                if not isinstance(permissions, list):
+                    return EventResponse(
+                        success=False,
+                        message="Permissions must be a list",
+                    )
+                if len(permissions) > 32:
+                    return EventResponse(
+                        success=False,
+                        message="Maximum 32 permissions allowed per group",
+                    )
+                for perm in permissions:
+                    if not isinstance(perm, str) or len(perm) > 64:
+                        return EventResponse(
+                            success=False,
+                            message="Each permission must be a string of 64 characters or less",
+                        )
+                
+                # Create group config
+                metadata = group_config.get("metadata", {})
+                if not isinstance(metadata, dict):
+                    metadata = {}
+                if permissions:
+                    metadata["permissions"] = permissions
+                
+                new_group_config = AgentGroupConfig(
+                    password_hash=password_hash,
+                    description=description,
+                    metadata=metadata,
+                )
+                
+                # Add to config
+                self.network.config.agent_groups[group_name] = new_group_config
+                
+            elif action == "update":
+                group_name = event.payload.get("group_name")
+                group_config = event.payload.get("group_config", {})
+                
+                if not group_name:
+                    return EventResponse(
+                        success=False,
+                        message="Missing 'group_name' parameter for update action",
+                    )
+                
+                # Check if group exists
+                if group_name not in self.network.config.agent_groups:
+                    return EventResponse(
+                        success=False,
+                        message=f"Group '{group_name}' not found",
+                    )
+                
+                # Cannot update default group name (it's immutable)
+                if group_name == self.network.config.default_agent_group:
+                    # Allow updating other fields but not the name itself
+                    pass
+                
+                existing_group = self.network.config.agent_groups[group_name]
+                
+                # Update description
+                if "description" in group_config:
+                    description = group_config["description"]
+                    if len(description) > 512:
+                        return EventResponse(
+                            success=False,
+                            message="Description must be 512 characters or less",
+                        )
+                    existing_group.description = description
+                
+                # Update password
+                if "clear_password" in group_config and group_config["clear_password"]:
+                    existing_group.password_hash = None
+                elif "password" in group_config:
+                    password = group_config["password"]
+                    if password:
+                        if len(password) < 4:
+                            return EventResponse(
+                                success=False,
+                                message="Password must be at least 4 characters",
+                            )
+                        existing_group.password_hash = hash_password(password)
+                
+                # Update permissions
+                if "permissions" in group_config:
+                    permissions = group_config["permissions"]
+                    if not isinstance(permissions, list):
+                        return EventResponse(
+                            success=False,
+                            message="Permissions must be a list",
+                        )
+                    if len(permissions) > 32:
+                        return EventResponse(
+                            success=False,
+                            message="Maximum 32 permissions allowed per group",
+                        )
+                    for perm in permissions:
+                        if not isinstance(perm, str) or len(perm) > 64:
+                            return EventResponse(
+                                success=False,
+                                message="Each permission must be a string of 64 characters or less",
+                            )
+                    if not isinstance(existing_group.metadata, dict):
+                        existing_group.metadata = {}
+                    existing_group.metadata["permissions"] = permissions
+                
+                # Update metadata
+                if "metadata" in group_config:
+                    metadata = group_config["metadata"]
+                    if isinstance(metadata, dict):
+                        if not isinstance(existing_group.metadata, dict):
+                            existing_group.metadata = {}
+                        existing_group.metadata.update(metadata)
+            
+            elif action == "delete":
+                group_name = event.payload.get("group_name")
+                
+                if not group_name:
+                    return EventResponse(
+                        success=False,
+                        message="Missing 'group_name' parameter for delete action",
+                    )
+                
+                # Cannot delete default group
+                if group_name == self.network.config.default_agent_group:
+                    return EventResponse(
+                        success=False,
+                        message="Cannot delete the default agent group",
+                    )
+                
+                # Check if group exists
+                if group_name not in self.network.config.agent_groups:
+                    return EventResponse(
+                        success=False,
+                        message=f"Group '{group_name}' not found",
+                    )
+                
+                # Check if group has active members
+                members = [
+                    agent_id
+                    for agent_id, g in self.network.topology.agent_group_membership.items()
+                    if g == group_name
+                ]
+                if members:
+                    return EventResponse(
+                        success=False,
+                        message=f"Cannot delete group '{group_name}' with {len(members)} active member(s). Reassign members first.",
+                    )
+                
+                # Delete group
+                del self.network.config.agent_groups[group_name]
+            
+            elif action == "set_default":
+                group_name = event.payload.get("group_name")
+                
+                if not group_name:
+                    return EventResponse(
+                        success=False,
+                        message="Missing 'group_name' parameter for set_default action",
+                    )
+                
+                # Check if group exists (or is the current default)
+                if group_name not in self.network.config.agent_groups and group_name != self.network.config.default_agent_group:
+                    return EventResponse(
+                        success=False,
+                        message=f"Group '{group_name}' not found",
+                    )
+                
+                # Set as default
+                self.network.config.default_agent_group = group_name
+            
+            elif action == "set_requires_password":
+                requires_password = event.payload.get("requires_password", False)
+                self.network.config.requires_password = bool(requires_password)
+            
+            else:
+                return EventResponse(
+                    success=False,
+                    message=f"Unknown action: {action}",
+                )
+            
+            # Save to YAML file
+            config_path = None
+            if hasattr(self.network, "config_path") and self.network.config_path:
+                config_path = Path(self.network.config_path)
+            
+            if config_path and config_path.exists():
+                lock = threading.Lock()
+                with lock:
+                    try:
+                        # Read existing config
+                        with open(config_path, 'r', encoding='utf-8') as f:
+                            config_data = yaml.safe_load(f) or {}
+                        
+                        # Update network.agent_groups section
+                        if "network" not in config_data:
+                            config_data["network"] = {}
+                        
+                        # Convert agent_groups to dict format
+                        agent_groups_dict = {}
+                        for g_name, g_cfg in self.network.config.agent_groups.items():
+                            agent_groups_dict[g_name] = {
+                                "description": g_cfg.description,
+                                "metadata": g_cfg.metadata,
+                            }
+                            if g_cfg.password_hash:
+                                agent_groups_dict[g_name]["password_hash"] = g_cfg.password_hash
+                        
+                        config_data["network"]["agent_groups"] = agent_groups_dict
+                        config_data["network"]["default_agent_group"] = self.network.config.default_agent_group
+                        config_data["network"]["requires_password"] = self.network.config.requires_password
+                        
+                        # Write to temporary file
+                        temp_fd, temp_path = tempfile.mkstemp(
+                            suffix='.yaml',
+                            dir=config_path.parent,
+                            text=True
+                        )
+                        
+                        try:
+                            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                                yaml.dump(
+                                    config_data,
+                                    f,
+                                    default_flow_style=False,
+                                    allow_unicode=True,
+                                    sort_keys=False
+                                )
+                                f.flush()
+                                os.fsync(f.fileno())
+                            
+                            # Atomic rename
+                            shutil.move(temp_path, config_path)
+                            self.logger.info(f"Agent groups configuration written to {config_path}")
+                            
+                        except Exception as e:
+                            # Clean up temp file on error
+                            if os.path.exists(temp_path):
+                                os.remove(temp_path)
+                            raise
+                    
+                    except Exception as e:
+                        self.logger.error(f"Failed to write YAML config: {e}")
+                        return EventResponse(
+                            success=False,
+                            message=f"Failed to write configuration file: {str(e)}",
+                            data={
+                                "type": "system_response",
+                                "command": "update_agent_groups",
+                            }
+                        )
+            
+            # Get updated groups info
+            groups_info = self._get_agent_group_info()
+            
+            # Audit log
+            self.logger.info(
+                f"🔒 AUDIT: Agent groups updated by {requesting_agent_id}. "
+                f"Action: {action}, Group: {event.payload.get('group_name', 'N/A')} at {time.time()}"
+            )
+            
+            return EventResponse(
+                success=True,
+                message=f"Agent groups updated successfully: {action}",
+                data={
+                    "type": "system_response",
+                    "command": "update_agent_groups",
+                    **groups_info,
+                }
+            )
+            
+        except Exception as e:
+            self.logger.error(f"Error updating agent groups: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return EventResponse(
+                success=False,
+                message=f"Internal error while updating agent groups: {str(e)}",
+                data={
+                    "type": "system_response",
+                    "command": "update_agent_groups",
+                }
+            )
+
+    async def handle_report_llm_log(self, event: Event) -> EventResponse:
+        """Handle the report_llm_log command.
+
+        Receives LLM call logs from agents and stores them in the workspace.
+        This allows external agents to report their LLM usage to the network
+        for centralized logging and monitoring.
+
+        Expected payload:
+        - agent_id: ID of the agent reporting the log
+        - log_entry: Dict containing LLM log data (model, messages, completion, tokens, etc.)
+        """
+        requesting_agent_id = event.payload.get("agent_id", event.source_id)
+        log_entry = event.payload.get("log_entry")
+
+        if not requesting_agent_id:
+            return EventResponse(
+                success=False,
+                message="Missing agent_id",
+                data={
+                    "type": "system_response",
+                    "command": "report_llm_log",
+                }
+            )
+
+        if not log_entry:
+            return EventResponse(
+                success=False,
+                message="Missing log_entry in payload",
+                data={
+                    "type": "system_response",
+                    "command": "report_llm_log",
+                }
+            )
+
+        try:
+            # Get workspace path from network
+            workspace_path = None
+            if hasattr(self.network, "workspace_manager") and self.network.workspace_manager:
+                workspace_path = self.network.workspace_manager.workspace_path
+
+            if not workspace_path:
+                return EventResponse(
+                    success=False,
+                    message="Workspace not configured on network",
+                    data={
+                        "type": "system_response",
+                        "command": "report_llm_log",
+                    }
+                )
+
+            # Use LLMCallLogger to write the log
+            from openagents.lms.llm_logger import LLMCallLogger
+            from openagents.models.llm_log import LLMLogEntry
+            from pathlib import Path
+
+            logger_instance = LLMCallLogger(Path(workspace_path), requesting_agent_id)
+
+            # Convert dict to LLMLogEntry and write
+            entry = LLMLogEntry.from_dict(log_entry)
+            logger_instance._write_log_entry(entry)
+
+            self.logger.debug(f"Stored LLM log from agent {requesting_agent_id}: {entry.log_id}")
+
+            return EventResponse(
+                success=True,
+                message="LLM log stored successfully",
+                data={
+                    "type": "system_response",
+                    "command": "report_llm_log",
+                    "log_id": entry.log_id,
+                    "agent_id": requesting_agent_id,
+                }
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error storing LLM log from {requesting_agent_id}: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return EventResponse(
+                success=False,
+                message=f"Failed to store LLM log: {str(e)}",
+                data={
+                    "type": "system_response",
+                    "command": "report_llm_log",
                 }
             )

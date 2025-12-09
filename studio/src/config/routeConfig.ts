@@ -14,8 +14,11 @@ import DocumentsMainPage from "@/pages/documents/DocumentsMainPage"
 import ProfileMainPage from "@/pages/profile/ProfileMainPage"
 import AgentWorldMainPage from "@/pages/agentworld/AgentWorldMainPage"
 import ReadmeMainPage from "@/pages/readme/ReadmeMainPage"
+import ModManagementPage from "@/pages/mod-management/ModManagementPage"
 // import McpMainPage from "@/pages/mcp/McpMainPage";
 import FeedMainPage from "@/pages/feed/FeedMainPage"
+import LLMLogsMainPage from "@/pages/llmlogs/LLMLogsMainPage"
+import ServiceAgentsMainPage from "@/pages/serviceagents/ServiceAgentsMainPage"
 import PlaygroundMainPage from "@/pages/playground/PlaygroundMainPage"
 
 // Navigation icon components
@@ -234,6 +237,81 @@ export const NavigationIcons = {
         strokeLinejoin: "round",
         strokeWidth: 2,
         d: "M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z",
+      })
+    )
+  ),
+  ModManagement: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M19.11 4.89l-1.72 1.72a8 8 0 010 11.32l1.72-1.72a6 6 0 000-8.48l-1.72-1.72zM8.29 6.29l-1.72 1.72a6 6 0 000 8.48l1.72 1.72a8 8 0 010-11.32L8.29 6.29zM7 12a5 5 0 011.46-3.54l7.08 7.08A5 5 0 0117 12a5 5 0 01-1.46-3.54L8.46 15.54A5 5 0 017 12z",
+      })
+    )
+  ),
+  ServiceAgents: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      // Server/Service icon for service agents
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01",
+      })
+    )
+  ),
+  Events: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
+      })
+    )
+  ),
+  LLMLogs: React.memo(() =>
+    React.createElement(
+      "svg",
+      {
+        className: "w-6 h-6",
+        fill: "none",
+        stroke: "currentColor",
+        viewBox: "0 0 24 24",
+      },
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
+      }),
+      React.createElement("path", {
+        strokeLinecap: "round",
+        strokeLinejoin: "round",
+        strokeWidth: 2,
+        d: "M13 10V3L4 14h7v7l9-11h-7z",
       })
     )
   ),
@@ -470,6 +548,51 @@ export const dynamicRouteConfig: RouteConfig[] = [
       visible: true,
       order: 3.5,
       group: "primary",
+    },
+  },
+  {
+    path: "/mod-management/*",
+    element: ModManagementPage,
+    title: "Mod Management",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.MOD_MANAGEMENT,
+      label: "Mod Management",
+      icon: "ModManagement",
+      visible: true,
+      order: 6,
+      group: "secondary",
+    },
+  },
+  {
+    path: "/studio/agents/service/*",
+    element: ServiceAgentsMainPage,
+    title: "Service Agents",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.SERVICE_AGENTS,
+      label: "Service Agents",
+      icon: "ServiceAgents",
+      visible: true, // Visible to all authenticated users
+      order: 7,
+      group: "secondary",
+    },
+  },
+  {
+    path: "/llm-logs/*",
+    element: LLMLogsMainPage,
+    title: "LLM Logs",
+    requiresAuth: true,
+    requiresLayout: true,
+    navigationConfig: {
+      key: PLUGIN_NAME_ENUM.LLM_LOGS,
+      label: "LLM Logs",
+      icon: "LLMLogs",
+      visible: true,
+      order: 4,
+      group: "secondary",
     },
   },
   // {

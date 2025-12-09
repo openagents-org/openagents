@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional, OrderedDict, TYPE_C
 
 if TYPE_CHECKING:
     from openagents.core.base_mod import BaseMod
+    from openagents.core.workspace_manager import WorkspaceManager
     from openagents.models.network_config import NetworkConfig, NetworkProfile
     from openagents.models.external_access import ExternalAccessConfig
     from openagents.models.event import Event
@@ -31,6 +32,7 @@ class NetworkContext:
     Attributes:
         network_name: Name of the network
         workspace_path: Path to the workspace directory (for tools, events, etc.)
+        workspace_manager: Optional workspace manager instance for components that need full access
         config: The network configuration object
         mods: Dictionary of loaded network mods (name -> mod instance)
         emit_event: Async callback for emitting events through the event gateway
@@ -38,6 +40,7 @@ class NetworkContext:
 
     network_name: str = "OpenAgents"
     workspace_path: Optional[str] = None
+    workspace_manager: Optional["WorkspaceManager"] = None
     config: Optional["NetworkConfig"] = None
     mods: OrderedDict[str, "BaseMod"] = field(default_factory=OrderedDict)
     emit_event: Optional[Callable[["Event", bool], Awaitable[Any]]] = None

@@ -39,6 +39,7 @@ export interface UnifiedMessage {
     filename: string;
     size: number;
     fileType?: string;
+    storageType?: 'cache';
   }>;
 
   // Thread information
@@ -58,6 +59,13 @@ export interface RawThreadMessage {
   timestamp: string;
   content: {
     text: string;
+    files?: Array<{
+      file_id: string;
+      filename: string;
+      size: number;
+      file_type?: string;
+      storage_type?: 'cache';
+    }>;
   } | string | any; // Support multiple content formats
   message_type: 'direct_message' | 'channel_message' | 'reply_message';
   channel?: string;
@@ -75,32 +83,6 @@ export interface RawThreadMessage {
   reactions?: {
     [reaction_type: string]: number;
   };
-  attachment_file_id?: string;
-  attachment_filename?: string;
-  attachment_size?: number | string;
-  attachments?: Array<{
-    file_id: string;
-    filename: string;
-    size: number;
-    file_type?: string;
-  }>;
-}
-
-// Legacy message format (from types/index.ts Message)
-export interface LegacyMessage {
-  id: string;
-  sender: "user" | "assistant" | "system";
-  text: string;
-  timestamp: string;
-  attachment_file_id?: string;
-  attachment_filename?: string;
-  attachment_size?: number | string;
-  attachments?: Array<{
-    file_id: string;
-    filename: string;
-    size: number;
-    file_type?: string;
-  }>;
 }
 
 /**
@@ -111,28 +93,17 @@ export class MessageAdapter {
    * Convert RawThreadMessage to UnifiedMessage
    */
   static fromRawThreadMessage(raw: RawThreadMessage): UnifiedMessage {
-    const attachments: UnifiedMessage['attachments'] = [];
-
-    // Handle single attachment (legacy format)
-    if (raw.attachment_file_id && raw.attachment_filename) {
-      attachments.push({
-        fileId: raw.attachment_file_id,
-        filename: raw.attachment_filename,
-        size: typeof raw.attachment_size === 'string'
-          ? parseInt(raw.attachment_size) || 0
-          : raw.attachment_size || 0,
-      });
-    }
-
-    // Handle multiple attachments (new format)
-    if (raw.attachments) {
-      attachments.push(...raw.attachments.map(att => ({
-        fileId: att.file_id,
-        filename: att.filename,
-        size: att.size,
-        fileType: att.file_type,
-      })));
-    }
+    // Extract files from content.files
+    const attachments: UnifiedMessage['attachments'] =
+      raw.content && typeof raw.content === 'object' && raw.content.files
+        ? raw.content.files.map((f: any) => ({
+            fileId: f.file_id,
+            filename: f.filename,
+            size: f.size,
+            fileType: f.file_type,
+            storageType: f.storage_type,
+          }))
+        : undefined;
 
     const isDirectMessage = raw?.payload?.message_type === 'direct_message';
 
@@ -169,7 +140,7 @@ export class MessageAdapter {
       quotedMessageId: raw.quoted_message_id,
       quotedText: raw.quoted_text,
       reactions: raw.reactions,
-      attachments: attachments.length > 0 ? attachments : undefined,
+      attachments,
       threadInfo: raw.thread_info ? {
         isRoot: raw.thread_info.is_root,
         threadLevel: raw.thread_info.thread_level,
@@ -179,53 +150,26 @@ export class MessageAdapter {
   }
 
   /**
-   * Convert LegacyMessage to UnifiedMessage
-   */
-  static fromLegacyMessage(legacy: LegacyMessage): UnifiedMessage {
-    const attachments: UnifiedMessage['attachments'] = [];
-
-    // Handle single attachment (legacy format)
-    if (legacy.attachment_file_id && legacy.attachment_filename) {
-      attachments.push({
-        fileId: legacy.attachment_file_id,
-        filename: legacy.attachment_filename,
-        size: typeof legacy.attachment_size === 'string'
-          ? parseInt(legacy.attachment_size) || 0
-          : legacy.attachment_size || 0,
-      });
-    }
-
-    // Handle multiple attachments (new format)
-    if (legacy.attachments) {
-      attachments.push(...legacy.attachments.map(att => ({
-        fileId: att.file_id,
-        filename: att.filename,
-        size: att.size,
-        fileType: att.file_type,
-      })));
-    }
-
-    return {
-      id: legacy.id,
-      senderId: legacy.sender,
-      timestamp: legacy.timestamp,
-      content: legacy.text,
-      type: 'channel_message', // LegacyMessage has no type info, default to channel message
-      attachments: attachments.length > 0 ? attachments : undefined,
-    };
-  }
-
-  /**
    * Convert UnifiedMessage to format for backend
    */
   static toRawThreadMessage(unified: UnifiedMessage): Partial<RawThreadMessage> {
+    // Build content object with text and optional files
+    const content: any = { text: unified.content };
+    if (unified.attachments && unified.attachments.length > 0) {
+      content.files = unified.attachments.map(att => ({
+        file_id: att.fileId,
+        filename: att.filename,
+        size: att.size,
+        file_type: att.fileType,
+        storage_type: att.storageType,
+      }));
+    }
+
     const raw: Partial<RawThreadMessage> = {
       message_id: unified.id,
       sender_id: unified.senderId,
       timestamp: unified.timestamp,
-      content: {
-        text: unified.content,
-      },
+      content,
       message_type: unified.type,
       channel: unified.channel,
       target_agent_id: unified.targetUserId,
@@ -235,25 +179,6 @@ export class MessageAdapter {
       quoted_text: unified.quotedText,
       reactions: unified.reactions,
     };
-
-    // Handle attachments
-    if (unified.attachments && unified.attachments.length > 0) {
-      if (unified.attachments.length === 1) {
-        // Single attachment - use legacy format fields
-        const attachment = unified.attachments[0];
-        raw.attachment_file_id = attachment.fileId;
-        raw.attachment_filename = attachment.filename;
-        raw.attachment_size = attachment.size;
-      }
-
-      // Multiple attachments - use new format array
-      raw.attachments = unified.attachments.map(att => ({
-        file_id: att.fileId,
-        filename: att.filename,
-        size: att.size,
-        file_type: att.fileType,
-      }));
-    }
 
     // Handle thread info
     if (unified.threadInfo) {
@@ -272,13 +197,6 @@ export class MessageAdapter {
    */
   static fromRawThreadMessages(rawMessages: RawThreadMessage[]): UnifiedMessage[] {
     return rawMessages.map(raw => this.fromRawThreadMessage(raw));
-  }
-
-  /**
-   * Batch convert legacy format message array
-   */
-  static fromLegacyMessages(legacyMessages: LegacyMessage[]): UnifiedMessage[] {
-    return legacyMessages.map(legacy => this.fromLegacyMessage(legacy));
   }
 }
 

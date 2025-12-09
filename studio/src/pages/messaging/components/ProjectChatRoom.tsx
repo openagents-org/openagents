@@ -793,6 +793,9 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
                     "Reactions are not supported in project chat room"
                   )
                 }}
+                networkHost={connector?.getHost()}
+                networkPort={connector?.getPort()}
+                agentSecret={connector?.getSecret()}
               />
               <div ref={messagesEndRef} />
             </>
@@ -856,6 +859,8 @@ const ProjectChatRoom: React.FC<ProjectChatRoomProps> = ({
             currentTheme={currentTheme}
             currentChannel={channelName}
             currentAgentId={connectionStatus.agentId || agentName || ""}
+            currentAgentSecret={connector?.getSecret() || null}
+            networkBaseUrl={connector?.getBaseUrl()}
             replyingTo={null}
             quotingMessage={null}
             onCancelReply={() => {}}

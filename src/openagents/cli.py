@@ -120,10 +120,10 @@ def initialize_workspace(workspace_path: Path) -> Path:
         logging.info(f"Using existing workspace configuration: {config_path}")
         return config_path
 
-    # Get the default workspace template from package resources
+    # Get the default network template from package resources
     try:
         # First, try to get the network.yaml template from package resources
-        template_files = files("openagents.templates.default_workspace")
+        template_files = files("openagents.templates.default_network")
 
         # Copy the main network.yaml template
         network_yaml_content = (template_files / "network.yaml").read_text()
@@ -142,7 +142,7 @@ def initialize_workspace(workspace_path: Path) -> Path:
 
         # Copy the agents directory if it exists
         try:
-            agents_template = files("openagents.templates.default_workspace.agents")
+            agents_template = files("openagents.templates.default_network.agents")
             agents_dir = workspace_path / "agents"
             agents_dir.mkdir(parents=True, exist_ok=True)
 
@@ -177,19 +177,19 @@ def initialize_workspace(workspace_path: Path) -> Path:
         script_dir = Path(__file__).parent
 
         # Try templates directory first (package mode)
-        template_path = script_dir / "templates" / "default_workspace" / "network.yaml"
+        template_path = script_dir / "templates" / "default_network" / "network.yaml"
         if template_path.exists():
             shutil.copy2(template_path, config_path)
             logging.info(f"Copied network.yaml from templates to workspace")
 
             # Copy README.md if it exists
-            readme_path = script_dir / "templates" / "default_workspace" / "README.md"
+            readme_path = script_dir / "templates" / "default_network" / "README.md"
             if readme_path.exists():
                 shutil.copy2(readme_path, workspace_path / "README.md")
                 logging.info(f"Copied README.md to workspace")
 
             # Also copy agents directory if it exists
-            agents_template_path = script_dir / "templates" / "default_workspace" / "agents"
+            agents_template_path = script_dir / "templates" / "default_network" / "agents"
             if agents_template_path.exists():
                 agents_dir = workspace_path / "agents"
                 shutil.copytree(agents_template_path, agents_dir, dirs_exist_ok=True)
@@ -218,16 +218,16 @@ def initialize_workspace(workspace_path: Path) -> Path:
         else:
             # Fallback to examples directory (development mode)
             project_root = script_dir.parent.parent
-            default_workspace_path = project_root / "examples" / "default_workspace"
-            
-            if not default_workspace_path.exists():
-                logging.error(f"Default workspace template not found: {default_workspace_path}")
+            default_network_path = project_root / "examples" / "default_network"
+
+            if not default_network_path.exists():
+                logging.error(f"Default network template not found: {default_network_path}")
                 raise FileNotFoundError(
-                    f"Default workspace template not found: {default_workspace_path}"
+                    f"Default network template not found: {default_network_path}"
                 )
-            
-            # Copy all files from default workspace to the new workspace
-            for item in default_workspace_path.iterdir():
+
+            # Copy all files from default network to the new workspace
+            for item in default_network_path.iterdir():
                 if item.is_file():
                     dest_path = workspace_path / item.name
                     shutil.copy2(item, dest_path)
@@ -236,6 +236,20 @@ def initialize_workspace(workspace_path: Path) -> Path:
                     dest_dir = workspace_path / item.name
                     shutil.copytree(item, dest_dir, dirs_exist_ok=True)
                     logging.info(f"Copied directory {item.name} to workspace")
+
+            # Create events, tools, mods directories with .keep files
+            for folder_name, description in [
+                ("events", "Place AsyncAPI event definition files here"),
+                ("tools", "Place custom tool Python files here"),
+                ("mods", "Place custom mod files here"),
+            ]:
+                folder_path = workspace_path / folder_name
+                folder_path.mkdir(parents=True, exist_ok=True)
+                keep_file = folder_path / ".keep"
+                if not keep_file.exists():
+                    with open(keep_file, 'w') as f:
+                        f.write(f"# {description}\n")
+                logging.info(f"Created {folder_name}/ directory in workspace")
 
         logging.info(f"Initialized new workspace at: {workspace_path}")
 
@@ -1331,7 +1345,7 @@ def studio_command(args) -> None:
             # Handle standalone mode or check network port availability
             if standalone:
                 skip_network = True
-                console.print("[blue]🎨 Starting in standalone mode (frontend only)[/blue]")
+                console.print("[blue]🎨 Starting Studio frontend (connect to an existing network)[/blue]")
             else:
                 # Check network port availability 
                 network_available, network_process = check_port_availability(network_host, network_port)
@@ -1443,22 +1457,13 @@ def studio_command(args) -> None:
 
             if skip_network:
                 # Just wait for frontend without starting network
-                if standalone:
-                    # Explicit standalone mode
-                    console.print(Panel(
-                        "🎨 Studio frontend running in standalone mode\n"
-                        "💡 Start a network separately with: [code]openagents network start[/code]",
-                        title="[blue]🎨 Standalone Mode[/blue]",
-                        border_style="blue"
-                    ))
-                else:
-                    # Automatic standalone due to port conflict
-                    console.print(Panel(
-                        "🎨 Studio frontend running in standalone mode\n"
-                        "💡 Start a network separately with: [code]openagents network start[/code]",
-                        title="[yellow]⚠️  Standalone Mode (Port Conflict)[/yellow]",
-                        border_style="yellow"
-                    ))
+                console.print(Panel(
+                    f"🎨 Studio frontend running on http://localhost:{studio_port}\n"
+                    f"🔗 Configure network connection in Studio settings\n\n"
+                    f"💡 To start a network: [code]openagents network start[/code]",
+                    title="[blue]🎨 OpenAgents Studio[/blue]",
+                    border_style="blue"
+                ))
                 frontend_process.wait()
             else:
                 # Launch network (this will run indefinitely)
@@ -2506,9 +2511,13 @@ def studio(
     studio_port: int = typer.Option(8050, "--studio-port", help="Studio frontend port"),
     workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="Path to workspace directory"),
     no_browser: bool = typer.Option(False, "--no-browser", help="Don't automatically open browser"),
-    standalone: bool = typer.Option(False, "--standalone", "-s", help="Launch studio frontend only (without network)"),
+    standalone: bool = typer.Option(True, "--standalone", "-s", help="Launch studio frontend only (kept for backward compatibility)"),
 ):
-    """🎨 Launch OpenAgents Studio - A beautiful web interface"""
+    """🎨 Launch OpenAgents Studio - A beautiful web interface
+
+    By default, launches only the Studio frontend on port 8050.
+    Connect it to a running network (e.g., at localhost:8700).
+    """
     import asyncio
     from types import SimpleNamespace
     
@@ -2551,23 +2560,22 @@ def show_examples():
     examples_text = """
 [bold blue]🚀 Common Usage Examples:[/bold blue]
 
-[bold green]1. Quick Start with Studio:[/bold green]
+[bold green]1. Quick Start - Start a Network:[/bold green]
+   [code]openagents network start[/code]
+   Opens http://localhost:8700/studio/
+
+[bold green]2. Start Studio Frontend Only:[/bold green]
    [code]openagents studio[/code]
-   
-[bold green]2. Start a Network:[/bold green]
-   [code]openagents network start examples/my_network.yaml[/code]
-   
-[bold green]3. Connect to a Network:[/bold green]
-   [code]openagents network interact --host localhost --port 8570[/code]
-   
-[bold green]4. Launch an Agent:[/bold green]
-   [code]openagents agent start examples/my_agent.yaml[/code]
-   
-[bold green]5. Studio with Custom Workspace:[/bold green]
-   [code]openagents studio --workspace ./my_workspace[/code]
-   
-[bold green]6. Network with Custom Port:[/bold green]
-   [code]openagents network start --runtime 300 network.yaml[/code]
+   Connect to an existing network
+
+[bold green]3. Start a Network from Config:[/bold green]
+   [code]openagents network start path/to/network.yaml[/code]
+
+[bold green]4. Start an Agent:[/bold green]
+   [code]openagents agent start path/to/agent.yaml[/code]
+
+[bold green]5. Initialize a New Workspace:[/bold green]
+   [code]openagents init my_workspace[/code]
 
 [bold cyan]📖 For more information, visit:[/bold cyan]
    [link]https://github.com/openagents-org/openagents[/link]

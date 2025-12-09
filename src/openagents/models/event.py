@@ -68,6 +68,12 @@ class Event(BaseModel):
     - system:system
 
     If the source id is provided without a role such as "charlie_123", it will be assumed to be an agent.
+
+    Source Agent Group:
+    For agent sources, the network automatically populates the source_agent_group field with the
+    agent's group name from the topology. For mod and system sources, this field remains None.
+    This allows event processors to filter events and apply group-specific processing rules.
+
     Destination ID:
     Destination ID is the ID of the agent, mod, channel, or system component that this event is intended for.
     The format can be either:
@@ -125,6 +131,9 @@ class Event(BaseModel):
     
     # Authentication
     secret: Optional[str] = None  # Authentication secret for the source agent
+
+    # Source context
+    source_agent_group: Optional[str] = None  # The agent group the source belongs to
 
     model_config = {"use_enum_values": True, "arbitrary_types_allowed": True}
 

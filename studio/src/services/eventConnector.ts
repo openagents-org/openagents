@@ -23,6 +23,7 @@ export interface ConnectionOptions {
   timeout?: number;
   passwordHash?: string | null;
   agentGroup?: string | null;
+  useHttps?: boolean; // HTTPS Feature: Add useHttps option for HTTPS connections
 }
 
 export interface EventHandler {
@@ -35,6 +36,7 @@ export class HttpEventConnector {
   private baseUrl: string;
   private host: string;
   private port: number;
+  private useHttps: boolean; // HTTPS Feature: Store whether to use HTTPS
   private connected = false;
   private isConnecting = false;
   private connectionAborted = false;
@@ -53,9 +55,11 @@ export class HttpEventConnector {
     this.timeout = options.timeout || 30000;
     this.passwordHash = options.passwordHash || null;
     this.agentGroup = options.agentGroup || null;
+    this.useHttps = options.useHttps || false; // HTTPS Feature: Get useHttps option from connection options
 
-    // Store host and port for network requests
-    this.baseUrl = `http://${options.host}:${options.port}/api`;
+    // HTTPS Feature: Construct baseUrl based on useHttps option
+    const protocol = this.useHttps ? 'https' : 'http';
+    this.baseUrl = `${protocol}://${options.host}:${options.port}/api`;
     this.host = options.host;
     this.port = options.port;
   }
@@ -182,6 +186,34 @@ export class HttpEventConnector {
     }
 
     this.emit("disconnected", { reason: "Manual disconnect" });
+  }
+
+  /**
+   * Get the authentication secret for this connection
+   */
+  getSecret(): string | null {
+    return this.secret;
+  }
+
+  /**
+   * Get the network host
+   */
+  getHost(): string {
+    return this.host;
+  }
+
+  /**
+   * Get the network port
+   */
+  getPort(): number {
+    return this.port;
+  }
+
+  /**
+   * Get the base URL for API requests
+   */
+  getBaseUrl(): string {
+    return this.baseUrl;
   }
 
   /**
@@ -578,6 +610,7 @@ export class HttpEventConnector {
 
   /**
    * Send HTTP request helper with proxy support
+   * HTTPS Feature: Use useHttps parameter to construct request
    */
   private async sendHttpRequest(
     endpoint: string,
@@ -590,9 +623,11 @@ export class HttpEventConnector {
       console.log(`🌐 ${method} ${endpoint}`, data ? { body: data } : "");
     }
 
-    const options: RequestInit & { timeout?: number } = {
+    // HTTPS Feature: Pass useHttps parameter to networkFetch
+    const options: RequestInit & { timeout?: number; useHttps?: boolean } = {
       method,
       timeout: this.timeout,
+      useHttps: this.useHttps, // HTTPS Feature: Use instance's useHttps property
     };
 
     if (data && method === "POST") {

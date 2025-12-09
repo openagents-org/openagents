@@ -6,6 +6,16 @@ import RouteGuard from "./RouteGuard";
 import { routes } from "./routeConfig";
 import RootLayout from "@/components/layout/RootLayout";
 
+// Detect basename from URL path (for /studio serving)
+const getBasename = (): string => {
+  const path = window.location.pathname;
+  // If served from /studio/, use that as basename
+  if (path.startsWith("/studio")) {
+    return "/studio";
+  }
+  return "/";
+};
+
 // Create protected routes wrapper component
 const ProtectedRoutes: React.FC = () => {
   // Get routes that require authentication (pages after login)
@@ -39,7 +49,7 @@ const AppRouter: React.FC = () => {
   const publicRoutes = routes.filter((route) => !route.requiresAuth);
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={getBasename()}>
       <ConfirmProvider>
         <Toaster position="top-right" richColors />
         <Routes>

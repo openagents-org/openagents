@@ -1,0 +1,31 @@
+# Test Worker Agent - YAML-based agent for AgentManager testing
+agent_id: "test_worker"
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+
+config:
+  model_name: "gpt-4o-mini"
+  
+  instruction: |
+    You are a test worker agent running under the AgentManager.
+    
+    YOUR ROLE:
+    - Respond to any messages in the messaging mod
+    - Keep responses brief and friendly
+    - Confirm you are running as a managed service agent
+    
+    BEHAVIOR:
+    - Reply to channel messages
+    - Acknowledge direct messages
+    - Be helpful and responsive
+  
+  react_to_all_messages: true
+
+mods:
+  - name: "openagents.mods.workspace.messaging"
+    enabled: true
+
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "http"
+

@@ -7,9 +7,8 @@ services:
       dockerfile: Dockerfile
     container_name: openagents-network-studio
     ports:
-      - "8700:8700"  # HTTP transport
+      - "8700:8700"  # HTTP transport (also serves Studio at /studio and MCP at /mcp)
       - "8600:8600"  # gRPC transport
-      - "8050:8050"  # Studio web interface
     environment:
       - PYTHONUNBUFFERED=1
       - NODE_ENV=production
@@ -23,7 +22,7 @@ services:
       # - ./my-network:/network:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8700/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8700/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

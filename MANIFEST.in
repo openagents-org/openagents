@@ -3,4 +3,5 @@ include LICENSE
 recursive-include src/openagents/protocols */protocol_manifest.json
 recursive-include src/openagents/configs *.yaml
 recursive-include src/openagents/studio/build **/*
+recursive-include src/openagents/templates **/*
 recursive-include studio/build **/* 

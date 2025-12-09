@@ -25,13 +25,11 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies (Node.js no longer needed - Studio served via HTTP transport)
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
     git \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -42,11 +40,8 @@ COPY src/ ./src/
 # Install Python dependencies
 RUN pip install --no-cache-dir -e .
 
-# Copy built studio from stage 1
+# Copy built studio from stage 1 (served via HTTP transport at /studio)
 COPY --from=studio-builder /app/studio/build /app/studio/build
-
-# Install serve to host the studio static files
-RUN npm install -g serve
 
 # Copy network configuration
 COPY examples/default_network/ /network/
@@ -59,10 +54,9 @@ RUN chmod +x /app/docker-entrypoint.sh
 RUN mkdir -p /app/data
 
 # Expose ports
-# 8700 - HTTP transport
+# 8700 - HTTP transport (also serves Studio at /studio and MCP at /mcp)
 # 8600 - gRPC transport
-# 8050 - Studio web interface
-EXPOSE 8700 8600 8050
+EXPOSE 8700 8600
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
@@ -70,7 +64,7 @@ ENV NODE_ENV=production
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8700/health || exit 1
+    CMD curl -f http://localhost:8700/api/health || exit 1
 
 # Run the startup script
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

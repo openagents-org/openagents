@@ -2,12 +2,15 @@
 Network-level shared cache mod for OpenAgents.
 
 This mod provides a shared caching system with agent group-based access control.
+Supports both string values and binary file storage.
 """
 
 import logging
 import json
 import uuid
 import time
+import base64
+import os
 from typing import Dict, Any, List, Optional, Set
 from pathlib import Path
 
@@ -17,9 +20,12 @@ from openagents.models.event_response import EventResponse
 
 logger = logging.getLogger(__name__)
 
+# Maximum file size (50 MB)
+MAX_FILE_SIZE = 50 * 1024 * 1024
+
 
 class CacheEntry:
-    """Represents a single cache entry."""
+    """Represents a single cache entry (string value or file reference)."""
 
     def __init__(
         self,
@@ -30,18 +36,24 @@ class CacheEntry:
         created_by: str,
         created_at: int,
         updated_at: int,
+        is_file: bool = False,
+        filename: Optional[str] = None,
+        file_size: Optional[int] = None,
     ):
         self.cache_id = cache_id
-        self.value = value
+        self.value = value  # For files, this is the relative path to the file
         self.mime_type = mime_type
         self.allowed_agent_groups = allowed_agent_groups or []
         self.created_by = created_by
         self.created_at = created_at
         self.updated_at = updated_at
+        self.is_file = is_file
+        self.filename = filename  # Original filename for file entries
+        self.file_size = file_size  # File size in bytes
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert cache entry to dictionary."""
-        return {
+        data = {
             "cache_id": self.cache_id,
             "value": self.value,
             "mime_type": self.mime_type,
@@ -49,7 +61,12 @@ class CacheEntry:
             "created_by": self.created_by,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "is_file": self.is_file,
         }
+        if self.is_file:
+            data["filename"] = self.filename
+            data["file_size"] = self.file_size
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CacheEntry":
@@ -62,6 +79,9 @@ class CacheEntry:
             created_by=data["created_by"],
             created_at=data["created_at"],
             updated_at=data["updated_at"],
+            is_file=data.get("is_file", False),
+            filename=data.get("filename"),
+            file_size=data.get("file_size"),
         )
 
 
@@ -79,6 +99,7 @@ class SharedCacheMod(BaseMod):
         # Cache storage
         self.cache_entries: Dict[str, CacheEntry] = {}
         self.storage_path: Optional[Path] = None
+        self.files_path: Optional[Path] = None
 
         logger.info("Initializing Shared Cache mod")
 
@@ -96,7 +117,12 @@ class SharedCacheMod(BaseMod):
         self.storage_path = storage_path / "shared_cache"
         self.storage_path.mkdir(exist_ok=True)
 
+        # Create files directory for binary storage
+        self.files_path = self.storage_path / "files"
+        self.files_path.mkdir(exist_ok=True)
+
         logger.info(f"Using cache storage at {self.storage_path}")
+        logger.info(f"Using files storage at {self.files_path}")
 
         self._load_cache_entries()
 
@@ -467,6 +493,240 @@ class SharedCacheMod(BaseMod):
                 message=f"Error deleting cache entry: {str(e)}",
                 data={"error": str(e)},
             )
+
+    @mod_event_handler("shared_cache.file.upload")
+    async def _handle_file_upload(self, event: Event) -> Optional[EventResponse]:
+        """Handle file upload request.
+
+        Args:
+            event: The file upload event containing base64-encoded file data
+
+        Returns:
+            EventResponse: Response with cache_id if successful
+        """
+        try:
+            payload = event.payload or {}
+
+            # Validate required fields
+            file_data = payload.get("file_data")  # Base64-encoded file content
+            filename = payload.get("filename")
+            mime_type = payload.get("mime_type", "application/octet-stream")
+            allowed_agent_groups = payload.get("allowed_agent_groups", [])
+
+            if not file_data:
+                return EventResponse(
+                    success=False,
+                    message="file_data is required",
+                    data={"success": False, "error": "file_data is required"},
+                )
+
+            if not filename:
+                return EventResponse(
+                    success=False,
+                    message="filename is required",
+                    data={"success": False, "error": "filename is required"},
+                )
+
+            # Decode base64 data with strict validation
+            try:
+                file_bytes = base64.b64decode(file_data, validate=True)
+            except Exception as decode_error:
+                logger.error(f"Failed to decode base64 file data: {decode_error}")
+                return EventResponse(
+                    success=False,
+                    message="Invalid base64 file data",
+                    data={"success": False, "error": "Invalid base64 file data"},
+                )
+
+            # Check file size
+            file_size = len(file_bytes)
+            if file_size > MAX_FILE_SIZE:
+                return EventResponse(
+                    success=False,
+                    message=f"File size exceeds maximum allowed ({MAX_FILE_SIZE} bytes)",
+                    data={"success": False, "error": f"File size exceeds maximum allowed ({MAX_FILE_SIZE} bytes)"},
+                )
+
+            # Generate cache ID and file path
+            cache_id = str(uuid.uuid4())
+            # Sanitize filename to prevent path traversal
+            safe_filename = os.path.basename(filename)
+            file_path = self.files_path / f"{cache_id}_{safe_filename}"
+
+            # Write file to storage
+            with open(file_path, "wb") as f:
+                f.write(file_bytes)
+
+            # Create cache entry
+            current_time = int(time.time())
+            cache_entry = CacheEntry(
+                cache_id=cache_id,
+                value=str(file_path.relative_to(self.storage_path)),  # Store relative path
+                mime_type=mime_type,
+                allowed_agent_groups=allowed_agent_groups,
+                created_by=event.source_id,
+                created_at=current_time,
+                updated_at=current_time,
+                is_file=True,
+                filename=safe_filename,
+                file_size=file_size,
+            )
+
+            self.cache_entries[cache_id] = cache_entry
+            self._save_cache_entries()
+
+            logger.info(
+                f"Uploaded file {safe_filename} ({file_size} bytes) as cache {cache_id} "
+                f"by {event.source_id} (groups: {allowed_agent_groups})"
+            )
+
+            # Send notification
+            await self._send_notification(
+                "shared_cache.notification.created", cache_entry, exclude_agent=event.source_id
+            )
+
+            return EventResponse(
+                success=True,
+                message="File uploaded successfully",
+                data={
+                    "success": True,
+                    "cache_id": cache_id,
+                    "filename": safe_filename,
+                    "file_size": file_size,
+                    "mime_type": mime_type,
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Error uploading file: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Error uploading file: {str(e)}",
+                data={"success": False, "error": str(e)},
+            )
+
+    @mod_event_handler("shared_cache.file.download")
+    async def _handle_file_download(self, event: Event) -> Optional[EventResponse]:
+        """Handle file download request.
+
+        Args:
+            event: The file download event
+
+        Returns:
+            EventResponse: Response with base64-encoded file data if successful
+        """
+        try:
+            payload = event.payload or {}
+
+            # Validate required fields
+            cache_id = payload.get("cache_id")
+
+            if not cache_id:
+                return EventResponse(
+                    success=False,
+                    message="cache_id is required",
+                    data={"success": False, "error": "cache_id is required"},
+                )
+
+            if cache_id not in self.cache_entries:
+                return EventResponse(
+                    success=False,
+                    message="Cache entry not found",
+                    data={"success": False, "error": "Cache entry not found"},
+                )
+
+            cache_entry = self.cache_entries[cache_id]
+
+            # Check if it's a file entry
+            if not cache_entry.is_file:
+                return EventResponse(
+                    success=False,
+                    message="Cache entry is not a file",
+                    data={"success": False, "error": "Cache entry is not a file"},
+                )
+
+            # Check access permissions
+            if not self._check_agent_access(event.source_id, cache_entry.allowed_agent_groups):
+                logger.warning(
+                    f"Agent {event.source_id} denied access to download file {cache_id}"
+                )
+                return EventResponse(
+                    success=False,
+                    message="Agent does not have permission to access this file",
+                    data={"success": False, "error": "Agent does not have permission to access this file"},
+                )
+
+            # Read file
+            file_path = self.storage_path / cache_entry.value
+            if not file_path.exists():
+                logger.error(f"File not found at {file_path}")
+                return EventResponse(
+                    success=False,
+                    message="File not found on disk",
+                    data={"success": False, "error": "File not found on disk"},
+                )
+
+            with open(file_path, "rb") as f:
+                file_bytes = f.read()
+
+            # Encode to base64
+            file_data = base64.b64encode(file_bytes).decode("utf-8")
+
+            logger.debug(f"Downloaded file {cache_id} for {event.source_id}")
+
+            return EventResponse(
+                success=True,
+                message="File downloaded successfully",
+                data={
+                    "success": True,
+                    "cache_id": cache_id,
+                    "filename": cache_entry.filename,
+                    "file_size": cache_entry.file_size,
+                    "mime_type": cache_entry.mime_type,
+                    "file_data": file_data,
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Error downloading file: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Error downloading file: {str(e)}",
+                data={"success": False, "error": str(e)},
+            )
+
+    def get_file_path(self, cache_id: str) -> Optional[Path]:
+        """Get the file path for a cache entry (for HTTP direct download).
+
+        Args:
+            cache_id: ID of the cache entry
+
+        Returns:
+            Optional[Path]: File path if exists and is a file entry, None otherwise
+        """
+        if cache_id not in self.cache_entries:
+            return None
+
+        cache_entry = self.cache_entries[cache_id]
+        if not cache_entry.is_file:
+            return None
+
+        file_path = self.storage_path / cache_entry.value
+        if not file_path.exists():
+            return None
+
+        return file_path
+
+    def get_cache_entry(self, cache_id: str) -> Optional[CacheEntry]:
+        """Get a cache entry by ID.
+
+        Args:
+            cache_id: ID of the cache entry
+
+        Returns:
+            Optional[CacheEntry]: Cache entry if found, None otherwise
+        """
+        return self.cache_entries.get(cache_id)
 
     def get_state(self) -> Dict[str, Any]:
         """Get the current state of the shared cache mod.

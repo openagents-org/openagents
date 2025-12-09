@@ -609,6 +609,13 @@ class MCPTransport(Transport):
         Args:
             address: Address in format "host:port" (port from config takes precedence)
         """
+        # If port is None/null, skip standalone server binding
+        # MCP can still be served via HTTP transport's serve_mcp option
+        if self.port is None:
+            logger.info("MCP transport: standalone port disabled (port: null), skipping listen")
+            self.is_listening = False
+            return True
+
         try:
             host = "0.0.0.0"
             if ":" in address:

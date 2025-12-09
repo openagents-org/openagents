@@ -19,7 +19,7 @@ const LocalNetworkNotFound = React.memo(() => {
   return (
     <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-6">
       <p className="text-yellow-800 dark:text-yellow-400">
-        No local OpenAgents network detected on common ports (8570-8575)
+        No local OpenAgents network detected
       </p>
     </div>
   );

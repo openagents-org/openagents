@@ -12,4 +12,8 @@ export enum PLUGIN_NAME_ENUM {
   AGENTWORLD = "agentworld",
   README = "readme",
   PLAYGROUND = "playground",
+  MOD_MANAGEMENT = "mod_management",
+  EVENTS = "events",
+  LLM_LOGS = "llm_logs",
+  SERVICE_AGENTS = "service-agents",
 }

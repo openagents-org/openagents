@@ -50,6 +50,10 @@ interface MessageRendererProps {
   disableReactions?: boolean;
   // Whether to disable quote features (for project channel)
   disableQuotes?: boolean;
+  // Network connection details for attachment downloads
+  networkHost?: string;
+  networkPort?: number;
+  agentSecret?: string | null;
 }
 
 
@@ -64,6 +68,9 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
   isDMChat = false,
   disableReactions = false,
   disableQuotes = false,
+  networkHost,
+  networkPort,
+  agentSecret,
 }) => {
   const [showReactionPicker, setShowReactionPicker] = useState<string | null>(null);
   const [hoveredMessage, setHoveredMessage] = useState<string | null>(null);
@@ -79,6 +86,14 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
     // Detect if it's ThreadMessage type
     if ('message_id' in message) {
       const threadMsg = message as ThreadMessage;
+      // Extract files from content.files
+      const attachments = threadMsg.content?.files?.map((f: any) => ({
+        fileId: f.file_id,
+        filename: f.filename,
+        size: f.size,
+        fileType: f.file_type,
+        storageType: f.storage_type,
+      }));
       return {
         id: threadMsg.message_id,
         senderId: threadMsg.sender_id,
@@ -86,20 +101,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         content: threadMsg.content?.text || '',
         replyToId: threadMsg.reply_to_id,
         reactions: threadMsg.reactions,
-        attachments: threadMsg.attachments ? threadMsg.attachments.map(att => ({
-          fileId: att.file_id,
-          filename: att.filename,
-          size: att.size,
-          fileType: att.file_type,
-        })) : undefined,
-        // Handle old format single attachment
-        legacyAttachment: threadMsg.attachment_file_id ? {
-          fileId: threadMsg.attachment_file_id,
-          filename: threadMsg.attachment_filename || '',
-          size: typeof threadMsg.attachment_size === 'string'
-            ? parseInt(threadMsg.attachment_size) || 0
-            : threadMsg.attachment_size || 0,
-        } : undefined,
+        attachments,
       };
     } else {
       // UnifiedMessage type
@@ -112,7 +114,6 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         replyToId: unifiedMsg.replyToId,
         reactions: unifiedMsg.reactions,
         attachments: unifiedMsg.attachments,
-        legacyAttachment: undefined,
       };
     }
   };
@@ -276,15 +277,15 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
             )}
 
             {/* Attachment display */}
-            {messageProps.attachments && messageProps.attachments.length > 0 ? (
-              <AttachmentDisplay attachments={messageProps.attachments} />
-            ) : messageProps.legacyAttachment ? (
+            {messageProps.attachments && messageProps.attachments.length > 0 && (
               <AttachmentDisplay
-                attachment_file_id={messageProps.legacyAttachment.fileId}
-                attachment_filename={messageProps.legacyAttachment.filename}
-                attachment_size={messageProps.legacyAttachment.size}
+                attachments={messageProps.attachments}
+                networkHost={networkHost}
+                networkPort={networkPort}
+                agentId={currentUserId}
+                agentSecret={agentSecret}
               />
-            ) : null}
+            )}
           </div>
 
           {/* Reaction display */}
@@ -423,7 +424,13 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
 
             {/* Attachment display */}
             {message.attachments && message.attachments.length > 0 && (
-              <AttachmentDisplay attachments={message.attachments} />
+              <AttachmentDisplay
+                attachments={message.attachments}
+                networkHost={networkHost}
+                networkPort={networkPort}
+                agentId={currentUserId}
+                agentSecret={agentSecret}
+              />
             )}
           </div>
 

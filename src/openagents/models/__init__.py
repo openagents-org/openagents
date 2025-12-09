@@ -14,6 +14,8 @@ from .network_config import NetworkConfig, OpenAgentsConfig, NetworkMode
 
 from .network_role import NetworkRole
 
+from .llm_log import LLMLogEntry, LLMLogStats
+
 __all__ = [
     # Transport models
     "TransportType",
@@ -30,4 +32,7 @@ __all__ = [
     "OpenAgentsConfig",
     "NetworkMode",
     "NetworkRole",
+    # LLM log models
+    "LLMLogEntry",
+    "LLMLogStats",
 ]

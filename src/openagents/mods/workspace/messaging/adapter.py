@@ -1327,25 +1327,10 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         )
         tools.append(send_channel_tool)
 
-        # Tool 3: Upload file
-        upload_file_tool = AgentTool(
-            name="upload_file",
-            description="Upload a local file to obtain a UUID for network access",
-            input_schema={
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Path to the local file to upload",
-                    }
-                },
-                "required": ["file_path"],
-            },
-            func=self.upload_file,
-        )
-        tools.append(upload_file_tool)
+        # Note: upload_file tool removed to avoid conflict with shared_cache mod
+        # Use openagents.mods.core.shared_cache for file operations
 
-        # Tool 4: Reply to channel message
+        # Tool 3: Reply to channel message
         reply_channel_tool = AgentTool(
             name="reply_channel_message",
             description="Reply to a message in a channel (creates/continues thread, max 5 levels)",

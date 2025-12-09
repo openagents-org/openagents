@@ -123,6 +123,14 @@ class OpenAIProvider(BaseModelProvider):
                     }
                 )
 
+        # Extract token usage
+        if hasattr(response, "usage") and response.usage:
+            result["usage"] = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+            }
+
         return result
 
     def format_tools(self, tools: List[Any]) -> List[Dict[str, Any]]:
@@ -192,6 +200,16 @@ class AnthropicProvider(BaseModelProvider):
                         "arguments": json.dumps(content_block.input),
                     }
                 )
+
+        # Extract token usage from Anthropic response
+        if hasattr(response, "usage") and response.usage:
+            input_tokens = getattr(response.usage, "input_tokens", None)
+            output_tokens = getattr(response.usage, "output_tokens", None)
+            result["usage"] = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": (input_tokens or 0) + (output_tokens or 0) if input_tokens or output_tokens else None,
+            }
 
         return result
 
@@ -291,6 +309,17 @@ class BedrockProvider(BaseModelProvider):
                     }
                 )
 
+        # Extract token usage from Bedrock response
+        usage = response_body.get("usage", {})
+        if usage:
+            input_tokens = usage.get("input_tokens")
+            output_tokens = usage.get("output_tokens")
+            result["usage"] = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": (input_tokens or 0) + (output_tokens or 0) if input_tokens or output_tokens else None,
+            }
+
         return result
 
     def format_tools(self, tools: List[Any]) -> List[Dict[str, Any]]:
@@ -350,7 +379,18 @@ class GeminiProvider(BaseModelProvider):
             last_message = gemini_messages[-1]["parts"][0] if gemini_messages else ""
             response = await self.client.generate_content_async(last_message)
 
-            return {"content": response.text, "tool_calls": []}
+            result = {"content": response.text, "tool_calls": []}
+
+            # Extract token usage from Gemini response
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                usage = response.usage_metadata
+                result["usage"] = {
+                    "input_tokens": getattr(usage, "prompt_token_count", None),
+                    "output_tokens": getattr(usage, "candidates_token_count", None),
+                    "total_tokens": getattr(usage, "total_token_count", None),
+                }
+
+            return result
         else:
             return {"content": "", "tool_calls": []}
 
@@ -406,6 +446,14 @@ class SimpleGenericProvider(BaseModelProvider):
                         "arguments": tool_call.function.arguments,
                     }
                 )
+
+        # Extract token usage
+        if hasattr(response, "usage") and response.usage:
+            result["usage"] = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+            }
 
         return result
 
