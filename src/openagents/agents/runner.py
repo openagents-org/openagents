@@ -593,7 +593,12 @@ class AgentRunner(ABC):
             elif parsed.scheme == "":
                 # No scheme provided, treat as plain hostname
                 # This handles cases like "localhost" without a protocol prefix
-                # If host parameter is actually a port number (integer), swap them
+                # 
+                # Backward compatibility: Some tests call async_start("localhost", port)
+                # where the second positional argument (host) is actually an integer port.
+                # In this case, swap them to maintain compatibility.
+                # Recommended usage: async_start(f"http://localhost:{port}") or
+                # async_start("localhost", network_port=port)
                 if isinstance(host, int):
                     port = host
                     host = url
