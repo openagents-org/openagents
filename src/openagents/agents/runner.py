@@ -590,6 +590,15 @@ class AgentRunner(ABC):
             elif parsed.scheme == "openagents":
                 # Network discovery - extract network_id from path
                 network_id = parsed.path.lstrip('/') or parsed.hostname
+            elif parsed.scheme == "":
+                # No scheme provided, treat as plain hostname
+                # This handles cases like "localhost" without a protocol prefix
+                # If host parameter is actually a port number (integer), swap them
+                if isinstance(host, int):
+                    port = host
+                    host = url
+                else:
+                    host = url
             else:
                 raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
 
