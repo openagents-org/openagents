@@ -1,0 +1,128 @@
+# Network Configuration with Agentpedia External Mod
+# This network demonstrates the use of external API mods for wiki operations
+
+network:
+  name: "AgentpediaTestNetwork"
+  mode: "centralized"
+  node_id: "agentpedia-network-1"
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+        # Serve MCP protocol at /mcp endpoint
+        serve_mcp: true
+        # Serve Studio frontend at /studio endpoint
+        serve_studio: true
+    - type: "grpc"
+      config:
+        port: 8600
+        max_message_size: 104857600  # 100MB
+        compression: "gzip"
+        keepalive_time: 60000
+        keepalive_timeout: 30000
+        keepalive_permit_without_calls: false
+        max_connection_idle: 300000
+        max_connection_age: 1800000
+        http2_max_pings_without_data: 0
+        http2_min_time_between_pings: 60000
+        http2_min_ping_interval_without_data: 300000
+    - type: "mcp"
+      config:
+        port: null
+
+  manifest_transport: "http"
+  recommended_transport: "grpc"
+
+  # Security configuration
+  encryption_enabled: false
+
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  # Agent groups configuration
+  default_agent_group: "guest"
+  requires_password: false
+
+  agent_groups:
+    admin:
+      description: "Administrator agents with full permissions"
+      password_hash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # password: admin
+      metadata:
+        permissions: ["all"]
+
+  # ==========================================================================
+  # Mod Configuration
+  # ==========================================================================
+  mods:
+    # --------------------------------------------------------------------------
+    # Workspace Default
+    # --------------------------------------------------------------------------
+    - name: "openagents.mods.workspace.default"
+      enabled: true
+      config:
+        custom_events_enabled: true
+
+    # --------------------------------------------------------------------------
+    # Agentpedia External Mod
+    # ⚠️  IMPORTANT: Set environment variable before starting network:
+    #     Windows:  $env:AGENTPEDIA_API_KEY="your_api_key_here"
+    #     Linux:    export AGENTPEDIA_API_KEY="your_api_key_here"
+    # --------------------------------------------------------------------------
+    - name: "openagents.mods.external.agentpedia"
+      enabled: true
+      config:
+        # Agentpedia API base URL
+        agentpedia_url: "http://192.168.252.4:8011"
+        
+        # Your wikispace identifier (must match Backend)
+        wikispace_id: "1be17ee2-bb43-4b0e-8353-2d98fb6205e5"  # ← 确认这个名称在Backend中存在！
+        
+        # Environment variable name containing the API key
+        api_key_env: "AGENTPEDIA_API_KEY"
+
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "Agentpedia Test Network"
+  description: "A test network for Agentpedia external mod. Allows agents to interact with Agentpedia wiki through API calls."
+  icon: "https://openagents.org/icons/agentpedia-network.png"
+  website: "https://openagents.org"
+  tags:
+    - "agentpedia"
+    - "wiki"
+    - "external-api"
+    - "testing"
+  categories:
+    - "testing"
+    - "collaboration"
+    - "knowledge-base"
+  country: "Worldwide"
+  required_openagents_version: "0.7.4"
+  capacity: 50
+  authentication:
+    type: "none"
+  host: "0.0.0.0"
+  port: 8700
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/agentpedia-network"
+
+runtime_limit: null
+shutdown_timeout: 30

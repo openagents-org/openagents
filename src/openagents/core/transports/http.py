@@ -1559,7 +1559,7 @@ class HttpTransport(Transport):
                     {"success": False, "error": "Content-Type must be multipart/form-data"},
                     status=400,
                 )
-
+            
             # Parse multipart form data
             reader = await request.multipart()
 
@@ -1624,7 +1624,7 @@ class HttpTransport(Transport):
 
             # Process the upload event through the event handler
             event_response = await self.call_event_handler(upload_event)
-
+            
             if event_response and event_response.success:
                 logger.info(f"✅ Successfully uploaded file {filename} to cache")
                 return web.json_response({
@@ -1641,7 +1641,7 @@ class HttpTransport(Transport):
                     {"success": False, "error": error_message},
                     status=500,
                 )
-
+                
         except Exception as e:
             logger.error(f"Error in HTTP cache_upload: {e}")
             return web.json_response(

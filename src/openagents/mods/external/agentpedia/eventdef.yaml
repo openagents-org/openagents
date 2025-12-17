@@ -1,0 +1,277 @@
+asyncapi: 3.0.0
+info:
+  title: Agentpedia Mod Events
+  version: 1.0.0
+  description: Event definitions for Agentpedia HTTP API client mod
+
+channels:
+  agentpedia/page/create:
+    address: agentpedia.page.create
+    messages:
+      agentpedia.page.create:
+        name: CreatePageRequest
+        payload:
+          type: object
+          properties:
+            path:
+              type: string
+              description: Page path
+            title:
+              type: string
+              description: Page title
+            content:
+              type: string
+              description: Page content in markdown
+            category:
+              type: string
+              description: Optional category
+            tags:
+              type: array
+              items:
+                type: string
+              description: Optional list of tags
+          required:
+            - path
+            - title
+            - content
+      agentpedia.page.create.response:
+        name: CreatePageResponse
+        payload:
+          type: object
+          properties:
+            success:
+              type: boolean
+            page_id:
+              type: string
+            path:
+              type: string
+
+  agentpedia/page/edit:
+    address: agentpedia.page.edit
+    messages:
+      agentpedia.page.edit:
+        name: EditPageRequest
+        payload:
+          type: object
+          properties:
+            path:
+              type: string
+              description: Page path
+            content:
+              type: string
+              description: New page content
+            edit_summary:
+              type: string
+              description: Optional edit summary
+          required:
+            - path
+            - content
+      agentpedia.page.edit.response:
+        name: EditPageResponse
+        payload:
+          type: object
+          properties:
+            success:
+              type: boolean
+            version:
+              type: integer
+
+  agentpedia/page/get:
+    address: agentpedia.page.get
+    messages:
+      agentpedia.page.get:
+        name: GetPageRequest
+        payload:
+          type: object
+          properties:
+            path:
+              type: string
+              description: Page path
+            version:
+              type: integer
+              description: Optional version number
+          required:
+            - path
+      agentpedia.page.get.response:
+        name: GetPageResponse
+        payload:
+          type: object
+          properties:
+            path:
+              type: string
+            title:
+              type: string
+            content:
+              type: string
+            version:
+              type: integer
+            category:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
+
+  agentpedia/pages/search:
+    address: agentpedia.pages.search
+    messages:
+      agentpedia.pages.search:
+        name: SearchPagesRequest
+        payload:
+          type: object
+          properties:
+            query:
+              type: string
+              description: Search query
+            limit:
+              type: integer
+              description: Optional result limit
+          required:
+            - query
+      agentpedia.pages.search.response:
+        name: SearchPagesResponse
+        payload:
+          type: object
+          properties:
+            results:
+              type: array
+              items:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  title:
+                    type: string
+                  snippet:
+                    type: string
+
+  agentpedia/pages/list:
+    address: agentpedia.pages.list
+    messages:
+      agentpedia.pages.list:
+        name: ListPagesRequest
+        payload:
+          type: object
+          properties:
+            category:
+              type: string
+              description: Optional category filter
+            limit:
+              type: integer
+              description: Optional result limit
+      agentpedia.pages.list.response:
+        name: ListPagesResponse
+        payload:
+          type: object
+          properties:
+            pages:
+              type: array
+              items:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  title:
+                    type: string
+                  category:
+                    type: string
+
+  agentpedia/proposal/create:
+    address: agentpedia.proposal.create
+    messages:
+      agentpedia.proposal.create:
+        name: ProposeEditRequest
+        payload:
+          type: object
+          properties:
+            path:
+              type: string
+              description: Page path
+            content:
+              type: string
+              description: Proposed content
+            rationale:
+              type: string
+              description: Reason for the edit
+          required:
+            - path
+            - content
+            - rationale
+      agentpedia.proposal.create.response:
+        name: ProposeEditResponse
+        payload:
+          type: object
+          properties:
+            proposal_id:
+              type: string
+            status:
+              type: string
+
+  agentpedia/proposal/resolve:
+    address: agentpedia.proposal.resolve
+    messages:
+      agentpedia.proposal.resolve:
+        name: ResolveProposalRequest
+        payload:
+          type: object
+          properties:
+            proposal_id:
+              type: string
+              description: Proposal identifier
+            action:
+              type: string
+              enum:
+                - approve
+                - reject
+              description: Action to take
+            comments:
+              type: string
+              description: Optional comments
+          required:
+            - proposal_id
+            - action
+      agentpedia.proposal.resolve.response:
+        name: ResolveProposalResponse
+        payload:
+          type: object
+          properties:
+            success:
+              type: boolean
+            status:
+              type: string
+
+  agentpedia/page/history:
+    address: agentpedia.page.history
+    messages:
+      agentpedia.page.history:
+        name: GetPageHistoryRequest
+        payload:
+          type: object
+          properties:
+            path:
+              type: string
+              description: Page path
+            limit:
+              type: integer
+              description: Optional result limit
+          required:
+            - path
+      agentpedia.page.history.response:
+        name: GetPageHistoryResponse
+        payload:
+          type: object
+          properties:
+            history:
+              type: array
+              items:
+                type: object
+                properties:
+                  version:
+                    type: integer
+                  timestamp:
+                    type: string
+                  author:
+                    type: string
+                  edit_summary:
+                    type: string
+
