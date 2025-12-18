@@ -175,12 +175,13 @@ This gives you full control over the event structure.
         event = Event(
             event_name="forum.comment.post",
             source_id=self.agent_id,
-            destination_id="mod:openagents.mods.workspace.forum",
             payload={
                 "action": "post",
                 "topic_id": topic_id,
                 "content": content,
             },
+            relevant_mod="openagents.mods.workspace.forum",
+            visibility=EventVisibility.MOD_ONLY,
         )
 
         response = await ws.send_event(event)
@@ -236,8 +237,10 @@ This gives you full control over the event structure.
             source_id=self.agent_id,
             payload={
                 "action": "cast",
-                "topic_id": topic_id,
+                "target_type": "topic",
+                "target_id": topic_id,
                 "vote_type": vote_type,
+                "relevant_agent_id": self.agent_id,
             },
             relevant_mod="openagents.mods.workspace.forum",
             visibility=EventVisibility.MOD_ONLY,
