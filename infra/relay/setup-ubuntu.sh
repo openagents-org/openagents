@@ -10,8 +10,8 @@
 #   sudo ./setup-ubuntu.sh
 #
 # Options:
-#   --with-nginx    Also configure nginx with SSL (requires domain)
-#   --domain NAME   Domain name for SSL certificate (default: relay.openagents.org)
+#   --with-nginx    Also configure nginx (HTTP only, assumes Cloudflare handles SSL)
+#   --domain NAME   Domain name (default: relay.openagents.org)
 #   --port PORT     Port for the relay service (default: 3000)
 #
 
@@ -50,8 +50,8 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [options]"
             echo ""
             echo "Options:"
-            echo "  --with-nginx    Also configure nginx with SSL"
-            echo "  --domain NAME   Domain name for SSL (default: relay.openagents.org)"
+            echo "  --with-nginx    Also configure nginx (HTTP only, Cloudflare handles SSL)"
+            echo "  --domain NAME   Domain name (default: relay.openagents.org)"
             echo "  --port PORT     Port for relay service (default: 3000)"
             echo "  -h, --help      Show this help message"
             exit 0
@@ -511,13 +511,14 @@ echo -e "${GREEN}Relay service started!${NC}"
 
 # Setup nginx if requested
 if $SETUP_NGINX; then
-    echo -e "${YELLOW}[7/7] Setting up nginx with SSL...${NC}"
+    echo -e "${YELLOW}[7/7] Setting up nginx (HTTP only, Cloudflare handles SSL)...${NC}"
 
-    # Install nginx and certbot
-    apt-get install -y -qq nginx certbot python3-certbot-nginx
+    # Install nginx only (no certbot needed - Cloudflare handles SSL)
+    apt-get install -y -qq nginx
 
-    # Create nginx config
+    # Create nginx config - HTTP only, Cloudflare terminates SSL
     cat > /etc/nginx/sites-available/openagents-relay << EOF
+# OpenAgents Relay - HTTP only (Cloudflare handles SSL termination)
 upstream relay_backend {
     server 127.0.0.1:$RELAY_PORT;
     keepalive 64;
@@ -528,32 +529,25 @@ server {
     listen [::]:80;
     server_name $DOMAIN;
 
-    location /health {
-        proxy_pass http://relay_backend/health;
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-    }
-
-    location / {
-        return 301 https://\$server_name\$request_uri;
-    }
-}
-
-server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    server_name $DOMAIN;
-
-    ssl_certificate /etc/letsencrypt/live/$DOMAIN/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN/privkey.pem;
-    ssl_session_timeout 1d;
-    ssl_session_cache shared:SSL:50m;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers off;
-
-    add_header Strict-Transport-Security "max-age=63072000" always;
-
     client_max_body_size 10m;
+
+    # Trust Cloudflare headers for real client IP
+    set_real_ip_from 103.21.244.0/22;
+    set_real_ip_from 103.22.200.0/22;
+    set_real_ip_from 103.31.4.0/22;
+    set_real_ip_from 104.16.0.0/13;
+    set_real_ip_from 104.24.0.0/14;
+    set_real_ip_from 108.162.192.0/18;
+    set_real_ip_from 131.0.72.0/22;
+    set_real_ip_from 141.101.64.0/18;
+    set_real_ip_from 162.158.0.0/15;
+    set_real_ip_from 172.64.0.0/13;
+    set_real_ip_from 173.245.48.0/20;
+    set_real_ip_from 188.114.96.0/20;
+    set_real_ip_from 190.93.240.0/20;
+    set_real_ip_from 197.234.240.0/22;
+    set_real_ip_from 198.41.128.0/17;
+    real_ip_header CF-Connecting-IP;
 
     location /health {
         proxy_pass http://relay_backend/health;
@@ -561,7 +555,7 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Proto \$http_x_forwarded_proto;
         proxy_set_header X-Forwarded-Host \$host;
     }
 
@@ -571,7 +565,7 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Proto \$http_x_forwarded_proto;
         proxy_set_header X-Forwarded-Host \$host;
 
         add_header 'Access-Control-Allow-Origin' '*' always;
@@ -579,6 +573,7 @@ server {
         add_header 'Access-Control-Allow-Headers' 'Content-Type, Authorization' always;
     }
 
+    # WebSocket endpoint for local networks to register
     location /register {
         proxy_pass http://relay_backend/register;
         proxy_http_version 1.1;
@@ -587,20 +582,21 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Proto \$http_x_forwarded_proto;
         proxy_set_header X-Forwarded-Host \$host;
         proxy_read_timeout 86400s;
         proxy_send_timeout 86400s;
         proxy_buffering off;
     }
 
+    # HTTP proxy to networks
     location /network/ {
         proxy_pass http://relay_backend/network/;
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Proto \$http_x_forwarded_proto;
         proxy_set_header X-Forwarded-Host \$host;
         proxy_read_timeout 60s;
         proxy_send_timeout 60s;
@@ -634,21 +630,15 @@ EOF
     # Test nginx config
     nginx -t
 
-    echo ""
-    echo -e "${YELLOW}Obtaining SSL certificate for $DOMAIN...${NC}"
-    echo -e "${YELLOW}Make sure DNS for $DOMAIN points to this server!${NC}"
-    echo ""
-
-    # Try to get certificate
-    certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --email admin@$DOMAIN || {
-        echo -e "${YELLOW}Certbot failed. You may need to run it manually:${NC}"
-        echo "  sudo certbot --nginx -d $DOMAIN"
-    }
-
     # Reload nginx
     systemctl reload nginx
 
     echo -e "${GREEN}Nginx configured!${NC}"
+    echo ""
+    echo -e "${YELLOW}Note: SSL is handled by Cloudflare. Make sure to:${NC}"
+    echo "  1. Add $DOMAIN to Cloudflare"
+    echo "  2. Set SSL/TLS mode to 'Flexible' or 'Full' in Cloudflare dashboard"
+    echo "  3. Enable WebSocket support in Cloudflare (Network > WebSockets)"
 else
     echo -e "${YELLOW}[7/7] Skipping nginx setup (use --with-nginx to enable)${NC}"
 fi
@@ -670,7 +660,7 @@ echo ""
 echo "Test the relay:"
 echo "  curl http://localhost:$RELAY_PORT/health"
 if $SETUP_NGINX; then
-    echo "  curl https://$DOMAIN/health"
+    echo "  curl http://$DOMAIN/health  (or https:// via Cloudflare)"
 fi
 echo ""
 echo -e "${GREEN}Done!${NC}"
