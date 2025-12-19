@@ -13,6 +13,7 @@ import time
 import html
 import base64
 import os
+import ssl
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -88,6 +89,11 @@ class HttpTransport(Transport):
         self._studio_build_dir: Optional[str] = None
 
         self.workspace_path = workspace_path  # Workspace path for LLM logs API
+
+        # TLS configuration
+        self._tls_config = self.config.get("tls", {})
+        self._ssl_context: Optional[ssl.SSLContext] = None
+
         self.setup_routes()
 
     def setup_routes(self):
@@ -529,6 +535,17 @@ class HttpTransport(Transport):
             <div class="stat-card">
                 <div class="stat-value">{int(uptime)}</div>
                 <div class="stat-label">Uptime (seconds)</div>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-value">{'🔒' if self._ssl_context else '🔓'}</div>
+                <div class="stat-label">{'HTTPS Enabled' if self._ssl_context else 'HTTP Only'}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">{'✓' if self._serve_mcp else '✗'}</div>
+                <div class="stat-label">{'MCP at /mcp' if self._serve_mcp else 'MCP Disabled'}</div>
             </div>
         </div>
 
@@ -1049,6 +1066,91 @@ class HttpTransport(Transport):
                 status=500,
             )
 
+    def _create_ssl_context(self) -> Optional[ssl.SSLContext]:
+        """
+        Create an SSL context from TLS configuration.
+
+        Supports:
+        - Manual certificate configuration via cert_file and key_file
+        - Auto-generation of self-signed certificates for development
+
+        Returns:
+            SSL context if TLS is enabled, None otherwise
+        """
+        if not self._tls_config.get("enabled", False):
+            return None
+
+        cert_file = self._tls_config.get("cert_file")
+        key_file = self._tls_config.get("key_file")
+        ca_file = self._tls_config.get("ca_file")
+        auto_generate = self._tls_config.get("auto_generate", False)
+        cert_dir = self._tls_config.get("cert_dir", "./.certs")
+
+        # Auto-generate certificates if requested and no cert_file provided
+        if auto_generate and not cert_file:
+            from openagents.utils.cert_generator import CertificateGenerator
+
+            cert_path = Path(cert_dir)
+            server_cert = cert_path / "server.crt"
+            server_key = cert_path / "server.key"
+
+            # Generate if certificates don't exist
+            if not server_cert.exists() or not server_key.exists():
+                san_names = self._tls_config.get("san_names", [])
+                common_name = self._tls_config.get("common_name", "localhost")
+                logger.info(f"Auto-generating self-signed certificates in {cert_dir}...")
+                CertificateGenerator.generate_self_signed(
+                    output_dir=str(cert_path),
+                    common_name=common_name,
+                    days_valid=365,
+                    san_names=san_names
+                )
+                logger.info("✓ Self-signed certificates generated successfully")
+
+            cert_file = str(server_cert)
+            key_file = str(server_key)
+            if not ca_file:
+                ca_cert = cert_path / "ca.crt"
+                if ca_cert.exists():
+                    ca_file = str(ca_cert)
+
+        if not cert_file or not key_file:
+            logger.error("TLS enabled but no certificate or key file specified")
+            raise ValueError("TLS enabled but cert_file and key_file are required (or use auto_generate: true)")
+
+        # Validate files exist
+        if not Path(cert_file).exists():
+            raise FileNotFoundError(f"Certificate file not found: {cert_file}")
+        if not Path(key_file).exists():
+            raise FileNotFoundError(f"Key file not found: {key_file}")
+
+        # Create SSL context
+        min_version = self._tls_config.get("min_version", "TLS1.2")
+        if min_version == "TLS1.3":
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_context.minimum_version = ssl.TLSVersion.TLSv1_3
+        else:
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+
+        # Load certificate chain
+        ssl_context.load_cert_chain(cert_file, key_file)
+
+        # Load CA for client certificate verification if mTLS is enabled
+        require_client_cert = self._tls_config.get("require_client_cert", False)
+        if require_client_cert:
+            if ca_file and Path(ca_file).exists():
+                ssl_context.load_verify_locations(ca_file)
+                ssl_context.verify_mode = ssl.CERT_REQUIRED
+            else:
+                logger.warning("mTLS enabled but no CA file specified for client verification")
+                ssl_context.verify_mode = ssl.CERT_OPTIONAL
+        else:
+            ssl_context.verify_mode = ssl.CERT_NONE
+
+        logger.info(f"SSL context created with cert={cert_file}, min_version={min_version}")
+        return ssl_context
+
     async def listen(self, address: str) -> bool:
         runner = web.AppRunner(self.app)
         await runner.setup()
@@ -1059,10 +1161,15 @@ class HttpTransport(Transport):
         else:
             host = "0.0.0.0"
             port = address
-        site = web.TCPSite(runner, host, port)
+
+        # Create SSL context if TLS is enabled
+        self._ssl_context = self._create_ssl_context()
+
+        site = web.TCPSite(runner, host, port, ssl_context=self._ssl_context)
         await site.start()
 
-        logger.info(f"HTTP transport listening on {host}:{port}")
+        protocol = "HTTPS" if self._ssl_context else "HTTP"
+        logger.info(f"{protocol} transport listening on {host}:{port}")
         self.is_listening = True
         self.site = site  # Store the site for shutdown
         return True
