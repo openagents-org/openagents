@@ -12,7 +12,6 @@
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
@@ -30,12 +29,7 @@ const networks = new Map();
 // Store pending requests: requestId -> { resolve, reject, timeout }
 const pendingRequests = new Map();
 
-// Middleware
-app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
-}));
+// Middleware - no CORS here, nginx handles it
 app.use(express.json({ limit: '10mb' }));
 app.use(express.raw({ type: '*/*', limit: '10mb' }));
 
