@@ -135,11 +135,10 @@ app.all('/network/:networkId/*', async (req, res) => {
     // Send response back to client
     res.status(wsResponse.status || 200);
 
-    // Set response headers
+    // Set response headers (skip hop-by-hop and CORS headers since cors middleware handles CORS)
     if (wsResponse.headers) {
       for (const [key, value] of Object.entries(wsResponse.headers)) {
-        // Skip hop-by-hop headers
-        if (!isHopByHopHeader(key)) {
+        if (!isHopByHopHeader(key) && !isCorsHeader(key)) {
           res.set(key, value);
         }
       }
@@ -350,6 +349,18 @@ function isHopByHopHeader(header) {
     'te', 'trailers', 'transfer-encoding', 'upgrade'
   ];
   return hopByHop.includes(header.toLowerCase());
+}
+
+function isCorsHeader(header) {
+  const corsHeaders = [
+    'access-control-allow-origin',
+    'access-control-allow-methods',
+    'access-control-allow-headers',
+    'access-control-allow-credentials',
+    'access-control-expose-headers',
+    'access-control-max-age',
+  ];
+  return corsHeaders.includes(header.toLowerCase());
 }
 
 function getBaseUrl(req) {
