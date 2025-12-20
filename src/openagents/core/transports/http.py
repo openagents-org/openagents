@@ -1179,13 +1179,21 @@ class HttpTransport(Transport):
             raise
 
         # Send registration message
+        # Use network_uuid for relay registration to ensure uniqueness per session
+        relay_network_id = network_id
+        if self.network_instance:
+            network_uuid = getattr(self.network_instance, 'network_uuid', None)
+            if network_uuid:
+                relay_network_id = network_uuid
+
         register_msg = {
             "type": "register",
-            "network_id": network_id,
+            "network_id": relay_network_id,
             "info": {
                 "name": network_name,
             }
         }
+        logger.info(f"Registering with relay: network_id={relay_network_id}, name={network_name}")
         await self._relay_ws.send_json(register_msg)
 
         # Wait for registration response
