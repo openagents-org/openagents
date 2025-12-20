@@ -238,14 +238,37 @@ class RelayClient {
         url += `?${searchParams.toString()}`;
       }
 
+      // Filter out headers that shouldn't be forwarded to localhost
+      // These can cause CORS issues with the local network
+      const headersToSkip = [
+        'host',
+        'x-forwarded-host',
+        'x-forwarded-for',
+        'x-forwarded-proto',
+        'x-forwarded-port',
+        'x-real-ip',
+        'cf-connecting-ip',
+        'cf-ray',
+        'cf-visitor',
+        'cf-ipcountry',
+        'connection',
+        'upgrade',
+        'keep-alive',
+      ];
+
+      const cleanHeaders: Record<string, string> = {};
+      if (headers) {
+        for (const [key, value] of Object.entries(headers)) {
+          if (!headersToSkip.includes(key.toLowerCase())) {
+            cleanHeaders[key] = value as string;
+          }
+        }
+      }
+
       // Make request to local network
       const response = await fetch(url, {
         method,
-        headers: {
-          ...headers,
-          // Remove relay-specific headers
-          host: `${this.config.localHost}:${this.config.localPort}`,
-        },
+        headers: cleanHeaders,
         body: body ? JSON.stringify(body) : undefined,
       });
 
