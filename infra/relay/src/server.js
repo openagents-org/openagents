@@ -29,7 +29,19 @@ const networks = new Map();
 // Store pending requests: requestId -> { resolve, reject, timeout }
 const pendingRequests = new Map();
 
-// Middleware - no CORS here, nginx handles it
+// CORS middleware - single source of truth for CORS headers
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-ID');
+
+  if (req.method === 'OPTIONS') {
+    res.header('Access-Control-Max-Age', '86400');
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.raw({ type: '*/*', limit: '10mb' }));
 
