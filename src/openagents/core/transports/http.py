@@ -115,6 +115,10 @@ class HttpTransport(Transport):
         self._relay_task: Optional[asyncio.Task] = None
         self._relay_heartbeat_task: Optional[asyncio.Task] = None
 
+        # Listen address (set in listen())
+        self._listen_host: str = "0.0.0.0"
+        self._listen_port: int = 8080
+
         self.setup_routes()
 
     def setup_routes(self):
@@ -1114,6 +1118,8 @@ class HttpTransport(Transport):
         logger.info(f"HTTP transport listening on {host}:{port}")
         self.is_listening = True
         self.site = site  # Store the site for shutdown
+        self._listen_host = host
+        self._listen_port = int(port)  # Store port for relay request handling
 
         # Start relay connection if configured
         if self._relay_url:
@@ -1277,7 +1283,7 @@ class HttpTransport(Transport):
 
         try:
             # Build the local URL
-            local_url = f"http://127.0.0.1:{self.port}{path}"
+            local_url = f"http://127.0.0.1:{self._listen_port}{path}"
             if query:
                 query_string = urlencode(query)
                 local_url = f"{local_url}?{query_string}"
