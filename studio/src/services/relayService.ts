@@ -272,10 +272,20 @@ class RelayClient {
         body: body ? JSON.stringify(body) : undefined,
       });
 
-      // Get response headers
+      // Get response headers (strip CORS headers to avoid duplicates)
       const responseHeaders: Record<string, string> = {};
+      const corsHeadersToSkip = [
+        'access-control-allow-origin',
+        'access-control-allow-methods',
+        'access-control-allow-headers',
+        'access-control-allow-credentials',
+        'access-control-expose-headers',
+        'access-control-max-age',
+      ];
       response.headers.forEach((value, key) => {
-        responseHeaders[key] = value;
+        if (!corsHeadersToSkip.includes(key.toLowerCase())) {
+          responseHeaders[key] = value;
+        }
       });
 
       // Get response body
