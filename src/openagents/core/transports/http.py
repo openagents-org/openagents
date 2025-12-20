@@ -1132,8 +1132,12 @@ class HttpTransport(Transport):
 
     @property
     def relay_connected(self) -> bool:
-        """Check if connected to relay."""
-        return self._relay_ws is not None and not self._relay_ws.closed
+        """Check if connected to relay and registration completed."""
+        return (
+            self._relay_ws is not None
+            and not self._relay_ws.closed
+            and self._relay_public_url is not None
+        )
 
     async def _start_relay(self):
         """Start the relay connection."""
@@ -1190,12 +1194,15 @@ class HttpTransport(Transport):
         except asyncio.TimeoutError:
             raise ConnectionError("Timeout waiting for relay registration response")
 
+        logger.debug(f"Received relay message type: {msg.type}")
+
         if msg.type == aiohttp.WSMsgType.TEXT:
             data = json.loads(msg.data)
+            logger.debug(f"Relay registration response: {data}")
             if data.get("type") == "registered":
-                self._relay_tunnel_id = data["tunnel_id"]
-                self._relay_public_url = data["relay_url"]
-                logger.info(f"Connected to relay: {self._relay_public_url}")
+                self._relay_tunnel_id = data.get("tunnel_id")
+                self._relay_public_url = data.get("relay_url")
+                logger.info(f"Connected to relay: {self._relay_public_url}, tunnel_id: {self._relay_tunnel_id}")
 
                 # Start message loop and heartbeat
                 asyncio.create_task(self._relay_message_loop())
@@ -1451,8 +1458,18 @@ class HttpTransport(Transport):
                     "success": True,
                     "message": "Already connected to relay",
                     "relay_url": self._relay_public_url,
+                    "tunnel_id": self._relay_tunnel_id,
                     "connected": True,
                 })
+
+            # Clean up any stale connection (WebSocket open but registration incomplete)
+            if self._relay_ws is not None and not self._relay_ws.closed:
+                logger.warning("Cleaning up stale relay WebSocket connection")
+                try:
+                    await self._relay_ws.close()
+                except Exception:
+                    pass
+                self._relay_ws = None
 
             # Set relay URL and start connection
             self._relay_url = relay_url
