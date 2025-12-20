@@ -539,22 +539,32 @@ export const uploadNetworkIcon = async (
 
 /**
  * Check if a network is published on OpenAgents directory
- * @param host The network host
- * @param port The network port
+ * @param options Lookup options - either networkUuid or host+port
  * @returns Lookup result with network ID if published
  */
 export const lookupNetworkPublication = async (
-  host: string,
-  port: number
+  options: { networkUuid?: string; host?: string; port?: number }
 ): Promise<{
   published: boolean;
   networkId?: string;
   networkName?: string;
+  networkUuid?: string;
+  relayUrl?: string;
   error?: string;
 }> => {
   try {
+    // Build query params - prefer networkUuid over host:port
+    let queryParams: string;
+    if (options.networkUuid) {
+      queryParams = `network_uuid=${encodeURIComponent(options.networkUuid)}`;
+    } else if (options.host && options.port) {
+      queryParams = `host=${encodeURIComponent(options.host)}&port=${options.port}`;
+    } else {
+      return { published: false, error: "Either networkUuid or host+port required" };
+    }
+
     const response = await fetch(
-      `https://endpoint.openagents.org/v1/networks/lookup?host=${encodeURIComponent(host)}&port=${port}`,
+      `https://endpoint.openagents.org/v1/networks/lookup?${queryParams}`,
       {
         method: "GET",
         headers: {
@@ -580,7 +590,9 @@ export const lookupNetworkPublication = async (
       return {
         published: true,
         networkId: result.data.id,
-        networkName: result.data.profile?.name,
+        networkName: result.data.name,
+        networkUuid: result.data.network_uuid,
+        relayUrl: result.data.relay_url,
       };
     }
 

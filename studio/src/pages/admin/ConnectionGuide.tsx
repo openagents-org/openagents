@@ -43,6 +43,7 @@ const ConnectionGuide: React.FC = () => {
     networkId?: string;
     loading: boolean;
   }>({ published: false, loading: true });
+  const [networkUuid, setNetworkUuid] = useState<string | null>(null);
 
   // Load connection guide data
   const fetchGuideData = useCallback(async () => {
@@ -106,6 +107,12 @@ const ConnectionGuide: React.FC = () => {
       const defaultGroup = healthData?.data?.default_agent_group || "default";
       const recommendedTransport = healthData?.data?.recommended_transport || transportsList[0]?.type || "http";
 
+      // Capture network_uuid for publishing status lookup
+      const uuid = healthData?.data?.network_uuid || healthData?.network_uuid;
+      if (uuid) {
+        setNetworkUuid(uuid);
+      }
+
       setData({
         transports: transportsList,
         groups,
@@ -124,13 +131,13 @@ const ConnectionGuide: React.FC = () => {
   // Check network publication status
   useEffect(() => {
     const checkPublication = async () => {
-      if (!selectedNetwork) {
+      if (!networkUuid) {
         setNetworkPublication({ published: false, loading: false });
         return;
       }
 
       setNetworkPublication(prev => ({ ...prev, loading: true }));
-      const result = await lookupNetworkPublication(selectedNetwork.host, selectedNetwork.port);
+      const result = await lookupNetworkPublication({ networkUuid });
       setNetworkPublication({
         published: result.published,
         networkId: result.networkId,
@@ -144,7 +151,7 @@ const ConnectionGuide: React.FC = () => {
     };
 
     checkPublication();
-  }, [selectedNetwork]);
+  }, [networkUuid]);
 
   useEffect(() => {
     fetchGuideData();

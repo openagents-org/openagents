@@ -67,6 +67,7 @@ class AgentNetwork:
         self.config = config
         self.network_name = config.name
         self.network_id = config.node_id or f"network-{uuid.uuid4().hex[:8]}"
+        self.network_uuid = str(uuid.uuid4())  # Runtime UUID, regenerates on each start
         self.config_path: Optional[str] = None  # Set by load() if loaded from file
 
         # Workspace manager for persistent storage
@@ -637,6 +638,7 @@ class AgentNetwork:
         
         stats = {
             "network_id": self.network_id,
+            "network_uuid": self.network_uuid,
             "network_name": self.network_name,
             "is_running": self.is_running,
             "uptime_seconds": uptime,

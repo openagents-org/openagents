@@ -87,6 +87,7 @@ const AdminDashboard: React.FC = () => {
     networkName?: string;
     loading: boolean;
   }>({ published: false, loading: true });
+  const [networkUuid, setNetworkUuid] = useState<string | null>(null);
 
   // Check if user has seen the tour
   useEffect(() => {
@@ -178,6 +179,12 @@ const AdminDashboard: React.FC = () => {
           ? `${Number(uptimeSeconds).toFixed(3)}s`
           : "N/A";
       console.log("uptime", uptime);
+
+      // Capture network_uuid for publishing status lookup
+      if (healthData?.network_uuid) {
+        setNetworkUuid(healthData.network_uuid);
+      }
+
       // Events per minute (simplified)
       const eventsPerMinute = 0; // TODO: Calculate from event logs
 
@@ -220,16 +227,16 @@ const AdminDashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [fetchDashboardData]);
 
-  // Check network publication status
+  // Check network publication status using network_uuid
   useEffect(() => {
     const checkPublication = async () => {
-      if (!selectedNetwork) {
+      if (!networkUuid) {
         setNetworkPublication({ published: false, loading: false });
         return;
       }
 
       setNetworkPublication(prev => ({ ...prev, loading: true }));
-      const result = await lookupNetworkPublication(selectedNetwork.host, selectedNetwork.port);
+      const result = await lookupNetworkPublication({ networkUuid });
       setNetworkPublication({
         published: result.published,
         networkId: result.networkId,
@@ -239,7 +246,7 @@ const AdminDashboard: React.FC = () => {
     };
 
     checkPublication();
-  }, [selectedNetwork]);
+  }, [networkUuid]);
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _handleRestartNetwork = async () => {

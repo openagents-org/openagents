@@ -3,6 +3,7 @@ HTTP Transport Implementation for OpenAgents.
 
 This module provides the HTTP transport implementation for agent communication.
 Optionally serves MCP protocol at /mcp and Studio frontend at /studio.
+Optionally connects to relay server for public access without port forwarding.
 """
 
 import asyncio
@@ -16,7 +17,11 @@ import os
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Any, Optional, List, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, Callable, TYPE_CHECKING
+from urllib.parse import urlencode
+
+import aiohttp
+from aiohttp import web
 
 from openagents.config.globals import (
     SYSTEM_EVENT_REGISTER_AGENT,
@@ -24,7 +29,6 @@ from openagents.config.globals import (
     SYSTEM_EVENT_POLL_MESSAGES,
     SYSTEM_EVENT_UNREGISTER_AGENT,
 )
-from aiohttp import web
 
 # No need for external CORS library, implement manually
 
@@ -36,6 +40,9 @@ if TYPE_CHECKING:
     from openagents.core.network import AgentNetwork
 
 logger = logging.getLogger(__name__)
+
+# Default relay server URL
+DEFAULT_RELAY_URL = "wss://relay.openagents.org"
 
 # MCP Protocol version (when serve_mcp is enabled)
 MCP_PROTOCOL_VERSION = "2025-03-26"
@@ -88,6 +95,26 @@ class HttpTransport(Transport):
         self._studio_build_dir: Optional[str] = None
 
         self.workspace_path = workspace_path  # Workspace path for LLM logs API
+
+        # Relay configuration (enabled via relay: {url: "wss://..."} or relay: true)
+        relay_config = self.config.get("relay", None)
+        if relay_config is True:
+            self._relay_url = DEFAULT_RELAY_URL
+        elif isinstance(relay_config, dict):
+            self._relay_url = relay_config.get("url", DEFAULT_RELAY_URL)
+        elif isinstance(relay_config, str):
+            self._relay_url = relay_config
+        else:
+            self._relay_url = None
+
+        self._relay_ws: Optional[aiohttp.ClientWebSocketResponse] = None
+        self._relay_session: Optional[aiohttp.ClientSession] = None
+        self._relay_tunnel_id: Optional[str] = None
+        self._relay_public_url: Optional[str] = None
+        self._relay_running = False
+        self._relay_task: Optional[asyncio.Task] = None
+        self._relay_heartbeat_task: Optional[asyncio.Task] = None
+
         self.setup_routes()
 
     def setup_routes(self):
@@ -133,6 +160,11 @@ class HttpTransport(Transport):
         self.app.router.add_get("/api/events/mods", self.list_mods)
         self.app.router.add_get("/api/events/search", self.search_events)
         self.app.router.add_get("/api/events/{event_name}", self.get_event_detail)
+
+        # Relay control endpoints
+        self.app.router.add_post("/api/relay/connect", self.relay_connect_handler)
+        self.app.router.add_post("/api/relay/disconnect", self.relay_disconnect_handler)
+        self.app.router.add_get("/api/relay/status", self.relay_status_handler)
 
         # MCP routes (if serve_mcp: true)
         if self._serve_mcp:
@@ -228,6 +260,10 @@ class HttpTransport(Transport):
         self.is_initialized = False
         self.is_listening = False
 
+        # Stop relay connection if active
+        if self._relay_url:
+            await self._stop_relay()
+
         # Clean up MCP sessions if serve_mcp is enabled
         if self._serve_mcp:
             for session_id, session in list(self._mcp_sessions.items()):
@@ -275,6 +311,7 @@ class HttpTransport(Transport):
             # Provide minimal stats if health check event fails
             network_stats = {
                 "network_id": "unknown",
+                "network_uuid": "unknown",
                 "network_name": "Unknown Network",
                 "is_running": False,
                 "uptime_seconds": 0,
@@ -287,6 +324,11 @@ class HttpTransport(Transport):
                 "recommended_transport": "grpc",
                 "max_connections": 100,
             }
+
+        # Add relay info if connected
+        if self._relay_public_url:
+            network_stats["relay_url"] = self._relay_public_url
+            network_stats["relay_connected"] = self.relay_connected
 
         return web.json_response(
             {"success": True, "status": "healthy", "data": network_stats}
@@ -1072,7 +1114,422 @@ class HttpTransport(Transport):
         logger.info(f"HTTP transport listening on {host}:{port}")
         self.is_listening = True
         self.site = site  # Store the site for shutdown
+
+        # Start relay connection if configured
+        if self._relay_url:
+            self._relay_task = asyncio.create_task(self._start_relay())
+
         return True
+
+    # ============================================================
+    # Relay Client Methods
+    # ============================================================
+
+    @property
+    def relay_url(self) -> Optional[str]:
+        """Get the public relay URL if connected."""
+        return self._relay_public_url
+
+    @property
+    def relay_connected(self) -> bool:
+        """Check if connected to relay."""
+        return self._relay_ws is not None and not self._relay_ws.closed
+
+    async def _start_relay(self):
+        """Start the relay connection."""
+        self._relay_running = True
+
+        # Get network info for registration
+        network_id = "unknown"
+        network_name = "Unknown Network"
+        if self.network_instance:
+            network_id = getattr(self.network_instance, 'network_id', 'unknown')
+            network_name = getattr(self.network_instance, 'network_name', 'Unknown Network')
+
+        try:
+            await self._connect_to_relay(network_id, network_name)
+        except Exception as e:
+            logger.error(f"Failed to connect to relay: {e}")
+            # Attempt reconnection
+            await self._relay_reconnect(network_id, network_name)
+
+    async def _connect_to_relay(self, network_id: str, network_name: str):
+        """Connect to the relay server."""
+        if self._relay_session is None:
+            self._relay_session = aiohttp.ClientSession()
+
+        ws_url = self._relay_url
+        if not ws_url.startswith("ws"):
+            ws_url = ws_url.replace("https://", "wss://").replace("http://", "ws://")
+
+        # Ensure we connect to the /register WebSocket endpoint
+        if not ws_url.endswith("/register"):
+            ws_url = ws_url.rstrip("/") + "/register"
+
+        logger.info(f"Connecting to relay: {ws_url}")
+
+        try:
+            self._relay_ws = await self._relay_session.ws_connect(ws_url)
+        except Exception as e:
+            logger.error(f"Failed to connect to relay WebSocket: {e}")
+            raise
+
+        # Send registration message
+        register_msg = {
+            "type": "register",
+            "network_id": network_id,
+            "info": {
+                "name": network_name,
+            }
+        }
+        await self._relay_ws.send_json(register_msg)
+
+        # Wait for registration response
+        try:
+            msg = await asyncio.wait_for(self._relay_ws.receive(), timeout=10.0)
+        except asyncio.TimeoutError:
+            raise ConnectionError("Timeout waiting for relay registration response")
+
+        if msg.type == aiohttp.WSMsgType.TEXT:
+            data = json.loads(msg.data)
+            if data.get("type") == "registered":
+                self._relay_tunnel_id = data["tunnel_id"]
+                self._relay_public_url = data["relay_url"]
+                logger.info(f"Connected to relay: {self._relay_public_url}")
+
+                # Start message loop and heartbeat
+                asyncio.create_task(self._relay_message_loop())
+                self._relay_heartbeat_task = asyncio.create_task(self._relay_heartbeat_loop())
+                return
+            elif data.get("type") == "error":
+                raise ConnectionError(f"Relay registration failed: {data.get('message')}")
+
+        raise ConnectionError("Unexpected response from relay")
+
+    async def _relay_message_loop(self):
+        """Process incoming relay messages."""
+        while self._relay_running and self._relay_ws and not self._relay_ws.closed:
+            try:
+                msg = await self._relay_ws.receive()
+
+                if msg.type == aiohttp.WSMsgType.TEXT:
+                    data = json.loads(msg.data)
+                    await self._handle_relay_message(data)
+                elif msg.type == aiohttp.WSMsgType.CLOSED:
+                    logger.warning("Relay WebSocket closed by server")
+                    break
+                elif msg.type == aiohttp.WSMsgType.ERROR:
+                    logger.error(f"Relay WebSocket error: {self._relay_ws.exception()}")
+                    break
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in relay message loop: {e}")
+                break
+
+        # Connection lost - attempt reconnect
+        if self._relay_running:
+            network_id = getattr(self.network_instance, 'network_id', 'unknown') if self.network_instance else 'unknown'
+            network_name = getattr(self.network_instance, 'network_name', 'Unknown') if self.network_instance else 'Unknown'
+            await self._relay_reconnect(network_id, network_name)
+
+    async def _handle_relay_message(self, data: Dict[str, Any]):
+        """Handle an incoming message from the relay."""
+        msg_type = data.get("type")
+
+        if msg_type == "http_request":
+            await self._handle_relay_http_request(data)
+        elif msg_type == "heartbeat_ack":
+            pass  # Heartbeat acknowledged
+        elif msg_type == "error":
+            logger.error(f"Relay error: {data.get('message')}")
+        else:
+            logger.debug(f"Unknown relay message type: {msg_type}")
+
+    async def _handle_relay_http_request(self, request: Dict[str, Any]):
+        """
+        Handle an HTTP request from the relay.
+
+        Forwards the request to the local aiohttp app and sends the response back.
+        """
+        request_id = request.get("requestId")
+        method = request.get("method", "GET")
+        path = request.get("path", "/")
+        query = request.get("query", {})
+        headers = request.get("headers", {})
+        body = request.get("body")
+
+        try:
+            # Build query string
+            if query:
+                query_string = urlencode(query)
+                if "?" in path:
+                    path = f"{path}&{query_string}"
+                else:
+                    path = f"{path}?{query_string}"
+
+            # Create a test request to our local app
+            # We'll use aiohttp's test utilities to simulate the request
+            from aiohttp.test_utils import make_mocked_request
+
+            # Convert headers to CIMultiDict
+            from multidict import CIMultiDict
+            req_headers = CIMultiDict(headers)
+
+            # Prepare body
+            body_bytes = b""
+            if body:
+                if isinstance(body, str):
+                    body_bytes = body.encode('utf-8')
+                elif isinstance(body, dict):
+                    body_bytes = json.dumps(body).encode('utf-8')
+                elif isinstance(body, bytes):
+                    body_bytes = body
+
+            # Create mock request
+            mock_request = make_mocked_request(
+                method,
+                path,
+                headers=req_headers,
+                app=self.app,
+            )
+
+            # Set body content
+            mock_request._payload = aiohttp.StreamReader(mock_request._loop)
+            if body_bytes:
+                mock_request._payload.feed_data(body_bytes)
+            mock_request._payload.feed_eof()
+
+            # Find matching route and call handler
+            match_info = await self.app.router.resolve(mock_request)
+            mock_request._match_info = match_info
+
+            if match_info.route.resource is None:
+                # No route found
+                response_msg = {
+                    "type": "http_response",
+                    "requestId": request_id,
+                    "status": 404,
+                    "headers": {"Content-Type": "application/json"},
+                    "body": {"error": "Not found"},
+                }
+            else:
+                # Call the handler
+                handler = match_info.handler
+                try:
+                    response = await handler(mock_request)
+
+                    # Extract response data
+                    response_headers = dict(response.headers)
+                    response_body = None
+
+                    if hasattr(response, 'body') and response.body:
+                        # Try to decode as JSON
+                        try:
+                            response_body = json.loads(response.body)
+                        except (json.JSONDecodeError, UnicodeDecodeError):
+                            response_body = response.body.decode('utf-8', errors='replace')
+                    elif hasattr(response, 'text'):
+                        response_body = response.text
+
+                    response_msg = {
+                        "type": "http_response",
+                        "requestId": request_id,
+                        "status": response.status,
+                        "headers": response_headers,
+                        "body": response_body,
+                    }
+                except web.HTTPException as e:
+                    response_msg = {
+                        "type": "http_response",
+                        "requestId": request_id,
+                        "status": e.status,
+                        "headers": {"Content-Type": "application/json"},
+                        "body": {"error": e.reason},
+                    }
+
+            if self._relay_ws and not self._relay_ws.closed:
+                await self._relay_ws.send_json(response_msg)
+
+        except Exception as e:
+            logger.error(f"Error handling relay request {request_id}: {e}")
+
+            error_response = {
+                "type": "http_response",
+                "requestId": request_id,
+                "status": 500,
+                "headers": {"Content-Type": "application/json"},
+                "body": {"error": str(e)},
+            }
+
+            if self._relay_ws and not self._relay_ws.closed:
+                await self._relay_ws.send_json(error_response)
+
+    async def _relay_heartbeat_loop(self):
+        """Send periodic heartbeats to keep relay connection alive."""
+        while self._relay_running:
+            try:
+                await asyncio.sleep(25)  # Send heartbeat every 25 seconds
+
+                if self._relay_ws and not self._relay_ws.closed:
+                    await self._relay_ws.send_json({"type": "heartbeat"})
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Relay heartbeat error: {e}")
+
+    async def _relay_reconnect(self, network_id: str, network_name: str):
+        """Attempt to reconnect to the relay."""
+        max_attempts = 5
+        attempts = 0
+
+        while self._relay_running and attempts < max_attempts:
+            attempts += 1
+            delay = 5.0 * attempts
+
+            logger.info(f"Reconnecting to relay in {delay}s (attempt {attempts})")
+            await asyncio.sleep(delay)
+
+            try:
+                await self._connect_to_relay(network_id, network_name)
+                logger.info("Reconnected to relay")
+                return
+            except Exception as e:
+                logger.error(f"Relay reconnection failed: {e}")
+
+        logger.error("Max relay reconnection attempts reached")
+        self._relay_running = False
+
+    async def _stop_relay(self):
+        """Stop the relay connection."""
+        self._relay_running = False
+
+        if self._relay_heartbeat_task:
+            self._relay_heartbeat_task.cancel()
+            try:
+                await self._relay_heartbeat_task
+            except asyncio.CancelledError:
+                pass
+
+        if self._relay_task:
+            self._relay_task.cancel()
+            try:
+                await self._relay_task
+            except asyncio.CancelledError:
+                pass
+
+        if self._relay_ws and not self._relay_ws.closed:
+            try:
+                await self._relay_ws.send_json({"type": "unregister"})
+            except:
+                pass
+            await self._relay_ws.close()
+
+        if self._relay_session:
+            await self._relay_session.close()
+            self._relay_session = None
+
+        self._relay_public_url = None
+        self._relay_tunnel_id = None
+        logger.info("Relay connection stopped")
+
+    async def relay_connect_handler(self, request):
+        """API endpoint to connect to relay server."""
+        try:
+            # Parse optional relay URL from request body
+            try:
+                data = await request.json()
+                relay_url = data.get("relay_url", DEFAULT_RELAY_URL)
+            except:
+                relay_url = DEFAULT_RELAY_URL
+
+            # Check if already connected
+            if self.relay_connected:
+                return web.json_response({
+                    "success": True,
+                    "message": "Already connected to relay",
+                    "relay_url": self._relay_public_url,
+                    "connected": True,
+                })
+
+            # Set relay URL and start connection
+            self._relay_url = relay_url
+            self._relay_running = True
+
+            # Get network info for registration
+            network_id = "unknown"
+            network_name = "Unknown Network"
+            if self.network_instance:
+                network_id = getattr(self.network_instance, 'network_id', 'unknown')
+                network_name = getattr(self.network_instance, 'network_name', 'Unknown Network')
+
+            try:
+                await self._connect_to_relay(network_id, network_name)
+                return web.json_response({
+                    "success": True,
+                    "message": "Connected to relay",
+                    "relay_url": self._relay_public_url,
+                    "tunnel_id": self._relay_tunnel_id,
+                    "connected": True,
+                })
+            except Exception as e:
+                logger.error(f"Failed to connect to relay: {e}")
+                self._relay_running = False
+                return web.json_response({
+                    "success": False,
+                    "error": str(e),
+                    "connected": False,
+                }, status=502)
+
+        except Exception as e:
+            logger.error(f"Error in relay connect handler: {e}")
+            return web.json_response({
+                "success": False,
+                "error": str(e),
+            }, status=500)
+
+    async def relay_disconnect_handler(self, request):
+        """API endpoint to disconnect from relay server."""
+        try:
+            if not self.relay_connected:
+                return web.json_response({
+                    "success": True,
+                    "message": "Not connected to relay",
+                    "connected": False,
+                })
+
+            await self._stop_relay()
+
+            return web.json_response({
+                "success": True,
+                "message": "Disconnected from relay",
+                "connected": False,
+            })
+
+        except Exception as e:
+            logger.error(f"Error in relay disconnect handler: {e}")
+            return web.json_response({
+                "success": False,
+                "error": str(e),
+            }, status=500)
+
+    async def relay_status_handler(self, request):
+        """API endpoint to get relay connection status."""
+        try:
+            return web.json_response({
+                "success": True,
+                "connected": self.relay_connected,
+                "relay_url": self._relay_public_url,
+                "tunnel_id": self._relay_tunnel_id,
+            })
+        except Exception as e:
+            logger.error(f"Error in relay status handler: {e}")
+            return web.json_response({
+                "success": False,
+                "error": str(e),
+            }, status=500)
 
     async def cache_upload(self, request):
         """Handle file upload to shared cache via HTTP multipart form."""
