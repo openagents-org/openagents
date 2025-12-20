@@ -67,6 +67,11 @@ class RelayClient {
           wsUrl = wsUrl.replace('https://', 'wss://');
         }
 
+        // Ensure we connect to the /register endpoint
+        if (!wsUrl.endsWith('/register')) {
+          wsUrl = wsUrl.replace(/\/$/, '') + '/register';
+        }
+
         this.ws = new WebSocket(wsUrl);
 
         this.ws.onopen = () => {
