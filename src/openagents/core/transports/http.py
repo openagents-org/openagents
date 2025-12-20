@@ -1266,7 +1266,7 @@ class HttpTransport(Transport):
         """
         Handle an HTTP request from the relay.
 
-        Forwards the request to the local aiohttp app and sends the response back.
+        Makes a real HTTP request to localhost and sends the response back.
         """
         request_id = request.get("requestId")
         method = request.get("method", "GET")
@@ -1276,77 +1276,56 @@ class HttpTransport(Transport):
         body = request.get("body")
 
         try:
-            # Build query string
+            # Build the local URL
+            local_url = f"http://127.0.0.1:{self.port}{path}"
             if query:
                 query_string = urlencode(query)
-                if "?" in path:
-                    path = f"{path}&{query_string}"
-                else:
-                    path = f"{path}?{query_string}"
+                local_url = f"{local_url}?{query_string}"
 
-            # Create a test request to our local app
-            # We'll use aiohttp's test utilities to simulate the request
-            from aiohttp.test_utils import make_mocked_request
-
-            # Convert headers to CIMultiDict
-            from multidict import CIMultiDict
-            req_headers = CIMultiDict(headers)
+            # Prepare headers (filter out hop-by-hop headers)
+            hop_by_hop = {'connection', 'keep-alive', 'proxy-authenticate',
+                         'proxy-authorization', 'te', 'trailers', 'transfer-encoding', 'upgrade'}
+            req_headers = {k: v for k, v in headers.items()
+                          if k.lower() not in hop_by_hop}
 
             # Prepare body
-            body_bytes = b""
+            body_data = None
             if body:
                 if isinstance(body, str):
-                    body_bytes = body.encode('utf-8')
+                    body_data = body.encode('utf-8')
                 elif isinstance(body, dict):
-                    body_bytes = json.dumps(body).encode('utf-8')
+                    body_data = json.dumps(body).encode('utf-8')
                 elif isinstance(body, bytes):
-                    body_bytes = body
+                    body_data = body
 
-            # Create mock request
-            mock_request = make_mocked_request(
-                method,
-                path,
-                headers=req_headers,
-                app=self.app,
-            )
+            # Make real HTTP request to localhost
+            async with aiohttp.ClientSession() as session:
+                async with session.request(
+                    method=method,
+                    url=local_url,
+                    headers=req_headers,
+                    data=body_data,
+                    timeout=aiohttp.ClientTimeout(total=30),
+                ) as response:
+                    # Read response body
+                    response_body_bytes = await response.read()
 
-            # Set body content
-            mock_request._payload = aiohttp.StreamReader(mock_request._loop)
-            if body_bytes:
-                mock_request._payload.feed_data(body_bytes)
-            mock_request._payload.feed_eof()
-
-            # Find matching route and call handler
-            match_info = await self.app.router.resolve(mock_request)
-            mock_request._match_info = match_info
-
-            if match_info.route.resource is None:
-                # No route found
-                response_msg = {
-                    "type": "http_response",
-                    "requestId": request_id,
-                    "status": 404,
-                    "headers": {"Content-Type": "application/json"},
-                    "body": {"error": "Not found"},
-                }
-            else:
-                # Call the handler
-                handler = match_info.handler
-                try:
-                    response = await handler(mock_request)
-
-                    # Extract response data
-                    response_headers = dict(response.headers)
+                    # Try to decode as JSON, otherwise as text
                     response_body = None
-
-                    if hasattr(response, 'body') and response.body:
-                        # Try to decode as JSON
+                    content_type = response.headers.get('Content-Type', '')
+                    if 'application/json' in content_type:
                         try:
-                            response_body = json.loads(response.body)
-                        except (json.JSONDecodeError, UnicodeDecodeError):
-                            response_body = response.body.decode('utf-8', errors='replace')
-                    elif hasattr(response, 'text'):
-                        response_body = response.text
+                            response_body = json.loads(response_body_bytes)
+                        except json.JSONDecodeError:
+                            response_body = response_body_bytes.decode('utf-8', errors='replace')
+                    else:
+                        response_body = response_body_bytes.decode('utf-8', errors='replace')
+
+                    # Filter response headers
+                    response_headers = {}
+                    for key, value in response.headers.items():
+                        if key.lower() not in hop_by_hop:
+                            response_headers[key] = value
 
                     response_msg = {
                         "type": "http_response",
@@ -1354,14 +1333,6 @@ class HttpTransport(Transport):
                         "status": response.status,
                         "headers": response_headers,
                         "body": response_body,
-                    }
-                except web.HTTPException as e:
-                    response_msg = {
-                        "type": "http_response",
-                        "requestId": request_id,
-                        "status": e.status,
-                        "headers": {"Content-Type": "application/json"},
-                        "body": {"error": e.reason},
                     }
 
             if self._relay_ws and not self._relay_ws.closed:
