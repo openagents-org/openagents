@@ -5,14 +5,16 @@
  *
  * Architecture:
  * 1. Local networks connect via WebSocket to /register
- * 2. Remote clients access networks via HTTP at /network/{networkId}/*
- * 3. The relay forwards HTTP requests over WebSocket and returns responses
+ * 2. Server generates a random tunnel ID for each connection
+ * 3. Remote clients access networks via HTTP at /{tunnelId}/*
+ * 4. The relay forwards HTTP requests over WebSocket and returns responses
  */
 
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -22,12 +24,25 @@ const wss = new WebSocket.Server({ server });
 const PORT = process.env.PORT || 3000;
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 const REQUEST_TIMEOUT = 30000; // 30 seconds
+const TUNNEL_ID_LENGTH = 12; // Length of random tunnel ID
 
-// Store connected networks: networkId -> { ws, token, info, lastHeartbeat }
-const networks = new Map();
+// Store connected tunnels: tunnelId -> { ws, networkId, token, info, lastHeartbeat }
+const tunnels = new Map();
 
 // Store pending requests: requestId -> { resolve, reject, timeout }
 const pendingRequests = new Map();
+
+// Generate a random tunnel ID (URL-safe)
+function generateTunnelId() {
+  return crypto.randomBytes(TUNNEL_ID_LENGTH).toString('base64url').slice(0, TUNNEL_ID_LENGTH);
+}
+
+// Reserved paths that cannot be used as tunnel IDs
+const RESERVED_PATHS = ['health', 'networks', 'register', 'api', 'admin', 'status'];
+
+function isReservedPath(path) {
+  return RESERVED_PATHS.includes(path.toLowerCase());
+}
 
 // CORS middleware - single source of truth for CORS headers
 app.use((req, res, next) => {
@@ -49,64 +64,74 @@ app.use(express.raw({ type: '*/*', limit: '10mb' }));
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
-    connectedNetworks: networks.size,
+    connectedTunnels: tunnels.size,
     uptime: process.uptime(),
   });
 });
 
-// List connected networks (public info only)
+// List connected tunnels (public info only - no tunnel IDs for security)
 app.get('/networks', (req, res) => {
-  const networkList = [];
-  for (const [id, data] of networks.entries()) {
-    networkList.push({
-      id,
-      name: data.info?.name || id,
+  const tunnelList = [];
+  for (const [tunnelId, data] of tunnels.entries()) {
+    tunnelList.push({
+      name: data.info?.name || data.networkId,
+      networkId: data.networkId,
       connectedAt: data.connectedAt,
       lastHeartbeat: data.lastHeartbeat,
     });
   }
-  res.json({ networks: networkList });
+  res.json({ networks: tunnelList, count: tunnels.size });
 });
 
-// Check if a specific network is connected
-app.get('/networks/:networkId/status', (req, res) => {
-  const { networkId } = req.params;
-  const network = networks.get(networkId);
+// Check tunnel status by tunnel ID
+app.get('/status/:tunnelId', (req, res) => {
+  const { tunnelId } = req.params;
+  const tunnel = tunnels.get(tunnelId);
 
-  if (!network) {
-    return res.status(404).json({ error: 'Network not connected', online: false });
+  if (!tunnel) {
+    return res.status(404).json({ error: 'Tunnel not found', online: false });
   }
 
   res.json({
     online: true,
-    id: networkId,
-    name: network.info?.name || networkId,
-    connectedAt: network.connectedAt,
-    lastHeartbeat: network.lastHeartbeat,
+    tunnelId,
+    networkId: tunnel.networkId,
+    name: tunnel.info?.name || tunnel.networkId,
+    connectedAt: tunnel.connectedAt,
+    lastHeartbeat: tunnel.lastHeartbeat,
   });
 });
 
-// Proxy requests to network
-app.all('/network/:networkId/*', async (req, res) => {
-  const { networkId } = req.params;
-  const network = networks.get(networkId);
+// Proxy requests to tunnel - matches /{tunnelId} and /{tunnelId}/*
+app.all('/:tunnelId', handleTunnelRequest);
+app.all('/:tunnelId/*', handleTunnelRequest);
 
-  if (!network) {
+async function handleTunnelRequest(req, res) {
+  const { tunnelId } = req.params;
+
+  // Skip reserved paths
+  if (isReservedPath(tunnelId)) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+
+  const tunnel = tunnels.get(tunnelId);
+
+  if (!tunnel) {
     return res.status(503).json({
-      error: 'Network not connected to relay',
-      code: 'NETWORK_OFFLINE',
+      error: 'Tunnel not found or network not connected',
+      code: 'TUNNEL_NOT_FOUND',
     });
   }
 
-  if (network.ws.readyState !== WebSocket.OPEN) {
-    networks.delete(networkId);
+  if (tunnel.ws.readyState !== WebSocket.OPEN) {
+    tunnels.delete(tunnelId);
     return res.status(503).json({
       error: 'Network connection lost',
       code: 'CONNECTION_LOST',
     });
   }
 
-  // Extract the path after /network/{networkId}
+  // Extract the path after /{tunnelId}
   const path = req.params[0] || '';
   const requestId = uuidv4();
 
@@ -133,7 +158,7 @@ app.all('/network/:networkId/*', async (req, res) => {
     });
 
     // Send request to local network
-    network.ws.send(JSON.stringify(wsRequest));
+    tunnel.ws.send(JSON.stringify(wsRequest));
 
     // Wait for response
     const wsResponse = await responsePromise;
@@ -168,21 +193,21 @@ app.all('/network/:networkId/*', async (req, res) => {
       code: 'RELAY_ERROR',
     });
   }
-});
+}
 
 // WebSocket connection handler
 wss.on('connection', (ws, req) => {
   console.log('New WebSocket connection from:', req.socket.remoteAddress);
 
+  let tunnelId = null;
   let networkId = null;
-  let isAuthenticated = false;
 
   // Set up heartbeat
   ws.isAlive = true;
   ws.on('pong', () => {
     ws.isAlive = true;
-    if (networkId && networks.has(networkId)) {
-      networks.get(networkId).lastHeartbeat = Date.now();
+    if (tunnelId && tunnels.has(tunnelId)) {
+      tunnels.get(tunnelId).lastHeartbeat = Date.now();
     }
   });
 
@@ -200,11 +225,11 @@ wss.on('connection', (ws, req) => {
           break;
 
         case 'heartbeat':
-          handleHeartbeat(ws, message, networkId);
+          handleHeartbeat(ws, message, tunnelId);
           break;
 
         case 'unregister':
-          handleUnregister(networkId);
+          handleUnregister(tunnelId);
           break;
 
         default:
@@ -223,16 +248,16 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
-    console.log('WebSocket closed for network:', networkId);
-    if (networkId) {
-      networks.delete(networkId);
+    console.log('WebSocket closed for tunnel:', tunnelId);
+    if (tunnelId) {
+      tunnels.delete(tunnelId);
     }
   });
 
   ws.on('error', (error) => {
-    console.error('WebSocket error for network:', networkId, error.message);
-    if (networkId) {
-      networks.delete(networkId);
+    console.error('WebSocket error for tunnel:', tunnelId, error.message);
+    if (tunnelId) {
+      tunnels.delete(tunnelId);
     }
   });
 
@@ -248,42 +273,37 @@ wss.on('connection', (ws, req) => {
       return;
     }
 
-    // Check if network_id is already connected
-    if (networks.has(network_id)) {
-      const existing = networks.get(network_id);
-      // Allow reconnection with same token
-      if (existing.token && existing.token !== token) {
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Network ID already in use',
-        }));
-        return;
-      }
-      // Close old connection
-      existing.ws.close();
+    // Generate a unique tunnel ID
+    tunnelId = generateTunnelId();
+
+    // Ensure uniqueness (very unlikely to collide but just in case)
+    while (tunnels.has(tunnelId) || isReservedPath(tunnelId)) {
+      tunnelId = generateTunnelId();
     }
 
-    // Generate a token if not provided
+    networkId = network_id;
+
+    // Generate a management token if not provided
     const managementToken = token || uuidv4();
 
-    // Register the network
-    networkId = network_id;
-    isAuthenticated = true;
-    networks.set(network_id, {
+    // Register the tunnel
+    tunnels.set(tunnelId, {
       ws,
+      networkId: network_id,
       token: managementToken,
       info: info || {},
       connectedAt: Date.now(),
       lastHeartbeat: Date.now(),
     });
 
-    console.log(`Network registered: ${network_id}`);
+    console.log(`Tunnel created: ${tunnelId} for network: ${network_id}`);
 
     ws.send(JSON.stringify({
       type: 'registered',
+      tunnel_id: tunnelId,
       network_id,
       token: managementToken,
-      relay_url: `${getBaseUrl(req)}/network/${network_id}`,
+      relay_url: `${getBaseUrl(req)}/${tunnelId}`,
     }));
   }
 
@@ -298,17 +318,17 @@ wss.on('connection', (ws, req) => {
     }
   }
 
-  function handleHeartbeat(ws, message, networkId) {
-    if (networkId && networks.has(networkId)) {
-      networks.get(networkId).lastHeartbeat = Date.now();
+  function handleHeartbeat(ws, message, tunnelId) {
+    if (tunnelId && tunnels.has(tunnelId)) {
+      tunnels.get(tunnelId).lastHeartbeat = Date.now();
     }
     ws.send(JSON.stringify({ type: 'heartbeat_ack' }));
   }
 
-  function handleUnregister(networkId) {
-    if (networkId) {
-      networks.delete(networkId);
-      console.log(`Network unregistered: ${networkId}`);
+  function handleUnregister(tunnelId) {
+    if (tunnelId) {
+      tunnels.delete(tunnelId);
+      console.log(`Tunnel unregistered: ${tunnelId}`);
     }
     ws.close();
   }
@@ -379,6 +399,6 @@ function getBaseUrl(req) {
 // Start server
 server.listen(PORT, () => {
   console.log(`OpenAgents Relay Server running on port ${PORT}`);
-  console.log(`WebSocket endpoint: ws://localhost:${PORT}`);
-  console.log(`HTTP proxy endpoint: http://localhost:${PORT}/network/{networkId}/*`);
+  console.log(`WebSocket endpoint: ws://localhost:${PORT}/register`);
+  console.log(`HTTP proxy endpoint: http://localhost:${PORT}/{tunnelId}/*`);
 });

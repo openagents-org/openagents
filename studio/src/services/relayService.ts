@@ -16,6 +16,7 @@ export interface RelayConfig {
 
 export interface RelayConnection {
   networkId: string;
+  tunnelId?: string;
   token: string;
   relayUrl: string;
   publicUrl: string;
@@ -40,6 +41,7 @@ class RelayClient {
   private ws: WebSocket | null = null;
   private config: RelayConfig | null = null;
   private token: string | null = null;
+  private tunnelId: string | null = null;
   private publicUrl: string | null = null;
   private status: RelayConnection['status'] = 'disconnected';
   private reconnectAttempts = 0;
@@ -146,6 +148,7 @@ class RelayClient {
 
     return {
       networkId: this.config.networkId,
+      tunnelId: this.tunnelId || undefined,
       token: this.token || '',
       relayUrl: this.config.relayUrl || DEFAULT_RELAY_URL,
       publicUrl: this.publicUrl || '',
@@ -179,16 +182,18 @@ class RelayClient {
     switch (message.type) {
       case 'registered':
         this.token = message.token;
+        this.tunnelId = message.tunnel_id;
         this.publicUrl = message.relay_url;
         this.updateStatus('connected');
         this.startHeartbeat();
         this.reconnectAttempts = 0;
 
-        console.log('[Relay] Registered successfully:', message.relay_url);
+        console.log('[Relay] Registered successfully:', message.relay_url, 'tunnel:', message.tunnel_id);
 
         if (resolveConnect) {
           resolveConnect({
             networkId: this.config!.networkId,
+            tunnelId: message.tunnel_id,
             token: message.token,
             relayUrl: this.config!.relayUrl || DEFAULT_RELAY_URL,
             publicUrl: message.relay_url,
@@ -387,6 +392,7 @@ class RelayClient {
 
     this.ws = null;
     this.token = null;
+    this.tunnelId = null;
     this.publicUrl = null;
   }
 
