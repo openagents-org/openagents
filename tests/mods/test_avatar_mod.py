@@ -89,7 +89,7 @@ class TestAvatarNetworkMod:
         # Mock workspace manager
         mock_workspace_manager = MagicMock()
         mock_workspace_manager.workspace_path = str(temp_workspace)
-        mod.workspace_manager = mock_workspace_manager
+        mod._workspace_manager = mock_workspace_manager
         
         # Initialize
         mod.initialize()
@@ -425,7 +425,7 @@ class TestAvatarNetworkMod:
 
         # Create a new mod instance and load metadata
         new_mod = AvatarNetworkMod()
-        new_mod.workspace_manager = avatar_mod.workspace_manager
+        new_mod._workspace_manager = avatar_mod.workspace_manager
         new_mod.initialize()
 
         # Check metadata was loaded

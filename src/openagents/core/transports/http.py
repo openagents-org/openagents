@@ -176,6 +176,10 @@ class HttpTransport(Transport):
         self.app.router.add_get("/api/events/search", self.search_events)
         self.app.router.add_get("/api/events/{event_name}", self.get_event_detail)
 
+        # Avatar endpoints
+        self.app.router.add_get("/api/avatars/{agent_id}.png", self.get_avatar_image)
+        self.app.router.add_post("/api/avatars/batch", self.get_avatars_batch)
+
         # Relay control endpoints
         self.app.router.add_post("/api/relay/connect", self.relay_connect_handler)
         self.app.router.add_post("/api/relay/disconnect", self.relay_disconnect_handler)
@@ -3200,6 +3204,132 @@ console.log(response);
         "python": python_example,
         "javascript": js_example,
     }
+
+    async def get_avatar_image(self, request):
+        """Get an agent's avatar image file.
+        
+        Args:
+            request: aiohttp request with agent_id in path
+            
+        Returns:
+            PNG image file or 404
+        """
+        agent_id = request.match_info.get("agent_id")
+        
+        if not agent_id:
+            return web.Response(
+                text=json.dumps({"error": "agent_id required"}),
+                status=400,
+                content_type="application/json"
+            )
+        
+        # Remove .png extension if present
+        if agent_id.endswith(".png"):
+            agent_id = agent_id[:-4]
+        
+        # Get avatar mod from network
+        avatar_mod = None
+        if self.network_instance and hasattr(self.network_instance, 'mod_registry'):
+            try:
+                avatar_mod = self.network_instance.mod_registry.get("avatar")
+            except Exception as e:
+                logger.warning(f"Error getting avatar mod: {e}")
+        
+        if not avatar_mod:
+            return web.Response(
+                text="Avatar mod not available",
+                status=503,
+                content_type="text/plain"
+            )
+        
+        # Get avatar file path
+        avatar_path = avatar_mod.get_avatar_file_path(agent_id)
+        
+        if not avatar_path or not avatar_path.exists():
+            # Return 404 for missing avatar
+            return web.Response(
+                text="Avatar not found",
+                status=404,
+                content_type="text/plain"
+            )
+        
+        # Serve the avatar image
+        try:
+            with open(avatar_path, 'rb') as f:
+                image_data = f.read()
+            
+            return web.Response(
+                body=image_data,
+                status=200,
+                content_type="image/png",
+                headers={
+                    "Cache-Control": "public, max-age=3600",
+                    "ETag": f'"{agent_id}-{avatar_path.stat().st_mtime}"'
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error serving avatar for {agent_id}: {e}")
+            return web.Response(
+                text="Error serving avatar",
+                status=500,
+                content_type="text/plain"
+            )
+    
+    async def get_avatars_batch(self, request):
+        """Get avatar URLs for multiple agents.
+        
+        Args:
+            request: aiohttp request with JSON body containing agent_ids
+            
+        Returns:
+            JSON with avatar URLs
+        """
+        try:
+            data = await request.json()
+            agent_ids = data.get("agent_ids", [])
+        except Exception as e:
+            return web.Response(
+                text=json.dumps({"error": "Invalid JSON"}),
+                status=400,
+                content_type="application/json"
+            )
+        
+        if not isinstance(agent_ids, list):
+            return web.Response(
+                text=json.dumps({"error": "agent_ids must be an array"}),
+                status=400,
+                content_type="application/json"
+            )
+        
+        # Get avatar mod from network
+        avatar_mod = None
+        if self.network_instance and hasattr(self.network_instance, 'mod_registry'):
+            try:
+                avatar_mod = self.network_instance.mod_registry.get("avatar")
+            except Exception as e:
+                logger.warning(f"Error getting avatar mod: {e}")
+        
+        if not avatar_mod:
+            return web.Response(
+                text=json.dumps({"error": "Avatar mod not available"}),
+                status=503,
+                content_type="application/json"
+            )
+        
+        # Get avatar info for each agent
+        avatars = {}
+        for agent_id in agent_ids:
+            avatar_path = avatar_mod.get_avatar_file_path(agent_id)
+            if avatar_path and avatar_path.exists():
+                avatars[agent_id] = f"/api/avatars/{agent_id}.png"
+            else:
+                avatars[agent_id] = None
+        
+        return web.Response(
+            text=json.dumps({"avatars": avatars}),
+            status=200,
+            content_type="application/json"
+        )
 
 
 # Convenience function for creating HTTP transport
