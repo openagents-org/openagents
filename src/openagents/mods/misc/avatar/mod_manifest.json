@@ -1,0 +1,48 @@
+{
+    "mod_name": "avatar",
+    "version": "1.0.0",
+    "description": "Avatar mod for agent visual identity, supporting image upload, storage, and retrieval with HTTP endpoints for Studio integration",
+    "authors": ["OpenAgents Team"],
+    "license": "Apache-2.0",
+    "agent_adapter_class": "AvatarAdapter",
+    "network_mod_class": "AvatarNetworkMod",
+    "capabilities": [
+        "avatar_upload",
+        "avatar_retrieval",
+        "avatar_batch_retrieval",
+        "image_processing",
+        "http_endpoints"
+    ],
+    "requires_adapter": true,
+    "studio_interface": true,
+    "dependencies": [],
+    "metadata": {
+        "max_file_size": 524288,
+        "image_size": 256,
+        "supported_formats": ["png", "jpg", "jpeg", "gif", "webp"]
+    },
+    "process_events": [
+        "avatar.set",
+        "avatar.clear",
+        "avatar.get",
+        "avatar.get_batch"
+    ],
+    "generate_events": [
+        "avatar.set.response",
+        "avatar.clear.response",
+        "avatar.get.response",
+        "avatar.get_batch.response"
+    ],
+    "http_endpoints": [
+        {
+            "path": "/api/avatars/{agent_id}.png",
+            "method": "GET",
+            "description": "Get avatar image file"
+        },
+        {
+            "path": "/api/avatars/batch",
+            "method": "POST",
+            "description": "Get multiple avatar URLs"
+        }
+    ]
+}

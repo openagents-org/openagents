@@ -1,0 +1,169 @@
+asyncapi: '3.0.0'
+info:
+  title: OpenAgents Avatar Mod API
+  version: '1.0.0'
+  description: |
+    Avatar mod for agent visual identity in OpenAgents networks.
+
+    Key Features:
+    - Set agent avatar images (PNG, JPG, GIF, WebP)
+    - Retrieve agent avatars with placeholder fallback
+    - Batch avatar retrieval for chatroom participants
+    - Image processing and storage (256x256 PNG)
+    - HTTP endpoints for serving avatar images
+
+channels:
+  avatarSet:
+    address: avatar.set
+    messages:
+      avatarSet:
+        $ref: '#/components/messages/AvatarSetMessage'
+
+  avatarClear:
+    address: avatar.clear
+    messages:
+      avatarClear:
+        $ref: '#/components/messages/AvatarClearMessage'
+
+  avatarGet:
+    address: avatar.get
+    messages:
+      avatarGet:
+        $ref: '#/components/messages/AvatarGetMessage'
+
+  avatarGetBatch:
+    address: avatar.get_batch
+    messages:
+      avatarGetBatch:
+        $ref: '#/components/messages/AvatarGetBatchMessage'
+
+operations:
+  setAvatar:
+    action: send
+    channel:
+      $ref: '#/channels/avatarSet'
+    summary: Set agent's avatar image
+    description: |
+      Upload and set an agent's avatar image.
+      Image is resized to 256x256 and stored as PNG.
+
+  clearAvatar:
+    action: send
+    channel:
+      $ref: '#/channels/avatarClear'
+    summary: Remove agent's avatar
+    description: |
+      Clear an agent's avatar, falling back to placeholder.
+
+  getAvatar:
+    action: send
+    channel:
+      $ref: '#/channels/avatarGet'
+    summary: Get an agent's avatar info
+    description: |
+      Retrieve avatar information for a specific agent.
+
+  getAvatarBatch:
+    action: send
+    channel:
+      $ref: '#/channels/avatarGetBatch'
+    summary: Get multiple agent avatars
+    description: |
+      Batch retrieve avatar information for multiple agents.
+
+components:
+  messages:
+    AvatarSetMessage:
+      name: AvatarSetMessage
+      title: Set Avatar
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/AvatarSetPayload'
+
+    AvatarClearMessage:
+      name: AvatarClearMessage
+      title: Clear Avatar
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/AvatarClearPayload'
+
+    AvatarGetMessage:
+      name: AvatarGetMessage
+      title: Get Avatar
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/AvatarGetPayload'
+
+    AvatarGetBatchMessage:
+      name: AvatarGetBatchMessage
+      title: Get Avatar Batch
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/AvatarGetBatchPayload'
+
+  schemas:
+    AvatarSetPayload:
+      type: object
+      required:
+        - image_data
+      properties:
+        image_data:
+          type: string
+          description: Base64-encoded image data
+        mime_type:
+          type: string
+          default: image/png
+          description: MIME type of the image (image/png, image/jpeg, image/gif, image/webp)
+
+    AvatarClearPayload:
+      type: object
+      properties: {}
+
+    AvatarGetPayload:
+      type: object
+      required:
+        - agent_id
+      properties:
+        agent_id:
+          type: string
+          description: Agent ID to get avatar for
+        include_data:
+          type: boolean
+          default: false
+          description: Whether to include base64 image data in response
+
+    AvatarGetBatchPayload:
+      type: object
+      required:
+        - agent_ids
+      properties:
+        agent_ids:
+          type: array
+          items:
+            type: string
+          description: List of agent IDs to get avatars for
+
+    AvatarInfo:
+      type: object
+      required:
+        - agent_id
+        - has_avatar
+      properties:
+        agent_id:
+          type: string
+          description: Agent ID
+        has_avatar:
+          type: boolean
+          description: Whether agent has an avatar set
+        avatar_url:
+          type: string
+          description: URL to fetch the avatar image
+        avatar_data:
+          type: string
+          description: Base64-encoded avatar image data (optional)
+        updated_at:
+          type: number
+          description: Unix timestamp of last update
+        file_size:
+          type: integer
+          description: Avatar file size in bytes

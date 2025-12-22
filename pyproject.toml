@@ -63,6 +63,9 @@ dependencies = [
     # MCP (Model Context Protocol) integration
     "mcp>=1.15.0",                # Model Context Protocol library
 
+    # Image processing (for avatar mod)
+    "Pillow>=10.0.0",             # Image processing library
+
     # Others
     "openai>=1.98" # For CLI
 ]
