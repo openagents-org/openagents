@@ -30,6 +30,8 @@ import {
 import MarkdownContent from "./MarkdownContent";
 import { Button } from "@/components/layout/ui/button";
 import AttachmentDisplay from "./AttachmentDisplay";
+import { AgentAvatar } from "@/components/AgentAvatar";
+import { usePrefetchAvatars } from "@/hooks/useAvatar";
 
 // Supported message types
 type SupportedMessage = UnifiedMessage | ThreadMessage;
@@ -77,6 +79,19 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
   const [hoveredMessage, setHoveredMessage] = useState<string | null>(null);
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Prefetch avatars for all unique senders
+  const uniqueSenders = React.useMemo(() => {
+    const senders = new Set<string>();
+    messages.forEach(msg => {
+      const props = getMessageProps(msg);
+      senders.add(props.senderId);
+    });
+    return Array.from(senders);
+  }, [messages]);
+
+  const baseUrl = networkHost && networkPort ? `http://${networkHost}:${networkPort}` : undefined;
+  usePrefetchAvatars(uniqueSenders, baseUrl);
 
   // Remove auto-scroll logic from MessageRenderer - MessagingView handles this
   // This prevents duplicate scroll effects that conflict with each other
@@ -258,6 +273,13 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         >
           {/* Message header */}
           <div className="flex items-center gap-2 mb-2 text-sm">
+            {/* Agent avatar */}
+            <AgentAvatar
+              agentId={messageProps.senderId}
+              baseUrl={baseUrl}
+              size="sm"
+              className="shrink-0"
+            />
             <span className="font-semibold text-slate-800 dark:text-slate-100">
               {isOwnMessage ? "You" : formatUsername(messageProps.senderId)}
             </span>
@@ -412,6 +434,13 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         >
           {/* Message header */}
           <div className="flex items-center gap-2 mb-2 text-sm">
+            {/* Agent avatar */}
+            <AgentAvatar
+              agentId={message.senderId}
+              baseUrl={baseUrl}
+              size="sm"
+              className="shrink-0"
+            />
             <span className="font-semibold text-slate-800 dark:text-slate-100">
               {isOwnMessage ? "You" : formatUsername(message.senderId)}
             </span>
