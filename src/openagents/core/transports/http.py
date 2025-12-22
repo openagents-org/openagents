@@ -3133,78 +3133,6 @@ class HttpTransport(Transport):
                 status=200  # Return 200 with error in body, not 500
             )
 
-
-def _generate_event_examples(event: Dict[str, Any]) -> Dict[str, str]:
-    """Generate code examples for an event."""
-    event_name = event.get('event_name', '')
-    event_type = event.get('event_type', 'operation')
-    request_schema = event.get('request_schema', {})
-    
-    # Python example
-    python_example = f"""# Python example
-from openagents import Agent
-
-agent = Agent(agent_id="my_agent")
-response = await agent.send_event(
-    event_name="{event_name}",
-    destination_id="mod:openagents.mods.{event.get('mod_id', 'unknown')}",
-    payload={{
-        # Add your payload here based on the schema
-"""
-    
-    # Add payload fields from schema
-    if request_schema and 'properties' in request_schema:
-        for prop_name, prop_info in request_schema['properties'].items():
-            if isinstance(prop_info, dict):
-                prop_type = prop_info.get('type', 'string')
-                is_required = prop_info.get('required', False)
-                default = prop_info.get('default')
-                
-                if default is not None:
-                    python_example += f'        "{prop_name}": {repr(default)},  # {prop_type}\n'
-                elif is_required:
-                    python_example += f'        "{prop_name}": "value",  # {prop_type} (required)\n'
-                else:
-                    python_example += f'        # "{prop_name}": "value",  # {prop_type} (optional)\n'
-    
-    python_example += """    }
-)
-print(response)
-"""
-    
-    # JavaScript example
-    js_example = f"""// JavaScript example
-const response = await connector.sendEvent({{
-    event_name: "{event_name}",
-    destination_id: "mod:openagents.mods.{event.get('mod_id', 'unknown')}",
-    payload: {{
-        // Add your payload here based on the schema
-"""
-    
-    if request_schema and 'properties' in request_schema:
-        for prop_name, prop_info in request_schema['properties'].items():
-            if isinstance(prop_info, dict):
-                prop_type = prop_info.get('type', 'string')
-                is_required = prop_info.get('required', False)
-                default = prop_info.get('default')
-                
-                if default is not None:
-                    js_example += f'        {prop_name}: {repr(default)},  // {prop_type}\n'
-                elif is_required:
-                    js_example += f'        {prop_name}: "value",  // {prop_type} (required)\n'
-                else:
-                    js_example += f'        // {prop_name}: "value",  // {prop_type} (optional)\n'
-    
-    js_example += """    }
-});
-console.log(response);
-"""
-    
-    return {
-        "python": python_example,
-        "javascript": js_example,
-    }
-
     async def get_avatar_image(self, request):
         """Get an agent's avatar image file.
         
@@ -3231,7 +3159,7 @@ console.log(response);
         avatar_mod = None
         if self.network_instance and hasattr(self.network_instance, 'mod_registry'):
             try:
-                avatar_mod = self.network_instance.mod_registry.get("avatar")
+                avatar_mod = self.network_instance.mod_registry.get("openagents.mods.misc.avatar")
             except Exception as e:
                 logger.warning(f"Error getting avatar mod: {e}")
         
@@ -3305,7 +3233,7 @@ console.log(response);
         avatar_mod = None
         if self.network_instance and hasattr(self.network_instance, 'mod_registry'):
             try:
-                avatar_mod = self.network_instance.mod_registry.get("avatar")
+                avatar_mod = self.network_instance.mod_registry.get("openagents.mods.misc.avatar")
             except Exception as e:
                 logger.warning(f"Error getting avatar mod: {e}")
         
@@ -3330,6 +3258,78 @@ console.log(response);
             status=200,
             content_type="application/json"
         )
+
+
+def _generate_event_examples(event: Dict[str, Any]) -> Dict[str, str]:
+    """Generate code examples for an event."""
+    event_name = event.get('event_name', '')
+    event_type = event.get('event_type', 'operation')
+    request_schema = event.get('request_schema', {})
+    
+    # Python example
+    python_example = f"""# Python example
+from openagents import Agent
+
+agent = Agent(agent_id="my_agent")
+response = await agent.send_event(
+    event_name="{event_name}",
+    destination_id="mod:openagents.mods.{event.get('mod_id', 'unknown')}",
+    payload={{
+        # Add your payload here based on the schema
+"""
+    
+    # Add payload fields from schema
+    if request_schema and 'properties' in request_schema:
+        for prop_name, prop_info in request_schema['properties'].items():
+            if isinstance(prop_info, dict):
+                prop_type = prop_info.get('type', 'string')
+                is_required = prop_info.get('required', False)
+                default = prop_info.get('default')
+                
+                if default is not None:
+                    python_example += f'        "{prop_name}": {repr(default)},  # {prop_type}\n'
+                elif is_required:
+                    python_example += f'        "{prop_name}": "value",  # {prop_type} (required)\n'
+                else:
+                    python_example += f'        # "{prop_name}": "value",  # {prop_type} (optional)\n'
+    
+    python_example += """    }
+)
+print(response)
+"""
+    
+    # JavaScript example
+    js_example = f"""// JavaScript example
+const response = await connector.sendEvent({{
+    event_name: "{event_name}",
+    destination_id: "mod:openagents.mods.{event.get('mod_id', 'unknown')}",
+    payload: {{
+        // Add your payload here based on the schema
+"""
+    
+    if request_schema and 'properties' in request_schema:
+        for prop_name, prop_info in request_schema['properties'].items():
+            if isinstance(prop_info, dict):
+                prop_type = prop_info.get('type', 'string')
+                is_required = prop_info.get('required', False)
+                default = prop_info.get('default')
+                
+                if default is not None:
+                    js_example += f'        {prop_name}: {repr(default)},  // {prop_type}\n'
+                elif is_required:
+                    js_example += f'        {prop_name}: "value",  // {prop_type} (required)\n'
+                else:
+                    js_example += f'        // {prop_name}: "value",  // {prop_type} (optional)\n'
+    
+    js_example += """    }
+});
+console.log(response);
+"""
+    
+    return {
+        "python": python_example,
+        "javascript": js_example,
+    }
 
 
 # Convenience function for creating HTTP transport
