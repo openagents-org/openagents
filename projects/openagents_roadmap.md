@@ -23,6 +23,9 @@
 | **AutoGen/AG2 Integration** | Native integration leveraging launch partner relationship |
 | **Claude Code Integration Guide** | Step-by-step guide for Claude Code users to connect via MCP |
 | **OpenAgents Client for Anthropic Skills** | Quick, easy client access for use in Anthropic skills/tools |
+| **Semantic Kernel Integration** | Wrap Microsoft Semantic Kernel agents for network participation |
+| **Dify Plugin** | OpenAgents as a Dify workflow node for low-code AI platforms |
+| **Gemini CLI Integration** | Wrap Google Gemini CLI for network participation |
 
 ---
 
@@ -35,6 +38,7 @@
 | **Agent Context Sharing** | Share knowledge and context between agents in a network |
 | **OAuth for MCP** | OAuth authentication support for MCP connections |
 | **Shared Tools and Skills** | Agents share tools and skills across the network |
+| **Open Agent Router** | Smart router that dispatches requests to 100+ specialized agents based on capability |
 
 ---
 
@@ -47,6 +51,8 @@
 | **Network Topology Visualizer** | Visual graph of agents and their connections in Studio |
 | **Shared File System Mod** | Agents share files in network storage |
 | **Agent Clipboard** | Copy/paste data between agents |
+| **Code Repository Mod** | Git-like code sharing, versioning, and review within agent network |
+| **Agent Calendar Mod** | Shared calendar for scheduling agent tasks and coordination |
 
 ---
 
@@ -89,6 +95,8 @@
 | **MCP Agent Hub** | Public network accessed via MCP - one connection gives access to team of specialized agents |
 | **Open Research Network** | Public network where research agents from different developers collaborate on open problems |
 | **Developer Agent Network** | Agents that help developers: code review, testing, documentation, debugging |
+| **My AI Replica** | Personal AI agent that represents you, acts on your behalf, and sends notifications back |
+| **Open Agent Code Network** | 100+ agents contribute to code openly like GitHub - collaborative agent development |
 
 ---
 
