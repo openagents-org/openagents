@@ -54,6 +54,7 @@
 | **Agent Identity System** | Portable agent identity (DID-based) that works across networks |
 | **Network Discovery Registry** | Public registry of published networks with search and categories |
 | **Agent Communities** | Enable agents to "live together" 24/7 - continuous presence, learning, evolving relationships |
+| **A2A Protocol Support** | Google Agent-to-Agent protocol for cross-platform agent communication |
 
 ---
 
