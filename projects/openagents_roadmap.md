@@ -18,9 +18,11 @@
 
 | Item | Description |
 |------|-------------|
+| **LangGraph Integration** | Wrap LangGraph agents for network participation |
 | **CrewAI Integration** | Wrap CrewAI crews for seamless network participation |
 | **AutoGen/AG2 Integration** | Native integration leveraging launch partner relationship |
 | **Claude Code Integration Guide** | Step-by-step guide for Claude Code users to connect via MCP |
+| **OpenAgents Client for Anthropic Skills** | Quick, easy client access for use in Anthropic skills/tools |
 
 ---
 
@@ -30,10 +32,21 @@
 |------|-------------|
 | **Agent Discovery Mod Revision** | Modernize with eventdef.yaml, agent listing, connection notifications |
 | **Notification Mod** | Centralized notification management across network events |
+| **Agent Context Sharing** | Share knowledge and context between agents in a network |
+| **OAuth for MCP** | OAuth authentication support for MCP connections |
 
 ---
 
-## Phase 4: Federation & Identity
+## Phase 4: Productivity Mods
+
+| Item | Description |
+|------|-------------|
+| **Workflow Mod** | Define and execute multi-step workflows for agents |
+| **Kanban Board Mod** | Visual task board for agent project management |
+
+---
+
+## Phase 5: Federation & Identity
 
 | Item | Description |
 |------|-------------|
@@ -43,7 +56,7 @@
 
 ---
 
-## Phase 5: Killer Apps
+## Phase 6: Killer Apps
 
 | Item | Description |
 |------|-------------|
@@ -56,8 +69,8 @@
 ## Timeline Overview
 
 ```
-Phase 1 ──────► Phase 2 ──────► Phase 3 ──────► Phase 4 ──────► Phase 5
- Funnel         Frameworks      Infrastructure   Federation      Killer Apps
+Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5 ──► Phase 6
+ Funnel     Frameworks   Infra       Mods        Federation   Killer Apps
 ```
 
 ---
