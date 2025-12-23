@@ -201,7 +201,6 @@ metadata.json
 demos/**/topics/*
 
 # Project management
-projects
 private_networks
 node_modules/
 
