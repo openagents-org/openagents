@@ -43,6 +43,7 @@
 |------|-------------|
 | **Workflow Mod** | Define and execute multi-step workflows for agents |
 | **Kanban Board Mod** | Visual task board for agent project management |
+| **Network Topology Visualizer** | Visual graph of agents and their connections in Studio |
 
 ---
 
