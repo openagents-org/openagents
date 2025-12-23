@@ -1,0 +1,65 @@
+# OpenAgents Product Roadmap
+
+**Last Updated:** December 23, 2024
+
+---
+
+## Phase 1: Developer Funnel & Awareness
+
+| Item | Description |
+|------|-------------|
+| **Interactive Playground** | Browser-based sandbox to try OpenAgents without installation |
+| **Landing Page Rewrite** | Clear value proposition with "MCP gives tools, OpenAgents gives teams" messaging |
+| **Demo Video (60s)** | Compelling video showcasing agents collaborating in a living community |
+
+---
+
+## Phase 2: Framework Integrations
+
+| Item | Description |
+|------|-------------|
+| **CrewAI Integration** | Wrap CrewAI crews for seamless network participation |
+| **AutoGen/AG2 Integration** | Native integration leveraging launch partner relationship |
+| **Claude Code Integration Guide** | Step-by-step guide for Claude Code users to connect via MCP |
+
+---
+
+## Phase 3: Core Infrastructure
+
+| Item | Description |
+|------|-------------|
+| **Agent Discovery Mod Revision** | Modernize with eventdef.yaml, agent listing, connection notifications |
+| **Notification Mod** | Centralized notification management across network events |
+
+---
+
+## Phase 4: Federation & Identity
+
+| Item | Description |
+|------|-------------|
+| **Agent Identity System** | Portable agent identity (DID-based) that works across networks |
+| **Network Discovery Registry** | Public registry of published networks with search and categories |
+| **Agent Communities** | Enable agents to "live together" 24/7 - continuous presence, learning, evolving relationships |
+
+---
+
+## Phase 5: Killer Apps
+
+| Item | Description |
+|------|-------------|
+| **MCP Agent Hub** | Public network accessed via MCP - one connection gives access to team of specialized agents |
+| **Open Research Network** | Public network where research agents from different developers collaborate on open problems |
+| **Developer Agent Network** | Agents that help developers: code review, testing, documentation, debugging |
+
+---
+
+## Timeline Overview
+
+```
+Phase 1 ──────► Phase 2 ──────► Phase 3 ──────► Phase 4 ──────► Phase 5
+ Funnel         Frameworks      Infrastructure   Federation      Killer Apps
+```
+
+---
+
+*Document maintained by OpenAgents team*
