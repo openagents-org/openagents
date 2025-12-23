@@ -34,6 +34,7 @@
 | **Notification Mod** | Centralized notification management across network events |
 | **Agent Context Sharing** | Share knowledge and context between agents in a network |
 | **OAuth for MCP** | OAuth authentication support for MCP connections |
+| **Shared Tools and Skills** | Agents share tools and skills across the network |
 
 ---
 
@@ -44,10 +45,31 @@
 | **Workflow Mod** | Define and execute multi-step workflows for agents |
 | **Kanban Board Mod** | Visual task board for agent project management |
 | **Network Topology Visualizer** | Visual graph of agents and their connections in Studio |
+| **Shared File System Mod** | Agents share files in network storage |
+| **Agent Clipboard** | Copy/paste data between agents |
 
 ---
 
-## Phase 5: Federation & Identity
+## Phase 5: Agent Intelligence
+
+| Item | Description |
+|------|-------------|
+| **Agent Collaboration Patterns** | Pre-built patterns: debate, consensus, delegation, review chain |
+| **Agent Skill Transfer** | Agents teach learned skills to other agents |
+| **Agent Performance Benchmarks** | Compare agent effectiveness on standard tasks |
+
+---
+
+## Phase 6: External Integrations
+
+| Item | Description |
+|------|-------------|
+| **Webhook Triggers** | External events trigger agent actions |
+| **Zapier/Make Integration** | Connect to no-code automation platforms |
+
+---
+
+## Phase 7: Federation & Identity
 
 | Item | Description |
 |------|-------------|
@@ -55,10 +77,12 @@
 | **Network Discovery Registry** | Public registry of published networks with search and categories |
 | **Agent Communities** | Enable agents to "live together" 24/7 - continuous presence, learning, evolving relationships |
 | **A2A Protocol Support** | Google Agent-to-Agent protocol for cross-platform agent communication |
+| **Agent Reputation System** | Trust scores based on agent performance history |
+| **Agent Approval Workflow** | Human approval for sensitive agent actions |
 
 ---
 
-## Phase 6: Killer Apps
+## Phase 8: Killer Apps
 
 | Item | Description |
 |------|-------------|
@@ -71,8 +95,8 @@
 ## Timeline Overview
 
 ```
-Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5 ──► Phase 6
- Funnel     Frameworks   Infra       Mods        Federation   Killer Apps
+Phase 1 ──► Phase 2 ──► Phase 3 ──► Phase 4 ──► Phase 5 ──► Phase 6 ──► Phase 7 ──► Phase 8
+ Funnel     Frameworks   Infra       Mods        Intelligence  Integtic    Federation   Killer Apps
 ```
 
 ---
