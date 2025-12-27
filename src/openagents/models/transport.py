@@ -20,6 +20,7 @@ class TransportType(str, Enum):
     WEBRTC = "webrtc"
     HTTP = "http"
     MCP = "mcp"
+    A2A = "a2a"
 
 
 class ConnectionState(Enum):
