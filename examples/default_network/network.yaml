@@ -19,9 +19,6 @@ network:
         serve_studio: true
         # Serve A2A protocol at /a2a endpoint
         serve_a2a: true
-        a2a_agent:
-          name: "DefaultNetwork"
-          description: "OpenAgents default network with A2A support"
     - type: "grpc"
       config:
         port: 8600
@@ -38,6 +35,12 @@ network:
     - type: "mcp"
       config:
         port: null
+    - type: "a2a"
+      config:
+        port: null  # A2A served via HTTP /a2a, no standalone port
+        agent:
+          name: "DefaultNetwork"
+          description: "OpenAgents default network with A2A support"
 
   manifest_transport: "http"
   recommended_transport: "grpc"

@@ -126,7 +126,8 @@ class HttpTransport(Transport):
         # A2A serving configuration (enabled via serve_a2a: true)
         self._serve_a2a = self.config.get("serve_a2a", False)
         self._a2a_task_store: Optional[TaskStore] = None
-        self._a2a_agent_config: Dict[str, Any] = self.config.get("a2a_agent", {})
+        # A2A agent config can be specified directly or read from A2A transport config
+        self._a2a_agent_config_override: Dict[str, Any] = self.config.get("a2a_agent", {})
         self._a2a_auth_config: Dict[str, Any] = self.config.get("a2a_auth", {})
 
         self.workspace_path = workspace_path  # Workspace path for LLM logs API
@@ -2790,10 +2791,35 @@ class HttpTransport(Transport):
         """Handle A2A CORS preflight requests."""
         return web.Response()
 
+    def _get_a2a_agent_config(self) -> Dict[str, Any]:
+        """Get A2A agent config from HTTP config override or A2A transport config."""
+        # First check HTTP transport's direct override
+        if self._a2a_agent_config_override:
+            return self._a2a_agent_config_override
+
+        # Then check network's A2A transport config
+        if self.network_instance:
+            network_config = getattr(self.network_instance, "config", None)
+            if network_config:
+                transports = getattr(network_config, "transports", []) or []
+                for transport in transports:
+                    if isinstance(transport, dict):
+                        if transport.get("type") == "a2a":
+                            config = transport.get("config", {})
+                            return config.get("agent", {})
+                    else:
+                        transport_type = getattr(transport, "type", None)
+                        if transport_type == "a2a":
+                            config = getattr(transport, "config", {}) or {}
+                            return config.get("agent", {})
+
+        return {}
+
     async def _handle_a2a_info(self, request: web.Request) -> web.Response:
         """Handle A2A info endpoint."""
+        agent_config = self._get_a2a_agent_config()
         return web.json_response({
-            "name": self._a2a_agent_config.get("name", "OpenAgents A2A"),
+            "name": agent_config.get("name", "OpenAgents A2A"),
             "protocol": "a2a",
             "protocolVersion": "0.3",
             "status": "running",
@@ -2808,13 +2834,15 @@ class HttpTransport(Transport):
 
     def _a2a_generate_agent_card(self) -> AgentCard:
         """Generate Agent Card with dynamically collected skills."""
+        agent_config = self._get_a2a_agent_config()
+
         skills = []
         skills.extend(self._a2a_collect_skills_from_agents())
         skills.extend(self._a2a_collect_skills_from_mods())
 
         # Build provider info if configured
         provider = None
-        provider_config = self._a2a_agent_config.get("provider")
+        provider_config = agent_config.get("provider")
         if provider_config:
             provider = AgentProvider(
                 organization=provider_config.get("organization", "OpenAgents"),
@@ -2822,14 +2850,14 @@ class HttpTransport(Transport):
             )
 
         # Determine URL - use configured URL or derive from listen address
-        url = self._a2a_agent_config.get(
+        url = agent_config.get(
             "url", f"http://{self._listen_host}:{self._listen_port}/a2a"
         )
 
         return AgentCard(
-            name=self._a2a_agent_config.get("name", "OpenAgents Network"),
-            version=self._a2a_agent_config.get("version", "1.0.0"),
-            description=self._a2a_agent_config.get(
+            name=agent_config.get("name", "OpenAgents Network"),
+            version=agent_config.get("version", "1.0.0"),
+            description=agent_config.get(
                 "description", "OpenAgents A2A Server"
             ),
             url=url,
