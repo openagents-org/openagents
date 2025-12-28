@@ -166,11 +166,13 @@ class TestSkillCollection:
                 }
             ]
         }
+        mock_agent_conn.is_remote = MagicMock(return_value=False)
         mock_topology.agent_registry = {"agent-1": mock_agent_conn}
+        mock_topology.get_all_remote_skills = MagicMock(return_value=[])
         mock_network.topology = mock_topology
 
         transport = A2ATransport(network=mock_network)
-        skills = transport._collect_skills_from_agents()
+        skills = transport._collect_skills_from_local_agents()
 
         assert len(skills) == 1
         assert skills[0].id == "agent-1.translate"
@@ -744,7 +746,9 @@ class TestA2AAgentConnectivity(AioHTTPTestCase):
         data = await resp.json()
         assert "result" in data
         assert data["result"]["success"] is False
-        assert data["result"]["error"] == "Agent not found"
+        # Error can be either "Agent not found or not a remote agent" (when topology exists)
+        # or "Network topology not available" (when no network)
+        assert "error" in data["result"]
 
     @unittest_run_loop
     async def test_agents_withdraw_missing_id(self):

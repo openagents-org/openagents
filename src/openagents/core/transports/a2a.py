@@ -36,14 +36,9 @@ from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from aiohttp import web
 
 from .base import Transport
-from openagents.models.transport import TransportType, AgentConnection
+from openagents.models.transport import TransportType, AgentConnection, RemoteAgentStatus
 from openagents.models.event import Event
 from openagents.models.event_response import EventResponse
-from openagents.core.remote_agent_registry import (
-    RemoteAgentRegistry,
-    RemoteAgentEntry,
-    RemoteAgentStatus,
-)
 from openagents.models.a2a import (
     AgentCard,
     AgentSkill,
@@ -109,15 +104,13 @@ class A2ATransport(Transport):
         config: Optional[Dict[str, Any]] = None,
         network: Optional["AgentNetwork"] = None,
         task_store: Optional[TaskStore] = None,
-        remote_registry: Optional[RemoteAgentRegistry] = None,
     ):
         """Initialize A2A transport.
 
         Args:
             config: Transport configuration
-            network: The network instance (for skill collection)
+            network: The network instance (for skill collection and remote agent registry)
             task_store: Optional custom task store (defaults to in-memory)
-            remote_registry: Optional remote agent registry (created if not provided)
         """
         super().__init__(TransportType.A2A, config, is_notifiable=True)
 
@@ -133,13 +126,6 @@ class A2ATransport(Transport):
 
         # Authentication configuration
         self.auth_config = self.config.get("auth", {})
-
-        # Remote agent registry
-        remote_config = self.config.get("remote_agents", {})
-        self.remote_registry = remote_registry or RemoteAgentRegistry(
-            config=remote_config,
-            event_callback=self._handle_registry_event,
-        )
 
         # HTTP server components
         self.app = web.Application(middlewares=[self._cors_middleware])
@@ -274,7 +260,14 @@ class A2ATransport(Transport):
         Returns:
             List of AgentSkill objects from remote agent cards
         """
-        return self.remote_registry.get_all_skills()
+        if not self._network:
+            return []
+
+        topology = getattr(self._network, "topology", None)
+        if not topology:
+            return []
+
+        return topology.get_all_remote_skills()
 
     def _collect_skills_from_mods(self) -> List[AgentSkill]:
         """Collect skills from loaded mods (tools).
@@ -703,23 +696,32 @@ class A2ATransport(Transport):
 
         logger.info(f"A2A agent announcement: {url} (preferred_id={preferred_id})")
 
+        # Get topology from network
+        topology = getattr(self._network, "topology", None) if self._network else None
+        if not topology:
+            return {
+                "success": False,
+                "url": url,
+                "error": "Network topology not available",
+            }
+
         try:
-            entry = await self.remote_registry.announce(
+            connection = await topology.announce_remote_agent(
                 url=url,
                 preferred_id=preferred_id,
                 metadata=metadata,
             )
 
-            logger.info(f"✅ Announced agent {entry.agent_id} at {url}")
+            logger.info(f"✅ Announced agent {connection.agent_id} at {url}")
 
             return {
                 "success": True,
-                "agent_id": entry.agent_id,
-                "url": entry.url,
+                "agent_id": connection.agent_id,
+                "url": connection.address,
                 "message": "Agent announced successfully",
                 "skills": [
                     {"id": s.id, "name": s.name}
-                    for s in (entry.agent_card.skills if entry.agent_card else [])
+                    for s in (connection.agent_card.skills if connection.agent_card else [])
                 ],
             }
 
@@ -756,7 +758,16 @@ class A2ATransport(Transport):
 
         logger.info(f"A2A agent withdrawal: {agent_id}")
 
-        success = await self.remote_registry.withdraw(agent_id)
+        # Get topology from network
+        topology = getattr(self._network, "topology", None) if self._network else None
+        if not topology:
+            return {
+                "success": False,
+                "agent_id": agent_id,
+                "error": "Network topology not available",
+            }
+
+        success = await topology.withdraw_remote_agent(agent_id)
 
         if success:
             logger.info(f"✅ Withdrawn agent {agent_id}")
@@ -769,7 +780,7 @@ class A2ATransport(Transport):
             return {
                 "success": False,
                 "agent_id": agent_id,
-                "error": "Agent not found",
+                "error": "Agent not found or not a remote agent",
             }
 
     async def _handle_list_agents(
@@ -795,40 +806,40 @@ class A2ATransport(Transport):
 
         agents = []
 
+        # Get topology from network
+        topology = getattr(self._network, "topology", None) if self._network else None
+
         # Collect local agents
-        if include_local and self._network:
-            topology = getattr(self._network, "topology", None)
-            if topology:
-                agent_registry = getattr(topology, "agent_registry", {})
-                for agent_id, agent_conn in agent_registry.items():
-                    transport_type = getattr(agent_conn, "transport_type", None)
-                    metadata = getattr(agent_conn, "metadata", {}) or {}
-                    agents.append({
-                        "agent_id": agent_id,
-                        "type": "local",
-                        "transport": transport_type.value if transport_type else "unknown",
-                        "status": "active",
-                        "skills": metadata.get("skills", []),
-                    })
+        if include_local and topology:
+            for conn in topology.get_local_agents():
+                transport_type = getattr(conn, "transport_type", None)
+                metadata = getattr(conn, "metadata", {}) or {}
+                agents.append({
+                    "agent_id": conn.agent_id,
+                    "type": "local",
+                    "transport": transport_type.value if transport_type else "unknown",
+                    "status": "active",
+                    "skills": metadata.get("skills", []),
+                })
 
         # Collect remote agents
-        if include_remote:
+        if include_remote and topology:
             status = RemoteAgentStatus(status_filter) if status_filter else None
-            remote_entries = await self.remote_registry.list(status=status)
+            remote_agents = topology.get_remote_agents(status=status)
 
-            for entry in remote_entries:
+            for conn in remote_agents:
                 agents.append({
-                    "agent_id": entry.agent_id,
+                    "agent_id": conn.agent_id,
                     "type": "remote",
                     "transport": "a2a",
-                    "url": entry.url,
-                    "status": entry.status.value,
+                    "url": conn.address,
+                    "status": conn.remote_status.value if conn.remote_status else "unknown",
                     "skills": [
                         {"id": s.id, "name": s.name}
-                        for s in (entry.agent_card.skills if entry.agent_card else [])
+                        for s in (conn.agent_card.skills if conn.agent_card else [])
                     ],
-                    "announced_at": entry.announced_at,
-                    "last_seen": entry.last_seen,
+                    "announced_at": conn.announced_at,
+                    "last_seen": conn.last_seen,
                 })
 
         return {
@@ -1046,8 +1057,11 @@ class A2ATransport(Transport):
             self.site = web.TCPSite(self.runner, self.host, self.port)
             await self.site.start()
 
-            # Start remote agent registry background tasks
-            await self.remote_registry.start()
+            # Set up remote event callback on topology
+            if self._network:
+                topology = getattr(self._network, "topology", None)
+                if topology:
+                    topology.set_remote_event_callback(self._handle_registry_event)
 
             self.is_initialized = True
             self.is_listening = True
@@ -1072,9 +1086,6 @@ class A2ATransport(Transport):
             True if shutdown succeeded
         """
         try:
-            # Stop remote agent registry background tasks
-            await self.remote_registry.stop()
-
             if self.site:
                 await self.site.stop()
                 self.site = None

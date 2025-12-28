@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from .event import Event
+from .a2a import AgentCard
 from dataclasses import dataclass, field
 
 
@@ -75,8 +76,21 @@ class ConnectionInfo(BaseModel):
     )
 
 
+class RemoteAgentStatus(str, Enum):
+    """Status of a remote A2A agent."""
+
+    ACTIVE = "active"          # Reachable, card is fresh
+    STALE = "stale"            # Failed health check, may be temporarily down
+    REFRESHING = "refreshing"  # Card refresh in progress
+
+
 class AgentConnection(BaseModel):
-    """Information about an agent in the network."""
+    """Information about an agent in the network.
+
+    This model supports both local agents (gRPC, WebSocket, HTTP) and
+    remote A2A agents. For remote agents, the optional A2A-specific
+    fields (agent_card, remote_status, etc.) are populated.
+    """
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -95,6 +109,33 @@ class AgentConnection(BaseModel):
     )
     address: Optional[str] = Field(None, description="Network address of the agent")
     role: Optional[str] = Field(None, description="Role of the agent in the network")
+
+    # A2A-specific fields (for remote agents)
+    agent_card: Optional[AgentCard] = Field(
+        None, description="Agent Card for remote A2A agents"
+    )
+    remote_status: Optional[RemoteAgentStatus] = Field(
+        None, description="Status of remote A2A agent (active, stale, refreshing)"
+    )
+    announced_at: Optional[float] = Field(
+        None, description="Timestamp when remote agent was announced"
+    )
+    last_health_check: Optional[float] = Field(
+        None, description="Timestamp of last health check"
+    )
+    failure_count: int = Field(
+        default=0, description="Number of consecutive failures for remote agent"
+    )
+
+    def is_remote(self) -> bool:
+        """Check if this is a remote A2A agent."""
+        return self.transport_type == TransportType.A2A and self.address is not None
+
+    def is_healthy(self) -> bool:
+        """Check if remote agent is healthy (active status)."""
+        if not self.is_remote():
+            return True  # Local agents are always considered healthy
+        return self.remote_status == RemoteAgentStatus.ACTIVE
 
 
 class TLSConfig(BaseModel):

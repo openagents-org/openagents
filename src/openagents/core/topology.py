@@ -3,23 +3,36 @@ Network topology abstraction layer for OpenAgents.
 
 This module provides the NetworkTopology abstraction and implementations
 for both centralized and decentralized network topologies.
+
+The topology layer manages both local agents (connected via gRPC, WebSocket, HTTP)
+and remote A2A agents (announced via the A2A protocol).
 """
 
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable, Dict, Any, List, Optional, Set
 import asyncio
+import hashlib
 import logging
+import re
 import time
 import uuid
+from urllib.parse import urlparse
+
+import aiohttp
 
 from openagents.config.globals import DEFAULT_TRANSPORT_ADDRESS
 from openagents.models.event import Event
+from openagents.models.a2a import AgentCard, AgentSkill
 
 from .transports import Transport, Message
-from openagents.models.transport import TransportType, AgentConnection
+from openagents.models.transport import TransportType, AgentConnection, RemoteAgentStatus
 from openagents.models.network_config import NetworkConfig, NetworkMode
 
 logger = logging.getLogger(__name__)
+
+
+# Type alias for event callbacks
+RegistryEventCallback = Callable[[str, Dict[str, Any]], Awaitable[None]]
 
 
 class NetworkTopology(ABC):
@@ -36,6 +49,25 @@ class NetworkTopology(ABC):
         # Agent group membership tracking
         # Maps agent_id -> group_name
         self.agent_group_membership: Dict[str, str] = {}
+
+        # Remote A2A agent tracking
+        # Maps URL -> agent_id for quick lookup
+        self._url_to_agent_id: Dict[str, str] = {}
+
+        # Remote agent configuration (can be overridden by config)
+        remote_config = getattr(config, 'remote_agents', {}) or {}
+        self.card_refresh_interval = remote_config.get("card_refresh_interval", 300)
+        self.health_check_interval = remote_config.get("health_check_interval", 60)
+        self.max_failures_before_stale = remote_config.get("max_failures_before_stale", 3)
+        self.remove_after_failures = remote_config.get("remove_after_failures", 10)
+        self.request_timeout = remote_config.get("request_timeout", 10)
+
+        # Event callback for remote agent events
+        self._remote_event_callback: Optional[RegistryEventCallback] = None
+
+        # Background tasks for remote agent management
+        self._card_refresh_task: Optional[asyncio.Task] = None
+        self._remote_health_check_task: Optional[asyncio.Task] = None
 
     @abstractmethod
     async def initialize(self) -> bool:
@@ -306,11 +338,533 @@ class NetworkTopology(ABC):
             transport_type = connection.transport_type
             if transport_type in self.transports:
                 self.transports[transport_type].cleanup_agent(agent_id)
+
+            # Clean up URL mapping for remote agents
+            if connection.is_remote() and connection.address:
+                if connection.address in self._url_to_agent_id:
+                    del self._url_to_agent_id[connection.address]
+
             del self.agent_registry[agent_id]
 
         # Remove from group membership
         if agent_id in self.agent_group_membership:
             del self.agent_group_membership[agent_id]
+
+    # =========================================================================
+    # Remote A2A Agent Management
+    # =========================================================================
+
+    def set_remote_event_callback(self, callback: RegistryEventCallback) -> None:
+        """Set callback for remote agent events.
+
+        Args:
+            callback: Async callback for registry events
+        """
+        self._remote_event_callback = callback
+
+    async def announce_remote_agent(
+        self,
+        url: str,
+        preferred_id: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> AgentConnection:
+        """Announce a remote A2A agent to the registry.
+
+        This is the A2A-aligned way for external agents to join the network.
+        The agent provides its A2A endpoint URL, and the network fetches its
+        Agent Card to discover its capabilities.
+
+        Args:
+            url: The A2A endpoint URL of the remote agent
+            preferred_id: Optional preferred agent ID
+            metadata: Optional additional metadata
+
+        Returns:
+            The created AgentConnection
+
+        Raises:
+            ValueError: If URL is invalid or agent ID conflicts
+            ConnectionError: If unable to fetch Agent Card
+        """
+        # Normalize URL
+        url = self._normalize_url(url)
+
+        # Check if URL already registered
+        if url in self._url_to_agent_id:
+            existing_id = self._url_to_agent_id[url]
+            logger.info(f"Agent at {url} already registered as {existing_id}")
+            return self.agent_registry[existing_id]
+
+        # Resolve agent ID
+        agent_id = self._resolve_agent_id(url, preferred_id)
+
+        # Check for ID conflicts
+        if agent_id in self.agent_registry:
+            # ID conflict - generate unique ID
+            agent_id = self._make_unique_id(agent_id)
+
+        # Fetch Agent Card
+        agent_card = await self.fetch_agent_card(url)
+
+        # Extract capabilities from card
+        capabilities = self._extract_capabilities_from_card(agent_card)
+
+        # Create AgentConnection for remote agent
+        current_time = time.time()
+        connection = AgentConnection(
+            agent_id=agent_id,
+            transport_type=TransportType.A2A,
+            address=url,
+            capabilities=capabilities,
+            metadata=metadata or {},
+            last_seen=current_time,
+            agent_card=agent_card,
+            remote_status=RemoteAgentStatus.ACTIVE,
+            announced_at=current_time,
+            last_health_check=current_time,
+            failure_count=0,
+        )
+
+        # Store in registry
+        self.agent_registry[agent_id] = connection
+        self._url_to_agent_id[url] = agent_id
+
+        logger.info(f"Announced remote agent: {agent_id} at {url}")
+
+        # Emit event
+        await self._emit_remote_event("agent.remote.announced", {
+            "agent_id": agent_id,
+            "url": url,
+        })
+
+        return connection
+
+    async def withdraw_remote_agent(self, agent_id: str) -> bool:
+        """Withdraw a remote agent from the registry.
+
+        Args:
+            agent_id: The agent ID to withdraw
+
+        Returns:
+            True if agent was withdrawn, False if not found
+        """
+        if agent_id not in self.agent_registry:
+            return False
+
+        connection = self.agent_registry[agent_id]
+
+        # Only allow withdrawing remote agents
+        if not connection.is_remote():
+            logger.warning(f"Cannot withdraw non-remote agent: {agent_id}")
+            return False
+
+        # Clean up URL mapping
+        if connection.address and connection.address in self._url_to_agent_id:
+            del self._url_to_agent_id[connection.address]
+
+        del self.agent_registry[agent_id]
+
+        logger.info(f"Withdrawn remote agent: {agent_id}")
+
+        await self._emit_remote_event("agent.remote.withdrawn", {
+            "agent_id": agent_id,
+        })
+
+        return True
+
+    def get_remote_agents(
+        self, status: Optional[RemoteAgentStatus] = None
+    ) -> List[AgentConnection]:
+        """Get all remote A2A agents.
+
+        Args:
+            status: Optional status filter
+
+        Returns:
+            List of remote agent connections
+        """
+        agents = [
+            conn for conn in self.agent_registry.values()
+            if conn.is_remote()
+        ]
+        if status:
+            agents = [a for a in agents if a.remote_status == status]
+        return agents
+
+    def get_local_agents(self) -> List[AgentConnection]:
+        """Get all local agents (non-A2A).
+
+        Returns:
+            List of local agent connections
+        """
+        return [
+            conn for conn in self.agent_registry.values()
+            if not conn.is_remote()
+        ]
+
+    def get_agent_by_url(self, url: str) -> Optional[AgentConnection]:
+        """Get a remote agent by URL.
+
+        Args:
+            url: The A2A endpoint URL
+
+        Returns:
+            The agent connection if found, None otherwise
+        """
+        url = self._normalize_url(url)
+        agent_id = self._url_to_agent_id.get(url)
+        if agent_id:
+            return self.agent_registry.get(agent_id)
+        return None
+
+    def get_all_remote_skills(self) -> List[AgentSkill]:
+        """Get all skills from all active remote agents.
+
+        Returns:
+            List of AgentSkill objects with agent-prefixed IDs
+        """
+        skills = []
+        for conn in self.agent_registry.values():
+            if not conn.is_remote():
+                continue
+            if conn.remote_status != RemoteAgentStatus.ACTIVE:
+                continue
+            if not conn.agent_card:
+                continue
+
+            for skill in conn.agent_card.skills:
+                # Create skill with prefixed ID
+                prefixed_skill = AgentSkill(
+                    id=f"remote.{conn.agent_id}.{skill.id}",
+                    name=skill.name,
+                    description=skill.description,
+                    tags=["remote", conn.agent_id] + skill.tags,
+                    input_modes=skill.input_modes,
+                    output_modes=skill.output_modes,
+                    examples=skill.examples,
+                )
+                skills.append(prefixed_skill)
+
+        return skills
+
+    async def fetch_agent_card(self, url: str) -> AgentCard:
+        """Fetch an Agent Card from a remote URL.
+
+        Args:
+            url: The A2A endpoint URL
+
+        Returns:
+            The fetched AgentCard
+
+        Raises:
+            ConnectionError: If unable to fetch or parse the card
+        """
+        card_url = self._get_agent_card_url(url)
+
+        try:
+            timeout = aiohttp.ClientTimeout(total=self.request_timeout)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(card_url) as response:
+                    if response.status != 200:
+                        raise ConnectionError(
+                            f"Failed to fetch Agent Card: HTTP {response.status}"
+                        )
+
+                    data = await response.json()
+                    card = AgentCard(**data)
+
+                    logger.debug(f"Fetched Agent Card from {card_url}")
+                    return card
+
+        except aiohttp.ClientError as e:
+            raise ConnectionError(f"Failed to fetch Agent Card: {e}")
+        except Exception as e:
+            raise ConnectionError(f"Failed to parse Agent Card: {e}")
+
+    async def refresh_agent_card(self, agent_id: str) -> Optional[AgentCard]:
+        """Refresh the Agent Card for a remote agent.
+
+        Args:
+            agent_id: The agent ID to refresh
+
+        Returns:
+            The refreshed AgentCard, or None if agent not found
+        """
+        connection = self.agent_registry.get(agent_id)
+        if not connection or not connection.is_remote():
+            return None
+
+        # Mark as refreshing
+        connection.remote_status = RemoteAgentStatus.REFRESHING
+
+        try:
+            card = await self.fetch_agent_card(connection.address)
+
+            connection.agent_card = card
+            connection.last_health_check = time.time()
+            connection.remote_status = RemoteAgentStatus.ACTIVE
+            connection.failure_count = 0
+            connection.capabilities = self._extract_capabilities_from_card(card)
+
+            await self._emit_remote_event("agent.remote.card_refreshed", {
+                "agent_id": agent_id,
+            })
+
+            return card
+
+        except Exception as e:
+            logger.warning(f"Failed to refresh card for {agent_id}: {e}")
+            await self._handle_remote_failure(agent_id)
+            return None
+
+    async def health_check_remote_agent(self, agent_id: str) -> bool:
+        """Perform a health check on a remote agent.
+
+        Args:
+            agent_id: The agent ID to check
+
+        Returns:
+            True if agent is healthy, False otherwise
+        """
+        connection = self.agent_registry.get(agent_id)
+        if not connection or not connection.is_remote():
+            return False
+
+        try:
+            # Try to fetch the info endpoint or agent card
+            timeout = aiohttp.ClientTimeout(total=self.request_timeout)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.get(connection.address) as response:
+                    if response.status == 200:
+                        connection.last_seen = time.time()
+                        connection.last_health_check = time.time()
+
+                        if connection.remote_status == RemoteAgentStatus.STALE:
+                            connection.remote_status = RemoteAgentStatus.ACTIVE
+                            connection.failure_count = 0
+                            await self._emit_remote_event("agent.remote.recovered", {
+                                "agent_id": agent_id,
+                                "url": connection.address,
+                            })
+                        return True
+        except Exception as e:
+            logger.debug(f"Health check failed for {agent_id}: {e}")
+
+        await self._handle_remote_failure(agent_id)
+        return False
+
+    async def _handle_remote_failure(self, agent_id: str) -> None:
+        """Handle a failure for a remote agent."""
+        connection = self.agent_registry.get(agent_id)
+        if not connection or not connection.is_remote():
+            return
+
+        connection.failure_count += 1
+
+        if connection.failure_count >= self.remove_after_failures:
+            # Remove agent
+            url = connection.address
+            if url and url in self._url_to_agent_id:
+                del self._url_to_agent_id[url]
+            del self.agent_registry[agent_id]
+
+            logger.warning(
+                f"Removed agent {agent_id} after {connection.failure_count} failures"
+            )
+            await self._emit_remote_event("agent.remote.withdrawn", {
+                "agent_id": agent_id,
+                "reason": "max_failures",
+            })
+
+        elif connection.failure_count >= self.max_failures_before_stale:
+            if connection.remote_status != RemoteAgentStatus.STALE:
+                connection.remote_status = RemoteAgentStatus.STALE
+
+                await self._emit_remote_event("agent.remote.unreachable", {
+                    "agent_id": agent_id,
+                    "url": connection.address,
+                    "failure_count": connection.failure_count,
+                })
+
+    async def _card_refresh_loop(self) -> None:
+        """Background loop for periodic card refresh."""
+        while self.is_running:
+            try:
+                await asyncio.sleep(self.card_refresh_interval)
+
+                current_time = time.time()
+                agents_to_refresh = []
+
+                for agent_id, conn in self.agent_registry.items():
+                    if not conn.is_remote():
+                        continue
+                    if conn.remote_status == RemoteAgentStatus.ACTIVE:
+                        last_refresh = conn.last_health_check or 0
+                        if current_time - last_refresh >= self.card_refresh_interval:
+                            agents_to_refresh.append(agent_id)
+
+                # Refresh cards in parallel
+                if agents_to_refresh:
+                    await asyncio.gather(
+                        *[self.refresh_agent_card(aid) for aid in agents_to_refresh],
+                        return_exceptions=True,
+                    )
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in card refresh loop: {e}")
+
+    async def _remote_health_check_loop(self) -> None:
+        """Background loop for periodic health checks of remote agents."""
+        while self.is_running:
+            try:
+                await asyncio.sleep(self.health_check_interval)
+
+                agent_ids = [
+                    agent_id for agent_id, conn in self.agent_registry.items()
+                    if conn.is_remote()
+                ]
+
+                # Health check in parallel
+                if agent_ids:
+                    await asyncio.gather(
+                        *[self.health_check_remote_agent(aid) for aid in agent_ids],
+                        return_exceptions=True,
+                    )
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in remote health check loop: {e}")
+
+    async def _emit_remote_event(self, event_name: str, data: Dict[str, Any]) -> None:
+        """Emit a remote agent registry event."""
+        if self._remote_event_callback:
+            try:
+                await self._remote_event_callback(event_name, data)
+            except Exception as e:
+                logger.debug(f"Remote event callback error: {e}")
+
+    def _normalize_url(self, url: str) -> str:
+        """Normalize a URL for consistent storage."""
+        # Ensure scheme
+        if not url.startswith(("http://", "https://")):
+            url = f"https://{url}"
+
+        # Remove trailing slash
+        url = url.rstrip("/")
+
+        return url
+
+    def _get_agent_card_url(self, url: str) -> str:
+        """Get the Agent Card URL for an endpoint."""
+        url = self._normalize_url(url)
+        return f"{url}/.well-known/agent.json"
+
+    def _resolve_agent_id(
+        self,
+        url: str,
+        preferred_id: Optional[str] = None,
+    ) -> str:
+        """Resolve the agent ID from URL and preferred ID.
+
+        Args:
+            url: The A2A endpoint URL
+            preferred_id: Optional preferred agent ID
+
+        Returns:
+            The resolved agent ID
+        """
+        if preferred_id:
+            # Sanitize preferred ID
+            return self._sanitize_id(preferred_id)
+
+        # Derive from URL
+        return self._derive_id_from_url(url)
+
+    def _derive_id_from_url(self, url: str) -> str:
+        """Derive an agent ID from a URL.
+
+        Examples:
+            https://translate.example.com → translate-example-com
+            https://api.agents.io/translator → api-agents-io-translator
+        """
+        parsed = urlparse(url)
+
+        # Combine host and path
+        parts = [parsed.netloc]
+        if parsed.path and parsed.path != "/":
+            path_parts = parsed.path.strip("/").split("/")
+            parts.extend(path_parts)
+
+        # Join and sanitize
+        raw_id = "-".join(parts)
+        return self._sanitize_id(raw_id)
+
+    def _sanitize_id(self, raw_id: str) -> str:
+        """Sanitize a string for use as agent ID."""
+        # Convert to lowercase
+        sanitized = raw_id.lower()
+
+        # Replace non-alphanumeric with dashes
+        sanitized = re.sub(r"[^a-z0-9]+", "-", sanitized)
+
+        # Remove leading/trailing dashes
+        sanitized = sanitized.strip("-")
+
+        # Limit length
+        if len(sanitized) > 64:
+            sanitized = sanitized[:64]
+
+        return sanitized or "agent"
+
+    def _make_unique_id(self, base_id: str) -> str:
+        """Make a unique ID by appending a hash suffix."""
+        # Use timestamp + random for uniqueness
+        unique_part = hashlib.md5(
+            f"{base_id}-{time.time()}".encode()
+        ).hexdigest()[:8]
+
+        return f"{base_id}-{unique_part}"
+
+    def _extract_capabilities_from_card(self, card: AgentCard) -> List[str]:
+        """Extract capabilities list from an Agent Card.
+
+        Args:
+            card: The AgentCard
+
+        Returns:
+            List of capability strings
+        """
+        capabilities = []
+
+        # Add skill IDs as capabilities
+        for skill in card.skills:
+            capabilities.append(f"skill:{skill.id}")
+
+        # Add card-level capabilities
+        if card.capabilities:
+            if card.capabilities.streaming:
+                capabilities.append("streaming")
+            if card.capabilities.push_notifications:
+                capabilities.append("push_notifications")
+            if card.capabilities.state_transition_history:
+                capabilities.append("state_history")
+
+        return capabilities
+
+    def remote_agent_count(self) -> int:
+        """Get the number of registered remote agents."""
+        return len([c for c in self.agent_registry.values() if c.is_remote()])
+
+    def active_remote_count(self) -> int:
+        """Get the number of active remote agents."""
+        return sum(
+            1 for c in self.agent_registry.values()
+            if c.is_remote() and c.remote_status == RemoteAgentStatus.ACTIVE
+        )
+
 
 class CentralizedTopology(NetworkTopology):
     """Centralized network topology using a coordinator/registry server."""
@@ -426,6 +980,10 @@ class CentralizedTopology(NetworkTopology):
             self.is_running = True
             self.heartbeat_task = asyncio.create_task(self._heartbeat_monitor())
 
+            # Start remote agent background tasks
+            self._card_refresh_task = asyncio.create_task(self._card_refresh_loop())
+            self._remote_health_check_task = asyncio.create_task(self._remote_health_check_loop())
+
             logger.info(
                 f"Centralized topology initialized with {len(self.transports)} transports"
             )
@@ -498,6 +1056,23 @@ class CentralizedTopology(NetworkTopology):
                 await self.heartbeat_task
             except asyncio.CancelledError:
                 pass
+
+        # Stop remote agent background tasks
+        if self._card_refresh_task:
+            self._card_refresh_task.cancel()
+            try:
+                await self._card_refresh_task
+            except asyncio.CancelledError:
+                pass
+            self._card_refresh_task = None
+
+        if self._remote_health_check_task:
+            self._remote_health_check_task.cancel()
+            try:
+                await self._remote_health_check_task
+            except asyncio.CancelledError:
+                pass
+            self._remote_health_check_task = None
 
         # Shutdown all transports (make a copy to avoid modification during iteration)
         for transport_type, transport in list(self.transports.items()):
