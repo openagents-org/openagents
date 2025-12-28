@@ -13,6 +13,10 @@ network:
         port: 8700
         serve_studio: true
         serve_mcp: true
+        serve_a2a: true
+        a2a_agent:
+          name: "InformationHub"
+          description: "Information hub with A2A support"
     - type: "grpc"
       config:
         port: 8600
