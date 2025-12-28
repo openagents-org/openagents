@@ -622,20 +622,7 @@ export const NotificationItem: React.FC<Props> = ({ notification }) => {
 
 ---
 
-## 7. Timeline
-
-| Phase | Scope | Duration |
-|-------|-------|----------|
-| Phase 1 | User Dashboard (basic) | 1 week |
-| Phase 2 | Notification Bell + Dropdown | 1 week |
-| Phase 3 | Full Notification Page | 0.5 week |
-| Phase 4 | Read/Unread Persistence | 0.5 week |
-| Phase 5 | Real-time Updates | 1 week |
-| **Total** | | **4 weeks** |
-
----
-
-## 8. Future Enhancements
+## 7. Future Enhancements
 
 - Desktop push notifications (browser API)
 - Mobile push notifications (if PWA)

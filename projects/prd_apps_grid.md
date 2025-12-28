@@ -441,18 +441,4 @@ interface UnreadCountsResponse {
 
 ---
 
-## 11. Timeline
-
-| Task | Duration |
-|------|----------|
-| Basic AppsGrid component | 2 days |
-| AppCard with badges | 1 day |
-| Unread count integration | 2 days |
-| Pin/reorder functionality | 2 days |
-| Responsive styling | 1 day |
-| Testing & polish | 1 day |
-| **Total** | **9 days** |
-
----
-
 *Document maintained by OpenAgents Team*
