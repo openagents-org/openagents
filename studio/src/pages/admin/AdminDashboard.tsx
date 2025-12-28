@@ -57,6 +57,7 @@ interface TransportInfo {
   host?: string;
   mcp_enabled?: boolean;
   studio_enabled?: boolean;
+  a2a_enabled?: boolean;
   [key: string]: any;
 }
 
@@ -210,9 +211,10 @@ const AdminDashboard: React.FC = () => {
         port: t.config?.port || t.port || 0,
         enabled: t.enabled !== false,
         host: t.config?.host || t.host || '0.0.0.0',
-        // Check for both naming conventions: serve_mcp/serve_studio (http.py) and mcp_enabled/studio_enabled
+        // Check for both naming conventions: serve_mcp/serve_studio/serve_a2a (http.py) and mcp_enabled/studio_enabled/a2a_enabled
         mcp_enabled: t.config?.serve_mcp || t.config?.mcp_enabled || t.serve_mcp || t.mcp_enabled,
         studio_enabled: t.config?.serve_studio || t.config?.studio_enabled || t.serve_studio || t.studio_enabled,
+        a2a_enabled: t.config?.serve_a2a || t.config?.a2a_enabled || t.serve_a2a || t.a2a_enabled,
         ...t.config,
       }));
       setTransports(transportList);
@@ -543,11 +545,16 @@ const AdminDashboard: React.FC = () => {
                         )}
 
                         {/* HTTP features shown as small badges */}
-                        {transport.type === 'http' && (transport.mcp_enabled || transport.studio_enabled) && (
+                        {transport.type === 'http' && (transport.mcp_enabled || transport.studio_enabled || transport.a2a_enabled) && (
                           <span className="flex items-center gap-1 ml-1 pl-1.5 border-l border-gray-300 dark:border-gray-600">
                             {transport.mcp_enabled && (
                               <span className="px-1 py-0.5 text-[10px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 rounded">
                                 MCP
+                              </span>
+                            )}
+                            {transport.a2a_enabled && (
+                              <span className="px-1 py-0.5 text-[10px] bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded">
+                                A2A
                               </span>
                             )}
                             {transport.studio_enabled && (

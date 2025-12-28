@@ -159,6 +159,7 @@
       "corsOrigins": "CORS 출처 (쉼표로 구분)",
       "corsPlaceholder": "*, http://localhost:3000",
       "serveMcp": "MCP 프로토콜 제공",
+      "serveA2a": "A2A 프로토콜 제공",
       "serveStudio": "Studio 프론트엔드 제공",
       "maxMessageSize": "최대 메시지 크기 (바이트)",
       "pingInterval": "Ping 간격 (밀리초)",

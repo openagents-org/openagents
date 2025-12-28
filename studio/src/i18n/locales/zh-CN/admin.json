@@ -179,6 +179,7 @@
       "corsOrigins": "CORS 来源（逗号分隔）",
       "corsPlaceholder": "*, http://localhost:3000",
       "serveMcp": "提供 MCP 协议",
+      "serveA2a": "提供 A2A 协议",
       "serveStudio": "提供 Studio 前端",
       "maxMessageSize": "最大消息大小（字节）",
       "pingInterval": "Ping 间隔（毫秒）",

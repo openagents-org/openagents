@@ -159,6 +159,7 @@
       "corsOrigins": "CORSオリジン（カンマ区切り）",
       "corsPlaceholder": "*, http://localhost:3000",
       "serveMcp": "MCPプロトコルを提供",
+      "serveA2a": "A2Aプロトコルを提供",
       "serveStudio": "Studioフロントエンドを提供",
       "maxMessageSize": "最大メッセージサイズ（バイト）",
       "pingInterval": "Ping間隔（ミリ秒）",

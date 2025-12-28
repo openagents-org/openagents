@@ -37,7 +37,7 @@ import {
 } from "lucide-react"
 
 interface TransportConfig {
-  type: "http" | "grpc" | "websocket" | "mcp"
+  type: "http" | "grpc" | "websocket" | "mcp" | "a2a"
   enabled: boolean
   port: number
   host: string
@@ -50,6 +50,7 @@ interface TransportConfig {
   maxBodySize?: number
   serveMcp?: boolean
   serveStudio?: boolean
+  serveA2a?: boolean
   maxMessageSize?: number
   keepAliveInterval?: number
   pingInterval?: number
@@ -130,6 +131,11 @@ const TransportConfigPage: React.FC = () => {
             t.serveStudio ||
             config.serve_studio ||
             config.serveStudio,
+          serveA2a:
+            t.serve_a2a ||
+            t.serveA2a ||
+            config.serve_a2a ||
+            config.serveA2a,
           maxMessageSize:
             t.max_message_size ||
             t.maxMessageSize ||
@@ -469,11 +475,16 @@ const TransportConfigPage: React.FC = () => {
 
                     {/* HTTP Features */}
                     {transport.type === "http" &&
-                      (transport.serveMcp || transport.serveStudio) && (
+                      (transport.serveMcp || transport.serveStudio || transport.serveA2a) && (
                         <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/50">
                           {transport.serveMcp && (
                             <Badge variant="info" appearance="light" size="sm">
                               MCP
+                            </Badge>
+                          )}
+                          {transport.serveA2a && (
+                            <Badge variant="success" appearance="light" size="sm">
+                              A2A
                             </Badge>
                           )}
                           {transport.serveStudio && (
@@ -657,6 +668,19 @@ const TransportEditForm: React.FC<TransportEditFormProps> = ({
                 />
                 <span className="text-sm text-gray-700 dark:text-gray-300">
                   {t("transports.edit.serveMcp")}
+                </span>
+              </label>
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.serveA2a || false}
+                  onChange={(e) =>
+                    setFormData({ ...formData, serveA2a: e.target.checked })
+                  }
+                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-green-600 focus:ring-green-500"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  {t("transports.edit.serveA2a")}
                 </span>
               </label>
               <label className="flex items-center gap-2.5 cursor-pointer">

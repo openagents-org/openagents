@@ -180,6 +180,7 @@
       "corsOrigins": "CORS Origins (comma-separated)",
       "corsPlaceholder": "*, http://localhost:3000",
       "serveMcp": "Serve MCP Protocol",
+      "serveA2a": "Serve A2A Protocol",
       "serveStudio": "Serve Studio Frontend",
       "maxMessageSize": "Max Message Size (bytes)",
       "pingInterval": "Ping Interval (ms)",
