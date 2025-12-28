@@ -74,7 +74,7 @@ interface OpenAgentsProviderProps {
 export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
   children,
 }) => {
-  const { agentName, selectedNetwork, getPasswordHash, agentGroup, setAgentGroup } = useAuthStore();
+  const { agentName, selectedNetwork, getPasswordHash, agentGroup, setAgentGroup, passwordHashEncrypted } = useAuthStore();
   const { selectChannel, selectDirectMessage } = useChatStore();
   const { setConnection, setupEventListeners, cleanupEventListeners } =
     useDocumentStore();
@@ -90,8 +90,11 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
     null
   );
 
-  // Clean up connector
-  const cleanUpConnector = useCallback(() => {
+  // Track the credentials used for the current connector to prevent unnecessary re-initialization
+  const currentCredentialsRef = useRef<string | null>(null);
+
+  // Clean up connector (optionally preserves credentials ref for re-initialization comparison)
+  const cleanUpConnector = useCallback((preserveCredentials: boolean = false) => {
     if (connectorRef.current) {
       console.log("🔧 Cleaning up OpenAgents connector");
       const connectorTemp = connectorRef.current;
@@ -115,6 +118,11 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
       // Cleanup document event listeners
       cleanupEventListeners();
 
+      // Only clear credentials if not preserving (e.g., during unmount)
+      if (!preserveCredentials) {
+        currentCredentialsRef.current = null;
+      }
+
       connectorTemp.disconnect().catch((error) => {
         console.warn("Error during connector cleanup:", error);
       });
@@ -134,15 +142,16 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
           isUsingModifiedId: connector.isUsingModifiedId(),
         });
 
-        // Fetch agent group from health data
+        // Fetch agent group from health data (only update if different to avoid re-initialization loop)
         try {
           const healthData = await connector.getNetworkHealth();
           const currentAgentId = connector.getAgentId();
           if (healthData && healthData.agents && healthData.agents[currentAgentId]) {
-            const agentGroup = healthData.agents[currentAgentId].group;
-            if (agentGroup) {
-              console.log(`👥 Agent group detected: ${agentGroup}`);
-              setAgentGroup(agentGroup);
+            const detectedGroup = healthData.agents[currentAgentId].group;
+            const currentGroup = useAuthStore.getState().agentGroup;
+            if (detectedGroup && detectedGroup !== currentGroup) {
+              console.log(`👥 Agent group detected: ${detectedGroup} (was: ${currentGroup})`);
+              setAgentGroup(detectedGroup);
             }
           }
         } catch (error) {
@@ -206,15 +215,16 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
           maxReconnectAttempts: undefined,
         });
 
-        // Re-fetch agent group after reconnection
+        // Re-fetch agent group after reconnection (only update if different to avoid re-initialization loop)
         try {
           const healthData = await connector.getNetworkHealth();
           const currentAgentId = connector.getAgentId();
           if (healthData && healthData.agents && healthData.agents[currentAgentId]) {
-            const agentGroup = healthData.agents[currentAgentId].group;
-            if (agentGroup) {
-              console.log(`👥 Agent group re-detected after reconnection: ${agentGroup}`);
-              setAgentGroup(agentGroup);
+            const detectedGroup = healthData.agents[currentAgentId].group;
+            const currentGroup = useAuthStore.getState().agentGroup;
+            if (detectedGroup && detectedGroup !== currentGroup) {
+              console.log(`👥 Agent group re-detected after reconnection: ${detectedGroup} (was: ${currentGroup})`);
+              setAgentGroup(detectedGroup);
             }
           }
         } catch (error) {
@@ -404,6 +414,30 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
     // HTTPS 功能：从 selectedNetwork 中获取 useHttps 参数
     const useHttps = selectedNetwork.useHttps || false;
 
+    // Create a fingerprint of the current credentials to detect actual changes
+    // This prevents re-initialization when React re-creates callback functions without actual data changes
+    const credentialsFingerprint = JSON.stringify({
+      agentName,
+      host: selectedNetwork.host,
+      port: selectedNetwork.port,
+      useHttps,
+      passwordHashEncrypted, // Use the encrypted hash as a proxy for the actual password
+      agentGroup,
+      networkId: selectedNetwork.networkId,
+    });
+
+    // Skip initialization if credentials haven't changed AND we have an existing connector
+    if (connectorRef.current && currentCredentialsRef.current === credentialsFingerprint) {
+      console.log("🔧 Skipping connector initialization - credentials unchanged");
+      return;
+    }
+
+    // Clean up existing connector before creating a new one (preserving credentials for comparison)
+    if (connectorRef.current) {
+      console.log("🔧 Credentials changed, cleaning up old connector before re-initialization");
+      cleanUpConnector(true); // preserve credentials ref temporarily
+    }
+
     console.log("🔧 Initializing OpenAgents connector...", {
       agentId: agentName,
       host: selectedNetwork.host,
@@ -411,11 +445,17 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
       useHttps: useHttps, // HTTPS 功能：显示连接协议
       hasPasswordHash: !!passwordHash,
       agentGroup: agentGroup,
+      credentialsChanged: currentCredentialsRef.current !== credentialsFingerprint,
     });
+
+    // Store the new credentials fingerprint
+    currentCredentialsRef.current = credentialsFingerprint;
 
     // HTTPS 功能：创建连接器时传递 useHttps 参数
     // Network ID: Pass networkId for routing through network.openagents.org
-    const newConnector = new HttpEventConnector({
+    // Use getInstance() to ensure singleton behavior - prevents multiple connectors
+    // from fighting over the same agent_id's secret during React remounts
+    const newConnector = HttpEventConnector.getInstance({
       agentId: agentName,
       host: selectedNetwork.host,
       port: selectedNetwork.port,
@@ -431,30 +471,44 @@ export const OpenAgentsProvider: React.FC<OpenAgentsProviderProps> = ({
     connectorRef.current = newConnector;
     setConnector(newConnector);
 
-    // Auto-connect
-    newConnector.connect().catch((error) => {
-      console.error("Auto-connect failed:", error);
-      setConnectionStatus((prev) => ({
-        ...prev,
-        state: ConnectionState.ERROR,
-        error: `Auto-connect failed: ${error.message}`,
-      }));
-    });
+    // Auto-connect (getInstance may return an already-connected instance)
+    if (!newConnector.isConnected()) {
+      newConnector.connect().catch((error) => {
+        console.error("Auto-connect failed:", error);
+        setConnectionStatus((prev) => ({
+          ...prev,
+          state: ConnectionState.ERROR,
+          error: `Auto-connect failed: ${error.message}`,
+        }));
+      });
+    } else {
+      // Already connected, just emit the connected event for this component
+      console.log("♻️ Connector already connected, updating state");
+      setConnectionStatus({
+        state: ConnectionState.CONNECTED,
+        agentId: newConnector.getAgentId(),
+        originalAgentId: newConnector.getOriginalAgentId(),
+        isUsingModifiedId: newConnector.isUsingModifiedId(),
+      });
+    }
   }, [
     agentName,
     selectedNetwork?.host,
     selectedNetwork?.port,
     selectedNetwork?.useHttps, // HTTPS 功能：添加 useHttps 依赖
+    selectedNetwork?.networkId,
     getPasswordHash,
+    passwordHashEncrypted, // Track actual password hash value to trigger re-initialization
     agentGroup,
     setupConnectionListeners,
+    cleanUpConnector,
   ]);
 
-  // Initialize and cleanup
+  // Initialize connector - the initializeConnector function handles its own
+  // cleanup and deduplication via credentials fingerprinting
   useEffect(() => {
-    cleanUpConnector();
     initializeConnector();
-  }, [cleanUpConnector, initializeConnector]);
+  }, [initializeConnector]);
 
   useEffect(() => {
     return () => {

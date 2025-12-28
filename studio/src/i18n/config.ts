@@ -54,6 +54,7 @@ export const NAMESPACES = [
     'agentWorld',
     'readme',
     'admin',
+    'onboarding',
 ] as const;
 
 // Type for namespaces

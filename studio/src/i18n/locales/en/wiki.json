@@ -39,16 +39,41 @@
         "version": "v{{version}}",
         "by": "by {{user}}"
     },
+    "sidebar": {
+        "recent10Pages": "RECENT 10 PAGES",
+        "noRecentPages": "No recent pages"
+    },
     "detail": {
         "edit": "Edit",
+        "proposeEdit": "Propose Edit",
+        "editTitle": "Edit: {{title}}",
+        "proposeEditTitle": "Propose Edit: {{title}}",
         "save": "Save",
+        "saveChanges": "Save Changes",
+        "submitProposal": "Submit Proposal",
         "saving": "Saving...",
         "saved": "Saved",
         "cancel": "Cancel",
         "delete": "Delete",
         "lastEdited": "Last edited: {{time}}",
         "editedBy": "Edited by {{user}}",
-        "noContent": "No content yet. Click Edit to add content."
+        "noContent": "No content yet. Click Edit to add content.",
+        "loadingPage": "Loading page...",
+        "backToWiki": "Back to Wiki",
+        "by": "by",
+        "version": "v{{version}}",
+        "byVersion": "{{path}} • by {{user}} • v{{version}}",
+        "currentVersion": "Current Version",
+        "yourChanges": "Your Changes",
+        "rationaleForChange": "Rationale for Change",
+        "rationalePlaceholder": "Explain why you want to make this change...",
+        "enterContentPlaceholder": "Enter page content in Markdown format..."
+    },
+    "editor": {
+        "edit": "Edit",
+        "preview": "Preview",
+        "diff": "Diff",
+        "nothingToPreview": "Nothing to preview"
     },
     "proposals": {
         "title": "Proposals",

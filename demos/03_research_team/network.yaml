@@ -6,6 +6,7 @@ network:
   name: "ResearchTeam"
   mode: "centralized"
   node_id: "research-team-1"
+  initialized: true
 
   # Transport configuration
   transports:

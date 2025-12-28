@@ -23,5 +23,22 @@
     "messages": {
         "updateSuccess": "プロフィールが正常に更新されました",
         "updateFailed": "プロフィールの更新に失敗しました"
+    },
+    "comingSoon": {
+        "profileEditingForm": "プロフィール編集フォームは間もなく提供されます...",
+        "securityConfigPanel": "セキュリティ設定パネルは間もなく提供されます...",
+        "loadingProfileData": "プロフィールデータを読み込み中...",
+        "failedToLoadProfileData": "プロフィールデータの読み込みに失敗しました",
+        "tryAgain": "再試行"
+    },
+    "settings": {
+        "title": "設定",
+        "generalSettings": "一般設定",
+        "generalDescription": "一般設定オプションは間もなく提供されます...",
+        "networkSettings": "ネットワーク設定",
+        "networkDescription": "ネットワーク設定オプションは間もなく提供されます...",
+        "networkConfigPanel": "ネットワーク設定パネルは間もなく提供されます...",
+        "themeSettings": "テーマ設定",
+        "themeConfigPanel": "テーマ設定パネルは間もなく提供されます..."
     }
 }

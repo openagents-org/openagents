@@ -5,13 +5,13 @@ import { cva, type VariantProps } from 'class-variance-authority';
 // Define input size variants
 const inputVariants = cva(
   `
-    flex w-full bg-background border border-input shadow-xs shadow-black/5 transition-[color,box-shadow] text-foreground placeholder:text-muted-foreground/80 
-    focus-visible:ring-ring/30  focus-visible:border-ring focus-visible:outline-none focus-visible:ring-[3px]     
-    disabled:cursor-not-allowed disabled:opacity-60 
-    [&[readonly]]:bg-muted/80 [&[readonly]]:cursor-not-allowed
-    file:h-full [&[type=file]]:py-0 file:border-solid file:border-input file:bg-transparent 
-    file:font-medium file:not-italic file:text-foreground file:p-0 file:border-0 file:border-e
-    aria-invalid:border-destructive/60 aria-invalid:ring-destructive/10 dark:aria-invalid:border-destructive dark:aria-invalid:ring-destructive/20
+    flex w-full bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 shadow-xs shadow-black/5 transition-[color,box-shadow] text-gray-900 dark:text-gray-50 placeholder:text-gray-400 dark:placeholder:text-gray-400
+    focus-visible:ring-blue-500/30 dark:focus-visible:ring-blue-400/30 focus-visible:border-blue-500 dark:focus-visible:border-blue-400 focus-visible:outline-none focus-visible:ring-[3px]
+    disabled:cursor-not-allowed disabled:opacity-60
+    [&[readonly]]:bg-gray-100 dark:[&[readonly]]:bg-gray-700 [&[readonly]]:cursor-not-allowed
+    file:h-full [&[type=file]]:py-0 file:border-solid file:border-gray-300 dark:file:border-gray-500 file:bg-transparent
+    file:font-medium file:not-italic file:text-gray-900 dark:file:text-gray-50 file:p-0 file:border-0 file:border-e
+    aria-invalid:border-red-500/60 aria-invalid:ring-red-500/10 dark:aria-invalid:border-red-400 dark:aria-invalid:ring-red-400/20
   `,
   {
     variants: {

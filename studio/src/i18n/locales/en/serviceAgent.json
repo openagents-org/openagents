@@ -48,6 +48,39 @@
             "restarted": "Service agent {{id}} restarted",
             "failed": "Operation failed",
             "fetchFailed": "Failed to fetch service agents list"
+        },
+        "modelConfig": {
+            "title": "Default Model Configuration",
+            "subtitle": "Configure the default LLM provider for all service agents",
+            "loading": "Loading...",
+            "provider": "Model Provider",
+            "selectProvider": "Select a provider",
+            "modelName": "Model Name",
+            "selectModel": "Select a model",
+            "apiKey": "API Key",
+            "apiKeyPlaceholder": "Enter your API key",
+            "saving": "Saving...",
+            "saveChanges": "Save Changes",
+            "note": "Note: These settings will be used by service agents when they specify 'auto' as their model configuration. Changes take effect after restarting agents.",
+            "fetchFailed": "Failed to fetch model configuration",
+            "saveSuccess": "Model configuration saved successfully",
+            "saveFailed": "Failed to save model configuration"
+        },
+        "globalEnv": {
+            "title": "Global Environment Variables",
+            "subtitle": "Shared environment variables for all service agents",
+            "loading": "Loading...",
+            "variableName": "Variable name",
+            "value": "Value",
+            "empty": "No global environment variables defined",
+            "saving": "Saving...",
+            "saveChanges": "Save Changes",
+            "note": "Note: Changes to global environment variables will apply to all service agents after restart.",
+            "fetchFailed": "Failed to fetch global environment variables",
+            "saveSuccess": "Global environment variables saved successfully",
+            "saveFailed": "Failed to save global environment variables",
+            "variableNameRequired": "Variable name is required",
+            "variableExists": "Variable already exists"
         }
     },
     "detail": {
@@ -83,6 +116,8 @@
             "count": "{{count}} logs",
             "allLevels": "All Levels",
             "autoScroll": "Auto-scroll",
+            "copy": "Copy",
+            "copied": "Copied!",
             "clear": "Clear",
             "noLogs": "No logs available"
         },

@@ -8,6 +8,16 @@
         "cancel": "キャンセル",
         "create": "トピックを作成",
         "creating": "作成中...",
+        "permissionGroups": "権限グループ（オプション）",
+        "permissionGroupsHint": "空欄にすると、すべてのユーザーにトピックが表示されます",
+        "selectPermissionGroups": "権限グループを選択...",
+        "loadingGroups": "グループを読み込み中...",
+        "groupsSelected": "{{count}}個のグループを選択",
+        "groupsSelectedPlural": "{{count}}個のグループを選択",
+        "noGroupsAvailable": "利用可能なグループがありません",
+        "edit": "編集",
+        "preview": "プレビュー",
+        "previewPlaceholder": "プレビューがここに表示されます...",
         "errors": {
             "titleRequired": "トピックタイトルは必須です",
             "createFailed": "トピックの作成に失敗しました。もう一度お試しください。"
@@ -15,15 +25,24 @@
     },
     "commentModal": {
         "title": "コメントを追加",
-        "content": "コメント",
-        "contentPlaceholder": "コメントを入力...",
+        "content": "コメント（Markdown対応）",
+        "contentPlaceholder": "コメントを入力...（Markdown対応）",
         "cancel": "キャンセル",
-        "submit": "コメントを送信",
+        "submit": "コメントを投稿",
+        "posting": "投稿中...",
         "submitting": "送信中...",
+        "preview": "プレビュー",
+        "edit": "編集",
+        "previewPlaceholder": "プレビューがここに表示されます...",
         "errors": {
             "contentRequired": "コメント内容は必須です",
             "submitFailed": "コメントの送信に失敗しました。もう一度お試しください。"
         }
+    },
+    "sidebar": {
+        "popular10Topics": "人気の10トピック",
+        "loading": "読み込み中...",
+        "noTopicsYet": "まだトピックがありません"
     },
     "list": {
         "title": "フォーラム",
@@ -44,7 +63,17 @@
         "edit": "編集",
         "delete": "削除",
         "postedBy": "{{user}}が投稿",
-        "repliedTo": "{{user}}に返信"
+        "repliedTo": "{{user}}に返信",
+        "connectingToNetwork": "ネットワークに接続中...",
+        "establishingConnection": "接続を確立中...",
+        "loadingTopic": "トピックを読み込み中...",
+        "topicNotFound": "トピックが見つかりません",
+        "backToForumList": "フォーラムリストに戻る",
+        "by": "{{user}} • {{time}}",
+        "commentsCount": "{{count}}件のコメント",
+        "commentsTitle": "コメント ({{count}})",
+        "loadingComments": "コメントを読み込み中...",
+        "noCommentsYet": "まだコメントがありません。最初のコメントを投稿してください！"
     },
     "actions": {
         "newTopic": "新規トピック",

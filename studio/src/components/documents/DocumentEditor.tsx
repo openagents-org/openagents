@@ -108,7 +108,7 @@ const DocumentEditor: React.FC = () => {
     return (
       <div
         className={`h-screen flex items-center justify-center ${
-          theme === "dark" ? "bg-gray-900" : "bg-gray-50"
+          theme === "dark" ? "bg-gray-900" : "bg-white"
         }`}
       >
         <div className="text-center">
@@ -125,7 +125,7 @@ const DocumentEditor: React.FC = () => {
     return (
       <div
         className={`h-screen flex items-center justify-center ${
-          theme === "dark" ? "bg-gray-900" : "bg-gray-50"
+          theme === "dark" ? "bg-gray-900" : "bg-white"
         }`}
       >
         <div className="text-center">
@@ -172,7 +172,7 @@ const DocumentEditor: React.FC = () => {
   return (
     <div
       className={`h-screen flex flex-col ${
-        theme === "dark" ? "bg-gray-900" : "bg-gray-50"
+        theme === "dark" ? "bg-gray-900" : "bg-white"
       }`}
     >
       {/* Top title bar */}

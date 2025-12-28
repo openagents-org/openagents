@@ -96,9 +96,9 @@ const WikiProposals: React.FC = () => {
   const pendingProposals = proposals.filter((p) => p.status === "pending");
 
   return (
-    <div className="flex-1 flex flex-col h-full dark:bg-gray-800">
+    <div className="flex-1 flex flex-col h-full bg-white dark:bg-gray-800">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-800">
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-white dark:bg-gray-800">
         <div className="flex items-center space-x-3">
           <button
             onClick={handleBack}
@@ -143,7 +143,7 @@ const WikiProposals: React.FC = () => {
       )}
 
       {/* Proposals list */}
-      <div className="flex-1 overflow-y-auto px-6 py-6 dark:bg-gray-800">
+      <div className="flex-1 overflow-y-auto px-6 py-6 bg-white dark:bg-gray-800">
         {pendingProposals.length === 0 ? (
           <div className="text-center py-12 h-full flex flex-col items-center justify-center">
             <div className="mb-4 text-gray-500 dark:text-gray-400">

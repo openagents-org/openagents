@@ -37,7 +37,21 @@
         "serviceAgents": "智能体服务",
         "llmLogs": "LLM 日志",
         "connectionGuide": "连接代理",
-        "admin": "管理"
+        "admin": "管理",
+        "switchToAdmin": {
+            "title": "进入管理控制台",
+            "confirm": "确定要进入管理控制台吗？",
+            "confirmButton": "进入",
+            "cancel": "取消",
+            "button": "管理控制台"
+        },
+        "switchToUser": {
+            "title": "进入用户界面",
+            "confirm": "确定要进入用户界面吗？您可以随时返回管理控制台。",
+            "confirmButton": "进入",
+            "cancel": "取消",
+            "button": "用户控制台"
+        }
     },
     "defaultSidebar": {
         "navigation": "导航内容将显示在这里",
@@ -50,5 +64,11 @@
         "failed": "连接失败，请重试。",
         "retry": "重试",
         "backToNetwork": "返回选择网络"
+    },
+    "breadcrumb": {
+        "home": "首页",
+        "admin": "管理",
+        "dashboard": "仪表板",
+        "detail": "详情"
     }
 }

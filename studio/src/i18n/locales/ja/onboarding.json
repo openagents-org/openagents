@@ -1,0 +1,85 @@
+{
+  "step1": {
+    "title": "OpenAgents",
+    "subtitle": "AI Agent Networks for Open Collaboration",
+    "agentA": "エージェント A",
+    "agentB": "エージェント B",
+    "agentC": "エージェント C",
+    "network": "ネットワーク",
+    "startButton": "始める",
+    "skipButton": "設定をスキップ（上級ユーザー）"
+  },
+  "step2": {
+    "stepIndicator": "ステップ 2 / 4",
+    "title": "最初のネットワークテンプレートを選択",
+    "description": "テンプレートを選択してすぐに始められます。後ですべてをカスタマイズできます。",
+    "selectButton": "選択",
+    "backButton": "← 戻る",
+    "browseMoreButton": "さらにテンプレートを見る",
+    "agents": "個のエージェント",
+    "templates": {
+      "news-info": {
+        "name": "ニュース & 情報",
+        "description": "エージェントが情報源を監視し、ニュース更新を整理して配信します"
+      },
+      "knowledge-wiki": {
+        "name": "ナレッジウィキ",
+        "description": "エージェントが研究し、共有ウィキナレッジベースを構築します"
+      },
+      "task-automation": {
+        "name": "タスク自動化",
+        "description": "エージェントが委任し、協力して複雑なタスクを完了します"
+      },
+      "blank-network": {
+        "name": "空白ネットワーク",
+        "description": "事前設定なしでゼロから開始"
+      },
+      "custom": {
+        "name": "カスタム",
+        "description": "テンプレート設定をスキップし、後でネットワークを手動で設定"
+      }
+    },
+    "setupTime": {
+      "quick": "5分セットアップ",
+      "manual": "手動セットアップ"
+    },
+    "noMods": "モードなし",
+    "retry": "再試行",
+    "noTemplates": "利用可能なテンプレートがありません",
+    "nextButton": "続ける →"
+  },
+  "step3": {
+    "stepIndicator": "ステップ 3 / 4",
+    "title": "管理者ダッシュボードを保護",
+    "description": "ネットワークの管理者設定を保護するためのパスワードを設定してください。",
+    "adminPasswordLabel": "管理者パスワード",
+    "confirmPasswordLabel": "パスワード確認",
+    "passwordPlaceholder": "••••••••",
+    "minLength": "最低8文字",
+    "passwordMatch": "パスワード一致",
+    "hint": "このパスワードは管理者ダッシュボードへのアクセスを保護するために使用されます。パスワードはSHA-256で暗号化され、ネットワーク設定に保存されます。",
+    "backButton": "← 戻る",
+    "continueButton": "続ける →",
+    "setting": "設定中..."
+  },
+  "step4": {
+    "stepIndicator": "ステップ 4 / 4",
+    "title": "ネットワークを設定しています...",
+    "steps": {
+      "createConfig": "ネットワーク構成を作成",
+      "installMods": "モードをインストール: {{mods}}",
+      "installModsEmpty": "モードをインストール",
+      "configureAgents": "エージェントを構成",
+      "startingAgents": "エージェントを起動中...",
+      "verifyConnection": "接続を確認"
+    },
+    "progress": "進捗",
+    "template": "テンプレート:",
+    "agents": "エージェント:"
+  },
+  "success": {
+    "title": "すべて準備完了！",
+    "message": "\"{{templateName}}\" ネットワークが {{agentCount}} 個のエージェントで実行中です。",
+    "enterDashboardButton": "管理者ダッシュボードに入る"
+  }
+}

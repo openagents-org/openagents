@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useContext } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useForumStore } from "@/stores/forumStore";
 import { OpenAgentsContext } from "@/context/OpenAgentsProvider";
 
@@ -96,6 +97,7 @@ PopularTopicItem.displayName = "PopularTopicItem";
 
 // Forum Sidebar Content Component
 const ForumSidebar: React.FC = () => {
+  const { t } = useTranslation('forum');
   const context = useContext(OpenAgentsContext);
   const openAgentsService = context?.connector;
   const isConnected = context?.isConnected;
@@ -202,18 +204,18 @@ const ForumSidebar: React.FC = () => {
       </div> */}
 
       {/* Popular Topics Section */}
-      <SectionHeader title="POPULAR 10 TOPICS" />
+      <SectionHeader title={t('sidebar.popular10Topics')} />
       <div className="flex-1 overflow-y-auto px-3 custom-scrollbar">
         {!groupsData ? (
           <div className="text-center py-4">
             <p className="text-gray-500 dark:text-gray-400 text-sm">
-              Loading...
+              {t('sidebar.loading')}
             </p>
           </div>
         ) : popularTopics.length === 0 ? (
           <div className="text-center py-4">
             <p className="text-gray-500 dark:text-gray-400 text-sm">
-              No topics yet
+              {t('sidebar.noTopicsYet')}
             </p>
           </div>
         ) : (

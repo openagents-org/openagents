@@ -15,6 +15,7 @@
         "networkIdLabel": "网络 ID",
         "networkIdPlaceholder": "network-id-123 或 openagents://network-id",
         "connectButton": "连接",
+        "manageNetwork": "管理网络",
         "cancelButton": "取消"
     },
     "status": {
@@ -23,6 +24,11 @@
         "disconnected": "已断开",
         "connectionFailed": "连接失败",
         "retrying": "重试中..."
+    },
+    "errors": {
+        "connectFailedCheckHostPort": "连接网络失败。请检查主机和端口。",
+        "connectFailedOffline": "连接网络失败。网络可能离线或无法访问。",
+        "errorConnecting": "连接网络时出错"
     },
     "profile": {
         "title": "网络配置文件",
@@ -33,8 +39,14 @@
         "name": "网络名称",
         "description": "描述",
         "icon": "图标 URL",
+        "iconHint": "输入 URL 或上传图片（最大 5MB）。上传的图片将保存到网络的资源文件夹中。",
+        "upload": "上传",
+        "uploading": "上传中...",
         "website": "网站 URL",
         "country": "国家/地区",
+        "selectCountry": "选择国家/地区...",
+        "searchCountry": "搜索国家/地区...",
+        "noCountryFound": "未找到国家/地区。",
         "tags": {
             "title": "标签",
             "placeholder": "输入标签并回车",
@@ -57,8 +69,9 @@
         "error": "更新网络配置文件失败"
     },
     "agents": {
-        "title": "智能体管理",
+        "title": "已连接代理",
         "subtitle": "管理网络中连接的智能体",
+        "loading": "加载智能体中...",
         "refresh": "刷新",
         "total": "智能体总数",
         "online": "在线智能体",
@@ -113,12 +126,17 @@
             "createTitle": "创建新组",
             "editTitle": "编辑组: {{name}}",
             "name": "组名称",
+            "namePlaceholder": "例如: moderators",
+            "nameCannotChange": "组名创建后无法修改",
             "description": "描述",
+            "descriptionPlaceholder": "例如: 具有内容管理权限的管理员组",
             "password": "密码 (可选)",
             "clearPassword": "清除现有密码",
             "permissions": "权限 (逗号分隔)",
+            "permissionsPlaceholder": "例如: moderate_content, ban_users, view_reports",
             "cancel": "取消",
             "create": "创建组",
+            "update": "更新组",
             "save": "保存更改"
         },
         "messages": {
@@ -133,15 +151,82 @@
             "modal": {
                 "title": "修改密码 - {{group}}",
                 "newPasswordLabel": "新密码 *",
-                "newPasswordPlaceholder": "请输入新密码（至少4个字符）",
-                "passwordHint": "密码长度至少为4个字符",
+                "newPasswordPlaceholder": "请输入新密码（至少8个字符）",
+                "passwordHint": "密码长度至少为8个字符",
                 "cancel": "取消",
                 "confirm": "确认修改",
                 "changing": "修改中...",
                 "passwordRequired": "密码是必需的",
-                "passwordMinLength": "密码长度至少为4个字符",
+                "passwordMinLength": "密码长度至少为8个字符",
                 "failed": "修改密码失败"
             }
+        }
+    },
+    "importExport": {
+        "title": "网络导入/导出",
+        "subtitle": "备份、恢复或迁移网络配置",
+        "connectFirst": "请先连接到网络",
+        "export": {
+            "title": "导出网络配置",
+            "description": "将当前网络配置导出为 .zip 文件，用于备份或分享。",
+            "button": "导出网络配置",
+            "exporting": "导出中...",
+            "loginRequired": "需要先登录才能导出网络配置",
+            "failed": "导出失败: {{error}}"
+        },
+        "import": {
+            "title": "导入网络配置",
+            "description": "从 .zip 文件导入网络配置，可以覆盖当前配置或创建新网络。",
+            "loginRequired": "需要先登录才能验证导入文件",
+            "loginRequiredImport": "需要先登录才能导入网络配置",
+            "validationFailed": "验证失败",
+            "importSuccess": "导入成功！网络已重启。\n网络名称: {{name}}",
+            "importStarted": "配置导入已启动。\n网络名称: {{name}}\n状态: {{status}}",
+            "importFailed": "导入失败: {{error}}",
+            "networkRestartUnknown": "网络重启状态未知（异步执行中）"
+        },
+        "dropzone": {
+            "dragDrop": "拖放文件到这里，或点击选择文件",
+            "supportedFormat": "支持 .zip 格式的网络配置文件",
+            "selectZipFile": "请选择 .zip 文件"
+        },
+        "preview": {
+            "title": "导入预览",
+            "validationError": "验证错误",
+            "warnings": "警告",
+            "networkName": "网络名称",
+            "networkMode": "网络模式",
+            "modules": "模块 ({{count}})",
+            "agentGroups": "代理组 ({{count}})",
+            "transports": "传输协议 ({{count}})",
+            "exportTime": "导出时间",
+            "exportNotes": "导出备注",
+            "importMode": "导入模式",
+            "overwrite": "覆盖当前网络配置",
+            "createNew": "创建新网络",
+            "newNetworkName": "新网络名称",
+            "newNetworkNamePlaceholder": "输入新网络名称",
+            "cancel": "取消",
+            "confirmImport": "确认导入",
+            "importing": "导入中..."
+        },
+        "exportOptions": {
+            "title": "导出选项",
+            "includePasswordHashes": "包含密码哈希",
+            "includePasswordHashesDesc": "导出代理组密码哈希值（用于恢复密码）",
+            "includeSensitiveConfig": "包含敏感配置",
+            "includeSensitiveConfigDesc": "导出 API 密钥、密钥等敏感配置信息",
+            "notes": "备注（可选）",
+            "notesPlaceholder": "添加导出说明...",
+            "cancel": "取消",
+            "export": "导出",
+            "exporting": "导出中..."
+        },
+        "overwriteConfirm": {
+            "title": "确认覆盖",
+            "message": "此操作将覆盖当前网络配置。网络将在导入后自动重启。是否继续？",
+            "confirm": "确认覆盖",
+            "cancel": "取消"
         }
     }
 }

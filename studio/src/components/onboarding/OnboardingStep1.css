@@ -1,0 +1,23 @@
+/* ========================================
+   OnboardingStep1 - Simple Animation
+   ======================================== */
+
+/* Logo radial expand animation */
+.logo-radial-expand {
+  animation: radial-expand 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes radial-expand {
+  0% {
+    opacity: 0;
+    transform: scale(0);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useOpenAgents } from "@/context/OpenAgentsProvider";
 import { useAuthStore } from "@/stores/authStore";
 import { Event, EventResponse } from "@/types/events";
@@ -8,6 +9,7 @@ import { Textarea } from "@/components/layout/ui/textarea";
 import { Send, AlertCircle, X } from "lucide-react";
 
 const EventDebugger: React.FC = () => {
+  const { t } = useTranslation('admin');
   const { connector, isConnected } = useOpenAgents();
   const { agentName } = useAuthStore();
   const [eventName, setEventName] = useState("");
@@ -20,7 +22,7 @@ const EventDebugger: React.FC = () => {
   const [payloadError, setPayloadError] = useState<string | null>(null);
 
   // Validate and parse JSON payload
-  const validatePayload = (jsonString: string): any | null => {
+  const validatePayload = useCallback((jsonString: string): any | null => {
     if (!jsonString.trim()) {
       return {};
     }
@@ -29,10 +31,10 @@ const EventDebugger: React.FC = () => {
       setPayloadError(null);
       return parsed;
     } catch (e: any) {
-      setPayloadError(`Invalid JSON format: ${e.message}`);
+      setPayloadError(t('eventDebugger.invalidJson', { error: e.message }));
       return null;
     }
-  };
+  }, [t]);
 
   // Clear response and errors
   const clearResponse = () => {
@@ -95,17 +97,17 @@ const EventDebugger: React.FC = () => {
   // Send event
   const handleSend = useCallback(async () => {
     if (!connector) {
-      setError("Not connected to network, please connect first");
+      setError(t('eventDebugger.notConnected'));
       return;
     }
 
     if (!isConnected) {
-      setError("Network not connected, please check connection status");
+      setError(t('eventDebugger.networkNotConnected'));
       return;
     }
 
     if (!eventName.trim()) {
-      setError("Please enter event name");
+      setError(t('eventDebugger.enterEventName'));
       return;
     }
 
@@ -144,7 +146,7 @@ const EventDebugger: React.FC = () => {
         setResponse(eventResponse);
       } catch (err: any) {
         console.error("Failed to send event:", err);
-        const errorMessage = err.message || "Failed to send event";
+        const errorMessage = err.message || t('eventDebugger.sendFailed');
         setError(errorMessage);
       
       // Record response even on failure
@@ -157,7 +159,7 @@ const EventDebugger: React.FC = () => {
     } finally {
       setIsSending(false);
     }
-  }, [connector, isConnected, eventName, payload, agentName, destinationId]);
+  }, [connector, isConnected, eventName, payload, agentName, destinationId, t, validatePayload]);
 
   // Keyboard shortcut support
   useEffect(() => {
@@ -191,7 +193,7 @@ const EventDebugger: React.FC = () => {
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            Event Debugger
+            {t('eventDebugger.title')}
           </h1>
           {/* Connection Status */}
           <div className="flex items-center gap-2">
@@ -203,12 +205,12 @@ const EventDebugger: React.FC = () => {
               }`}
             />
             <span className="text-sm text-gray-600 dark:text-gray-400">
-              {isConnected && connector ? "Connected" : "Not Connected"}
+              {isConnected && connector ? t('eventDebugger.connected') : t('eventDebugger.notConnectedStatus')}
             </span>
           </div>
         </div>
         <p className="text-gray-600 dark:text-gray-400">
-          For debugging and testing event sending. All sent events will be automatically recorded to Event Logs page.
+          {t('eventDebugger.subtitle')}
         </p>
       </div>
 
@@ -221,7 +223,7 @@ const EventDebugger: React.FC = () => {
           onClick={() => loadExample("directMessage")}
           className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
-          Example: Direct Message
+          {t('eventDebugger.examples.directMessage')}
         </Button>
         <Button
           type="button"
@@ -230,7 +232,7 @@ const EventDebugger: React.FC = () => {
           onClick={() => loadExample("channelMessage")}
           className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
-          Example: Channel Message
+          {t('eventDebugger.examples.channelMessage')}
         </Button>
         <Button
           type="button"
@@ -239,7 +241,7 @@ const EventDebugger: React.FC = () => {
           onClick={() => loadExample("projectList")}
           className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
-          Example: Project List
+          {t('eventDebugger.examples.projectList')}
         </Button>
         <Button
           type="button"
@@ -248,7 +250,7 @@ const EventDebugger: React.FC = () => {
           onClick={() => loadExample("channelsList")}
           className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
-          Example: Channels List
+          {t('eventDebugger.examples.channelsList')}
         </Button>
       </div>
 
@@ -258,7 +260,7 @@ const EventDebugger: React.FC = () => {
           {/* Event Name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Event Name <span className="text-red-500">*</span>
+              {t('eventDebugger.eventName')} <span className="text-red-500">*</span>
             </label>
             <Input
               type="text"
@@ -276,7 +278,7 @@ const EventDebugger: React.FC = () => {
                   }
                 }
               }}
-              placeholder="e.g., thread.direct_message.send"
+              placeholder={t('eventDebugger.eventNamePlaceholder')}
               className="w-full p-3 rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
           </div>
@@ -284,25 +286,25 @@ const EventDebugger: React.FC = () => {
           {/* Destination ID */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Destination ID
+              {t('eventDebugger.destinationId')}
             </label>
             <Input
               type="text"
               variant="lg"
               value={destinationId}
               onChange={(e) => setDestinationId(e.target.value)}
-              placeholder="e.g., agent:target_agent_id or channel:general (optional)"
+              placeholder={t('eventDebugger.destinationIdPlaceholder')}
               className="w-full p-3 rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Leave empty to send to entire network
+              {t('eventDebugger.destinationIdHint')}
             </p>
           </div>
 
           {/* Payload */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Payload (JSON)
+              {t('eventDebugger.payload')}
             </label>
             <Textarea
               variant="lg"
@@ -312,7 +314,7 @@ const EventDebugger: React.FC = () => {
                 setPayloadError(null);
               }}
               rows={10}
-              placeholder='{"key": "value"}'
+              placeholder={t('eventDebugger.payloadPlaceholder')}
               className={`w-full p-3 rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none font-mono text-sm ${
                 payloadError
                   ? "border-red-300 dark:border-red-600"
@@ -325,7 +327,7 @@ const EventDebugger: React.FC = () => {
               </p>
             )}
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              Enter valid JSON data, leave empty to use empty object
+              {t('eventDebugger.payloadHint')}
             </p>
           </div>
 
@@ -355,7 +357,7 @@ const EventDebugger: React.FC = () => {
           {/* Send Button */}
           <div className="flex justify-between items-center">
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Tip: Press <kbd className="px-1.5 py-0.5 text-xs font-semibold text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">Ctrl+Enter</kbd> or <kbd className="px-1.5 py-0.5 text-xs font-semibold text-gray-800 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded">Cmd+Enter</kbd> to send quickly
+              {t('eventDebugger.tip')}
             </p>
             <Button
               type="button"
@@ -366,7 +368,7 @@ const EventDebugger: React.FC = () => {
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <Send className="w-4 h-4 mr-2" />
-              {isSending ? "Sending..." : "Send Event"}
+              {isSending ? t('eventDebugger.sending') : t('eventDebugger.sendEvent')}
             </Button>
           </div>
         </div>

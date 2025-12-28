@@ -1,8 +1,9 @@
 {
     "title": "事件浏览器",
+    "subtitle": "浏览和查看系统中所有可用的事件定义",
     "actions": {
         "sync": "从 GitHub 同步",
-        "syncing": "正在同步...",
+        "syncing": "同步中...",
         "search": "搜索事件...",
         "back": "返回事件列表"
     },

@@ -8,6 +8,16 @@
         "cancel": "취소",
         "create": "토픽 만들기",
         "creating": "생성 중...",
+        "permissionGroups": "권한 그룹 (선택사항)",
+        "permissionGroupsHint": "비워두면 모든 사용자에게 토픽이 표시됩니다",
+        "selectPermissionGroups": "권한 그룹 선택...",
+        "loadingGroups": "그룹 로딩 중...",
+        "groupsSelected": "{{count}}개 그룹 선택됨",
+        "groupsSelectedPlural": "{{count}}개 그룹 선택됨",
+        "noGroupsAvailable": "사용 가능한 그룹이 없습니다",
+        "edit": "편집",
+        "preview": "미리보기",
+        "previewPlaceholder": "미리보기가 여기에 표시됩니다...",
         "errors": {
             "titleRequired": "토픽 제목은 필수입니다",
             "createFailed": "토픽 생성에 실패했습니다. 다시 시도해 주세요."
@@ -15,15 +25,24 @@
     },
     "commentModal": {
         "title": "댓글 추가",
-        "content": "댓글",
-        "contentPlaceholder": "댓글 입력...",
+        "content": "댓글 (Markdown 지원)",
+        "contentPlaceholder": "댓글 입력... (Markdown 지원)",
         "cancel": "취소",
         "submit": "댓글 제출",
+        "posting": "게시 중...",
         "submitting": "제출 중...",
+        "preview": "미리보기",
+        "edit": "편집",
+        "previewPlaceholder": "미리보기가 여기에 표시됩니다...",
         "errors": {
             "contentRequired": "댓글 내용은 필수입니다",
             "submitFailed": "댓글 제출에 실패했습니다. 다시 시도해 주세요."
         }
+    },
+    "sidebar": {
+        "popular10Topics": "인기 10개 토픽",
+        "loading": "로딩 중...",
+        "noTopicsYet": "아직 토픽이 없습니다"
     },
     "list": {
         "title": "포럼",
@@ -44,7 +63,17 @@
         "edit": "편집",
         "delete": "삭제",
         "postedBy": "{{user}}님이 게시",
-        "repliedTo": "{{user}}님에게 답장"
+        "repliedTo": "{{user}}님에게 답장",
+        "connectingToNetwork": "네트워크에 연결 중...",
+        "establishingConnection": "연결 설정 중...",
+        "loadingTopic": "토픽 로딩 중...",
+        "topicNotFound": "토픽을 찾을 수 없습니다",
+        "backToForumList": "포럼 목록으로 돌아가기",
+        "by": "{{user}} • {{time}}",
+        "commentsCount": "{{count}}개의 댓글",
+        "commentsTitle": "댓글 ({{count}})",
+        "loadingComments": "댓글 로딩 중...",
+        "noCommentsYet": "아직 댓글이 없습니다. 첫 번째 댓글을 작성해보세요！"
     },
     "actions": {
         "newTopic": "새 토픽",

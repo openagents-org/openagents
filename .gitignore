@@ -205,7 +205,6 @@ private_networks
 node_modules/
 
 # Generated during PyPI publish (copied from examples/default_network/)
-src/openagents/templates/
 src/openagents/studio/build/
 node_modules/
 
@@ -215,6 +214,7 @@ studio/my_first_network/agents/simple_agent.py
 studio/my_first_network/events/.keep
 studio/my_first_network/mods/.keep
 studio/my_first_network/tools/.keep
+studio/.nvmrc
 
 # Lark API usage guide (contains sensitive info)
 lark_usage_guide.md

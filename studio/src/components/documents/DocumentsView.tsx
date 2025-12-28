@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { DocumentsViewProps } from "../../types";
 import { useThemeStore } from "@/stores/themeStore";
 import { useDocumentStore } from "@/stores/documentStore";
@@ -13,6 +14,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
   onDocumentSelect: sharedOnDocumentSelect,
   onDocumentsChange: sharedOnDocumentsChange,
 }) => {
+  const { t } = useTranslation('documents');
   // Use theme from store
   const { theme: currentTheme } = useThemeStore();
 
@@ -67,7 +69,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
 
   if (isLoading) {
     return (
-      <div className="h-full flex items-center justify-center dark:bg-gray-800">
+      <div className="h-full flex items-center justify-center bg-white dark:bg-gray-800">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p
@@ -75,7 +77,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
               currentTheme === "dark" ? "text-gray-400" : "text-gray-600"
             }`}
           >
-            Loading documents...
+            {t('view.loadingDocuments')}
           </p>
         </div>
       </div>
@@ -106,7 +108,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
               currentTheme === "dark" ? "text-gray-200" : "text-gray-800"
             }`}
           >
-            Connection Error
+            {t('view.connectionError')}
           </h3>
           <p
             className={`${
@@ -119,7 +121,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
             onClick={onBackClick}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
-            Back to Chat
+            {t('view.backToChat')}
           </button>
         </div>
       </div>
@@ -130,16 +132,16 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
     return (
       <div className="p-6">
         <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100">
-          Document Details
+          {t('view.documentDetails')}
         </h1>
         <p className="text-gray-600 dark:text-gray-400">
-          Document ID: {effectiveSelectedDocument}
+          {t('view.documentId', { id: effectiveSelectedDocument })}
         </p>
         <button
           onClick={handleBackToList}
           className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
-          Back to List
+          {t('view.backToList')}
         </button>
       </div>
     );
@@ -156,11 +158,10 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex flex-col">
             <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">
-              Shared Documents
+              {t('view.sharedDocuments')}
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Open the same document in different browser windows to start
-              real-time collaborative editing
+              {t('view.collaborativeEditingHint')}
             </p>
           </div>
           <button
@@ -180,7 +181,7 @@ const DocumentsView: React.FC<DocumentsViewProps> = ({
                 d="M12 4v16m8-8H4"
               />
             </svg>
-            <span>New Document</span>
+            <span>{t('view.newDocument')}</span>
           </button>
         </div>
       </div>

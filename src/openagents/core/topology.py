@@ -499,8 +499,8 @@ class CentralizedTopology(NetworkTopology):
             except asyncio.CancelledError:
                 pass
 
-        # Shutdown all transports
-        for transport_type, transport in self.transports.items():
+        # Shutdown all transports (make a copy to avoid modification during iteration)
+        for transport_type, transport in list(self.transports.items()):
             try:
                 await transport.shutdown()
                 logger.info(f"Shutdown {transport_type} transport")
@@ -663,8 +663,8 @@ class DecentralizedTopology(NetworkTopology):
         except asyncio.CancelledError:
             pass
 
-        # Shutdown all transports
-        for transport_type, transport in self.transports.items():
+        # Shutdown all transports (make a copy to avoid modification during iteration)
+        for transport_type, transport in list(self.transports.items()):
             try:
                 await transport.shutdown()
                 logger.info(f"Shutdown {transport_type} transport")

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { ImportMode, ImportPreview, ImportValidationResult } from "@/types/networkManagement";
+import { useTranslation } from "react-i18next";
+import { ImportMode, ImportValidationResult } from "@/types/networkManagement";
 
 interface ImportPreviewModalProps {
   isOpen: boolean;
@@ -16,6 +17,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
   validationResult,
   isImporting = false,
 }) => {
+  const { t } = useTranslation('network');
   const [mode, setMode] = useState<ImportMode>(ImportMode.OVERWRITE);
   const [newName, setNewName] = useState("");
 
@@ -43,7 +45,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-              导入预览
+              {t('importExport.preview.title')}
             </h3>
             <button
               onClick={onClose}
@@ -85,7 +87,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                 </svg>
                 <div className="flex-1">
                   <h4 className="text-sm font-medium text-red-800 dark:text-red-200">
-                    验证错误
+                    {t('importExport.preview.validationError')}
                   </h4>
                   <ul className="mt-1 text-sm text-red-700 dark:text-red-300 list-disc list-inside">
                     {validationResult.errors.map((error, idx) => (
@@ -116,7 +118,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                 </svg>
                 <div className="flex-1">
                   <h4 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
-                    警告
+                    {t('importExport.preview.warnings')}
                   </h4>
                   <ul className="mt-1 text-sm text-yellow-700 dark:text-yellow-300 list-disc list-inside">
                     {validationResult.warnings.map((warning, idx) => (
@@ -132,7 +134,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
           <div className="mb-4 space-y-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                网络名称
+                {t('importExport.preview.networkName')}
               </label>
               <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                 {preview.network_name}
@@ -141,7 +143,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
 
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                网络模式
+                {t('importExport.preview.networkMode')}
               </label>
               <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                 {preview.network_mode}
@@ -151,7 +153,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
             {preview.mods && preview.mods.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  模块 ({preview.mods.length})
+                  {t('importExport.preview.modules', { count: preview.mods.length })}
                 </label>
                 <ul className="mt-1 text-sm text-gray-900 dark:text-gray-100 list-disc list-inside">
                   {preview.mods.map((mod, idx) => (
@@ -164,7 +166,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
             {preview.agent_groups && preview.agent_groups.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  代理组 ({preview.agent_groups.length})
+                  {t('importExport.preview.agentGroups', { count: preview.agent_groups.length })}
                 </label>
                 <ul className="mt-1 text-sm text-gray-900 dark:text-gray-100 list-disc list-inside">
                   {preview.agent_groups.map((group, idx) => (
@@ -177,7 +179,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
             {preview.transports && preview.transports.length > 0 && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  传输协议 ({preview.transports.length})
+                  {t('importExport.preview.transports', { count: preview.transports.length })}
                 </label>
                 <ul className="mt-1 text-sm text-gray-900 dark:text-gray-100 list-disc list-inside">
                   {preview.transports.map((transport, idx) => (
@@ -190,10 +192,10 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
             {preview.export_timestamp && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  导出时间
+                  {t('importExport.preview.exportTime')}
                 </label>
                 <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
-                  {new Date(preview.export_timestamp).toLocaleString("zh-CN")}
+                  {new Date(preview.export_timestamp).toLocaleString()}
                 </p>
               </div>
             )}
@@ -201,7 +203,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
             {preview.export_notes && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  导出备注
+                  {t('importExport.preview.exportNotes')}
                 </label>
                 <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
                   {preview.export_notes}
@@ -213,7 +215,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
           {/* Import Mode Selection */}
           <div className="mb-4 border-t border-gray-200 dark:border-gray-700 pt-4">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              导入模式
+              {t('importExport.preview.importMode')}
             </label>
             <div className="space-y-2">
               <label className="flex items-center">
@@ -226,7 +228,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                   className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                 />
                 <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                  覆盖当前网络配置
+                  {t('importExport.preview.overwrite')}
                 </span>
               </label>
               <label className="flex items-center">
@@ -239,7 +241,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                   className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                 />
                 <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                  创建新网络
+                  {t('importExport.preview.createNew')}
                 </span>
               </label>
             </div>
@@ -250,7 +252,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                   htmlFor="new-network-name"
                   className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                 >
-                  新网络名称
+                  {t('importExport.preview.newNetworkName')}
                 </label>
                 <input
                   id="new-network-name"
@@ -258,7 +260,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
                   disabled={isImporting}
-                  placeholder="输入新网络名称"
+                  placeholder={t('importExport.preview.newNetworkNamePlaceholder')}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                 />
               </div>
@@ -273,7 +275,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
               disabled={isImporting}
               className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
             >
-              取消
+              {t('importExport.preview.cancel')}
             </button>
             <button
               type="button"
@@ -285,7 +287,7 @@ const ImportPreviewModal: React.FC<ImportPreviewModalProps> = ({
               }
               className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
             >
-              {isImporting ? "导入中..." : "确认导入"}
+              {isImporting ? t('importExport.preview.importing') : t('importExport.preview.confirmImport')}
             </button>
           </div>
         </div>

@@ -1,0 +1,94 @@
+# Project Hub Template
+# A network where a coordinator agent delegates tasks to worker agents.
+# Uses the project mod for structured task management.
+
+network:
+  name: "ProjectHub"
+  mode: "centralized"
+  node_id: "project-hub-1"
+
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+        serve_studio: true
+        serve_mcp: true
+    - type: "grpc"
+      config:
+        port: 8600
+        max_message_size: 104857600
+        compression: "gzip"
+        keepalive_time: 60000
+        keepalive_timeout: 30000
+
+  manifest_transport: "http"
+  recommended_transport: "grpc"
+
+  encryption_enabled: false
+  discovery_interval: 10
+  discovery_enabled: true
+
+  max_connections: 10
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  default_agent_group: guest
+  requires_password: false
+
+  agent_groups:
+    admin:
+      description: "Administrator agents with full permissions"
+      password_hash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # password: admin
+      metadata:
+        permissions: ["all"]
+
+  # Project mod for task management
+  mods:
+    - name: "openagents.mods.workspace.default"
+      enabled: true
+      config:
+        custom_events_enabled: true
+
+    - name: "openagents.mods.workspace.project"
+      enabled: true
+      config:
+        max_concurrent_projects: 5
+        project_templates:
+          research_task:
+            name: "Research Task"
+            description: "Research a topic and produce a report"
+            agent_groups: ["coordinators", "workers"]
+            context: |
+              Research Task Workflow:
+              1. Coordinator receives request and delegates research
+              2. Researcher gathers information
+              3. Writer synthesizes findings
+              4. Coordinator compiles final report
+
+network_profile:
+  name: "Project Hub"
+  description: "A multi-agent project management network. Coordinator delegates tasks to worker agents."
+  tags:
+    - "project"
+    - "coordination"
+    - "workflow"
+  categories:
+    - "workflow"
+  country: "Worldwide"
+  capacity: 10
+  authentication:
+    type: "none"
+  host: "0.0.0.0"
+  port: 8700
+
+log_level: "INFO"
+data_dir: "./data/project-hub"
+
+runtime_limit: null
+shutdown_timeout: 30

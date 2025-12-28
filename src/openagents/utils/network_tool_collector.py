@@ -58,6 +58,50 @@ class MCPConnectorWrapper:
             )
 
 
+class MCPClientWrapper:
+    """Wrapper that acts as an AgentClient for MCP tool execution.
+
+    This wrapper bridges adapters (which expect an agent_client) with the MCP context
+    (which has direct access to the network's emit_event callback).
+    Some adapters use self.agent_client.send_event() instead of self.connector.send_event().
+    """
+
+    def __init__(self, emit_event_callback, agent_id: str = "mcp_client"):
+        """Initialize the MCP client wrapper.
+
+        Args:
+            emit_event_callback: The network's emit_event callback function
+            agent_id: The agent ID to use for MCP client (default: "mcp_client")
+        """
+        self._emit_event = emit_event_callback
+        self.agent_id = agent_id
+
+    async def send_event(self, message: Event) -> EventResponse:
+        """Send an event via the network's emit_event callback.
+
+        Args:
+            message: Event to send
+
+        Returns:
+            EventResponse from the network
+        """
+        if self._emit_event is None:
+            return EventResponse(
+                success=False,
+                message="MCP client not properly initialized - no emit_event callback",
+            )
+
+        try:
+            result = await self._emit_event(message, True)
+            return result
+        except Exception as e:
+            logger.error(f"Error sending event via MCP client: {e}")
+            return EventResponse(
+                success=False,
+                message=f"Error sending event: {str(e)}",
+            )
+
+
 class NetworkToolCollector:
     """Collects tools from mod adapters, workspace, and events for MCP exposure.
 
@@ -139,7 +183,7 @@ class NetworkToolCollector:
         elif self._network:
             mods = self._network.mods
 
-        # Create MCP connector wrapper for adapters
+        # Create MCP connector and client wrappers for adapters
         emit_callback = None
         if self.context and self.context.emit_event:
             emit_callback = self.context.emit_event
@@ -147,6 +191,7 @@ class NetworkToolCollector:
             emit_callback = self._network.event_gateway.process_event
 
         mcp_connector = MCPConnectorWrapper(emit_callback) if emit_callback else None
+        mcp_client = MCPClientWrapper(emit_callback) if emit_callback else None
 
         for mod_name in mods.keys():
             try:
@@ -181,6 +226,11 @@ class NetworkToolCollector:
                     # Set agent ID to "mcp_client" for MCP tool calls
                     if hasattr(adapter_instance, "bind_agent"):
                         adapter_instance.bind_agent("mcp_client")
+
+                # Bind the MCP client wrapper to the adapter
+                # Some adapters use self.agent_client.send_event() instead of connector
+                if mcp_client and hasattr(adapter_instance, "bind_client"):
+                    adapter_instance.bind_client(mcp_client)
 
                 # Bind the network mod to the adapter if supported
                 # This allows adapters to access mod state (e.g., templates)
@@ -377,15 +427,17 @@ class NetworkToolCollector:
         self,
         exposed_tools: Optional[List[str]] = None,
         excluded_tools: Optional[List[str]] = None,
+        include_source: bool = True,
     ) -> List[Dict[str, Any]]:
         """Convert filtered AgentTools to MCP tool format.
 
         Args:
             exposed_tools: Whitelist of tool names to include
             excluded_tools: Blacklist of tool names to exclude
+            include_source: Whether to include the source field (for admin UI)
 
         Returns:
-            List of filtered tools in MCP format (name, description, inputSchema)
+            List of filtered tools in MCP format (name, description, inputSchema, source)
         """
         filtered = self.filter_tools(exposed_tools, excluded_tools)
         mcp_tools = []
@@ -395,5 +447,7 @@ class NetworkToolCollector:
                 "description": tool.description or f"Tool: {tool.name}",
                 "inputSchema": tool.input_schema or {"type": "object", "properties": {}},
             }
+            if include_source:
+                mcp_tool["source"] = self._tool_sources.get(tool.name, "unknown")
             mcp_tools.append(mcp_tool)
         return mcp_tools

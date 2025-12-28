@@ -12,6 +12,7 @@
         "lastUpdated": "Last updated",
         "latency": "Latency",
         "modulesEnabled": "{{count}} modules enabled",
+        "backToDashboard": "Back to Dashboard",
         "sidebar": {
             "networkStatus": "Network Status",
             "eventLogs": "Event Logs",
@@ -135,5 +136,22 @@
         "updateFailed": "Failed to update profile",
         "avatarUploadSuccess": "Avatar uploaded successfully",
         "avatarUploadFailed": "Failed to upload avatar"
+    },
+    "comingSoon": {
+        "profileEditingForm": "Profile editing form coming soon...",
+        "securityConfigPanel": "Security configuration panel coming soon...",
+        "loadingProfileData": "Loading profile data...",
+        "failedToLoadProfileData": "Failed to load profile data",
+        "tryAgain": "Try Again"
+    },
+    "settings": {
+        "title": "Settings",
+        "generalSettings": "General Settings",
+        "generalDescription": "General configuration options coming soon...",
+        "networkSettings": "Network Settings",
+        "networkDescription": "Network configuration options coming soon...",
+        "networkConfigPanel": "Network configuration panel coming soon...",
+        "themeSettings": "Theme Settings",
+        "themeConfigPanel": "Theme configuration panel coming soon..."
     }
 }

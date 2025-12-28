@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import MDEditor from '@uiw/react-md-editor';
 import MarkdownRenderer from '@/components/common/MarkdownRenderer';
 import DiffViewer from '@/components/common/DiffViewer';
@@ -33,6 +34,7 @@ const WikiEditor: React.FC<WikiEditorProps> = ({
   placeholder = 'Enter content in Markdown format...',
   textareaProps
 }) => {
+  const { t } = useTranslation('wiki');
   const [currentMode, setCurrentMode] = useState<EditorMode>(modes[0] || 'edit');
   const { theme } = useThemeStore();
 
@@ -46,11 +48,11 @@ const WikiEditor: React.FC<WikiEditorProps> = ({
   const getModeLabel = (mode: EditorMode): string => {
     switch (mode) {
       case 'edit':
-        return 'Edit';
+        return t('editor.edit');
       case 'preview':
-        return 'Preview';
+        return t('editor.preview');
       case 'diff':
-        return 'Diff';
+        return t('editor.diff');
       default:
         return mode;
     }
@@ -60,14 +62,15 @@ const WikiEditor: React.FC<WikiEditorProps> = ({
     switch (currentMode) {
       case 'edit':
         return (
-          <div data-color-mode={theme} className="flex-1">
+          <div data-color-mode={theme} className="flex-1 flex flex-col min-h-0">
             <MDEditor
               value={value}
               onChange={(val) => onChange(val || '')}
               preview="edit"
               hideToolbar={false}
               visibleDragbar={false}
-              style={style}
+              height="100%"
+              style={{ flex: 1 }}
               textareaProps={{
                 placeholder,
                 style: {
@@ -83,10 +86,10 @@ const WikiEditor: React.FC<WikiEditorProps> = ({
 
       case 'preview':
         return (
-          <div className="flex-1 max-h-96 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-lg p-4 bg-white dark:bg-gray-800">
+          <div className="flex-1 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-lg p-4 bg-white dark:bg-gray-800 min-h-0">
             <div className="max-w-none">
               <MarkdownRenderer
-                content={value || 'Nothing to preview'}
+                content={value || t('editor.nothingToPreview')}
                 className="prose max-w-none dark:prose-invert text-gray-700 dark:text-gray-300"
               />
             </div>
@@ -111,10 +114,10 @@ const WikiEditor: React.FC<WikiEditorProps> = ({
   };
 
   return (
-    <div className={`wiki-editor ${className}`}>
+    <div className={`wiki-editor flex flex-col ${className}`} style={style}>
       {/* Mode Toggle Buttons */}
       {modes.length > 1 && (
-        <div className="flex justify-between items-center mb-4">
+        <div className="flex justify-between items-center mb-4 flex-shrink-0">
           <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-600">
             {modes.map((mode) => (
               <button
@@ -135,7 +138,7 @@ const WikiEditor: React.FC<WikiEditorProps> = ({
       )}
 
       {/* Content Area */}
-      <div className="flex-1 flex flex-col" style={style}>
+      <div className="flex-1 flex flex-col min-h-0">
         {renderContent()}
       </div>
     </div>

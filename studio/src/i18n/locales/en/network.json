@@ -15,6 +15,7 @@
         "networkIdLabel": "Network ID",
         "networkIdPlaceholder": "network-id-123 or openagents://network-id",
         "connectButton": "Connect",
+        "manageNetwork": "Manage Network",
         "cancelButton": "Cancel"
     },
     "status": {
@@ -23,6 +24,11 @@
         "disconnected": "Disconnected",
         "connectionFailed": "Connection failed",
         "retrying": "Retrying..."
+    },
+    "errors": {
+        "connectFailedCheckHostPort": "Failed to connect to the network. Please check the host and port.",
+        "connectFailedOffline": "Failed to connect to the network. The network may be offline or unreachable.",
+        "errorConnecting": "Error connecting to network"
     },
     "profile": {
         "title": "Network Profile",
@@ -33,8 +39,14 @@
         "name": "Network Name",
         "description": "Description",
         "icon": "Icon URL",
+        "iconHint": "Enter a URL or upload an image (max 5MB). Uploaded images will be saved to the network's assets folder.",
+        "upload": "Upload",
+        "uploading": "Uploading...",
         "website": "Website URL",
         "country": "Country",
+        "selectCountry": "Select a country...",
+        "searchCountry": "Search country...",
+        "noCountryFound": "No country found.",
         "tags": {
             "title": "Tags",
             "placeholder": "Enter a tag and press Enter",
@@ -57,8 +69,9 @@
         "error": "Failed to update network profile"
     },
     "agents": {
-        "title": "Agent Management",
+        "title": "Connected Agents",
         "subtitle": "Manage connected agents on the network",
+        "loading": "Loading agents...",
         "refresh": "Refresh",
         "total": "Total Agents",
         "online": "Online Agents",
@@ -113,12 +126,17 @@
             "createTitle": "Create New Group",
             "editTitle": "Edit Group: {{name}}",
             "name": "Group Name",
+            "namePlaceholder": "e.g., moderators",
+            "nameCannotChange": "Group name cannot be changed after creation",
             "description": "Description",
+            "descriptionPlaceholder": "e.g., Admin group with content moderation permissions",
             "password": "Password (optional)",
             "clearPassword": "Clear existing password",
             "permissions": "Permissions (comma-separated)",
+            "permissionsPlaceholder": "e.g., moderate_content, ban_users, view_reports",
             "cancel": "Cancel",
             "create": "Create Group",
+            "update": "Update Group",
             "save": "Save Changes"
         },
         "messages": {
@@ -133,15 +151,82 @@
             "modal": {
                 "title": "Change Password - {{group}}",
                 "newPasswordLabel": "New Password *",
-                "newPasswordPlaceholder": "Enter new password (at least 4 characters)",
-                "passwordHint": "Password must be at least 4 characters",
+                "newPasswordPlaceholder": "Enter new password (at least 8 characters)",
+                "passwordHint": "Password must be at least 8 characters",
                 "cancel": "Cancel",
                 "confirm": "Confirm Change",
                 "changing": "Changing...",
                 "passwordRequired": "Password is required",
-                "passwordMinLength": "Password must be at least 4 characters",
+                "passwordMinLength": "Password must be at least 8 characters",
                 "failed": "Failed to change password"
             }
+        }
+    },
+    "importExport": {
+        "title": "Network Import / Export",
+        "subtitle": "Backup, restore, or migrate network configuration",
+        "connectFirst": "Please connect to a network first",
+        "export": {
+            "title": "Export Network Configuration",
+            "description": "Export current network configuration as a .zip file for backup or sharing.",
+            "button": "Export Network Configuration",
+            "exporting": "Exporting...",
+            "loginRequired": "Login required to export network configuration",
+            "failed": "Export failed: {{error}}"
+        },
+        "import": {
+            "title": "Import Network Configuration",
+            "description": "Import network configuration from a .zip file, which can overwrite current configuration or create a new network.",
+            "loginRequired": "Login required to validate import file",
+            "loginRequiredImport": "Login required to import network configuration",
+            "validationFailed": "Validation failed",
+            "importSuccess": "Import successful! Network has been restarted.\nNetwork name: {{name}}",
+            "importStarted": "Configuration import started.\nNetwork name: {{name}}\nStatus: {{status}}",
+            "importFailed": "Import failed: {{error}}",
+            "networkRestartUnknown": "Network restart status unknown (async execution in progress)"
+        },
+        "dropzone": {
+            "dragDrop": "Drag files here, or click to select files",
+            "supportedFormat": "Supports .zip format network configuration files",
+            "selectZipFile": "Please select a .zip file"
+        },
+        "preview": {
+            "title": "Import Preview",
+            "validationError": "Validation Error",
+            "warnings": "Warnings",
+            "networkName": "Network Name",
+            "networkMode": "Network Mode",
+            "modules": "Modules ({{count}})",
+            "agentGroups": "Agent Groups ({{count}})",
+            "transports": "Transports ({{count}})",
+            "exportTime": "Export Time",
+            "exportNotes": "Export Notes",
+            "importMode": "Import Mode",
+            "overwrite": "Overwrite current network configuration",
+            "createNew": "Create new network",
+            "newNetworkName": "New Network Name",
+            "newNetworkNamePlaceholder": "Enter new network name",
+            "cancel": "Cancel",
+            "confirmImport": "Confirm Import",
+            "importing": "Importing..."
+        },
+        "exportOptions": {
+            "title": "Export Options",
+            "includePasswordHashes": "Include Password Hashes",
+            "includePasswordHashesDesc": "Export agent group password hashes (for password recovery)",
+            "includeSensitiveConfig": "Include Sensitive Config",
+            "includeSensitiveConfigDesc": "Export sensitive configuration information such as API keys and secrets",
+            "notes": "Notes (optional)",
+            "notesPlaceholder": "Add export notes...",
+            "cancel": "Cancel",
+            "export": "Export",
+            "exporting": "Exporting..."
+        },
+        "overwriteConfirm": {
+            "title": "Confirm Overwrite",
+            "message": "This operation will overwrite the current network configuration. The network will automatically restart after import. Continue?",
+            "confirm": "Confirm Overwrite",
+            "cancel": "Cancel"
         }
     }
 }

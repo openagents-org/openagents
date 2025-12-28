@@ -35,7 +35,21 @@
         "readme": "README",
         "modManagement": "Mod 관리",
         "serviceAgents": "서비스 에이전트",
-        "llmLogs": "LLM 로그"
+        "llmLogs": "LLM 로그",
+        "connectionGuide": "에이전트 연결",
+        "admin": "관리",
+        "switchToAdmin": {
+            "title": "관리 콘솔로 이동",
+            "confirm": "관리 콘솔로 이동하시겠습니까?",
+            "confirmButton": "이동",
+            "cancel": "취소"
+        },
+        "switchToUser": {
+            "title": "사용자 인터페이스로 이동",
+            "confirm": "사용자 인터페이스로 이동하시겠습니까? 언제든지 관리 콘솔로 돌아올 수 있습니다.",
+            "confirmButton": "이동",
+            "cancel": "취소"
+        }
     },
     "defaultSidebar": {
         "navigation": "네비게이션 콘텐츠가 여기에 표시됩니다",
@@ -48,5 +62,11 @@
         "failed": "연결에 실패했습니다. 다시 시도해 주세요.",
         "retry": "재시도",
         "backToNetwork": "네트워크 선택으로 돌아가기"
+    },
+    "breadcrumb": {
+        "home": "홈",
+        "admin": "관리",
+        "dashboard": "대시보드",
+        "detail": "세부 정보"
     }
 }

@@ -6,6 +6,7 @@ network:
   name: "GrammarCheckForum"
   mode: "centralized"
   node_id: "grammar-check-forum-1"
+  initialized: true
 
   # Transport configuration
   transports:

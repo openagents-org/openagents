@@ -6,13 +6,222 @@ import { useAuthStore } from '@/stores/authStore';
 import { Button } from '@/components/layout/ui/button';
 import { Input } from '@/components/layout/ui/input';
 import { Textarea } from '@/components/layout/ui/textarea';
-import { Switch, SwitchWrapper } from '@/components/layout/ui/switch';
 import { Badge } from '@/components/layout/ui/badge';
-import { AlertCircle, CheckCircle2, X, Upload, Loader2 } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/layout/ui/popover';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/layout/ui/command';
+import { AlertCircle, CheckCircle2, X, Upload, Loader2, ChevronsUpDown, Check } from 'lucide-react';
 import { uploadNetworkIcon } from '@/services/networkService';
+import { cn } from '@/lib/utils';
+
+// List of countries for the country selector
+const COUNTRIES = [
+  'Worldwide',
+  'Afghanistan',
+  'Albania',
+  'Algeria',
+  'Andorra',
+  'Angola',
+  'Antigua and Barbuda',
+  'Argentina',
+  'Armenia',
+  'Australia',
+  'Austria',
+  'Azerbaijan',
+  'Bahamas',
+  'Bahrain',
+  'Bangladesh',
+  'Barbados',
+  'Belarus',
+  'Belgium',
+  'Belize',
+  'Benin',
+  'Bhutan',
+  'Bolivia',
+  'Bosnia and Herzegovina',
+  'Botswana',
+  'Brazil',
+  'Brunei',
+  'Bulgaria',
+  'Burkina Faso',
+  'Burundi',
+  'Cabo Verde',
+  'Cambodia',
+  'Cameroon',
+  'Canada',
+  'Central African Republic',
+  'Chad',
+  'Chile',
+  'China',
+  'Colombia',
+  'Comoros',
+  'Congo',
+  'Costa Rica',
+  'Croatia',
+  'Cuba',
+  'Cyprus',
+  'Czech Republic',
+  'Denmark',
+  'Djibouti',
+  'Dominica',
+  'Dominican Republic',
+  'East Timor',
+  'Ecuador',
+  'Egypt',
+  'El Salvador',
+  'Equatorial Guinea',
+  'Eritrea',
+  'Estonia',
+  'Eswatini',
+  'Ethiopia',
+  'Fiji',
+  'Finland',
+  'France',
+  'Gabon',
+  'Gambia',
+  'Georgia',
+  'Germany',
+  'Ghana',
+  'Greece',
+  'Grenada',
+  'Guatemala',
+  'Guinea',
+  'Guinea-Bissau',
+  'Guyana',
+  'Haiti',
+  'Honduras',
+  'Hungary',
+  'Iceland',
+  'India',
+  'Indonesia',
+  'Iran',
+  'Iraq',
+  'Ireland',
+  'Israel',
+  'Italy',
+  'Ivory Coast',
+  'Jamaica',
+  'Japan',
+  'Jordan',
+  'Kazakhstan',
+  'Kenya',
+  'Kiribati',
+  'Kosovo',
+  'Kuwait',
+  'Kyrgyzstan',
+  'Laos',
+  'Latvia',
+  'Lebanon',
+  'Lesotho',
+  'Liberia',
+  'Libya',
+  'Liechtenstein',
+  'Lithuania',
+  'Luxembourg',
+  'Madagascar',
+  'Malawi',
+  'Malaysia',
+  'Maldives',
+  'Mali',
+  'Malta',
+  'Marshall Islands',
+  'Mauritania',
+  'Mauritius',
+  'Mexico',
+  'Micronesia',
+  'Moldova',
+  'Monaco',
+  'Mongolia',
+  'Montenegro',
+  'Morocco',
+  'Mozambique',
+  'Myanmar',
+  'Namibia',
+  'Nauru',
+  'Nepal',
+  'Netherlands',
+  'New Zealand',
+  'Nicaragua',
+  'Niger',
+  'Nigeria',
+  'North Korea',
+  'North Macedonia',
+  'Norway',
+  'Oman',
+  'Pakistan',
+  'Palau',
+  'Palestine',
+  'Panama',
+  'Papua New Guinea',
+  'Paraguay',
+  'Peru',
+  'Philippines',
+  'Poland',
+  'Portugal',
+  'Qatar',
+  'Romania',
+  'Russia',
+  'Rwanda',
+  'Saint Kitts and Nevis',
+  'Saint Lucia',
+  'Saint Vincent and the Grenadines',
+  'Samoa',
+  'San Marino',
+  'Sao Tome and Principe',
+  'Saudi Arabia',
+  'Senegal',
+  'Serbia',
+  'Seychelles',
+  'Sierra Leone',
+  'Singapore',
+  'Slovakia',
+  'Slovenia',
+  'Solomon Islands',
+  'Somalia',
+  'South Africa',
+  'South Korea',
+  'South Sudan',
+  'Spain',
+  'Sri Lanka',
+  'Sudan',
+  'Suriname',
+  'Sweden',
+  'Switzerland',
+  'Syria',
+  'Taiwan',
+  'Tajikistan',
+  'Tanzania',
+  'Thailand',
+  'Togo',
+  'Tonga',
+  'Trinidad and Tobago',
+  'Tunisia',
+  'Turkey',
+  'Turkmenistan',
+  'Tuvalu',
+  'Uganda',
+  'Ukraine',
+  'United Arab Emirates',
+  'United Kingdom',
+  'United States',
+  'Uruguay',
+  'Uzbekistan',
+  'Vanuatu',
+  'Vatican City',
+  'Venezuela',
+  'Vietnam',
+  'Yemen',
+  'Zambia',
+  'Zimbabwe',
+];
 
 interface NetworkProfileData {
-  discoverable: boolean;
   name: string;
   description: string;
   icon: string;
@@ -46,7 +255,6 @@ const NetworkProfile: React.FC = () => {
   };
 
   const [formData, setFormData] = useState<NetworkProfileData>({
-    discoverable: true,
     name: '',
     description: '',
     icon: '',
@@ -67,6 +275,7 @@ const NetworkProfile: React.FC = () => {
   const [isUploadingIcon, setIsUploadingIcon] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [countryOpen, setCountryOpen] = useState(false);
 
   // Load existing network profile data
   useEffect(() => {
@@ -89,7 +298,6 @@ const NetworkProfile: React.FC = () => {
           console.log('✅ Found profile data:', profile);
           setFormData(prev => ({
             ...prev,
-            discoverable: profile.discoverable ?? prev.discoverable,
             name: profile.name || prev.name,
             description: profile.description || prev.description,
             icon: profile.icon || prev.icon,
@@ -220,7 +428,6 @@ const NetworkProfile: React.FC = () => {
       // All fields are Optional, but we send all current values
       // Empty strings for optional URL fields (icon, website) should be omitted or null
       const profilePayload: any = {
-        discoverable: formData.discoverable,
         name: formData.name.trim(),
         description: formData.description.trim(),
         country: formData.country.trim(),
@@ -262,7 +469,6 @@ const NetworkProfile: React.FC = () => {
             if (profile) {
               setFormData(prev => ({
                 ...prev,
-                discoverable: profile.discoverable ?? prev.discoverable,
                 name: profile.name || prev.name,
                 description: profile.description || prev.description,
                 icon: profile.icon || prev.icon,
@@ -366,27 +572,6 @@ const NetworkProfile: React.FC = () => {
           </h2>
 
           <div className="space-y-6">
-            {/* Discoverable */}
-            <div className="flex items-center justify-between py-2">
-              <div className="flex-1">
-                <label className="block text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
-                  {t('profile.discoverable')}
-                </label>
-                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                  {t('profile.discoverableDesc')}
-                </p>
-              </div>
-              <div className="ml-4">
-                <SwitchWrapper>
-                  <Switch
-                    checked={formData.discoverable}
-                    onCheckedChange={(checked) => handleInputChange('discoverable', checked)}
-                    size="lg"
-                  />
-                </SwitchWrapper>
-              </div>
-            </div>
-
             {/* Name */}
             <div className="space-y-2">
               <label className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
@@ -450,18 +635,18 @@ const NetworkProfile: React.FC = () => {
                   {isUploadingIcon ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Uploading...
+                      {t('profile.uploading')}
                     </>
                   ) : (
                     <>
                       <Upload className="w-4 h-4 mr-2" />
-                      Upload
+                      {t('profile.upload')}
                     </>
                   )}
                 </Button>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Enter a URL or upload an image (max 5MB). Uploaded images will be saved to the network's assets folder.
+                {t('profile.iconHint')}
               </p>
               {formData.icon && (
                 <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700 inline-block">
@@ -497,14 +682,51 @@ const NetworkProfile: React.FC = () => {
               <label className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
                 {t('profile.country')}
               </label>
-              <Input
-                type="text"
-                variant="lg"
-                value={formData.country}
-                onChange={(e) => handleInputChange('country', e.target.value)}
-                className="w-full p-3 rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="Worldwide"
-              />
+              <Popover open={countryOpen} onOpenChange={setCountryOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={countryOpen}
+                    className="w-full p-3 h-auto justify-between rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-normal"
+                  >
+                    {formData.country || t('profile.selectCountry')}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder={t('profile.searchCountry')} />
+                    <CommandList>
+                      <CommandEmpty>{t('profile.noCountryFound')}</CommandEmpty>
+                      <CommandGroup>
+                        {COUNTRIES.map((country) => (
+                          <CommandItem
+                            key={country}
+                            value={country}
+                            onSelect={(currentValue) => {
+                              // cmdk normalizes values to lowercase, so we need to find the original country
+                              const selectedCountry = COUNTRIES.find(
+                                c => c.toLowerCase() === currentValue.toLowerCase()
+                              ) || currentValue;
+                              handleInputChange('country', selectedCountry === formData.country ? '' : selectedCountry);
+                              setCountryOpen(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                'mr-2 h-4 w-4',
+                                formData.country === country ? 'opacity-100' : 'opacity-0'
+                              )}
+                            />
+                            {country}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
         </div>
@@ -539,7 +761,7 @@ const NetworkProfile: React.FC = () => {
                 size="lg"
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                Add
+                {t('profile.tags.add')}
               </Button>
             </div>
 
@@ -601,7 +823,7 @@ const NetworkProfile: React.FC = () => {
                 size="lg"
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                Add
+                {t('profile.categories.add')}
               </Button>
             </div>
 

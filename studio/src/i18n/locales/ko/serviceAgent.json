@@ -32,5 +32,40 @@
         "startFailed": "에이전트 시작에 실패했습니다",
         "stopSuccess": "에이전트가 중지되었습니다",
         "stopFailed": "에이전트 중지에 실패했습니다"
+    },
+    "list": {
+        "modelConfig": {
+            "title": "기본 모델 설정",
+            "subtitle": "모든 서비스 에이전트의 기본 LLM 제공자 구성",
+            "loading": "로딩 중...",
+            "provider": "모델 제공자",
+            "selectProvider": "제공자 선택",
+            "modelName": "모델 이름",
+            "selectModel": "모델 선택",
+            "apiKey": "API 키",
+            "apiKeyPlaceholder": "API 키를 입력하세요",
+            "saving": "저장 중...",
+            "saveChanges": "변경 사항 저장",
+            "note": "참고: 이 설정은 서비스 에이전트가 모델 구성으로 'auto'를 지정할 때 사용됩니다. 변경 사항은 에이전트 재시작 후 적용됩니다.",
+            "fetchFailed": "모델 설정 가져오기 실패",
+            "saveSuccess": "모델 설정이 성공적으로 저장되었습니다",
+            "saveFailed": "모델 설정 저장 실패"
+        },
+        "globalEnv": {
+            "title": "전역 환경 변수",
+            "subtitle": "모든 서비스 에이전트에서 공유되는 환경 변수",
+            "loading": "로딩 중...",
+            "variableName": "변수 이름",
+            "value": "값",
+            "empty": "전역 환경 변수가 정의되지 않았습니다",
+            "saving": "저장 중...",
+            "saveChanges": "변경 사항 저장",
+            "note": "참고: 전역 환경 변수 변경 사항은 재시작 후 모든 서비스 에이전트에 적용됩니다.",
+            "fetchFailed": "전역 환경 변수 가져오기 실패",
+            "saveSuccess": "전역 환경 변수가 성공적으로 저장되었습니다",
+            "saveFailed": "전역 환경 변수 저장 실패",
+            "variableNameRequired": "변수 이름이 필요합니다",
+            "variableExists": "변수가 이미 존재합니다"
+        }
     }
 }

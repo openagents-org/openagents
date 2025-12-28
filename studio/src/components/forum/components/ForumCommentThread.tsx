@@ -78,7 +78,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
         marginLeft: `${Math.min(comment.thread_level, maxDepth) * 20}px`
       }}
     >
-      <div className="p-4 rounded-lg bg-gray-50 dark:bg-gray-800">
+      <div className="p-4 rounded-lg bg-white dark:bg-gray-800">
         {/* Comment header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-3">

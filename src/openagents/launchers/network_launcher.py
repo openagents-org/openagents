@@ -12,6 +12,7 @@ import sys
 import yaml
 import asyncio
 import signal
+from pathlib import Path
 from typing import Optional
 
 from openagents.models.transport import TransportType
@@ -72,16 +73,24 @@ async def async_launch_network(
             signal.signal(sig, lambda signum, frame: signal_handler())
 
     try:
+        from openagents.core.network import AgentNetwork
+
+        # Determine workspace path
+        # If not explicitly provided, derive from config file's directory
+        if not workspace_path and config_path:
+            config_dir = Path(config_path).parent.resolve()
+            # Use the config file's directory as workspace if it contains typical workspace files
+            if (config_dir / "agents").exists() or (config_dir / "README.md").exists():
+                workspace_path = str(config_dir)
+                logger.info(f"Using workspace directory (derived from config): {workspace_path}")
+
         # Create network with workspace support
         if workspace_path:
-            logger.info(f"Using workspace directory: {workspace_path}")
-            from openagents.core.network import AgentNetwork
-
+            if not (config_path and Path(config_path).parent.resolve() == Path(workspace_path).resolve()):
+                logger.info(f"Using workspace directory: {workspace_path}")
             network = AgentNetwork.load(config_path, workspace_path=workspace_path)
         else:
             logger.info("Creating network with temporary workspace")
-            from openagents.core.network import AgentNetwork
-
             network = AgentNetwork.load(config_path)
 
         logger.info(f"Created network: {network.network_name}")
@@ -127,7 +136,7 @@ async def async_launch_network(
         else:
             logger.info("Running network indefinitely (Ctrl+C to stop)")
             try:
-                while network.is_running:
+                while network.is_running or network._restarting:
                     await asyncio.sleep(1)
             except KeyboardInterrupt:
                 logger.info("Received keyboard interrupt")

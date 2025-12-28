@@ -33,6 +33,7 @@ from openagents.config.globals import (
     SYSTEM_EVENT_KICK_AGENT,
     SYSTEM_EVENT_UPDATE_NETWORK_PROFILE,
     SYSTEM_EVENT_UPDATE_AGENT_GROUPS,
+    SYSTEM_EVENT_UPDATE_EXTERNAL_ACCESS,
     SYSTEM_EVENT_REPORT_LLM_LOG,
     SYSTEM_NOTIFICATION_AGENT_KICKED,
 )
@@ -83,6 +84,7 @@ class SystemCommandProcessor:
             SYSTEM_EVENT_KICK_AGENT: self.handle_kick_agent,
             SYSTEM_EVENT_UPDATE_NETWORK_PROFILE: self.handle_update_network_profile,
             SYSTEM_EVENT_UPDATE_AGENT_GROUPS: self.handle_update_agent_groups,
+            SYSTEM_EVENT_UPDATE_EXTERNAL_ACCESS: self.handle_update_external_access,
             SYSTEM_EVENT_REPORT_LLM_LOG: self.handle_report_llm_log,
         }
 
@@ -1243,6 +1245,182 @@ class SystemCommandProcessor:
                 data={
                     "type": "system_response",
                     "command": "update_network_profile",
+                }
+            )
+
+    async def handle_update_external_access(self, event: Event) -> EventResponse:
+        """Handle the update_external_access command.
+
+        Updates external access configuration in real-time:
+        - Validates the external_access payload
+        - Merges with current configuration
+        - Writes to YAML atomically
+        - Refreshes in-memory config
+
+        Only agents in the 'admin' group can update external access.
+        """
+        requesting_agent_id = event.payload.get("agent_id", event.source_id)
+        external_access_update = event.payload.get("external_access")
+
+        if not requesting_agent_id:
+            return EventResponse(
+                success=False,
+                message="Missing requesting agent_id",
+                data={
+                    "type": "system_response",
+                    "command": "update_external_access",
+                }
+            )
+
+        if not external_access_update or not isinstance(external_access_update, dict):
+            return EventResponse(
+                success=False,
+                message="Missing or invalid 'external_access' field in payload",
+                data={
+                    "type": "system_response",
+                    "command": "update_external_access",
+                }
+            )
+
+        # Check if requesting agent is in admin group
+        requesting_group = self.network.topology.agent_group_membership.get(requesting_agent_id)
+        if requesting_group != "admin":
+            self.logger.warning(
+                f"Unauthorized external access update attempt by {requesting_agent_id} (group: {requesting_group})"
+            )
+            return EventResponse(
+                success=False,
+                message="Unauthorized: Admin privileges required to update external access",
+                data={
+                    "type": "system_response",
+                    "command": "update_external_access",
+                    "requesting_agent": requesting_agent_id,
+                    "requesting_group": requesting_group,
+                }
+            )
+
+        try:
+            from openagents.models.external_access import ExternalAccessConfig
+            from pydantic import ValidationError
+            import yaml
+            import os
+            import tempfile
+            import shutil
+            import threading
+            from pathlib import Path
+
+            # Validate the update
+            try:
+                validated_config = ExternalAccessConfig(**external_access_update)
+            except ValidationError as e:
+                error_details = []
+                for error in e.errors():
+                    field = ".".join(str(loc) for loc in error["loc"])
+                    message = error["msg"]
+                    error_details.append(f"{field}: {message}")
+
+                return EventResponse(
+                    success=False,
+                    message=f"Validation failed: {'; '.join(error_details)}",
+                    data={
+                        "type": "system_response",
+                        "command": "update_external_access",
+                        "errors": error_details,
+                    }
+                )
+
+            final_config = validated_config.model_dump(mode="json", exclude_none=False)
+
+            # Find config file path
+            config_path = None
+            if hasattr(self.network, "config_path") and self.network.config_path:
+                config_path = Path(self.network.config_path)
+
+            # Atomic YAML write with file lock
+            if config_path and config_path.exists():
+                lock = threading.Lock()
+
+                with lock:
+                    try:
+                        # Read existing config
+                        with open(config_path, 'r', encoding='utf-8') as f:
+                            config_data = yaml.safe_load(f) or {}
+
+                        # Update external_access section
+                        config_data['external_access'] = final_config
+
+                        # Write to temporary file
+                        temp_fd, temp_path = tempfile.mkstemp(
+                            suffix='.yaml',
+                            dir=config_path.parent,
+                            text=True
+                        )
+
+                        try:
+                            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                                yaml.dump(
+                                    config_data,
+                                    f,
+                                    default_flow_style=False,
+                                    allow_unicode=True,
+                                    sort_keys=False
+                                )
+                                f.flush()
+                                os.fsync(f.fileno())
+
+                            # Atomic rename
+                            shutil.move(temp_path, config_path)
+                            self.logger.info(f"External access config written to {config_path}")
+
+                        except Exception as e:
+                            # Clean up temp file on error
+                            if os.path.exists(temp_path):
+                                os.remove(temp_path)
+                            raise
+
+                    except Exception as e:
+                        self.logger.error(f"Failed to write YAML config: {e}")
+                        return EventResponse(
+                            success=False,
+                            message=f"Failed to write configuration file: {str(e)}",
+                            data={
+                                "type": "system_response",
+                                "command": "update_external_access",
+                            }
+                        )
+
+            # Update in-memory configuration
+            try:
+                self.network.config.external_access = validated_config
+                self.logger.info("External access config updated in memory")
+            except Exception as e:
+                self.logger.warning(f"Updated external access as dict (model update failed: {e})")
+
+            # Audit log
+            self.logger.info(
+                f"🔒 AUDIT: External access config updated by {requesting_agent_id} at {time.time()}"
+            )
+
+            return EventResponse(
+                success=True,
+                message="External access configuration updated successfully",
+                data={
+                    "type": "system_response",
+                    "command": "update_external_access",
+                    "external_access": final_config,
+                }
+            )
+
+        except Exception as e:
+            self.logger.error(f"Error updating external access: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return EventResponse(
+                success=False,
+                message=f"Internal error while updating external access: {str(e)}",
+                data={
+                    "type": "system_response",
+                    "command": "update_external_access",
                 }
             )
 

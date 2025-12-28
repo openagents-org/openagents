@@ -1,10 +1,13 @@
 import React from "react";
 import { Routes, Route } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 /**
  * Settings main page - handles all settings-related features
  */
 const SettingsMainPage: React.FC = () => {
+  const { t } = useTranslation('profile');
+  
   return (
     <div className="h-full dark:bg-gray-800">
     <Routes>
@@ -14,24 +17,24 @@ const SettingsMainPage: React.FC = () => {
         element={
           <div className="p-6 dark:bg-gray-800 h-full">
             <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100">
-              Settings
+              {t('settings.title')}
             </h1>
             <div className="space-y-4">
               <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
                 <h2 className="text-lg font-semibold mb-2 text-gray-900 dark:text-gray-100">
-                  General Settings
+                  {t('settings.generalSettings')}
                 </h2>
                 <p className="text-gray-600 dark:text-gray-400">
-                  General configuration options coming soon...
+                  {t('settings.generalDescription')}
                 </p>
               </div>
 
               <div className="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
                 <h2 className="text-lg font-semibold mb-2 text-gray-900 dark:text-gray-100">
-                  Network Settings
+                  {t('settings.networkSettings')}
                 </h2>
                 <p className="text-gray-600 dark:text-gray-400">
-                  Network configuration options coming soon...
+                  {t('settings.networkDescription')}
                 </p>
               </div>
             </div>
@@ -45,10 +48,10 @@ const SettingsMainPage: React.FC = () => {
         element={
           <div className="p-6 h-full dark:bg-gray-800">
             <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100">
-              Network Settings
+              {t('settings.networkSettings')}
             </h1>
             <p className="text-gray-600 dark:text-gray-400">
-              Network configuration panel coming soon...
+              {t('settings.networkConfigPanel')}
             </p>
           </div>
         }
@@ -60,10 +63,10 @@ const SettingsMainPage: React.FC = () => {
         element={
           <div className="p-6 h-full dark:bg-gray-800">
             <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100">
-              Theme Settings
+              {t('settings.themeSettings')}
             </h1>
             <p className="text-gray-600 dark:text-gray-400">
-              Theme configuration panel coming soon...
+              {t('settings.themeConfigPanel')}
             </p>
           </div>
         }

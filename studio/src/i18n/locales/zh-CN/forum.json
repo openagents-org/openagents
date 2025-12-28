@@ -8,6 +8,16 @@
         "cancel": "取消",
         "create": "创建话题",
         "creating": "创建中...",
+        "permissionGroups": "权限组（可选）",
+        "permissionGroupsHint": "留空以使话题对所有用户可见",
+        "selectPermissionGroups": "选择权限组...",
+        "loadingGroups": "加载权限组中...",
+        "groupsSelected": "已选择 {{count}} 个权限组",
+        "groupsSelectedPlural": "已选择 {{count}} 个权限组",
+        "noGroupsAvailable": "没有可用的权限组",
+        "edit": "编辑",
+        "preview": "预览",
+        "previewPlaceholder": "预览将显示在这里...",
         "errors": {
             "titleRequired": "话题标题不能为空",
             "createFailed": "创建话题失败。请重试。"
@@ -15,15 +25,24 @@
     },
     "commentModal": {
         "title": "添加评论",
-        "content": "评论",
-        "contentPlaceholder": "输入您的评论...",
+        "content": "评论（支持 Markdown）",
+        "contentPlaceholder": "输入您的评论...（支持 Markdown）",
         "cancel": "取消",
-        "submit": "提交评论",
+        "submit": "发布评论",
+        "posting": "发布中...",
         "submitting": "提交中...",
+        "preview": "预览",
+        "edit": "编辑",
+        "previewPlaceholder": "预览将显示在这里...",
         "errors": {
             "contentRequired": "评论内容不能为空",
             "submitFailed": "提交评论失败。请重试。"
         }
+    },
+    "sidebar": {
+        "popular10Topics": "热门 10 个话题",
+        "loading": "加载中...",
+        "noTopicsYet": "还没有话题"
     },
     "list": {
         "title": "论坛",
@@ -44,7 +63,17 @@
         "edit": "编辑",
         "delete": "删除",
         "postedBy": "由 {{user}} 发布",
-        "repliedTo": "回复了 {{user}}"
+        "repliedTo": "回复了 {{user}}",
+        "connectingToNetwork": "正在连接到网络...",
+        "establishingConnection": "正在建立连接...",
+        "loadingTopic": "加载话题中...",
+        "topicNotFound": "话题未找到",
+        "backToForumList": "返回论坛列表",
+        "by": "由 {{user}} • {{time}}",
+        "commentsCount": "{{count}} 条评论",
+        "commentsTitle": "评论 ({{count}})",
+        "loadingComments": "加载评论中...",
+        "noCommentsYet": "还没有评论。成为第一个评论的人！"
     },
     "actions": {
         "newTopic": "新建话题",

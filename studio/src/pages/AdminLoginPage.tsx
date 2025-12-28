@@ -1,31 +1,54 @@
 import React, { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/authStore";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { hashPassword } from "@/utils/passwordHash";
 import { networkFetch } from "@/utils/httpClient";
 import { Shield } from "lucide-react";
+import { NetworkConnection } from "@/types/connection";
 
 const ADMIN_AGENT_NAME = "admin";
 
+interface LocationState {
+  pendingConnection?: NetworkConnection;
+}
+
 const AdminLoginPage: React.FC = () => {
+  const { t } = useTranslation("auth");
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     selectedNetwork,
     setAgentName,
     setPasswordHash,
     setAgentGroup,
+    handleNetworkSelected,
   } = useAuthStore();
 
   const [password, setPassword] = useState<string>("");
   const [passwordError, setPasswordError] = useState<string>("");
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
 
-  // Redirect if no network selected
+  // Get pending connection from navigation state
+  const locationState = location.state as LocationState | null;
+  const pendingConnection = locationState?.pendingConnection;
+
+  // Set network from pending connection if available
   useEffect(() => {
-    if (!selectedNetwork) {
+    if (pendingConnection && !selectedNetwork) {
+      handleNetworkSelected(pendingConnection);
+    }
+  }, [pendingConnection, selectedNetwork, handleNetworkSelected]);
+
+  // Use either selectedNetwork or pendingConnection for display
+  const networkToUse = selectedNetwork || pendingConnection;
+
+  // Redirect if no network selected and no pending connection
+  useEffect(() => {
+    if (!selectedNetwork && !pendingConnection) {
       navigate("/");
     }
-  }, [selectedNetwork, navigate]);
+  }, [selectedNetwork, pendingConnection, navigate]);
 
   const onBack = () => {
     navigate("/agent-setup");
@@ -33,11 +56,11 @@ const AdminLoginPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedNetwork) return;
+    if (!networkToUse) return;
 
     // Validate password
     if (!password.trim()) {
-      setPasswordError("Password is required for admin login");
+      setPasswordError(t("agentSetup.errors.adminPasswordRequired"));
       return;
     }
 
@@ -51,8 +74,8 @@ const AdminLoginPage: React.FC = () => {
 
       // Verify credentials by attempting registration with admin group
       const verifyResponse = await networkFetch(
-        selectedNetwork.host,
-        selectedNetwork.port,
+        networkToUse.host,
+        networkToUse.port,
         "/api/register",
         {
           method: "POST",
@@ -69,14 +92,14 @@ const AdminLoginPage: React.FC = () => {
             password_hash: hashedPassword,
             agent_group: "admin",
           }),
-          useHttps: selectedNetwork.useHttps,
+          useHttps: networkToUse.useHttps,
         }
       );
 
       const verifyData = await verifyResponse.json();
 
       if (!verifyData.success) {
-        const errorMessage = verifyData.error_message || "Failed to connect as admin";
+        const errorMessage = verifyData.error_message || t("agentSetup.errors.adminConnectionFailed");
         setPasswordError(errorMessage);
         setIsVerifying(false);
         return;
@@ -85,8 +108,8 @@ const AdminLoginPage: React.FC = () => {
       // Registration succeeded - unregister to let the main app re-register
       try {
         await networkFetch(
-          selectedNetwork.host,
-          selectedNetwork.port,
+          networkToUse.host,
+          networkToUse.port,
           "/api/unregister",
           {
             method: "POST",
@@ -97,27 +120,24 @@ const AdminLoginPage: React.FC = () => {
               agent_id: ADMIN_AGENT_NAME,
               secret: verifyData.secret,
             }),
-            useHttps: selectedNetwork.useHttps,
+            useHttps: networkToUse.useHttps,
           }
         );
       } catch (unregError) {
         console.warn("Failed to unregister after verification:", unregError);
       }
 
-      // Store the admin group in authStore
+      // Store the complete admin auth state BEFORE navigation
+      // All three must be set before navigate() to avoid RouteGuard redirecting to /agent-setup
       setPasswordHash(hashedPassword);
       setAgentGroup("admin");
+      setAgentName(ADMIN_AGENT_NAME);
 
-      // Navigate first, then set agentName to avoid RouteGuard redirect
+      // Navigate after auth state is complete
       navigate("/admin/dashboard", { replace: true });
-
-      // Set agentName after navigation to avoid triggering redirects
-      requestAnimationFrame(() => {
-        setAgentName(ADMIN_AGENT_NAME);
-      });
     } catch (error) {
       console.error("Failed to verify admin credentials:", error);
-      setPasswordError("Failed to connect as admin. Please check your password and try again.");
+      setPasswordError(t("agentSetup.errors.adminConnectionFailed"));
       setIsVerifying(false);
     }
   };
@@ -133,21 +153,21 @@ const AdminLoginPage: React.FC = () => {
           </div>
 
           <h1 className="text-3xl font-bold mb-3 text-gray-800 dark:text-gray-50">
-            Admin Login
+            {t("agentSetup.buttons.loginAsAdmin")}
           </h1>
           <p className="text-base leading-relaxed text-gray-500 dark:text-gray-300">
-            Enter the admin password to access the dashboard.
+            {t("agentSetup.adminPasswordHint")}
           </p>
         </div>
 
         {/* Network Info */}
-        {selectedNetwork && (
+        {networkToUse && (
           <div className="rounded-xl p-4 mb-6 text-left bg-gray-100 dark:bg-gray-700">
             <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-              Network
+              {t("agentSetup.connectingTo")}
             </div>
             <div className="text-base font-semibold text-gray-800 dark:text-gray-100">
-              {selectedNetwork.host}:{selectedNetwork.port}
+              {networkToUse.host}:{networkToUse.port}
             </div>
           </div>
         )}
@@ -160,7 +180,7 @@ const AdminLoginPage: React.FC = () => {
               htmlFor="password"
               className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300"
             >
-              Admin Password
+              {t("agentSetup.adminPassword")} <span className="text-red-500 ml-1">*</span>
             </label>
             <input
               id="password"
@@ -175,7 +195,7 @@ const AdminLoginPage: React.FC = () => {
                   ? "border-red-500 dark:border-red-400"
                   : "border-gray-300 dark:border-gray-500"
               }`}
-              placeholder="Enter admin password..."
+              placeholder={t("agentSetup.adminPasswordPlaceholder")}
               autoComplete="current-password"
               autoFocus
               required
@@ -198,7 +218,7 @@ const AdminLoginPage: React.FC = () => {
               disabled={isVerifying}
               className="flex-1 px-6 py-3 border rounded-lg text-base font-semibold cursor-pointer transition-all duration-150 bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-600 dark:border-gray-500 dark:text-gray-300 dark:hover:bg-gray-500 dark:hover:text-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              ← Back
+              {t("agentSetup.buttons.back")}
             </button>
             <button
               type="submit"
@@ -231,10 +251,10 @@ const AdminLoginPage: React.FC = () => {
                       d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                     ></path>
                   </svg>
-                  <span>Verifying...</span>
+                  <span>{t("agentSetup.buttons.connecting")}</span>
                 </div>
               ) : (
-                <span>Login →</span>
+                <span>{t("agentSetup.buttons.loginAsAdmin")} →</span>
               )}
             </button>
           </div>

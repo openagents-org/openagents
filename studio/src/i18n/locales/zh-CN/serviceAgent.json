@@ -48,6 +48,39 @@
             "restarted": "服务智能体 {{id}} 已重启",
             "failed": "操作失败",
             "fetchFailed": "无法获取服务智能体列表"
+        },
+        "modelConfig": {
+            "title": "默认模型配置",
+            "subtitle": "为所有服务智能体配置默认的 LLM 提供商",
+            "loading": "加载中...",
+            "provider": "模型提供商",
+            "selectProvider": "选择提供商",
+            "modelName": "模型名称",
+            "selectModel": "选择模型",
+            "apiKey": "API 密钥",
+            "apiKeyPlaceholder": "输入您的 API 密钥",
+            "saving": "保存中...",
+            "saveChanges": "保存更改",
+            "note": "注意：当服务智能体将模型配置指定为 'auto' 时，将使用这些设置。更改将在重启智能体后生效。",
+            "fetchFailed": "获取模型配置失败",
+            "saveSuccess": "模型配置保存成功",
+            "saveFailed": "保存模型配置失败"
+        },
+        "globalEnv": {
+            "title": "全局环境变量",
+            "subtitle": "所有服务智能体共享的环境变量",
+            "loading": "加载中...",
+            "variableName": "变量名",
+            "value": "值",
+            "empty": "未定义全局环境变量",
+            "saving": "保存中...",
+            "saveChanges": "保存更改",
+            "note": "注意：全局环境变量的更改将在重启后应用于所有服务智能体。",
+            "fetchFailed": "获取全局环境变量失败",
+            "saveSuccess": "全局环境变量保存成功",
+            "saveFailed": "保存全局环境变量失败",
+            "variableNameRequired": "变量名不能为空",
+            "variableExists": "变量已存在"
         }
     },
     "detail": {
@@ -83,6 +116,8 @@
             "count": "{{count}} 条日志",
             "allLevels": "所有级别",
             "autoScroll": "自动滚动",
+            "copy": "复制",
+            "copied": "已复制!",
             "clear": "清除",
             "noLogs": "暂无日志"
         },

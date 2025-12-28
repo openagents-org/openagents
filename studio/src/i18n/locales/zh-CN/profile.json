@@ -12,6 +12,7 @@
         "lastUpdated": "最后更新",
         "latency": "延迟",
         "modulesEnabled": "已启用 {{count}} 个模块",
+        "backToDashboard": "返回控制台",
         "sidebar": {
             "networkStatus": "网络状态",
             "eventLogs": "事件日志",
@@ -135,5 +136,22 @@
         "updateFailed": "资料更新失败",
         "avatarUploadSuccess": "头像上传成功",
         "avatarUploadFailed": "头像上传失败"
+    },
+    "comingSoon": {
+        "profileEditingForm": "资料编辑表单即将推出...",
+        "securityConfigPanel": "安全配置面板即将推出...",
+        "loadingProfileData": "正在加载资料数据...",
+        "failedToLoadProfileData": "加载资料数据失败",
+        "tryAgain": "重试"
+    },
+    "settings": {
+        "title": "设置",
+        "generalSettings": "通用设置",
+        "generalDescription": "通用配置选项即将推出...",
+        "networkSettings": "网络设置",
+        "networkDescription": "网络配置选项即将推出...",
+        "networkConfigPanel": "网络配置面板即将推出...",
+        "themeSettings": "主题设置",
+        "themeConfigPanel": "主题配置面板即将推出..."
     }
 }

@@ -36,16 +36,82 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
         
-    - name: Test with pytest (unit tests)
+    - name: Test agents
       env:
-        SOME_ENV_VAR: "value"
-        # Enforce sequential execution and stability
         PYTHONHASHSEED: "0"
         GRPC_ENABLE_FORK_SUPPORT: "1"
         GRPC_POLL_STRATEGY: "poll"
-      run: |
-        # Run tests sequentially (no -n flag to ensure no parallelism)
-        pytest --tb=short --maxfail=5 -v tests
+      run: pytest --tb=short -v tests/agents
+
+    - name: Test external_access
+      env:
+        PYTHONHASHSEED: "0"
+        GRPC_ENABLE_FORK_SUPPORT: "1"
+        GRPC_POLL_STRATEGY: "poll"
+      run: pytest --tb=short -v tests/external_access
+
+    - name: Test grpc
+      env:
+        PYTHONHASHSEED: "0"
+        GRPC_ENABLE_FORK_SUPPORT: "1"
+        GRPC_POLL_STRATEGY: "poll"
+      run: pytest --tb=short -v tests/grpc
+
+    - name: Test http
+      env:
+        PYTHONHASHSEED: "0"
+        GRPC_ENABLE_FORK_SUPPORT: "1"
+        GRPC_POLL_STRATEGY: "poll"
+      run: pytest --tb=short -v tests/http
+
+    - name: Test integration
+      env:
+        PYTHONHASHSEED: "0"
+        GRPC_ENABLE_FORK_SUPPORT: "1"
+        GRPC_POLL_STRATEGY: "poll"
+      run: pytest --tb=short -v tests/integration
+
+    - name: Test lms
+      env:
+        PYTHONHASHSEED: "0"
+        GRPC_ENABLE_FORK_SUPPORT: "1"
+        GRPC_POLL_STRATEGY: "poll"
+      run: pytest --tb=short -v tests/lms
+
+    - name: Test mods
+      env:
+        PYTHONHASHSEED: "0"
+        GRPC_ENABLE_FORK_SUPPORT: "1"
+        GRPC_POLL_STRATEGY: "poll"
+      run: pytest --tb=short -v tests/mods
+
+    - name: Test network
+      env:
+        PYTHONHASHSEED: "0"
+        GRPC_ENABLE_FORK_SUPPORT: "1"
+        GRPC_POLL_STRATEGY: "poll"
+      run: pytest --tb=short -v tests/network
+
+    - name: Test studio
+      env:
+        PYTHONHASHSEED: "0"
+        GRPC_ENABLE_FORK_SUPPORT: "1"
+        GRPC_POLL_STRATEGY: "poll"
+      run: pytest --tb=short -v tests/studio
+
+    - name: Test utils
+      env:
+        PYTHONHASHSEED: "0"
+        GRPC_ENABLE_FORK_SUPPORT: "1"
+        GRPC_POLL_STRATEGY: "poll"
+      run: pytest --tb=short -v tests/utils
+
+    - name: Test workspace
+      env:
+        PYTHONHASHSEED: "0"
+        GRPC_ENABLE_FORK_SUPPORT: "1"
+        GRPC_POLL_STRATEGY: "poll"
+      run: pytest --tb=short -v tests/workspace
         
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3

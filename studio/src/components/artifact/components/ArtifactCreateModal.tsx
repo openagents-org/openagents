@@ -2,6 +2,13 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useArtifactStore } from '@/stores/artifactStore';
 import { useHealthGroups } from '@/hooks/useHealthGroups';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/layout/ui/select';
 
 interface ArtifactCreateModalProps {
   isOpen: boolean;
@@ -141,17 +148,18 @@ const ArtifactCreateModal: React.FC<ArtifactCreateModalProps> = ({
               <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
                 {t('create.mimeType')}
               </label>
-              <select
-                value={mimeType}
-                onChange={(e) => setMimeType(e.target.value)}
-                className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
-              >
-                {mimeTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label} ({option.value})
-                  </option>
-                ))}
-              </select>
+              <Select value={mimeType} onValueChange={setMimeType}>
+                <SelectTrigger size="lg" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {mimeTypeOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label} ({option.value})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* 内容输入 */}

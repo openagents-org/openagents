@@ -22,6 +22,55 @@
         "connectionFailed": "ネットワークへの接続に失敗しました",
         "disconnected": "ネットワークから切断されました"
     },
+    "errors": {
+        "connectFailedCheckHostPort": "ネットワークへの接続に失敗しました。ホストとポートを確認してください。",
+        "connectFailedOffline": "ネットワークへの接続に失敗しました。ネットワークがオフラインか、到達できない可能性があります。",
+        "errorConnecting": "ネットワーク接続中にエラーが発生しました"
+    },
+    "profile": {
+        "iconHint": "URL を入力するか、画像をアップロードしてください（最大 5MB）。アップロードされた画像はネットワークのアセットフォルダに保存されます。",
+        "upload": "アップロード",
+        "uploading": "アップロード中...",
+        "selectCountry": "国を選択...",
+        "searchCountry": "国を検索...",
+        "noCountryFound": "国が見つかりません。",
+        "tags": {
+            "add": "追加"
+        },
+        "categories": {
+            "add": "追加"
+        }
+    },
+    "agents": {
+        "title": "接続済みエージェント",
+        "subtitle": "ネットワークに接続されているエージェントを管理",
+        "loading": "エージェントを読み込み中...",
+        "refresh": "更新",
+        "total": "エージェント総数",
+        "online": "オンラインエージェント",
+        "empty": "接続されているエージェントがありません",
+        "you": "(あなた)",
+        "kick": "キック",
+        "kicking": "キック中...",
+        "table": {
+            "id": "エージェント ID",
+            "status": "ステータス",
+            "actions": "操作"
+        },
+        "kickConfirm": {
+            "title": "エージェントをキック",
+            "message": "エージェント \"{{name}}\" をキックしてもよろしいですか？これにより、ネットワークから切断されます。",
+            "confirm": "キック",
+            "cancel": "キャンセル"
+        },
+        "messages": {
+            "kickSelf": "自分自身をキックすることはできません！",
+            "kickSuccess": "{{name}} を正常にキックしました",
+            "kickSuccessDesc": "エージェントがネットワークから削除されました",
+            "kickError": "エージェントのキックに失敗しました",
+            "fetchError": "エージェントの取得に失敗しました"
+        }
+    },
     "groups": {
         "changePassword": {
             "button": "パスワードを変更",
@@ -37,6 +86,73 @@
                 "passwordMinLength": "パスワードは4文字以上である必要があります",
                 "failed": "パスワードの変更に失敗しました"
             }
+        }
+    },
+    "importExport": {
+        "title": "ネットワークのインポート/エクスポート",
+        "subtitle": "ネットワーク設定のバックアップ、復元、または移行",
+        "connectFirst": "まずネットワークに接続してください",
+        "export": {
+            "title": "ネットワーク設定のエクスポート",
+            "description": "現在のネットワーク設定を.zipファイルとしてエクスポートし、バックアップまたは共有に使用します。",
+            "button": "ネットワーク設定をエクスポート",
+            "exporting": "エクスポート中...",
+            "loginRequired": "ネットワーク設定をエクスポートするにはログインが必要です",
+            "failed": "エクスポートに失敗しました: {{error}}"
+        },
+        "import": {
+            "title": "ネットワーク設定のインポート",
+            "description": ".zipファイルからネットワーク設定をインポートします。現在の設定を上書きするか、新しいネットワークを作成できます。",
+            "loginRequired": "インポートファイルを検証するにはログインが必要です",
+            "loginRequiredImport": "ネットワーク設定をインポートするにはログインが必要です",
+            "validationFailed": "検証に失敗しました",
+            "importSuccess": "インポートが成功しました！ネットワークが再起動されました。\nネットワーク名: {{name}}",
+            "importStarted": "設定のインポートが開始されました。\nネットワーク名: {{name}}\nステータス: {{status}}",
+            "importFailed": "インポートに失敗しました: {{error}}",
+            "networkRestartUnknown": "ネットワーク再起動ステータス不明（非同期実行中）"
+        },
+        "dropzone": {
+            "dragDrop": "ファイルをここにドラッグ&ドロップするか、クリックしてファイルを選択",
+            "supportedFormat": ".zip形式のネットワーク設定ファイルをサポート",
+            "selectZipFile": ".zipファイルを選択してください"
+        },
+        "preview": {
+            "title": "インポートプレビュー",
+            "validationError": "検証エラー",
+            "warnings": "警告",
+            "networkName": "ネットワーク名",
+            "networkMode": "ネットワークモード",
+            "modules": "モジュール ({{count}})",
+            "agentGroups": "エージェントグループ ({{count}})",
+            "transports": "トランスポート ({{count}})",
+            "exportTime": "エクスポート時刻",
+            "exportNotes": "エクスポートメモ",
+            "importMode": "インポートモード",
+            "overwrite": "現在のネットワーク設定を上書き",
+            "createNew": "新しいネットワークを作成",
+            "newNetworkName": "新しいネットワーク名",
+            "newNetworkNamePlaceholder": "新しいネットワーク名を入力",
+            "cancel": "キャンセル",
+            "confirmImport": "インポートを確認",
+            "importing": "インポート中..."
+        },
+        "exportOptions": {
+            "title": "エクスポートオプション",
+            "includePasswordHashes": "パスワードハッシュを含める",
+            "includePasswordHashesDesc": "エージェントグループのパスワードハッシュをエクスポート（パスワード回復用）",
+            "includeSensitiveConfig": "機密設定を含める",
+            "includeSensitiveConfigDesc": "APIキーやシークレットなどの機密設定情報をエクスポート",
+            "notes": "メモ（オプション）",
+            "notesPlaceholder": "エクスポートメモを追加...",
+            "cancel": "キャンセル",
+            "export": "エクスポート",
+            "exporting": "エクスポート中..."
+        },
+        "overwriteConfirm": {
+            "title": "上書きの確認",
+            "message": "この操作により、現在のネットワーク設定が上書きされます。インポート後、ネットワークが自動的に再起動されます。続行しますか？",
+            "confirm": "上書きを確認",
+            "cancel": "キャンセル"
         }
     }
 }

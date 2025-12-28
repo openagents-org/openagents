@@ -17,7 +17,34 @@
         "noDocuments": "No documents yet",
         "createFirst": "Create your first document to get started",
         "loading": "Loading documents...",
-        "searchPlaceholder": "Search documents..."
+        "searchPlaceholder": "Search documents...",
+        "justNow": "Just now",
+        "minutesAgo": "{{count}}m ago",
+        "hoursAgo": "{{count}}h ago",
+        "daysAgo": "{{count}}d ago",
+        "noActiveEditors": "No active editors",
+        "isEditing": "{{user}} is editing",
+        "areEditing": "{{users}} are editing",
+        "othersEditing": "{{users}} and {{count}} others are editing",
+        "createdBy": "Created by {{user}}",
+        "lastModified": "Last modified {{time}}",
+        "active": "Active",
+        "clickToOpen": "Click to open"
+    },
+    "sidebar": {
+        "top10ActiveDocuments": "TOP 10 ACTIVE DOCUMENTS",
+        "noDocumentsYet": "No documents yet"
+    },
+    "view": {
+        "loadingDocuments": "Loading documents...",
+        "connectionError": "Connection Error",
+        "backToChat": "Back to Chat",
+        "documentDetails": "Document Details",
+        "documentId": "Document ID: {{id}}",
+        "backToList": "Back to List",
+        "sharedDocuments": "Shared Documents",
+        "collaborativeEditingHint": "Open the same document in different browser windows to start real-time collaborative editing",
+        "newDocument": "New Document"
     },
     "editor": {
         "untitled": "Untitled Document",
@@ -28,7 +55,17 @@
         "lastSaved": "Last saved: {{time}}",
         "collaborators": "Collaborators",
         "onlineUsers": "Online Users",
-        "noCollaborators": "No collaborators yet"
+        "noCollaborators": "No collaborators yet",
+        "readOnlyPlaceholder": "This document is read-only",
+        "startTypingPlaceholder": "Start typing your document...",
+        "debugInfo": {
+            "content": "Content",
+            "chars": "chars",
+            "saving": "💾 Saving...",
+            "unsaved": "✏️ Unsaved",
+            "saved": "✅ Saved",
+            "liveUpdate": "🔄 Live Update"
+        }
     },
     "actions": {
         "new": "New Document",

@@ -2,16 +2,49 @@
 
 import json
 import logging
+import os
 import yaml
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from zipfile import ZipFile, ZIP_DEFLATED
 
 from openagents.models.network_management import ExportManifest
 
 logger = logging.getLogger(__name__)
+
+# Files/directories to exclude from workspace export
+WORKSPACE_EXCLUDE_PATTERNS = {
+    # Database files (created on startup)
+    'network.db',
+    'network.db-journal',
+    'network.db-wal',
+    'network.db-shm',
+    # Python cache
+    '__pycache__',
+    '.pytest_cache',
+    '*.pyc',
+    '*.pyo',
+    # IDE files
+    '.idea',
+    '.vscode',
+    # Git
+    '.git',
+    # Logs (can be large)
+    'logs',
+    # Virtual environments
+    'venv',
+    '.venv',
+    'env',
+    '.env',
+    # Node modules
+    'node_modules',
+    # Temp files
+    '*.tmp',
+    '*.temp',
+    '.DS_Store',
+}
 
 
 class NetworkExporter:
@@ -32,44 +65,48 @@ class NetworkExporter:
         notes: Optional[str] = None
     ) -> BytesIO:
         """Export network configuration to ZIP file.
-        
+
         Args:
             include_password_hashes: Whether to include password hashes
             include_sensitive_config: Whether to include sensitive config fields
             notes: Optional notes about this export
-            
+
         Returns:
             BytesIO: ZIP file in memory
         """
         logger.info(f"Starting network export for '{self.network.network_name}'")
-        
+
         zip_buffer = BytesIO()
-        
+
         with ZipFile(zip_buffer, 'w', ZIP_DEFLATED) as zip_file:
-            # Create manifest
-            manifest = self._create_manifest(
-                include_password_hashes=include_password_hashes,
-                include_sensitive_config=include_sensitive_config,
-                notes=notes
-            )
-            zip_file.writestr('manifest.json', json.dumps(manifest.model_dump(), indent=2))
-            
             # Export network configuration
             network_config = self._get_network_config(
                 include_password_hashes=include_password_hashes,
                 include_sensitive_config=include_sensitive_config
             )
             zip_file.writestr('network.yaml', yaml.safe_dump(network_config, sort_keys=False))
-            
+
             # Export network profile if exists
             if hasattr(self.network.config, 'network_profile') and self.network.config.network_profile:
                 profile_data = self._get_network_profile(include_sensitive_config=include_sensitive_config)
                 if profile_data:
                     zip_file.writestr('network_profile.yaml', yaml.safe_dump(profile_data, sort_keys=False))
-            
+
             # Export mods configuration
             self._export_mods(zip_file, include_sensitive_config=include_sensitive_config)
-        
+
+            # Export workspace files (agents, custom scripts, etc.)
+            workspace_files_count = self._export_workspace_files(zip_file)
+
+            # Create manifest (after we know the workspace files count)
+            manifest = self._create_manifest(
+                include_password_hashes=include_password_hashes,
+                include_sensitive_config=include_sensitive_config,
+                notes=notes,
+                workspace_files_count=workspace_files_count
+            )
+            zip_file.writestr('manifest.json', json.dumps(manifest.model_dump(), indent=2))
+
         zip_buffer.seek(0)
         logger.info(f"Network export completed: {len(zip_buffer.getvalue())} bytes")
         return zip_buffer
@@ -78,22 +115,23 @@ class NetworkExporter:
         self,
         include_password_hashes: bool,
         include_sensitive_config: bool,
-        notes: Optional[str]
+        notes: Optional[str],
+        workspace_files_count: int = 0
     ) -> ExportManifest:
         """Create export manifest."""
         mods_count = len(self.network.config.mods) if self.network.config.mods else 0
         has_network_profile = (
-            hasattr(self.network.config, 'network_profile') 
+            hasattr(self.network.config, 'network_profile')
             and self.network.config.network_profile is not None
         )
-        
+
         # Try to get OpenAgents version
         try:
             import openagents
             version = getattr(openagents, '__version__', None)
         except Exception:
             version = None
-        
+
         return ExportManifest(
             export_version="1.0",
             network_name=self.network.network_name,
@@ -103,7 +141,8 @@ class NetworkExporter:
             includes_password_hashes=include_password_hashes,
             includes_sensitive_config=include_sensitive_config,
             mods_count=mods_count,
-            has_network_profile=has_network_profile
+            has_network_profile=has_network_profile,
+            workspace_files_count=workspace_files_count
         )
 
     def _get_network_config(
@@ -199,7 +238,7 @@ class NetworkExporter:
             'credentials', 'auth_token', 'access_token', 'refresh_token',
             'secret_key', 'encryption_key'
         ]
-        
+
         def strip_recursive(obj):
             if isinstance(obj, dict):
                 # Collect keys to delete
@@ -213,17 +252,106 @@ class NetworkExporter:
                         for sensitive in sensitive_keys
                     ):
                         keys_to_delete.append(key)
-                
+
                 # Delete sensitive keys
                 for key in keys_to_delete:
                     del obj[key]
-                
+
                 # Recurse into remaining values
                 for value in obj.values():
                     strip_recursive(value)
             elif isinstance(obj, list):
                 for item in obj:
                     strip_recursive(item)
-        
+
         strip_recursive(config)
+
+    def _should_exclude_path(self, path: Path, filename: str) -> bool:
+        """Check if a file or directory should be excluded from export.
+
+        Args:
+            path: Full path to the file/directory
+            filename: Name of the file/directory
+
+        Returns:
+            bool: True if should be excluded, False otherwise
+        """
+        import fnmatch
+
+        # Check exact matches
+        if filename in WORKSPACE_EXCLUDE_PATTERNS:
+            return True
+
+        # Check glob patterns
+        for pattern in WORKSPACE_EXCLUDE_PATTERNS:
+            if '*' in pattern and fnmatch.fnmatch(filename, pattern):
+                return True
+
+        return False
+
+    def _get_workspace_path(self) -> Optional[Path]:
+        """Get the workspace path from the network.
+
+        Returns:
+            Path: Workspace path or None if not available
+        """
+        # Try to get workspace path from config_path (directory containing network.yaml)
+        if hasattr(self.network, 'config_path') and self.network.config_path:
+            return Path(self.network.config_path).parent
+
+        # Try to get from workspace_manager
+        if hasattr(self.network, 'workspace_manager') and self.network.workspace_manager:
+            return Path(self.network.workspace_manager.workspace_path)
+
+        return None
+
+    def _export_workspace_files(self, zip_file: ZipFile) -> int:
+        """Export all workspace files to the ZIP archive.
+
+        Args:
+            zip_file: ZipFile to write to
+
+        Returns:
+            int: Number of files exported
+        """
+        workspace_path = self._get_workspace_path()
+        if not workspace_path or not workspace_path.exists():
+            logger.info("No workspace path available, skipping workspace files export")
+            return 0
+
+        files_exported = 0
+
+        for root, dirs, files in os.walk(workspace_path):
+            root_path = Path(root)
+
+            # Filter out excluded directories (modify dirs in-place to skip them)
+            dirs[:] = [d for d in dirs if not self._should_exclude_path(root_path / d, d)]
+
+            for filename in files:
+                file_path = root_path / filename
+
+                # Skip excluded files
+                if self._should_exclude_path(file_path, filename):
+                    continue
+
+                # Calculate relative path from workspace root
+                relative_path = file_path.relative_to(workspace_path)
+
+                # Skip the files we already export (network.yaml, network_profile.yaml)
+                # as they are handled separately with sanitization
+                if str(relative_path) in ('network.yaml', 'network_profile.yaml'):
+                    continue
+
+                # Add to zip under workspace/ prefix
+                archive_path = f"workspace/{relative_path}"
+
+                try:
+                    zip_file.write(file_path, archive_path)
+                    files_exported += 1
+                    logger.debug(f"Exported workspace file: {archive_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to export workspace file {file_path}: {e}")
+
+        logger.info(f"Exported {files_exported} workspace files")
+        return files_exported
 

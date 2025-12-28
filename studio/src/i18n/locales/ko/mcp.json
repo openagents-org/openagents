@@ -42,5 +42,15 @@
         "connectionSuccess": "연결되었습니다",
         "connectionFailed": "연결에 실패했습니다",
         "deleteConfirm": "이 서버를 삭제하시겠습니까?"
+    },
+    "pages": {
+        "config": {
+            "title": "MCP 구성",
+            "description": "MCP 구성 패널이 곧 제공됩니다..."
+        },
+        "status": {
+            "title": "MCP 상태",
+            "description": "MCP 상태 모니터링이 곧 제공됩니다..."
+        }
     }
 }

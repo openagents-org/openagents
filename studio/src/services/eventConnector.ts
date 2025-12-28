@@ -32,6 +32,10 @@ export interface EventHandler {
 }
 
 export class HttpEventConnector {
+  // Static registry to ensure singleton behavior per agent connection
+  // This prevents multiple connector instances from fighting over the same agent_id's secret
+  private static activeConnectors: Map<string, HttpEventConnector> = new Map();
+
   private agentId: string;
   private originalAgentId: string;
   private baseUrl: string;
@@ -50,6 +54,64 @@ export class HttpEventConnector {
   private secret: string | null = null;
   private passwordHash: string | null = null;
   private agentGroup: string | null = null;
+  private isReregistering = false; // Flag to prevent concurrent re-registration attempts
+  private reregisterPromise: Promise<boolean> | null = null; // Promise for concurrent callers to wait on
+  private instanceId: string; // Unique ID for this connector instance (for debugging)
+  private registryKey: string; // Key used in the static registry
+
+  /**
+   * Get an existing connector instance or create a new one.
+   * This is the recommended way to get a connector - it ensures singleton behavior
+   * and prevents multiple connectors from fighting over the same agent's secret.
+   */
+  static getInstance(options: ConnectionOptions): HttpEventConnector {
+    const key = HttpEventConnector.generateRegistryKey(options);
+    const existing = HttpEventConnector.activeConnectors.get(key);
+
+    if (existing && !existing.connectionAborted) {
+      console.log(`♻️ Reusing existing connector for ${options.agentId} (instance: ${existing.instanceId})`);
+      // Update credentials if they changed (e.g., after login)
+      if (options.passwordHash !== existing.passwordHash) {
+        console.log(`🔑 Password hash changed, will re-authenticate on next request`);
+        existing.passwordHash = options.passwordHash || null;
+        existing.secret = null; // Clear secret to force re-registration
+      }
+      if (options.agentGroup !== existing.agentGroup) {
+        existing.agentGroup = options.agentGroup || null;
+      }
+      return existing;
+    }
+
+    // Clean up old connector if it exists but was aborted
+    if (existing) {
+      console.log(`🧹 Cleaning up aborted connector for ${options.agentId}`);
+      HttpEventConnector.activeConnectors.delete(key);
+    }
+
+    // Create new connector and register it
+    const connector = new HttpEventConnector(options);
+    HttpEventConnector.activeConnectors.set(key, connector);
+    console.log(`🆕 Created new connector for ${options.agentId} (instance: ${connector.instanceId})`);
+    return connector;
+  }
+
+  /**
+   * Generate a unique key for the registry based on connection parameters
+   */
+  private static generateRegistryKey(options: ConnectionOptions): string {
+    return `${options.host}:${options.port}:${options.agentId}`;
+  }
+
+  /**
+   * Clear all active connectors (useful for logout/cleanup)
+   */
+  static clearAllConnectors(): void {
+    console.log(`🧹 Clearing all ${HttpEventConnector.activeConnectors.size} active connectors`);
+    for (const [key, connector] of HttpEventConnector.activeConnectors) {
+      connector.disconnect().catch(err => console.warn(`Error disconnecting ${key}:`, err));
+    }
+    HttpEventConnector.activeConnectors.clear();
+  }
 
   constructor(options: ConnectionOptions) {
     this.agentId = options.agentId;
@@ -59,6 +121,8 @@ export class HttpEventConnector {
     this.agentGroup = options.agentGroup || null;
     this.useHttps = options.useHttps || false; // HTTPS Feature: Get useHttps option from connection options
     this.networkId = options.networkId; // Network ID for routing through network.openagents.org
+    this.instanceId = Math.random().toString(36).substring(2, 8); // Short unique ID for debugging
+    this.registryKey = HttpEventConnector.generateRegistryKey(options);
 
     // HTTPS Feature: Construct baseUrl based on useHttps option
     const protocol = this.useHttps ? 'https' : 'http';
@@ -164,10 +228,11 @@ export class HttpEventConnector {
    * Disconnect from the network
    */
   async disconnect(): Promise<void> {
-    console.log("🔌 Disconnecting from OpenAgents network...");
+    console.log(`🔌 Disconnecting from OpenAgents network... (instance: ${this.instanceId})`);
 
     this.connectionAborted = true;
     this.connected = false;
+    const secretToUse = this.secret; // Store before clearing
     this.secret = null; // Clear authentication secret
 
     if (this.pollingInterval) {
@@ -175,10 +240,14 @@ export class HttpEventConnector {
       this.pollingInterval = null;
     }
 
+    // Remove from the static registry
+    HttpEventConnector.activeConnectors.delete(this.registryKey);
+    console.log(`🗑️ Removed connector from registry (instance: ${this.instanceId})`);
+
     try {
       await this.sendHttpRequest("/api/unregister", "POST", {
         agent_id: this.agentId,
-        secret: this.secret,
+        secret: secretToUse,
       });
     } catch (error) {
       // Don't log unregister errors as errors since they often happen during cleanup
@@ -189,6 +258,92 @@ export class HttpEventConnector {
     }
 
     this.emit("disconnected", { reason: "Manual disconnect" });
+  }
+
+  /**
+   * Re-register with the network to get a new valid secret.
+   * Called when authentication fails due to stale secrets (e.g., after network hot reload).
+   *
+   * This method handles concurrent calls by sharing a single promise - if multiple
+   * requests fail with auth errors simultaneously, they all wait for the same
+   * re-registration to complete.
+   */
+  private async reregister(): Promise<boolean> {
+    // If already re-registering, return the existing promise so callers wait for the same result
+    if (this.isReregistering && this.reregisterPromise) {
+      console.log("🔄 Already re-registering, waiting for existing re-registration to complete...");
+      return this.reregisterPromise;
+    }
+
+    this.isReregistering = true;
+    console.log("🔄 Re-registering with network to refresh authentication secret...");
+
+    // Create the re-registration promise
+    this.reregisterPromise = this.doReregister();
+
+    try {
+      return await this.reregisterPromise;
+    } finally {
+      // Clean up after re-registration completes
+      this.isReregistering = false;
+      this.reregisterPromise = null;
+    }
+  }
+
+  /**
+   * Internal method that performs the actual re-registration.
+   */
+  private async doReregister(): Promise<boolean> {
+    try {
+      // Clear old secret
+      this.secret = null;
+
+      // Register agent again
+      const registerResponse = await this.sendHttpRequest(
+        "/api/register",
+        "POST",
+        {
+          agent_id: this.agentId,
+          metadata: {
+            display_name: this.agentId,
+            user_agent: navigator.userAgent,
+            platform: "web",
+          },
+          password_hash: this.passwordHash || undefined,
+          agent_group: this.agentGroup || undefined,
+        }
+      );
+
+      if (!registerResponse.success) {
+        console.error("❌ Re-registration failed:", registerResponse.error_message);
+        return false;
+      }
+
+      // Store new authentication secret
+      if (registerResponse.secret) {
+        this.secret = registerResponse.secret;
+        console.log("🔑 New authentication secret received and stored");
+      } else {
+        console.warn("⚠️ No authentication secret received from re-registration");
+      }
+
+      console.log("✅ Re-registration successful");
+      return true;
+    } catch (error) {
+      console.error("❌ Re-registration error:", error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if an error response indicates authentication failure that can be recovered by re-registration
+   */
+  private isAuthenticationError(response: any): boolean {
+    if (response.success) return false;
+
+    // Check both 'message' (from send_event) and 'error_message' (from poll) fields
+    const errorMessage = response.message || response.error_message || "";
+    return errorMessage.includes("Authentication failed");
   }
 
   /**
@@ -220,15 +375,38 @@ export class HttpEventConnector {
   }
 
   /**
+   * Wait for connection to be established with timeout
+   */
+  private async waitForConnection(timeoutMs: number = 5000): Promise<boolean> {
+    if (this.connected) return true;
+
+    const startTime = Date.now();
+    const checkInterval = 100; // Check every 100ms
+
+    while (Date.now() - startTime < timeoutMs) {
+      if (this.connected) return true;
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+    }
+
+    return this.connected;
+  }
+
+  /**
    * Send an event to the network and get immediate EventResponse
    */
-  async sendEvent(event: Event): Promise<EventResponse> {
+  async sendEvent(event: Event, isRetry: boolean = false): Promise<EventResponse> {
+    // Wait for connection if not yet connected (handles race condition after login)
     if (!this.connected) {
-      console.warn(`Agent ${this.agentId} is not connected to network`);
-      return {
-        success: false,
-        message: "Agent is not connected to network",
-      };
+      console.log(`⏳ Waiting for connection before sending event: ${event.event_name}`);
+      const connected = await this.waitForConnection(5000);
+      if (!connected) {
+        console.warn(`Agent ${this.agentId} is not connected to network after waiting`);
+        return {
+          success: false,
+          message: "Agent is not connected to network",
+        };
+      }
+      console.log(`✅ Connection established, proceeding with event: ${event.event_name}`);
     }
 
     try {
@@ -249,10 +427,8 @@ export class HttpEventConnector {
         event.timestamp = Math.floor(Date.now() / 1000);
       }
 
-      // Add authentication secret
-      if (!event.secret && this.secret) {
-        event.secret = this.secret;
-      }
+      // Add authentication secret (use current secret, may have been refreshed)
+      event.secret = this.secret || "";
 
       console.log(
         `📤 Sending event: ${event.event_name} from ${event.source_id}`
@@ -275,6 +451,16 @@ export class HttpEventConnector {
         data: response.data,
         event_name: event.event_name,
       };
+
+      // Handle authentication failure - try to re-register and retry once
+      if (this.isAuthenticationError(eventResponse) && !isRetry) {
+        console.log("🔄 Authentication failed, attempting to re-register...");
+        const reregistered = await this.reregister();
+        if (reregistered) {
+          console.log("🔄 Retrying event after re-registration...");
+          return this.sendEvent(event, true);
+        }
+      }
 
       if (eventResponse.success) {
         console.log(`✅ Event sent successfully: ${event.event_name}`);
@@ -550,6 +736,18 @@ export class HttpEventConnector {
           this.handleIncomingEvent(event);
         }
       } else {
+        // Handle authentication failure - re-register to get new secret
+        if (this.isAuthenticationError(response)) {
+          console.log("🔄 Polling authentication failed, attempting to re-register...");
+          const reregistered = await this.reregister();
+          if (reregistered) {
+            console.log("🔄 Re-registration successful, polling will resume with new secret");
+          } else {
+            console.warn("⚠️ Re-registration failed during polling, will retry on next poll");
+          }
+          return;
+        }
+
         // when kick off need login again
         if (
           !response.success &&
@@ -755,6 +953,10 @@ export class HttpEventConnector {
    */
   isConnected(): boolean {
     return this.connected;
+  }
+
+  isCurrentlyConnecting(): boolean {
+    return this.isConnecting;
   }
 
   getAgentId(): string {

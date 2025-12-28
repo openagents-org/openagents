@@ -6,20 +6,43 @@ import { useLLMLogStore } from "@/stores/llmLogStore";
 import { useThemeStore } from "@/stores/themeStore";
 import type { LLMLogEntry } from "@/types/llmLogs";
 import { Button } from "@/components/layout/ui/button";
-import { RefreshCw, ChevronRight } from "lucide-react";
-
-const baseInputClasses =
-  "rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-500 outline-none transition-colors";
-const fullInputClass = `w-full ${baseInputClasses}`;
+import { Input } from "@/components/layout/ui/input";
+import { Card, CardContent } from "@/components/layout/ui/card";
+import { Badge } from "@/components/layout/ui/badge";
+import { ScrollArea } from "@/components/layout/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/layout/ui/select";
+import {
+  RefreshCw,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Search,
+  Cpu,
+  Zap,
+  MessageSquare,
+  Clock,
+  AlertCircle,
+  Hash,
+  Copy,
+  Check,
+  Filter,
+  Calendar,
+} from "lucide-react";
 
 const LLMLogsView: React.FC = () => {
   const { t } = useTranslation('llmlogs');
   const { theme } = useThemeStore();
   const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [modelFilter, setModelFilter] = useState("");
+  const [modelFilter, setModelFilter] = useState("all");
   const [startDate, setStartDate] = useState("");
-  const [hasErrorFilter, setHasErrorFilter] = useState<boolean | undefined>(undefined);
+  const [hasErrorFilter, setHasErrorFilter] = useState<string>("all");
 
   const {
     logs,
@@ -52,20 +75,19 @@ const LLMLogsView: React.FC = () => {
     return Array.from(modelSet).sort();
   }, [logs]);
 
-
   const handleApplyFilters = () => {
     applyFilters({
-      model: modelFilter || undefined,
+      model: modelFilter === "all" ? undefined : modelFilter,
       startDate: startDate || undefined,
-      hasError: hasErrorFilter,
+      hasError: hasErrorFilter === "all" ? undefined : hasErrorFilter === "true",
       searchQuery: searchQuery || undefined,
     });
   };
 
   const handleResetFilters = () => {
-    setModelFilter("");
+    setModelFilter("all");
     setStartDate("");
-    setHasErrorFilter(undefined);
+    setHasErrorFilter("all");
     setSearchQuery("");
     applyFilters({});
   };
@@ -94,265 +116,300 @@ const LLMLogsView: React.FC = () => {
     return `${(ms / 60000).toFixed(2)}min`;
   };
 
-  // Backend handles filtering, so we use logs directly
   const totalPages = Math.max(1, Math.ceil(totalLogs / pageSize));
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-white dark:bg-gray-800">
-      {/* Header */}
-      <div className="px-8 py-6 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+    <ScrollArea className="h-full">
+      <div className="p-6">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <p className="text-sm uppercase tracking-wide text-blue-600 font-semibold mb-1">
-              {t('header.system')}
-            </p>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
               {t('header.title')}
             </h1>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
               {t('header.subtitle')}
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            {/* <button
-              onClick={() => loadMockData()}
-              className="inline-flex items-center px-3 py-2 text-sm rounded-lg border border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-200 hover:bg-purple-50 dark:hover:bg-purple-900/20"
-              title="Load mock data for testing"
-            >
-              <svg
-                className="w-4 h-4 mr-2"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                />
-              </svg>
-              Load Test Data
-            </button> */}
+
+          <div className="flex items-center gap-2">
             <Button
-              type="button"
+              onClick={() => refreshLogs()}
+              disabled={logsLoading}
               variant="outline"
               size="sm"
-              onClick={() => refreshLogs()}
-              className="inline-flex items-center px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
-              disabled={logsLoading}
             >
-              <RefreshCw className={`w-4 h-4 mr-2 ${logsLoading ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-4 h-4 mr-1.5 ${logsLoading ? "animate-spin" : ""}`} />
               {t('actions.refresh')}
             </Button>
             <Button
-              type="button"
+              onClick={expandAll}
               variant="outline"
               size="sm"
-              onClick={expandAll}
-              className="inline-flex items-center px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
             >
+              <ChevronDown className="w-4 h-4 mr-1.5" />
               {t('actions.expandAll')}
             </Button>
             <Button
-              type="button"
+              onClick={collapseAll}
               variant="outline"
               size="sm"
-              onClick={collapseAll}
-              className="inline-flex items-center px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
             >
+              <ChevronUp className="w-4 h-4 mr-1.5" />
               {t('actions.collapseAll')}
             </Button>
           </div>
         </div>
 
-        {/* Stats */}
+        {/* Stats Cards */}
         {stats && (
-          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.totalCalls')}</div>
-              <div className="text-lg font-semibold text-gray-900 dark:text-white">
-                {stats.total_calls}
-              </div>
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.totalTokens')}</div>
-              <div className="text-lg font-semibold text-gray-900 dark:text-white">
-                {stats.total_tokens.toLocaleString()}
-              </div>
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.promptTokens')}</div>
-              <div className="text-lg font-semibold text-gray-900 dark:text-white">
-                {stats.total_prompt_tokens.toLocaleString()}
-              </div>
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.completionTokens')}</div>
-              <div className="text-lg font-semibold text-gray-900 dark:text-white">
-                {stats.total_completion_tokens.toLocaleString()}
-              </div>
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.avgLatency')}</div>
-              <div className="text-lg font-semibold text-gray-900 dark:text-white">
-                {formatLatency(stats.average_latency_ms)}
-              </div>
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.errors')}</div>
-              <div className="text-lg font-semibold text-red-600 dark:text-red-400">
-                {stats.error_count}
-              </div>
-            </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700">
-              <div className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.models')}</div>
-              <div className="text-lg font-semibold text-gray-900 dark:text-white">
-                {Object.keys(stats.models || {}).length}
-              </div>
-            </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+            <Card className="border-gray-200 dark:border-gray-700">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Hash className="w-3.5 h-3.5 text-gray-400" />
+                  <span className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.totalCalls')}</span>
+                </div>
+                <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {stats.total_calls}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-gray-200 dark:border-gray-700">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Zap className="w-3.5 h-3.5 text-blue-500" />
+                  <span className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.totalTokens')}</span>
+                </div>
+                <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {stats.total_tokens.toLocaleString()}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-gray-200 dark:border-gray-700">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <MessageSquare className="w-3.5 h-3.5 text-green-500" />
+                  <span className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.promptTokens')}</span>
+                </div>
+                <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {stats.total_prompt_tokens.toLocaleString()}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-gray-200 dark:border-gray-700">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <MessageSquare className="w-3.5 h-3.5 text-purple-500" />
+                  <span className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.completionTokens')}</span>
+                </div>
+                <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {stats.total_completion_tokens.toLocaleString()}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-gray-200 dark:border-gray-700">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Clock className="w-3.5 h-3.5 text-orange-500" />
+                  <span className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.avgLatency')}</span>
+                </div>
+                <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {formatLatency(stats.average_latency_ms)}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-gray-200 dark:border-gray-700">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                  <span className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.errors')}</span>
+                </div>
+                <div className="text-lg font-semibold text-red-600 dark:text-red-400">
+                  {stats.error_count}
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="border-gray-200 dark:border-gray-700">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Cpu className="w-3.5 h-3.5 text-indigo-500" />
+                  <span className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t('stats.models')}</span>
+                </div>
+                <div className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {Object.keys(stats.models || {}).length}
+                </div>
+              </CardContent>
+            </Card>
           </div>
         )}
-      </div>
 
-      {/* Filters */}
-      <div className="px-8 py-6 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-gray-600 dark:text-gray-300">
-            {filtersExpanded ? t('filters.expanded') : t('filters.expandHint')}
-          </div>
-          <Button
-            type="button"
-            onClick={() => setFiltersExpanded((prev) => !prev)}
-            variant="outline"
-            size="sm"
-          >
-            {filtersExpanded ? t('filters.hide') : t('filters.show')}
-          </Button>
-        </div>
-
-        {filtersExpanded && (
-          <div className="space-y-4">
-            <div className="flex flex-col lg:flex-row gap-4">
-              <div className="flex-1 min-w-[280px]">
-                <label className="text-xs font-semibold text-gray-500 uppercase">
-                  {t('filters.search')}
-                </label>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={t('filters.searchPlaceholder')}
-                  className={`mt-1 ${fullInputClass}`}
-                />
+        {/* Filters */}
+        <Card className="mb-6 border-gray-200 dark:border-gray-700">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+                <Filter className="w-4 h-4" />
+                {filtersExpanded ? t('filters.expanded') : t('filters.expandHint')}
               </div>
-              <div className="flex-1 min-w-[220px]">
-                <label className="text-xs font-semibold text-gray-500 uppercase">{t('filters.model')}</label>
-                <select
-                  value={modelFilter}
-                  onChange={(e) => setModelFilter(e.target.value)}
-                  className={`mt-1 ${fullInputClass}`}
-                >
-                  <option value="">{t('filters.allModels')}</option>
-                  {availableModels.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Button
+                onClick={() => setFiltersExpanded((prev) => !prev)}
+                variant="ghost"
+                size="sm"
+              >
+                {filtersExpanded ? t('filters.hide') : t('filters.show')}
+                {filtersExpanded ? <ChevronUp className="w-4 h-4 ml-1" /> : <ChevronDown className="w-4 h-4 ml-1" />}
+              </Button>
             </div>
 
-            <div className="flex flex-col lg:flex-row gap-4">
-              <div className="flex-1 min-w-[220px]">
-                <label className="text-xs font-semibold text-gray-500 uppercase">{t('filters.startDate')}</label>
-                <input
-                  type="text"
-                  lang="en"
-                  placeholder="YYYY-MM-DD"
-                  onFocus={(e) => {
-                    e.target.type = "date";
-                    e.target.showPicker?.();
-                  }}
-                  onBlur={(e) => {
-                    if (!e.target.value) {
-                      e.target.type = "text";
-                    }
-                  }}
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className={`mt-1 ${fullInputClass}`}
-                  title={t('filters.startDateTitle')}
-                />
-              </div>
-              <div className="flex-1 min-w-[220px]">
-                <label className="text-xs font-semibold text-gray-500 uppercase">{t('filters.errorFilter')}</label>
-                <select
-                  value={hasErrorFilter === undefined ? "" : hasErrorFilter ? "true" : "false"}
-                  onChange={(e) =>
-                    setHasErrorFilter(
-                      e.target.value === "" ? undefined : e.target.value === "true"
-                    )
-                  }
-                  className={`mt-1 ${fullInputClass}`}
-                >
-                  <option value="">{t('filters.all')}</option>
-                  <option value="true">{t('filters.errorsOnly')}</option>
-                  <option value="false">{t('filters.successOnly')}</option>
-                </select>
-              </div>
-            </div>
+            {filtersExpanded && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1.5">
+                      {t('filters.search')}
+                    </label>
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <Input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder={t('filters.searchPlaceholder')}
+                        variant="lg"
+                        className="pl-9"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1.5">
+                      {t('filters.model')}
+                    </label>
+                    <Select value={modelFilter} onValueChange={setModelFilter}>
+                      <SelectTrigger size="lg">
+                        <Cpu className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
+                        <SelectValue placeholder={t('filters.allModels')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">{t('filters.allModels')}</SelectItem>
+                        {availableModels.map((model) => (
+                          <SelectItem key={model} value={model}>
+                            {model}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1.5">
+                      {t('filters.startDate')}
+                    </label>
+                    <div className="relative">
+                      <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <Input
+                        type="text"
+                        lang="en"
+                        placeholder="YYYY-MM-DD"
+                        onFocus={(e) => {
+                          e.target.type = "date";
+                          e.target.showPicker?.();
+                        }}
+                        onBlur={(e) => {
+                          if (!e.target.value) {
+                            e.target.type = "text";
+                          }
+                        }}
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        variant="lg"
+                        className="pl-9"
+                        title={t('filters.startDateTitle')}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-1.5">
+                      {t('filters.errorFilter')}
+                    </label>
+                    <Select value={hasErrorFilter} onValueChange={setHasErrorFilter}>
+                      <SelectTrigger size="lg">
+                        <AlertCircle className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
+                        <SelectValue placeholder={t('filters.all')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">{t('filters.all')}</SelectItem>
+                        <SelectItem value="true">{t('filters.errorsOnly')}</SelectItem>
+                        <SelectItem value="false">{t('filters.successOnly')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
 
-            <div className="flex items-center justify-between">
-              <div className="text-xs text-gray-500 dark:text-gray-400">
-                {Object.keys(filters).length > 0 || searchQuery
-                  ? t('filters.applied')
-                  : t('filters.notApplied')}
+                <div className="flex items-center justify-between pt-2">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    {Object.keys(filters).length > 0 || searchQuery
+                      ? t('filters.applied')
+                      : t('filters.notApplied')}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={handleApplyFilters}
+                      variant="primary"
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      {t('actions.applyFilters')}
+                    </Button>
+                    <Button
+                      onClick={handleResetFilters}
+                      variant="outline"
+                      size="sm"
+                    >
+                      {t('actions.resetFilters')}
+                    </Button>
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  onClick={handleApplyFilters}
-                  variant="primary"
-                  size="sm"
-                >
-                  {t('actions.applyFilters')}
-                </Button>
-                <Button
-                  type="button"
-                  onClick={handleResetFilters}
-                  variant="outline"
-                  size="sm"
-                >
-                  {t('actions.resetFilters')}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+            )}
+          </CardContent>
+        </Card>
 
-      {/* Logs List */}
-      <div className="flex-1 overflow-y-auto px-8 py-6 space-y-4 bg-white dark:bg-gray-800">
+        {/* Error Message */}
         {logsError && (
-          <div className="rounded-lg border border-red-200 dark:border-red-500/60 bg-red-50 dark:bg-red-950/40 px-4 py-2 text-sm text-red-700 dark:text-red-200">
-            {logsError}
-          </div>
+          <Card className="mb-4 border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10">
+            <CardContent className="p-3 flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-600 dark:text-red-400">{logsError}</p>
+            </CardContent>
+          </Card>
         )}
 
+        {/* Logs List */}
         {logsLoading ? (
-          <div className="text-center text-gray-500 dark:text-gray-400 py-12">{t('list.loading')}</div>
-        ) : logs.length === 0 ? (
-          <div className="text-center py-16 border border-dashed border-gray-300 dark:border-gray-700 rounded-2xl bg-gray-50 dark:bg-gray-800/50">
-            <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-100">
-              {t('list.noLogs')}
-            </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-              {t('list.noLogsHint')}
-            </p>
+          <div className="flex items-center justify-center py-16">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-3"></div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{t('list.loading')}</p>
+            </div>
           </div>
+        ) : logs.length === 0 ? (
+          <Card className="border-gray-200 dark:border-gray-700 border-dashed">
+            <CardContent className="py-16">
+              <div className="text-center">
+                <div className="p-4 rounded-full bg-gray-100 dark:bg-gray-800 inline-block mb-4">
+                  <MessageSquare className="w-8 h-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-100 mb-2">
+                  {t('list.noLogs')}
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {t('list.noLogsHint')}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {logs.map((log) => (
               <LogCard
                 key={log.id}
@@ -368,46 +425,51 @@ const LLMLogsView: React.FC = () => {
             ))}
           </div>
         )}
-      </div>
 
-      {/* Pagination */}
-      {logs.length > 0 && (
-        <div className="px-8 pb-8">
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800 px-5 py-4">
-            <div className="text-sm text-gray-600 dark:text-gray-300">
-              {t('pagination.info', { page, total: totalPages, count: totalLogs })}
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-800"
-                onClick={() => setPage(Math.max(1, page - 1))}
-                disabled={page === 1}
-              >
-                {t('pagination.previous')}
-              </button>
-              <button
-                className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm text-gray-700 dark:text-gray-200 disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-800"
-                onClick={() => setPage(Math.min(totalPages, page + 1))}
-                disabled={page === totalPages}
-              >
-                {t('pagination.next')}
-              </button>
-              <select
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                className="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-800 dark:text-gray-100 px-2 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
-              >
-                {[10, 20, 30, 50, 100, 200].map((size) => (
-                  <option key={size} value={size}>
-                    {size} {t('pagination.perPage')}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+        {/* Pagination */}
+        {logs.length > 0 && (
+          <Card className="mt-6 border-gray-200 dark:border-gray-700">
+            <CardContent className="p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="text-sm text-gray-600 dark:text-gray-300">
+                  {t('pagination.info', { page, total: totalPages, count: totalLogs })}
+                </div>
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={() => setPage(Math.max(1, page - 1))}
+                    disabled={page === 1}
+                    variant="outline"
+                    size="sm"
+                  >
+                    {t('pagination.previous')}
+                  </Button>
+                  <Button
+                    onClick={() => setPage(Math.min(totalPages, page + 1))}
+                    disabled={page === totalPages}
+                    variant="outline"
+                    size="sm"
+                  >
+                    {t('pagination.next')}
+                  </Button>
+                  <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                    <SelectTrigger size="sm" className="w-[120px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[10, 20, 30, 50, 100, 200].map((size) => (
+                        <SelectItem key={size} value={String(size)}>
+                          {size} {t('pagination.perPage')}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </ScrollArea>
   );
 };
 
@@ -436,238 +498,259 @@ const LogCard: React.FC<LogCardProps> = ({
   const hasError = !!log.error;
 
   return (
-    <div
-      className={`rounded-lg border ${hasError
-          ? "border-red-300 dark:border-red-500/60 bg-red-50 dark:bg-red-950/20"
-          : "border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-800"
-        } shadow-sm`}
-    >
-      {/* Header */}
-      <div
-        className="px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-        onClick={onToggle}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <ChevronRight
-                className={`w-5 h-5 transition-transform ${isExpanded ? "rotate-90" : ""}`}
-              />
-              <span className="text-sm font-mono text-gray-500 dark:text-gray-400">
-                {log.id.substring(0, 8)}
-              </span>
-            </div>
-            <div className="text-sm text-gray-900 dark:text-white font-medium">
-              {log.model}
-              {log.provider && (
-                <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
-                  ({log.provider})
+    <Card className={hasError
+      ? "border-red-300 dark:border-red-500/60 bg-red-50/50 dark:bg-red-950/20"
+      : "border-gray-200 dark:border-gray-700"
+    }>
+      <CardContent className="p-0">
+        {/* Header */}
+        <div
+          className="px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+          onClick={onToggle}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <ChevronRight
+                  className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                />
+                <span className="text-xs font-mono text-gray-500 dark:text-gray-400">
+                  {log.id.substring(0, 8)}
                 </span>
+              </div>
+              <div className="text-sm text-gray-900 dark:text-white font-medium">
+                {log.model}
+                {log.provider && (
+                  <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                    ({log.provider})
+                  </span>
+                )}
+              </div>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {formatTimestamp(log.timestamp)}
+              </span>
+              <Badge variant="secondary" appearance="light" size="sm">
+                {formatLatency(log.latency_ms)}
+              </Badge>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {log.agent_id}
+              </span>
+              {log.has_tool_calls && (
+                <Badge variant="info" appearance="light" size="sm">
+                  {t('card.toolCalls')}
+                </Badge>
+              )}
+              {log.usage?.total_tokens && (
+                <Badge variant="secondary" appearance="light" size="sm">
+                  {log.usage.total_tokens} tokens
+                </Badge>
+              )}
+              {hasError && (
+                <Badge variant="destructive" appearance="light" size="sm">
+                  {t('card.errorLabel')}
+                </Badge>
               )}
             </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">
-              {formatTimestamp(log.timestamp)}
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">
-              {t('card.latency', { value: formatLatency(log.latency_ms) })}
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">
-              {t('card.agent', { name: log.agent_id })}
-            </div>
-            {log.has_tool_calls && (
-              <span className="px-2 py-1 text-xs font-medium rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
-                {t('card.toolCalls')}
-              </span>
-            )}
-            {log.usage?.total_tokens && (
-              <div className="text-xs text-gray-500 dark:text-gray-400">
-                {t('card.tokens', { count: log.usage.total_tokens })}
-              </div>
-            )}
+          </div>
+        </div>
+
+        {/* Expanded Content */}
+        {isExpanded && (
+          <div className="border-t border-gray-200 dark:border-gray-700 px-4 py-4 space-y-4">
             {hasError && (
-              <span className="px-2 py-1 text-xs font-medium rounded bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300">
-                {t('card.errorLabel')}
-              </span>
+              <div className="rounded-lg border border-red-300 dark:border-red-500/60 bg-red-50 dark:bg-red-950/40 px-4 py-3">
+                <div className="text-sm font-semibold text-red-800 dark:text-red-200 mb-1">{t('card.errorDisplay')}</div>
+                <div className="text-sm text-red-700 dark:text-red-300 font-mono">
+                  {log.error}
+                </div>
+              </div>
             )}
-          </div>
-        </div>
-      </div>
 
-      {/* Expanded Content */}
-      {isExpanded && (
-        <div className="border-t border-gray-200 dark:border-gray-800 px-4 py-4 space-y-4">
-          {hasError && (
-            <div className="rounded-lg border border-red-300 dark:border-red-500/60 bg-red-50 dark:bg-red-950/40 px-4 py-3">
-              <div className="text-sm font-semibold text-red-800 dark:text-red-200 mb-1">{t('card.errorDisplay')}</div>
-              <div className="text-sm text-red-700 dark:text-red-300 font-mono">
-                {log.error}
-              </div>
-            </div>
-          )}
-
-          {/* Usage Stats */}
-          {log.usage && (
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">{t('stats.promptTokens')}</div>
-                <div className="font-semibold text-gray-900 dark:text-white">
-                  {log.usage.prompt_tokens || 0}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">{t('stats.completionTokens')}</div>
-                <div className="font-semibold text-gray-900 dark:text-white">
-                  {log.usage.completion_tokens || 0}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">{t('stats.totalTokens')}</div>
-                <div className="font-semibold text-gray-900 dark:text-white">
-                  {log.usage.total_tokens || 0}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Messages */}
-          {log.messages && log.messages.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                {t('card.messageHistory')}
-              </div>
-              {log.messages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className="rounded border border-gray-200 dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-800"
-                >
-                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
-                    {msg.role}
-                  </div>
-                  <div className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
-                    {msg.content}
+            {/* Usage Stats */}
+            {log.usage && (
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">{t('stats.promptTokens')}</div>
+                  <div className="font-semibold text-gray-900 dark:text-white">
+                    {log.usage.prompt_tokens || 0}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-
-          {/* Tools */}
-          {log.tools && log.tools.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                {t('card.availableTools')}
-              </div>
-              {log.tools.map((tool: any, idx: number) => (
-                <div
-                  key={idx}
-                  className="rounded border border-gray-200 dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-800"
-                >
-                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
-                    {tool.function?.name || tool.name || `Tool ${idx + 1}`}
+                <div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">{t('stats.completionTokens')}</div>
+                  <div className="font-semibold text-gray-900 dark:text-white">
+                    {log.usage.completion_tokens || 0}
                   </div>
-                  {tool.function?.description && (
-                    <div className="text-sm text-gray-700 dark:text-gray-300 mb-2">
-                      {tool.function.description}
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">{t('stats.totalTokens')}</div>
+                  <div className="font-semibold text-gray-900 dark:text-white">
+                    {log.usage.total_tokens || 0}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Messages */}
+            {log.messages && log.messages.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  {t('card.messageHistory')}
+                </div>
+                {log.messages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-800/50"
+                  >
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+                      {msg.role}
                     </div>
-                  )}
-                  {tool.function?.parameters && (
-                    <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">
-                      {JSON.stringify(tool.function.parameters, null, 2)}
+                    <div className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
+                      {msg.content}
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Tool Calls */}
-          {log.tool_calls && log.tool_calls.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                {t('card.toolCallsTitle')}
+                  </div>
+                ))}
               </div>
-              {log.tool_calls.map((toolCall: any, idx: number) => (
-                <div
-                  key={idx}
-                  className="rounded border border-blue-200 dark:border-blue-700 p-3 bg-blue-50 dark:bg-blue-900/20"
-                >
-                  <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">
-                    {toolCall.name} (ID: {toolCall.id})
-                  </div>
-                  <div className="text-xs text-gray-700 dark:text-gray-300 font-mono whitespace-pre-wrap">
-                    {typeof toolCall.arguments === 'string'
-                      ? toolCall.arguments
-                      : JSON.stringify(toolCall.arguments, null, 2)}
-                  </div>
+            )}
+
+            {/* Tools */}
+            {log.tools && log.tools.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  {t('card.availableTools')}
                 </div>
-              ))}
-            </div>
-          )}
+                {log.tools.map((tool: any, idx: number) => (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-800/50"
+                  >
+                    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">
+                      {tool.function?.name || tool.name || `Tool ${idx + 1}`}
+                    </div>
+                    {tool.function?.description && (
+                      <div className="text-sm text-gray-700 dark:text-gray-300 mb-2">
+                        {tool.function.description}
+                      </div>
+                    )}
+                    {tool.function?.parameters && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                        {JSON.stringify(tool.function.parameters, null, 2)}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
-          {/* Prompt */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t('card.prompt')}</div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCopy(log.prompt, `${log.id}_prompt`);
-                }}
-                className="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800"
-              >
-                {copiedId === `${log.id}_prompt` ? t('actions.copied') : t('actions.copy')}
-              </button>
+            {/* Tool Calls */}
+            {log.tool_calls && log.tool_calls.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  {t('card.toolCallsTitle')}
+                </div>
+                {log.tool_calls.map((toolCall: any, idx: number) => (
+                  <div
+                    key={idx}
+                    className="rounded-lg border border-blue-200 dark:border-blue-700 p-3 bg-blue-50 dark:bg-blue-900/20"
+                  >
+                    <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">
+                      {toolCall.name} (ID: {toolCall.id})
+                    </div>
+                    <div className="text-xs text-gray-700 dark:text-gray-300 font-mono whitespace-pre-wrap">
+                      {typeof toolCall.arguments === 'string'
+                        ? toolCall.arguments
+                        : JSON.stringify(toolCall.arguments, null, 2)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Prompt */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t('card.prompt')}</div>
+                <Button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCopy(log.prompt, `${log.id}_prompt`);
+                  }}
+                  variant="ghost"
+                  size="sm"
+                >
+                  {copiedId === `${log.id}_prompt` ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 mr-1" />
+                      {t('actions.copied')}
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 mr-1" />
+                      {t('actions.copy')}
+                    </>
+                  )}
+                </Button>
+              </div>
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <SyntaxHighlighter
+                  language="text"
+                  style={theme === "dark" ? oneDark : oneLight}
+                  customStyle={{
+                    margin: 0,
+                    padding: "1rem",
+                    fontSize: "0.875rem",
+                  }}
+                  wrapLongLines={true}
+                >
+                  {log.prompt}
+                </SyntaxHighlighter>
+              </div>
             </div>
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-              <SyntaxHighlighter
-                language="text"
-                style={theme === "dark" ? oneDark : oneLight}
-                customStyle={{
-                  margin: 0,
-                  padding: "1rem",
-                  fontSize: "0.875rem",
-                }}
-                wrapLongLines={true}
-              >
-                {log.prompt}
-              </SyntaxHighlighter>
+
+            {/* Completion */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t('card.completion')}</div>
+                <Button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCopy(log.completion, `${log.id}_completion`);
+                  }}
+                  variant="ghost"
+                  size="sm"
+                >
+                  {copiedId === `${log.id}_completion` ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 mr-1" />
+                      {t('actions.copied')}
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 mr-1" />
+                      {t('actions.copy')}
+                    </>
+                  )}
+                </Button>
+              </div>
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <SyntaxHighlighter
+                  language="text"
+                  style={theme === "dark" ? oneDark : oneLight}
+                  customStyle={{
+                    margin: 0,
+                    padding: "1rem",
+                    fontSize: "0.875rem",
+                  }}
+                  wrapLongLines={true}
+                >
+                  {log.completion}
+                </SyntaxHighlighter>
+              </div>
             </div>
           </div>
-
-          {/* Completion */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t('card.completion')}</div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCopy(log.completion, `${log.id}_completion`);
-                }}
-                className="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800"
-              >
-                {copiedId === `${log.id}_completion` ? t('actions.copied') : t('actions.copy')}
-              </button>
-            </div>
-            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
-              <SyntaxHighlighter
-                language="text"
-                style={theme === "dark" ? oneDark : oneLight}
-                customStyle={{
-                  margin: 0,
-                  padding: "1rem",
-                  fontSize: "0.875rem",
-                }}
-                wrapLongLines={true}
-              >
-                {log.completion}
-              </SyntaxHighlighter>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 
 export default LLMLogsView;
-

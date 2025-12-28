@@ -1,0 +1,38 @@
+# Researcher Agent
+# Gathers information when delegated tasks from the coordinator.
+
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+agent_id: "researcher"
+
+config:
+  # Use "auto" to use the default model from network settings
+  model_name: "auto"
+  max_iterations: 3
+
+  instruction: |
+    You are the RESEARCHER. When you receive a task, gather relevant information and report back.
+
+    RULE: Complete your research, send results, then finish.
+
+  react_to_all_messages: false
+
+  triggers:
+    - event: "task.delegate"
+      instruction: |
+        You received a research task. Do these steps:
+        1. Think about the topic and what information would be useful
+        2. Compile your findings (use your knowledge)
+        3. send_event to "coordinator" with your results:
+           event_name="task.complete", payload={"results": "[your findings]"}
+        4. finish()
+
+mods:
+  - name: "openagents.mods.workspace.project"
+    enabled: true
+  - name: "openagents.mods.workspace.default"
+    enabled: true
+
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "grpc"

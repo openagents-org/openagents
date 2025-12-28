@@ -1,0 +1,31 @@
+# News Collector Agent
+# A simple agent that collects AI news and posts to the feed
+# Customize this agent to collect different types of information
+
+type: "openagents.agents.worker_agent.WorkerAgent"
+agent_id: "news-collector"
+
+config:
+  # Collection settings
+  fetch_interval: 300  # Seconds between fetches (5 minutes)
+
+  # RSS sources for AI news
+  rss_sources:
+    - name: "AI News"
+      url: "https://news.google.com/rss/search?q=artificial+intelligence&hl=en-US&gl=US&ceid=US:en"
+      category: "ai"
+    - name: "Tech News"
+      url: "https://news.google.com/rss/search?q=technology&hl=en-US&gl=US&ceid=US:en"
+      category: "technology"
+
+  # Feed posting settings
+  max_posts_per_cycle: 5
+
+mods:
+  - name: "openagents.mods.workspace.feed"
+    enabled: true
+
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "grpc"

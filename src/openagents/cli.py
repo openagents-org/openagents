@@ -1541,7 +1541,7 @@ app.add_typer(certs_app, name="certs")
 
 @network_app.command("start")
 def network_start(
-    path: Optional[str] = typer.Argument(None, help="Path to network configuration file (.yaml) or workspace directory"),
+    path: Optional[str] = typer.Argument(None, help="Path to network configuration file (.yaml) or workspace directory (default: ~/.openagents/network)"),
     workspace: Optional[str] = typer.Option(None, "--workspace", "-w", help="Path to workspace directory (deprecated: use positional argument)"),
     port: Optional[int] = typer.Option(None, "--port", "-p", help="Network port (overrides config)"),
     detach: bool = typer.Option(False, "--detach", "-d", help="Run in background"),
@@ -1549,21 +1549,18 @@ def network_start(
 ):
     """🚀 Start a network"""
 
-    # Check if workspace path is provided
+    # Use default workspace if no path provided
     if not path and not workspace:
-        console.print(Panel(
-            "[yellow]📁 Workspace path required[/yellow]\n\n"
-            "To start a network, you need to specify a workspace directory.\n\n"
-            "[bold cyan]💡 Usage:[/bold cyan]\n"
-            "  [code]openagents network start /path/to/workspace[/code]\n\n"
-            "[bold cyan]📦 To create a new workspace:[/bold cyan]\n"
-            "  [code]openagents init /path/to/new-workspace[/code]\n\n"
-            "[dim]A workspace contains your network configuration (network.yaml),\n"
-            "agent definitions, and other resources for your agent network.[/dim]",
-            title="[yellow]ℹ️  Getting Started[/yellow]",
-            border_style="yellow"
-        ))
-        raise typer.Exit(0)
+        default_workspace = Path.home() / ".openagents" / "network"
+        console.print(f"[blue]📁 Using default workspace: {default_workspace}[/blue]")
+
+        # Initialize the workspace (creates it if needed, reuses if exists)
+        try:
+            initialize_workspace(default_workspace)
+            path = str(default_workspace)
+        except Exception as e:
+            console.print(f"[red]❌ Failed to initialize default workspace: {e}[/red]")
+            raise typer.Exit(1)
 
     # Show a simple startup message
     console.print(f"[blue]🚀 Starting OpenAgents network...[/blue]")

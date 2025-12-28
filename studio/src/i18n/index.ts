@@ -30,6 +30,7 @@ import eventsEN from './locales/en/events.json';
 import agentWorldEN from './locales/en/agentWorld.json';
 import readmeEN from './locales/en/readme.json';
 import adminEN from './locales/en/admin.json';
+import onboardingEN from './locales/en/onboarding.json';
 
 import commonZH from './locales/zh-CN/common.json';
 import authZH from './locales/zh-CN/auth.json';
@@ -52,6 +53,7 @@ import eventsZH from './locales/zh-CN/events.json';
 import agentWorldZH from './locales/zh-CN/agentWorld.json';
 import readmeZH from './locales/zh-CN/readme.json';
 import adminZH from './locales/zh-CN/admin.json';
+import onboardingZH from './locales/zh-CN/onboarding.json';
 
 import commonJA from './locales/ja/common.json';
 import authJA from './locales/ja/auth.json';
@@ -74,6 +76,7 @@ import eventsJA from './locales/ja/events.json';
 import agentWorldJA from './locales/ja/agentWorld.json';
 import readmeJA from './locales/ja/readme.json';
 import adminJA from './locales/ja/admin.json';
+import onboardingJA from './locales/ja/onboarding.json';
 
 import commonKO from './locales/ko/common.json';
 import authKO from './locales/ko/auth.json';
@@ -96,6 +99,7 @@ import eventsKO from './locales/ko/events.json';
 import agentWorldKO from './locales/ko/agentWorld.json';
 import readmeKO from './locales/ko/readme.json';
 import adminKO from './locales/ko/admin.json';
+import onboardingKO from './locales/ko/onboarding.json';
 
 // Configure language detector
 const languageDetectorOptions = {
@@ -142,6 +146,7 @@ i18n
                 agentWorld: agentWorldEN,
                 readme: readmeEN,
                 admin: adminEN,
+                onboarding: onboardingEN,
             },
             'zh-CN': {
                 common: commonZH,
@@ -165,6 +170,7 @@ i18n
                 agentWorld: agentWorldZH,
                 readme: readmeZH,
                 admin: adminZH,
+                onboarding: onboardingZH,
             },
             ja: {
                 common: commonJA,
@@ -188,6 +194,7 @@ i18n
                 agentWorld: agentWorldJA,
                 readme: readmeJA,
                 admin: adminJA,
+                onboarding: onboardingJA,
             },
             ko: {
                 common: commonKO,
@@ -211,6 +218,7 @@ i18n
                 agentWorld: agentWorldKO,
                 readme: readmeKO,
                 admin: adminKO,
+                onboarding: onboardingKO,
             },
         },
 

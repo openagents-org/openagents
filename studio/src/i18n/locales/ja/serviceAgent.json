@@ -32,5 +32,40 @@
         "startFailed": "エージェントの開始に失敗しました",
         "stopSuccess": "エージェントが正常に停止されました",
         "stopFailed": "エージェントの停止に失敗しました"
+    },
+    "list": {
+        "modelConfig": {
+            "title": "デフォルトモデル設定",
+            "subtitle": "すべてのサービスエージェントのデフォルトLLMプロバイダーを設定",
+            "loading": "読み込み中...",
+            "provider": "モデルプロバイダー",
+            "selectProvider": "プロバイダーを選択",
+            "modelName": "モデル名",
+            "selectModel": "モデルを選択",
+            "apiKey": "APIキー",
+            "apiKeyPlaceholder": "APIキーを入力",
+            "saving": "保存中...",
+            "saveChanges": "変更を保存",
+            "note": "注意: これらの設定は、サービスエージェントがモデル設定に'auto'を指定した場合に使用されます。変更はエージェントの再起動後に有効になります。",
+            "fetchFailed": "モデル設定の取得に失敗しました",
+            "saveSuccess": "モデル設定が正常に保存されました",
+            "saveFailed": "モデル設定の保存に失敗しました"
+        },
+        "globalEnv": {
+            "title": "グローバル環境変数",
+            "subtitle": "すべてのサービスエージェントで共有される環境変数",
+            "loading": "読み込み中...",
+            "variableName": "変数名",
+            "value": "値",
+            "empty": "グローバル環境変数が定義されていません",
+            "saving": "保存中...",
+            "saveChanges": "変更を保存",
+            "note": "注意: グローバル環境変数の変更は、再起動後にすべてのサービスエージェントに適用されます。",
+            "fetchFailed": "グローバル環境変数の取得に失敗しました",
+            "saveSuccess": "グローバル環境変数が正常に保存されました",
+            "saveFailed": "グローバル環境変数の保存に失敗しました",
+            "variableNameRequired": "変数名が必要です",
+            "variableExists": "変数が既に存在します"
+        }
     }
 }

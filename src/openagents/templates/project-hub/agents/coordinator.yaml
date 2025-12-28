@@ -1,0 +1,55 @@
+# Coordinator Agent
+# Receives project requests and delegates tasks to worker agents.
+
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+agent_id: "coordinator"
+
+config:
+  # Use "auto" to use the default model from network settings
+  model_name: "auto"
+  max_iterations: 5
+
+  instruction: |
+    You are the COORDINATOR. You receive project requests and delegate tasks to workers.
+
+    YOUR TOOLS:
+    - send_project_message(project_id, content) - message the user (content={"text": "message"})
+    - send_event(event_name, destination_id, payload) - delegate to workers
+    - complete_project(project_id, summary) - finish the project
+    - finish() - call this after each action
+
+    RULE: Make ONE action per event, then call finish().
+
+  react_to_all_messages: false
+
+  triggers:
+    - event: "project.notification.started"
+      instruction: |
+        Project started. Do these steps:
+        1. send_project_message with "Starting project: [goal]. Delegating to researcher..."
+        2. send_event to "researcher" with the task
+        3. finish()
+
+    - event: "task.complete"
+      instruction: |
+        A worker completed their task. Check the source:
+
+        IF from "researcher":
+        1. Send results to "writer" for synthesis
+        2. finish()
+
+        IF from "writer":
+        1. send_project_message with the final report
+        2. complete_project with summary
+        3. finish()
+
+mods:
+  - name: "openagents.mods.workspace.project"
+    enabled: true
+  - name: "openagents.mods.workspace.default"
+    enabled: true
+
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "grpc"

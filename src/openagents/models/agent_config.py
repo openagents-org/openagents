@@ -56,7 +56,10 @@ class AgentConfig(BaseModel):
 
     # Core agent configuration
     instruction: str = Field(..., description="System instruction/prompt for the agent")
-    model_name: str = Field(..., description="Name of the model to use")
+    model_name: str = Field(
+        default="auto",
+        description="Name of the model to use. Set to 'auto' to use the default model from environment variables (DEFAULT_LLM_MODEL_NAME, DEFAULT_LLM_PROVIDER, DEFAULT_LLM_API_KEY)"
+    )
 
     # Provider configuration
     provider: Optional[LLMProviderType] = Field(

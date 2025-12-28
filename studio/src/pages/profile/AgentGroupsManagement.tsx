@@ -6,7 +6,14 @@ import { useAuthStore } from '@/stores/authStore';
 import { useConfirm } from '@/context/ConfirmContext';
 import { Button } from '@/components/layout/ui/button';
 import { Badge } from '@/components/layout/ui/badge';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/layout/ui/select';
+import { AlertCircle, CheckCircle2, Users } from 'lucide-react';
 
 interface AgentGroupInfo {
   name: string;
@@ -301,7 +308,7 @@ const AgentGroupsManagement: React.FC = () => {
       return;
     }
 
-    if (newPassword.length < 4) {
+    if (newPassword.length < 8) {
       setError(t('groups.changePassword.modal.passwordMinLength'));
       return;
     }
@@ -488,17 +495,19 @@ const AgentGroupsManagement: React.FC = () => {
                 {t('groups.defaultGroupDesc')}
               </p>
             </div>
-            <select
-              value={defaultGroup}
-              onChange={(e) => setDefaultGroup(e.target.value)}
-              className="px-4 py-2 rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {groups.map((group) => (
-                <option key={group.name} value={group.name}>
-                  {group.name}
-                </option>
-              ))}
-            </select>
+            <Select value={defaultGroup} onValueChange={setDefaultGroup}>
+              <SelectTrigger size="lg" className="w-[180px]">
+                <Users className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {groups.map((group) => (
+                  <SelectItem key={group.name} value={group.name}>
+                    {group.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex items-center justify-between">
             <div>
@@ -520,13 +529,15 @@ const AgentGroupsManagement: React.FC = () => {
             </label>
           </div>
           <div className="flex justify-end">
-            <button
+            <Button
               onClick={handleSaveNetworkSettings}
               disabled={savingSettings}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              variant="primary"
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               {savingSettings ? t('groups.saving') : t('groups.saveSettings')}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -540,6 +551,8 @@ const AgentGroupsManagement: React.FC = () => {
           <Button
             onClick={openCreateModal}
             variant="primary"
+            size="sm"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white"
           >
             + {t('groups.create')}
           </Button>
@@ -598,8 +611,9 @@ const AgentGroupsManagement: React.FC = () => {
                             e.stopPropagation();
                             openEditModal(group);
                           }}
-                          variant="primary"
-                          size="sm"
+                          variant="ghost"
+                          size="md"
+                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:bg-blue-900/20"
                         >
                           {t('groups.edit')}
                         </Button>
@@ -609,9 +623,9 @@ const AgentGroupsManagement: React.FC = () => {
                               e.stopPropagation();
                               openChangePasswordModal(group.name);
                             }}
-                            variant="primary"
-                            size="sm"
-                            className="whitespace-nowrap"
+                            variant="ghost"
+                            size="md"
+                            className="whitespace-nowrap text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:text-amber-300 dark:hover:bg-amber-900/20"
                           >
                             {t('groups.changePassword.button')}
                           </Button>
@@ -622,8 +636,9 @@ const AgentGroupsManagement: React.FC = () => {
                               e.stopPropagation();
                               handleDeleteGroup(group.name);
                             }}
-                            variant="destructive"
-                            size="sm"
+                            variant="ghost"
+                            size="md"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-900/20"
                           >
                             {t('groups.delete')}
                           </Button>
@@ -647,16 +662,18 @@ const AgentGroupsManagement: React.FC = () => {
               <div className="flex gap-2">
                 <Button
                   onClick={() => openEditModal(groupsData.agent_groups[selectedGroup])}
-                  variant="primary"
-                  size="sm"
+                  variant="ghost"
+                  size="md"
+                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:text-blue-400 dark:hover:text-blue-300 dark:hover:bg-blue-900/20"
                 >
-                  Edit
+                  {t('groups.edit')}
                 </Button>
                 {!groupsData.agent_groups[selectedGroup].is_default && (
                   <Button
                     onClick={() => handleDeleteGroup(selectedGroup)}
-                    variant="destructive"
-                    size="sm"
+                    variant="ghost"
+                    size="md"
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-900/20"
                   >
                     {t('groups.delete')}
                   </Button>
@@ -742,24 +759,24 @@ const AgentGroupsManagement: React.FC = () => {
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     className="w-full p-3 rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="moderators"
+                    placeholder={t('groups.modal.namePlaceholder')}
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Description
+                    {t('groups.modal.description')}
                   </label>
                   <textarea
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     rows={3}
                     className="w-full p-3 rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                    placeholder="Moderator agents with content management permissions"
+                    placeholder={t('groups.modal.descriptionPlaceholder')}
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Password (optional)
+                    {t('groups.modal.password')}
                   </label>
                   <input
                     type="password"
@@ -771,17 +788,17 @@ const AgentGroupsManagement: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Permissions (comma-separated)
+                    {t('groups.modal.permissions')}
                   </label>
                   <input
                     type="text"
                     value={formData.permissions}
                     onChange={(e) => setFormData({ ...formData, permissions: e.target.value })}
                     className="w-full p-3 rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="moderate_content, ban_users, view_reports"
+                    placeholder={t('groups.modal.permissionsPlaceholder')}
                   />
                 </div>
-                <div className="flex justify-end gap-3 pt-4">
+                <div className="flex items-center justify-end gap-3 pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
                   <button
                     onClick={() => setShowCreateModal(false)}
                     className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -792,7 +809,7 @@ const AgentGroupsManagement: React.FC = () => {
                     onClick={handleCreateGroup}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {t('groups.create')}
+                    {t('groups.modal.create')}
                   </button>
                 </div>
               </div>
@@ -832,18 +849,19 @@ const AgentGroupsManagement: React.FC = () => {
                     className="w-full p-3 rounded-lg border bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed"
                   />
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Group name cannot be changed after creation
+                    {t('groups.modal.nameCannotChange')}
                   </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Description
+                    {t('groups.modal.description')}
                   </label>
                   <textarea
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                     rows={3}
                     className="w-full p-3 rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    placeholder={t('groups.modal.descriptionPlaceholder')}
                   />
                 </div>
                 <div>
@@ -855,9 +873,10 @@ const AgentGroupsManagement: React.FC = () => {
                     value={formData.permissions}
                     onChange={(e) => setFormData({ ...formData, permissions: e.target.value })}
                     className="w-full p-3 rounded-lg border bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder={t('groups.modal.permissionsPlaceholder')}
                   />
                 </div>
-                <div className="flex justify-end gap-3 pt-4">
+                <div className="flex items-center justify-end gap-3 pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
                   <button
                     onClick={() => {
                       setShowEditModal(false);
@@ -865,13 +884,13 @@ const AgentGroupsManagement: React.FC = () => {
                     }}
                     className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
                   >
-                    Cancel
+                    {t('groups.modal.cancel')}
                   </button>
                   <button
                     onClick={handleUpdateGroup}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    Update Group
+                    {t('groups.modal.update')}
                   </button>
                 </div>
               </div>
@@ -917,7 +936,7 @@ const AgentGroupsManagement: React.FC = () => {
                     {t('groups.changePassword.modal.passwordHint')}
                   </p>
                 </div>
-                <div className="flex justify-end gap-3 pt-4">
+                <div className="flex items-center justify-end gap-3 pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
                   <button
                     onClick={() => {
                       setShowChangePasswordModal(false);
@@ -932,7 +951,7 @@ const AgentGroupsManagement: React.FC = () => {
                   <button
                     onClick={handleChangePassword}
                     disabled={changingPassword || !newPassword.trim()}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     {changingPassword ? t('groups.changePassword.modal.changing') : t('groups.changePassword.modal.confirm')}
                   </button>

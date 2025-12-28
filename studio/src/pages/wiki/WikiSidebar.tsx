@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useContext } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useWikiStore } from "@/stores/wikiStore";
 import { useRecentPagesStore } from "@/stores/recentPagesStore";
 import { OpenAgentsContext } from "@/context/OpenAgentsProvider";
@@ -60,6 +61,7 @@ WikiPageItem.displayName = "WikiPageItem";
 
 // Wiki Sidebar Content Component
 const WikiSidebar: React.FC = () => {
+  const { t } = useTranslation('wiki');
   const navigate = useNavigate();
   const location = useLocation();
   const context = useContext(OpenAgentsContext);
@@ -160,12 +162,12 @@ const WikiSidebar: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Recent Pages Section */}
-      <SectionHeader title="RECENT 10 PAGES" />
+      <SectionHeader title={t('sidebar.recent10Pages')} />
       <div className="flex-1 overflow-y-auto px-3 custom-scrollbar">
         {recentPages.length === 0 ? (
           <div className="text-center py-4">
             <p className="text-gray-500 dark:text-gray-400 text-sm">
-              No recent pages
+              {t('sidebar.noRecentPages')}
             </p>
           </div>
         ) : (

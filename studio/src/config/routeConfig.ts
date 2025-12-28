@@ -21,6 +21,7 @@ import FeedMainPage from "@/pages/feed/FeedMainPage"
 import LLMLogsMainPage from "@/pages/llmlogs/LLMLogsMainPage"
 import ServiceAgentsMainPage from "@/pages/serviceagents/ServiceAgentsMainPage"
 import AdminMainPage from "@/pages/admin/AdminMainPage"
+import OnboardingPage from "@/pages/OnboardingPage"
 
 // Navigation icon components
 export const NavigationIcons = {
@@ -378,6 +379,12 @@ export const dynamicRouteConfig: RouteConfig[] = [
     title: "Admin Login",
     requiresLayout: false,
   },
+  {
+    path: "/onboarding",
+    element: OnboardingPage,
+    title: "Onboarding",
+    requiresLayout: false,
+  },
 
   // Main feature routes - these pages need full sidebar layout
   {
@@ -495,7 +502,7 @@ export const dynamicRouteConfig: RouteConfig[] = [
       key: PLUGIN_NAME_ENUM.AGENTWORLD,
       label: "AgentWorld",
       icon: "AgentWorld",
-      visible: true,
+      visible: false, // Only visible when agentworld mod is enabled
       order: 3.5,
       group: "primary",
     },

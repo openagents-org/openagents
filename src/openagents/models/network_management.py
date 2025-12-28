@@ -23,6 +23,7 @@ class ExportManifest(BaseModel):
     includes_sensitive_config: bool = Field(False, description="Whether sensitive config is included")
     mods_count: int = Field(0, description="Number of mods exported")
     has_network_profile: bool = Field(False, description="Whether network profile is included")
+    workspace_files_count: int = Field(0, description="Number of workspace files exported")
 
 
 class ImportValidationResult(BaseModel):
@@ -42,6 +43,7 @@ class ImportPreview(BaseModel):
     mods_to_update: List[str] = Field(default_factory=list, description="Mods to be updated")
     has_network_profile: bool = Field(False, description="Whether network profile will be imported")
     config_changes: Dict[str, Any] = Field(default_factory=dict, description="Config changes summary")
+    workspace_files_count: int = Field(0, description="Number of workspace files to be imported")
 
 
 class ImportResult(BaseModel):

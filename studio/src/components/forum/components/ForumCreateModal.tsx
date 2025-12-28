@@ -87,7 +87,7 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
         {/* Background overlay */}
         <div
-          className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
+          className="fixed inset-0 transition-opacity bg-black bg-opacity-50"
         />
 
         {/* Modal */}
@@ -139,7 +139,7 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
                       : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                     }`}
                 >
-                  {showPreview ? 'Edit' : 'Preview'}
+                  {showPreview ? t('createModal.edit') : t('createModal.preview')}
                 </button>
               </div>
 
@@ -151,7 +151,7 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
                     />
                   ) : (
                     <p className="text-gray-400 dark:text-gray-500">
-                      Preview will appear here...
+                      {t('createModal.previewPlaceholder')}
                     </p>
                   )}
                 </div>
@@ -169,10 +169,10 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
             {/* Permission Groups (Optional) */}
             <div>
               <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
-                Permission Groups (Optional)
+                {t('createModal.permissionGroups')}
               </label>
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                Leave empty to make topic visible to all users
+                {t('createModal.permissionGroupsHint')}
               </p>
 
               <div className="relative" ref={dropdownRef}>
@@ -185,11 +185,15 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
                   <span className="flex items-center space-x-2">
                     {selectedGroups.length === 0 ? (
                       <span className="text-gray-500 dark:text-gray-400">
-                        {groupsLoading ? 'Loading groups...' : 'Select permission groups...'}
+                        {groupsLoading ? t('createModal.loadingGroups') : t('createModal.selectPermissionGroups')}
                       </span>
                     ) : (
                       <span className="flex items-center space-x-2">
-                        <span>{selectedGroups.length} group{selectedGroups.length > 1 ? 's' : ''} selected</span>
+                        <span>
+                          {selectedGroups.length === 1
+                            ? t('createModal.groupsSelected', { count: selectedGroups.length })
+                            : t('createModal.groupsSelectedPlural', { count: selectedGroups.length })}
+                        </span>
                         <span className="px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full">
                           {selectedGroups.length}
                         </span>
@@ -211,7 +215,7 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
                   <div className="absolute z-10 w-full bottom-full mb-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-auto">
                     {groups.length === 0 ? (
                       <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
-                        No groups available
+                        {t('createModal.noGroupsAvailable')}
                       </div>
                     ) : (
                       <div className="py-1">

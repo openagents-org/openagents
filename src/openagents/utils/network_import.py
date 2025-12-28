@@ -2,10 +2,12 @@
 
 import json
 import logging
+import os
+import shutil
 import yaml
 from io import BytesIO
 from pathlib import Path
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from zipfile import ZipFile, BadZipFile
 
 from openagents.models.network_management import (
@@ -321,12 +323,22 @@ class NetworkImporter:
                             warnings=warnings
                         )
                 
+                # Extract workspace files if present
+                workspace_path = self._get_workspace_path(network)
+                workspace_files_count = 0
+                if workspace_path:
+                    workspace_files_count, ws_warnings = self._extract_workspace_files(zf, workspace_path)
+                    warnings.extend(ws_warnings)
+                else:
+                    logger.warning("Could not determine workspace path, skipping workspace files extraction")
+
                 applied_config = {
                     'network_name': new_config.name,
                     'mode': new_config.mode,
-                    'mods_count': len(new_config.mods) if new_config.mods else 0
+                    'mods_count': len(new_config.mods) if new_config.mods else 0,
+                    'workspace_files_count': workspace_files_count
                 }
-            
+
             return ImportResult(
                 success=True,
                 message=f"Import successful (mode: {mode})",
@@ -380,7 +392,8 @@ class NetworkImporter:
             config_changes={
                 'mode': network_config.get('mode', 'unknown'),
                 'transports': len(network_config.get('transports', []))
-            }
+            },
+            workspace_files_count=manifest.workspace_files_count
         )
 
     def _apply_mod_config(
@@ -430,7 +443,7 @@ class NetworkImporter:
 
     def _get_config_path(self) -> Optional[Path]:
         """Get configuration file path from existing network.
-        
+
         Returns:
             Path to config file, or None if not available
         """
@@ -438,7 +451,85 @@ class NetworkImporter:
         # For now, check if network has config_path attribute
         if self.network and hasattr(self.network, 'config_path'):
             return Path(self.network.config_path)
-        
+
         logger.warning("Config path not available from network instance")
         return None
+
+    def _get_workspace_path(self, network: "AgentNetwork") -> Optional[Path]:
+        """Get the workspace path from the network.
+
+        Args:
+            network: Network instance
+
+        Returns:
+            Path: Workspace path or None if not available
+        """
+        # Try to get workspace path from config_path (directory containing network.yaml)
+        if hasattr(network, 'config_path') and network.config_path:
+            return Path(network.config_path).parent
+
+        # Try to get from workspace_manager
+        if hasattr(network, 'workspace_manager') and network.workspace_manager:
+            return Path(network.workspace_manager.workspace_path)
+
+        return None
+
+    def _extract_workspace_files(
+        self,
+        zf: ZipFile,
+        workspace_path: Path
+    ) -> tuple[int, List[str]]:
+        """Extract workspace files from ZIP to workspace directory.
+
+        Args:
+            zf: ZipFile to read from
+            workspace_path: Path to extract files to
+
+        Returns:
+            tuple: (number of files extracted, list of warnings)
+        """
+        files_extracted = 0
+        warnings = []
+
+        # Get all files under workspace/ directory in the zip
+        workspace_files = [
+            f for f in zf.namelist()
+            if f.startswith('workspace/') and not f.endswith('/')
+        ]
+
+        if not workspace_files:
+            logger.info("No workspace files to extract")
+            return 0, warnings
+
+        logger.info(f"Extracting {len(workspace_files)} workspace files")
+
+        for archive_path in workspace_files:
+            try:
+                # Remove 'workspace/' prefix to get relative path
+                relative_path = archive_path[len('workspace/'):]
+
+                # Security check: ensure no path traversal
+                if '..' in relative_path or relative_path.startswith('/'):
+                    warnings.append(f"Skipped unsafe path: {archive_path}")
+                    continue
+
+                # Build target path
+                target_path = workspace_path / relative_path
+
+                # Create parent directories if needed
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Extract file content and write to target
+                file_content = zf.read(archive_path)
+                target_path.write_bytes(file_content)
+
+                files_extracted += 1
+                logger.debug(f"Extracted workspace file: {relative_path}")
+
+            except Exception as e:
+                warnings.append(f"Failed to extract {archive_path}: {str(e)}")
+                logger.warning(f"Failed to extract workspace file {archive_path}: {e}")
+
+        logger.info(f"Extracted {files_extracted} workspace files")
+        return files_extracted, warnings
 

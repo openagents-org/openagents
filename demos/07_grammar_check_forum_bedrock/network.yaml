@@ -6,6 +6,7 @@ network:
   name: "GrammarCheckForumBedrock"
   mode: "centralized"
   node_id: "grammar-check-forum-bedrock-1"
+  initialized: true
 
   # Transport configuration
   transports:

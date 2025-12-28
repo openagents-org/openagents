@@ -37,7 +37,21 @@
         "serviceAgents": "Service Agents",
         "llmLogs": "LLM Logs",
         "connectionGuide": "Connect Agent",
-        "admin": "Admin"
+        "admin": "Admin",
+        "switchToAdmin": {
+            "title": "Enter Admin Console",
+            "confirm": "Are you sure you want to enter the admin console?",
+            "confirmButton": "Enter",
+            "cancel": "Cancel",
+            "button": "Admin Console"
+        },
+        "switchToUser": {
+            "title": "Enter User Interface",
+            "confirm": "Are you sure you want to enter the user interface? You can return to the admin console anytime.",
+            "confirmButton": "Enter",
+            "cancel": "Cancel",
+            "button": "User Console"
+        }
     },
     "defaultSidebar": {
         "navigation": "Navigation content will appear here",
@@ -50,5 +64,11 @@
         "failed": "Connection failed. Please try again.",
         "retry": "Retry",
         "backToNetwork": "Back To Select Network"
+    },
+    "breadcrumb": {
+        "home": "Home",
+        "admin": "Admin",
+        "dashboard": "Dashboard",
+        "detail": "Detail"
     }
 }

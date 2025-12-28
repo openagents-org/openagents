@@ -5,6 +5,7 @@ network:
   name: "TechNewsStream"
   mode: "centralized"
   node_id: "tech-news-stream-1"
+  initialized: true
 
   # Transport configuration
   transports:

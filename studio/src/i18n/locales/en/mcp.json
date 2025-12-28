@@ -42,5 +42,15 @@
         "connectionSuccess": "Connected successfully",
         "connectionFailed": "Connection failed",
         "deleteConfirm": "Are you sure you want to delete this server?"
+    },
+    "pages": {
+        "config": {
+            "title": "MCP Configuration",
+            "description": "MCP configuration panel coming soon..."
+        },
+        "status": {
+            "title": "MCP Status",
+            "description": "MCP status monitoring coming soon..."
+        }
     }
 }

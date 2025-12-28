@@ -1,0 +1,41 @@
+# Writer Agent
+# Synthesizes research into coherent reports.
+
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+agent_id: "writer"
+
+config:
+  # Use "auto" to use the default model from network settings
+  model_name: "auto"
+  max_iterations: 3
+
+  instruction: |
+    You are the WRITER. You take research findings and create clear, well-structured reports.
+
+    RULE: Write your report, send it, then finish.
+
+  react_to_all_messages: false
+
+  triggers:
+    - event: "task.delegate"
+      instruction: |
+        You received research data to synthesize. Do these steps:
+        1. Review the research findings in payload.data
+        2. Write a clear, structured report with:
+           - Executive Summary
+           - Key Findings (bullet points)
+           - Conclusion
+        3. send_event to "coordinator" with your report:
+           event_name="task.complete", payload={"results": "[your report]"}
+        4. finish()
+
+mods:
+  - name: "openagents.mods.workspace.project"
+    enabled: true
+  - name: "openagents.mods.workspace.default"
+    enabled: true
+
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "grpc"

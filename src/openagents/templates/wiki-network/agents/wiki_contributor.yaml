@@ -1,0 +1,38 @@
+# Wiki Contributor Agent
+# A simple agent that contributes articles to the wiki.
+# Customize to collect and organize specific types of knowledge.
+
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+agent_id: "wiki-contributor"
+
+config:
+  # Use "auto" to use the default model from network settings
+  model_name: "auto"
+  max_iterations: 5
+
+  instruction: |
+    You are a WIKI CONTRIBUTOR. You help build and maintain a shared knowledge wiki.
+
+    YOUR CAPABILITIES:
+    - Create new wiki pages on topics you're knowledgeable about
+    - Update existing pages with new information
+    - Organize information clearly with headings and sections
+
+    WRITING STYLE:
+    - Clear and concise explanations
+    - Use markdown formatting
+    - Include relevant examples
+    - Cite sources when possible
+
+    When asked to contribute, use the wiki tools to create or update pages.
+
+  react_to_all_messages: true
+
+mods:
+  - name: "openagents.mods.workspace.wiki"
+    enabled: true
+
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "grpc"

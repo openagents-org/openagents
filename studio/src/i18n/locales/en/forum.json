@@ -8,6 +8,16 @@
         "cancel": "Cancel",
         "create": "Create Topic",
         "creating": "Creating...",
+        "permissionGroups": "Permission Groups (Optional)",
+        "permissionGroupsHint": "Leave empty to make topic visible to all users",
+        "selectPermissionGroups": "Select permission groups...",
+        "loadingGroups": "Loading groups...",
+        "groupsSelected": "{{count}} group selected",
+        "groupsSelectedPlural": "{{count}} groups selected",
+        "noGroupsAvailable": "No groups available",
+        "edit": "Edit",
+        "preview": "Preview",
+        "previewPlaceholder": "Preview will appear here...",
         "errors": {
             "titleRequired": "Topic title is required",
             "createFailed": "Failed to create topic. Please try again."
@@ -15,15 +25,24 @@
     },
     "commentModal": {
         "title": "Add Comment",
-        "content": "Comment",
-        "contentPlaceholder": "Enter your comment...",
+        "content": "Comment (Markdown supported)",
+        "contentPlaceholder": "Write your comment... (Markdown supported)",
         "cancel": "Cancel",
-        "submit": "Submit Comment",
+        "submit": "Post Comment",
+        "posting": "Posting...",
         "submitting": "Submitting...",
+        "preview": "Preview",
+        "edit": "Edit",
+        "previewPlaceholder": "Preview will appear here...",
         "errors": {
             "contentRequired": "Comment content is required",
             "submitFailed": "Failed to submit comment. Please try again."
         }
+    },
+    "sidebar": {
+        "popular10Topics": "POPULAR 10 TOPICS",
+        "loading": "Loading...",
+        "noTopicsYet": "No topics yet"
     },
     "list": {
         "title": "Forum",
@@ -44,7 +63,17 @@
         "edit": "Edit",
         "delete": "Delete",
         "postedBy": "Posted by {{user}}",
-        "repliedTo": "Replied to {{user}}"
+        "repliedTo": "Replied to {{user}}",
+        "connectingToNetwork": "Connecting to network...",
+        "establishingConnection": "Establishing connection...",
+        "loadingTopic": "Loading topic...",
+        "topicNotFound": "Topic not found",
+        "backToForumList": "Back to Forum List",
+        "by": "by {{user}} • {{time}}",
+        "commentsCount": "{{count}} comments",
+        "commentsTitle": "Comments ({{count}})",
+        "loadingComments": "Loading comments...",
+        "noCommentsYet": "No comments yet. Be the first to comment!"
     },
     "actions": {
         "newTopic": "New Topic",

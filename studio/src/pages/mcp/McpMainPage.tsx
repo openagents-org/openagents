@@ -1,12 +1,13 @@
 import React from "react";
 import { Routes, Route } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import McpView from "@/components/mcp/McpView";
 
 /**
  * MCP main page - Handle all MCP-related features
  */
 const McpMainPage: React.FC = () => {
-
+  const { t } = useTranslation("mcp");
 
   return (
     <div className="h-full dark:bg-gray-800">
@@ -23,10 +24,10 @@ const McpMainPage: React.FC = () => {
           element={
             <div className="p-6 h-full dark:bg-gray-800">
               <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100">
-                MCP Configuration
+                {t("pages.config.title")}
               </h1>
               <p className="text-gray-600 dark:text-gray-400">
-                MCP configuration panel coming soon...
+                {t("pages.config.description")}
               </p>
             </div>
           }
@@ -38,10 +39,10 @@ const McpMainPage: React.FC = () => {
           element={
             <div className="p-6 h-full dark:bg-gray-800">
               <h1 className="text-2xl font-bold mb-4 text-gray-900 dark:text-gray-100">
-                MCP Status
+                {t("pages.status.title")}
               </h1>
               <p className="text-gray-600 dark:text-gray-400">
-                MCP status monitoring coming soon...
+                {t("pages.status.description")}
               </p>
             </div>
           }

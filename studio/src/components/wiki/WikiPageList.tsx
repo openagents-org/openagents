@@ -103,7 +103,7 @@ const WikiPageList: React.FC = () => {
 
   if (pagesError) {
     return (
-      <div className="flex-1 flex items-center justify-center dark:bg-gray-800">
+      <div className="flex-1 flex items-center justify-center bg-white dark:bg-gray-800">
         <div className="text-center">
           <div className={`text-red-500 mb-4`}>
             <svg
@@ -133,9 +133,9 @@ const WikiPageList: React.FC = () => {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full dark:bg-gray-800">
+    <div className="flex-1 flex flex-col h-full bg-white dark:bg-gray-800">
       {/* Header */}
-      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-800">
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between bg-white dark:bg-gray-800">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             {t('list.title')}
@@ -195,7 +195,7 @@ const WikiPageList: React.FC = () => {
       </div>
 
       {/* Search bar */}
-      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
         <div className="relative">
           <input
             type="text"
@@ -221,7 +221,7 @@ const WikiPageList: React.FC = () => {
       </div>
 
       {/* Page list */}
-      <div className="flex-1 overflow-y-hidden py-6 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+      <div className="flex-1 overflow-y-hidden py-6 dark:border-gray-700 bg-white dark:bg-gray-800">
         {pages.length === 0 ? (
           <div className="text-center py-12 h-full flex flex-col items-center justify-center">
             <div className="mb-4 text-gray-500 dark:text-gray-400">

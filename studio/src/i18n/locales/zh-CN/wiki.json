@@ -39,16 +39,41 @@
         "version": "v{{version}}",
         "by": "由 {{user}}"
     },
+    "sidebar": {
+        "recent10Pages": "最近 10 个页面",
+        "noRecentPages": "没有最近的页面"
+    },
     "detail": {
         "edit": "编辑",
+        "proposeEdit": "提议编辑",
+        "editTitle": "编辑: {{title}}",
+        "proposeEditTitle": "提议编辑: {{title}}",
         "save": "保存",
+        "saveChanges": "保存更改",
+        "submitProposal": "提交提案",
         "saving": "保存中...",
         "saved": "已保存",
         "cancel": "取消",
         "delete": "删除",
         "lastEdited": "上次编辑: {{time}}",
         "editedBy": "由 {{user}} 编辑",
-        "noContent": "还没有内容。点击编辑添加内容。"
+        "noContent": "还没有内容。点击编辑添加内容。",
+        "loadingPage": "加载页面中...",
+        "backToWiki": "返回 Wiki",
+        "by": "由",
+        "version": "v{{version}}",
+        "byVersion": "{{path}} • 由 {{user}} • v{{version}}",
+        "currentVersion": "当前版本",
+        "yourChanges": "您的更改",
+        "rationaleForChange": "更改理由",
+        "rationalePlaceholder": "解释您为什么要进行此更改...",
+        "enterContentPlaceholder": "输入 Markdown 格式的页面内容..."
+    },
+    "editor": {
+        "edit": "编辑",
+        "preview": "预览",
+        "diff": "差异",
+        "nothingToPreview": "没有可预览的内容"
     },
     "proposals": {
         "title": "提案",

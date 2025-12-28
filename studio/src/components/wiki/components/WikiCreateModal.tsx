@@ -47,9 +47,9 @@ const WikiCreateModal: React.FC<WikiCreateModalProps> = ({ isOpen, onClose }) =>
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="w-full max-w-4xl h-5/6 mx-4 flex flex-col rounded-lg bg-white dark:bg-gray-800">
+      <div className="w-full max-w-4xl max-h-[90vh] mx-4 flex flex-col rounded-lg bg-white dark:bg-gray-800">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
               {t('createModal.title')}
@@ -66,10 +66,9 @@ const WikiCreateModal: React.FC<WikiCreateModalProps> = ({ isOpen, onClose }) =>
         </div>
 
         {/* Content */}
-        <div className="flex-1 px-6 py-4 overflow-hidden">
-
-          <form id="wiki-form" onSubmit={handleSubmit} className="flex-1 flex flex-col space-y-4">
-            <div>
+        <div className="flex-1 px-6 py-4 overflow-y-auto min-h-0">
+          <form id="wiki-form" onSubmit={handleSubmit} className="h-full flex flex-col space-y-4">
+            <div className="flex-shrink-0">
               <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
                 {t('createModal.pagePath')}
               </label>
@@ -83,7 +82,7 @@ const WikiCreateModal: React.FC<WikiCreateModalProps> = ({ isOpen, onClose }) =>
               />
             </div>
 
-            <div>
+            <div className="flex-shrink-0">
               <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
                 {t('createModal.pageTitle')}
               </label>
@@ -97,15 +96,15 @@ const WikiCreateModal: React.FC<WikiCreateModalProps> = ({ isOpen, onClose }) =>
               />
             </div>
 
-            <div className="flex-1 flex flex-col">
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+            <div className="flex-1 flex flex-col min-h-[300px]">
+              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300 flex-shrink-0">
                 {t('createModal.content')}
               </label>
               <WikiEditor
                 value={content}
                 onChange={setContent}
                 modes={['edit', 'preview']}
-                style={{ minHeight: '200px', maxHeight: '200px' }}
+                style={{ flex: 1, minHeight: '250px' }}
                 placeholder={t('createModal.contentPlaceholder')}
                 textareaProps={{ required: true }}
               />
@@ -114,7 +113,7 @@ const WikiCreateModal: React.FC<WikiCreateModalProps> = ({ isOpen, onClose }) =>
         </div>
 
         {/* Bottom buttons */}
-        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
+        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3 flex-shrink-0">
           <button
             type="button"
             onClick={handleClose}

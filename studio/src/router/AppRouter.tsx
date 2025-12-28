@@ -5,6 +5,7 @@ import { ConfirmProvider } from "@/context/ConfirmContext";
 import RouteGuard from "./RouteGuard";
 import { routes } from "./routeConfig";
 import RootLayout from "@/components/layout/RootLayout";
+import SimpleLayout from "@/components/layout/SimpleLayout";
 
 // Detect basename from URL path (for /studio serving)
 const getBasename = (): string => {
@@ -53,25 +54,27 @@ const AppRouter: React.FC = () => {
       <ConfirmProvider>
         <Toaster position="top-right" richColors />
         <Routes>
-          {publicRoutes.map(({ path, element: Component, requiresLayout }) => (
-            <Route
-              key={path}
-              path={path}
-              element={
-                <RouteGuard>
-                  {requiresLayout ? (
-                    <RootLayout>
+          <Route path="/" element={<SimpleLayout />}>
+            {publicRoutes.map(({ path, element: Component, requiresLayout }) => (
+              <Route
+                key={path}
+                path={path}
+                element={
+                  <RouteGuard>
+                    {requiresLayout ? (
+                      <RootLayout>
+                        <Component />
+                      </RootLayout>
+                    ) : (
                       <Component />
-                    </RootLayout>
-                  ) : (
-                    <Component />
-                  )}
-                </RouteGuard>
-              }
-            />
-          ))}
+                    )}
+                  </RouteGuard>
+                }
+              />
+            ))}
 
-          <Route path="/*" element={<ProtectedRoutes />} />
+            <Route path="/*" element={<ProtectedRoutes />} />
+          </Route>
         </Routes>
       </ConfirmProvider>
     </BrowserRouter>

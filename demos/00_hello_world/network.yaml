@@ -5,6 +5,7 @@ network:
   name: "HelloWorld"
   mode: "centralized"
   node_id: "hello-world-1"
+  initialized: true
 
   # Transport configuration
   transports:

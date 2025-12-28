@@ -6,6 +6,7 @@ network:
   name: "DefaultNetwork"
   mode: "centralized"
   node_id: "default-network-1"
+  initialized: false
 
   # Transport configuration
   transports:

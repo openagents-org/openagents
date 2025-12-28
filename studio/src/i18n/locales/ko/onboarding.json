@@ -1,0 +1,85 @@
+{
+  "step1": {
+    "title": "OpenAgents",
+    "subtitle": "AI Agent Networks for Open Collaboration",
+    "agentA": "에이전트 A",
+    "agentB": "에이전트 B",
+    "agentC": "에이전트 C",
+    "network": "네트워크",
+    "startButton": "시작하기",
+    "skipButton": "설정 건너뛰기 (고급 사용자)"
+  },
+  "step2": {
+    "stepIndicator": "단계 2 / 4",
+    "title": "첫 번째 네트워크 템플릿 선택",
+    "description": "템플릿을 선택하여 빠르게 시작하세요. 나중에 모든 것을 사용자 정의할 수 있습니다.",
+    "selectButton": "선택",
+    "backButton": "← 뒤로",
+    "browseMoreButton": "더 많은 템플릿 보기",
+    "agents": "개 에이전트",
+    "templates": {
+      "news-info": {
+        "name": "뉴스 & 정보",
+        "description": "에이전트가 정보 소스를 모니터링하고 뉴스 업데이트를 정리 및 방송합니다"
+      },
+      "knowledge-wiki": {
+        "name": "지식 위키",
+        "description": "에이전트가 공유 위키 지식 기반을 연구하고 구축합니다"
+      },
+      "task-automation": {
+        "name": "작업 자동화",
+        "description": "에이전트가 위임하고 협력하여 복잡한 작업을 완료합니다"
+      },
+      "blank-network": {
+        "name": "빈 네트워크",
+        "description": "사전 설정 없이 처음부터 시작"
+      },
+      "custom": {
+        "name": "사용자 정의",
+        "description": "템플릿 설정을 건너뛰고 나중에 네트워크를 수동으로 설정"
+      }
+    },
+    "setupTime": {
+      "quick": "5분 설정",
+      "manual": "수동 설정"
+    },
+    "noMods": "모드 없음",
+    "retry": "다시 시도",
+    "noTemplates": "사용 가능한 템플릿이 없습니다",
+    "nextButton": "계속 →"
+  },
+  "step3": {
+    "stepIndicator": "단계 3 / 4",
+    "title": "관리자 대시보드 보호",
+    "description": "네트워크의 관리자 설정을 보호하기 위한 비밀번호를 설정하세요.",
+    "adminPasswordLabel": "관리자 비밀번호",
+    "confirmPasswordLabel": "비밀번호 확인",
+    "passwordPlaceholder": "••••••••",
+    "minLength": "최소 8자",
+    "passwordMatch": "비밀번호 일치",
+    "hint": "이 비밀번호는 관리자 대시보드 액세스를 보호하는 데 사용됩니다. 비밀번호는 SHA-256으로 암호화되어 네트워크 구성에 저장됩니다.",
+    "backButton": "← 뒤로",
+    "continueButton": "계속 →",
+    "setting": "설정 중..."
+  },
+  "step4": {
+    "stepIndicator": "단계 4 / 4",
+    "title": "네트워크 설정 중...",
+    "steps": {
+      "createConfig": "네트워크 구성 생성",
+      "installMods": "모드 설치: {{mods}}",
+      "installModsEmpty": "모드 설치",
+      "configureAgents": "에이전트 구성",
+      "startingAgents": "에이전트 시작 중...",
+      "verifyConnection": "연결 확인"
+    },
+    "progress": "진행률",
+    "template": "템플릿:",
+    "agents": "에이전트:"
+  },
+  "success": {
+    "title": "모든 준비 완료!",
+    "message": "\"{{templateName}}\" 네트워크가 {{agentCount}}개의 에이전트와 함께 실행 중입니다.",
+    "enterDashboardButton": "관리자 대시보드로 이동"
+  }
+}

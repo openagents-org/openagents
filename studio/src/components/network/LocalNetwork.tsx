@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { detectLocalNetwork } from "@/services/networkService";
+import { detectLocalNetwork, getCurrentNetworkHealth } from "@/services/networkService";
 import { NetworkConnection } from "@/types/connection";
 import { useAuthStore } from "@/stores/authStore";
 import { useNavigate } from "react-router-dom";
@@ -38,9 +38,10 @@ const LocalNetworkShow = React.memo(
     const { host, port } = localNetwork;
     const { handleNetworkSelected } = useAuthStore();
 
-    const handleConnect = () => {
+    const handleConnect = async () => {
       handleNetworkSelected(localNetwork);
-      navigate("/agent-setup");
+      // Network selection will trigger onboarding check in NetworkSelectionPage
+      // No need to navigate here, the page will show onboarding if needed
     };
 
     return (
@@ -54,12 +55,27 @@ const LocalNetworkShow = React.memo(
               {t('localNetwork.runningOn', { host, port })}
             </p>
           </div>
-          <button
-            onClick={() => handleConnect()}
-            className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
-          >
-            {t('localNetwork.connect')}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => handleConnect()}
+              className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+            >
+              {t('localNetwork.connect')}
+            </button>
+            <button
+              onClick={() => {
+                // Navigate to admin login page with connection info in state
+                // Don't call handleNetworkSelected here to avoid triggering redirects
+                navigate('/admin-login', {
+                  state: { pendingConnection: localNetwork },
+                  replace: true
+                });
+              }}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+            >
+              {t('localNetwork.manageNetwork')}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -68,6 +84,8 @@ const LocalNetworkShow = React.memo(
 
 const LocalNetwork: React.FC = () => {
   const { t } = useTranslation('auth');
+  const navigate = useNavigate();
+  const { handleNetworkSelected } = useAuthStore();
   const [localNetwork, setLocalNetwork] = useState<NetworkConnection | null>(
     null
   );
@@ -79,6 +97,24 @@ const LocalNetwork: React.FC = () => {
       try {
         const local = await detectLocalNetwork();
         setLocalNetwork(local);
+
+        // If network detected, check if it's initialized
+        // If not initialized, auto-connect and redirect to onboarding
+        if (local) {
+          try {
+            const healthResult = await getCurrentNetworkHealth(local);
+            const isInitialized = healthResult.data?.data?.initialized === true;
+
+            if (!isInitialized) {
+              // Auto-connect to the network and redirect to onboarding
+              handleNetworkSelected(local);
+              navigate("/onboarding", { replace: true });
+              return;
+            }
+          } catch (error) {
+            console.error("Error checking network health:", error);
+          }
+        }
       } catch (error) {
         console.error("Error detecting local network:", error);
       } finally {
@@ -87,7 +123,7 @@ const LocalNetwork: React.FC = () => {
     };
 
     checkLocal();
-  }, []);
+  }, [handleNetworkSelected, navigate]);
 
   return (
     <div className="mb-8">

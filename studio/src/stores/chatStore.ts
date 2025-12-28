@@ -363,6 +363,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       return;
     }
 
+    // Check if connector is actually connected (not just React state)
+    if (!connection.isConnected()) {
+      console.warn("ChatStore: Connector not yet connected, will retry in 500ms");
+      // Retry after a short delay to allow connection to complete
+      setTimeout(() => {
+        const currentState = get();
+        if (!currentState.channelsLoaded && !currentState.channelsLoading) {
+          get().loadChannels();
+        }
+      }, 500);
+      return;
+    }
+
     console.log("ChatStore: Loading channels...");
     set({ channelsLoading: true, channelsError: null });
 
@@ -418,6 +431,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
         "ChatStore: No connection available for loadChannelMessages"
       );
       set({ messagesError: "No connection available" });
+      return;
+    }
+
+    // Check if connector is actually connected (not just React state)
+    if (!connection.isConnected()) {
+      console.warn("ChatStore: Connector not yet connected for loadChannelMessages, will retry in 500ms");
+      setTimeout(() => {
+        get().loadChannelMessages(channel, limit, offset);
+      }, 500);
       return;
     }
 
@@ -513,6 +535,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!connection) {
       console.warn("ChatStore: No connection available for loadDirectMessages");
       set({ messagesError: "No connection available" });
+      return;
+    }
+
+    // Check if connector is actually connected (not just React state)
+    if (!connection.isConnected()) {
+      console.warn("ChatStore: Connector not yet connected for loadDirectMessages, will retry in 500ms");
+      setTimeout(() => {
+        get().loadDirectMessages(targetAgentId, limit, offset);
+      }, 500);
       return;
     }
 

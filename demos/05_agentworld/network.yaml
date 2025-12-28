@@ -5,6 +5,7 @@ network:
   name: "AgentWorld"
   mode: "centralized"
   node_id: "agentworld-1"
+  initialized: true
 
   # Transport configuration
   transports:

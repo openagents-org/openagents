@@ -155,7 +155,7 @@ const AgentManagement: React.FC = () => {
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           <span className="ml-3 text-gray-600 dark:text-gray-400">
-            Loading agents...
+            {t('agents.loading')}
           </span>
         </div>
       </div>
@@ -168,7 +168,7 @@ const AgentManagement: React.FC = () => {
       <div className="flex items-center justify-between mb-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-            Connected Agents
+            {t('agents.title')}
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
             {t('agents.subtitle')}

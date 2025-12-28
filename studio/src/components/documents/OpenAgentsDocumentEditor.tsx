@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { DocumentContent, DocumentComment, AgentPresence } from '../../types';
 import { Button } from '@/components/layout/ui/button';
 // TODO: Implement with HTTP event system
@@ -27,6 +28,7 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
   onBack,
   readOnly = false
 }) => {
+  const { t } = useTranslation('documents');
   // Core state
   const [documentContent, setDocumentContent] = useState<DocumentContent | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -664,7 +666,7 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
       <div className="flex-1 flex">
         {/* Line authorship and locking sidebar */}
         <div className={`w-12 flex-shrink-0 ${
-          currentTheme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'
+          currentTheme === 'dark' ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
         } border-r`}>
           <div className="py-6">
             {textContent.split('\n').map((line, index) => {
@@ -735,7 +737,7 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
                 ? 'bg-gray-900 text-gray-100 placeholder-gray-500 dark-mode' 
                 : 'bg-white text-gray-900 placeholder-gray-400'
             } ${readOnly ? 'cursor-default' : ''}`}
-            placeholder={readOnly ? 'This document is read-only' : 'Start typing your document...'}
+            placeholder={readOnly ? t('editor.readOnlyPlaceholder') : t('editor.startTypingPlaceholder')}
             spellCheck={false}
             style={{ 
               lineHeight: '1.6',
@@ -750,14 +752,14 @@ const OpenAgentsDocumentEditor: React.FC<OpenAgentsDocumentEditorProps> = ({
           {/* Debug info */}
           {process.env.NODE_ENV === 'development' && (
             <div className="absolute bottom-2 right-2 text-xs opacity-50 bg-black text-white p-1 rounded">
-              Content: {textContent.length} chars | {isSaving ? '💾 Saving...' : hasUnsavedChanges ? '✏️ Unsaved' : '✅ Saved'} {liveUpdateIndicator ? '🔄 Live Update' : ''}
+              {t('editor.debugInfo.content')}: {textContent.length} {t('editor.debugInfo.chars')} | {isSaving ? t('editor.debugInfo.saving') : hasUnsavedChanges ? t('editor.debugInfo.unsaved') : t('editor.debugInfo.saved')} {liveUpdateIndicator ? t('editor.debugInfo.liveUpdate') : ''}
             </div>
           )}
         </div>
 
         {/* Comments sidebar */}
         {showComments && (
-          <div className={`w-80 border-l ${currentTheme === 'dark' ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
+          <div className={`w-80 border-l ${currentTheme === 'dark' ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'}`}>
             <div className="p-4">
               <h3 className="font-semibold mb-4">Comments</h3>
               <div className="space-y-4">

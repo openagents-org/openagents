@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface ImportDropzoneProps {
   onFileSelected: (file: File) => void;
@@ -11,6 +12,7 @@ const ImportDropzone: React.FC<ImportDropzoneProps> = ({
   accept = ".zip",
   disabled = false,
 }) => {
+  const { t } = useTranslation('network');
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,14 +42,14 @@ const ImportDropzone: React.FC<ImportDropzoneProps> = ({
       const zipFile = files.find((f) => f.name.endsWith(".zip"));
 
       if (!zipFile) {
-        setError("请选择 .zip 文件");
+        setError(t('importExport.dropzone.selectZipFile'));
         return;
       }
 
       setError(null);
       onFileSelected(zipFile);
     },
-    [onFileSelected, disabled]
+    [onFileSelected, disabled, t]
   );
 
   const handleFileInput = useCallback(
@@ -57,14 +59,14 @@ const ImportDropzone: React.FC<ImportDropzoneProps> = ({
 
       const file = files[0];
       if (!file.name.endsWith(".zip")) {
-        setError("请选择 .zip 文件");
+        setError(t('importExport.dropzone.selectZipFile'));
         return;
       }
 
       setError(null);
       onFileSelected(file);
     },
-    [onFileSelected]
+    [onFileSelected, t]
   );
 
   return (
@@ -74,7 +76,7 @@ const ImportDropzone: React.FC<ImportDropzoneProps> = ({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={`
-          relative border-2 border-dashed rounded-lg p-8 text-center transition-colors
+          relative border-2 border-dashed rounded-lg p-6 text-center transition-colors
           ${
             isDragging
               ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
@@ -97,7 +99,7 @@ const ImportDropzone: React.FC<ImportDropzoneProps> = ({
         >
           <div className="flex flex-col items-center">
             <svg
-              className="w-12 h-12 text-gray-400 dark:text-gray-500 mb-4"
+              className="w-10 h-10 text-gray-400 dark:text-gray-500 mb-3"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -110,10 +112,10 @@ const ImportDropzone: React.FC<ImportDropzoneProps> = ({
               />
             </svg>
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              拖放文件到这里，或点击选择文件
+              {t('importExport.dropzone.dragDrop')}
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              支持 .zip 格式的网络配置文件
+              {t('importExport.dropzone.supportedFormat')}
             </p>
           </div>
         </label>

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ExportOptions } from "@/types/networkManagement";
 
 interface ExportOptionsModalProps {
@@ -14,6 +15,7 @@ const ExportOptionsModal: React.FC<ExportOptionsModalProps> = ({
   onConfirm,
   isExporting = false,
 }) => {
+  const { t } = useTranslation('network');
   const [includePasswordHashes, setIncludePasswordHashes] = useState(false);
   const [includeSensitiveConfig, setIncludeSensitiveConfig] = useState(false);
   const [notes, setNotes] = useState("");
@@ -41,7 +43,7 @@ const ExportOptionsModal: React.FC<ExportOptionsModalProps> = ({
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-              导出选项
+              {t('importExport.exportOptions.title')}
             </h3>
             <button
               onClick={onClose}
@@ -83,10 +85,10 @@ const ExportOptionsModal: React.FC<ExportOptionsModalProps> = ({
                   htmlFor="include-password-hashes"
                   className="font-medium text-gray-700 dark:text-gray-300"
                 >
-                  包含密码哈希
+                  {t('importExport.exportOptions.includePasswordHashes')}
                 </label>
                 <p className="text-gray-500 dark:text-gray-400">
-                  导出代理组密码哈希值（用于恢复密码）
+                  {t('importExport.exportOptions.includePasswordHashesDesc')}
                 </p>
               </div>
             </div>
@@ -110,10 +112,10 @@ const ExportOptionsModal: React.FC<ExportOptionsModalProps> = ({
                   htmlFor="include-sensitive-config"
                   className="font-medium text-gray-700 dark:text-gray-300"
                 >
-                  包含敏感配置
+                  {t('importExport.exportOptions.includeSensitiveConfig')}
                 </label>
                 <p className="text-gray-500 dark:text-gray-400">
-                  导出 API 密钥、密钥等敏感配置信息
+                  {t('importExport.exportOptions.includeSensitiveConfigDesc')}
                 </p>
               </div>
             </div>
@@ -124,7 +126,7 @@ const ExportOptionsModal: React.FC<ExportOptionsModalProps> = ({
                 htmlFor="export-notes"
                 className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
               >
-                备注（可选）
+                {t('importExport.exportOptions.notes')}
               </label>
               <textarea
                 id="export-notes"
@@ -132,7 +134,7 @@ const ExportOptionsModal: React.FC<ExportOptionsModalProps> = ({
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 disabled={isExporting}
-                placeholder="添加导出说明..."
+                placeholder={t('importExport.exportOptions.notesPlaceholder')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
               />
             </div>
@@ -146,7 +148,7 @@ const ExportOptionsModal: React.FC<ExportOptionsModalProps> = ({
               disabled={isExporting}
               className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
             >
-              取消
+              {t('importExport.exportOptions.cancel')}
             </button>
             <button
               type="button"
@@ -154,7 +156,7 @@ const ExportOptionsModal: React.FC<ExportOptionsModalProps> = ({
               disabled={isExporting}
               className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
             >
-              {isExporting ? "导出中..." : "导出"}
+              {isExporting ? t('importExport.exportOptions.exporting') : t('importExport.exportOptions.export')}
             </button>
           </div>
         </div>

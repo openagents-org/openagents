@@ -18,7 +18,6 @@ import {
   HelpCircle,
   RefreshCw,
   Lock,
-  Download,
   Server,
   Globe,
   ArrowLeftRight,
@@ -34,8 +33,22 @@ import {
   Radio,
   ExternalLink,
   Copy,
+  Play,
+  Square,
+  Loader2,
+  Cpu,
+  Pencil,
 } from "lucide-react";
 import { lookupNetworkPublication } from "@/services/networkService";
+import { getServiceAgents, startServiceAgent, stopServiceAgent, type ServiceAgent } from "@/services/serviceAgentsApi";
+import { networkFetch } from "@/utils/httpClient";
+
+interface DefaultModelConfig {
+  provider: string;
+  model_name: string;
+  api_key?: string;
+  base_url?: string;
+}
 
 interface DashboardStats {
   totalAgents: number;
@@ -88,6 +101,9 @@ const AdminDashboard: React.FC = () => {
     loading: boolean;
   }>({ published: false, loading: true });
   const [networkUuid, setNetworkUuid] = useState<string | null>(null);
+  const [serviceAgents, setServiceAgents] = useState<ServiceAgent[]>([]);
+  const [bulkActionLoading, setBulkActionLoading] = useState<'startAll' | 'stopAll' | null>(null);
+  const [defaultModelConfig, setDefaultModelConfig] = useState<DefaultModelConfig | null>(null);
 
   // Check if user has seen the tour
   useEffect(() => {
@@ -120,10 +136,10 @@ const AdminDashboard: React.FC = () => {
       position: 'bottom' as const,
     },
     {
-      target: '[data-tour="update-password"]',
+      target: '[data-tour="publish-network"]',
       title: t('tour.step4.title'),
       content: t('tour.step4.content'),
-      position: 'top' as const,
+      position: 'bottom' as const,
     },
   ];
 
@@ -211,6 +227,43 @@ const AdminDashboard: React.FC = () => {
         ...t.config,
       }));
       setTransports(transportList);
+
+      // Fetch service agents
+      try {
+        const agents = await getServiceAgents();
+        setServiceAgents(agents);
+      } catch (serviceAgentsError) {
+        console.error("Failed to fetch service agents:", serviceAgentsError);
+        // Don't show toast for service agents error - it's not critical
+        setServiceAgents([]);
+      }
+
+      // Fetch default model config
+      if (selectedNetwork) {
+        try {
+          const response = await networkFetch(
+            selectedNetwork.host,
+            selectedNetwork.port,
+            "/api/admin/default-model",
+            {
+              method: "GET",
+              headers: { "Content-Type": "application/json" },
+              useHttps: selectedNetwork.useHttps,
+            }
+          );
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.config) {
+              setDefaultModelConfig(data.config);
+            } else {
+              setDefaultModelConfig(null);
+            }
+          }
+        } catch (modelConfigError) {
+          console.error("Failed to fetch default model config:", modelConfigError);
+          setDefaultModelConfig(null);
+        }
+      }
     } catch (error) {
       console.error("Failed to fetch dashboard data:", error);
       toast.error("Failed to load dashboard data");
@@ -218,7 +271,7 @@ const AdminDashboard: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [connector]);
+  }, [connector, selectedNetwork]);
 
   useEffect(() => {
     fetchDashboardData();
@@ -247,6 +300,86 @@ const AdminDashboard: React.FC = () => {
 
     checkPublication();
   }, [networkUuid]);
+
+  // Handle starting all stopped service agents
+  const handleStartAllAgents = async () => {
+    const stoppedAgents = serviceAgents.filter(a => a.status === 'stopped' || a.status === 'error');
+    if (stoppedAgents.length === 0) {
+      toast.info(t('dashboard.serviceAgents.allRunning'));
+      return;
+    }
+
+    setBulkActionLoading('startAll');
+    let successCount = 0;
+    let failCount = 0;
+    let modelConfigError = false;
+
+    for (const agent of stoppedAgents) {
+      try {
+        await startServiceAgent(agent.agent_id);
+        successCount++;
+      } catch (err: any) {
+        console.error(`Failed to start agent ${agent.agent_id}:`, err);
+        failCount++;
+        // Check if the error is related to model configuration
+        const errorMessage = err?.message || '';
+        if (errorMessage.includes('auto') && (
+          errorMessage.includes('default LLM provider') ||
+          errorMessage.includes('default model') ||
+          errorMessage.includes('API key') ||
+          errorMessage.includes('Default Model Configuration')
+        )) {
+          modelConfigError = true;
+        }
+      }
+    }
+
+    setBulkActionLoading(null);
+    await fetchDashboardData();
+
+    if (failCount === 0) {
+      toast.success(t('dashboard.serviceAgents.startAllSuccess', { count: successCount }));
+    } else if (modelConfigError) {
+      // Show specific message about model configuration
+      toast.error(t('dashboard.serviceAgents.startAllModelConfigError', { success: successCount, failed: failCount }), {
+        duration: 6000,
+      });
+    } else {
+      toast.warning(t('dashboard.serviceAgents.startAllPartial', { success: successCount, failed: failCount }));
+    }
+  };
+
+  // Handle stopping all running service agents
+  const handleStopAllAgents = async () => {
+    const runningAgents = serviceAgents.filter(a => a.status === 'running');
+    if (runningAgents.length === 0) {
+      toast.info(t('dashboard.serviceAgents.allStopped'));
+      return;
+    }
+
+    setBulkActionLoading('stopAll');
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const agent of runningAgents) {
+      try {
+        await stopServiceAgent(agent.agent_id);
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to stop agent ${agent.agent_id}:`, err);
+        failCount++;
+      }
+    }
+
+    setBulkActionLoading(null);
+    await fetchDashboardData();
+
+    if (failCount === 0) {
+      toast.success(t('dashboard.serviceAgents.stopAllSuccess', { count: successCount }));
+    } else {
+      toast.warning(t('dashboard.serviceAgents.stopAllPartial', { success: successCount, failed: failCount }));
+    }
+  };
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _handleRestartNetwork = async () => {
@@ -556,41 +689,169 @@ const AdminDashboard: React.FC = () => {
           </Card>
         )}
 
-        {/* Quick Actions - Only 3 essential actions */}
+        {/* Default LLM and Service Agents Panels - Side by Side */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          {/* Default LLM Panel */}
+          <Card className="border-gray-200 dark:border-gray-700">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {t('dashboard.defaultLLM.title')}
+                  </span>
+                </div>
+                <button
+                  onClick={() => navigate("/admin/default-models")}
+                  className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                >
+                  <Pencil className="w-3 h-3" />
+                  {t('dashboard.defaultLLM.configure')}
+                </button>
+              </div>
+              {defaultModelConfig && defaultModelConfig.provider && defaultModelConfig.model_name ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {defaultModelConfig.provider}
+                    </span>
+                    <span className="text-gray-400 dark:text-gray-500">/</span>
+                    <span className="text-sm font-semibold text-indigo-600 dark:text-indigo-400">
+                      {defaultModelConfig.model_name}
+                    </span>
+                  </div>
+                  {defaultModelConfig.api_key && (
+                    <Badge variant="secondary" appearance="light" size="sm" className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                      {t('dashboard.defaultLLM.apiKeySet')}
+                    </Badge>
+                  )}
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                  {t('dashboard.defaultLLM.notConfigured')}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Service Agents Status Panel */}
+          <Card className="border-gray-200 dark:border-gray-700">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Server className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {t('dashboard.serviceAgents.title')}
+                  </span>
+                  {serviceAgents.length > 0 && (
+                    <Badge
+                      variant="secondary"
+                      appearance="light"
+                      size="sm"
+                    >
+                      {serviceAgents.filter(a => a.status === 'running').length}/{serviceAgents.length}
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {serviceAgents.length > 0 && (
+                    <>
+                      {/* Start All Button */}
+                      <button
+                        onClick={handleStartAllAgents}
+                        disabled={bulkActionLoading !== null || serviceAgents.every(a => a.status === 'running')}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={t('dashboard.serviceAgents.startAll')}
+                      >
+                        {bulkActionLoading === 'startAll' ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Play className="w-3 h-3" />
+                        )}
+                        {t('dashboard.serviceAgents.startAll')}
+                      </button>
+                      {/* Stop All Button */}
+                      <button
+                        onClick={handleStopAllAgents}
+                        disabled={bulkActionLoading !== null || serviceAgents.every(a => a.status !== 'running')}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={t('dashboard.serviceAgents.stopAll')}
+                      >
+                        {bulkActionLoading === 'stopAll' ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Square className="w-3 h-3" />
+                        )}
+                        {t('dashboard.serviceAgents.stopAll')}
+                      </button>
+                      <div className="h-4 w-px bg-gray-300 dark:bg-gray-600" />
+                    </>
+                  )}
+                  <button
+                    onClick={() => navigate("/admin/service-agents")}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+                  >
+                    {t('dashboard.serviceAgents.viewAll')}
+                  </button>
+                </div>
+              </div>
+              {serviceAgents.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {serviceAgents.map((agent) => (
+                    <button
+                      key={agent.agent_id}
+                      onClick={() => navigate(`/admin/service-agents/${agent.agent_id}`)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                        agent.status === 'running'
+                          ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50'
+                          : agent.status === 'error'
+                          ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/50'
+                          : agent.status === 'starting' || agent.status === 'stopping'
+                          ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-200 dark:hover:bg-yellow-900/50'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      <div className={`w-1.5 h-1.5 rounded-full ${
+                        agent.status === 'running'
+                          ? 'bg-green-500 animate-pulse'
+                          : agent.status === 'error'
+                          ? 'bg-red-500'
+                          : agent.status === 'starting' || agent.status === 'stopping'
+                          ? 'bg-yellow-500 animate-pulse'
+                          : 'bg-gray-400'
+                      }`} />
+                      {agent.agent_id}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500 dark:text-gray-400 italic">
+                  {t('dashboard.serviceAgents.noAgents')}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Quick Actions - 4 essential actions */}
         <div className="mb-4" data-tour="quick-actions">
           <h2 className="text-lg font-semibold text-foreground mb-3">
             {t('dashboard.quickActions.title')}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-            {/* Update Admin Password */}
+            {/* Publish Network */}
             <Card
               className="cursor-pointer hover:bg-accent transition-colors border-gray-200 dark:border-gray-700"
-              onClick={() => navigate("/admin/groups?changePassword=admin")}
-              data-tour="update-password"
+              onClick={() => navigate("/admin/publish")}
+              data-tour="publish-network"
             >
               <CardContent className="flex items-center space-x-3 p-4">
-                <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center flex-shrink-0">
-                  <Lock className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center flex-shrink-0">
+                  <ExternalLink className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium">{t('dashboard.quickActions.updateAdminPassword')}</div>
-                  <CardDescription className="text-xs mt-0.5">{t('dashboard.quickActions.updateAdminPasswordDesc')}</CardDescription>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Import / Export */}
-            <Card
-              className="cursor-pointer hover:bg-accent transition-colors border-gray-200 dark:border-gray-700"
-              onClick={() => navigate("/admin/import-export")}
-            >
-              <CardContent className="flex items-center space-x-3 p-4">
-                <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center flex-shrink-0">
-                  <Download className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium">{t('dashboard.quickActions.importExport')}</div>
-                  <CardDescription className="text-xs mt-0.5">{t('dashboard.quickActions.importExportDesc')}</CardDescription>
+                  <div className="text-sm font-medium">{t('dashboard.quickActions.publishNetwork')}</div>
+                  <CardDescription className="text-xs mt-0.5">{t('dashboard.quickActions.publishNetworkDesc')}</CardDescription>
                 </div>
               </CardContent>
             </Card>
@@ -607,6 +868,38 @@ const AdminDashboard: React.FC = () => {
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium">{t('sidebar.items.serviceAgents')}</div>
                   <CardDescription className="text-xs mt-0.5">{t('dashboard.menuGroups.serviceAgentsDesc')}</CardDescription>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Import / Export */}
+            <Card
+              className="cursor-pointer hover:bg-accent transition-colors border-gray-200 dark:border-gray-700"
+              onClick={() => navigate("/admin/import-export")}
+            >
+              <CardContent className="flex items-center space-x-3 p-4">
+                <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center flex-shrink-0">
+                  <FileDown className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{t('dashboard.quickActions.importExport')}</div>
+                  <CardDescription className="text-xs mt-0.5">{t('dashboard.quickActions.importExportDesc')}</CardDescription>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Update Admin Password */}
+            <Card
+              className="cursor-pointer hover:bg-accent transition-colors border-gray-200 dark:border-gray-700"
+              onClick={() => navigate("/admin/groups?changePassword=admin")}
+            >
+              <CardContent className="flex items-center space-x-3 p-4">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center flex-shrink-0">
+                  <Lock className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium">{t('dashboard.quickActions.updateAdminPassword')}</div>
+                  <CardDescription className="text-xs mt-0.5">{t('dashboard.quickActions.updateAdminPasswordDesc')}</CardDescription>
                 </div>
               </CardContent>
             </Card>
@@ -646,6 +939,20 @@ const AdminDashboard: React.FC = () => {
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium">{t('dashboard.quickActions.transports')}</div>
                     <CardDescription className="text-xs mt-0.5">{t('dashboard.quickActions.transportsDesc')}</CardDescription>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card
+                className="cursor-pointer hover:bg-accent transition-colors border-gray-200 dark:border-gray-700"
+                onClick={() => navigate("/admin/publish")}
+              >
+                <CardContent className="flex items-center space-x-3 p-4">
+                  <div className="w-10 h-10 rounded-full bg-cyan-100 dark:bg-cyan-900 flex items-center justify-center flex-shrink-0">
+                    <ExternalLink className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium">{t('dashboard.quickActions.publishNetwork')}</div>
+                    <CardDescription className="text-xs mt-0.5">{t('dashboard.quickActions.publishNetworkDesc')}</CardDescription>
                   </div>
                 </CardContent>
               </Card>

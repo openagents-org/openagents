@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useOpenAgents } from "@/context/OpenAgentsProvider";
 import { useAuthStore } from "@/stores/authStore";
 import { toast } from "sonner";
@@ -26,6 +27,7 @@ type IntegrationType = "python" | "yaml" | "langchain" | "mcp";
 type ConnectionMode = "direct" | "network_id";
 
 const ConnectionGuide: React.FC = () => {
+  const { t } = useTranslation('admin');
   const { connector } = useOpenAgents();
   const { selectedNetwork } = useAuthStore();
 
@@ -122,11 +124,11 @@ const ConnectionGuide: React.FC = () => {
       });
     } catch (error) {
       console.error("Failed to fetch connection guide data:", error);
-      toast.error("Failed to load connection guide");
+      toast.error(t('connectionGuide.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [connector, selectedNetwork]);
+  }, [connector, selectedNetwork, t]);
 
   // Check network publication status
   useEffect(() => {
@@ -178,13 +180,13 @@ const ConnectionGuide: React.FC = () => {
       }
       toast.success(successMessage);
     } catch (err) {
-      toast.error("Failed to copy to clipboard");
+      toast.error(t('connectionGuide.copyFailed'));
     }
   };
 
   // Copy code to clipboard
   const handleCopyCode = (code: string) => {
-    copyToClipboard(code, "Code copied to clipboard");
+    copyToClipboard(code, t('connectionGuide.copyCode'));
   };
 
   // Get connection parameters based on mode
@@ -417,23 +419,23 @@ if __name__ == "__main__":
   const tabs: { id: IntegrationType; label: string; description: string }[] = [
     {
       id: "python",
-      label: "Python SDK",
-      description: "Build custom agents with full control using WorkerAgent or CollaboratorAgent base classes.",
+      label: t('connectionGuide.tabs.python'),
+      description: t('connectionGuide.subtitle'),
     },
     {
       id: "yaml",
-      label: "YAML Config",
-      description: "Launch agents declaratively without writing code. Use: openagents agent start ./config.yaml",
+      label: t('connectionGuide.tabs.yaml'),
+      description: t('connectionGuide.yamlDescription'),
     },
     {
       id: "langchain",
-      label: "LangChain",
-      description: "Wrap existing LangChain agents with LangChainAgentRunner to connect to the network.",
+      label: t('connectionGuide.tabs.langchain'),
+      description: t('connectionGuide.langchainDescription'),
     },
     {
       id: "mcp",
-      label: "MCP Integration",
-      description: "Configure Claude Desktop to connect to this network as an MCP server.",
+      label: t('connectionGuide.tabs.mcp'),
+      description: t('connectionGuide.mcpDescription'),
     },
   ];
 
@@ -442,7 +444,7 @@ if __name__ == "__main__":
       <div className="p-6 h-full flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Loading connection guide...</p>
+          <p className="text-gray-600 dark:text-gray-400">{t('connectionGuide.loadFailed')}</p>
         </div>
       </div>
     );
@@ -474,7 +476,7 @@ if __name__ == "__main__":
         {/* Header */}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-            Connect to Network
+            {t('connectionGuide.title')}
           </h1>
           <p className="text-sm text-gray-600 dark:text-gray-400">
             {tabs.find(t => t.id === selectedTab)?.description}
@@ -485,7 +487,7 @@ if __name__ == "__main__":
         {networkPublication.published && networkPublication.networkId && (
           <div className="mb-6">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 block">
-              Connection Method
+              {t('connectionGuide.connectionMethod')}
             </label>
             <div className="flex gap-3">
               <button
@@ -513,7 +515,7 @@ if __name__ == "__main__":
                       ? "text-blue-900 dark:text-blue-100"
                       : "text-gray-900 dark:text-gray-100"
                   }`}>
-                    Network ID
+                    {t('connectionGuide.networkId')}
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
                     <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
@@ -523,7 +525,7 @@ if __name__ == "__main__":
                 </div>
                 {connectionMode === "network_id" && (
                   <span className="ml-auto text-xs font-medium text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded">
-                    Recommended
+                    {t('connectionGuide.recommended')}
                   </span>
                 )}
               </button>
@@ -553,7 +555,7 @@ if __name__ == "__main__":
                       ? "text-blue-900 dark:text-blue-100"
                       : "text-gray-900 dark:text-gray-100"
                   }`}>
-                    Direct Connection
+                    {t('connectionGuide.directConnection')}
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
                     <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
@@ -570,7 +572,11 @@ if __name__ == "__main__":
         <div className="bg-gray-900 rounded-lg overflow-hidden">
           <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
             <span className="text-sm text-gray-400">
-              {selectedTab === "yaml" ? "YAML" : selectedTab === "mcp" ? "JSON" : "Python"}
+              {selectedTab === "yaml" 
+                ? t('connectionGuide.codeLanguage.yaml')
+                : selectedTab === "mcp" 
+                ? t('connectionGuide.codeLanguage.json')
+                : t('connectionGuide.codeLanguage.python')}
             </span>
             <Button
               onClick={() => handleCopyCode(getCurrentCode())}
@@ -579,7 +585,7 @@ if __name__ == "__main__":
               className="text-gray-400 hover:text-white hover:bg-gray-700"
             >
               <Copy className="w-4 h-4 mr-2" />
-              Copy
+              {t('connectionGuide.copy')}
             </Button>
           </div>
           <div className="p-4 overflow-x-auto">

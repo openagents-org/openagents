@@ -42,5 +42,15 @@
         "connectionSuccess": "正常に接続されました",
         "connectionFailed": "接続に失敗しました",
         "deleteConfirm": "このサーバーを削除してもよろしいですか？"
+    },
+    "pages": {
+        "config": {
+            "title": "MCP 設定",
+            "description": "MCP 設定パネルは間もなく提供されます..."
+        },
+        "status": {
+            "title": "MCP ステータス",
+            "description": "MCP ステータス監視は間もなく提供されます..."
+        }
     }
 }

@@ -1,0 +1,101 @@
+{
+  "step1": {
+    "title": "OpenAgents",
+    "subtitle": "AI Agent Networks for Open Collaboration",
+    "agentA": "Agent A",
+    "agentB": "Agent B",
+    "agentC": "Agent C",
+    "network": "Network",
+    "startButton": "Get Started",
+    "skipButton": "Skip Setup (Advanced Users)"
+  },
+  "step2": {
+    "stepIndicator": "Step 2 / 5",
+    "title": "Choose Your First Network Template",
+    "description": "Select a template to get started quickly. You can customize everything later.",
+    "selectButton": "Select",
+    "backButton": "← Back",
+    "browseMoreButton": "Browse More Templates",
+    "agents": "agents",
+    "templates": {
+      "news-info": {
+        "name": "News & Information",
+        "description": "Agents monitor information sources, organize and broadcast news updates"
+      },
+      "knowledge-wiki": {
+        "name": "Knowledge Wiki",
+        "description": "Agents research and build a shared wiki knowledge base"
+      },
+      "task-automation": {
+        "name": "Task Automation",
+        "description": "Agents delegate and collaborate to complete complex tasks"
+      },
+      "blank-network": {
+        "name": "Blank Network",
+        "description": "Start from scratch with no preset configuration"
+      },
+      "custom": {
+        "name": "Custom",
+        "description": "Skip template configuration, set up network manually later"
+      }
+    },
+    "setupTime": {
+      "quick": "5 min setup",
+      "manual": "Manual setup"
+    },
+    "noMods": "No mods",
+    "retry": "Retry",
+    "noTemplates": "No templates available",
+    "nextButton": "Continue →"
+  },
+  "step3": {
+    "stepIndicator": "Step 3 / 5",
+    "title": "Protect Admin Access to the Network",
+    "description": "Set a password to protect your network's admin settings.",
+    "adminPasswordLabel": "Admin Password",
+    "confirmPasswordLabel": "Confirm Password",
+    "passwordPlaceholder": "••••••••",
+    "minLength": "At least 8 characters",
+    "passwordMatch": "Passwords match",
+    "hint": "This password will be used to protect Admin Dashboard access. The password will be encrypted with SHA-256 and stored in the network configuration.",
+    "backButton": "← Back",
+    "continueButton": "Continue →",
+    "setting": "Setting..."
+  },
+  "stepModelConfig": {
+    "stepIndicator": "Step 4 / 5",
+    "title": "Configure Default AI Model (Optional)",
+    "description": "Optionally set up a default AI model for service agents. This can be configured later in settings.",
+    "providerLabel": "Model Provider",
+    "selectProvider": "Select a provider...",
+    "modelNameLabel": "Model Name",
+    "selectModel": "Select a model...",
+    "modelNamePlaceholder": "Enter model name (e.g., gpt-4o)",
+    "apiKeyLabel": "API Key",
+    "apiKeyPlaceholder": "Enter your API key",
+    "hint": "This configuration will be used as the default for service agents in auto mode. You can change this later in the network settings.",
+    "backButton": "← Back",
+    "skipButton": "Skip",
+    "continueButton": "Continue →"
+  },
+  "step4": {
+    "stepIndicator": "Step 5 / 5",
+    "title": "Setting up your network...",
+    "steps": {
+      "createConfig": "Create network configuration",
+      "installMods": "Applying mods: {{mods}}",
+      "installModsEmpty": "Applying mods",
+      "configureAgents": "Consolidating network configuration",
+      "startingAgents": "Starting network...",
+      "verifyConnection": "Verify connection"
+    },
+    "progress": "Progress",
+    "template": "Template:",
+    "agents": "Agents:"
+  },
+  "success": {
+    "title": "All Set!",
+    "message": "Your \"{{templateName}}\" network is running with {{agentCount}} agents.",
+    "enterDashboardButton": "Enter Admin Dashboard"
+  }
+}

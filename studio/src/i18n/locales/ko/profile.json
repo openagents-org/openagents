@@ -23,5 +23,22 @@
     "messages": {
         "updateSuccess": "프로필이 업데이트되었습니다",
         "updateFailed": "프로필 업데이트에 실패했습니다"
+    },
+    "comingSoon": {
+        "profileEditingForm": "프로필 편집 양식이 곧 제공됩니다...",
+        "securityConfigPanel": "보안 구성 패널이 곧 제공됩니다...",
+        "loadingProfileData": "프로필 데이터 로딩 중...",
+        "failedToLoadProfileData": "프로필 데이터 로딩에 실패했습니다",
+        "tryAgain": "다시 시도"
+    },
+    "settings": {
+        "title": "설정",
+        "generalSettings": "일반 설정",
+        "generalDescription": "일반 구성 옵션이 곧 제공됩니다...",
+        "networkSettings": "네트워크 설정",
+        "networkDescription": "네트워크 구성 옵션이 곧 제공됩니다...",
+        "networkConfigPanel": "네트워크 구성 패널이 곧 제공됩니다...",
+        "themeSettings": "테마 설정",
+        "themeConfigPanel": "테마 구성 패널이 곧 제공됩니다..."
     }
 }

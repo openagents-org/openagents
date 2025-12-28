@@ -133,6 +133,16 @@ const NetworkPublishPage: React.FC = () => {
   const [publishingStatus, setPublishingStatus] = useState<PublishingStatus>({ isPublished: false, loading: false });
   const [currentNetworkUuid, setCurrentNetworkUuid] = useState<string | null>(null);
 
+  // OpenAgents OAuth state
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const authPopupRef = React.useRef<Window | null>(null);
+
+  // Authenticated user state (before org selection)
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [userOrganizations, setUserOrganizations] = useState<Array<{ id: string; name: string; role: string }>>([]);
+  const [selectedOrgId, setSelectedOrgId] = useState<string>("");
+  const [isFetchingApiKey, setIsFetchingApiKey] = useState(false);
+
   // Check if current host:port is already published
   const existingNetwork = React.useMemo(() => {
     if (!apiKeyValidation?.publishedNetworks || !networkHost || !networkPort) {
@@ -242,6 +252,159 @@ const NetworkPublishPage: React.FC = () => {
     }
     prevApiKeyRef.current = apiKey;
   }, [apiKey, apiKeyValidation?.isValid]);
+
+  // OpenAgents authentication popup handler
+  const handleOpenAgentsAuth = useCallback(() => {
+    if (isAuthenticating) return;
+
+    setIsAuthenticating(true);
+
+    // Open popup to OpenAgents login/callback page
+    const width = 500;
+    const height = 650;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+
+    const popup = window.open(
+      'https://openagents.org/auth/studio',
+      'openagents-auth',
+      `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=yes,resizable=yes`
+    );
+
+    authPopupRef.current = popup;
+
+    // Poll to check if popup is closed
+    const pollTimer = setInterval(() => {
+      if (popup?.closed) {
+        clearInterval(pollTimer);
+        setIsAuthenticating(false);
+        authPopupRef.current = null;
+      }
+    }, 500);
+
+    // Cleanup after 5 minutes max
+    setTimeout(() => {
+      clearInterval(pollTimer);
+      if (authPopupRef.current && !authPopupRef.current.closed) {
+        authPopupRef.current.close();
+      }
+      setIsAuthenticating(false);
+      authPopupRef.current = null;
+    }, 5 * 60 * 1000);
+  }, [isAuthenticating]);
+
+  // Fetch API key for selected organization
+  const fetchApiKeyForOrg = useCallback(async (orgId: string, token: string) => {
+    setIsFetchingApiKey(true);
+    try {
+      const response = await fetch(`${OPENAGENTS_API_BASE}/orgs/publishing-credentials?org_id=${encodeURIComponent(orgId)}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.code === 200 && result.data) {
+        const { api_key, org_id, org_name } = result.data;
+
+        // Auto-fill the form
+        setApiKey(api_key);
+        setOrganization(org_name || org_id);
+        setOrganizationId(org_id);
+
+        // Set validation result
+        setApiKeyValidation({
+          isValid: true,
+          organizationId: org_id,
+          organizationName: org_name || org_id,
+          publishedNetworks: [],
+        });
+
+        // Clear the auth state since we're now authenticated
+        setAuthToken(null);
+        setUserOrganizations([]);
+        setSelectedOrgId("");
+
+        toast.success(t("publish.auth.success", "Successfully authenticated with OpenAgents!"));
+
+        // Fetch published networks for this org
+        try {
+          const networksResponse = await fetch(`${OPENAGENTS_API_BASE}/networks/private`, {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${api_key}`,
+            },
+            signal: AbortSignal.timeout(10000),
+          });
+          if (networksResponse.ok) {
+            const networksResult = await networksResponse.json();
+            if (networksResult.code === 200 && networksResult.data?.networks) {
+              setApiKeyValidation(prev => prev ? {
+                ...prev,
+                publishedNetworks: networksResult.data.networks,
+              } : null);
+            }
+          }
+        } catch (error) {
+          console.log("Failed to fetch published networks:", error);
+        }
+      } else {
+        throw new Error(result.message || "Failed to get API key");
+      }
+    } catch (error) {
+      console.error("Error fetching API key:", error);
+      toast.error(t("publish.auth.error", "Failed to get API key for organization"));
+    } finally {
+      setIsFetchingApiKey(false);
+    }
+  }, [t]);
+
+  // Listen for postMessage from OpenAgents auth popup
+  useEffect(() => {
+    const handleAuthMessage = async (event: MessageEvent) => {
+      // Verify origin
+      if (event.origin !== 'https://openagents.org') return;
+
+      // Check message type
+      if (event.data?.type === 'openagents-auth-success') {
+        const { organizations, token } = event.data.payload || {};
+
+        if (organizations && organizations.length > 0 && token) {
+          // Store token and organizations for selection
+          setAuthToken(token);
+          setUserOrganizations(organizations);
+
+          // If only one org, auto-select it
+          if (organizations.length === 1) {
+            await fetchApiKeyForOrg(organizations[0].id, token);
+          } else {
+            // Multiple orgs - show selector
+            toast.info(t("publish.auth.selectOrg", "Please select an organization to continue"));
+          }
+        }
+
+        // Close popup
+        if (authPopupRef.current && !authPopupRef.current.closed) {
+          authPopupRef.current.close();
+        }
+        setIsAuthenticating(false);
+        authPopupRef.current = null;
+      } else if (event.data?.type === 'openagents-auth-error') {
+        toast.error(event.data.message || t("publish.auth.error", "Authentication failed"));
+        setIsAuthenticating(false);
+        if (authPopupRef.current && !authPopupRef.current.closed) {
+          authPopupRef.current.close();
+        }
+        authPopupRef.current = null;
+      }
+    };
+
+    window.addEventListener('message', handleAuthMessage);
+    return () => window.removeEventListener('message', handleAuthMessage);
+  }, [t, fetchApiKeyForOrg]);
 
   // Check relay status from Python backend on mount and when network changes
   const checkRelayStatus = useCallback(async () => {
@@ -496,8 +659,14 @@ const NetworkPublishPage: React.FC = () => {
         validationHost = relayUrl.host;
         validationPort = relayUrl.port ? parseInt(relayUrl.port, 10) : (relayUrl.protocol === 'https:' ? 443 : 80);
       } else {
-        const protocol = selectedNetwork?.useHttps ? "https" : "http";
-        healthUrl = `${protocol}://${networkHost}:${port}/api/health`;
+        // Use HTTPS for standard HTTPS ports (443, 8443) or if explicitly configured
+        const isHttpsPort = port === 443 || port === 8443;
+        const useHttps = isHttpsPort || selectedNetwork?.useHttps;
+        const protocol = useHttps ? "https" : "http";
+        // For port 443, don't include the port in the URL (it's the default for HTTPS)
+        healthUrl = port === 443
+          ? `${protocol}://${networkHost}/api/health`
+          : `${protocol}://${networkHost}:${port}/api/health`;
         validationHost = networkHost;
         validationPort = port;
       }
@@ -547,6 +716,12 @@ const NetworkPublishPage: React.FC = () => {
       // Step 2: Server-side validation to verify PUBLIC accessibility
       // When using relay, the relay URL is already public, so we validate against that
       if (apiKeyValidation?.isValid && organizationId) {
+        // Determine if HTTPS should be used for server-side validation
+        const isHttpsPortForValidation = validationPort === 443 || validationPort === 8443;
+        const useHttpsForValidation = isUsingRelay
+          ? relayConnection!.relay_url!.startsWith('https')
+          : (isHttpsPortForValidation || selectedNetwork?.useHttps);
+
         // Call the validate-public endpoint with API key to verify public accessibility from server
         const validateResponse = await fetch(`${OPENAGENTS_API_BASE}/networks/validate-public`, {
           method: "POST",
@@ -559,6 +734,7 @@ const NetworkPublishPage: React.FC = () => {
             network_host: validationHost,
             network_port: validationPort.toString(),
             org: organizationId,
+            use_https: useHttpsForValidation ? "true" : "false",
             ...(isUsingRelay ? { relay_url: relayConnection!.relay_url! } : {}),
           }),
           signal: AbortSignal.timeout(25000),
@@ -781,24 +957,158 @@ const NetworkPublishPage: React.FC = () => {
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-          {t("publish.title", "Publish Network")}
+          {t("publish.title")}
         </h1>
         <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-          {t(
-            "publish.subtitle",
-            "Publish your network to the OpenAgents directory to make it discoverable by others."
-          )}
+          {t("publish.subtitle")}
         </p>
       </div>
 
       {/* Form */}
-      <div className="max-w-2xl">
+      <div className="space-y-6">
         {/* API Key Section */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
             {t("publish.apiKey.title", "Authentication")}
           </h2>
           <div className="space-y-4">
+            {/* Quick Auth Button */}
+            {!apiKeyValidation?.isValid && !userOrganizations.length && (
+              <div className="pb-4 border-b border-gray-200 dark:border-gray-700">
+                <button
+                  type="button"
+                  onClick={handleOpenAgentsAuth}
+                  disabled={isAuthenticating}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-white bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {isAuthenticating ? (
+                    <>
+                      <svg
+                        className="animate-spin h-5 w-5 text-white"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        />
+                      </svg>
+                      {t("publish.auth.authenticating", "Authenticating...")}
+                    </>
+                  ) : (
+                    <>
+                      <img
+                        src="https://openagents.org/images/logos/openagents_logo_trans_white.png"
+                        alt="OpenAgents"
+                        className="h-5 w-5 object-contain"
+                      />
+                      {t("publish.auth.button", "Authenticate with OpenAgents")}
+                    </>
+                  )}
+                </button>
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 text-center">
+                  {t("publish.auth.description", "Sign in to OpenAgents to automatically get your API credentials")}
+                </p>
+
+                <div className="relative mt-4">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
+                  </div>
+                  <div className="relative flex justify-center text-xs">
+                    <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                      {t("publish.auth.or", "or enter API key manually")}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Organization Selector - shown after authentication if user has multiple orgs */}
+            {!apiKeyValidation?.isValid && userOrganizations.length > 0 && authToken && (
+              <div className="pb-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg mb-4">
+                  <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span className="font-medium">{t("publish.auth.authenticated", "Authenticated successfully!")}</span>
+                  </div>
+                </div>
+
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {t("publish.auth.selectOrgLabel", "Select Organization")}
+                </label>
+                <div className="space-y-2">
+                  {userOrganizations.map((org) => (
+                    <button
+                      key={org.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedOrgId(org.id);
+                        if (authToken) {
+                          fetchApiKeyForOrg(org.id, authToken);
+                        }
+                      }}
+                      disabled={isFetchingApiKey}
+                      className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border transition-all ${
+                        selectedOrgId === org.id
+                          ? "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
+                          : "border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700"
+                      } ${isFetchingApiKey ? "opacity-50 cursor-not-allowed" : ""}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white font-semibold">
+                          {(org.name || org.id).charAt(0).toUpperCase()}
+                        </div>
+                        <div className="text-left">
+                          <div className="font-medium text-gray-900 dark:text-gray-100">
+                            {org.name || org.id}
+                          </div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
+                            {org.role} · {org.id}
+                          </div>
+                        </div>
+                      </div>
+                      {isFetchingApiKey && selectedOrgId === org.id ? (
+                        <svg className="animate-spin h-5 w-5 text-blue-500" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  {t("publish.auth.selectOrgHelp", "Select the organization you want to publish your network under")}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthToken(null);
+                    setUserOrganizations([]);
+                    setSelectedOrgId("");
+                  }}
+                  className="mt-3 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                >
+                  {t("publish.auth.useAnotherAccount", "Use a different account")}
+                </button>
+              </div>
+            )}
+
             {/* API Key Input */}
             <div>
               <label

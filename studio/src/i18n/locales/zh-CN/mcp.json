@@ -42,5 +42,15 @@
         "connectionSuccess": "连接成功",
         "connectionFailed": "连接失败",
         "deleteConfirm": "确定要删除此服务器吗?"
+    },
+    "pages": {
+        "config": {
+            "title": "MCP 配置",
+            "description": "MCP 配置面板即将推出..."
+        },
+        "status": {
+            "title": "MCP 状态",
+            "description": "MCP 状态监控即将推出..."
+        }
     }
 }

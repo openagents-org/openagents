@@ -1,5 +1,6 @@
 {
     "title": "Event Explorer",
+    "subtitle": "Browse and view all available event definitions in the system",
     "actions": {
         "sync": "Sync from GitHub",
         "syncing": "Syncing...",

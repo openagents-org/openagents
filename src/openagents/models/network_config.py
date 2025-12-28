@@ -162,6 +162,12 @@ class NetworkConfig(BaseModel):
                     "When False, agents without password_hash are assigned to default_agent_group.",
     )
 
+    # Network initialization state
+    initialized: bool = Field(
+        default=True,
+        description="Whether the network has been initialized. When False, initialization APIs are available.",
+    )
+
     @field_validator("name")
     @classmethod
     def name_must_be_valid(cls, v):

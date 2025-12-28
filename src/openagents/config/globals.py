@@ -80,6 +80,7 @@ SYSTEM_EVENT_VERIFY_PASSWORD = "system.verify_password"
 SYSTEM_EVENT_KICK_AGENT = "system.kick_agent"
 SYSTEM_EVENT_UPDATE_NETWORK_PROFILE = "system.update_network_profile"
 SYSTEM_EVENT_UPDATE_AGENT_GROUPS = "system.update_agent_groups"
+SYSTEM_EVENT_UPDATE_EXTERNAL_ACCESS = "system.update_external_access"
 SYSTEM_EVENT_REPORT_LLM_LOG = "system.report_llm_log"
 
 SYSTEM_NOTIFICAITON_REGISTER_AGENT = "system.notification.register_agent"

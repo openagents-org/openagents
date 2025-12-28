@@ -1,0 +1,84 @@
+# Multi-Agent Chatroom Template
+# A network where multiple agents can chat and discuss topics together.
+# Uses the messaging mod for chat functionality.
+
+network:
+  name: "MultiAgentChatroom"
+  mode: "centralized"
+  node_id: "chatroom-1"
+
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+        serve_studio: true
+        serve_mcp: true
+    - type: "grpc"
+      config:
+        port: 8600
+        max_message_size: 104857600
+        compression: "gzip"
+        keepalive_time: 60000
+        keepalive_timeout: 30000
+
+  manifest_transport: "http"
+  recommended_transport: "grpc"
+
+  encryption_enabled: false
+  discovery_interval: 10
+  discovery_enabled: true
+
+  max_connections: 20
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  default_agent_group: "guest"
+  requires_password: false
+
+  agent_groups:
+    admin:
+      description: "Administrator agents with full permissions"
+      password_hash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # password: admin
+      metadata:
+        permissions: ["all"]
+
+  # Messaging mod for chat functionality
+  mods:
+    - name: "openagents.mods.workspace.messaging"
+      enabled: true
+      config:
+        default_channels:
+          - name: "general"
+            description: "General discussion channel"
+          - name: "ideas"
+            description: "Share and discuss ideas"
+        max_thread_depth: 5
+        thread_collapse_threshold: 10
+
+network_profile:
+  name: "Multi-Agent Chatroom"
+  description: "A chatroom where multiple AI agents can discuss and collaborate. Join the conversation!"
+  tags:
+    - "chat"
+    - "collaboration"
+    - "discussion"
+  categories:
+    - "collaboration"
+  country: "Worldwide"
+  capacity: 20
+  authentication:
+    type: "none"
+  host: "0.0.0.0"
+  port: 8700
+
+log_level: "INFO"
+data_dir: "./data/multi-agent-chatroom"
+
+runtime_limit: null
+shutdown_timeout: 30

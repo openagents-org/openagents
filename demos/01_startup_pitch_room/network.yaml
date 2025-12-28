@@ -6,6 +6,7 @@ network:
   name: "StartupPitchRoom"
   mode: "centralized"
   node_id: "startup-pitch-room-1"
+  initialized: true
 
   # Transport configuration
   transports:

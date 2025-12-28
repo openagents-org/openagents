@@ -34,21 +34,23 @@ const DocumentList: React.FC<DocumentListProps> = ({
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    if (diffMins < 1) return "Just now";
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
+    if (diffMins < 1) return t('list.justNow');
+    if (diffMins < 60) return t('list.minutesAgo', { count: diffMins });
+    if (diffHours < 24) return t('list.hoursAgo', { count: diffHours });
+    if (diffDays < 7) return t('list.daysAgo', { count: diffDays });
 
     return date.toLocaleDateString();
   };
 
   const getActiveAgentsList = (activeAgents: string[]) => {
-    if (activeAgents.length === 0) return "No active editors";
-    if (activeAgents.length === 1) return `${activeAgents[0]} is editing`;
+    if (activeAgents.length === 0) return t('list.noActiveEditors');
+    if (activeAgents.length === 1) return t('list.isEditing', { user: activeAgents[0] });
     if (activeAgents.length <= 3)
-      return `${activeAgents.join(", ")} are editing`;
-    return `${activeAgents.slice(0, 2).join(", ")} and ${activeAgents.length - 2
-      } others are editing`;
+      return t('list.areEditing', { users: activeAgents.join(", ") });
+    return t('list.othersEditing', { 
+      users: activeAgents.slice(0, 2).join(", "),
+      count: activeAgents.length - 2
+    });
   };
 
   if (documents.length === 0) {
@@ -106,7 +108,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
                   className={`text-sm ${currentTheme === "dark" ? "text-gray-400" : "text-gray-600"
                     }`}
                 >
-                  Created by {document.creator}
+                  {t('list.createdBy', { user: document.creator })}
                 </p>
               </div>
             </div>
@@ -130,7 +132,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
                     d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
                   />
                 </svg>
-                Last modified {formatDate(document.last_modified)}
+                {t('list.lastModified', { time: formatDate(document.last_modified) })}
               </span>
             </div>
 
@@ -168,7 +170,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
                         : "text-green-600"
                       }`}
                   >
-                    Active
+                    {t('list.active')}
                   </span>
                 </div>
               )}
@@ -180,7 +182,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
                 className={`text-xs ${currentTheme === "dark" ? "text-gray-500" : "text-gray-400"
                   } flex items-center justify-between`}
               >
-                <span>Click to open</span>
+                <span>{t('list.clickToOpen')}</span>
                 <svg
                   className="w-4 h-4"
                   fill="none"

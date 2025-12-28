@@ -10,6 +10,13 @@ import { Badge } from "@/components/layout/ui/badge";
 import { Button } from "@/components/layout/ui/button";
 import { Card, CardContent } from "@/components/layout/ui/card";
 import { ScrollArea } from "@/components/layout/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/layout/ui/select';
 import { RefreshCw, Plus, Filter, ChevronLeft, ChevronRight } from "lucide-react";
 
 const INITIAL_FILTER_RESET = {
@@ -436,31 +443,39 @@ const FeedView: React.FC = () => {
                     Sort
                   </label>
                   <div className="mt-1 flex gap-2">
-                    <select
+                    <Select
                       value={filters.sortBy}
-                      onChange={(e) =>
-                        applyFilters({ sortBy: e.target.value as any })
+                      onValueChange={(value) =>
+                        applyFilters({ sortBy: value as any })
                       }
-                      className={flexInputClass}
                     >
-                      {FEED_SORT_FIELDS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
+                      <SelectTrigger size="lg" className={flexInputClass}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FEED_SORT_FIELDS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
                       value={filters.sortDirection}
-                      onChange={(e) =>
+                      onValueChange={(value) =>
                         applyFilters({
-                          sortDirection: e.target.value as "asc" | "desc",
+                          sortDirection: value as "asc" | "desc",
                         })
                       }
-                      className={`w-28 ${baseInputClasses}`}
                     >
-                      <option value="desc">{t('filters.desc')}</option>
-                      <option value="asc">{t('filters.asc')}</option>
-                    </select>
+                      <SelectTrigger size="lg" className={`w-28 ${baseInputClasses}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="desc">{t('filters.desc')}</SelectItem>
+                        <SelectItem value="asc">{t('filters.asc')}</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               </div>
@@ -625,17 +640,21 @@ const FeedView: React.FC = () => {
                 Next
                 <ChevronRight className="w-4 h-4 ml-1" />
               </Button>
-              <select
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-                className="rounded-lg border border-gray-300 dark:border-gray-700 bg-background text-sm text-foreground px-2 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+              <Select
+                value={pageSize.toString()}
+                onValueChange={(value) => setPageSize(Number(value))}
               >
-                {[10, 20, 30, 50].map((size) => (
-                  <option key={size} value={size}>
-                    {size} / page
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger size="lg" className="rounded-lg border border-gray-300 dark:border-gray-700 bg-background text-sm text-foreground px-2 py-2 focus:ring-2 focus:ring-blue-500 outline-none">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[10, 20, 30, 50].map((size) => (
+                    <SelectItem key={size} value={size.toString()}>
+                      {size} / page
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </div>

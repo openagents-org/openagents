@@ -15,6 +15,7 @@ class LLMProviderType(str, Enum):
     OPENAI = "openai"
     AZURE = "azure"
     CLAUDE = "claude"
+    ANTHROPIC = "anthropic"  # Alias for claude
     BEDROCK = "bedrock"
     GEMINI = "gemini"
     DEEPSEEK = "deepseek"
@@ -24,6 +25,10 @@ class LLMProviderType(str, Enum):
     COHERE = "cohere"
     TOGETHER = "together"
     PERPLEXITY = "perplexity"
+    GROQ = "groq"
+    OPENROUTER = "openrouter"
+    CUSTOM = "custom"  # Custom OpenAI-compatible endpoint
+    OPENAI_COMPATIBLE = "openai-compatible"  # Alias for custom
 
 
 # Model provider configurations
@@ -32,22 +37,44 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
     # OpenAI models
     "openai": {
         "provider": "openai",
-        "models": ["gpt-4", "gpt-4-turbo", "gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
+        "models": [
+            "gpt-5.2",
+            "gpt-5.2-pro",
+            "gpt-5.1",
+            "gpt-5-mini",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "o4-mini",
+            "o3-mini",
+        ],
         "API_KEY_ENV_VAR": "OPENAI_API_KEY",
     },
     # Azure OpenAI
     "azure": {
         "provider": "openai",
-        "models": ["gpt-4", "gpt-4-turbo", "gpt-35-turbo"],
+        "models": ["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"],
         "API_KEY_ENV_VAR": "AZURE_OPENAI_API_KEY",
     },
-    # Anthropic Claude
+    # Anthropic Claude (supports both "claude" and "anthropic" as provider IDs)
     "claude": {
         "provider": "anthropic",
         "models": [
+            "claude-sonnet-4-20250514",   # Latest Claude 4 Sonnet
             "claude-3-5-sonnet-20241022",
             "claude-3-5-haiku-20241022",
             "claude-3-opus-20240229",
+        ],
+        "API_KEY_ENV_VAR": "ANTHROPIC_API_KEY",
+    },
+    "anthropic": {
+        "provider": "anthropic",
+        "models": [
+            "claude-opus-4-5-20251124",
+            "claude-sonnet-4-5-20250514",
+            "claude-haiku-4-5-20251015",
+            "claude-sonnet-4-20250514",
         ],
         "API_KEY_ENV_VAR": "ANTHROPIC_API_KEY",
     },
@@ -55,22 +82,33 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
     "bedrock": {
         "provider": "bedrock",
         "models": [
+            "us.anthropic.claude-sonnet-4-5-20250514-v1:0",
+            "us.anthropic.claude-haiku-4-5-20250514-v1:0",
+            "anthropic.claude-3-5-sonnet-20241022-v2:0",
+            "anthropic.claude-3-5-haiku-20241022-v1:0",
+            "anthropic.claude-3-opus-20240229-v1:0",
             "anthropic.claude-3-sonnet-20240229-v1:0",
-            "anthropic.claude-3-haiku-20240307-v1:0",
         ],
-        "API_KEY_ENV_VAR": "BEDROCK_API_KEY",
+        "API_KEY_ENV_VAR": "AWS_ACCESS_KEY_ID",
     },
-    # Google Gemini
+    # Google Gemini (free tier: 20-25 req/day as of Dec 2025)
     "gemini": {
         "provider": "gemini",
-        "models": ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"],
+        "models": [
+            "gemini-3-flash",
+            "gemini-3-pro",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.0-flash",
+        ],
         "API_KEY_ENV_VAR": "GEMINI_API_KEY",
+        "free_tier": True,
     },
     # DeepSeek
     "deepseek": {
         "provider": "generic",
         "api_base": "https://api.deepseek.com/v1",
-        "models": ["deepseek-chat", "deepseek-coder"],
+        "models": ["deepseek-chat", "deepseek-reasoner"],
         "API_KEY_ENV_VAR": "DEEPSEEK_API_KEY",
     },
     # Qwen
@@ -84,20 +122,20 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
     "grok": {
         "provider": "generic",
         "api_base": "https://api.x.ai/v1",
-        "models": ["grok-beta"],
+        "models": ["grok-3", "grok-3-mini", "grok-2"],
         "API_KEY_ENV_VAR": "XAI_API_KEY",
     },
-    # Mistral AI
+    # Mistral AI (free tier: 1B tokens/month)
     "mistral": {
         "provider": "generic",
         "api_base": "https://api.mistral.ai/v1",
         "models": [
             "mistral-large-latest",
-            "mistral-medium-latest",
             "mistral-small-latest",
-            "mixtral-8x7b-instruct",
+            "codestral-latest",
         ],
         "API_KEY_ENV_VAR": "MISTRAL_API_KEY",
+        "free_tier": True,
     },
     # Cohere
     "cohere": {
@@ -125,6 +163,38 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
             "llama-3.1-sonar-large-128k-online",
         ],
         "API_KEY_ENV_VAR": "PERPLEXITY_API_KEY",
+    },
+    # Groq (free tier: 14,400 req/day, excellent tool use support)
+    "groq": {
+        "provider": "generic",
+        "api_base": "https://api.groq.com/openai/v1",
+        "models": [
+            "llama-3.3-70b-versatile",      # Best for tool use
+            "llama-3.1-8b-instant",          # Fastest
+            "qwen/qwen3-32b",                # Great reasoning
+            "deepseek-r1-distill-llama-70b", # Reasoning model
+        ],
+        "API_KEY_ENV_VAR": "GROQ_API_KEY",
+        "free_tier": True,
+    },
+    # OpenRouter (aggregator for multiple models)
+    "openrouter": {
+        "provider": "generic",
+        "api_base": "https://openrouter.ai/api/v1",
+        "models": [],  # User specifies model name (e.g., "anthropic/claude-3-opus")
+        "API_KEY_ENV_VAR": "OPENROUTER_API_KEY",
+    },
+    # Custom OpenAI-compatible endpoint (e.g., Ollama, vLLM, local models)
+    "custom": {
+        "provider": "generic",
+        "models": [],  # User specifies model name
+        "API_KEY_ENV_VAR": "CUSTOM_API_KEY",
+    },
+    # Alias for custom OpenAI-compatible (used by frontend)
+    "openai-compatible": {
+        "provider": "generic",
+        "models": [],  # User specifies model name
+        "API_KEY_ENV_VAR": "CUSTOM_API_KEY",
     },
 }
 
@@ -200,6 +270,41 @@ def get_all_models() -> Dict[str, List[str]]:
     }
 
 
+def resolve_auto_model_config() -> Dict[str, Optional[str]]:
+    """Resolve 'auto' model configuration from environment variables.
+
+    When an agent specifies model_name="auto", this function resolves the
+    actual model configuration from the following environment variables:
+    - DEFAULT_LLM_PROVIDER: The provider name (e.g., "openai", "claude", "custom")
+    - DEFAULT_LLM_MODEL_NAME: The model name (e.g., "gpt-4o", "claude-3-5-sonnet")
+    - DEFAULT_LLM_API_KEY: The API key for the provider
+    - DEFAULT_LLM_BASE_URL: The base URL for custom OpenAI-compatible endpoints
+
+    Returns:
+        Dictionary with 'provider', 'model_name', 'api_key', and 'base_url' resolved from env vars
+    """
+    return {
+        "provider": os.getenv("DEFAULT_LLM_PROVIDER"),
+        "model_name": os.getenv("DEFAULT_LLM_MODEL_NAME"),
+        "api_key": os.getenv("DEFAULT_LLM_API_KEY"),
+        "base_url": os.getenv("DEFAULT_LLM_BASE_URL"),
+    }
+
+
+def is_auto_model(model_name: Optional[str]) -> bool:
+    """Check if the model name indicates automatic configuration.
+
+    Args:
+        model_name: The model name to check
+
+    Returns:
+        True if model should use auto configuration
+    """
+    if not model_name:
+        return False
+    return model_name.lower() == "auto"
+
+
 def determine_provider(
     provider: Optional[str], model_name: str, api_base: Optional[str]
 ) -> str:
@@ -230,6 +335,8 @@ def determine_provider(
             return "claude"
         elif "googleapis.com" in api_base:
             return "gemini"
+        elif "groq.com" in api_base:
+            return "groq"
 
     # Auto-detect based on model name
     model_lower = model_name.lower()
@@ -245,16 +352,19 @@ def determine_provider(
         return "qwen"
     elif any(name in model_lower for name in ["grok"]):
         return "grok"
-    elif any(name in model_lower for name in ["mistral", "mixtral"]):
+    elif any(name in model_lower for name in ["mistral"]):
         return "mistral"
     elif any(name in model_lower for name in ["command"]):
         return "cohere"
-    elif "llama" in model_lower or "meta-" in model_lower:
-        return "together"
     elif "sonar" in model_lower:
         return "perplexity"
     elif "anthropic." in model_name:
         return "bedrock"
+    # Groq-specific model patterns (llama with specific suffixes, mixtral with context size)
+    elif any(name in model_lower for name in ["versatile", "instant", "32768", "gemma2"]):
+        return "groq"
+    elif "llama" in model_lower or "meta-" in model_lower or "mixtral" in model_lower:
+        return "together"
 
     # Default to OpenAI
     return "openai"
@@ -298,12 +408,23 @@ def create_model_provider(
         return OpenAIProvider(
             model_name=model_name, api_base=api_base, api_key=api_key, **kwargs
         )
-    elif provider == "claude":
+    elif provider == "claude" or provider == "anthropic":
         return AnthropicProvider(model_name=model_name, api_key=api_key, **kwargs)
     elif provider == "bedrock":
         return BedrockProvider(model_name=model_name, **kwargs)
     elif provider == "gemini":
         return GeminiProvider(model_name=model_name, api_key=api_key, **kwargs)
+    elif provider == "custom" or provider == "openai-compatible":
+        # Custom OpenAI-compatible endpoint requires api_base
+        if not api_base:
+            raise ValueError(
+                "API base URL is required for custom OpenAI-compatible provider. "
+                "Please provide the base_url parameter (e.g., http://localhost:11434/v1 for Ollama)."
+            )
+
+        return SimpleGenericProvider(
+            model_name=model_name, api_base=api_base, api_key=api_key, **kwargs
+        )
     elif provider in [
         "deepseek",
         "qwen",
@@ -312,6 +433,8 @@ def create_model_provider(
         "cohere",
         "together",
         "perplexity",
+        "groq",
+        "openrouter",
     ]:
         # Use predefined API base if not provided
         if not api_base and provider in MODEL_CONFIGS:

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import MarkdownRenderer from "@/components/common/MarkdownRenderer";
 import {
@@ -35,8 +35,27 @@ const FeedCreateModal: React.FC<FeedCreateModalProps> = ({
   const [attachments, setAttachments] = useState<FeedAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [showGroupsDropdown, setShowGroupsDropdown] = useState(false);
 
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const { groups, isLoading: groupsLoading } = useHealthGroups();
+
+  // Handle click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowGroupsDropdown(false);
+      }
+    };
+
+    if (showGroupsDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showGroupsDropdown]);
 
   const resetForm = () => {
     setTitle("");
@@ -46,6 +65,15 @@ const FeedCreateModal: React.FC<FeedCreateModalProps> = ({
     setAllowedGroups([]);
     setAttachments([]);
     setShowPreview(false);
+    setShowGroupsDropdown(false);
+  };
+
+  const toggleGroupSelection = (group: string) => {
+    setAllowedGroups(prev =>
+      prev.includes(group)
+        ? prev.filter(g => g !== group)
+        : [...prev, group]
+    );
   };
 
   const handleAddTag = () => {
@@ -284,33 +312,91 @@ const FeedCreateModal: React.FC<FeedCreateModalProps> = ({
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
               {t('createModal.allowedGroups')}
             </label>
-            {groupsLoading ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Loading groups...
-              </p>
-            ) : groups.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                No groups available from network health.
-              </p>
-            ) : (
-              <select
-                multiple
-                value={allowedGroups}
-                onChange={(e) =>
-                  setAllowedGroups(
-                    Array.from(e.target.selectedOptions).map(
-                      (option) => option.value
-                    )
-                  )
-                }
-                className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none h-32"
+            <div className="relative" ref={dropdownRef}>
+              <button
+                type="button"
+                onClick={() => setShowGroupsDropdown(!showGroupsDropdown)}
+                disabled={groupsLoading || isSubmitting}
+                className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 text-left flex items-center justify-between disabled:opacity-50"
               >
-                {groups.map((group) => (
-                  <option key={group} value={group}>
+                <span className="flex items-center space-x-2">
+                  {allowedGroups.length === 0 ? (
+                    <span className="text-gray-500 dark:text-gray-400">
+                      {groupsLoading ? 'Loading groups...' : 'Select groups'}
+                    </span>
+                  ) : (
+                    <span className="flex items-center space-x-2">
+                      <span>{allowedGroups.length} group(s) selected</span>
+                      <span className="px-2 py-0.5 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full">
+                        {allowedGroups.length}
+                      </span>
+                    </span>
+                  )}
+                </span>
+                <svg
+                  className={`w-4 h-4 transition-transform ${showGroupsDropdown ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Dropdown Menu */}
+              {showGroupsDropdown && !groupsLoading && (
+                <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg max-h-60 overflow-auto">
+                  {groups.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                      No groups available
+                    </div>
+                  ) : (
+                    <div className="py-1">
+                      {groups.map((group) => (
+                        <label
+                          key={group}
+                          className="flex items-center px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={allowedGroups.includes(group)}
+                            onChange={() => toggleGroupSelection(group)}
+                            disabled={isSubmitting}
+                            className="mr-3 rounded border-gray-300 dark:border-gray-500 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
+                          />
+                          <span className="text-sm text-gray-900 dark:text-gray-100">
+                            {group}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Selected Groups Display */}
+            {allowedGroups.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {allowedGroups.map((group) => (
+                  <span
+                    key={group}
+                    className="inline-flex items-center px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full"
+                  >
                     {group}
-                  </option>
+                    <button
+                      type="button"
+                      onClick={() => toggleGroupSelection(group)}
+                      disabled={isSubmitting}
+                      className="ml-1 hover:text-blue-900 dark:hover:text-blue-100 disabled:opacity-50"
+                    >
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </span>
                 ))}
-              </select>
+              </div>
             )}
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {t('createModal.allowedGroupsHint')}

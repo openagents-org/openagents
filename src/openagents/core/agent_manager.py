@@ -69,7 +69,18 @@ class AgentManager:
         self.is_running = False
         self._monitor_task: Optional[asyncio.Task] = None
 
+        # Reference to network for agent unregistration on stop
+        self._network = None
+
         logger.info(f"AgentManager initialized for workspace: {self.workspace_path}")
+
+    def set_network(self, network) -> None:
+        """Set the network reference for agent unregistration.
+
+        Args:
+            network: The network instance
+        """
+        self._network = network
     
     async def start(self) -> bool:
         """Start the agent manager.
@@ -128,11 +139,24 @@ class AgentManager:
             return False
     
     def _discover_agents(self) -> None:
-        """Discover agent configuration files in workspace/agents/ directory."""
+        """Discover agent configuration files in workspace/agents/ directory.
+
+        This clears and rebuilds the agent registry from the current filesystem state,
+        ensuring that deleted agent files are no longer tracked.
+        """
         if not self.agents_dir.exists():
             logger.warning(f"Agents directory not found: {self.agents_dir}")
             return
-        
+
+        # Clear existing agent registry to remove stale entries from deleted files
+        # (Preserve running agent info by filtering out stopped agents only)
+        running_agents = {
+            agent_id: info for agent_id, info in self.agents.items()
+            if info.status == "running" and info.process is not None
+        }
+        self.agents.clear()
+        self.agents.update(running_agents)
+
         discovered_count = 0
         
         # Discover YAML agents
@@ -208,24 +232,115 @@ class AgentManager:
             logger.error(f"Error reading Python file {py_file}: {e}")
         
         return None
-    
+
+    def _validate_yaml_agent_model_config(self, agent_id: str) -> Dict[str, Any]:
+        """Validate model configuration for a YAML agent before starting.
+
+        Checks if the agent's model configuration is properly set up:
+        - If model_name is "auto", verifies DEFAULT_LLM_PROVIDER and DEFAULT_LLM_API_KEY are set
+        - Returns validation result with error details if validation fails
+
+        Args:
+            agent_id: ID of the agent to validate
+
+        Returns:
+            dict: {"valid": True} if valid, {"valid": False, "error": str, "error_code": str} if invalid
+        """
+        if agent_id not in self.agents:
+            return {"valid": False, "error": f"Agent '{agent_id}' not found", "error_code": "AGENT_NOT_FOUND"}
+
+        agent_info = self.agents[agent_id]
+
+        # Only validate YAML agents
+        if agent_info.file_type != "yaml":
+            return {"valid": True}
+
+        try:
+            # Read YAML config
+            with open(agent_info.file_path, "r") as f:
+                config = yaml.safe_load(f)
+
+            if not config or not isinstance(config, dict):
+                return {"valid": True}  # No config to validate
+
+            # Get model_name from config
+            agent_config = config.get("config", {})
+            model_name = agent_config.get("model_name", "").strip().lower() if agent_config else ""
+
+            # If no model_name specified, nothing to validate
+            if not model_name:
+                return {"valid": True}
+
+            # Get global environment variables
+            global_env = self.get_global_env_vars()
+
+            if model_name == "auto":
+                # Check if default model configuration is set up
+                default_provider = global_env.get("DEFAULT_LLM_PROVIDER", "").strip()
+                default_model = global_env.get("DEFAULT_LLM_MODEL_NAME", "").strip()
+                default_api_key = global_env.get("DEFAULT_LLM_API_KEY", "").strip()
+
+                if not default_provider:
+                    return {
+                        "valid": False,
+                        "error": "This agent uses 'auto' model but no default LLM provider is configured. Please configure the Default Model Configuration first.",
+                        "error_code": "NO_DEFAULT_PROVIDER"
+                    }
+
+                if not default_model:
+                    return {
+                        "valid": False,
+                        "error": "This agent uses 'auto' model but no default model name is configured. Please configure the Default Model Configuration first.",
+                        "error_code": "NO_DEFAULT_MODEL"
+                    }
+
+                if not default_api_key:
+                    return {
+                        "valid": False,
+                        "error": f"This agent uses 'auto' model but no API key is configured for the default provider ({default_provider}). Please set the API key in Default Model Configuration.",
+                        "error_code": "NO_DEFAULT_API_KEY"
+                    }
+
+                return {"valid": True}
+
+            # For specific model names, we could add provider detection here in the future
+            # For now, just return valid since specific models may have their own env vars
+            return {"valid": True}
+
+        except Exception as e:
+            logger.error(f"Error validating model config for agent '{agent_id}': {e}")
+            return {"valid": True}  # Don't block on validation errors
+
     async def start_agent(self, agent_id: str) -> Dict[str, Any]:
         """Start a specific agent.
-        
+
         Args:
             agent_id: ID of the agent to start
-        
+
         Returns:
             dict: Result with status and message
         """
         if agent_id not in self.agents:
             return {"success": False, "message": f"Agent '{agent_id}' not found"}
-        
+
         agent_info = self.agents[agent_id]
-        
+
         if agent_info.status == "running":
             return {"success": False, "message": f"Agent '{agent_id}' is already running"}
-        
+
+        # Validate YAML agent model configuration before starting
+        if agent_info.file_type == "yaml":
+            validation = self._validate_yaml_agent_model_config(agent_id)
+            if not validation.get("valid", True):
+                error_msg = validation.get("error", "Model configuration validation failed")
+                error_code = validation.get("error_code", "VALIDATION_ERROR")
+                logger.warning(f"Agent '{agent_id}' model validation failed: {error_msg}")
+                return {
+                    "success": False,
+                    "message": error_msg,
+                    "error_code": error_code
+                }
+
         try:
             agent_info.status = "starting"
             agent_info.error_message = None
@@ -368,6 +483,15 @@ class AgentManager:
                     except asyncio.CancelledError:
                         pass
             
+            # Unregister agent from network to allow clean restart
+            if self._network:
+                try:
+                    await self._network.unregister_agent(agent_id)
+                    logger.info(f"Unregistered agent '{agent_id}' from network")
+                except Exception as unreg_err:
+                    # Log but don't fail - agent might not have been registered
+                    logger.debug(f"Could not unregister agent '{agent_id}': {unreg_err}")
+
             # Close log file
             if agent_info.log_file_handle:
                 try:
@@ -378,7 +502,7 @@ class AgentManager:
                 except:
                     pass
                 agent_info.log_file_handle = None
-            
+
             agent_info.status = "stopped"
             agent_info.pid = None
             agent_info.process = None

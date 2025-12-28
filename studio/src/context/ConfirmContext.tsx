@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useCallback, ReactNode } from 'react';
+import React, { createContext, useState, useContext, useCallback, useRef, ReactNode } from 'react';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 
 interface ConfirmContextType {
@@ -26,10 +26,10 @@ export const ConfirmProvider: React.FC<ConfirmProviderProps> = ({ children }) =>
   const [confirmText, setConfirmText] = useState('Confirm');
   const [cancelText, setCancelText] = useState('Cancel');
   const [dialogType, setDialogType] = useState<'danger' | 'warning' | 'info'>('warning');
-  
-  // Resolver for the promise
-  const [resolver, setResolver] = useState<(value: boolean) => void>();
-  
+
+  // Use ref instead of state to avoid stale closure issues
+  const resolverRef = useRef<(value: boolean) => void>();
+
   const confirm = useCallback(
     (
       title: string,
@@ -46,23 +46,23 @@ export const ConfirmProvider: React.FC<ConfirmProviderProps> = ({ children }) =>
       setCancelText(options?.cancelText || 'Cancel');
       setDialogType(options?.type || 'warning');
       setIsOpen(true);
-      
+
       return new Promise<boolean>((resolve) => {
-        setResolver(() => resolve);
+        resolverRef.current = resolve;
       });
     },
     []
   );
-  
+
   const handleConfirm = useCallback(() => {
-    resolver?.(true);
+    resolverRef.current?.(true);
     setIsOpen(false);
-  }, [resolver]);
-  
+  }, []);
+
   const handleCancel = useCallback(() => {
-    resolver?.(false);
+    resolverRef.current?.(false);
     setIsOpen(false);
-  }, [resolver]);
+  }, []);
   
   return (
     <ConfirmContext.Provider value={{ confirm }}>

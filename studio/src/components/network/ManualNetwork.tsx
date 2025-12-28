@@ -24,10 +24,20 @@ const HOST_PORT_TAB = "host-port";
 const NETWORK_ID_TAB = "network-id";
 const QUICK_CONNECT_TAB = "quick-connect";
 
+// Parse network ID from various formats (plain ID or openagents://NETWORK-ID)
+const parseNetworkId = (input: string): string => {
+  const trimmed = input.trim();
+  // Handle openagents:// URL format
+  if (trimmed.toLowerCase().startsWith("openagents://")) {
+    return trimmed.slice("openagents://".length);
+  }
+  return trimmed;
+};
+
 type ConnectionTab = typeof HOST_PORT_TAB | typeof NETWORK_ID_TAB | typeof QUICK_CONNECT_TAB;
 
 export default function ManualNetwork() {
-  const { t } = useTranslation('auth');
+  const { t } = useTranslation(['auth', 'network']);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -49,12 +59,13 @@ export default function ManualNetwork() {
 
   const loadSavedInfoAndSetTab = useCallback(() => {
     // Check for network-id in URL parameters first
-    const urlNetworkId = searchParams.get("network-id");
+    const urlNetworkIdRaw = searchParams.get("network-id");
     const tabList = []
 
-    if (urlNetworkId) {
+    if (urlNetworkIdRaw) {
       // If network_id exists in URL, set to network-id tab and populate the field
-      setNetworkId(urlNetworkId);
+      // Parse to handle openagents:// URL format
+      setNetworkId(parseNetworkId(urlNetworkIdRaw));
       setActiveTab(NETWORK_ID_TAB);
     }
 
@@ -75,12 +86,12 @@ export default function ManualNetwork() {
       setSavedAgentName(agentName);
 
       // If no URL parameter but saved connection exists, set to quick-connect tab
-      if (!urlNetworkId) {
+      if (!urlNetworkIdRaw) {
         setActiveTab(QUICK_CONNECT_TAB);
       }
     } else {
       // No URL parameter and no saved connection, default to host-port
-      if (!urlNetworkId) {
+      if (!urlNetworkIdRaw) {
         setActiveTab(HOST_PORT_TAB);
       }
     }
@@ -94,7 +105,7 @@ export default function ManualNetwork() {
       key: NETWORK_ID_TAB,
       label: t('manualNetwork.tabs.networkId')
     };
-    if (urlNetworkId) {
+    if (urlNetworkIdRaw) {
       tabList.unshift(NetworkIdTab);
     } else {
       tabList.push(NetworkIdTab);
@@ -145,14 +156,13 @@ export default function ManualNetwork() {
           saveManualConnection(host, port, connectionUseHttps);
         }
         handleNetworkSelected(connection);
-        navigate("/agent-setup");
+        // Network selection will trigger onboarding check in NetworkSelectionPage
+        // No need to navigate here, the page will show onboarding if needed
       } else {
-        toast.error(
-          "Failed to connect to the network. Please check the host and port."
-        );
+        toast.error(t("errors.connectFailedCheckHostPort", { ns: "network" }));
       }
     } catch (error) {
-      toast.error("Error connecting to network: " + error);
+      toast.error(t("errors.errorConnecting", { ns: "network" }) + ": " + error);
     } finally {
       setIsLoadingConnection(false);
     }
@@ -173,13 +183,56 @@ export default function ManualNetwork() {
     }
   };
 
+  const handleManageNetwork = async () => {
+    setIsLoadingConnection(true);
+    try {
+      let host: string;
+      let port: string;
+      let connectionUseHttps: boolean;
+
+      if (activeTab === HOST_PORT_TAB) {
+        host = manualHost;
+        port = manualPort;
+        connectionUseHttps = useHttps;
+      } else if (activeTab === QUICK_CONNECT_TAB && savedConnection) {
+        host = savedConnection.host;
+        port = savedConnection.port;
+        connectionUseHttps = savedConnection.useHttps || false;
+      } else {
+        // Network ID tab - not supported for manage network
+        toast.error(t("errors.connectFailedCheckHostPort", { ns: "network" }));
+        setIsLoadingConnection(false);
+        return;
+      }
+
+      const connection = await ManualNetworkConnection(host, parseInt(port), connectionUseHttps);
+      if (connection.status === ConnectionStatusEnum.CONNECTED) {
+        saveManualConnection(host, port, connectionUseHttps);
+        // Navigate to admin login page with connection info in state
+        // Don't call handleNetworkSelected here to avoid triggering NetworkSelectionPage's redirect
+        navigate('/admin-login', {
+          state: { pendingConnection: connection },
+          replace: true
+        });
+      } else {
+        toast.error(t("errors.connectFailedCheckHostPort", { ns: "network" }));
+      }
+    } catch (error) {
+      toast.error(t("errors.errorConnecting", { ns: "network" }) + ": " + error);
+    } finally {
+      setIsLoadingConnection(false);
+    }
+  };
+
   const handleNetworkIdConnect = async () => {
     setIsLoadingConnection(true);
     try {
-      console.log(`🔍 Fetching network information for ID: ${networkId}`);
+      // Parse to handle openagents:// URL format
+      const parsedNetworkId = parseNetworkId(networkId);
+      console.log(`🔍 Fetching network information for ID: ${parsedNetworkId}`);
 
       // First verify the network exists and is accessible
-      const networkResult = await fetchNetworkById(networkId);
+      const networkResult = await fetchNetworkById(parsedNetworkId);
 
       if (!networkResult.success) {
         toast.error(`Failed to fetch network: ${networkResult.error}`);
@@ -191,17 +244,16 @@ export default function ManualNetwork() {
 
       // Use connectViaNetworkId which routes through network.openagents.org/{networkId}
       // This handles both direct connections and relay-based tunneling
-      console.log(`🔗 Connecting via network ID: ${networkId}`);
-      const connection = await connectViaNetworkId(networkId);
+      console.log(`🔗 Connecting via network ID: ${parsedNetworkId}`);
+      const connection = await connectViaNetworkId(parsedNetworkId);
 
       if (connection.status === ConnectionStatusEnum.CONNECTED) {
         // Save the network ID for future reference
         handleNetworkSelected(connection);
-        navigate("/agent-setup");
+        // Network selection will trigger onboarding check in NetworkSelectionPage
+        // No need to navigate here, the page will show onboarding if needed
       } else {
-        toast.error(
-          "Failed to connect to the network. The network may be offline or unreachable."
-        );
+        toast.error(t("errors.connectFailedOffline", { ns: "network" }));
       }
     } catch (error: any) {
       toast.error(`Error connecting with network ID: ${error.message || error}`);
@@ -362,13 +414,22 @@ export default function ManualNetwork() {
         ) : null}
 
         <div className="flex justify-between items-center gap-3 mt-4 relative z-10">
-          <button
-            onClick={handleManualConnect}
-            disabled={manualConnectButtonDisabled}
-            className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg font-medium transition-colors"
-          >
-            {isLoadingConnection ? t('manualNetwork.connecting') : t('manualNetwork.connect')}
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={handleManualConnect}
+              disabled={manualConnectButtonDisabled}
+              className="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+            >
+              {isLoadingConnection ? t('manualNetwork.connecting') : t('manualNetwork.connect')}
+            </button>
+            <button
+              onClick={handleManageNetwork}
+              disabled={manualConnectButtonDisabled}
+              className="bg-slate-500 hover:bg-slate-600 disabled:bg-gray-400 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+            >
+              {t('manual.manageNetwork', { ns: 'network' })}
+            </button>
+          </div>
         </div>
 
         <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">

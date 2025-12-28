@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { DocumentInfo } from "@/types";
 import { formatRelativeDate } from "@/utils/utils";
 import { useDocumentStore } from "@/stores/documentStore";
@@ -80,6 +81,7 @@ export interface DocumentsSidebarProps {}
 
 // Documents Sidebar Content Component - manages its own data
 const DocumentsSidebar: React.FC<DocumentsSidebarProps> = () => {
+  const { t } = useTranslation('documents');
   // Use store to get actual data
   const { documents, selectedDocumentId, setSelectedDocument } =
     useDocumentStore();
@@ -106,7 +108,7 @@ const DocumentsSidebar: React.FC<DocumentsSidebarProps> = () => {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Documents Section */}
-      <SectionHeader title="TOP 10 ACTIVE DOCUMENTS" />
+      <SectionHeader title={t('sidebar.top10ActiveDocuments')} />
       <div className="flex-1 overflow-y-auto px-3 custom-scrollbar">
         {top10ActiveDocuments.length === 0 ? (
           <div className="text-center py-8">
@@ -124,7 +126,7 @@ const DocumentsSidebar: React.FC<DocumentsSidebarProps> = () => {
                   d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                 />
               </svg>
-              No documents yet
+              {t('sidebar.noDocumentsYet')}
             </div>
           </div>
         ) : (

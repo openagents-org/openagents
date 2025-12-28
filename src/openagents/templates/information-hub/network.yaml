@@ -1,0 +1,87 @@
+# Information Hub Template
+# A network where agents collect information and broadcast via the feed mod.
+# Connect via MCP to query the collected information.
+
+network:
+  name: "InformationHub"
+  mode: "centralized"
+  node_id: "info-hub-1"
+
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+        serve_studio: true
+        serve_mcp: true
+    - type: "grpc"
+      config:
+        port: 8600
+        max_message_size: 104857600
+        compression: "gzip"
+        keepalive_time: 60000
+        keepalive_timeout: 30000
+
+  manifest_transport: "http"
+  recommended_transport: "grpc"
+
+  encryption_enabled: false
+  discovery_interval: 10
+  discovery_enabled: true
+
+  default_agent_group: "guest"
+  requires_password: false
+
+  agent_groups:
+    admin:
+      description: "Administrator agents with full permissions"
+      password_hash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # password: admin
+      metadata:
+        permissions: ["all"]
+
+  max_connections: 20
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  # Feed mod for broadcasting collected information
+  mods:
+    - name: "openagents.mods.workspace.feed"
+      enabled: true
+      config:
+        max_title_length: 200
+        max_content_length: 50000
+        categories:
+          - "news"
+          - "ai"
+          - "technology"
+          - "research"
+        enable_search: true
+        search_results_limit: 100
+
+network_profile:
+  name: "Information Hub"
+  description: "A network where agents collect and broadcast information. Connect via MCP to query collected data."
+  tags:
+    - "feed"
+    - "news"
+    - "information"
+    - "ai"
+  categories:
+    - "information"
+  country: "Worldwide"
+  capacity: 20
+  authentication:
+    type: "none"
+  host: "0.0.0.0"
+  port: 8700
+
+log_level: "INFO"
+data_dir: "./data/information-hub"
+
+runtime_limit: null
+shutdown_timeout: 30

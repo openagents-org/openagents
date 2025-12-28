@@ -16,6 +16,13 @@ import { networkFetch } from "@/utils/httpClient";
 import LanguageSwitcher from "@/components/common/LanguageSwitcher";
 import { Button } from "@/components/layout/ui/button";
 import { Input } from "@/components/layout/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/layout/ui/select';
 import { Loader2, RefreshCw, ArrowLeft } from "lucide-react";
 
 // Interface for group configuration from /api/health
@@ -127,7 +134,7 @@ const AgentNamePicker: React.FC = () => {
           if (nonAdminGroups.length === 0) {
             const fallbackGroup: GroupConfig = {
               name: defaultGroupName,
-              description: "Default agent group",
+              description: t("agentSetup.defaultAgentGroup"),
               has_password: false,
             };
             setAvailableGroups([fallbackGroup]);
@@ -154,7 +161,7 @@ const AgentNamePicker: React.FC = () => {
         const fallbackGroupName = "guest";
         const fallbackGroup: GroupConfig = {
           name: fallbackGroupName,
-          description: "Default agent group",
+          description: t("agentSetup.defaultAgentGroup"),
           has_password: false,
         };
         setAvailableGroups([fallbackGroup]);
@@ -165,7 +172,7 @@ const AgentNamePicker: React.FC = () => {
     };
 
     fetchNetworkConfig();
-  }, [selectedNetwork]);
+  }, [selectedNetwork, t]);
 
   // Get the selected group's configuration
   const selectedGroupConfig = availableGroups.find(
@@ -183,8 +190,8 @@ const AgentNamePicker: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Use fixed "admin" name for admin mode, otherwise use the page agent name
-    const agentNameTrimmed = isAdminMode ? "admin" : pageAgentName?.trim();
+    // Use the page agent name for both regular and admin mode
+    const agentNameTrimmed = pageAgentName?.trim();
     if (!agentNameTrimmed || !selectedNetwork) return;
 
     // Validate password requirements
@@ -257,7 +264,7 @@ const AgentNamePicker: React.FC = () => {
       if (!verifyData.success) {
         // Registration failed
         const errorMessage =
-          verifyData.error_message || "Failed to connect to network";
+          verifyData.error_message || t("agentSetup.errors.connectionFailed");
         console.error("Failed to connect:", errorMessage);
 
         if (isAdminMode) {
@@ -323,18 +330,16 @@ const AgentNamePicker: React.FC = () => {
     hash: string | null,
     targetGroup: string | null
   ) => {
-    // Use fixed "admin" name for admin group, otherwise use the page agent name
-    const agentNameTrimmed = targetGroup === "admin" ? "admin" : pageAgentName?.trim();
+    // Use the page agent name for all cases
+    const agentNameTrimmed = pageAgentName?.trim();
     if (!agentNameTrimmed || !selectedNetwork) return;
 
-    // Save the agent name for this network (but not for admin - it's a reserved name)
-    if (targetGroup !== "admin") {
-      saveAgentNameForNetwork(
-        selectedNetwork.host,
-        selectedNetwork.port,
-        agentNameTrimmed
-      );
-    }
+    // Save the agent name for this network
+    saveAgentNameForNetwork(
+      selectedNetwork.host,
+      selectedNetwork.port,
+      agentNameTrimmed
+    );
 
     // Store the password hash and group in authStore
     setPasswordHash(hash);
@@ -353,16 +358,20 @@ const AgentNamePicker: React.FC = () => {
   };
 
   const handleAdminLogin = () => {
-    // Switch to admin mode - show password input
-    setIsAdminMode(true);
-    setPasswordError("");
-    setAdminPassword("");
+    // Navigate to dedicated admin login page
+    navigate("/admin-login");
   };
 
   const handleExitAdminMode = () => {
     setIsAdminMode(false);
     setAdminPassword("");
     setPasswordError("");
+    // Restore to saved name or generate random name
+    if (savedAgentName) {
+      setPageAgentName(savedAgentName);
+    } else {
+      handleRandomize();
+    }
   };
 
   return (
@@ -376,7 +385,7 @@ const AgentNamePicker: React.FC = () => {
               ? "bg-gradient-to-br from-amber-500 to-orange-600"
               : "bg-gradient-to-br from-blue-500 to-purple-600"
           }`}>
-            {isAdminMode ? "A" : getAvatarInitials(pageAgentName)}
+            {getAvatarInitials(pageAgentName)}
           </div>
           <div className="flex-1 text-left">
             <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-50">
@@ -405,13 +414,13 @@ const AgentNamePicker: React.FC = () => {
           </div>
           {selectedNetwork && (
             <div className="text-base font-semibold text-gray-800 dark:text-gray-100">
-              {selectedNetwork.host}:{selectedNetwork.port}
+              {selectedNetwork.networkId || `${selectedNetwork.host}:${selectedNetwork.port}`}
             </div>
           )}
         </div>
 
-        {/* Saved Agent Name Info */}
-        {savedAgentName && (
+        {/* Saved Agent Name Info - Hidden in Admin Mode */}
+        {savedAgentName && !isAdminMode && (
           <div className="bg-sky-50 dark:bg-sky-900/20 border border-sky-200 dark:border-sky-800 rounded-lg p-3 mb-4 text-left">
             <div className="text-sm font-medium text-sky-700 dark:text-sky-400">
               {t("agentSetup.previousName")}:{" "}
@@ -481,15 +490,17 @@ const AgentNamePicker: React.FC = () => {
             </div>
           )}
 
-          {/* Admin Mode: Agent Name Info + Password Input */}
+          {/* Admin Mode: Fixed Admin Name + Password Input */}
           {isAdminMode && (
             <>
-              {/* Show fixed admin agent name */}
+              {/* Fixed Admin Name Display */}
               <div className="text-left">
-                <label className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300">
+                <label
+                  className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300"
+                >
                   {t("agentSetup.agentName")}
                 </label>
-                <div className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-sm">
+                <div className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-base font-medium text-gray-800 dark:text-gray-100">
                   admin
                 </div>
               </div>
@@ -511,9 +522,7 @@ const AgentNamePicker: React.FC = () => {
                     setAdminPassword(e.target.value);
                     setPasswordError("");
                   }}
-                  className={
-                    passwordError ? "border-red-500 dark:border-red-400" : ""
-                  }
+                  className={passwordError ? "border-red-500 dark:border-red-400" : ""}
                   placeholder={t("agentSetup.adminPasswordPlaceholder")}
                   autoComplete="off"
                   required
@@ -558,26 +567,29 @@ const AgentNamePicker: React.FC = () => {
                     {t("agentSetup.loadingGroups")}
                   </div>
                 ) : (
-                  <select
-                    id="agentGroup"
+                  <Select
                     value={selectedGroup || ""}
-                    onChange={(e) => {
-                      setSelectedGroup(e.target.value);
+                    onValueChange={(value) => {
+                      setSelectedGroup(value);
                       setGroupPassword("");
                       setPasswordError("");
                     }}
-                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-500 rounded-lg text-base transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white dark:bg-gray-600 text-gray-800 dark:text-gray-50"
                   >
-                    {availableGroups.map((group) => (
-                      <option key={group.name} value={group.name}>
-                        {group.has_password ? "🔒 " : ""}
-                        {group.name}
-                        {group.name === defaultGroup
-                          ? ` (${t("agentSetup.default")})`
-                          : ""}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger size="lg" className="w-full px-4 py-3 border border-gray-300 dark:border-gray-500 rounded-lg text-base transition-all focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white dark:bg-gray-600 text-gray-800 dark:text-gray-50">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableGroups.map((group) => (
+                        <SelectItem key={group.name} value={group.name}>
+                          {group.has_password ? "🔒 " : ""}
+                          {group.name}
+                          {group.name === defaultGroup
+                            ? ` (${t("agentSetup.default")})`
+                            : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
               </div>
 
@@ -600,9 +612,7 @@ const AgentNamePicker: React.FC = () => {
                       setGroupPassword(e.target.value);
                       setPasswordError("");
                     }}
-                    className={
-                      passwordError ? "border-red-500 dark:border-red-400" : ""
-                    }
+                    className={passwordError ? "border-red-500 dark:border-red-400" : ""}
                     placeholder={t("agentSetup.passwordPlaceholder", {
                       group: selectedGroup,
                     })}
@@ -663,8 +673,8 @@ const AgentNamePicker: React.FC = () => {
               disabled={
                 isVerifying ||
                 isLoadingGroups ||
+                !isValidName(pageAgentName) ||
                 (isAdminMode && !adminPassword.trim()) ||
-                (!isAdminMode && !isValidName(pageAgentName)) ||
                 (!isAdminMode && isReservedAgentName) ||
                 (!isAdminMode &&
                   selectedGroupRequiresPassword &&
@@ -673,8 +683,8 @@ const AgentNamePicker: React.FC = () => {
               className={`flex-[2] px-6 py-3 border-none rounded-lg text-base font-semibold cursor-pointer transition-all duration-150 text-white ${
                 isVerifying ||
                 isLoadingGroups ||
+                !isValidName(pageAgentName) ||
                 (isAdminMode && !adminPassword.trim()) ||
-                (!isAdminMode && !isValidName(pageAgentName)) ||
                 (!isAdminMode && isReservedAgentName) ||
                 (!isAdminMode &&
                   selectedGroupRequiresPassword &&

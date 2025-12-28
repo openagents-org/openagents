@@ -11,6 +11,19 @@ import {
   ModInfo
 } from "@/services/eventExplorerService";
 import { OpenAgentsContext } from "@/context/OpenAgentsProvider";
+import { Button } from "@/components/layout/ui/button";
+import { Input } from "@/components/layout/ui/input";
+import { Card, CardContent } from "@/components/layout/ui/card";
+import { Badge } from "@/components/layout/ui/badge";
+import { ScrollArea } from "@/components/layout/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/layout/ui/select";
+import { Search, RefreshCw, Package, Zap, ChevronRight, AlertCircle } from "lucide-react";
 import EventDetailPage from "./EventDetailPage";
 
 /**
@@ -29,8 +42,8 @@ const EventsMainPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedMod, setSelectedMod] = useState<string>("");
-  const [selectedType, setSelectedType] = useState<string>("");
+  const [selectedMod, setSelectedMod] = useState<string>("all");
+  const [selectedType, setSelectedType] = useState<string>("all");
 
   // Set network connection from context
   useEffect(() => {
@@ -79,8 +92,8 @@ const EventsMainPage: React.FC = () => {
         result = await searchEvents(searchQuery);
       } else {
         result = await getEvents(
-          selectedMod || undefined,
-          selectedType || undefined
+          selectedMod === "all" ? undefined : selectedMod,
+          selectedType === "all" ? undefined : selectedType
         );
       }
 
@@ -151,146 +164,190 @@ const EventsMainPage: React.FC = () => {
     navigate(encodeURIComponent(eventName));
   };
 
+  const getEventTypeBadge = (eventType: string) => {
+    switch (eventType) {
+      case 'operation':
+        return <Badge variant="info" appearance="light" size="sm">Operation</Badge>;
+      case 'response':
+        return <Badge variant="success" appearance="light" size="sm">Response</Badge>;
+      case 'notification':
+        return <Badge variant="secondary" appearance="light" size="sm">Notification</Badge>;
+      default:
+        return <Badge variant="secondary" appearance="light" size="sm">{eventType}</Badge>;
+    }
+  };
+
   return (
-    <div className="h-full dark:bg-gray-800">
-    <Routes>
-      <Route
-        index
-        element={
-          <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-800">
-            {/* Header */}
-            <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4">
-              <div className="flex items-center justify-between mb-4">
-                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                  {t('title')}
-                </h1>
-                <button
-                  onClick={handleSync}
-                  disabled={syncing}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {syncing ? t('actions.syncing') : t('actions.sync')}
-                </button>
-              </div>
+    <div className="h-full">
+      <Routes>
+        <Route
+          index
+          element={
+            <ScrollArea className="h-full">
+              <div className="p-6">
+                {/* Header */}
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                      {t('title')}
+                    </h1>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                      {t('subtitle')}
+                    </p>
+                  </div>
 
-              {/* Search Bar */}
-              <div className="mb-4">
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder={t('actions.search')}
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full px-4 py-2 pl-10 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <span className="absolute left-3 top-2.5 text-gray-400">🔍</span>
+                  <Button
+                    onClick={handleSync}
+                    disabled={syncing}
+                    variant="primary"
+                    size="sm"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white disabled:bg-gray-400"
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
+                    {syncing ? t('actions.syncing') : t('actions.sync')}
+                  </Button>
                 </div>
-              </div>
 
-              {/* Filters */}
-              <div className="flex gap-4">
-                <select
-                  value={selectedMod}
-                  onChange={(e) => setSelectedMod(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">{t('filters.allMods')}</option>
-                  {mods.map(mod => (
-                    <option key={mod.mod_id} value={mod.mod_id}>
-                      {mod.mod_name} {t('list.eventCount', { count: mod.event_count })}
-                    </option>
-                  ))}
-                </select>
+                {/* Search and Filters */}
+                <Card className="mb-6 border-gray-200 dark:border-gray-700">
+                  <CardContent className="p-4">
+                    <div className="flex flex-col sm:flex-row gap-4">
+                      {/* Search Input */}
+                      <div className="flex-1 relative">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <Input
+                          type="text"
+                          placeholder={t('actions.search')}
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          variant="lg"
+                          className="pl-10 w-full"
+                        />
+                      </div>
 
-                <select
-                  value={selectedType}
-                  onChange={(e) => setSelectedType(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">{t('filters.allTypes')}</option>
-                  <option value="operation">{t('filters.operation')}</option>
-                  <option value="response">{t('filters.response')}</option>
-                  <option value="notification">{t('filters.notification')}</option>
-                </select>
-              </div>
-            </div>
+                      {/* Filters */}
+                      <div className="flex gap-3">
+                        <Select value={selectedMod} onValueChange={setSelectedMod}>
+                          <SelectTrigger size="lg" className="w-[180px]">
+                            <Package className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
+                            <SelectValue placeholder={t('filters.allMods')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">{t('filters.allMods')}</SelectItem>
+                            {mods.map(mod => (
+                              <SelectItem key={mod.mod_id} value={mod.mod_id}>
+                                {mod.mod_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-4">
-              {error && (
-                <div className="mb-4 p-4 bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-200 rounded-lg">
-                  {error}
-                </div>
-              )}
-
-              {loading ? (
-                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                  {t('messages.loadingEvents')}
-                </div>
-              ) : Object.keys(eventsByMod).length === 0 ? (
-                <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-                  {t('messages.noEvents')}
-                </div>
-              ) : (
-                <div className="space-y-6">
-                  {Object.entries(eventsByMod).map(([modId, modEvents]) => (
-                    <div
-                      key={modId}
-                      className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4"
-                    >
-                      <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                        {getModName(modId)} {t('list.eventCount', { count: modEvents.length })}
-                      </h2>
-
-                      <div className="space-y-3">
-                        {modEvents.map((event) => (
-                          <div
-                            key={event.event_name}
-                            onClick={() => handleEventClick(event.event_name)}
-                            className="p-3 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-colors"
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-sm font-mono text-blue-600 dark:text-blue-400">
-                                    {event.event_name}
-                                  </span>
-                                  <span
-                                    className={`px-2 py-0.5 text-xs rounded ${event.event_type === 'operation'
-                                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-                                        : event.event_type === 'response'
-                                          ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                                          : 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-                                      }`}
-                                  >
-                                    {event.event_type}
-                                  </span>
-                                </div>
-                                <p className="text-sm text-gray-600 dark:text-gray-300">
-                                  {event.description}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                        <Select value={selectedType} onValueChange={setSelectedType}>
+                          <SelectTrigger size="lg" className="w-[160px]">
+                            <Zap className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
+                            <SelectValue placeholder={t('filters.allTypes')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">{t('filters.allTypes')}</SelectItem>
+                            <SelectItem value="operation">{t('filters.operation')}</SelectItem>
+                            <SelectItem value="response">{t('filters.response')}</SelectItem>
+                            <SelectItem value="notification">{t('filters.notification')}</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        }
-      />
+                  </CardContent>
+                </Card>
 
-      <Route
-        path=":eventName"
-        element={<EventDetailPage />}
-      />
-    </Routes>
+                {/* Error Message */}
+                {error && (
+                  <Card className="mb-4 border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10">
+                    <CardContent className="p-3 flex items-start gap-2.5">
+                      <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                      <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Content */}
+                {loading ? (
+                  <div className="flex items-center justify-center py-16">
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-3"></div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {t('messages.loadingEvents')}
+                      </p>
+                    </div>
+                  </div>
+                ) : Object.keys(eventsByMod).length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16">
+                    <div className="p-4 rounded-full bg-gray-100 dark:bg-gray-800 mb-4">
+                      <Package className="w-8 h-8 text-gray-400" />
+                    </div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
+                      {t('messages.noEvents')}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {Object.entries(eventsByMod).map(([modId, modEvents]) => (
+                      <Card key={modId} className="border-gray-200 dark:border-gray-700 overflow-hidden">
+                        <CardContent className="p-0">
+                          {/* Module Header */}
+                          <div className="flex items-center gap-3 px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
+                            <div className="p-1.5 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                              <Package className="w-4 h-4" />
+                            </div>
+                            <h2 className="font-medium text-gray-900 dark:text-gray-100">
+                              {getModName(modId)}
+                            </h2>
+                            <Badge variant="secondary" appearance="light" size="sm">
+                              {modEvents.length}
+                            </Badge>
+                          </div>
+
+                          {/* Events List */}
+                          <div className="divide-y divide-gray-100 dark:divide-gray-700/50">
+                            {modEvents.map((event) => (
+                              <div
+                                key={event.event_name}
+                                onClick={() => handleEventClick(event.event_name)}
+                                className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800/30 cursor-pointer transition-colors group"
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-sm font-mono text-blue-600 dark:text-blue-400 truncate">
+                                      {event.event_name}
+                                    </span>
+                                    {getEventTypeBadge(event.event_type)}
+                                  </div>
+                                  {event.description && (
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                      {event.description}
+                                    </p>
+                                  )}
+                                </div>
+                                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 flex-shrink-0 ml-3" />
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          }
+        />
+
+        <Route
+          path=":eventName"
+          element={<EventDetailPage />}
+        />
+      </Routes>
     </div>
   );
 };
 
 export default EventsMainPage;
-

@@ -1,12 +1,11 @@
-import React, { ReactNode, useContext, useState, useEffect } from "react";
-import Sidebar from "./Sidebar";
+import React, { ReactNode, useContext, useState } from "react";
 import ConnectionLoadingOverlay from "./ConnectionLoadingOverlay";
 import {
   OpenAgentsProvider,
   OpenAgentsContext,
 } from "@/context/OpenAgentsProvider";
 import { useAuthStore } from "@/stores/authStore";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useIsMobile } from "@/hooks/useMediaQuery";
 import { LayoutProvider, useLayout } from "./components/context";
 import { HeaderBreadcrumbs } from "./components/header-breadcrumbs";
@@ -14,8 +13,6 @@ import { SidebarSecondary } from "./components/sidebar-secondary";
 import { Sheet, SheetContent, SheetTrigger } from "./ui/sheet";
 import { Button } from "./ui/button";
 import { Menu } from "lucide-react";
-import { useIsAdmin } from "@/hooks/useIsAdmin";
-import { toast } from "sonner";
 
 interface RootLayoutProps {
   children: ReactNode;
@@ -43,7 +40,7 @@ const ConditionalOpenAgentsProvider: React.FC<{
 
 /**
  * Root layout component - responsible for overall layout structure
- * Contains: left module navigation + middle content area (sidebar + main content)
+ * Contains: middle content area (secondary sidebar + main content)
  *
  * Now also responsible for conditionally rendering OpenAgentsProvider:
  * - Only initializes OpenAgentsProvider after user completes network selection and agent setup
@@ -61,7 +58,8 @@ const RootLayout: React.FC<RootLayoutProps> = ({ children }) => {
 const MainContentArea: React.FC<{
   children: ReactNode;
   shouldHideSidebar: boolean;
-}> = ({ children, shouldHideSidebar }) => {
+  shouldHideBreadcrumbs: boolean;
+}> = ({ children, shouldHideSidebar, shouldHideBreadcrumbs }) => {
   const isMobile = useIsMobile();
   const { isSidebarOpen } = useLayout();
 
@@ -96,7 +94,7 @@ const MainContentArea: React.FC<{
         {/* Page Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-gray-800">
           {/* Breadcrumb Navigation - fixed at top, doesn't scroll */}
-          {!shouldHideSidebar && (
+          {!shouldHideBreadcrumbs && (
             <div className="flex-shrink-0">
               <HeaderBreadcrumbs />
             </div>
@@ -117,29 +115,20 @@ const RootLayoutContent: React.FC<RootLayoutProps> = ({ children }) => {
   const context = useContext(OpenAgentsContext);
   const isConnected = context?.isConnected || false;
   const location = useLocation();
-  const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const { isAdmin, isLoading: isAdminLoading } = useIsAdmin();
-
-  // Check if current route is an admin route
-  const isAdminRoute = location.pathname.startsWith("/admin");
 
   // Determine if current route should hide the secondary sidebar (content sidebar)
-  const shouldHideSecondarySidebar = location.pathname.startsWith("/agentworld");
+  const shouldHideSecondarySidebar =
+    location.pathname.startsWith("/agentworld") ||
+    location.pathname.startsWith("/admin");
 
-  // Determine if current route should hide the primary sidebar (left navigation icons)
-  // AgentWorld should still show the primary sidebar for navigation
-  const shouldHidePrimarySidebar = false;
+  // Determine if breadcrumbs should be hidden (only for agentworld)
+  const shouldHideBreadcrumbs = location.pathname.startsWith("/agentworld");
 
-  // Admin route restriction: admin users can ONLY access /admin/* routes
-  useEffect(() => {
-    if (!isAdminLoading && isConnected && isAdmin && !isAdminRoute) {
-      console.log("🛡️ Admin user attempted to access non-admin route, redirecting to /admin/dashboard...");
-      toast.info("Admin users can only access the admin dashboard");
-      navigate("/admin/dashboard", { replace: true });
-    }
-  }, [isAdmin, isAdminLoading, isConnected, isAdminRoute, navigate]);
+  // Note: Admin users can access both admin routes and user routes
+  // The only restriction is that non-admin users cannot access /admin/* routes
+  // (handled by AdminRouteGuard)
 
   // Close drawer when route changes on mobile
   React.useEffect(() => {
@@ -149,22 +138,14 @@ const RootLayoutContent: React.FC<RootLayoutProps> = ({ children }) => {
   }, [location.pathname, isMobile]);
 
   return (
-    <div className="h-screen w-screen flex overflow-hidden bg-[#F4F4F5] dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+    <div className="h-screen flex overflow-hidden bg-[#F4F4F5] dark:bg-gray-800 text-gray-900 dark:text-gray-100">
       {/* Connection status overlay - only shown when OpenAgentsProvider exists but not connected */}
       {context && !isConnected && <ConnectionLoadingOverlay />}
 
       {context && isConnected && (
         <LayoutProvider>
-          {/* Middle content area: sidebar + main content */}
+          {/* Middle content area: main content */}
           <div className="flex-1 flex overflow-hidden relative">
-            {/* Primary sidebar (left navigation icons) - hidden on mobile, shown in drawer instead */}
-            {/* Use Tailwind responsive classes: hidden by default, show on md (768px) and up */}
-            {!shouldHidePrimarySidebar && (
-              <div className="hidden md:block">
-                <Sidebar />
-              </div>
-            )}
-
             {/* Mobile menu button - only shown on mobile */}
             {/* Use Tailwind responsive classes: show by default, hide on md (768px) and up */}
             {!shouldHideSecondarySidebar && (
@@ -184,15 +165,8 @@ const RootLayoutContent: React.FC<RootLayoutProps> = ({ children }) => {
                 </SheetTrigger>
                 <SheetContent side="left" className="w-[85%] max-w-[400px] p-0">
                   <LayoutProvider>
-                    <div className="flex h-full">
-                      {/* Primary Sidebar */}
-                      <div className="flex-shrink-0">
-                        <Sidebar />
-                      </div>
-                      {/* Secondary Sidebar */}
-                      <div className="flex-1 flex flex-col overflow-hidden">
-                        <SidebarSecondary />
-                      </div>
+                    <div className="flex-1 flex flex-col overflow-hidden">
+                      <SidebarSecondary />
                     </div>
                   </LayoutProvider>
                 </SheetContent>
@@ -200,7 +174,10 @@ const RootLayoutContent: React.FC<RootLayoutProps> = ({ children }) => {
             )}
 
             {/* Main content area - uses internal component to access LayoutProvider context */}
-            <MainContentArea shouldHideSidebar={shouldHideSecondarySidebar}>
+            <MainContentArea
+              shouldHideSidebar={shouldHideSecondarySidebar}
+              shouldHideBreadcrumbs={shouldHideBreadcrumbs}
+            >
               {children}
             </MainContentArea>
           </div>

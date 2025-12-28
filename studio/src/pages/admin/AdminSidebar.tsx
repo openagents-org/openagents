@@ -17,13 +17,19 @@ import {
   Search,
   Monitor,
   Bug,
+  Cpu,
+  Wrench,
 } from "lucide-react";
 
 const AdminSidebar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation("admin");
-  const { isAdmin } = useIsAdmin();
+  const { isAdmin, isLoading } = useIsAdmin();
+
+  // Show admin-only items while loading (user reached admin page, likely is admin)
+  // or when confirmed as admin
+  const showAdminItems = isLoading || isAdmin;
 
   const isActive = (path: string) => {
     const currentPath = location.pathname;
@@ -61,14 +67,26 @@ const AdminSidebar: React.FC = () => {
           icon: Globe,
         },
         {
+          id: "readme",
+          label: t("sidebar.items.readme"),
+          path: "/admin/readme",
+          icon: FileText,
+        },
+        {
           id: "transports",
           label: t("sidebar.items.transports"),
           path: "/admin/transports",
           icon: ArrowLeftRight,
         },
         {
+          id: "mods",
+          label: t("sidebar.items.modManagement"),
+          path: "/admin/mods",
+          icon: Settings,
+        },
+        {
           id: "publish",
-          label: "Publish Network",
+          label: t("sidebar.items.publishNetwork"),
           path: "/admin/publish",
           icon: (
             <svg
@@ -97,13 +115,19 @@ const AdminSidebar: React.FC = () => {
     {
       title: t("sidebar.sections.agents"),
       items: [
-        ...(isAdmin
+        ...(showAdminItems
           ? [
               {
                 id: "service-agents",
                 label: t("sidebar.items.serviceAgents"),
                 path: "/admin/service-agents",
                 icon: Server,
+              },
+              {
+                id: "default-models",
+                label: t("sidebar.items.defaultModels"),
+                path: "/admin/default-models",
+                icon: Cpu,
               },
             ]
           : []),
@@ -128,13 +152,13 @@ const AdminSidebar: React.FC = () => {
       ],
     },
     {
-      title: t("sidebar.sections.modules"),
+      title: t("sidebar.sections.networkAsService"),
       items: [
         {
-          id: "mods",
-          label: t("sidebar.items.modManagement"),
-          path: "/admin/mods",
-          icon: Settings,
+          id: "exported-tools",
+          label: t("sidebar.items.exportedTools"),
+          path: "/admin/exported-tools",
+          icon: Wrench,
         },
       ],
     },
@@ -153,7 +177,7 @@ const AdminSidebar: React.FC = () => {
           path: "/admin/event-explorer",
           icon: Search,
         },
-        ...(isAdmin
+        ...(showAdminItems
           ? [
               {
                 id: "llm-logs",
@@ -168,26 +192,6 @@ const AdminSidebar: React.FC = () => {
           label: t("sidebar.items.eventDebugger"),
           path: "/admin/debugger",
           icon: Bug,
-        },
-        {
-          id: "event-explorer",
-          label: "Event Explorer",
-          path: "/admin/event-explorer",
-          icon: (
-            <svg
-              className="w-5 h-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
-              />
-            </svg>
-          ),
         },
       ],
     },

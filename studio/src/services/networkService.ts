@@ -98,7 +98,62 @@ export const detectLocalNetwork =
           }
         }
       } catch (error) {
-        console.log("No OpenAgents network at current origin, trying localhost ports...");
+        console.log("No OpenAgents network at current origin, trying same host on port 8700...");
+      }
+
+      // Try the same hostname but on port 8700 (default OpenAgents port)
+      // This handles the case where Studio dev server runs on a different port (e.g., 8050)
+      // but the OpenAgents network runs on port 8700 on the same host
+      try {
+        const currentUrl = new URL(window.location.href);
+        const currentHost = currentUrl.hostname;
+        const defaultPort = 8700;
+        const useHttps = currentUrl.protocol === "https:";
+
+        // Skip if we already checked this (current origin is already port 8700)
+        const currentPort = parseInt(currentUrl.port, 10) || (currentUrl.protocol === "https:" ? 443 : 80);
+        if (currentPort !== defaultPort) {
+          console.log(
+            `Checking same host on default port: ${currentUrl.protocol}//${currentHost}:${defaultPort}`
+          );
+
+          const response = await networkFetch(
+            currentHost,
+            defaultPort,
+            "/api/health",
+            {
+              method: "GET",
+              timeout: 3000,
+              useHttps,
+              headers: {
+                "Cache-Control": "no-cache",
+                "Pragma": "no-cache",
+              },
+            }
+          );
+
+          if (response.ok) {
+            try {
+              const healthData = await response.json();
+              if (isValidHealthResponse(healthData)) {
+                console.log(
+                  `OpenAgents network detected at ${currentUrl.protocol}//${currentHost}:${defaultPort}`
+                );
+                return {
+                  host: currentHost,
+                  port: defaultPort,
+                  status: ConnectionStatusEnum.CONNECTED,
+                  latency: 0,
+                  useHttps,
+                };
+              }
+            } catch (parseError) {
+              console.log("Failed to parse health response from same host on port 8700");
+            }
+          }
+        }
+      } catch (error) {
+        console.log("No OpenAgents network at same host on port 8700, trying localhost...");
       }
     }
 

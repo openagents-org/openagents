@@ -8,6 +8,7 @@ import {
   Users,
   LayoutDashboard,
   Globe,
+  CloudUpload,
 } from "lucide-react";
 import {
   Avatar,
@@ -45,7 +46,7 @@ import { clearAllOpenAgentsDataForLogout } from "@/utils/cookies";
 import { useI18n } from "@/hooks/useI18n";
 import { SUPPORTED_LANGUAGES, SupportedLanguage } from "@/i18n/config";
 import { useConfirm } from "@/context/ConfirmContext";
-import logo from "@/assets/images/openagents_logo_trans_black.png";
+import logo from "@/assets/images/open-agents-logo.png";
 
 export function SidebarPrimary() {
   const { theme, toggleTheme } = useThemeStore();
@@ -194,6 +195,17 @@ export function SidebarPrimary() {
         index: currentIndex++,
       });
 
+      // Add Publish Network quick access
+      items.push({
+        icon: CloudUpload,
+        label: t("navigation.publishNetwork") || "Publish Network",
+        href: "/admin/publish",
+        active: isRouteActive("/admin/publish"),
+        className:
+          "border-white bg-orange-500 hover:bg-orange-600 text-white hover:text-white",
+        index: currentIndex++,
+      });
+
       // Add Admin menu item
       const adminRoute = secondaryRoutes.find(
         (route) => route.navigationConfig?.key === PLUGIN_NAME_ENUM.ADMIN
@@ -317,12 +329,7 @@ export function SidebarPrimary() {
       {/* Logo/Brand Icon */}
       <div className="mb-2 mt-2">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center">
-          <img
-            src={logo}
-            alt="OA"
-            className="w-10 h-10 dark:invert"
-            style={{ filter: 'invert(29%) sepia(92%) saturate(3526%) hue-rotate(256deg) brightness(87%) contrast(91%)' }}
-          />
+          <img src={logo} alt="OA" className="w-10 h-10" />
         </div>
       </div>
 
@@ -371,7 +378,9 @@ export function SidebarPrimary() {
                 src={toAbsoluteUrl("/media/avatars/300-2.png")}
                 alt={agentName || "Agent"}
               />
-              <AvatarFallback>{(agentName?.charAt(0).toUpperCase() || "A")}</AvatarFallback>
+              <AvatarFallback>
+                {agentName?.charAt(0).toUpperCase() || "A"}
+              </AvatarFallback>
               <AvatarIndicator className="-end-2 -top-2">
                 <AvatarStatus variant="online" className="size-2.5" />
               </AvatarIndicator>
@@ -390,7 +399,9 @@ export function SidebarPrimary() {
                   src={toAbsoluteUrl("/media/avatars/300-2.png")}
                   alt={agentName || "Agent"}
                 />
-                <AvatarFallback>{(agentName?.charAt(0).toUpperCase() || "A")}</AvatarFallback>
+                <AvatarFallback>
+                  {agentName?.charAt(0).toUpperCase() || "A"}
+                </AvatarFallback>
                 <AvatarIndicator className="-end-1.5 -top-1.5">
                   <AvatarStatus variant="online" className="size-2.5" />
                 </AvatarIndicator>
@@ -415,7 +426,11 @@ export function SidebarPrimary() {
               ) : (
                 <Moon className="size-4" />
               )}
-              <span>{isDarkMode ? t("sidebar.theme.lightMode") : t("sidebar.theme.darkMode")}</span>
+              <span>
+                {isDarkMode
+                  ? t("sidebar.theme.lightMode")
+                  : t("sidebar.theme.darkMode")}
+              </span>
             </DropdownMenuItem>
 
             {/* Language Switcher */}
