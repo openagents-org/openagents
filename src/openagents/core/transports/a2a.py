@@ -814,10 +814,15 @@ class A2ATransport(Transport):
             for conn in topology.get_local_agents():
                 transport_type = getattr(conn, "transport_type", None)
                 metadata = getattr(conn, "metadata", {}) or {}
+                # transport_type may be string (use_enum_values=True) or enum
+                transport_str = (
+                    transport_type.value if hasattr(transport_type, 'value')
+                    else str(transport_type) if transport_type else "unknown"
+                )
                 agents.append({
                     "agent_id": conn.agent_id,
                     "type": "local",
-                    "transport": transport_type.value if transport_type else "unknown",
+                    "transport": transport_str,
                     "status": "active",
                     "skills": metadata.get("skills", []),
                 })
@@ -828,12 +833,17 @@ class A2ATransport(Transport):
             remote_agents = topology.get_remote_agents(status=status)
 
             for conn in remote_agents:
+                # remote_status may be string (use_enum_values=True) or enum
+                status_str = (
+                    conn.remote_status.value if hasattr(conn.remote_status, 'value')
+                    else str(conn.remote_status) if conn.remote_status else "unknown"
+                )
                 agents.append({
                     "agent_id": conn.agent_id,
                     "type": "remote",
                     "transport": "a2a",
                     "url": conn.address,
-                    "status": conn.remote_status.value if conn.remote_status else "unknown",
+                    "status": status_str,
                     "skills": [
                         {"id": s.id, "name": s.name}
                         for s in (conn.agent_card.skills if conn.agent_card else [])
