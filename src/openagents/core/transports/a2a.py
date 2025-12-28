@@ -1,8 +1,10 @@
 """
 A2A (Agent2Agent) Transport Implementation for OpenAgents.
 
-This module provides an A2A-compliant server transport that exposes
-OpenAgents network as an A2A agent using JSON-RPC 2.0 over HTTP.
+This module provides a full A2A transport that works like gRPC transport:
+- Agents can connect and register via A2A protocol
+- Bidirectional event routing
+- External A2A client support
 
 Based on A2A Protocol Specification v0.3:
 https://a2a-protocol.org/latest/specification/
@@ -13,21 +15,34 @@ Endpoints:
     GET  /                        - Info endpoint
 
 Supported JSON-RPC Methods:
+    Standard A2A:
     - message/send     - Send message, create/continue task
     - tasks/get        - Get task status
     - tasks/list       - List tasks
     - tasks/cancel     - Cancel a task
+
+    OpenAgents Extensions (agent connectivity like gRPC):
+    - agent/register   - Register an agent with the network
+    - agent/unregister - Unregister an agent
+    - agent/heartbeat  - Agent heartbeat
+    - events/send      - Send an event through the network
 """
 
 import asyncio
 import logging
 import os
+import time
 from typing import Dict, Any, Optional, List, TYPE_CHECKING
 
 from aiohttp import web
 
 from .base import Transport
-from openagents.models.transport import TransportType
+from openagents.models.transport import TransportType, AgentConnection
+from openagents.config.globals import (
+    SYSTEM_EVENT_HEARTBEAT,
+    SYSTEM_EVENT_REGISTER_AGENT,
+    SYSTEM_EVENT_UNREGISTER_AGENT,
+)
 from openagents.models.event import Event
 from openagents.models.event_response import EventResponse
 from openagents.models.a2a import (
@@ -326,10 +341,16 @@ class A2ATransport(Transport):
 
         # Route to method handler
         method_handlers = {
+            # Standard A2A methods
             "message/send": self._handle_send_message,
             "tasks/get": self._handle_get_task,
             "tasks/list": self._handle_list_tasks,
             "tasks/cancel": self._handle_cancel_task,
+            # OpenAgents extensions - agent connectivity (like gRPC)
+            "agent/register": self._handle_register_agent,
+            "agent/unregister": self._handle_unregister_agent,
+            "agent/heartbeat": self._handle_heartbeat,
+            "events/send": self._handle_send_event,
         }
 
         handler = method_handlers.get(rpc_request.method)
@@ -618,6 +639,252 @@ class A2ATransport(Transport):
 
         task = await self.task_store.get_task(task_id)
         return task.model_dump(by_alias=True, exclude_none=True)
+
+    # =========================================================================
+    # OpenAgents Extension Methods - Agent Connectivity (like gRPC transport)
+    # =========================================================================
+
+    async def _handle_register_agent(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle agent/register method - register an agent with the network.
+
+        This makes A2A work like gRPC transport where agents can connect
+        and register themselves with the network.
+
+        Args:
+            params: Request parameters containing:
+                - agent_id: Unique agent identifier (required)
+                - metadata: Agent metadata including skills (optional)
+                - capabilities: List of agent capabilities (optional)
+
+        Returns:
+            Registration result with success status
+        """
+        agent_id = params.get("agent_id") or params.get("agentId")
+        if not agent_id:
+            raise ValueError("agent_id is required")
+
+        metadata = params.get("metadata", {})
+        capabilities = params.get("capabilities", [])
+
+        logger.info(f"A2A agent registration: {agent_id}")
+
+        # Create registration event (same as gRPC transport)
+        register_event = Event(
+            event_name=SYSTEM_EVENT_REGISTER_AGENT,
+            source_id=agent_id,
+            payload={
+                "agent_id": agent_id,
+                "metadata": metadata,
+                "capabilities": capabilities,
+                "transport_type": TransportType.A2A,
+            },
+        )
+
+        # Route through event handler to network
+        if self.event_handler:
+            try:
+                response = await self.event_handler(register_event)
+                if response and response.success:
+                    logger.info(f"✅ Registered agent {agent_id} via A2A")
+                    return {
+                        "success": True,
+                        "agent_id": agent_id,
+                        "message": "Agent registered successfully",
+                        "secret": response.data.get("secret", "") if response.data else "",
+                    }
+                else:
+                    error_msg = response.message if response else "Registration failed"
+                    return {
+                        "success": False,
+                        "agent_id": agent_id,
+                        "error": error_msg,
+                    }
+            except Exception as e:
+                logger.error(f"Agent registration error: {e}")
+                return {
+                    "success": False,
+                    "agent_id": agent_id,
+                    "error": str(e),
+                }
+        else:
+            # No event handler - standalone mode
+            return {
+                "success": True,
+                "agent_id": agent_id,
+                "message": "Agent registered (standalone mode)",
+            }
+
+    async def _handle_unregister_agent(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle agent/unregister method - unregister an agent.
+
+        Args:
+            params: Request parameters containing:
+                - agent_id: Agent identifier to unregister (required)
+                - secret: Agent secret for authentication (optional)
+
+        Returns:
+            Unregistration result
+        """
+        agent_id = params.get("agent_id") or params.get("agentId")
+        if not agent_id:
+            raise ValueError("agent_id is required")
+
+        secret = params.get("secret")
+
+        logger.info(f"A2A agent unregistration: {agent_id}")
+
+        # Create unregistration event
+        unregister_event = Event(
+            event_name=SYSTEM_EVENT_UNREGISTER_AGENT,
+            source_id=agent_id,
+            payload={"agent_id": agent_id},
+            secret=secret,
+        )
+
+        # Route through event handler
+        if self.event_handler:
+            try:
+                response = await self.event_handler(unregister_event)
+                if response and response.success:
+                    logger.info(f"✅ Unregistered agent {agent_id} via A2A")
+                    return {
+                        "success": True,
+                        "agent_id": agent_id,
+                        "message": "Agent unregistered successfully",
+                    }
+                else:
+                    error_msg = response.message if response else "Unregistration failed"
+                    return {
+                        "success": False,
+                        "agent_id": agent_id,
+                        "error": error_msg,
+                    }
+            except Exception as e:
+                logger.error(f"Agent unregistration error: {e}")
+                return {
+                    "success": False,
+                    "agent_id": agent_id,
+                    "error": str(e),
+                }
+        else:
+            return {
+                "success": True,
+                "agent_id": agent_id,
+                "message": "Agent unregistered (standalone mode)",
+            }
+
+    async def _handle_heartbeat(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle agent/heartbeat method - agent keepalive.
+
+        Args:
+            params: Request parameters containing:
+                - agent_id: Agent identifier (required)
+
+        Returns:
+            Heartbeat acknowledgment with timestamp
+        """
+        agent_id = params.get("agent_id") or params.get("agentId")
+        if not agent_id:
+            raise ValueError("agent_id is required")
+
+        current_timestamp = int(time.time())
+
+        # Create heartbeat event
+        heartbeat_event = Event(
+            event_name=SYSTEM_EVENT_HEARTBEAT,
+            source_id=agent_id,
+            payload={
+                "agent_id": agent_id,
+                "timestamp": current_timestamp,
+            },
+        )
+
+        # Route through event handler
+        if self.event_handler:
+            try:
+                await self.event_handler(heartbeat_event)
+            except Exception as e:
+                logger.debug(f"Heartbeat handler error (ignored): {e}")
+
+        return {
+            "success": True,
+            "timestamp": current_timestamp,
+        }
+
+    async def _handle_send_event(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle events/send method - send an event through the network.
+
+        This is the A2A equivalent of gRPC's SendEvent, allowing agents
+        to send arbitrary events through the network.
+
+        Args:
+            params: Request parameters containing:
+                - event_name: Name of the event (required)
+                - source_id: Source agent ID (required)
+                - destination_id: Target agent ID (optional)
+                - payload: Event payload data (optional)
+                - metadata: Event metadata (optional)
+
+        Returns:
+            Event response with success status and any response data
+        """
+        event_name = params.get("event_name") or params.get("eventName")
+        source_id = params.get("source_id") or params.get("sourceId")
+
+        if not event_name:
+            raise ValueError("event_name is required")
+        if not source_id:
+            raise ValueError("source_id is required")
+
+        destination_id = params.get("destination_id") or params.get("destinationId")
+        payload = params.get("payload", {})
+        metadata = params.get("metadata", {})
+        visibility = params.get("visibility", "network")
+
+        # Create the event
+        event = Event(
+            event_name=event_name,
+            source_id=source_id,
+            destination_id=destination_id,
+            payload=payload,
+            metadata=metadata,
+            visibility=visibility,
+            timestamp=int(time.time()),
+        )
+
+        logger.debug(f"A2A SendEvent: {event_name} from {source_id}")
+
+        # Route through event handler
+        if self.event_handler:
+            try:
+                response = await self.event_handler(event)
+                return {
+                    "success": response.success if response else True,
+                    "message": response.message if response else "",
+                    "data": response.data if response else None,
+                    "event_name": event_name,
+                }
+            except Exception as e:
+                logger.error(f"SendEvent error: {e}")
+                return {
+                    "success": False,
+                    "message": str(e),
+                    "event_name": event_name,
+                }
+        else:
+            return {
+                "success": True,
+                "message": "Event processed (standalone mode)",
+                "event_name": event_name,
+            }
 
     def _check_auth(self, request: web.Request) -> Optional[web.Response]:
         """Check authentication if required.
