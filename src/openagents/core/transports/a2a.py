@@ -1,10 +1,9 @@
 """
 A2A (Agent2Agent) Transport Implementation for OpenAgents.
 
-This module provides a full A2A transport that works like gRPC transport:
-- Agents can connect and register via A2A protocol
-- Bidirectional event routing
-- External A2A client support
+This module provides a full A2A transport that enables protocol-agnostic
+agent communication. Agents connected via any transport (gRPC, WebSocket,
+HTTP, A2A) can discover and communicate with each other.
 
 Based on A2A Protocol Specification v0.3:
 https://a2a-protocol.org/latest/specification/
@@ -21,10 +20,10 @@ Supported JSON-RPC Methods:
     - tasks/list       - List tasks
     - tasks/cancel     - Cancel a task
 
-    OpenAgents Extensions (agent connectivity like gRPC):
-    - agent/register   - Register an agent with the network
-    - agent/unregister - Unregister an agent
-    - agent/heartbeat  - Agent heartbeat
+    OpenAgents Extensions (A2A-aligned):
+    - agents/announce  - Remote agent announces its A2A endpoint
+    - agents/withdraw  - Remote agent withdraws from network
+    - agents/list      - List all agents (local + remote)
     - events/send      - Send an event through the network
 """
 
@@ -38,13 +37,13 @@ from aiohttp import web
 
 from .base import Transport
 from openagents.models.transport import TransportType, AgentConnection
-from openagents.config.globals import (
-    SYSTEM_EVENT_HEARTBEAT,
-    SYSTEM_EVENT_REGISTER_AGENT,
-    SYSTEM_EVENT_UNREGISTER_AGENT,
-)
 from openagents.models.event import Event
 from openagents.models.event_response import EventResponse
+from openagents.core.remote_agent_registry import (
+    RemoteAgentRegistry,
+    RemoteAgentEntry,
+    RemoteAgentStatus,
+)
 from openagents.models.a2a import (
     AgentCard,
     AgentSkill,
@@ -110,6 +109,7 @@ class A2ATransport(Transport):
         config: Optional[Dict[str, Any]] = None,
         network: Optional["AgentNetwork"] = None,
         task_store: Optional[TaskStore] = None,
+        remote_registry: Optional[RemoteAgentRegistry] = None,
     ):
         """Initialize A2A transport.
 
@@ -117,6 +117,7 @@ class A2ATransport(Transport):
             config: Transport configuration
             network: The network instance (for skill collection)
             task_store: Optional custom task store (defaults to in-memory)
+            remote_registry: Optional remote agent registry (created if not provided)
         """
         super().__init__(TransportType.A2A, config, is_notifiable=True)
 
@@ -132,6 +133,13 @@ class A2ATransport(Transport):
 
         # Authentication configuration
         self.auth_config = self.config.get("auth", {})
+
+        # Remote agent registry
+        remote_config = self.config.get("remote_agents", {})
+        self.remote_registry = remote_registry or RemoteAgentRegistry(
+            config=remote_config,
+            event_callback=self._handle_registry_event,
+        )
 
         # HTTP server components
         self.app = web.Application(middlewares=[self._cors_middleware])
@@ -209,10 +217,26 @@ class A2ATransport(Transport):
         )
 
     def _collect_skills_from_agents(self) -> List[AgentSkill]:
-        """Collect skills from all registered agents.
+        """Collect skills from all registered agents (local and remote).
 
         Returns:
             List of AgentSkill objects from agent metadata
+        """
+        skills = []
+
+        # Collect from local agents
+        skills.extend(self._collect_skills_from_local_agents())
+
+        # Collect from remote A2A agents
+        skills.extend(self._collect_skills_from_remote_agents())
+
+        return skills
+
+    def _collect_skills_from_local_agents(self) -> List[AgentSkill]:
+        """Collect skills from local agents connected via any transport.
+
+        Returns:
+            List of AgentSkill objects from local agent metadata
         """
         skills = []
 
@@ -243,6 +267,14 @@ class A2ATransport(Transport):
                 ))
 
         return skills
+
+    def _collect_skills_from_remote_agents(self) -> List[AgentSkill]:
+        """Collect skills from remote A2A agents.
+
+        Returns:
+            List of AgentSkill objects from remote agent cards
+        """
+        return self.remote_registry.get_all_skills()
 
     def _collect_skills_from_mods(self) -> List[AgentSkill]:
         """Collect skills from loaded mods (tools).
@@ -346,10 +378,10 @@ class A2ATransport(Transport):
             "tasks/get": self._handle_get_task,
             "tasks/list": self._handle_list_tasks,
             "tasks/cancel": self._handle_cancel_task,
-            # OpenAgents extensions - agent connectivity (like gRPC)
-            "agent/register": self._handle_register_agent,
-            "agent/unregister": self._handle_unregister_agent,
-            "agent/heartbeat": self._handle_heartbeat,
+            # OpenAgents extensions (A2A-aligned)
+            "agents/announce": self._handle_announce_agent,
+            "agents/withdraw": self._handle_withdraw_agent,
+            "agents/list": self._handle_list_agents,
             "events/send": self._handle_send_event,
         }
 
@@ -641,181 +673,181 @@ class A2ATransport(Transport):
         return task.model_dump(by_alias=True, exclude_none=True)
 
     # =========================================================================
-    # OpenAgents Extension Methods - Agent Connectivity (like gRPC transport)
+    # OpenAgents Extension Methods - A2A-aligned Agent Management
     # =========================================================================
 
-    async def _handle_register_agent(
+    async def _handle_announce_agent(
         self, params: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Handle agent/register method - register an agent with the network.
+        """Handle agents/announce method - remote agent announces its endpoint.
 
-        This makes A2A work like gRPC transport where agents can connect
-        and register themselves with the network.
+        A2A-aligned way for external agents to join the network. The agent
+        provides its A2A endpoint URL, and the network fetches its Agent Card
+        to discover its capabilities.
 
         Args:
             params: Request parameters containing:
-                - agent_id: Unique agent identifier (required)
-                - metadata: Agent metadata including skills (optional)
-                - capabilities: List of agent capabilities (optional)
+                - url: A2A endpoint URL (required)
+                - agent_id: Preferred agent ID (optional, derived from URL if not provided)
+                - metadata: Additional metadata (optional)
 
         Returns:
-            Registration result with success status
+            Announcement result with assigned agent_id
         """
-        agent_id = params.get("agent_id") or params.get("agentId")
-        if not agent_id:
-            raise ValueError("agent_id is required")
+        url = params.get("url")
+        if not url:
+            raise ValueError("url is required")
 
+        preferred_id = params.get("agent_id") or params.get("agentId")
         metadata = params.get("metadata", {})
-        capabilities = params.get("capabilities", [])
 
-        logger.info(f"A2A agent registration: {agent_id}")
+        logger.info(f"A2A agent announcement: {url} (preferred_id={preferred_id})")
 
-        # Create registration event (same as gRPC transport)
-        register_event = Event(
-            event_name=SYSTEM_EVENT_REGISTER_AGENT,
-            source_id=agent_id,
-            payload={
-                "agent_id": agent_id,
-                "metadata": metadata,
-                "capabilities": capabilities,
-                "transport_type": TransportType.A2A,
-            },
-        )
+        try:
+            entry = await self.remote_registry.announce(
+                url=url,
+                preferred_id=preferred_id,
+                metadata=metadata,
+            )
 
-        # Route through event handler to network
-        if self.event_handler:
-            try:
-                response = await self.event_handler(register_event)
-                if response and response.success:
-                    logger.info(f"✅ Registered agent {agent_id} via A2A")
-                    return {
-                        "success": True,
-                        "agent_id": agent_id,
-                        "message": "Agent registered successfully",
-                        "secret": response.data.get("secret", "") if response.data else "",
-                    }
-                else:
-                    error_msg = response.message if response else "Registration failed"
-                    return {
-                        "success": False,
-                        "agent_id": agent_id,
-                        "error": error_msg,
-                    }
-            except Exception as e:
-                logger.error(f"Agent registration error: {e}")
-                return {
-                    "success": False,
-                    "agent_id": agent_id,
-                    "error": str(e),
-                }
-        else:
-            # No event handler - standalone mode
+            logger.info(f"✅ Announced agent {entry.agent_id} at {url}")
+
             return {
                 "success": True,
-                "agent_id": agent_id,
-                "message": "Agent registered (standalone mode)",
+                "agent_id": entry.agent_id,
+                "url": entry.url,
+                "message": "Agent announced successfully",
+                "skills": [
+                    {"id": s.id, "name": s.name}
+                    for s in (entry.agent_card.skills if entry.agent_card else [])
+                ],
             }
 
-    async def _handle_unregister_agent(
+        except ConnectionError as e:
+            logger.warning(f"Failed to announce agent at {url}: {e}")
+            return {
+                "success": False,
+                "url": url,
+                "error": str(e),
+            }
+        except Exception as e:
+            logger.error(f"Agent announcement error: {e}")
+            return {
+                "success": False,
+                "url": url,
+                "error": str(e),
+            }
+
+    async def _handle_withdraw_agent(
         self, params: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Handle agent/unregister method - unregister an agent.
+        """Handle agents/withdraw method - remote agent leaves the network.
 
         Args:
             params: Request parameters containing:
-                - agent_id: Agent identifier to unregister (required)
-                - secret: Agent secret for authentication (optional)
+                - agent_id: Agent ID to withdraw (required)
 
         Returns:
-            Unregistration result
+            Withdrawal result
         """
         agent_id = params.get("agent_id") or params.get("agentId")
         if not agent_id:
             raise ValueError("agent_id is required")
 
-        secret = params.get("secret")
+        logger.info(f"A2A agent withdrawal: {agent_id}")
 
-        logger.info(f"A2A agent unregistration: {agent_id}")
+        success = await self.remote_registry.withdraw(agent_id)
 
-        # Create unregistration event
-        unregister_event = Event(
-            event_name=SYSTEM_EVENT_UNREGISTER_AGENT,
-            source_id=agent_id,
-            payload={"agent_id": agent_id},
-            secret=secret,
-        )
-
-        # Route through event handler
-        if self.event_handler:
-            try:
-                response = await self.event_handler(unregister_event)
-                if response and response.success:
-                    logger.info(f"✅ Unregistered agent {agent_id} via A2A")
-                    return {
-                        "success": True,
-                        "agent_id": agent_id,
-                        "message": "Agent unregistered successfully",
-                    }
-                else:
-                    error_msg = response.message if response else "Unregistration failed"
-                    return {
-                        "success": False,
-                        "agent_id": agent_id,
-                        "error": error_msg,
-                    }
-            except Exception as e:
-                logger.error(f"Agent unregistration error: {e}")
-                return {
-                    "success": False,
-                    "agent_id": agent_id,
-                    "error": str(e),
-                }
-        else:
+        if success:
+            logger.info(f"✅ Withdrawn agent {agent_id}")
             return {
                 "success": True,
                 "agent_id": agent_id,
-                "message": "Agent unregistered (standalone mode)",
+                "message": "Agent withdrawn successfully",
+            }
+        else:
+            return {
+                "success": False,
+                "agent_id": agent_id,
+                "error": "Agent not found",
             }
 
-    async def _handle_heartbeat(
+    async def _handle_list_agents(
         self, params: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Handle agent/heartbeat method - agent keepalive.
+        """Handle agents/list method - list all agents in the network.
+
+        Returns both local agents (connected via gRPC, WebSocket, etc.)
+        and remote A2A agents that have announced themselves.
 
         Args:
             params: Request parameters containing:
-                - agent_id: Agent identifier (required)
+                - status: Optional filter by status (for remote agents)
+                - include_local: Include local agents (default: True)
+                - include_remote: Include remote agents (default: True)
 
         Returns:
-            Heartbeat acknowledgment with timestamp
+            List of agents with their info
         """
-        agent_id = params.get("agent_id") or params.get("agentId")
-        if not agent_id:
-            raise ValueError("agent_id is required")
+        include_local = params.get("include_local", True)
+        include_remote = params.get("include_remote", True)
+        status_filter = params.get("status")
 
-        current_timestamp = int(time.time())
+        agents = []
 
-        # Create heartbeat event
-        heartbeat_event = Event(
-            event_name=SYSTEM_EVENT_HEARTBEAT,
-            source_id=agent_id,
-            payload={
-                "agent_id": agent_id,
-                "timestamp": current_timestamp,
-            },
-        )
+        # Collect local agents
+        if include_local and self._network:
+            topology = getattr(self._network, "topology", None)
+            if topology:
+                agent_registry = getattr(topology, "agent_registry", {})
+                for agent_id, agent_conn in agent_registry.items():
+                    transport_type = getattr(agent_conn, "transport_type", None)
+                    metadata = getattr(agent_conn, "metadata", {}) or {}
+                    agents.append({
+                        "agent_id": agent_id,
+                        "type": "local",
+                        "transport": transport_type.value if transport_type else "unknown",
+                        "status": "active",
+                        "skills": metadata.get("skills", []),
+                    })
 
-        # Route through event handler
-        if self.event_handler:
-            try:
-                await self.event_handler(heartbeat_event)
-            except Exception as e:
-                logger.debug(f"Heartbeat handler error (ignored): {e}")
+        # Collect remote agents
+        if include_remote:
+            status = RemoteAgentStatus(status_filter) if status_filter else None
+            remote_entries = await self.remote_registry.list(status=status)
+
+            for entry in remote_entries:
+                agents.append({
+                    "agent_id": entry.agent_id,
+                    "type": "remote",
+                    "transport": "a2a",
+                    "url": entry.url,
+                    "status": entry.status.value,
+                    "skills": [
+                        {"id": s.id, "name": s.name}
+                        for s in (entry.agent_card.skills if entry.agent_card else [])
+                    ],
+                    "announced_at": entry.announced_at,
+                    "last_seen": entry.last_seen,
+                })
 
         return {
-            "success": True,
-            "timestamp": current_timestamp,
+            "agents": agents,
+            "total": len(agents),
+            "local_count": sum(1 for a in agents if a["type"] == "local"),
+            "remote_count": sum(1 for a in agents if a["type"] == "remote"),
         }
+
+    async def _handle_registry_event(
+        self, event_name: str, data: Dict[str, Any]
+    ) -> None:
+        """Handle events from the remote agent registry.
+
+        Args:
+            event_name: The event name (e.g., agent.remote.announced)
+            data: Event data
+        """
+        await self._emit_event(event_name, data)
 
     async def _handle_send_event(
         self, params: Dict[str, Any]
@@ -1014,6 +1046,9 @@ class A2ATransport(Transport):
             self.site = web.TCPSite(self.runner, self.host, self.port)
             await self.site.start()
 
+            # Start remote agent registry background tasks
+            await self.remote_registry.start()
+
             self.is_initialized = True
             self.is_listening = True
 
@@ -1021,7 +1056,7 @@ class A2ATransport(Transport):
                 f"A2A Transport listening on http://{self.host}:{self.port}"
             )
             await self._emit_event(
-                A2ATaskEventNames.TRANSPORT_STARTED,
+                "transport.a2a.started",
                 {"host": self.host, "port": self.port},
             )
 
@@ -1037,6 +1072,9 @@ class A2ATransport(Transport):
             True if shutdown succeeded
         """
         try:
+            # Stop remote agent registry background tasks
+            await self.remote_registry.stop()
+
             if self.site:
                 await self.site.stop()
                 self.site = None
@@ -1049,7 +1087,7 @@ class A2ATransport(Transport):
             self.is_listening = False
 
             await self._emit_event(
-                A2ATaskEventNames.TRANSPORT_STOPPED, {}
+                "transport.a2a.stopped", {}
             )
             logger.info("A2A Transport stopped")
 

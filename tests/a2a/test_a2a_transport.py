@@ -701,7 +701,7 @@ class TestTransportFactoryFunction:
 
 
 class TestA2AAgentConnectivity(AioHTTPTestCase):
-    """Tests for A2A agent connectivity (like gRPC transport)."""
+    """Tests for A2A agent connectivity (A2A-aligned approach)."""
 
     async def get_application(self):
         """Get the aiohttp application for testing."""
@@ -713,19 +713,84 @@ class TestA2AAgentConnectivity(AioHTTPTestCase):
         return self.transport.app
 
     @unittest_run_loop
-    async def test_agent_register(self):
-        """Test agent/register method."""
+    async def test_agents_announce_missing_url(self):
+        """Test agents/announce fails without url."""
         resp = await self.client.request(
             "POST", "/",
             json={
                 "jsonrpc": "2.0",
-                "method": "agent/register",
+                "method": "agents/announce",
+                "params": {},
+                "id": "1",
+            },
+        )
+
+        data = await resp.json()
+        assert data["error"]["code"] == A2AErrorCode.INVALID_PARAMS
+
+    @unittest_run_loop
+    async def test_agents_withdraw(self):
+        """Test agents/withdraw method for nonexistent agent."""
+        resp = await self.client.request(
+            "POST", "/",
+            json={
+                "jsonrpc": "2.0",
+                "method": "agents/withdraw",
+                "params": {"agent_id": "nonexistent-agent"},
+                "id": "1",
+            },
+        )
+
+        data = await resp.json()
+        assert "result" in data
+        assert data["result"]["success"] is False
+        assert data["result"]["error"] == "Agent not found"
+
+    @unittest_run_loop
+    async def test_agents_withdraw_missing_id(self):
+        """Test agents/withdraw fails without agent_id."""
+        resp = await self.client.request(
+            "POST", "/",
+            json={
+                "jsonrpc": "2.0",
+                "method": "agents/withdraw",
+                "params": {},
+                "id": "1",
+            },
+        )
+
+        data = await resp.json()
+        assert data["error"]["code"] == A2AErrorCode.INVALID_PARAMS
+
+    @unittest_run_loop
+    async def test_agents_list_empty(self):
+        """Test agents/list with no agents."""
+        resp = await self.client.request(
+            "POST", "/",
+            json={
+                "jsonrpc": "2.0",
+                "method": "agents/list",
+                "params": {},
+                "id": "1",
+            },
+        )
+
+        data = await resp.json()
+        assert "result" in data
+        assert "agents" in data["result"]
+        assert data["result"]["total"] == 0
+
+    @unittest_run_loop
+    async def test_agents_list_with_filters(self):
+        """Test agents/list with filters."""
+        resp = await self.client.request(
+            "POST", "/",
+            json={
+                "jsonrpc": "2.0",
+                "method": "agents/list",
                 "params": {
-                    "agent_id": "test-agent-1",
-                    "metadata": {
-                        "skills": [{"id": "test", "name": "Test Skill"}]
-                    },
-                    "capabilities": ["test"],
+                    "include_local": True,
+                    "include_remote": False,
                 },
                 "id": "1",
             },
@@ -733,87 +798,7 @@ class TestA2AAgentConnectivity(AioHTTPTestCase):
 
         data = await resp.json()
         assert "result" in data
-        assert data["result"]["success"] is True
-        assert data["result"]["agent_id"] == "test-agent-1"
-
-    @unittest_run_loop
-    async def test_agent_register_missing_id(self):
-        """Test agent/register fails without agent_id."""
-        resp = await self.client.request(
-            "POST", "/",
-            json={
-                "jsonrpc": "2.0",
-                "method": "agent/register",
-                "params": {},
-                "id": "1",
-            },
-        )
-
-        data = await resp.json()
-        assert data["error"]["code"] == A2AErrorCode.INVALID_PARAMS
-
-    @unittest_run_loop
-    async def test_agent_unregister(self):
-        """Test agent/unregister method."""
-        # First register
-        await self.client.request(
-            "POST", "/",
-            json={
-                "jsonrpc": "2.0",
-                "method": "agent/register",
-                "params": {"agent_id": "test-agent-2"},
-                "id": "1",
-            },
-        )
-
-        # Then unregister
-        resp = await self.client.request(
-            "POST", "/",
-            json={
-                "jsonrpc": "2.0",
-                "method": "agent/unregister",
-                "params": {"agent_id": "test-agent-2"},
-                "id": "2",
-            },
-        )
-
-        data = await resp.json()
-        assert "result" in data
-        assert data["result"]["success"] is True
-
-    @unittest_run_loop
-    async def test_agent_heartbeat(self):
-        """Test agent/heartbeat method."""
-        resp = await self.client.request(
-            "POST", "/",
-            json={
-                "jsonrpc": "2.0",
-                "method": "agent/heartbeat",
-                "params": {"agent_id": "test-agent-3"},
-                "id": "1",
-            },
-        )
-
-        data = await resp.json()
-        assert "result" in data
-        assert data["result"]["success"] is True
-        assert "timestamp" in data["result"]
-
-    @unittest_run_loop
-    async def test_agent_heartbeat_missing_id(self):
-        """Test agent/heartbeat fails without agent_id."""
-        resp = await self.client.request(
-            "POST", "/",
-            json={
-                "jsonrpc": "2.0",
-                "method": "agent/heartbeat",
-                "params": {},
-                "id": "1",
-            },
-        )
-
-        data = await resp.json()
-        assert data["error"]["code"] == A2AErrorCode.INVALID_PARAMS
+        assert "agents" in data["result"]
 
     @unittest_run_loop
     async def test_events_send(self):
