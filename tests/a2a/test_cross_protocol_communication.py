@@ -1,4 +1,8 @@
-"""Integration tests for cross-protocol communication between gRPC and A2A agents."""
+"""Integration tests for cross-protocol communication between gRPC and A2A agents.
+
+These tests verify that A2A protocol served via HTTP transport at /a2a
+can properly communicate with agents connected via other transports (gRPC, WebSocket).
+"""
 
 import pytest
 import asyncio
@@ -9,7 +13,7 @@ from aiohttp.test_utils import AioHTTPTestCase, unittest_run_loop
 import aiohttp
 
 from openagents.core.topology import CentralizedTopology
-from openagents.core.transports.a2a import A2ATransport
+from openagents.core.transports.http import HttpTransport
 from openagents.models.transport import TransportType, AgentConnection, RemoteAgentStatus
 from openagents.models.network_config import NetworkConfig, NetworkMode
 from openagents.models.event import Event
@@ -339,11 +343,11 @@ class TestCrossProtocolRouting:
 
 
 # =============================================================================
-# Test: A2A Transport with Mock Network
+# Test: A2A via HTTP Transport with Mock Network
 # =============================================================================
 
-class TestA2ATransportWithMockNetwork:
-    """Test A2A transport methods with a mock network and topology."""
+class TestA2AHttpTransportWithMockNetwork:
+    """Test A2A protocol via HTTP transport with a mock network and topology."""
 
     @pytest.fixture
     def mock_network(self, topology, mock_a2a_agent_card):
@@ -352,30 +356,36 @@ class TestA2ATransportWithMockNetwork:
         network.topology = topology
         return network
 
+    @pytest.fixture
+    def http_transport(self, mock_network):
+        """Create HTTP transport with A2A enabled."""
+        transport = HttpTransport(config={'serve_a2a': True})
+        transport.network_instance = mock_network
+        return transport
+
     @pytest.mark.asyncio
-    async def test_agents_announce_via_transport(self, mock_network, mock_a2a_agent_card):
-        """Test announcing an agent via A2A transport."""
-        transport = A2ATransport(network=mock_network)
+    async def test_agents_announce_via_http_a2a(self, http_transport, mock_a2a_agent_card):
+        """Test announcing an agent via A2A on HTTP transport."""
+        topology = http_transport.network_instance.topology
 
         with patch.object(
-            mock_network.topology, 'fetch_agent_card', new_callable=AsyncMock
+            topology, 'fetch_agent_card', new_callable=AsyncMock
         ) as mock_fetch:
             mock_fetch.return_value = mock_a2a_agent_card
 
-            result = await transport._handle_announce_agent({
+            result = await http_transport._a2a_handle_announce_agent({
                 "url": "http://localhost:8901",
                 "agent_id": "summarizer-agent",
             })
 
             assert result["success"] is True
             assert result["agent_id"] == "summarizer-agent"
-            assert "summarizer-agent" in mock_network.topology.agent_registry
+            assert "summarizer-agent" in topology.agent_registry
 
     @pytest.mark.asyncio
-    async def test_agents_list_shows_both_types(self, mock_network, mock_a2a_agent_card):
+    async def test_agents_list_shows_both_types(self, http_transport, mock_a2a_agent_card):
         """Test that agents/list returns both local and remote agents."""
-        transport = A2ATransport(network=mock_network)
-        topology = mock_network.topology
+        topology = http_transport.network_instance.topology
 
         # Add local gRPC agent
         grpc_connection = AgentConnection(
@@ -393,8 +403,8 @@ class TestA2ATransportWithMockNetwork:
                 preferred_id="summarizer-agent",
             )
 
-        # Call agents/list
-        result = await transport._handle_list_agents({})
+        # Call agents/list via HTTP transport's A2A handler
+        result = await http_transport._a2a_handle_list_agents({})
 
         assert result["total"] == 2
         assert result["local_count"] == 1
@@ -414,10 +424,9 @@ class TestA2ATransportWithMockNetwork:
                 assert agent["transport"] == "a2a"
 
     @pytest.mark.asyncio
-    async def test_agents_list_filter_by_type(self, mock_network, mock_a2a_agent_card):
+    async def test_agents_list_filter_by_type(self, http_transport, mock_a2a_agent_card):
         """Test filtering agents by type in agents/list."""
-        transport = A2ATransport(network=mock_network)
-        topology = mock_network.topology
+        topology = http_transport.network_instance.topology
 
         # Add both agents
         grpc_connection = AgentConnection(
@@ -435,7 +444,7 @@ class TestA2ATransportWithMockNetwork:
             )
 
         # Get only local agents
-        result = await transport._handle_list_agents({
+        result = await http_transport._a2a_handle_list_agents({
             "include_local": True,
             "include_remote": False,
         })
@@ -443,7 +452,7 @@ class TestA2ATransportWithMockNetwork:
         assert result["agents"][0]["agent_id"] == "translator-agent"
 
         # Get only remote agents
-        result = await transport._handle_list_agents({
+        result = await http_transport._a2a_handle_list_agents({
             "include_local": False,
             "include_remote": True,
         })
@@ -658,11 +667,11 @@ class TestFullCrossProtocolIntegration:
 
 
 # =============================================================================
-# Test: Events/Send Cross-Protocol
+# Test: Events/Send Cross-Protocol via HTTP Transport
 # =============================================================================
 
 class TestEventsSendCrossProtocol(AioHTTPTestCase):
-    """Test the events/send method for cross-protocol communication."""
+    """Test the events/send method for cross-protocol communication via HTTP /a2a."""
 
     async def get_application(self):
         """Get the aiohttp application for testing."""
@@ -687,14 +696,16 @@ class TestEventsSendCrossProtocol(AioHTTPTestCase):
         )
         self.topology.agent_registry["grpc-agent"] = grpc_connection
 
-        self.transport = A2ATransport(network=self.mock_network)
+        # Use HTTP transport with A2A enabled at /a2a
+        self.transport = HttpTransport(config={'serve_a2a': True})
+        self.transport.network_instance = self.mock_network
         return self.transport.app
 
     @unittest_run_loop
     async def test_send_event_to_grpc_agent(self):
-        """Test sending an event to a gRPC agent via events/send."""
+        """Test sending an event to a gRPC agent via events/send at /a2a."""
         resp = await self.client.request(
-            "POST", "/",
+            "POST", "/a2a",
             json={
                 "jsonrpc": "2.0",
                 "method": "events/send",
@@ -717,7 +728,7 @@ class TestEventsSendCrossProtocol(AioHTTPTestCase):
     async def test_send_event_captures_source_destination(self):
         """Test that events/send correctly captures source and destination."""
         resp = await self.client.request(
-            "POST", "/",
+            "POST", "/a2a",
             json={
                 "jsonrpc": "2.0",
                 "method": "events/send",
@@ -737,11 +748,11 @@ class TestEventsSendCrossProtocol(AioHTTPTestCase):
 
 
 # =============================================================================
-# Test: Agent Card Collection Across Protocols
+# Test: Agent Card Collection Across Protocols via HTTP Transport
 # =============================================================================
 
 class TestAgentCardCollection:
-    """Test Agent Card / skill collection across protocols."""
+    """Test Agent Card / skill collection across protocols via HTTP /a2a."""
 
     @pytest.mark.asyncio
     async def test_generate_agent_card_includes_all_skills(self, topology, mock_a2a_agent_card):
@@ -770,9 +781,10 @@ class TestAgentCardCollection:
                 preferred_id="summarizer",
             )
 
-        # Create transport and generate card
-        transport = A2ATransport(network=mock_network)
-        card = transport._generate_agent_card()
+        # Create HTTP transport with A2A enabled and generate card
+        transport = HttpTransport(config={'serve_a2a': True})
+        transport.network_instance = mock_network
+        card = transport._a2a_generate_agent_card()
 
         # Card should include skills from both local and remote agents
         skill_ids = [s.id for s in card.skills]
