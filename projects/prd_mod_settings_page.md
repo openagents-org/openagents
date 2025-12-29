@@ -18,16 +18,183 @@ Create a dynamic settings page system for mods in the admin dashboard. Instead o
 - Auto-generate settings UI from mod config schema
 - Provide settings access from mod listing page
 - Support multiple configuration types (string, number, boolean, list, object)
-- Enable hot reload of mod settings when possible
-- Notify user when network restart is required
+- Notify user when network restart is required for changes to take effect
 
 ### 1.3 Key Principle
 
-**Schema-Driven UI**: Each mod defines its configuration schema, and the frontend automatically renders the appropriate form controls.
+**Schema-Driven UI**: Each mod defines its configuration schema in its manifest, and the frontend automatically renders the appropriate form controls.
 
 ---
 
-## 2. User Flow
+## 2. Schema-Driven Approach Explained
+
+### 2.1 Current State vs. Proposed State
+
+**Current State**: Mods have only `default_config` with raw values, no metadata about types or constraints:
+
+```json
+// Current: mods/workspace/project/mod_manifest.json
+{
+    "mod_name": "default",
+    "version": "1.0.0",
+    "description": "Project mod for collaboration...",
+    "default_config": {
+        "max_concurrent_projects": 10,
+        "default_service_agents": [],
+        "project_channel_prefix": "project-",
+        "auto_invite_service_agents": true,
+        "project_timeout_hours": 24,
+        "enable_project_persistence": true
+    }
+}
+```
+
+**Proposed State**: Add `config_schema` that describes each field with type, label, constraints:
+
+```json
+// Proposed: mods/workspace/project/mod_manifest.json
+{
+    "mod_name": "default",
+    "version": "1.0.0",
+    "description": "Project mod for collaboration...",
+    "default_config": {
+        "max_concurrent_projects": 10,
+        "default_service_agents": [],
+        "project_channel_prefix": "project-",
+        "auto_invite_service_agents": true,
+        "project_timeout_hours": 24,
+        "enable_project_persistence": true
+    },
+    "config_schema": {
+        "sections": [
+            {
+                "id": "general",
+                "title": "General Settings",
+                "fields": [
+                    {
+                        "key": "max_concurrent_projects",
+                        "type": "number",
+                        "label": "Max Concurrent Projects",
+                        "description": "Maximum number of projects that can run simultaneously",
+                        "default": 10,
+                        "min": 1,
+                        "max": 100
+                    },
+                    {
+                        "key": "project_channel_prefix",
+                        "type": "string",
+                        "label": "Project Channel Prefix",
+                        "description": "Prefix for auto-created project channels",
+                        "default": "project-"
+                    },
+                    {
+                        "key": "project_timeout_hours",
+                        "type": "number",
+                        "label": "Project Timeout (hours)",
+                        "description": "Hours before idle projects are stopped",
+                        "default": 24,
+                        "min": 1
+                    }
+                ]
+            },
+            {
+                "id": "features",
+                "title": "Features",
+                "fields": [
+                    {
+                        "key": "auto_invite_service_agents",
+                        "type": "boolean",
+                        "label": "Auto-invite Service Agents",
+                        "description": "Automatically add service agents to new projects",
+                        "default": true
+                    },
+                    {
+                        "key": "enable_project_persistence",
+                        "type": "boolean",
+                        "label": "Enable Persistence",
+                        "description": "Persist project state across network restarts",
+                        "default": true
+                    }
+                ]
+            },
+            {
+                "id": "agents",
+                "title": "Service Agents",
+                "fields": [
+                    {
+                        "key": "default_service_agents",
+                        "type": "list",
+                        "item_type": "string",
+                        "label": "Default Service Agents",
+                        "description": "Agent IDs to auto-invite to all projects",
+                        "default": []
+                    }
+                ]
+            }
+        ]
+    }
+}
+```
+
+### 2.2 How the UI is Generated
+
+The frontend reads the `config_schema` and dynamically creates form controls:
+
+```
+config_schema.sections
+    ↓
+┌─────────────────────────────────────────────────┐
+│ Section: "General Settings"                      │
+├─────────────────────────────────────────────────┤
+│  ┌─────────────────────────────────────────┐    │
+│  │ type: "number" → <NumberInput>          │    │
+│  │ key: "max_concurrent_projects"          │    │
+│  │ label: "Max Concurrent Projects"        │    │
+│  │ min: 1, max: 100                        │    │
+│  └─────────────────────────────────────────┘    │
+│  ┌─────────────────────────────────────────┐    │
+│  │ type: "string" → <TextInput>            │    │
+│  │ key: "project_channel_prefix"           │    │
+│  │ label: "Project Channel Prefix"         │    │
+│  └─────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────┘
+```
+
+### 2.3 How Config Flows Through the System
+
+```
+┌──────────────────┐     ┌───────────────┐     ┌─────────────────┐
+│ mod_manifest.json│     │  network.yaml │     │ Mod Instance    │
+│                  │     │               │     │                 │
+│ config_schema:   │     │ mods:         │     │ self.config:    │
+│   - field defs   │     │   - project:  │     │   max_concurrent│
+│                  │     │       max: 20 │     │   _projects: 20 │
+│ default_config:  │     │               │     │                 │
+│   max: 10        │     │               │     │                 │
+└────────┬─────────┘     └───────┬───────┘     └────────▲────────┘
+         │                       │                      │
+         │   UI renders from     │   Values saved to    │
+         │   config_schema       │   network.yaml       │
+         ▼                       ▼                      │
+┌─────────────────────────────────────────────────────┐ │
+│            Settings Modal (Frontend)                  │ │
+│                                                       │ │
+│  Max Concurrent Projects: [20        ]               │──┘
+│                                                       │ mod.update_config()
+│  [Save] → PUT /api/admin/mods/project/config         │ called on restart
+└─────────────────────────────────────────────────────┘
+```
+
+### 2.4 Configuration Priority
+
+When loading a mod:
+1. **default_config** from `mod_manifest.json` provides base values
+2. **network.yaml** overrides with user-configured values
+3. **Runtime** values stored in `mod._config` dictionary
+
+---
+
+## 3. User Flow
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -99,9 +266,9 @@ Create a dynamic settings page system for mods in the admin dashboard. Instead o
 
 ---
 
-## 3. Configuration Schema Design
+## 4. Configuration Schema Design
 
-### 3.1 Schema Structure
+### 4.1 Schema Structure
 
 Each mod should define a configuration schema in `mod_manifest.json`:
 
@@ -195,7 +362,7 @@ Each mod should define a configuration schema in `mod_manifest.json`:
 }
 ```
 
-### 3.2 Supported Field Types
+### 4.2 Supported Field Types
 
 | Type | UI Component | Props |
 |------|-------------|-------|
@@ -211,7 +378,7 @@ Each mod should define a configuration schema in `mod_manifest.json`:
 | `color` | Color Picker | - |
 | `file_path` | Path Input | `base_path` |
 
-### 3.3 Field Definition Interface
+### 4.3 Field Definition Interface
 
 ```typescript
 interface ConfigField {
@@ -263,9 +430,9 @@ type FieldType =
 
 ---
 
-## 4. Component Architecture
+## 5. Component Architecture
 
-### 4.1 Component Hierarchy
+### 5.1 Component Hierarchy
 
 ```
 ModSettingsModal
@@ -291,9 +458,9 @@ ModSettingsModal
     └── Save button
 ```
 
-### 4.2 Core Components
+### 5.2 Core Components
 
-#### 4.2.1 ModSettingsModal
+#### 5.2.1 ModSettingsModal
 
 ```tsx
 // components/admin/ModSettingsModal.tsx
@@ -387,7 +554,7 @@ export const ModSettingsModal: React.FC<ModSettingsModalProps> = ({
 };
 ```
 
-#### 4.2.2 FieldRenderer (Dynamic Field Factory)
+#### 5.2.2 FieldRenderer (Dynamic Field Factory)
 
 ```tsx
 // components/admin/fields/FieldRenderer.tsx
@@ -448,7 +615,7 @@ export const FieldRenderer: React.FC<FieldRendererProps> = ({
 };
 ```
 
-#### 4.2.3 Individual Field Components
+#### 5.2.3 Individual Field Components
 
 ```tsx
 // StringField
@@ -559,9 +726,9 @@ const ListField: React.FC<FieldProps> = ({ field, value, onChange }) => {
 
 ---
 
-## 5. Backend API
+## 6. Backend API
 
-### 5.1 Endpoints
+### 6.1 Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -572,7 +739,7 @@ const ListField: React.FC<FieldProps> = ({ field, value, onChange }) => {
 | `POST /api/admin/mods/{mod_id}/reload` | POST | Hot reload mod |
 | `POST /api/admin/network/restart` | POST | Restart network |
 
-### 5.2 Response Types
+### 6.2 Response Types
 
 ```typescript
 // GET /api/admin/mods
@@ -619,62 +786,146 @@ interface ReloadResponse {
 
 ---
 
-## 6. Hot Reload vs Restart
+## 7. Network Restart (Config Changes)
 
-### 6.1 Reload Strategy
+### 7.1 Current Architecture Reality
+
+Based on the actual codebase (`src/openagents/core/network.py`), the system uses **network-level restart** rather than individual mod hot reload:
 
 ```python
-# In mod base class
+# From network.py - restart() method
+async def restart(self, new_config: Optional[NetworkConfig] = None) -> bool:
+    """
+    Restart the network gracefully without restarting the process.
+
+    Steps:
+    1. Shutting down current network gracefully (calls mod.shutdown() on each mod)
+    2. Applying new configuration (or reloading from file)
+    3. Reinitializing the network (calls mod.initialize() on each mod)
+    """
+```
+
+### 7.2 Restart Flow
+
+```
+User saves config in Settings Modal
+            ↓
+    Config saved to network.yaml
+            ↓
+    Show "Restart Required" dialog
+            ↓ (user clicks "Restart Now")
+    POST /api/admin/network/restart
+            ↓
+┌───────────────────────────────────────┐
+│         network.restart()             │
+├───────────────────────────────────────┤
+│ 1. For each mod: mod.shutdown()       │
+│    - Graceful cleanup                 │
+│    - Save state if needed             │
+│                                       │
+│ 2. Reload network.yaml                │
+│    - Get updated config values        │
+│                                       │
+│ 3. load_network_mods(new_config)      │
+│    - Create new mod instances         │
+│    - mod.update_config(config)        │
+│    - mod.bind_network(network)        │
+│    - mod.initialize()                 │
+└───────────────────────────────────────┘
+            ↓
+    All mods running with new config
+```
+
+### 7.3 How Mods Use Config
+
+Mods read config in their `initialize()` method (from `mods/workspace/project/mod.py`):
+
+```python
+def initialize(self) -> bool:
+    """Initialize the mod with configuration."""
+    config = self.config or {}  # Gets self._config set by update_config()
+
+    # Load config values
+    self.max_concurrent_projects = config.get("max_concurrent_projects", 10)
+    self.template_config = config.get("project_templates", {})
+    self._load_templates()
+
+    return True
+```
+
+### 7.4 Why Network Restart (Not Hot Reload)
+
+| Reason | Explanation |
+|--------|-------------|
+| **Consistency** | All mods reinitialize with fresh state |
+| **Safety** | Mods can have complex internal state tied to config |
+| **Simplicity** | No need for each mod to implement reload logic |
+| **Existing support** | `network.restart()` already exists and works |
+
+### 7.5 Future: Optional Hot Reload Support
+
+If individual mod hot reload is desired in future, add to `BaseMod`:
+
+```python
 class BaseMod:
     def supports_hot_reload(self) -> bool:
         """Override to indicate if mod supports hot reload."""
         return False
 
     async def reload_config(self, new_config: dict) -> bool:
-        """
-        Reload configuration without network restart.
-        Override in subclass to implement hot reload.
-        Returns True if reload successful, False if restart needed.
-        """
-        return False
+        """Reload config without restart. Override in subclass."""
+        self.update_config(new_config)
+        return self.initialize()  # Re-run initialization
 ```
 
-### 6.2 Mod Reload Categories
+But for now, **all config changes require network restart**.
 
-| Category | Mods | Hot Reload? |
-|----------|------|-------------|
-| **Safe to reload** | Most settings (limits, toggles) | ✅ Yes |
-| **Requires restart** | Default channels, storage paths | ❌ No |
-| **Depends on setting** | Some mods | ⚠️ Partial |
-
-### 6.3 UI Feedback
+### 7.6 UI Feedback
 
 ```tsx
-// After save
-if (response.success) {
-  if (response.requiresRestart) {
-    // Show restart dialog
+// After save - always show restart dialog
+const handleSaveComplete = (response: SaveResponse) => {
+  if (response.success) {
     showDialog({
-      title: 'Restart Required',
+      title: 'Settings Saved',
       message: 'Network restart is required for changes to take effect.',
+      icon: 'information',
       actions: [
-        { label: 'Restart Later', onClick: closeModal },
-        { label: 'Restart Now', onClick: restartNetwork, variant: 'primary' }
+        {
+          label: 'Restart Later',
+          onClick: closeModal,
+          variant: 'light'
+        },
+        {
+          label: 'Restart Now',
+          onClick: () => restartNetwork(),
+          variant: 'primary'
+        }
       ]
     });
-  } else {
-    // Show success toast
-    toast.success('Settings saved and applied successfully!');
-    closeModal();
   }
-}
+};
+
+// Restart network
+const restartNetwork = async () => {
+  setRestarting(true);
+  try {
+    await fetch('/api/admin/network/restart', { method: 'POST' });
+    toast.success('Network restarted successfully');
+    closeModal();
+  } catch (error) {
+    toast.error('Failed to restart network');
+  } finally {
+    setRestarting(false);
+  }
+};
 ```
 
 ---
 
-## 7. Mod Listing Page Integration
+## 8. Mod Listing Page Integration
 
-### 7.1 Updated Mod Card
+### 8.1 Updated Mod Card
 
 ```tsx
 // components/admin/ModCard.tsx
@@ -730,7 +981,7 @@ export const ModCard: React.FC<ModCardProps> = ({ mod, onToggle, onSettings }) =
 };
 ```
 
-### 7.2 Mod List Page
+### 8.2 Mod List Page
 
 ```tsx
 // pages/admin/ModManagement.tsx
@@ -787,7 +1038,7 @@ export const ModManagement: React.FC = () => {
 
 ---
 
-## 8. Requirements
+## 9. Requirements
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
@@ -804,7 +1055,7 @@ export const ModManagement: React.FC = () => {
 | MS-11 | Validate required fields | P0 |
 | MS-12 | Validate min/max constraints | P1 |
 | MS-13 | Save config to network.yaml | P0 |
-| MS-14 | Hot reload mod if supported | P1 |
+| MS-14 | Save config to network.yaml triggers restart prompt | P0 |
 | MS-15 | Show restart required dialog when needed | P0 |
 | MS-16 | Restart network button in dialog | P0 |
 | MS-17 | Show current values from config | P0 |
@@ -819,9 +1070,9 @@ export const ModManagement: React.FC = () => {
 
 ---
 
-## 9. Schema Migration
+## 10. Schema Migration
 
-### 9.1 Adding Schema to Existing Mods
+### 10.1 Adding Schema to Existing Mods
 
 Each mod's `mod_manifest.json` needs to be updated to include `config_schema`:
 
@@ -838,7 +1089,7 @@ Each mod's `mod_manifest.json` needs to be updated to include `config_schema`:
 }
 ```
 
-### 9.2 Fallback for Mods Without Schema
+### 10.2 Fallback for Mods Without Schema
 
 For mods without a defined schema, the UI should:
 1. Show "No configurable settings" message
@@ -846,14 +1097,14 @@ For mods without a defined schema, the UI should:
 
 ---
 
-## 10. Acceptance Criteria
+## 11. Acceptance Criteria
 
 - [ ] All mods with config show settings button
 - [ ] Clicking settings opens modal with form
 - [ ] Form is auto-generated from mod's config_schema
 - [ ] All field types render correctly
 - [ ] Saving updates network.yaml
-- [ ] Hot reload works for supported mods
+- [ ] Network restart applies config changes
 - [ ] Restart dialog shows when needed
 - [ ] Restart button works
 - [ ] Validation errors display properly
