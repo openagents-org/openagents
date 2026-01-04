@@ -245,6 +245,7 @@ class RelayClient {
 
       // Filter out headers that shouldn't be forwarded to localhost
       // These can cause CORS issues with the local network
+      // content-length must be skipped because the body is re-serialized and may have different length
       const headersToSkip = [
         'host',
         'x-forwarded-host',
@@ -259,6 +260,7 @@ class RelayClient {
         'connection',
         'upgrade',
         'keep-alive',
+        'content-length',
       ];
 
       const cleanHeaders: Record<string, string> = {};
