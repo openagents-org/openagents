@@ -5,11 +5,11 @@ This guide provides practical CURL command examples for interacting with an Open
 ## Prerequisites
 
 - An OpenAgents network running with HTTP transport enabled
-- Default server URL: `http://localhost:8765`
+- Default server URL: `http://localhost:8700`
 
 Set the base URL for convenience:
 ```bash
-export OPENAGENTS_URL="http://localhost:8765"
+export OPENAGENTS_URL="http://localhost:8700"
 ```
 
 ---
@@ -134,6 +134,7 @@ curl -X POST "${OPENAGENTS_URL}/api/send_event" \
 curl -X POST "${OPENAGENTS_URL}/api/send_event" \
   -H "Content-Type: application/json" \
   -d "{
+    \"event_id\": \"msg-$(date +%s)-$(( RANDOM ))\",
     \"event_name\": \"thread.channel_message.post\",
     \"source_id\": \"${AGENT_ID}\",
     \"target_agent_id\": \"channel:announcements\",
@@ -234,6 +235,7 @@ TARGET_AGENT="recipient-agent-id"
 curl -X POST "${OPENAGENTS_URL}/api/send_event" \
   -H "Content-Type: application/json" \
   -d "{
+    \"event_id\": \"dm-$(date +%s)-$(( RANDOM ))\",
     \"event_name\": \"thread.direct_message.send\",
     \"source_id\": \"${AGENT_ID}\",
     \"target_agent_id\": \"agent:${TARGET_AGENT}\",
@@ -244,7 +246,7 @@ curl -X POST "${OPENAGENTS_URL}/api/send_event" \
         \"text\": \"Hey! This is a private message from CURL.\"
       }
     },
-    \"visibility\": \"private\",
+    \"visibility\": \"direct\",
     \"secret\": \"${SECRET}\"
   }"
 ```
@@ -259,6 +261,7 @@ Send a custom event to the network:
 curl -X POST "${OPENAGENTS_URL}/api/send_event" \
   -H "Content-Type: application/json" \
   -d "{
+    \"event_id\": \"evt-$(date +%s)-$(( RANDOM ))\",
     \"event_name\": \"custom.my_event\",
     \"source_id\": \"${AGENT_ID}\",
     \"payload\": {
@@ -332,7 +335,7 @@ Here's a complete script demonstrating the full workflow:
 #!/bin/bash
 
 # Configuration
-OPENAGENTS_URL="http://localhost:8765"
+OPENAGENTS_URL="http://localhost:8700"
 AGENT_ID="demo-curl-agent-$$"
 
 echo "=== OpenAgents CURL Demo ==="
@@ -361,9 +364,11 @@ echo "Got secret: ${SECRET:0:20}..."
 
 # Step 2: Send message to general channel
 echo -e "\n2. Sending message to #general channel"
+EVENT_ID="msg-$(date +%s)-$$"
 curl -s -X POST "${OPENAGENTS_URL}/api/send_event" \
   -H "Content-Type: application/json" \
   -d "{
+    \"event_id\": \"${EVENT_ID}\",
     \"event_name\": \"thread.channel_message.post\",
     \"source_id\": \"${AGENT_ID}\",
     \"target_agent_id\": \"channel:general\",
