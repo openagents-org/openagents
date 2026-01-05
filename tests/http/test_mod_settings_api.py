@@ -95,9 +95,9 @@ async def test_get_mods(test_network):
                 assert "description" in mod
                 assert "enabled" in mod
                 assert "hasConfig" in mod
-                # Check that currentConfig is included for mods with config
+                # Check that currentConfig key exists for mods with config
                 if mod.get("hasConfig"):
-                    assert "currentConfig" in mod or mod.get("currentConfig") is not None
+                    assert "currentConfig" in mod
 
 
 @pytest.mark.asyncio
@@ -246,7 +246,6 @@ async def test_config_update_reflects_in_list(test_network):
             
             if mod_with_config:
                 mod_id = mod_with_config["id"]
-                original_config = mod_with_config.get("currentConfig", {})
                 
                 # Update the config
                 update_url = f"http://localhost:{http_port}/api/admin/mods/{mod_id}/config"
