@@ -183,6 +183,13 @@ class HttpTransport(Transport):
         self.app.router.add_post("/api/admin/default-model", self.save_default_model)
         self.app.router.add_delete("/api/admin/default-model", self.delete_default_model)
         self.app.router.add_post("/api/admin/default-model/test", self.test_default_model)
+        
+        # Mod settings endpoints
+        self.app.router.add_get("/api/admin/mods", self.get_mods)
+        self.app.router.add_get("/api/admin/mods/{mod_id}/config", self.get_mod_config)
+        self.app.router.add_get("/api/admin/mods/{mod_id}/schema", self.get_mod_schema)
+        self.app.router.add_put("/api/admin/mods/{mod_id}/config", self.update_mod_config)
+        self.app.router.add_post("/api/admin/network/restart", self.restart_network)
         # LLM Logs API endpoints
         self.app.router.add_get("/api/agents/service/{agent_id}/llm-logs", self.get_llm_logs)
         self.app.router.add_get("/api/agents/service/{agent_id}/llm-logs/{log_id}", self.get_llm_log_entry)
@@ -4829,6 +4836,350 @@ console.log(response);
         "python": python_example,
         "javascript": js_example,
     }
+
+    async def get_mods(self, request):
+        """Get list of all mods with their information.
+        
+        Returns:
+            JSON response with list of mods including their config and schema info
+        """
+        try:
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "error": "Network instance not available"},
+                    status=500
+                )
+            
+            import importlib
+            import json
+            from pathlib import Path
+            from openagents.models.mod_settings import ModInfo
+            from openagents.models.manifest import ModManifest
+            
+            mods_list = []
+            
+            # Iterate through configured mods
+            for mod_config in self.network_instance.config.mods:
+                mod_name = mod_config.name
+                mod_enabled = mod_config.enabled
+                
+                # Extract mod_id (last part of the module path)
+                mod_id = mod_name.split('.')[-1]
+                
+                # Try to load manifest
+                try:
+                    # Import the mod module to get its path
+                    mod_module = importlib.import_module(mod_name)
+                    mod_path = Path(mod_module.__file__).parent
+                    manifest_path = mod_path / "mod_manifest.json"
+                    
+                    if manifest_path.exists():
+                        with open(manifest_path, 'r') as f:
+                            manifest_data = json.load(f)
+                        
+                        # Parse manifest using Pydantic model
+                        manifest = ModManifest(**manifest_data)
+                        
+                        # Get current config from network config
+                        current_config = {}
+                        if hasattr(mod_config, 'config') and mod_config.config:
+                            current_config = mod_config.config
+                        
+                        # Build ModInfo
+                        mod_info = ModInfo(
+                            id=mod_id,
+                            name=mod_name,
+                            displayName=manifest.description.split(' - ')[0] if ' - ' in manifest.description else manifest.description[:50],
+                            description=manifest.description,
+                            enabled=mod_enabled,
+                            hasConfig=bool(manifest.default_config or manifest.config_schema),
+                            configSchema=manifest.config_schema,
+                            version=manifest.version
+                        )
+                        
+                        mods_list.append(mod_info.model_dump(exclude_none=True))
+                    else:
+                        # No manifest, create basic info
+                        mods_list.append({
+                            "id": mod_id,
+                            "name": mod_name,
+                            "displayName": mod_id.replace('_', ' ').title(),
+                            "description": f"Mod: {mod_name}",
+                            "enabled": mod_enabled,
+                            "hasConfig": False,
+                            "version": "unknown"
+                        })
+                except Exception as e:
+                    logger.warning(f"Failed to load manifest for mod {mod_name}: {e}")
+                    # Add basic info even if manifest loading fails
+                    mods_list.append({
+                        "id": mod_id,
+                        "name": mod_name,
+                        "displayName": mod_id.replace('_', ' ').title(),
+                        "description": f"Mod: {mod_name}",
+                        "enabled": mod_enabled,
+                        "hasConfig": False,
+                        "version": "unknown"
+                    })
+            
+            return web.json_response({
+                "success": True,
+                "mods": mods_list
+            })
+            
+        except Exception as e:
+            logger.error(f"Failed to get mods: {e}", exc_info=True)
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+    
+    async def get_mod_config(self, request):
+        """Get current configuration for a specific mod.
+        
+        Args:
+            request: HTTP request with mod_id in path
+            
+        Returns:
+            JSON response with current mod configuration
+        """
+        try:
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "error": "Network instance not available"},
+                    status=500
+                )
+            
+            mod_id = request.match_info.get('mod_id')
+            if not mod_id:
+                return web.json_response(
+                    {"success": False, "error": "mod_id is required"},
+                    status=400
+                )
+            
+            # Find mod in config
+            mod_config = None
+            for mod in self.network_instance.config.mods:
+                if mod.name.endswith(f'.{mod_id}') or mod.name == mod_id:
+                    mod_config = mod
+                    break
+            
+            if not mod_config:
+                return web.json_response(
+                    {"success": False, "error": f"Mod {mod_id} not found"},
+                    status=404
+                )
+            
+            # Get current config
+            current_config = {}
+            if hasattr(mod_config, 'config') and mod_config.config:
+                current_config = mod_config.config
+            
+            return web.json_response({
+                "success": True,
+                "config": current_config
+            })
+            
+        except Exception as e:
+            logger.error(f"Failed to get mod config: {e}", exc_info=True)
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+    
+    async def get_mod_schema(self, request):
+        """Get configuration schema for a specific mod.
+        
+        Args:
+            request: HTTP request with mod_id in path
+            
+        Returns:
+            JSON response with mod configuration schema
+        """
+        try:
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "error": "Network instance not available"},
+                    status=500
+                )
+            
+            mod_id = request.match_info.get('mod_id')
+            if not mod_id:
+                return web.json_response(
+                    {"success": False, "error": "mod_id is required"},
+                    status=400
+                )
+            
+            import importlib
+            import json
+            from pathlib import Path
+            from openagents.models.manifest import ModManifest
+            
+            # Find mod in config
+            mod_name = None
+            for mod in self.network_instance.config.mods:
+                if mod.name.endswith(f'.{mod_id}') or mod.name == mod_id:
+                    mod_name = mod.name
+                    break
+            
+            if not mod_name:
+                return web.json_response(
+                    {"success": False, "error": f"Mod {mod_id} not found"},
+                    status=404
+                )
+            
+            # Load manifest
+            try:
+                mod_module = importlib.import_module(mod_name)
+                mod_path = Path(mod_module.__file__).parent
+                manifest_path = mod_path / "mod_manifest.json"
+                
+                if not manifest_path.exists():
+                    return web.json_response(
+                        {"success": False, "error": f"Manifest not found for mod {mod_id}"},
+                        status=404
+                    )
+                
+                with open(manifest_path, 'r') as f:
+                    manifest_data = json.load(f)
+                
+                manifest = ModManifest(**manifest_data)
+                
+                if not manifest.config_schema:
+                    return web.json_response(
+                        {"success": False, "error": f"No config schema defined for mod {mod_id}"},
+                        status=404
+                    )
+                
+                return web.json_response({
+                    "success": True,
+                    "schema": manifest.config_schema.model_dump(exclude_none=True)
+                })
+                
+            except Exception as e:
+                logger.error(f"Failed to load manifest for mod {mod_id}: {e}")
+                return web.json_response(
+                    {"success": False, "error": f"Failed to load manifest: {str(e)}"},
+                    status=500
+                )
+            
+        except Exception as e:
+            logger.error(f"Failed to get mod schema: {e}", exc_info=True)
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+    
+    async def update_mod_config(self, request):
+        """Update configuration for a specific mod.
+        
+        Args:
+            request: HTTP request with mod_id in path and config in body
+            
+        Returns:
+            JSON response with success status and whether restart is required
+        """
+        try:
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "error": "Network instance not available"},
+                    status=500
+                )
+            
+            mod_id = request.match_info.get('mod_id')
+            if not mod_id:
+                return web.json_response(
+                    {"success": False, "error": "mod_id is required"},
+                    status=400
+                )
+            
+            # Parse request body
+            try:
+                data = await request.json()
+            except json.JSONDecodeError:
+                return web.json_response(
+                    {"success": False, "error": "Invalid JSON in request body"},
+                    status=400
+                )
+            
+            config_update = data.get('config', {})
+            
+            # Find mod in config
+            mod_config = None
+            mod_index = None
+            for i, mod in enumerate(self.network_instance.config.mods):
+                if mod.name.endswith(f'.{mod_id}') or mod.name == mod_id:
+                    mod_config = mod
+                    mod_index = i
+                    break
+            
+            if not mod_config:
+                return web.json_response(
+                    {"success": False, "error": f"Mod {mod_id} not found"},
+                    status=404
+                )
+            
+            # Update the config in the mod configuration
+            if not hasattr(mod_config, 'config') or mod_config.config is None:
+                mod_config.config = {}
+            
+            mod_config.config.update(config_update)
+            
+            # Save the updated config to network.yaml
+            success = self.network_instance.save_config()
+            
+            if not success:
+                return web.json_response(
+                    {"success": False, "error": "Failed to save configuration"},
+                    status=500
+                )
+            
+            # Update the running mod instance if it exists
+            mod_instance = self.network_instance.mods.get(mod_config.name)
+            if mod_instance:
+                mod_instance.update_config(config_update)
+            
+            return web.json_response({
+                "success": True,
+                "requiresRestart": True,
+                "message": "Configuration updated successfully. Restart network for changes to take effect."
+            })
+            
+        except Exception as e:
+            logger.error(f"Failed to update mod config: {e}", exc_info=True)
+            return web.json_response(
+                {"success": False, "error": str(e)},
+                status=500
+            )
+    
+    async def restart_network(self, request):
+        """Restart the network to apply configuration changes.
+        
+        Returns:
+            JSON response with restart status
+        """
+        try:
+            if not self.network_instance:
+                return web.json_response(
+                    {"success": False, "message": "Network instance not available"},
+                    status=500
+                )
+            
+            # Note: In a real implementation, this would trigger a network restart
+            # For now, we just indicate that restart is not implemented in the API
+            # The user will need to manually restart the network
+            
+            return web.json_response({
+                "success": False,
+                "message": "Network restart must be performed manually. Please restart the OpenAgents process."
+            })
+            
+        except Exception as e:
+            logger.error(f"Failed to restart network: {e}", exc_info=True)
+            return web.json_response(
+                {"success": False, "message": str(e)},
+                status=500
+            )
 
 
 # Convenience function for creating HTTP transport

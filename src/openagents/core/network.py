@@ -766,6 +766,30 @@ class AgentNetwork:
                     }
                 config_dict['network']['agent_groups']['admin']['password_hash'] = \
                     self.config.agent_groups['admin'].password_hash
+            
+            # Update mod configurations
+            if self.config.mods:
+                if 'mods' not in config_dict['network']:
+                    config_dict['network']['mods'] = []
+                
+                # Update existing mods in the YAML with their current config
+                for mod_config in self.config.mods:
+                    # Find the mod in the YAML structure
+                    mod_found = False
+                    for i, mod_dict in enumerate(config_dict['network']['mods']):
+                        if mod_dict.get('name') == mod_config.name:
+                            # Update the config if it exists
+                            if hasattr(mod_config, 'config') and mod_config.config:
+                                mod_dict['config'] = mod_config.config
+                            mod_found = True
+                            break
+                    
+                    # If mod not found in YAML, add it
+                    if not mod_found:
+                        mod_dict = {'name': mod_config.name, 'enabled': mod_config.enabled}
+                        if hasattr(mod_config, 'config') and mod_config.config:
+                            mod_dict['config'] = mod_config.config
+                        config_dict['network']['mods'].append(mod_dict)
 
             # Write back to file
             with open(self.config_path, 'w') as f:

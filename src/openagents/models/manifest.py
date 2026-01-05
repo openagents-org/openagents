@@ -2,6 +2,7 @@
 
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field, validator
+from openagents.models.mod_settings import ConfigSchema
 
 
 class ModManifest(BaseModel):
@@ -31,6 +32,9 @@ class ModManifest(BaseModel):
     )
     default_config: Dict[str, Any] = Field(
         default_factory=dict, description="Configuration for the mod"
+    )
+    config_schema: Optional[ConfigSchema] = Field(
+        None, description="Schema defining the configuration fields and their types"
     )
     requires_adapter: bool = Field(
         True, description="Whether the mod requires an agent adapter"
