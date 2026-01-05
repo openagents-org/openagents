@@ -62,5 +62,57 @@
         "auto_invite_service_agents": true,
         "project_timeout_hours": 24,
         "enable_project_persistence": true
+    },
+    "config_schema": {
+        "sections": [
+            {
+                "id": "general",
+                "title": "General Settings",
+                "description": "General configuration for project management",
+                "fields": [
+                    {
+                        "key": "max_concurrent_projects",
+                        "type": "number",
+                        "label": "Max Concurrent Projects",
+                        "description": "Maximum number of projects that can run simultaneously",
+                        "default": 10,
+                        "min": 1,
+                        "max": 100,
+                        "required": true
+                    },
+                    {
+                        "key": "auto_invite_service_agents",
+                        "type": "boolean",
+                        "label": "Auto-invite Service Agents",
+                        "description": "Automatically add service agents to new projects",
+                        "default": true
+                    },
+                    {
+                        "key": "project_channel_prefix",
+                        "type": "string",
+                        "label": "Project Channel Prefix",
+                        "description": "Prefix for project channel names",
+                        "default": "project-",
+                        "maxLength": 20
+                    },
+                    {
+                        "key": "project_timeout_hours",
+                        "type": "number",
+                        "label": "Project Timeout (hours)",
+                        "description": "Hours before an inactive project times out",
+                        "default": 24,
+                        "min": 1,
+                        "max": 168
+                    },
+                    {
+                        "key": "enable_project_persistence",
+                        "type": "boolean",
+                        "label": "Enable Project Persistence",
+                        "description": "Save project state to disk for recovery",
+                        "default": true
+                    }
+                ]
+            }
+        ]
     }
 }
