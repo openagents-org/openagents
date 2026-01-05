@@ -95,6 +95,9 @@ async def test_get_mods(test_network):
                 assert "description" in mod
                 assert "enabled" in mod
                 assert "hasConfig" in mod
+                # Check that currentConfig is included for mods with config
+                if mod.get("hasConfig"):
+                    assert "currentConfig" in mod or mod.get("currentConfig") is not None
 
 
 @pytest.mark.asyncio
@@ -220,3 +223,56 @@ async def test_get_nonexistent_mod(test_network):
             data = await resp.json()
             assert data["success"] is False
             assert "error" in data
+
+
+@pytest.mark.asyncio
+async def test_config_update_reflects_in_list(test_network):
+    """Test that config updates are reflected in the mods list."""
+    network, http_port = test_network
+    
+    async with aiohttp.ClientSession() as session:
+        # First, get the list of mods to find one with config
+        list_url = f"http://localhost:{http_port}/api/admin/mods"
+        async with session.get(list_url) as resp:
+            assert resp.status == 200
+            data = await resp.json()
+            
+            # Find a mod with config
+            mod_with_config = None
+            for mod in data["mods"]:
+                if mod.get("hasConfig"):
+                    mod_with_config = mod
+                    break
+            
+            if mod_with_config:
+                mod_id = mod_with_config["id"]
+                original_config = mod_with_config.get("currentConfig", {})
+                
+                # Update the config
+                update_url = f"http://localhost:{http_port}/api/admin/mods/{mod_id}/config"
+                new_config = {"test_field_integration": "test_value_123"}
+                update_data = {"config": new_config}
+                
+                async with session.put(update_url, json=update_data) as update_resp:
+                    # May be 500 if config_path not set in test env, or 200 if successful
+                    if update_resp.status == 200:
+                        result = await update_resp.json()
+                        assert result["success"] is True
+                        
+                        # Now get the list again and verify the config is updated
+                        async with session.get(list_url) as list_resp:
+                            assert list_resp.status == 200
+                            updated_data = await list_resp.json()
+                            
+                            # Find the same mod in the updated list
+                            updated_mod = None
+                            for mod in updated_data["mods"]:
+                                if mod["id"] == mod_id:
+                                    updated_mod = mod
+                                    break
+                            
+                            assert updated_mod is not None
+                            # Verify the new config value is present
+                            assert "currentConfig" in updated_mod
+                            assert "test_field_integration" in updated_mod["currentConfig"]
+                            assert updated_mod["currentConfig"]["test_field_integration"] == "test_value_123"

@@ -63,6 +63,7 @@ class ModInfo(BaseModel):
     hasConfig: bool = Field(..., description="Whether the mod has configuration")
     configSchema: Optional[ConfigSchema] = Field(None, description="Configuration schema if available")
     version: Optional[str] = Field(None, description="Mod version")
+    currentConfig: Optional[Dict[str, Any]] = Field(None, description="Current configuration values")
 
 
 class ModConfigUpdateRequest(BaseModel):
