@@ -1198,6 +1198,13 @@ class ThreadMessagingNetworkMod(BaseMod):
                 direction="inbound",
                 destination_id=agent_id,
             )
+
+            # IMPORTANT: Add the notification to message_history so replies to it can be found.
+            # When agents reply, they use the notification's event_id as reply_to_id.
+            # Without this, the reply handler won't find the message in history.
+            # This fixes the "Cannot create reply: original message not found" issue on Windows.
+            self._add_to_history(notification)
+
             logger.info(
                 f"🔧 THREAD MESSAGING: Notification target_id will be: {notification.destination_id}"
             )
@@ -1250,6 +1257,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             original_payload = message.payload or {}
             notification_payload = original_payload.copy()
             notification_payload["sender_id"] = message.source_id
+            notification_payload["original_event_id"] = message.event_id  # Store original for reference
 
             notification = EventModel(
                 event_name="thread.direct_message.notification",
@@ -1257,6 +1265,12 @@ class ThreadMessagingNetworkMod(BaseMod):
                 payload=notification_payload,
                 destination_id=target_agent_id,
             )
+
+            # IMPORTANT: Add the notification to message_history so replies to it can be found.
+            # When agents reply, they use the notification's event_id as reply_to_id.
+            # Without this, the reply handler won't find the message in history.
+            # This fixes the "Cannot create reply: original message not found" issue on Windows.
+            self._add_to_history(notification)
 
             await self.network.process_event(notification)
             logger.info(
@@ -1337,6 +1351,11 @@ class ThreadMessagingNetworkMod(BaseMod):
                     direction="inbound",
                     destination_id=agent_id,
                 )
+
+                # IMPORTANT: Add the notification to message_history so replies to it can be found.
+                # When agents reply to reply notifications, they use the notification's event_id.
+                # Without this, the reply handler won't find the message in history.
+                self._add_to_history(notification)
 
                 try:
                     await self.network.process_event(notification)
