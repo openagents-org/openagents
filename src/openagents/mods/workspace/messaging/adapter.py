@@ -216,13 +216,8 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
 
         # Handle quoting if specified
         quoted_message_id = None
-        quoted_text = None
         if quote:
             quoted_message_id = quote
-            # Try to get quoted text from message history
-            if quote in self.event_threads:
-                # This is simplified - in practice you'd search through thread messages
-                quoted_text = f"[Quoted message {quote}]"
 
         # Create payload with all direct message data
         payload = {
@@ -232,8 +227,6 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         }
         if quoted_message_id:
             payload["quoted_message_id"] = quoted_message_id
-        if quoted_text:
-            payload["quoted_text"] = quoted_text
 
         # Create direct message
         direct_msg = Event(

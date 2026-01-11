@@ -168,7 +168,7 @@ class SimpleOpenAIAgentRunner(AgentRunner):
             messages.append(
                 {
                     "role": "assistant",
-                    "content": response_message.content or None,
+                    "content": response_message.content or "",
                     **(
                         {"tool_calls": response_message.tool_calls}
                         if hasattr(response_message, "tool_calls")

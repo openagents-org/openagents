@@ -269,7 +269,7 @@ async def orchestrate_agent(
                         }
                     )
                 assistant_message["tool_calls"] = formatted_tool_calls
-                assistant_message["content"] = response.get("content") or None
+                assistant_message["content"] = response.get("content") or ""
             else:
                 # No tool calls, so content must be a non-empty string
                 assistant_content = response.get("content") or ""
