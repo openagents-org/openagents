@@ -220,7 +220,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         if quote:
             quoted_message_id = quote
             # Try to get quoted text from message history
-            if quote in self.event_threads:
+            if self.agent_client and quote in self.agent_client.get_event_threads():
                 # This is simplified - in practice you'd search through thread messages
                 quoted_text = f"[Quoted message {quote}]"
 
