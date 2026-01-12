@@ -76,6 +76,11 @@ jobs:
         PYTHONHASHSEED: "0"
         GRPC_ENABLE_FORK_SUPPORT: "1"
         GRPC_POLL_STRATEGY: "poll"
+        # API keys for Hello World demo integration tests
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        DEFAULT_LLM_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        DEFAULT_LLM_MODEL_NAME: gpt-4o-mini
+        DEFAULT_LLM_PROVIDER: openai
       run: pytest --tb=short -v tests/integration
 
     - name: Test lms
