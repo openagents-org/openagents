@@ -27,6 +27,8 @@ from typing import List, Optional, Dict, Any, Tuple
 import http.server
 import socketserver
 from urllib.parse import urlparse
+import requests
+import json
 
 import typer
 from rich.console import Console
@@ -1612,6 +1614,222 @@ app.add_typer(agents_app, name="agents")
 app.add_typer(certs_app, name="certs")
 
 
+# OpenAgents API constants
+OPENAGENTS_API_BASE = "https://endpoint.openagents.org/v1"
+OPENAGENTS_RELAY_URL = "wss://relay.openagents.org"
+
+# List of hosts that require relay for public access
+LOCALHOST_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0", "::1", "local"]
+
+
+def parse_publish_to(publish_to: str) -> str:
+    """Parse the --publish-to argument and extract the network ID.
+
+    Supports both 'openagents://network-id' and 'network-id' formats.
+    """
+    if publish_to.startswith("openagents://"):
+        return publish_to[len("openagents://"):]
+    return publish_to
+
+
+def is_localhost_or_private(host: str) -> bool:
+    """Check if a host is localhost or a private IP address."""
+    host = host.strip().lower()
+
+    # Check against localhost variants
+    if host in LOCALHOST_HOSTS:
+        return True
+
+    # Check for private IP ranges
+    if (host.startswith("10.") or
+        host.startswith("192.168.") or
+        host.endswith(".local")):
+        return True
+
+    # Check for 172.16-31.x.x range
+    if host.startswith("172."):
+        parts = host.split(".")
+        if len(parts) >= 2:
+            try:
+                second_octet = int(parts[1])
+                if 16 <= second_octet <= 31:
+                    return True
+            except ValueError:
+                pass
+
+    return False
+
+
+def connect_to_relay(local_port: int, timeout: int = 30) -> Dict[str, Any]:
+    """Connect the local network to the OpenAgents relay server.
+
+    Returns relay connection info including the public URL.
+    """
+    relay_connect_url = f"http://127.0.0.1:{local_port}/api/relay/connect"
+
+    try:
+        response = requests.post(
+            relay_connect_url,
+            json={"relay_url": OPENAGENTS_RELAY_URL},
+            timeout=timeout
+        )
+        result = response.json()
+
+        if result.get("success") and result.get("connected"):
+            return {
+                "success": True,
+                "relay_url": result.get("relay_url"),
+                "tunnel_id": result.get("tunnel_id"),
+            }
+        else:
+            return {
+                "success": False,
+                "error": result.get("error", "Failed to connect to relay"),
+            }
+    except requests.exceptions.ConnectionError:
+        return {
+            "success": False,
+            "error": "Could not connect to local network (is it running?)",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+        }
+
+
+def get_relay_status(local_port: int) -> Dict[str, Any]:
+    """Get the current relay connection status."""
+    relay_status_url = f"http://127.0.0.1:{local_port}/api/relay/status"
+
+    try:
+        response = requests.get(relay_status_url, timeout=5)
+        return response.json()
+    except Exception:
+        return {"success": False, "connected": False}
+
+
+def publish_network_to_openagents(
+    network_id: str,
+    api_key: str,
+    host: str,
+    port: int,
+    network_name: Optional[str] = None,
+    relay_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Publish a network to the OpenAgents discovery server.
+
+    Args:
+        network_id: The ID to publish the network under
+        api_key: OpenAgents API key for authentication
+        host: Public host address
+        port: Public port number
+        network_name: Optional display name for the network
+        relay_url: Optional relay URL if using relay tunneling
+
+    Returns:
+        Dict with success status and any error messages
+    """
+    publish_url = f"{OPENAGENTS_API_BASE}/networks/"
+
+    # Prepare the network data
+    network_data = {
+        "id": network_id,
+        "profile": {
+            "name": network_name or network_id,
+            "description": f"Network published via CLI",
+            "host": host,
+            "port": port,
+            "discoverable": True,
+            "tags": ["network", "cli"],
+            "categories": [],
+            "country": "",
+            "capacity": 100,
+            "authentication": {"type": "none"},
+        }
+    }
+
+    # Add relay URL if using relay
+    if relay_url:
+        network_data["profile"]["relay_url"] = relay_url
+        network_data["profile"]["tags"].append("relay")
+
+    try:
+        response = requests.post(
+            publish_url,
+            json=network_data,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=30
+        )
+
+        result = response.json()
+
+        if response.ok and result.get("code") in [200, 201]:
+            return {
+                "success": True,
+                "network_id": network_id,
+                "message": "Network published successfully",
+            }
+        elif response.status_code == 401:
+            return {
+                "success": False,
+                "error": "Invalid or expired API key",
+            }
+        else:
+            return {
+                "success": False,
+                "error": result.get("message", f"Failed to publish (status {response.status_code})"),
+            }
+    except requests.exceptions.ConnectionError:
+        return {
+            "success": False,
+            "error": "Could not connect to OpenAgents API",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+        }
+
+
+def validate_api_key(api_key: str) -> Dict[str, Any]:
+    """Validate an OpenAgents API key.
+
+    Returns organization info if valid, error otherwise.
+    """
+    validate_url = f"{OPENAGENTS_API_BASE}/networks/private"
+
+    try:
+        response = requests.get(
+            validate_url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15
+        )
+
+        result = response.json()
+
+        if response.ok and result.get("code") == 200:
+            data = result.get("data", {})
+            return {
+                "valid": True,
+                "org_name": data.get("org_name", ""),
+                "org_id": data.get("org_id", ""),
+            }
+        else:
+            return {
+                "valid": False,
+                "error": result.get("message", "Invalid API key"),
+            }
+    except Exception as e:
+        return {
+            "valid": False,
+            "error": str(e),
+        }
+
+
 @network_app.command("start")
 def network_start(
     path: Optional[str] = typer.Argument(None, help="Path to network configuration file (.yaml) or workspace directory (default: ~/.openagents/network)"),
@@ -1619,8 +1837,60 @@ def network_start(
     port: Optional[int] = typer.Option(None, "--port", "-p", help="Network port (overrides config)"),
     detach: bool = typer.Option(False, "--detach", "-d", help="Run in background"),
     runtime: Optional[int] = typer.Option(None, "--runtime", "-t", help="Runtime in seconds"),
+    publish_to: Optional[str] = typer.Option(None, "--publish-to", help="Publish network to OpenAgents (e.g., 'my-network' or 'openagents://my-network'). Requires OPENAGENTS_API_KEY env var."),
+    network_host: Optional[str] = typer.Option(None, "--network-host", help="External host for network discovery (default: auto-detect or use relay)"),
+    network_port: Optional[int] = typer.Option(None, "--network-port", help="External port for network discovery (default: same as --port or config)"),
 ):
     """🚀 Start a network"""
+
+    # Handle --publish-to option: validate API key first
+    publish_config = None
+    if publish_to:
+        # Parse the network ID from the publish_to argument
+        target_network_id = parse_publish_to(publish_to)
+
+        # Check for API key
+        api_key = os.environ.get("OPENAGENTS_API_KEY")
+        if not api_key:
+            console.print(Panel(
+                "[red]❌ OPENAGENTS_API_KEY environment variable is required for publishing[/red]\n\n"
+                "[bold cyan]💡 How to get an API key:[/bold cyan]\n"
+                "1️⃣  Go to [link=https://openagents.org]openagents.org[/link]\n"
+                "2️⃣  Sign in to your account\n"
+                "3️⃣  Navigate to your organization settings\n"
+                "4️⃣  Generate an API key\n"
+                "5️⃣  Set it: [code]export OPENAGENTS_API_KEY=oa-your-key[/code]",
+                title="[red]⚠️  Missing API Key[/red]",
+                border_style="red"
+            ))
+            raise typer.Exit(1)
+
+        # Validate the API key
+        console.print("[blue]🔑 Validating API key...[/blue]")
+        validation = validate_api_key(api_key)
+        if not validation.get("valid"):
+            console.print(Panel(
+                f"[red]❌ Invalid API key: {validation.get('error', 'Unknown error')}[/red]\n\n"
+                "[bold cyan]💡 Troubleshooting:[/bold cyan]\n"
+                "1️⃣  Check that your API key is correct\n"
+                "2️⃣  Ensure your API key has not expired\n"
+                "3️⃣  Try generating a new key at [link=https://openagents.org]openagents.org[/link]",
+                title="[red]⚠️  API Key Validation Failed[/red]",
+                border_style="red"
+            ))
+            raise typer.Exit(1)
+
+        org_name = validation.get("org_name", "Unknown")
+        console.print(f"[green]✓ API key validated (Organization: {org_name})[/green]")
+
+        # Store publish configuration for later use
+        publish_config = {
+            "network_id": target_network_id,
+            "api_key": api_key,
+            "network_host": network_host,
+            "network_port": network_port,
+            "org_name": org_name,
+        }
 
     # Use default workspace if no path provided
     if not path and not workspace:
@@ -1646,7 +1916,7 @@ def network_start(
     
     # Create error detection system with network status tracking
     class NetworkStatusHandler(logging.Handler):
-        def __init__(self, console):
+        def __init__(self, console, publish_config=None):
             super().__init__()
             self.has_error = False
             self.error_messages = []
@@ -1658,6 +1928,8 @@ def network_start(
             self.console = console
             self.studio_enabled = False
             self.http_port = None
+            self.publish_config = publish_config
+            self.publish_completed = False
             
         def emit(self, record):
             message = record.getMessage()
@@ -1718,6 +1990,10 @@ def network_start(
                     ))
                     self.console.print("[dim]Network is running... Press Ctrl+C to stop[/dim]")
 
+                    # Handle publishing if configured
+                    if self.publish_config and not self.publish_completed and self.http_port:
+                        self._handle_publishing()
+
                     # Open browser if Studio is enabled
                     if self.studio_enabled and self.http_port:
                         studio_url = f"http://localhost:{self.http_port}/studio/"
@@ -1740,7 +2016,106 @@ def network_start(
         def _check_and_display_status(self):
             # No longer used - status is displayed after heartbeat monitor starts
             pass
-                
+
+        def _handle_publishing(self):
+            """Handle network publishing to OpenAgents after network starts."""
+            if self.publish_completed or not self.publish_config:
+                return
+
+            self.publish_completed = True
+            local_port = int(self.http_port)
+
+            self.console.print()
+            self.console.print("[blue]📡 Publishing network to OpenAgents...[/blue]")
+
+            # Determine the host/port to publish
+            publish_host = self.publish_config.get("network_host")
+            publish_port = self.publish_config.get("network_port") or local_port
+            relay_url = None
+            use_relay = False
+
+            # Check if we have a public host specified
+            if publish_host and not is_localhost_or_private(publish_host):
+                # User provided a public host
+                self.console.print(f"[dim]Using specified host: {publish_host}:{publish_port}[/dim]")
+            else:
+                # Need to use relay - check if network host is localhost/private or not specified
+                detected_host = self.network_host or "localhost"
+                if is_localhost_or_private(detected_host) or not publish_host:
+                    use_relay = True
+                    self.console.print("[yellow]🔗 Network host is local, connecting to relay...[/yellow]")
+
+                    # Connect to relay
+                    relay_result = connect_to_relay(local_port, timeout=30)
+
+                    if relay_result.get("success"):
+                        relay_url = relay_result.get("relay_url")
+                        self.console.print(f"[green]✓ Connected to relay: {relay_url}[/green]")
+
+                        # Parse the relay URL to get host:port for publishing
+                        try:
+                            from urllib.parse import urlparse
+                            parsed = urlparse(relay_url)
+                            publish_host = parsed.hostname
+                            publish_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+                        except Exception as e:
+                            self.console.print(f"[red]❌ Failed to parse relay URL: {e}[/red]")
+                            return
+                    else:
+                        self.console.print(Panel(
+                            f"[red]❌ Failed to connect to relay: {relay_result.get('error')}[/red]\n\n"
+                            "[bold cyan]💡 Options:[/bold cyan]\n"
+                            "1️⃣  Ensure your network is publicly accessible\n"
+                            "2️⃣  Use [code]--network-host[/code] to specify a public hostname\n"
+                            "3️⃣  Try again later if relay is temporarily unavailable",
+                            title="[red]⚠️  Relay Connection Failed[/red]",
+                            border_style="red"
+                        ))
+                        return
+                else:
+                    publish_host = detected_host
+                    self.console.print(f"[dim]Using detected host: {publish_host}:{publish_port}[/dim]")
+
+            # Now publish to OpenAgents
+            network_id = self.publish_config.get("network_id")
+            api_key = self.publish_config.get("api_key")
+
+            self.console.print(f"[dim]Publishing as: {network_id}[/dim]")
+
+            publish_result = publish_network_to_openagents(
+                network_id=network_id,
+                api_key=api_key,
+                host=publish_host,
+                port=publish_port,
+                network_name=network_id,  # Use network_id as name for now
+                relay_url=relay_url,
+            )
+
+            if publish_result.get("success"):
+                # Build the discovery URL
+                discovery_url = f"openagents://{network_id}"
+
+                self.console.print()
+                self.console.print(Panel.fit(
+                    f"[bold green]✅ Network published successfully![/bold green]\n\n"
+                    f"📡 Network ID: [code]{network_id}[/code]\n"
+                    f"🔗 Discovery URL: [code]{discovery_url}[/code]\n"
+                    f"🌐 Public endpoint: [code]{publish_host}:{publish_port}[/code]" +
+                    (f"\n📶 Via relay: [code]{relay_url}[/code]" if relay_url else ""),
+                    title="[green]🎉 Published to OpenAgents[/green]",
+                    border_style="green"
+                ))
+            else:
+                self.console.print(Panel(
+                    f"[red]❌ Failed to publish: {publish_result.get('error')}[/red]\n\n"
+                    "[bold cyan]💡 Troubleshooting:[/bold cyan]\n"
+                    "1️⃣  Check that your API key is valid\n"
+                    "2️⃣  Ensure the network ID is not already taken\n"
+                    "3️⃣  Verify your network is accessible",
+                    title="[red]⚠️  Publishing Failed[/red]",
+                    border_style="red"
+                ))
+
     # Create a filter to suppress noisy poll messages
     class PollMessageFilter(logging.Filter):
         def filter(self, record):
@@ -1768,7 +2143,7 @@ def network_start(
                 return False  # Block these messages from being logged
             return True  # Allow other messages
     
-    network_status = NetworkStatusHandler(console)
+    network_status = NetworkStatusHandler(console, publish_config=publish_config)
     root_logger = logging.getLogger()
     openagents_logger = logging.getLogger('openagents')
     
