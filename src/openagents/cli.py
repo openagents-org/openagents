@@ -118,6 +118,9 @@ def configure_workspace_logging(workspace_path: Path) -> None:
     Args:
         workspace_path: Path to the workspace directory
     """
+    # Ensure workspace directory exists before creating log file
+    workspace_path.mkdir(parents=True, exist_ok=True)
+
     # Create a file handler for the workspace
     log_file = workspace_path / "openagents.log"
     file_handler = logging.FileHandler(log_file, encoding="utf-8")
@@ -279,13 +282,26 @@ def initialize_workspace(workspace_path: Path) -> Path:
                 logging.info(f"Created {folder_name}/ directory in workspace")
         else:
             # Fallback to examples directory (development mode)
+            # Try multiple fallback paths in order of preference
             project_root = script_dir.parent.parent
-            default_network_path = project_root / "examples" / "default_network"
+            fallback_paths = [
+                project_root / "examples" / "default_network",  # Development mode
+                Path("/network"),  # Docker default path
+                Path("/app/examples/default_network"),  # Alternative Docker path
+            ]
 
-            if not default_network_path.exists():
-                logging.error(f"Default network template not found: {default_network_path}")
+            default_network_path = None
+            for fallback_path in fallback_paths:
+                if fallback_path.exists() and (fallback_path / "network.yaml").exists():
+                    default_network_path = fallback_path
+                    logging.debug(f"Found default network template at: {fallback_path}")
+                    break
+
+            if default_network_path is None:
+                tried_paths = ", ".join(str(p) for p in fallback_paths)
+                logging.error(f"Default network template not found. Tried: {tried_paths}")
                 raise FileNotFoundError(
-                    f"Default network template not found: {default_network_path}"
+                    f"Default network template not found. Tried: {tried_paths}"
                 )
 
             # Copy all files from default network to the new workspace

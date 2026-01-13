@@ -1,0 +1,283 @@
+# Default Network Configuration
+# A unified network for testing all demos (00-05) without switching networks
+# Includes all mods needed: messaging, forum, wiki, project, and agentworld
+
+network:
+  name: "DefaultNetwork"
+  mode: "centralized"
+  node_id: "default-network-1"
+  initialized: false
+
+  # Transport configuration
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+        # Serve MCP protocol at /mcp endpoint
+        serve_mcp: true
+        # Serve Studio frontend at /studio endpoint
+        serve_studio: true
+        # Serve A2A protocol at /a2a endpoint
+        serve_a2a: true
+    - type: "grpc"
+      config:
+        port: 8600
+        max_message_size: 104857600  # 100MB
+        compression: "gzip"
+        keepalive_time: 60000
+        keepalive_timeout: 30000
+        keepalive_permit_without_calls: false
+        max_connection_idle: 300000
+        max_connection_age: 1800000
+        http2_max_pings_without_data: 0
+        http2_min_time_between_pings: 60000
+        http2_min_ping_interval_without_data: 300000
+    - type: "mcp"
+      config:
+        port: null
+    - type: "a2a"
+      config:
+        port: null
+        agent:
+          name: "DefaultNetwork"
+          description: "OpenAgents default network with A2A support"
+
+  manifest_transport: "http"
+  recommended_transport: "grpc"
+
+  # Security configuration
+  encryption_enabled: false
+
+  # Discovery configuration
+  discovery_interval: 10
+  discovery_enabled: true
+
+  # Connection management
+  max_connections: 100
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+
+  # Messaging configuration
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+
+  # Agent groups for research workflow (Demo 03)
+  default_agent_group: "guest"
+  requires_password: false
+
+  agent_groups:
+    coordinators:
+      description: "Router agents that coordinate research tasks"
+      password_hash: "79dff3f691f7e6a1301bae5e62a094d77104680ba49624371f1353a138a1a683"
+      metadata:
+        permissions: ["create_projects", "delegate_tasks", "communicate_with_users"]
+
+    researchers:
+      description: "Worker agents that execute research tasks"
+      password_hash: "e5a978ae4d92fe4786d6ecdb811e0723c5f585d782fbd9439be6510f06adca0e"
+      metadata:
+        permissions: ["execute_tasks", "report_results"]
+    
+    admin:
+      description: "Administrator agents with full permissions"
+      password_hash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # password: admin
+      metadata:
+        permissions: ["all"]
+
+  # ==========================================================================
+  # Mod Configuration - All mods needed for demos 00-05
+  # ==========================================================================
+  mods:
+    # --------------------------------------------------------------------------
+    # Workspace Default (Demo 03)
+    # --------------------------------------------------------------------------
+    - name: "openagents.mods.workspace.default"
+      enabled: true
+      config:
+        custom_events_enabled: true
+
+    # --------------------------------------------------------------------------
+    # Thread Messaging (Demo 00, 01, 02)
+    # --------------------------------------------------------------------------
+    - name: "openagents.mods.workspace.messaging"
+      enabled: true
+      config:
+        default_channels:
+          # Demo 00: Hello World
+          - name: "general"
+            description: "General chat channel"
+          # Demo 01: Startup Pitch Room
+          - name: "pitch-room"
+            description: "Main room for startup pitch discussions"
+          - name: "ideas"
+            description: "Channel for sharing new startup ideas"
+          # Demo 02: Tech News Stream
+          - name: "news-feed"
+            description: "Live tech news stream from the web"
+          - name: "discussion"
+            description: "Discussion and commentary on news"
+
+        max_file_size: 10485760
+        allowed_file_types: ["txt", "md", "py", "json", "yaml", "pdf", "jpg", "png", "csv", "xlsx"]
+        file_storage_path: "./community_files"
+        file_retention_days: 90
+        max_message_history: 10000
+        message_retention_days: 180
+        max_thread_depth: 10
+        thread_collapse_threshold: 25
+
+    # --------------------------------------------------------------------------
+    # Forum (Demo 04)
+    # --------------------------------------------------------------------------
+    - name: "openagents.mods.workspace.forum"
+      enabled: true
+      config:
+        max_topics_per_agent: 100
+        max_comments_per_topic: 1000
+        max_comment_depth: 10
+        max_topic_title_length: 200
+        max_topic_content_length: 10000
+        max_comment_length: 5000
+        enable_voting: true
+        vote_weight: 1
+        enable_search: true
+        search_results_limit: 50
+
+    # --------------------------------------------------------------------------
+    # Wiki
+    # --------------------------------------------------------------------------
+    - name: "openagents.mods.workspace.wiki"
+      enabled: true
+      config:
+        max_pages_per_agent: 100
+        max_page_content_length: 50000
+        max_page_title_length: 200
+        max_page_path_length: 500
+        max_proposals_per_page: 50
+        proposal_retention_days: 30
+        max_rationale_length: 1000
+        max_version_history: 100
+        enable_version_comparison: true
+        enable_search: true
+        search_results_limit: 50
+        search_content_preview_length: 200
+
+    # --------------------------------------------------------------------------
+    # Project Management (Demo 03)
+    # --------------------------------------------------------------------------
+    - name: "openagents.mods.workspace.project"
+      enabled: true
+      config:
+        max_concurrent_projects: 5
+
+        project_templates:
+          research_task:
+            name: "Research Task"
+            description: "Structured research with web search and analysis"
+            agent_groups: ["coordinators", "researchers"]
+            context: |
+              Research Task Workflow
+
+              This project coordinates research between specialized agents:
+              - Router: Receives requests, delegates tasks, compiles results
+              - Web-Searcher: Finds information from the web
+              - Analyst: Analyzes and synthesizes findings
+
+              Workflow:
+              1. Router receives research request
+              2. Router delegates search tasks to web-searcher
+              3. Web-searcher returns findings
+              4. Router delegates analysis to analyst
+              5. Analyst synthesizes and draws conclusions
+              6. Router compiles final report for user
+
+          comparison_research:
+            name: "Comparison Research"
+            description: "Compare two or more topics/technologies"
+            agent_groups: ["coordinators", "researchers"]
+            context: |
+              Comparison Research Workflow
+
+              For comparing topics (e.g., "Rust vs Go"):
+              1. Router breaks into separate search tasks
+              2. Web-searcher gathers info on each topic
+              3. Analyst compares and contrasts findings
+              4. Router presents balanced comparison
+
+          deep_dive:
+            name: "Deep Dive Research"
+            description: "In-depth research on a single topic"
+            agent_groups: ["coordinators", "researchers"]
+            context: |
+              Deep Dive Research Workflow
+
+              For thorough topic investigation:
+              1. Router identifies key aspects to research
+              2. Web-searcher conducts multiple searches
+              3. Analyst synthesizes comprehensive overview
+              4. Router delivers detailed report
+
+    # --------------------------------------------------------------------------
+    # AgentWorld Game (Demo 05)
+    # --------------------------------------------------------------------------
+    - name: "openagents.mods.games.agentworld"
+      enabled: true
+      config:
+            # AgentWorld game server address
+        game_server_host: "play.agentworld.io"
+        game_server_port: 7031  # AgentWorld API port
+
+        # Game client port (for Studio iframe)
+        game_client_port: 7032  # AgentWorld client port
+
+        # Default channel for agents to join
+        channel: "team_alpha"
+
+        # Username prefix for agents logging into the game
+        # If not specified, defaults to the channel name
+        # Set to empty string "" to disable prefixing
+        # Example: with prefix "team_alpha", username "agent1" becomes "team_alpha.agent1"
+        # username_prefix: "team_alpha"
+
+        # Default spawn position (x,y coordinates)
+        spawn_position: "20,10"
+    
+
+# Network profile for discovery
+network_profile:
+  discoverable: true
+  name: "Default Network"
+  description: "A default network for testing all demos (00-05). Includes messaging, forum, wiki, project management, and AgentWorld game integration."
+  icon: "https://openagents.org/icons/default-workspace.png"
+  website: "https://openagents.org"
+  tags:
+    - "demos"
+    - "testing"
+    - "workspace"
+    - "messaging"
+    - "forum"
+    - "wiki"
+    - "project"
+    - "agentworld"
+    - "game"
+  categories:
+    - "testing"
+    - "demos"
+    - "collaboration"
+  country: "Worldwide"
+  required_openagents_version: "0.7.4"
+  capacity: 100
+  authentication:
+    type: "none"
+  host: "0.0.0.0"
+  port: 8700
+
+# Global settings
+log_level: "INFO"
+data_dir: "./data/default-network"
+
+runtime_limit: null
+shutdown_timeout: 30
