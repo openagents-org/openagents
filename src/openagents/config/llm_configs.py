@@ -318,8 +318,53 @@ def determine_provider(
     Returns:
         Determined provider name
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Auto-detect based on model name first to check for provider-model mismatch
+    detected_provider = None
+    model_lower = model_name.lower()
+
+    if any(name in model_lower for name in ["claude"]):
+        detected_provider = "claude"
+    elif any(name in model_lower for name in ["gpt", "o1", "o3", "o4"]):
+        detected_provider = "openai"
+    elif any(name in model_lower for name in ["gemini"]):
+        detected_provider = "gemini"
+    elif any(name in model_lower for name in ["deepseek"]):
+        detected_provider = "deepseek"
+    elif any(name in model_lower for name in ["qwen"]):
+        detected_provider = "qwen"
+    elif any(name in model_lower for name in ["grok"]):
+        detected_provider = "grok"
+    elif any(name in model_lower for name in ["mistral"]):
+        detected_provider = "mistral"
+    elif any(name in model_lower for name in ["command"]):
+        detected_provider = "cohere"
+    elif "sonar" in model_lower:
+        detected_provider = "perplexity"
+    elif "anthropic." in model_name:
+        detected_provider = "bedrock"
+
+    # If provider is explicitly specified, check for mismatch
     if provider:
-        return provider.lower()
+        provider_lower = provider.lower()
+        # Check for provider-model mismatch that would cause errors
+        # Claude models should use anthropic/claude provider, not openai
+        if detected_provider == "claude" and provider_lower in ["openai", "generic", "openai-compatible"]:
+            logger.warning(
+                f"Provider-model mismatch detected: model '{model_name}' is a Claude model "
+                f"but provider is '{provider}'. Auto-correcting to 'claude' provider."
+            )
+            return "claude"
+        # OpenAI models should use openai provider, not anthropic
+        if detected_provider == "openai" and provider_lower in ["claude", "anthropic"]:
+            logger.warning(
+                f"Provider-model mismatch detected: model '{model_name}' is an OpenAI model "
+                f"but provider is '{provider}'. Auto-correcting to 'openai' provider."
+            )
+            return "openai"
+        return provider_lower
 
     # Auto-detect provider based on API base
     if api_base:
@@ -338,30 +383,13 @@ def determine_provider(
         elif "groq.com" in api_base:
             return "groq"
 
-    # Auto-detect based on model name
-    model_lower = model_name.lower()
-    if any(name in model_lower for name in ["gpt", "openai"]):
-        return "openai"
-    elif any(name in model_lower for name in ["claude"]):
-        return "claude"
-    elif any(name in model_lower for name in ["gemini"]):
-        return "gemini"
-    elif any(name in model_lower for name in ["deepseek"]):
-        return "deepseek"
-    elif any(name in model_lower for name in ["qwen"]):
-        return "qwen"
-    elif any(name in model_lower for name in ["grok"]):
-        return "grok"
-    elif any(name in model_lower for name in ["mistral"]):
-        return "mistral"
-    elif any(name in model_lower for name in ["command"]):
-        return "cohere"
-    elif "sonar" in model_lower:
-        return "perplexity"
-    elif "anthropic." in model_name:
-        return "bedrock"
+    # Return already detected provider if found from model name
+    if detected_provider:
+        return detected_provider
+
+    # Additional model name patterns not covered above
     # Groq-specific model patterns (llama with specific suffixes, mixtral with context size)
-    elif any(name in model_lower for name in ["versatile", "instant", "32768", "gemma2"]):
+    if any(name in model_lower for name in ["versatile", "instant", "32768", "gemma2"]):
         return "groq"
     elif "llama" in model_lower or "meta-" in model_lower or "mixtral" in model_lower:
         return "together"
