@@ -485,6 +485,15 @@ class AgentNetwork:
         Returns:
             bool: True if registration successful
         """
+        # Check if agent is in kick cooldown
+        if self.topology.is_agent_in_kick_cooldown(agent_id):
+            remaining = self.topology.kick_cooldown_seconds - (
+                time.time() - self.topology.kicked_agents.get(agent_id, 0)
+            )
+            return EventResponse(
+                success=False,
+                message=f"Agent {agent_id} was recently kicked. Please wait {remaining:.0f} seconds before re-registering.",
+            )
 
         # Create agent info
         agent_info = AgentConnection(

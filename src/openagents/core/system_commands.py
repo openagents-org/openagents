@@ -947,7 +947,10 @@ class SystemCommandProcessor:
             
             if unregister_response.success:
                 self.logger.info(f"Agent {target_agent_id} kicked by admin {requesting_agent_id}")
-                
+
+                # Mark agent as kicked to prevent immediate re-registration
+                self.network.topology.mark_agent_kicked(target_agent_id)
+
                 # Create and broadcast the agent_kicked notification event
                 kick_notification = Event(
                     event_name=SYSTEM_NOTIFICATION_AGENT_KICKED,

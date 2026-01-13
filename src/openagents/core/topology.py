@@ -43,6 +43,12 @@ class NetworkTopology(ABC):
         # A2A registry (initialized if A2A transport is used)
         self.a2a_registry: Optional["A2AAgentRegistry"] = None
 
+        # Kicked agents tracking with cooldown
+        # Maps agent_id -> kick timestamp
+        # Prevents kicked agents from re-registering immediately
+        self.kicked_agents: Dict[str, float] = {}
+        self.kick_cooldown_seconds: float = 60.0  # Default 60 second cooldown
+
     @abstractmethod
     async def initialize(self) -> bool:
         """Initialize the network topology.
@@ -102,6 +108,50 @@ class NetworkTopology(ABC):
             bool: True if agent is registered, False otherwise
         """
         return agent_id in self.agent_registry
+
+    def mark_agent_kicked(self, agent_id: str) -> None:
+        """Mark an agent as kicked, starting the cooldown period.
+
+        Args:
+            agent_id: ID of the agent that was kicked
+        """
+        self.kicked_agents[agent_id] = time.time()
+        logger.info(f"Agent {agent_id} marked as kicked, cooldown: {self.kick_cooldown_seconds}s")
+
+    def is_agent_in_kick_cooldown(self, agent_id: str) -> bool:
+        """Check if an agent is in kick cooldown period.
+
+        Args:
+            agent_id: ID of the agent to check
+
+        Returns:
+            bool: True if agent is in cooldown and cannot re-register
+        """
+        if agent_id not in self.kicked_agents:
+            return False
+
+        kick_time = self.kicked_agents[agent_id]
+        elapsed = time.time() - kick_time
+
+        if elapsed >= self.kick_cooldown_seconds:
+            # Cooldown expired, remove from kicked list
+            del self.kicked_agents[agent_id]
+            logger.info(f"Agent {agent_id} kick cooldown expired, can now re-register")
+            return False
+
+        remaining = self.kick_cooldown_seconds - elapsed
+        logger.info(f"Agent {agent_id} in kick cooldown, {remaining:.1f}s remaining")
+        return True
+
+    def clear_kick_cooldown(self, agent_id: str) -> None:
+        """Clear the kick cooldown for an agent (admin override).
+
+        Args:
+            agent_id: ID of the agent to clear cooldown for
+        """
+        if agent_id in self.kicked_agents:
+            del self.kicked_agents[agent_id]
+            logger.info(f"Kick cooldown cleared for agent {agent_id}")
 
     @abstractmethod
     async def register_event_handler(self, handler: Callable[[Event], Awaitable[None]]):
