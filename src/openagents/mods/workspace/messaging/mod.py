@@ -1187,6 +1187,9 @@ class ThreadMessagingNetworkMod(BaseMod):
             notification_payload = original_payload.copy()
             notification_payload["channel"] = channel
             notification_payload["original_event_id"] = message.event_id  # Store original for reference
+            notification_payload["sender_id"] = message.source_id  # Add sender_id for handler compatibility
+            notification_payload["message_id"] = message.event_id  # Add message_id for handler compatibility
+            notification_payload["timestamp"] = message.timestamp  # Add timestamp for handler compatibility
 
             # Note: Don't reuse event_id from original message - each notification needs
             # a unique event_id to avoid being deduplicated by event gateway
