@@ -249,7 +249,10 @@ class EventGateway:
         Deliver an event to a specific agent's queue, filtered by agent's subscriptions.
         """
         if agent_id not in self.agent_event_queues:
-            logger.debug(f"Agent {agent_id} has no event queue, skipping delivery")
+            logger.warning(
+                f"Agent {agent_id} has no event queue, skipping delivery of {event.event_name}. "
+                f"Available agents: {list(self.agent_event_queues.keys())}"
+            )
             return
 
         # Check if agent has any subscriptions

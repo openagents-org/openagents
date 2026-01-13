@@ -968,13 +968,30 @@ class ThreadMessagingNetworkMod(BaseMod):
             )
 
             self._add_to_history(inner_message)
-            await self._process_direct_message(inner_message)
+            delivered = await self._process_direct_message(inner_message)
 
-            return EventResponse(
-                success=True,
-                message=f"Thread direct message event {event.event_name} processed successfully",
-                data={"event_name": event.event_name, "event_id": event.event_id},
-            )
+            if delivered:
+                return EventResponse(
+                    success=True,
+                    message=f"Thread direct message event {event.event_name} processed successfully",
+                    data={"event_name": event.event_name, "event_id": event.event_id, "delivered": True},
+                )
+            else:
+                # Message was stored but target agent is not connected
+                target_id = event.destination_id or (
+                    event.payload.get("target_agent_id") if event.payload else None
+                )
+                return EventResponse(
+                    success=True,  # Message was stored successfully
+                    message=f"Message stored but target agent '{target_id}' is not connected. The message will not be delivered until the agent connects.",
+                    data={
+                        "event_name": event.event_name,
+                        "event_id": event.event_id,
+                        "delivered": False,
+                        "reason": "target_agent_not_connected",
+                        "target_agent_id": target_id,
+                    },
+                )
         except Exception as e:
             logger.error(f"Error processing thread direct message event: {e}")
             return None
@@ -1218,11 +1235,14 @@ class ThreadMessagingNetworkMod(BaseMod):
 
                 traceback.print_exc()
 
-    async def _process_direct_message(self, message: Event) -> None:
+    async def _process_direct_message(self, message: Event) -> bool:
         """Process a direct message.
 
         Args:
             message: The direct message to process
+
+        Returns:
+            bool: True if message was delivered, False if target agent not available
         """
         # Get target agent ID from the message
         target_agent_id = None
@@ -1236,7 +1256,39 @@ class ThreadMessagingNetworkMod(BaseMod):
 
         if not target_agent_id:
             logger.warning(f"Direct message missing target_agent_id: {message}")
-            return
+            return False
+
+        # Normalize target_agent_id - strip "agent:" prefix if present
+        normalized_target_id = target_agent_id
+        if target_agent_id.startswith("agent:"):
+            normalized_target_id = target_agent_id[6:]  # Remove "agent:" prefix
+
+        # Check if target agent is connected/registered
+        agent_is_connected = False
+
+        # Check in active_agents (registered with messaging mod)
+        if normalized_target_id in self.active_agents:
+            agent_is_connected = True
+        # Also check original target_agent_id in case it's registered with prefix
+        elif target_agent_id in self.active_agents:
+            agent_is_connected = True
+        # Check in event gateway's agent queues (has active connection)
+        elif (
+            self.network
+            and hasattr(self.network, "event_gateway")
+            and self.network.event_gateway
+        ):
+            if normalized_target_id in self.network.event_gateway.agent_event_queues:
+                agent_is_connected = True
+            elif target_agent_id in self.network.event_gateway.agent_event_queues:
+                agent_is_connected = True
+
+        if not agent_is_connected:
+            logger.warning(
+                f"⚠️ THREAD MESSAGING: Target agent '{target_agent_id}' is not connected. "
+                f"Active agents: {self.active_agents}. Message from {message.source_id} cannot be delivered."
+            )
+            return False
 
         # Send notification to target agent
         logger.info(
@@ -1262,6 +1314,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             logger.info(
                 f"✅ THREAD MESSAGING: Sent direct message notification to agent {target_agent_id}"
             )
+            return True
 
         except Exception as e:
             logger.error(
@@ -1270,6 +1323,7 @@ class ThreadMessagingNetworkMod(BaseMod):
             import traceback
 
             traceback.print_exc()
+            return False
 
     async def _send_reply_notifications(
         self, reply_message: Event, original_message: Event
