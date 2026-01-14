@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from openagents.agents.worker_agent import WorkerAgent
+from openagents.models.event_context import ChannelMessageContext
 from tools.news_fetcher import fetch_hackernews_top, fetch_hackernews_new
 
 
@@ -53,6 +54,47 @@ class NewsHunterAgent(WorkerAgent):
                 pass
         print("News Hunter disconnected.")
 
+    async def on_channel_mention(self, context: ChannelMessageContext):
+        """Handle when the agent is mentioned in a channel.
+
+        Responds to questions about the agent's role and can fetch fresh news on demand.
+        """
+        text = context.text.lower() if context.text else ""
+        channel = context.channel
+        message_id = context.message_id
+
+        # Check if user is asking for news
+        wants_news = any(word in text for word in ["news", "story", "stories", "fetch", "hunt", "post", "get"])
+
+        if wants_news:
+            # Fetch and share some fresh news
+            response = "Let me hunt for some fresh tech news for you!\n\n"
+            news_data = fetch_hackernews_top(count=3)
+            stories = self._parse_news(news_data)
+
+            if stories:
+                for i, story in enumerate(stories[:3], 1):
+                    title = story.get('title', 'Untitled')
+                    url = story.get('url', '')
+                    score = story.get('score', 0)
+                    response += f"{i}. **{title}**\n   {url}\n   ({score} points)\n\n"
+            else:
+                response += "Couldn't fetch any news right now. I'll keep trying in my background loop!"
+
+            await self.reply_to_message(channel=channel, message_id=message_id, text=response)
+        else:
+            # Provide information about the agent
+            response = (
+                "Hey there! I'm the **News Hunter** - I continuously hunt for the latest tech news from Hacker News "
+                "and post interesting stories to the #news-feed channel.\n\n"
+                "**What I do:**\n"
+                "- Automatically fetch top tech stories every minute\n"
+                "- Post new stories to #news-feed as I find them\n"
+                "- Track what I've already posted to avoid duplicates\n\n"
+                "**Want me to fetch some news now?** Just mention me with words like 'news', 'stories', or 'fetch'!"
+            )
+            await self.reply_to_message(channel=channel, message_id=message_id, text=response)
+
     async def _hunt_news_loop(self):
         """Continuous loop to fetch and post news."""
         # Wait a bit before first fetch to let everything initialize
@@ -85,13 +127,19 @@ class NewsHunterAgent(WorkerAgent):
             return
 
         # Post up to 2 new stories per cycle
+        posted_count = 0
         for story in new_stories[:2]:
-            await self._post_story(story)
-            self.posted_urls.add(story['url'])
+            success = await self._post_story(story)
+            if success:
+                self.posted_urls.add(story['url'])
+                posted_count += 1
             # Small delay between posts
             await asyncio.sleep(2)
 
-        print(f"Posted {min(len(new_stories), 2)} new stories. Total tracked: {len(self.posted_urls)}")
+        if posted_count > 0:
+            print(f"Posted {posted_count} new stories. Total tracked: {len(self.posted_urls)}")
+        else:
+            print("Failed to post stories (messaging adapter not available)")
 
     def _parse_news(self, news_text: str) -> list:
         """Parse news stories from the formatted text output.
@@ -132,8 +180,12 @@ class NewsHunterAgent(WorkerAgent):
 
         return stories
 
-    async def _post_story(self, story: dict):
-        """Post a story to the news-feed channel."""
+    async def _post_story(self, story: dict) -> bool:
+        """Post a story to the news-feed channel.
+
+        Returns:
+            bool: True if posted successfully, False otherwise
+        """
         title = story.get('title', 'Untitled')
         url = story.get('url', '')
         score = story.get('score', 0)
@@ -148,8 +200,10 @@ class NewsHunterAgent(WorkerAgent):
                 text=message
             )
             print(f"Posted: {title[:50]}...")
+            return True
         else:
             print("Warning: Messaging adapter not available")
+            return False
 
 
 async def main():

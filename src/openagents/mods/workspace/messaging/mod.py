@@ -119,6 +119,9 @@ class ThreadMessagingNetworkMod(BaseMod):
     - Message quoting
     """
 
+    # Indicate that agents need to load the ThreadMessagingAgentAdapter
+    requires_adapter = True
+
     def __init__(self, mod_name: str = "messaging"):
         """Initialize the thread messaging mod for a network."""
         super().__init__(mod_name=mod_name)
