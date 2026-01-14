@@ -93,7 +93,8 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.11.0",            # Additional mocking utilities
     "pytest-xdist>=3.3.0",           # Parallel test execution
-    
+    "pytest-aiohttp>=1.0.0",         # aiohttp test utilities and fixtures
+
     # Code quality
     "black>=23.7.0",
     "flake8>=6.0.0",
