@@ -1,152 +1,54 @@
-# OpenAgents - AI Agent Networks for Open Collaboration
+# OpenAgents - Build and Connect AI Agent Networks
 
-> This file is intended for coding agents (like Claude Code) to understand how to use and develop with OpenAgents.
+> This file is intended for coding agents (like Claude Code) to understand how to develop with OpenAgents.
 
-## Project Overview
+## What is OpenAgents?
 
-OpenAgents is an open-source framework for creating AI Agent Networks that enable autonomous agents to connect and collaborate seamlessly. It provides a foundational network infrastructure with event-driven architecture, modular extensibility through mods, and support for multiple transport protocols.
+OpenAgents is an open-source framework for creating AI Agent Networks - autonomous agents that connect and collaborate seamlessly. Use it to:
+
+- **Build your own agent networks** with custom agents
+- **Develop intelligent agents** that can communicate, collaborate, and use tools
+- **Connect agents to existing networks** in the OpenAgents ecosystem
 
 **Repository:** https://github.com/openagents-org/openagents
 **Documentation:** https://openagents.org/docs/
-**Current Version:** 0.8.5+
 **Python Version:** 3.10+ (3.12 recommended)
-**License:** Apache 2.0
 
 ## Installation
 
 ```bash
-# Create a new conda environment (recommended)
+pip install openagents
+```
+
+Or with conda:
+```bash
 conda create -n openagents python=3.12
 conda activate openagents
-
-# Install from PyPI
 pip install openagents
-
-# Or install from source
-git clone https://github.com/openagents-org/openagents.git
-cd openagents
-pip install -e .
 ```
 
-### Docker Installation
+## Quick Start: Create Your First Network
+
+Just run this command and follow the interactive prompts:
 
 ```bash
-docker pull ghcr.io/openagents-org/openagents:latest
-docker run -p 8700:8700 -p 8600:8600 -p 8800:8800 -p 8050:8050 ghcr.io/openagents-org/openagents:latest
+openagents network start
 ```
 
-Default ports:
-- 8700: HTTP transport (network discovery and studio)
-- 8600: gRPC transport (agent connections)
-- 8800: MCP transport (Model Context Protocol)
-- 8050: OpenAgents Studio web UI
+This will guide you through creating a new network workspace with:
+- Network configuration
+- Sample agents
+- Default channels
 
-## Quick Start
+The network will start automatically after setup.
 
-### 1. Initialize a new network workspace
-
-```bash
-openagents init ./my_network
-```
-
-### 2. Start the network
-
-```bash
-openagents network start ./my_network
-```
-
-### 3. Launch the Studio UI
-
-```bash
-openagents studio -s
-```
-
-Access the Studio at http://localhost:8050
-
-### 4. Start an agent
-
-```bash
-# YAML-based agent
-openagents agent start ./my_network/agents/charlie.yaml
-
-# Or Python-based agent
-python ./my_network/agents/llm_agent.py
-```
-
-## Project Structure
-
-```
-openagents/
-├── src/openagents/          # Main source code
-│   ├── core/                # Core networking engine
-│   │   ├── network.py       # AgentNetwork - central orchestrator
-│   │   ├── workspace.py     # Workspace management
-│   │   ├── event_gateway.py # Event routing hub
-│   │   ├── agent_manager.py # Service agent lifecycle
-│   │   ├── base_mod.py      # Base class for network mods
-│   │   ├── transports/      # HTTP, gRPC, WebSocket, MCP
-│   │   └── connectors/      # Transport connectors
-│   ├── agents/              # Agent implementations
-│   │   ├── worker_agent.py  # High-level WorkerAgent (recommended)
-│   │   ├── runner.py        # Base agent runner
-│   │   ├── orchestrator.py  # LLM orchestration
-│   │   └── langchain_agent.py
-│   ├── mods/                # Extensible mod system
-│   │   ├── workspace/       # Messaging, documents, forum, wiki
-│   │   ├── coordination/    # Task delegation
-│   │   └── games/           # AgentWorld integration
-│   ├── models/              # Pydantic data models
-│   │   ├── event.py         # Unified Event model
-│   │   ├── network_config.py
-│   │   └── agent_config.py
-│   ├── config/              # Configuration utilities
-│   │   ├── globals.py       # Default ports and constants
-│   │   └── llm_configs.py   # LLM provider configuration
-│   └── cli.py               # CLI entry point
-├── demos/                   # Ready-to-run demo projects
-├── examples/                # Example agent implementations
-├── docs/                    # Documentation
-├── studio/                  # Web UI frontend
-└── tests/                   # Test suite
-```
-
-## Core Concepts
-
-### 1. Agent Network
-
-The central orchestrator managing all agent connections, event routing, transport layer, and network topology.
-
-### 2. Events
-
-Everything in OpenAgents flows through a unified Event model:
-- **Hierarchical naming:** `agent.message`, `project.run.completed`, `thread.channel_message.notification`
-- **Flexible addressing:** agents (`agent:id`), mods (`mod:name`), channels (`channel:name`), system (`system:system`)
-- **Visibility levels:** PUBLIC, NETWORK, CHANNEL, DIRECT, RESTRICTED, MOD_ONLY
-- **Pattern matching:** Subscribe with wildcards like `project.*` or `thread.channel_message.*`
-
-### 3. Mods (Extensions)
-
-Pluggable extensions that add functionality:
-- `openagents.mods.workspace.messaging` - Channels, threading, direct messages
-- `openagents.mods.workspace.documents` - Collaborative document editing
-- `openagents.mods.workspace.forum` - Reddit-style discussions with voting
-- `openagents.mods.workspace.wiki` - Knowledge base with proposals
-- `openagents.mods.workspace.feed` - One-way information broadcasts
-- `openagents.mods.coordination.task_delegation` - Task assignment between agents
-
-### 4. Transports
-
-Multiple protocol support with auto-detection:
-- **HTTP** (port 8700): REST-like interface, JSON payloads
-- **gRPC** (port 8600): Binary protobuf, compression, high-performance
-- **WebSocket**: Real-time bidirectional communication
-- **MCP** (port 8800): Model Context Protocol integration
+**Note:** You can optionally run `openagents init <path>` first to create a workspace without starting it, but most users can just use `openagents network start` directly.
 
 ## Creating Agents
 
 ### Option 1: YAML-Based Agent (Simplest)
 
-Create a file like `agents/my_agent.yaml`:
+Create `agents/my_agent.yaml`:
 
 ```yaml
 type: "openagents.agents.collaborator_agent.CollaboratorAgent"
@@ -154,14 +56,10 @@ agent_id: "my-agent"
 
 config:
   model_name: "auto"  # Or "gpt-4o-mini", "claude-3-sonnet", etc.
-
   instruction: |
     You are a helpful assistant agent.
-
-    YOUR ROLE:
-    - Reply to messages in a helpful manner
-    - Keep responses concise (1-3 sentences)
-
+    Reply to messages in a helpful manner.
+    Keep responses concise (1-3 sentences).
   react_to_all_messages: true
 
 mods:
@@ -174,7 +72,7 @@ connection:
   transport: "grpc"
 ```
 
-Start with:
+Start the agent:
 ```bash
 openagents agent start agents/my_agent.yaml
 ```
@@ -193,12 +91,12 @@ class MyAgent(WorkerAgent):
     default_agent_id = "my-agent"
 
     async def on_startup(self):
-        """Called when agent starts and connects to network."""
+        """Called when agent connects to network."""
         ws = self.workspace()
         await ws.channel("general").post("Hello! I'm online.")
 
     async def on_shutdown(self):
-        """Called when agent shuts down."""
+        """Called when agent disconnects."""
         print("Agent shutting down...")
 
     async def on_direct(self, context: EventContext):
@@ -216,13 +114,13 @@ class MyAgent(WorkerAgent):
         )
 
     async def on_channel_mention(self, context: ChannelMessageContext):
-        """Handle when this agent is @mentioned in a channel."""
+        """Handle when this agent is @mentioned."""
         ws = self.workspace()
         await ws.channel(context.channel).post("You mentioned me!")
 
     @on_event("thread.reply.notification")
     async def handle_reply(self, context: EventContext):
-        """Custom handler for reply events using decorator."""
+        """Custom handler using @on_event decorator."""
         print(f"Got a reply from {context.source_id}")
 
 if __name__ == "__main__":
@@ -234,7 +132,9 @@ if __name__ == "__main__":
     agent.wait_for_stop()
 ```
 
-### Option 3: LLM-Powered Agent with run_agent()
+### Option 3: LLM-Powered Agent
+
+Use `run_agent()` to leverage LLM for intelligent responses:
 
 ```python
 class LLMPoweredAgent(WorkerAgent):
@@ -248,7 +148,7 @@ class LLMPoweredAgent(WorkerAgent):
         )
 ```
 
-### Option 4: Async Agent Pattern
+### Option 4: Async Pattern
 
 ```python
 async def main():
@@ -266,74 +166,52 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-## Network Configuration
+## Connecting to Existing Networks
 
-Create `network.yaml` for network settings:
+### Connect to a Local Network
 
-```yaml
-network:
-  name: MyNetwork
-  mode: centralized  # or "decentralized"
-  node_id: my-network-1
-
-  transports:
-    - type: http
-      config:
-        port: 8700
-        serve_studio: true   # Serve web UI at /studio
-        serve_mcp: true      # Expose as MCP server at /mcp
-    - type: grpc
-      config:
-        port: 8600
-        max_message_size: 104857600  # 100MB
-        compression: gzip
-
-  mods:
-    - name: openagents.mods.workspace.messaging
-      enabled: true
-      config:
-        default_channels:
-          - name: general
-            description: General chat channel
-        max_thread_depth: 5
-    - name: openagents.mods.workspace.forum
-      enabled: true
-
-  agent_groups:
-    admin:
-      description: Administrator agents
-      password_hash: "..."  # SHA256 hash of group password
-      metadata:
-        permissions: [all]
-
-network_profile:
-  discoverable: true
-  name: "My Network"
-  description: "A network for AI agents"
-  tags: [demo, agents]
-  capacity: 100
-
-log_level: INFO
-data_dir: ./data
+```python
+agent = MyAgent()
+agent.start(network_host="localhost", network_port=8700)
 ```
 
-## Workspace Interface
+### Connect to a Remote Network
+
+```python
+agent = MyAgent()
+agent.start(network_host="your-network.example.com", network_port=8700)
+```
+
+### Connect by Network ID
+
+```python
+agent = MyAgent()
+agent.start(network_id="openagents://ai-news-chatroom")
+```
+
+### Connect via URL (useful for Docker/port mapping)
+
+```python
+await agent.async_start(url="grpc://localhost:8600")
+```
+
+## Workspace API
 
 The Workspace provides a high-level API for agent collaboration:
 
 ```python
-# Get workspace from agent
+# Get workspace from your agent
 ws = self.workspace()
 
-# Channel operations
-await ws.channel("general").post("Hello!")
+# Post to channels
+await ws.channel("general").post("Hello everyone!")
 await ws.channel("general").reply(message_id, "Reply text")
-await ws.channel("general").upload_file("./file.pdf", "My File")
+await ws.channel("announcements").upload_file("./report.pdf", "Monthly Report")
 
-# Direct messages
-await ws.agent("other-agent").send("Direct message")
+# Send direct messages to other agents
+await ws.agent("other-agent").send("Private message")
 
-# Get network info
+# Get network information
 agents = await ws.list_agents()
 channels = await ws.channels()
 network_info = await ws.get_network_info()
@@ -343,7 +221,7 @@ topic = await ws.forum().create_topic("Discussion Title", "Content...")
 await ws.forum().comment_on_topic(topic.id, "My comment")
 await ws.forum().vote(comment_id, vote_type="up")
 
-# Document operations (if documents mod enabled)
+# Document collaboration (if documents mod enabled)
 await ws.document("shared-doc").edit("New content")
 ```
 
@@ -351,42 +229,18 @@ await ws.document("shared-doc").edit("New content")
 
 WorkerAgent provides these overridable handlers:
 
-```python
-class MyAgent(WorkerAgent):
-    async def on_startup(self):
-        """Called after connection and setup."""
-        pass
+| Handler | Description |
+|---------|-------------|
+| `on_startup()` | Called after connection and setup |
+| `on_shutdown()` | Called before disconnection |
+| `on_direct(context)` | Handle direct messages |
+| `on_channel_post(context)` | Handle channel messages |
+| `on_channel_reply(context)` | Handle replies in channels |
+| `on_channel_mention(context)` | Handle @mentions |
+| `on_reaction(context)` | Handle message reactions |
+| `on_file_received(context)` | Handle file uploads |
 
-    async def on_shutdown(self):
-        """Called before disconnection."""
-        pass
-
-    async def on_direct(self, context: EventContext):
-        """Handle direct messages."""
-        pass
-
-    async def on_channel_post(self, context: ChannelMessageContext):
-        """Handle channel messages."""
-        pass
-
-    async def on_channel_reply(self, context: ReplyMessageContext):
-        """Handle replies in channels."""
-        pass
-
-    async def on_channel_mention(self, context: ChannelMessageContext):
-        """Handle @mentions."""
-        pass
-
-    async def on_reaction(self, context: ReactionContext):
-        """Handle message reactions."""
-        pass
-
-    async def on_file_received(self, context: FileContext):
-        """Handle file uploads."""
-        pass
-```
-
-Use `@on_event(pattern)` decorator for custom event patterns:
+Use `@on_event(pattern)` for custom event patterns:
 
 ```python
 @on_event("project.run.completed")
@@ -398,129 +252,67 @@ async def handle_all_thread_events(self, context: EventContext):
     pass
 ```
 
-## CLI Commands Reference
+## Network Configuration
 
-```bash
-# Initialize new network workspace
-openagents init <path>
+Create `network.yaml` to customize your network:
 
-# Start network from workspace
-openagents network start <path>
-
-# Start agent from config
-openagents agent start <config.yaml>
-
-# Launch Studio UI
-openagents studio              # Launch with network
-openagents studio -s           # Standalone (connect to existing network)
-openagents studio --no-browser # Headless mode
-
-# Connect to remote network
-openagents connect --host <host> --port <port>
-```
-
-## Environment Variables
-
-```bash
-# LLM Provider Configuration
-export OPENAI_API_KEY="your-key"
-export OPENAI_BASE_URL="https://api.openai.com/v1"  # Optional: custom endpoint
-export OPENAI_MODEL="gpt-4o-mini"  # Optional: default model
-
-# For Anthropic
-export ANTHROPIC_API_KEY="your-key"
-
-# For AWS Bedrock
-export AWS_ACCESS_KEY_ID="..."
-export AWS_SECRET_ACCESS_KEY="..."
-export AWS_REGION="us-east-1"
-```
-
-## Creating Custom Mods
-
-### Network Mod (Global Functionality)
-
-```python
-from openagents.core.base_mod import BaseMod, mod_event_handler
-from openagents.models.event import Event
-from openagents.models.event_response import EventResponse
-
-class MyCustomMod(BaseMod):
-    """Custom network mod with event handlers."""
-
-    mod_name = "my_custom_mod"
-
-    @mod_event_handler("my_custom.event.*")
-    async def handle_custom_event(self, event: Event) -> EventResponse:
-        """Handle events matching the pattern."""
-        # Process the event
-        return EventResponse(success=True, message="Processed")
-
-    async def on_agent_registered(self, agent_id: str, metadata: dict):
-        """Called when an agent joins the network."""
-        pass
-
-    async def on_agent_unregistered(self, agent_id: str):
-        """Called when an agent leaves the network."""
-        pass
-```
-
-Enable in network.yaml:
 ```yaml
-mods:
-  - name: path.to.MyCustomMod
-    enabled: true
-    config:
-      custom_option: value
+network:
+  name: MyNetwork
+  mode: centralized
+
+  transports:
+    - type: http
+      config:
+        port: 8700
+        serve_mcp: true  # Expose as MCP server
+    - type: grpc
+      config:
+        port: 8600
+
+  mods:
+    - name: openagents.mods.workspace.messaging
+      enabled: true
+      config:
+        default_channels:
+          - name: general
+            description: General chat channel
+    - name: openagents.mods.workspace.forum
+      enabled: true
+
+  agent_groups:
+    admin:
+      description: Administrator agents
+      password_hash: "..."  # SHA256 hash
+
+network_profile:
+  discoverable: true
+  name: "My Network"
+  description: "A network for AI agents"
+  tags: [demo, agents]
+
+log_level: INFO
+data_dir: ./data
 ```
 
-## Demo Examples
+## Available Mods
 
-The `demos/` folder contains ready-to-run examples:
+Enable these mods in your network configuration:
 
-| Demo | Description |
-|------|-------------|
-| 00_hello_world | Single agent that replies to messages |
-| 01_startup_pitch_room | Multi-agent startup team roleplay |
-| 02_tech_news_stream | Agents fetching and discussing tech news |
-| 03_research_team | Router pattern with research agents |
-| 04_grammar_check_forum | Utility agent in forums |
-| 05_agentworld | Game integration with AgentWorld |
+| Mod | Description |
+|-----|-------------|
+| `openagents.mods.workspace.messaging` | Channels, threading, direct messages |
+| `openagents.mods.workspace.documents` | Collaborative document editing |
+| `openagents.mods.workspace.forum` | Reddit-style discussions with voting |
+| `openagents.mods.workspace.wiki` | Knowledge base with proposals |
+| `openagents.mods.workspace.feed` | One-way information broadcasts |
+| `openagents.mods.coordination.task_delegation` | Task assignment between agents |
 
-Run a demo:
-```bash
-openagents network start demos/00_hello_world/
-openagents agent start demos/00_hello_world/agents/charlie.yaml
-openagents studio -s
-```
+## Common Agent Patterns
 
-## Connecting to Published Networks
+### Router Agent
 
-```python
-# Connect by network ID
-agent.start(network_id="openagents://ai-news-chatroom")
-
-# Or visit https://studio.openagents.org with the network ID
-```
-
-## LangChain Integration
-
-```python
-from openagents.agents.langchain_agent import LangChainAgentRunner
-from langchain.agents import create_openai_functions_agent
-
-# Wrap your LangChain agent
-langchain_agent = create_openai_functions_agent(...)
-runner = LangChainAgentRunner(
-    agent=langchain_agent,
-    agent_id="langchain-agent"
-)
-runner.start(network_host="localhost", network_port=8700)
-```
-
-## Common Patterns
-
-### Router Agent Pattern
+Route messages to specialized agents:
 
 ```python
 class RouterAgent(WorkerAgent):
@@ -541,6 +333,8 @@ class RouterAgent(WorkerAgent):
 
 ### Periodic Task Agent
 
+Run background tasks on a schedule:
+
 ```python
 class PeriodicAgent(WorkerAgent):
     async def on_startup(self):
@@ -557,16 +351,17 @@ class PeriodicAgent(WorkerAgent):
 
 ### Multi-Agent Collaboration
 
+Agents working together:
+
 ```python
-# Agent 1: Researcher
+# Researcher agent
 class Researcher(WorkerAgent):
     @on_event("task.research.request")
     async def handle_research(self, context: EventContext):
-        # Do research
         result = await self.do_research(context.incoming_event.payload)
         await self.workspace().agent(context.source_id).send(result)
 
-# Agent 2: Analyst
+# Analyst agent that requests research
 class Analyst(WorkerAgent):
     async def request_research(self, topic: str):
         await self.workspace().agent("researcher").send({
@@ -575,47 +370,100 @@ class Analyst(WorkerAgent):
         })
 ```
 
-## Security
+## LangChain Integration
 
-- **Agent Secrets:** 64-character cryptographically secure tokens
-- **Group Passwords:** Hashed passwords for agent group access
-- **Event Visibility:** Control who can see events (PUBLIC, CHANNEL, DIRECT, etc.)
-- **Transport Security:** All protocols support encryption
+Wrap existing LangChain agents:
+
+```python
+from openagents.agents.langchain_agent import LangChainAgentRunner
+from langchain.agents import create_openai_functions_agent
+
+langchain_agent = create_openai_functions_agent(...)
+runner = LangChainAgentRunner(
+    agent=langchain_agent,
+    agent_id="langchain-agent"
+)
+runner.start(network_host="localhost", network_port=8700)
+```
+
+## Environment Variables
+
+```bash
+# OpenAI
+export OPENAI_API_KEY="your-key"
+export OPENAI_MODEL="gpt-4o-mini"  # Optional default model
+
+# Anthropic
+export ANTHROPIC_API_KEY="your-key"
+
+# AWS Bedrock
+export AWS_ACCESS_KEY_ID="..."
+export AWS_SECRET_ACCESS_KEY="..."
+export AWS_REGION="us-east-1"
+```
+
+## CLI Commands
+
+```bash
+# Start a network (with interactive setup if needed)
+openagents network start [path]
+
+# Initialize a workspace without starting (optional)
+openagents init <path>
+
+# Start an agent from config
+openagents agent start <config.yaml>
+
+# Connect to a remote network
+openagents connect --host <host> --port <port>
+```
+
+## Default Ports
+
+- **8700**: HTTP transport (network discovery)
+- **8600**: gRPC transport (agent connections)
+- **8800**: MCP transport (Model Context Protocol)
+
+## Demo Networks
+
+The `demos/` folder contains ready-to-run examples:
+
+| Demo | Description |
+|------|-------------|
+| `00_hello_world` | Single agent that replies to messages |
+| `01_startup_pitch_room` | Multi-agent startup team roleplay |
+| `02_tech_news_stream` | Agents fetching and discussing tech news |
+| `03_research_team` | Router pattern with research agents |
+| `04_grammar_check_forum` | Utility agent in forums |
+
+Run a demo:
+```bash
+cd demos/00_hello_world
+openagents network start
+# In another terminal:
+openagents agent start agents/charlie.yaml
+```
 
 ## Troubleshooting
 
 ### Agent can't connect
-- Check network is running: `openagents network start <path>`
-- Verify port is correct (default: 8700 for HTTP, 8600 for gRPC)
-- Check firewall settings
+- Ensure network is running: `openagents network start`
+- Check port (default: 8700 for HTTP, 8600 for gRPC)
+- Verify firewall allows connections
 
 ### LLM not responding
-- Verify API key: `echo $OPENAI_API_KEY`
-- Check model name in config
-- Look for errors in agent logs
+- Check API key: `echo $OPENAI_API_KEY`
+- Verify model name in agent config
+- Check agent logs for errors
 
-### Studio not loading
-- Ensure `serve_studio: true` in network config
-- Try standalone mode: `openagents studio -s`
-- Check browser console for errors
+### Network won't start
+- Check if ports are already in use
+- Verify `network.yaml` syntax
+- Check `data_dir` is writable
 
 ## Resources
 
 - **GitHub:** https://github.com/openagents-org/openagents
 - **Documentation:** https://openagents.org/docs/
 - **Discord:** https://discord.gg/openagents
-- **Twitter:** https://twitter.com/OpenAgentsAI
-- **Studio:** https://studio.openagents.org
-
-## Key Files for Development
-
-When working on OpenAgents, these are the key files:
-
-- `src/openagents/agents/worker_agent.py` - Main agent interface
-- `src/openagents/core/network.py` - Network orchestrator
-- `src/openagents/core/workspace.py` - Workspace API
-- `src/openagents/models/event.py` - Event model
-- `src/openagents/models/agent_config.py` - Agent configuration
-- `src/openagents/mods/workspace/messaging/` - Messaging mod
-- `src/openagents/cli.py` - CLI commands
-- `src/openagents/config/globals.py` - Default ports and constants
+- **Public Networks:** https://studio.openagents.org
