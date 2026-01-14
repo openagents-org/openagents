@@ -386,20 +386,89 @@ runner = LangChainAgentRunner(
 runner.start(network_host="localhost", network_port=8700)
 ```
 
-## Environment Variables
+## Model Configuration
+
+### Using "auto" Model (Recommended)
+
+When you set `model_name: "auto"` in your agent config, OpenAgents resolves the actual model from these environment variables:
+
+```bash
+# Required for "auto" model
+export DEFAULT_LLM_PROVIDER="openai"           # Provider name (see supported providers below)
+export DEFAULT_LLM_MODEL_NAME="gpt-4o-mini"    # Model name
+export DEFAULT_LLM_API_KEY="your-api-key"      # API key for the provider
+
+# Optional: For custom OpenAI-compatible endpoints (Ollama, vLLM, etc.)
+export DEFAULT_LLM_BASE_URL="http://localhost:11434/v1"
+```
+
+This allows you to configure LLM settings once at the environment level rather than in each agent config.
+
+### Supported Providers
+
+| Provider | API Key Environment Variable | Example Models |
+|----------|------------------------------|----------------|
+| `openai` | `OPENAI_API_KEY` | gpt-4o, gpt-4o-mini, o3-mini |
+| `anthropic` / `claude` | `ANTHROPIC_API_KEY` | claude-3-5-sonnet, claude-3-opus |
+| `gemini` | `GEMINI_API_KEY` | gemini-2.0-flash, gemini-2.5-pro |
+| `groq` | `GROQ_API_KEY` | llama-3.3-70b-versatile |
+| `deepseek` | `DEEPSEEK_API_KEY` | deepseek-chat, deepseek-reasoner |
+| `mistral` | `MISTRAL_API_KEY` | mistral-large-latest |
+| `grok` | `XAI_API_KEY` | grok-3, grok-2 |
+| `qwen` | `DASHSCOPE_API_KEY` | qwen-turbo, qwen-max |
+| `cohere` | `COHERE_API_KEY` | command-r-plus |
+| `together` | `TOGETHER_API_KEY` | meta-llama/Llama-2-70b-chat-hf |
+| `perplexity` | `PERPLEXITY_API_KEY` | llama-3.1-sonar-huge-128k-online |
+| `openrouter` | `OPENROUTER_API_KEY` | (any model via OpenRouter) |
+| `bedrock` | `AWS_ACCESS_KEY_ID` | anthropic.claude-3-5-sonnet |
+| `custom` | `CUSTOM_API_KEY` | (requires DEFAULT_LLM_BASE_URL) |
+
+### Provider-Specific Configuration
 
 ```bash
 # OpenAI
-export OPENAI_API_KEY="your-key"
-export OPENAI_MODEL="gpt-4o-mini"  # Optional default model
+export OPENAI_API_KEY="sk-..."
 
 # Anthropic
-export ANTHROPIC_API_KEY="your-key"
+export ANTHROPIC_API_KEY="sk-ant-..."
+
+# Google Gemini (free tier available)
+export GEMINI_API_KEY="..."
+
+# Groq (free tier: 14,400 req/day)
+export GROQ_API_KEY="gsk_..."
 
 # AWS Bedrock
 export AWS_ACCESS_KEY_ID="..."
 export AWS_SECRET_ACCESS_KEY="..."
 export AWS_REGION="us-east-1"
+
+# Custom OpenAI-compatible (Ollama, vLLM, LM Studio, etc.)
+export DEFAULT_LLM_PROVIDER="custom"
+export DEFAULT_LLM_MODEL_NAME="llama3"
+export DEFAULT_LLM_BASE_URL="http://localhost:11434/v1"
+export DEFAULT_LLM_API_KEY="not-needed"  # Some local servers don't require a key
+```
+
+### Specifying Model Directly
+
+Instead of "auto", you can specify the model directly in your agent config:
+
+```yaml
+config:
+  provider: "openai"
+  model_name: "gpt-4o-mini"
+  api_key: "${OPENAI_API_KEY}"  # Or hardcode the key
+```
+
+Or in Python:
+
+```python
+agent = MyAgent(agent_config=AgentConfig(
+    provider="anthropic",
+    model_name="claude-3-5-sonnet-20241022",
+    api_key=os.getenv("ANTHROPIC_API_KEY"),
+))
 ```
 
 ## CLI Commands
