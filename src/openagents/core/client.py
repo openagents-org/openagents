@@ -166,6 +166,7 @@ class AgentClient:
         ssl_client_key: Optional[str] = None,
         ssl_verify: bool = True,
         skip_detection: bool = False,
+        auto_reregister: bool = True,
     ) -> bool:
         """Connect to a network server.
 
@@ -184,6 +185,7 @@ class AgentClient:
             ssl_verify: Whether to verify server certificate (default: True)
             skip_detection: Skip health check detection and connect directly using
                 enforce_transport_type. Useful for Docker port mapping scenarios.
+            auto_reregister: If True, automatically re-register when auth fails (default: True)
 
         Returns:
             bool: True if connection successful
@@ -305,7 +307,8 @@ class AgentClient:
             from openagents.core.connectors.http_connector import HTTPNetworkConnector
 
             self.connector = HTTPNetworkConnector(
-                optimal_transport_host, optimal_transport_port, self.agent_id, metadata, password_hash
+                optimal_transport_host, optimal_transport_port, self.agent_id, metadata, password_hash,
+                auto_reregister=auto_reregister
             )
         elif transport_type == "websocket":
             raise NotImplementedError("WebSocket transport is not supported yet")
@@ -362,6 +365,7 @@ class AgentClient:
         ssl_client_key: Optional[str] = None,
         ssl_verify: bool = True,
         skip_detection: bool = False,
+        auto_reregister: bool = True,
     ) -> bool:
         """Connect to a network server (alias for connect_to_server).
 
@@ -382,6 +386,7 @@ class AgentClient:
             ssl_verify: Whether to verify server certificate (default: True)
             skip_detection: Skip health check detection and connect directly using
                 enforce_transport_type. Useful for Docker port mapping scenarios.
+            auto_reregister: If True, automatically re-register when auth fails (default: True)
 
         Returns:
             bool: True if connection successful
@@ -390,7 +395,7 @@ class AgentClient:
             network_host, network_port, network_id, enforce_transport_type,
             metadata, max_message_size, password_hash,
             use_tls, ssl_ca_cert, ssl_client_cert, ssl_client_key, ssl_verify,
-            skip_detection
+            skip_detection, auto_reregister
         )
 
     async def disconnect(self) -> bool:

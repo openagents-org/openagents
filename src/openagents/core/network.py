@@ -318,7 +318,16 @@ class AgentNetwork:
                 # Extract network configuration from YAML
                 if "network" not in config_dict:
                     raise ValueError(
-                        f"Configuration file {config_path} must contain a 'network' section"
+                        f"Configuration file {config_path} must contain a 'network' section.\n"
+                        "Expected format:\n"
+                        "  network:\n"
+                        "    name: my-network\n"
+                        "    transports:\n"
+                        "      - type: http\n"
+                        "        config:\n"
+                        "          port: 8700\n"
+                        "\n"
+                        "See https://docs.openagents.com/getting-started/quick-start-guide for examples."
                     )
 
                 # Extract network profile and external_access from root level if present

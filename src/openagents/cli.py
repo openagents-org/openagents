@@ -2625,6 +2625,11 @@ def agent_start(
     host: Optional[str] = typer.Option(None, "--network-host", "-h", help="Network host address"),
     port: Optional[int] = typer.Option(None, "--network-port", "-p", help="Network port"),
     detach: bool = typer.Option(False, "--detach", "-d", help="Run in background"),
+    disable_reregister: bool = typer.Option(
+        False,
+        "--disable-reregister",
+        help="Disable automatic re-registration when authentication fails (e.g., after network restart)"
+    ),
 ):
     """🚀 Start an agent"""
     from openagents.agents.runner import AgentRunner
@@ -2717,6 +2722,7 @@ def agent_start(
                 network_id=final_network_id,
                 metadata={"agent_type": type(agent).__name__, "config_file": config},
                 password_hash=final_password_hash,
+                auto_reregister=not disable_reregister,
             )
 
             progress.update(task, description="[green]✅ Agent started successfully!")

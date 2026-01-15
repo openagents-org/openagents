@@ -584,11 +584,12 @@ class AgentRunner(ABC):
         ssl_client_cert: Optional[str] = None,
         ssl_client_key: Optional[str] = None,
         ssl_verify: bool = True,
+        auto_reregister: bool = True,
     ):
         """Async implementation of starting the agent runner.
 
         This is the internal async implementation that should not be called directly.
-        
+
         Args:
             url: Connection string URL (e.g., "grpcs://host:port"). Takes precedence over host/port.
             host: Server host (legacy, use url instead)
@@ -600,6 +601,7 @@ class AgentRunner(ABC):
             ssl_client_cert: Path to client certificate for mTLS
             ssl_client_key: Path to client private key for mTLS
             ssl_verify: Whether to verify server certificate (default: True)
+            auto_reregister: If True, automatically re-register when auth fails (default: True)
         """
         # Parse URL if provided
         use_tls = False
@@ -654,6 +656,7 @@ class AgentRunner(ABC):
                 ssl_client_key=ssl_client_key,
                 ssl_verify=ssl_verify,
                 skip_detection=skip_detection,
+                auto_reregister=auto_reregister,
             )
             if not connected:
                 raise Exception("Failed to connect to server")
@@ -925,6 +928,7 @@ class AgentRunner(ABC):
         ssl_client_cert: Optional[str] = None,
         ssl_client_key: Optional[str] = None,
         ssl_verify: bool = True,
+        auto_reregister: bool = True,
     ):
         """Start the agent runner.
 
@@ -942,6 +946,7 @@ class AgentRunner(ABC):
             ssl_client_cert: Path to client certificate for mTLS
             ssl_client_key: Path to client private key for mTLS
             ssl_verify: Whether to verify server certificate (default: True)
+            auto_reregister: If True, automatically re-register when auth fails (default: True)
         """
         # Create a new event loop if one doesn't exist
         try:
@@ -956,7 +961,7 @@ class AgentRunner(ABC):
             loop.run_until_complete(
                 self._async_start(
                     url, network_host, network_port, network_id, metadata, password_hash,
-                    ssl_ca_cert, ssl_client_cert, ssl_client_key, ssl_verify
+                    ssl_ca_cert, ssl_client_cert, ssl_client_key, ssl_verify, auto_reregister
                 )
             )
         except Exception as e:

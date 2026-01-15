@@ -34,6 +34,7 @@ class HTTPNetworkConnector(NetworkConnector):
         metadata: Optional[Dict[str, Any]] = None,
         password_hash: Optional[str] = None,
         timeout: int = 30,
+        auto_reregister: bool = True,
     ):
         """Initialize an HTTP network connector.
 
@@ -44,6 +45,9 @@ class HTTPNetworkConnector(NetworkConnector):
             metadata: Agent metadata to send during registration
             password_hash: Password hash for agent group authentication
             timeout: Request timeout in seconds (default 30)
+            auto_reregister: If True, automatically attempt to re-register when
+                authentication fails (e.g., after network restart). Default: True.
+                Use --disable-reregister CLI flag to set this to False.
         """
         # Initialize base connector
         super().__init__(host, port, agent_id, metadata)
@@ -51,6 +55,7 @@ class HTTPNetworkConnector(NetworkConnector):
         self.timeout = timeout
         self.password_hash = password_hash
         self.is_polling = True  # HTTP uses polling for message retrieval
+        self.auto_reregister = auto_reregister
 
         # HTTP client session
         self.session = None
@@ -154,6 +159,7 @@ class HTTPNetworkConnector(NetworkConnector):
 
             logger.info(f"Connected to HTTP network successfully")
             self.is_connected = True
+            self._reregister_attempts = 0  # Reset counter on successful connection
             logger.debug("HTTP connection established")
 
             return True
@@ -161,6 +167,89 @@ class HTTPNetworkConnector(NetworkConnector):
         except Exception as e:
             logger.error(f"HTTP connection error: {e}")
             return False
+
+    async def _attempt_reregister(self) -> bool:
+        """Attempt to re-register with the network after an authentication failure.
+
+        This is called automatically when polling detects an authentication error,
+        which typically happens after the network is restarted and the agent's
+        stored secret becomes invalid.
+
+        Returns:
+            bool: True if re-registration was successful, False otherwise
+        """
+        if not self.auto_reregister:
+            logger.warning(
+                f"Authentication failed for agent {self.agent_id}. "
+                "Auto re-registration is disabled. Restart the agent manually or "
+                "remove the --disable-reregister flag."
+            )
+            return False
+
+        # Use lock to prevent concurrent re-registration attempts
+        if self._reregister_lock is None:
+            self._reregister_lock = asyncio.Lock()
+
+        async with self._reregister_lock:
+            # Check if we've exceeded max attempts
+            if self._reregister_attempts >= self._max_reregister_attempts:
+                logger.error(
+                    f"Max re-registration attempts ({self._max_reregister_attempts}) exceeded "
+                    f"for agent {self.agent_id}. Please restart the agent manually."
+                )
+                return False
+
+            self._reregister_attempts += 1
+            logger.info(
+                f"Attempting re-registration for agent {self.agent_id} "
+                f"(attempt {self._reregister_attempts}/{self._max_reregister_attempts})..."
+            )
+
+            try:
+                # Clear old secret
+                self.secret = None
+
+                # Send new registration request
+                register_data = {
+                    "agent_id": self.agent_id,
+                    "metadata": self.metadata,
+                    "password_hash": self.password_hash or "",
+                }
+
+                async with self.session.post(
+                    f"{self.base_url}/register", json=register_data
+                ) as response:
+                    if response.status != 200:
+                        logger.error(
+                            f"Re-registration failed with HTTP status {response.status}"
+                        )
+                        return False
+
+                    register_response = await response.json()
+                    if not register_response.get("success", False):
+                        logger.error(
+                            f"Re-registration failed: {register_response.get('error_message', 'Unknown error')}"
+                        )
+                        return False
+
+                    # Store new authentication secret
+                    if register_response.get("secret"):
+                        self.secret = register_response["secret"]
+                        self._reregister_attempts = 0  # Reset on success
+                        logger.info(
+                            f"Successfully re-registered agent {self.agent_id} with network. "
+                            "This typically happens after a network restart."
+                        )
+                        return True
+                    else:
+                        logger.warning(
+                            f"Re-registration succeeded but no secret received for agent {self.agent_id}"
+                        )
+                        return False
+
+            except Exception as e:
+                logger.error(f"Re-registration failed with error: {e}")
+                return False
 
     async def disconnect(self) -> bool:
         """Disconnect from the HTTP network server.
@@ -325,10 +414,31 @@ class HTTPNetworkConnector(NetworkConnector):
                 response_data = await response.json()
 
                 if not response_data.get("success", False):
+                    error_message = response_data.get("message", "") or response_data.get("error_message", "")
+
+                    # Check if this is an authentication failure
+                    if "authentication failed" in error_message.lower() or "invalid or missing secret" in error_message.lower():
+                        logger.warning(
+                            f"Authentication failed for agent {self.agent_id}. "
+                            "This typically happens after the network is restarted."
+                        )
+
+                        # Attempt auto re-registration
+                        if await self._attempt_reregister():
+                            # Re-registration succeeded, but return empty for this poll cycle
+                            # The next poll cycle will use the new credentials
+                            return []
+                        else:
+                            # Re-registration failed
+                            return []
+
                     logger.warning(
-                        f"Poll messages request failed: {response_data.get('error_message', 'Unknown error')}"
+                        f"Poll messages request failed: {error_message or 'Unknown error'}"
                     )
                     return []
+
+                # Reset re-registration attempts on successful poll
+                self._reregister_attempts = 0
 
                 # Extract messages from response
                 messages = []

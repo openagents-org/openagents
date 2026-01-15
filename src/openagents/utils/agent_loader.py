@@ -100,10 +100,14 @@ def load_agent_from_yaml(
 
     logger.debug(f"Loaded YAML configuration from {yaml_path}")
 
-    # Extract agent_id
-    agent_id = agent_id_override or config_data.get("agent_id")
+    # Extract agent_id (with fallbacks: override -> agent_id -> name -> filename)
+    agent_id = agent_id_override or config_data.get("agent_id") or config_data.get("name")
     if not agent_id:
-        raise ValueError("agent_id must be specified in YAML or as override parameter")
+        # Fallback to filename (without extension)
+        agent_id = yaml_path.stem
+        logger.info(f"Auto-generated agent_id from filename: {agent_id}")
+    elif not agent_id_override and not config_data.get("agent_id") and config_data.get("name"):
+        logger.info(f"Using 'name' field as agent_id: {agent_id}")
 
     # Extract agent type (default to WorkerAgent)
     agent_type = config_data.get("type", "openagents.agents.worker_agent.WorkerAgent")
@@ -292,12 +296,20 @@ def _process_mods_config(
     return mod_configs
 
 
+# Type aliases for common agent classes
+AGENT_TYPE_ALIASES = {
+    "WorkerAgent": "openagents.agents.worker_agent.WorkerAgent",
+    "CollaboratorAgent": "openagents.agents.collaborator_agent.CollaboratorAgent",
+    "AgentRunner": "openagents.agents.runner.AgentRunner",
+}
+
+
 def _load_agent_class(agent_type: str) -> Type[AgentRunner]:
     """
     Dynamically load the specified agent class.
 
     Args:
-        agent_type: Fully qualified class name (e.g., 'module.ClassName')
+        agent_type: Fully qualified class name (e.g., 'module.ClassName') or alias
 
     Returns:
         Agent class type
@@ -307,10 +319,21 @@ def _load_agent_class(agent_type: str) -> Type[AgentRunner]:
         ValueError: If class is not an AgentRunner subclass
     """
     try:
+        # Resolve type alias if applicable
+        if agent_type in AGENT_TYPE_ALIASES:
+            resolved_type = AGENT_TYPE_ALIASES[agent_type]
+            logger.debug(f"Resolved agent type alias '{agent_type}' -> '{resolved_type}'")
+            agent_type = resolved_type
+
         # Split module path and class name
         if "." not in agent_type:
+            available_aliases = ", ".join(AGENT_TYPE_ALIASES.keys())
             raise ValueError(
-                f"Agent type must be fully qualified (module.Class): {agent_type}"
+                f"Agent type must be fully qualified (module.Class): {agent_type}\n"
+                f"Available aliases: {available_aliases}\n"
+                "Common types:\n"
+                "  - WorkerAgent (openagents.agents.worker_agent.WorkerAgent)\n"
+                "  - CollaboratorAgent (openagents.agents.collaborator_agent.CollaboratorAgent)"
             )
 
         module_path, class_name = agent_type.rsplit(".", 1)

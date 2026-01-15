@@ -48,9 +48,15 @@ class NetworkConnector(ABC):
         self.is_polling = (
             False  # Whether this connector uses polling for message retrieval
         )
-        
+
         # Authentication
         self.secret: Optional[str] = None
+
+        # Auto re-registration on auth failure (e.g., after network restart)
+        self.auto_reregister = True
+        self._reregister_lock = None  # Will be initialized as asyncio.Lock when needed
+        self._reregister_attempts = 0
+        self._max_reregister_attempts = 3
 
         # Message handling
         self.event_handlers: List[Callable[[Any], Awaitable[None]]] = []
