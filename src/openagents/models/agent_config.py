@@ -4,7 +4,7 @@ import os
 import re
 import random
 import yaml
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from openagents.config.llm_configs import MODEL_CONFIGS, LLMProviderType
@@ -21,12 +21,37 @@ if TYPE_CHECKING:
     from openagents.models.tool_config import AgentToolConfig
 
 
+class TriggerFilter(BaseModel):
+    """Filter criteria for trigger matching.
+
+    Filters allow agents to selectively respond to events based on
+    event properties like sender_type (human vs agent).
+    """
+
+    sender_type: Optional[str] = Field(
+        default=None,
+        description="Filter by sender type: 'human' for human users, 'agent' for AI agents"
+    )
+    source_id: Optional[str] = Field(
+        default=None,
+        description="Filter by specific source ID"
+    )
+    extra_filters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Additional custom filters to match against event payload"
+    )
+
+
 class AgentTriggerConfigItem(BaseModel):
     """Trigger for an agent."""
 
     event: str = Field(..., description="Event name to trigger the agent")
     instruction: Optional[str] = Field(
         default=None, description="Instruction on how to respond to the event"
+    )
+    filter: Optional[TriggerFilter] = Field(
+        default=None,
+        description="Optional filter criteria to selectively respond to events"
     )
 
 

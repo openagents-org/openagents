@@ -223,7 +223,8 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         payload = {
             "target_agent_id": target_agent_id,
             "content": content,
-            "message_type": "direct_message"
+            "message_type": "direct_message",
+            "sender_type": "agent",  # Mark as agent-sent for trigger filtering
         }
         if quoted_message_id:
             payload["quoted_message_id"] = quoted_message_id
@@ -293,6 +294,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             "content": content,
             "source_id": self.agent_id,
             "relevant_agent_id": self.agent_id,
+            "sender_type": "agent",  # Mark as agent-sent for trigger filtering
         }
 
         # Add optional fields if provided
@@ -560,10 +562,13 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             quoted_message_id=quoted_message_id,
             quoted_text=quoted_text,
         )
-        
+
         # Use the reply message Event directly, just update the metadata
         message = reply_msg
         message.relevant_mod = "openagents.mods.workspace.messaging"
+        # Mark as agent-sent for trigger filtering
+        if message.payload:
+            message.payload["sender_type"] = "agent"
 
         await self.agent_client.send_event(message)
         logger.debug(f"Sent reply to message {reply_to_id} in channel {channel}")
