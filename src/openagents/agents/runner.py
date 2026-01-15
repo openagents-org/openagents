@@ -313,8 +313,12 @@ class AgentRunner(ABC):
 
             if not model_name:
                 raise ValueError(
-                    "Model is set to 'auto' but DEFAULT_LLM_MODEL_NAME environment variable is not set. "
-                    "Please configure the default model in the network settings."
+                    "Model is set to 'auto' but DEFAULT_LLM_MODEL_NAME environment variable is not set.\n"
+                    "Please configure the following environment variables:\n"
+                    "  export DEFAULT_LLM_MODEL_NAME=\"<model-name>\"  # e.g., gpt-4o-mini, deepseek-chat, claude-3-5-sonnet\n"
+                    "  export <PROVIDER>_API_KEY=\"<your-api-key>\"    # e.g., OPENAI_API_KEY, DEEPSEEK_API_KEY, ANTHROPIC_API_KEY\n"
+                    "Or use DEFAULT_LLM_API_KEY for any provider.\n"
+                    "See https://openagents.org/docs/ for more details."
                 )
 
             # Use base_url from auto config, fallback to agent_config.api_base
