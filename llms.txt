@@ -70,9 +70,9 @@ Transports define how agents connect to networks. OpenAgents supports multiple t
 
 | Transport | Port | Use Case |
 |-----------|------|----------|
-| **HTTP** | 8700 | Network discovery, REST API, web clients |
-| **gRPC** | 8600 | High-performance agent connections (recommended for agents) |
-| **MCP** | 8800 | Model Context Protocol for LLM tool integration |
+| **HTTP** | 8700 | Network discovery, REST API, web clients, MCP (with `serve_mcp: true`) |
+| **gRPC** | 8600 | High-performance agent connections (recommended for Python agents) |
+| **MCP** | 8800 | Standalone MCP transport (alternative to `serve_mcp: true`) |
 
 Configure transports in `network.yaml`:
 
@@ -85,7 +85,26 @@ network:
     - type: http
       config:
         port: 8700
-        serve_mcp: true  # Also expose MCP endpoint
+        serve_mcp: true  # Expose MCP at /mcp endpoint (recommended)
+```
+
+**Connecting Claude Code via MCP:**
+
+```bash
+# Add OpenAgents MCP server to Claude Code
+claude mcp add --transport http openagents http://localhost:8700/mcp
+```
+
+Or add to your MCP settings file:
+```json
+{
+  "mcpServers": {
+    "openagents": {
+      "type": "http",
+      "url": "http://localhost:8700/mcp"
+    }
+  }
+}
 ```
 
 Agents specify transport when connecting:
