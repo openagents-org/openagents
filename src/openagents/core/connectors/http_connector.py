@@ -386,3 +386,176 @@ class HTTPNetworkConnector(NetworkConnector):
         except Exception as e:
             logger.error(f"Failed to poll messages: {e}")
             return []
+
+    async def send_event_stream(
+        self,
+        message: Event,
+        on_chunk: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+    ) -> EventResponse:
+        """Send an event and receive streaming response via SSE.
+
+        Args:
+            message: Event to send
+            on_chunk: Optional callback for each received chunk
+
+        Returns:
+            EventResponse: The final response after streaming completes
+        """
+        if not self.is_connected:
+            logger.debug(f"Agent {self.agent_id} is not connected to HTTP network")
+            return self._create_error_response("Agent is not connected to HTTP network")
+
+        try:
+            # Validate event using base class method
+            if not self._validate_event(message):
+                return self._create_error_response("Event validation failed")
+
+            # Add authentication secret to the message
+            if self.secret and not message.secret:
+                message.secret = self.secret
+
+            # Prepare HTTP request data
+            event_data = {
+                "event_id": message.event_id,
+                "event_name": message.event_name,
+                "source_id": message.source_id,
+                "target_agent_id": message.destination_id or "",
+                "payload": message.payload or {},
+                "metadata": message.metadata or {},
+                "visibility": getattr(message, "visibility", "network"),
+                "secret": getattr(message, "secret", "") or "",
+            }
+
+            # Send the streaming event request
+            final_data = None
+            final_message = "Success"
+
+            async with self.session.post(
+                f"{self.base_url}/send_event_stream",
+                json=event_data,
+                headers={"Accept": "text/event-stream"},
+            ) as response:
+                if response.status != 200:
+                    error_message = f"HTTP streaming request failed with status {response.status}"
+                    logger.error(error_message)
+                    return self._create_error_response(error_message)
+
+                # Process SSE stream
+                async for line in response.content:
+                    line_str = line.decode("utf-8").strip()
+
+                    # Skip empty lines and event type lines
+                    if not line_str or line_str.startswith("event:"):
+                        continue
+
+                    # Parse data lines
+                    if line_str.startswith("data:"):
+                        try:
+                            json_str = line_str[5:].strip()
+                            chunk_data = json.loads(json_str)
+
+                            # Call chunk handler if provided
+                            if on_chunk:
+                                await on_chunk(chunk_data)
+
+                            # Extract final response data
+                            event_type = chunk_data.get("event_type")
+                            if event_type == "agent_response":
+                                data = chunk_data.get("data", {})
+                                final_data = data.get("data")
+                                final_message = data.get("message", "Success")
+                            elif event_type == "complete":
+                                data = chunk_data.get("data", {})
+                                if not data.get("success", True):
+                                    return self._create_error_response(
+                                        data.get("message", "Stream completed with error")
+                                    )
+                            elif event_type == "error":
+                                data = chunk_data.get("data", {})
+                                return self._create_error_response(
+                                    data.get("error", "Unknown streaming error")
+                                )
+
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Failed to parse SSE data: {e}")
+                            continue
+
+            logger.debug(f"Successfully completed streaming event {message.event_id}")
+            return self._create_success_response(final_message, final_data)
+
+        except Exception as e:
+            error_message = f"Failed to send streaming HTTP message: {str(e)}"
+            logger.error(error_message)
+            return self._create_error_response(error_message)
+
+    async def connect_stream(
+        self,
+        event_filters: Optional[List[str]] = None,
+        on_chunk: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+    ) -> asyncio.Task:
+        """Connect to SSE stream for real-time events.
+
+        Args:
+            event_filters: Optional list of event names to filter
+            on_chunk: Callback for each received event chunk
+
+        Returns:
+            asyncio.Task: The background task handling the stream
+        """
+        if not self.is_connected:
+            raise RuntimeError("Agent is not connected to HTTP network")
+
+        async def stream_handler():
+            """Background task to handle SSE stream."""
+            try:
+                # Build query parameters
+                params = {"source_id": self.agent_id}
+                if event_filters:
+                    params["event_filters"] = ",".join(event_filters)
+
+                async with self.session.get(
+                    f"{self.base_url}/stream",
+                    params=params,
+                    headers={"Accept": "text/event-stream"},
+                ) as response:
+                    if response.status != 200:
+                        logger.error(
+                            f"Failed to connect to event stream: HTTP {response.status}"
+                        )
+                        return
+
+                    logger.info(f"Connected to SSE event stream for {self.agent_id}")
+
+                    # Process SSE stream
+                    async for line in response.content:
+                        if not self.is_connected:
+                            break
+
+                        line_str = line.decode("utf-8").strip()
+
+                        # Skip empty lines and event type lines
+                        if not line_str or line_str.startswith("event:"):
+                            continue
+
+                        # Parse data lines
+                        if line_str.startswith("data:"):
+                            try:
+                                json_str = line_str[5:].strip()
+                                chunk_data = json.loads(json_str)
+
+                                # Call chunk handler if provided
+                                if on_chunk:
+                                    await on_chunk(chunk_data)
+
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"Failed to parse SSE data: {e}")
+                                continue
+
+            except asyncio.CancelledError:
+                logger.debug(f"Event stream cancelled for {self.agent_id}")
+            except Exception as e:
+                logger.error(f"Error in event stream: {e}")
+
+        # Start stream handler task
+        task = asyncio.create_task(stream_handler())
+        return task

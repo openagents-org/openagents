@@ -22,6 +22,9 @@ from .artifact import Artifact, ArtifactType
 from .task import Task, TaskState, TaskPriority
 from .profile import AgentProfile
 
+# Streaming models
+from .streaming import StreamEventType, StreamChunk, StreamRequest, StreamSession
+
 __all__ = [
     # Transport models
     "TransportType",
@@ -49,4 +52,9 @@ __all__ = [
     "TaskState",
     "TaskPriority",
     "AgentProfile",
+    # Streaming models
+    "StreamEventType",
+    "StreamChunk",
+    "StreamRequest",
+    "StreamSession",
 ]

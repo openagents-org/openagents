@@ -40,6 +40,7 @@ from aiohttp import web
 from .base import Transport
 from openagents.models.transport import TransportType, ConnectionState, ConnectionInfo, RemoteAgentStatus
 from openagents.models.event import Event, EventVisibility
+from openagents.models.streaming import StreamEventType, StreamChunk, StreamSession
 from openagents.models.a2a import (
     AgentCard,
     AgentSkill,
@@ -132,6 +133,9 @@ class HttpTransport(Transport):
 
         self.workspace_path = workspace_path  # Workspace path for LLM logs API
 
+        # Streaming sessions storage
+        self._stream_sessions: Dict[str, "StreamSession"] = {}
+
         # Relay configuration (enabled via relay: {url: "wss://..."} or relay: true)
         relay_config = self.config.get("relay", None)
         if relay_config is True:
@@ -167,6 +171,10 @@ class HttpTransport(Transport):
         self.app.router.add_post("/api/unregister", self.unregister_agent)
         self.app.router.add_get("/api/poll", self.poll_messages)
         self.app.router.add_post("/api/send_event", self.send_message)
+
+        # Streaming endpoints (SSE)
+        self.app.router.add_get("/api/stream", self.stream_events)
+        self.app.router.add_post("/api/send_event_stream", self.send_message_stream)
 
         # Network management endpoints (admin only)
         self.app.router.add_get("/api/network/export", self.export_network)
@@ -1059,6 +1067,263 @@ class HttpTransport(Transport):
         # Notify registered event handlers and return the response
         response = await self.call_event_handler(event)
         return response
+
+    async def stream_events(self, request):
+        """Handle SSE streaming connection for real-time events.
+
+        GET /api/stream?source_id=xxx&event_filters=event1,event2
+
+        Query Parameters:
+            source_id: Client identifier (required)
+            event_filters: Comma-separated list of event names to filter (optional)
+        """
+        source_id = request.query.get("source_id")
+        if not source_id:
+            return web.json_response(
+                {"success": False, "error_message": "source_id is required"},
+                status=400,
+            )
+
+        # Parse optional event filters
+        event_filters = None
+        filters_param = request.query.get("event_filters")
+        if filters_param:
+            event_filters = [f.strip() for f in filters_param.split(",") if f.strip()]
+
+        # Create SSE response
+        response = web.StreamResponse(
+            status=200,
+            headers={
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+        await response.prepare(request)
+
+        # Create session
+        session_id = str(uuid.uuid4())
+        current_time = int(time.time())
+        session = StreamSession(
+            session_id=session_id,
+            source_id=source_id,
+            created_at=current_time,
+            is_active=True,
+            chunk_count=0,
+            last_activity=current_time,
+            event_filters=event_filters,
+        )
+        self._stream_sessions[session_id] = session
+
+        logger.info(f"HTTP stream: New SSE connection from {source_id}, session {session_id}")
+
+        # Send connected event
+        connected_chunk = StreamChunk(
+            event_type=StreamEventType.CONNECTED,
+            data={"session_id": session_id, "source_id": source_id},
+            chunk_index=0,
+            is_final=False,
+            timestamp=current_time,
+        )
+        await self._send_stream_chunk(response, connected_chunk)
+
+        try:
+            heartbeat_counter = 0
+            while session.is_active:
+                # Send heartbeat every 30 seconds
+                heartbeat_counter += 1
+                if heartbeat_counter >= 300:  # 30 seconds (0.1s * 300)
+                    heartbeat_chunk = StreamChunk(
+                        event_type=StreamEventType.HEARTBEAT,
+                        data={"timestamp": int(time.time())},
+                        timestamp=int(time.time()),
+                    )
+                    await self._send_stream_chunk(response, heartbeat_chunk)
+                    heartbeat_counter = 0
+
+                await asyncio.sleep(0.1)
+
+                # Check if client disconnected
+                if response.task and response.task.done():
+                    break
+
+        except (ConnectionResetError, asyncio.CancelledError):
+            logger.debug(f"HTTP stream: SSE connection closed for session {session_id}")
+        finally:
+            session.is_active = False
+            if session_id in self._stream_sessions:
+                del self._stream_sessions[session_id]
+
+            # Send disconnected event (may fail if connection already closed)
+            try:
+                disconnected_chunk = StreamChunk(
+                    event_type=StreamEventType.DISCONNECTED,
+                    data={"session_id": session_id},
+                    is_final=True,
+                    timestamp=int(time.time()),
+                )
+                await self._send_stream_chunk(response, disconnected_chunk)
+            except Exception:
+                pass
+
+        return response
+
+    async def send_message_stream(self, request):
+        """Handle sending events with streaming response via SSE.
+
+        POST /api/send_event_stream
+
+        This endpoint processes an event and streams the response in real-time,
+        useful for long-running operations or AI agent responses.
+        """
+        try:
+            data = await request.json()
+
+            # Extract event data
+            event_name = data.get("event_name")
+            source_id = data.get("source_id")
+            target_agent_id = data.get("target_agent_id")
+            payload = data.get("payload", {})
+            event_id = data.get("event_id") or str(uuid.uuid4())
+            metadata = data.get("metadata", {})
+            visibility = data.get("visibility", "network")
+            secret = data.get("secret")
+
+            if not event_name or not source_id:
+                return web.json_response(
+                    {
+                        "success": False,
+                        "error_message": "event_name and source_id are required",
+                    },
+                    status=400,
+                )
+
+            logger.debug(f"HTTP streaming event: {event_name} from {source_id}")
+
+            # Create SSE response
+            response = web.StreamResponse(
+                status=200,
+                headers={
+                    "Content-Type": "text/event-stream",
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+            await response.prepare(request)
+
+            # Send initial chunk indicating processing started
+            start_chunk = StreamChunk(
+                event_type=StreamEventType.AGENT_THINKING,
+                data={"message": "Processing event...", "event_id": event_id},
+                chunk_index=0,
+                is_final=False,
+                event_id=event_id,
+                source_id=source_id,
+                timestamp=int(time.time()),
+            )
+            await self._send_stream_chunk(response, start_chunk)
+
+            # Create internal Event from HTTP request
+            event = Event(
+                event_name=event_name,
+                source_id=source_id,
+                destination_id=target_agent_id,
+                payload=payload,
+                event_id=event_id,
+                timestamp=int(time.time()),
+                metadata=metadata,
+                visibility=visibility,
+                secret=secret,
+            )
+
+            # Route through unified handler
+            event_response = await self._handle_sent_event(event)
+
+            # Extract response data
+            response_data = None
+            if event_response and hasattr(event_response, "data") and event_response.data:
+                response_data = event_response.data
+
+            # Send response chunk
+            response_chunk = StreamChunk(
+                event_type=StreamEventType.AGENT_RESPONSE,
+                data={
+                    "success": event_response.success if event_response else True,
+                    "message": event_response.message if event_response else "",
+                    "data": response_data,
+                    "event_name": event_name,
+                },
+                chunk_index=1,
+                is_final=False,
+                event_id=event_id,
+                source_id=source_id,
+                timestamp=int(time.time()),
+            )
+            await self._send_stream_chunk(response, response_chunk)
+
+            # Send completion chunk
+            complete_chunk = StreamChunk(
+                event_type=StreamEventType.COMPLETE,
+                data={
+                    "success": event_response.success if event_response else True,
+                    "event_id": event_id,
+                },
+                chunk_index=2,
+                is_final=True,
+                event_id=event_id,
+                source_id=source_id,
+                timestamp=int(time.time()),
+            )
+            await self._send_stream_chunk(response, complete_chunk)
+
+            return response
+
+        except Exception as e:
+            logger.error(f"Error handling HTTP send_message_stream: {e}")
+            # Try to send error as SSE if response is already prepared
+            try:
+                error_chunk = StreamChunk(
+                    event_type=StreamEventType.ERROR,
+                    data={"error": str(e)},
+                    is_final=True,
+                    timestamp=int(time.time()),
+                )
+                await self._send_stream_chunk(response, error_chunk)
+                return response
+            except Exception:
+                return web.json_response(
+                    {"success": False, "error_message": str(e)}, status=500
+                )
+
+    async def _send_stream_chunk(self, response: web.StreamResponse, chunk: StreamChunk):
+        """Send a stream chunk in SSE format."""
+        sse_data = chunk.to_sse_format()
+        await response.write(sse_data.encode("utf-8"))
+
+    async def broadcast_to_streams(
+        self, chunk: StreamChunk, event_filter: Optional[str] = None
+    ):
+        """Broadcast a chunk to all active stream sessions.
+
+        Args:
+            chunk: The stream chunk to broadcast
+            event_filter: Optional event name to filter which sessions receive the chunk
+        """
+        for session_id, session in list(self._stream_sessions.items()):
+            if not session.is_active:
+                continue
+
+            # Check event filter
+            if event_filter and session.event_filters:
+                if event_filter not in session.event_filters:
+                    continue
+
+            # Session doesn't have a response object stored,
+            # so we'd need to enhance the architecture for true broadcast
+            # For now, this is a placeholder for future enhancement
+            logger.debug(f"Would broadcast to session {session_id}")
 
     async def peer_connect(self, peer_id: str, metadata: Dict[str, Any] = None) -> bool:
         """Connect to a peer (HTTP doesn't maintain persistent connections)."""
