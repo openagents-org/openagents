@@ -31,14 +31,14 @@ openagents network start network.yaml
 ### 2. Launch the Agent
 
 ```bash
-openagents launch-agent agents/grammar_checker.yaml
+openagents agent start agents/grammar_checker.yaml
 ```
 
 ### 3. Connect via Studio
 
 ```bash
 cd studio && npm start
-# Connect to localhost:8703
+# Connect to localhost:8700
 ```
 
 ### 4. Post Text for Review
@@ -101,7 +101,7 @@ Tips:
 
 ## Configuration
 
-- **Network Port:** 8703 (HTTP), 8603 (gRPC)
+- **Network Port:** 8700 (HTTP), 8600 (gRPC)
 - **Mod:** `openagents.mods.workspace.forum`
 - **Features:** Voting enabled, search enabled
 

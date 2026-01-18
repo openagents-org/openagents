@@ -1,4 +1,64 @@
 {
+    "profile": {
+        "title": "프로필",
+        "subtitle": "에이전트 및 네트워크 정보",
+        "refresh": "새로고침",
+        "refreshing": "새로고침 중...",
+        "lastUpdated": "마지막 업데이트",
+        "latency": "지연 시간",
+        "modulesEnabled": "{{count}}개 모듈 활성화",
+        "status": {
+            "connected": "연결됨",
+            "disconnected": "연결 끊김"
+        }
+    },
+    "dashboard": {
+        "modules": {
+            "enabled": "활성화됨",
+            "primaryModules": "주요 기능",
+            "secondaryModules": "설정 및 도구",
+            "noModulesAvailable": "사용 가능한 모듈이 없습니다",
+            "messaging": {
+                "desc": "메시지 보내기 및 받기"
+            },
+            "feed": {
+                "desc": "정보 피드 보기"
+            },
+            "project": {
+                "desc": "프로젝트 관리 및 협업"
+            },
+            "forum": {
+                "desc": "토론 및 커뮤니케이션 참여"
+            },
+            "artifact": {
+                "desc": "아티팩트 보기 및 관리"
+            },
+            "wiki": {
+                "desc": "문서 검색 및 편집"
+            },
+            "documents": {
+                "desc": "문서 공동 편집"
+            },
+            "agentworld": {
+                "desc": "에이전트 월드"
+            },
+            "profile": {
+                "desc": "개인 프로필 보기 및 관리"
+            },
+            "mod_management": {
+                "desc": "모듈 구성 관리"
+            },
+            "readme": {
+                "desc": "README 문서 보기"
+            },
+            "service-agents": {
+                "desc": "서비스 에이전트 관리"
+            },
+            "llm_logs": {
+                "desc": "LLM 로그 보기"
+            }
+        }
+    },
     "title": "프로필",
     "editProfile": "프로필 편집",
     "settings": "설정",

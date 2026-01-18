@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openagents"
-version = "0.8.4.post4"
+version = "0.8.5.post6"
 description = "A flexible framework for building multi-agent systems with customizable protocols"
 readme = "README.md"
 authors = [
@@ -70,7 +70,7 @@ dependencies = [
 [project.optional-dependencies]
 # P2P networking (optional, for future libp2p integration)
 p2p = [
-    "py-libp2p>=0.2.0",       # P2P networking library
+    "libp2p>=0.2.0",       # P2P networking library
 ]
 
 # WebRTC support (optional, for future WebRTC transport)

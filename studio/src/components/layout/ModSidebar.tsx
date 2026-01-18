@@ -23,7 +23,12 @@ const ModSidebar: React.FC = () => {
   const enabledModules = useAuthStore((state) => state.moduleState.enabledModules);
   
   // Check admin status
-  const { isAdmin } = useIsAdmin();
+  const { isAdmin, isLoading: isAdminLoading } = useIsAdmin();
+  
+  // Debug: Log admin status
+  if (process.env.NODE_ENV === 'development') {
+    console.log("🔍 ModSidebar - Admin status:", { isAdmin, isAdminLoading });
+  }
 
   // Translation mapping for navigation labels
   const getTranslatedLabel = (key: PLUGIN_NAME_ENUM): string => {
@@ -41,6 +46,7 @@ const ModSidebar: React.FC = () => {
       [PLUGIN_NAME_ENUM.MOD_MANAGEMENT]: t('navigation.modManagement'),
       [PLUGIN_NAME_ENUM.SERVICE_AGENTS]: t('navigation.serviceAgents'),
       [PLUGIN_NAME_ENUM.LLM_LOGS]: t('navigation.llmLogs'),
+      [PLUGIN_NAME_ENUM.USER_DASHBOARD]: t('navigation.userDashboard', { defaultValue: 'User Dashboard' }),
     };
     return labelMap[key] || key;
   };
@@ -170,6 +176,17 @@ const ModSidebar: React.FC = () => {
         >
           <img src={logo} alt="OA" className="w-10 h-10" />
         </div>
+      </div>
+
+      {/* User Dashboard Icon - 强制显示在第一个位置 */}
+      <div className="mb-4">
+        <ModIcon
+          key="user-dashboard"
+          isActive={isRouteActive("/user-dashboard")}
+          onClick={() => handleNavigation("/user-dashboard")}
+          label={getTranslatedLabel(PLUGIN_NAME_ENUM.USER_DASHBOARD)}
+          icon={React.createElement(NavigationIcons.Dashboard)}
+        />
       </div>
 
       {/* Pinned README Icon - always at the top */}

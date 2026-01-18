@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { ServerIcon } from './icons';
+import { Button } from '@/components/layout/ui/button';
 
 interface ServerCardProps {
   name: string;
@@ -138,15 +139,19 @@ const ServerCard: React.FC<ServerCardProps> = ({
           </div>
         </div>
         <div className="flex-none flex space-x-2 mt-4">
-          <button 
+          <Button
+            variant="destructive"
+            size="sm"
             onClick={onDelete}
-            className="px-3 py-1 text-sm rounded-md bg-red-600 text-white hover:bg-red-700"
           >
             Delete
-          </button>
-          <button className="px-3 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700">
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+          >
             Detail
-          </button>
+          </Button>
         </div>
       </div>
     </div>

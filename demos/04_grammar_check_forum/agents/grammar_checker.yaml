@@ -5,7 +5,7 @@ type: "openagents.agents.collaborator_agent.CollaboratorAgent"
 agent_id: "grammar-checker"
 
 config:
-  model_name: "gpt-4o-mini"
+  model_name: "auto"
 
   instruction: |
     You are the GRAMMAR CHECKER - a helpful writing assistant that reviews forum posts.

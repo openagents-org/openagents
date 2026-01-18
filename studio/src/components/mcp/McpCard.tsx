@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { ServerIcon } from './icons';
+import { Button } from '@/components/layout/ui/button';
 
 interface McpCardProps {
   title: string;
@@ -130,15 +131,19 @@ const McpCard: React.FC<McpCardProps> = ({ title, description, status, icon, id,
           </div>
         </div>
         <div className="flex-none flex space-x-2 mt-4">
-          <button 
-            className="px-3 py-1 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700"
+          <Button
+            variant="primary"
+            size="sm"
             onClick={handleUse}
           >
             Use
-          </button>
-          <button className="px-3 py-1 text-sm rounded-md border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700">
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+          >
             Detail
-          </button>
+          </Button>
         </div>
       </div>
     </div>

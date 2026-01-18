@@ -9,7 +9,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 
 const PAGE_MARGIN = "10px";
 const HEADER_HEIGHT = "60px";
-const SIDEBAR_WIDTH = "460px";
+const SIDEBAR_WIDTH = "280px";
 const SIDEBAR_COLLAPSED_WIDTH = "60px";
 const TOOLBAR_HEIGHT = "54px";
 

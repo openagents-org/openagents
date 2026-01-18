@@ -162,6 +162,7 @@
       "corsOrigins": "CORSオリジン（カンマ区切り）",
       "corsPlaceholder": "*, http://localhost:3000",
       "serveMcp": "MCPプロトコルを提供",
+      "serveA2a": "A2Aプロトコルを提供",
       "serveStudio": "Studioフロントエンドを提供",
       "maxMessageSize": "最大メッセージサイズ（バイト）",
       "pingInterval": "Ping間隔（ミリ秒）",
@@ -327,8 +328,10 @@
       "python": "Python SDK",
       "yaml": "YAML設定",
       "langchain": "LangChain",
-      "mcp": "MCP統合"
+      "mcp": "MCP統合",
+      "a2a": "A2Aプロトコル"
     },
+    "a2aDescription": "公式のa2a-sdkを使用して外部のA2A準拠エージェントを接続します。エージェントの検出とクロスネットワーク通信をサポートします。",
     "yamlDescription": "コードを書かずに宣言的にエージェントを起動します。使用: openagents agent start ./config.yaml",
     "mcpDescription": "Claude Desktopを設定して、このネットワークをMCPサーバーとして接続します。",
     "langchainDescription": "既存のLangChainエージェントをLangChainAgentRunnerでラップしてネットワークに接続します。",
@@ -383,6 +386,8 @@
     "subtitle": "最近送信または受信したイベントを表示",
     "clearLogs": "ログをクリア",
     "clearConfirm": "すべてのイベントログをクリアしてもよろしいですか？",
+    "refresh": "更新",
+    "refreshing": "更新中...",
     "tabs": {
       "events": "イベント",
       "httpRequests": "HTTPリクエスト"
@@ -401,7 +406,28 @@
     "destination": "宛先",
     "payload": "ペイロード",
     "response": "レスポンス",
-    "timestamp": "タイムスタンプ"
+    "timestamp": "タイムスタンプ",
+    "columns": {
+      "direction": "方向",
+      "eventName": "イベント名",
+      "source": "ソース",
+      "destination": "宛先",
+      "time": "時間",
+      "status": "ステータス",
+      "sent": "送信",
+      "received": "受信",
+      "success": "成功",
+      "failed": "失敗",
+      "method": "メソッド",
+      "endpoint": "エンドポイント",
+      "statusCode": "ステータス",
+      "host": "ホスト",
+      "duration": "所要時間",
+      "actions": "操作"
+    },
+    "eventDetail": "イベント詳細",
+    "httpDetail": "HTTPリクエスト詳細",
+    "close": "閉じる"
   },
   "eventDebugger": {
     "title": "イベントデバッガー",

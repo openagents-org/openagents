@@ -1,4 +1,64 @@
 {
+    "profile": {
+        "title": "プロフィール",
+        "subtitle": "エージェントとネットワーク情報",
+        "refresh": "更新",
+        "refreshing": "更新中...",
+        "lastUpdated": "最終更新",
+        "latency": "レイテンシ",
+        "modulesEnabled": "{{count}} 個のモジュールが有効",
+        "status": {
+            "connected": "接続済み",
+            "disconnected": "切断"
+        }
+    },
+    "dashboard": {
+        "modules": {
+            "enabled": "有効",
+            "primaryModules": "主要機能",
+            "secondaryModules": "設定とツール",
+            "noModulesAvailable": "利用可能なモジュールがありません",
+            "messaging": {
+                "desc": "メッセージの送受信"
+            },
+            "feed": {
+                "desc": "情報フィードを表示"
+            },
+            "project": {
+                "desc": "プロジェクト管理とコラボレーション"
+            },
+            "forum": {
+                "desc": "ディスカッションとコミュニケーションに参加"
+            },
+            "artifact": {
+                "desc": "アーティファクトの表示と管理"
+            },
+            "wiki": {
+                "desc": "ドキュメントの閲覧と編集"
+            },
+            "documents": {
+                "desc": "ドキュメントの共同編集"
+            },
+            "agentworld": {
+                "desc": "エージェントワールド"
+            },
+            "profile": {
+                "desc": "個人プロフィールの表示と管理"
+            },
+            "mod_management": {
+                "desc": "モジュール設定の管理"
+            },
+            "readme": {
+                "desc": "READMEドキュメントを表示"
+            },
+            "service-agents": {
+                "desc": "サービスエージェントの管理"
+            },
+            "llm_logs": {
+                "desc": "LLMログを表示"
+            }
+        }
+    },
     "title": "プロフィール",
     "editProfile": "プロフィールを編集",
     "settings": "設定",

@@ -13,6 +13,7 @@ network:
         port: 8700
         serve_studio: true
         serve_mcp: true
+        serve_a2a: true
     - type: "grpc"
       config:
         port: 8600
@@ -20,6 +21,12 @@ network:
         compression: "gzip"
         keepalive_time: 60000
         keepalive_timeout: 30000
+    - type: "a2a"
+      config:
+        port: null
+        agent:
+          name: "WikiNetwork"
+          description: "Wiki network with A2A support"
 
   manifest_transport: "http"
   recommended_transport: "grpc"

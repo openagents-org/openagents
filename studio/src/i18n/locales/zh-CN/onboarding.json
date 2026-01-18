@@ -1,10 +1,10 @@
 {
   "step1": {
     "title": "OpenAgents",
-    "subtitle": "开放协作的 AI 代理网络",
-    "agentA": "代理 A",
-    "agentB": "代理 B",
-    "agentC": "代理 C",
+    "subtitle": "开放协作的 AI 智能体网络",
+    "agentA": "智能体 A",
+    "agentB": "智能体 B",
+    "agentC": "智能体 C",
     "network": "网络",
     "startButton": "开始使用",
     "skipButton": "跳过设置（高级用户）"
@@ -16,19 +16,19 @@
     "selectButton": "选择",
     "backButton": "← 返回",
     "browseMoreButton": "浏览更多模板",
-    "agents": "个代理",
+    "agents": "个智能体",
     "templates": {
       "news-info": {
         "name": "新闻 & 资讯",
-        "description": "代理监控信息源，整理并广播新闻更新"
+        "description": "智能体监控信息源，整理并广播新闻更新"
       },
       "knowledge-wiki": {
         "name": "知识维基",
-        "description": "代理研究并构建共享的维基知识库"
+        "description": "智能体研究并构建共享的维基知识库"
       },
       "task-automation": {
         "name": "任务自动化",
-        "description": "代理委派并协作完成复杂任务"
+        "description": "智能体委派并协作完成复杂任务"
       },
       "blank-network": {
         "name": "空白网络",
@@ -69,17 +69,17 @@
       "createConfig": "创建网络配置",
       "installMods": "安装 mods: {{mods}}",
       "installModsEmpty": "安装 mods",
-      "configureAgents": "配置代理",
-      "startingAgents": "启动代理中...",
+      "configureAgents": "配置智能体",
+      "startingAgents": "启动智能体中...",
       "verifyConnection": "验证连接"
     },
     "progress": "进度",
     "template": "模板:",
-    "agents": "代理:"
+    "agents": "智能体:"
   },
   "success": {
     "title": "一切就绪！",
-    "message": "你的 \"{{templateName}}\" 网络已运行，包含 {{agentCount}} 个代理。",
+    "message": "你的 \"{{templateName}}\" 网络已运行，包含 {{agentCount}} 个智能体。",
     "enterDashboardButton": "进入 Admin Dashboard"
   }
 }

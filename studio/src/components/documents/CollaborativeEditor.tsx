@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import Editor, { useMonaco } from "@monaco-editor/react";
 import { MonacoBinding } from "y-monaco";
 import {
@@ -34,6 +35,7 @@ const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
   height = "100%",
   className = "",
 }) => {
+  const { t } = useTranslation('documents');
   const { theme } = useThemeStore();
   const { agentName } = useAuthStore();
   const monaco = useMonaco();
@@ -471,7 +473,7 @@ const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
               theme === "dark" ? "text-gray-400" : "text-gray-600"
             }`}
           >
-            Document ID: {documentId}
+            {t('view.documentId', { id: documentId })}
           </div>
         </div>
 
@@ -498,7 +500,7 @@ const CollaborativeEditor: React.FC<CollaborativeEditorProps> = ({
                   d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3-3m0 0l-3 3m3-3v12"
                 />
               </svg>
-              <span>Save</span>
+              <span>{t('editor.save')}</span>
             </button>
           )}
         </div>

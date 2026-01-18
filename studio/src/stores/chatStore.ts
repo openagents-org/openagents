@@ -2462,14 +2462,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         const messageData = event.payload;
 
-        // Show system notification - direct message
+        // Extract content from payload.content.text or payload.content
+        let content = "";
         if (messageData.content) {
+          if (typeof messageData.content === "string") {
+            content = messageData.content;
+          } else if (messageData.content.text !== undefined) {
+            content = messageData.content.text || "";
+          }
+        }
+
+        // Show system notification - direct message
+        if (content) {
           const senderName =
             event.source_id || messageData.sender_id || "Unknown user";
-          const content =
-            typeof messageData.content === "string"
-              ? messageData.content
-              : messageData.content.text || "";
 
           notificationService.showChatNotification(
             senderName,
@@ -2479,19 +2485,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
           );
         }
 
-        if (messageData.content) {
-          // Construct unified message format
+        // Construct unified message format if content exists
+        if (content || messageData.content) {
+          // Format timestamp: convert Unix timestamp to ISO string if needed
+          let timestampStr = "";
+          if (event.timestamp) {
+            if (typeof event.timestamp === "number") {
+              // Unix timestamp (seconds) - convert to ISO string
+              const timestampMs = event.timestamp < 10000000000 
+                ? event.timestamp * 1000 
+                : event.timestamp;
+              timestampStr = new Date(timestampMs).toISOString();
+            } else {
+              timestampStr = String(event.timestamp);
+            }
+          } else {
+            timestampStr = new Date().toISOString();
+          }
+
           const unifiedMessage: UnifiedMessage = {
             id:
               event.event_id ||
               `${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
             senderId: event.source_id || messageData.sender_id || "unknown",
-            timestamp: event.timestamp || new Date().toISOString(),
-            content:
-              typeof messageData.content === "string"
-                ? messageData.content
-                : messageData.content.text || "",
-            type: messageData.message_type,
+            timestamp: timestampStr,
+            content: content,
+            type: messageData.message_type || "direct_message",
             targetUserId: messageData.target_agent_id,
             reactions: messageData.reactions,
           };

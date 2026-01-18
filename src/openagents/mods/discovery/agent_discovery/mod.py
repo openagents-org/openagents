@@ -43,17 +43,29 @@ class AgentDiscoveryMod(BaseMod):
     and for other agents to discover agents with specific capabilities.
     """
 
-    def __init__(self, network=None):
+    def __init__(self, network=None, config: Optional[Dict[str, Any]] = None):
         """Initialize the agent discovery mod.
 
         Args:
             network: The network to bind to
+            config: Optional configuration dict with keys:
+                - broadcast_connection (bool): Whether to broadcast agent connection events (default: False)
+                - broadcast_disconnection (bool): Whether to broadcast agent disconnection events (default: False)
         """
         super().__init__(MOD_NAME)
         # Store agent info: {agent_id: AgentInfo}
         self._agent_registry: Dict[str, AgentInfo] = {}
         self._network = network
-        logger.info("Initializing agent_discovery mod")
+
+        # Update config if provided
+        if config:
+            self._config.update(config)
+
+        logger.info(
+            f"Initializing agent_discovery mod "
+            f"(broadcast_connection={self._config.get('broadcast_connection', False)}, "
+            f"broadcast_disconnection={self._config.get('broadcast_disconnection', False)})"
+        )
 
     def initialize(self) -> bool:
         """Initialize the mod.
@@ -368,6 +380,11 @@ class AgentDiscoveryMod(BaseMod):
         if not self.network:
             return
 
+        # Check if broadcasting connection is enabled
+        if not self._config.get("broadcast_connection", False):
+            logger.debug(f"Skipping connection broadcast for {agent_info.agent_id} (broadcast_connection=False)")
+            return
+
         notification = Event(
             event_name="discovery.notification.agent_connected",
             source_id=f"mod:{self.mod_name}",
@@ -391,6 +408,11 @@ class AgentDiscoveryMod(BaseMod):
             reason: Reason for disconnection
         """
         if not self.network:
+            return
+
+        # Check if broadcasting disconnection is enabled
+        if not self._config.get("broadcast_disconnection", False):
+            logger.debug(f"Skipping disconnection broadcast for {agent_id} (broadcast_disconnection=False)")
             return
 
         notification = Event(

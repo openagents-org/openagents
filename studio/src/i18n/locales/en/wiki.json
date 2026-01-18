@@ -30,6 +30,7 @@
         "loading": "Loading wiki pages...",
         "searchPlaceholder": "Search wiki pages...",
         "newPage": "New Page",
+        "refresh": "Refresh",
         "proposals": "Proposals ({{count}})",
         "tryAgain": "Try Again",
         "untitled": "Untitled",

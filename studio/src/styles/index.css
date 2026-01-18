@@ -1,250 +1,141 @@
+/* Tailwind Core */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  html {
-    @apply h-full;
-  }
-  body {
-    @apply h-full text-gray-900 bg-white;
-  }
-  .dark body {
-    @apply bg-gray-800 text-gray-100;
-  }
-}
-
-body {
-  margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", 
-    Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", 
-    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
-}
-
-/* Custom scrollbar styles */
-::-webkit-scrollbar {
-  width: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: rgba(156, 163, 175, 0.5);
-  border-radius: 3px;
-}
-
-.dark ::-webkit-scrollbar-thumb {
-  background-color: rgba(75, 85, 99, 0.5);
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(107, 114, 128, 0.7);
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(55, 65, 81, 0.7);
-}
-
-/* Main layout */
-.main-container {
-  @apply flex h-screen overflow-hidden;
-}
-
-/* Code block styling */
-.prose pre {
-  background-color: #f3f4f6;
-  border-radius: 0.375rem;
-  margin: 1em 0;
-  padding: 0.75rem 1rem;
-  overflow-x: auto;
-}
-
-.dark .prose pre {
-  background-color: #1f2937;
-}
-
-.prose code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 0.875em;
-  padding: 0.2em 0.4em;
-  border-radius: 0.25em;
-  background-color: rgba(229, 231, 235, 0.5);
-}
-
-.dark .prose code {
-  background-color: rgba(31, 41, 55, 0.5);
-}
-
-.prose pre code {
-  padding: 0;
-  background-color: transparent;
-}
-
-/* Table styling */
-.prose table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 1.5em 0;
-}
-
-.prose th {
-  background-color: #f3f4f6;
-  font-weight: 600;
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #e5e7eb;
-}
-
-.dark .prose th {
-  background-color: #374151;
-  border-color: #4b5563;
-}
-
-.prose td {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #e5e7eb;
-}
-
-.dark .prose td {
-  border-color: #4b5563;
-}
-
-/* List styling */
-.prose ul, .prose ol {
-  margin: 1.25em 0;
-  padding-left: 1.625em;
-}
-
-.prose li {
-  margin: 0.5em 0;
-}
-
-.prose blockquote {
-  font-style: italic;
-  border-left: 4px solid #e5e7eb;
-  padding-left: 1em;
-  margin-left: 0;
-}
-
-.dark .prose blockquote {
-  border-left-color: #4b5563;
-}
-
-/* Image styling for markdown */
-.prose img {
-  border-radius: 0.375rem;
-  max-width: 100%;
-  height: auto;
-}
-
-/* Link styling */
-.prose a {
-  color: #4f46e5;
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 2px;
-}
-
-.dark .prose a {
-  color: #818cf8;
-}
-
-.prose a:hover {
-  text-decoration-thickness: 2px;
-}
-
-/* Highlight styling */
-.prose mark {
-  background-color: #fef3c7;
-  padding: 0.125em 0;
-}
-
-.dark .prose mark {
-  background-color: #78350f;
-}
-
-/* Add at the top of file, pre-set dark mode styles to prevent theme flashing */
+/** Colors - https://tailwindcss.com/docs/colors **/
 :root {
-  color-scheme: light dark;
-}
-
-/* Default color variables - light mode */
-:root {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f3f4f6;
-  --text-primary: #111827;
-  --text-secondary: #4b5563;
-  --border-color: #e5e7eb;
-  --background: var(--color-white);
-  --foreground: var(--color-zinc-950);
-  --card: var(--color-white);
-  --card-foreground: var(--color-zinc-950);
-  --popover: var(--color-white);
-  --popover-foreground: var(--color-zinc-950);
-  --primary: var(--color-zinc-900);
-  --primary-foreground: var(--color-white);
-  --secondary: var(--color-zinc-100);
-  --secondary-foreground: var(--color-zinc-900);
-  --muted: var(--color-zinc-100);
-  --muted-foreground: var(--color-zinc-500);
-  --accent: var(--color-zinc-100);
-  --accent-foreground: var(--color-zinc-900);
-  --destructive: var(--color-red-600);
-  --destructive-foreground: var(--color-white);
-  --chart-1: var(--color-blue-500);
-  --chart-2: var(--color-green-500);
-  --chart-3: var(--color-yellow-500);
-  --chart-4: var(--color-red-500);
-  --chart-5: var(--color-purple-500);
-  --border: oklch(94% 0.004 286.32); /* between --color-zinc-100 and --color-zinc-200 */
-  --input: var(--color-zinc-200);
-  --ring: var(--color-zinc-400);
+  --background: #ffffff;
+  --foreground: #09090b;
+  --card: #ffffff;
+  --card-foreground: #09090b;
+  --popover: #ffffff;
+  --popover-foreground: #09090b;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --chart-1: #3b82f6;
+  --chart-2: #22c55e;
+  --chart-3: #eab308;
+  --chart-4: #ef4444;
+  --chart-5: #a855f7;
+  --border: #f4f4f5;
+  --input: #e4e4e7;
+  --ring: #2563eb;
   --radius: 0.5rem;
 }
 
-/* Dark mode color variables */
 .dark {
-  --bg-primary: #1f2937;
-  --bg-secondary: #111827;
-  --text-primary: #f9fafb;
-  --text-secondary: #d1d5db;
-  --border-color: #374151;
-  --background: var(--color-zinc-950);
-  --foreground: var(--color-zinc-50);
-  --card: var(--color-zinc-950);
-  --card-foreground: var(--color-zinc-50);
-  --popover: var(--color-zinc-950);
-  --popover-foreground: var(--color-zinc-50);
-  --primary: var(--color-zinc-300);
-  --primary-foreground: var(--color-zinc-950);
-  --secondary: var(--color-zinc-800);
-  --secondary-foreground: var(--color-zinc-50);
-  --muted: var(--color-zinc-900);
-  --muted-foreground: var(--color-zinc-500);
-  --accent: var(--color-zinc-900);
-  --accent-foreground: var(--color-zinc-50);
-  --destructive: var(--color-red-600);
-  --destructive-foreground: var(--color-white);
-  --chart-1: var(--color-blue-500);
-  --chart-2: var(--color-green-500);
-  --chart-3: var(--color-yellow-500);
-  --chart-4: var(--color-red-500);
-  --chart-5: var(--color-purple-500);
-  --border: var(--color-zinc-800);
-  --input: var(--color-zinc-800);
-  --ring: var(--color-zinc-600);
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #09090b;
+  --card-foreground: #fafafa;
+  --popover: #09090b;
+  --popover-foreground: #fafafa;
+  --primary: #3b82f6;
+  --primary-foreground: #09090b;
+  --secondary: #27272a;
+  --secondary-foreground: #fafafa;
+  --muted: #18181b;
+  --muted-foreground: #71717a;
+  --accent: #18181b;
+  --accent-foreground: #fafafa;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --chart-1: #3b82f6;
+  --chart-2: #22c55e;
+  --chart-3: #eab308;
+  --chart-4: #ef4444;
+  --chart-5: #a855f7;
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #3b82f6;
 }
 
-/* Set initial background and text color to avoid flashing */
-body {
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
-} 
+/** Global Styles **/
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  *:focus-visible {
+    @apply outline-ring outline-2 outline-offset-2 outline rounded-sm;
+  }
+}
+
+/** Custom Scrollbar **/
+@layer base {
+  ::-webkit-scrollbar {
+    width: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--input);
+    border-radius: 5px;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--input) transparent;
+  }
+}
+
+/** Smooth scroll **/
+html {
+  scroll-behavior: smooth;
+}
+
+/** Custom Utilities **/
+@layer utilities {
+  .container {
+    @apply mx-auto max-w-full px-4 lg:px-5;
+  }
+
+  @media (min-width: 1280px) {
+    .container {
+      @apply max-w-[1280px];
+    }
+  }
+
+  .container-fluid {
+    @apply w-full mx-auto px-4 lg:px-5;
+  }
+
+  /* Marquee animations */
+  @keyframes marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(calc(-100% - var(--gap, 1rem)));
+    }
+  }
+
+  @keyframes marquee-vertical {
+    from {
+      transform: translateY(0);
+    }
+    to {
+      transform: translateY(calc(-100% - var(--gap, 1rem)));
+    }
+  }
+
+  .animate-marquee {
+    animation: marquee var(--duration, 20s) infinite linear;
+  }
+
+  .animate-marquee-vertical {
+    animation: marquee-vertical var(--duration, 20s) linear infinite;
+  }
+}
+
+/* Metronic Configs */
+@import './config.metronic.css'; 

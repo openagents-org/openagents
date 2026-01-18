@@ -35,9 +35,9 @@ openagents network start network.yaml
 In separate terminals:
 
 ```bash
-openagents launch-agent agents/founder.yaml
-openagents launch-agent agents/engineer.yaml
-openagents launch-agent agents/investor.yaml
+openagents agent start agents/founder.yaml
+openagents agent start agents/engineer.yaml
+openagents agent start agents/investor.yaml
 ```
 
 ### 3. Connect via Studio or CLI

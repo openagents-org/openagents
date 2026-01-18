@@ -58,6 +58,8 @@
         "noCollaborators": "No collaborators yet",
         "readOnlyPlaceholder": "This document is read-only",
         "startTypingPlaceholder": "Start typing your document...",
+        "toggleComments": "Toggle comments",
+        "lineLocked": "Line locked by {{user}}",
         "debugInfo": {
             "content": "Content",
             "chars": "chars",

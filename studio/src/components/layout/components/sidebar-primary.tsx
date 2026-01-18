@@ -131,6 +131,7 @@ export function SidebarPrimary() {
         [PLUGIN_NAME_ENUM.SERVICE_AGENTS]: t("navigation.serviceAgents"),
         [PLUGIN_NAME_ENUM.LLM_LOGS]: t("navigation.llmLogs"),
         [PLUGIN_NAME_ENUM.ADMIN]: t("navigation.admin"),
+        [PLUGIN_NAME_ENUM.USER_DASHBOARD]: t("navigation.userDashboard", { defaultValue: "User Dashboard" }),
       };
       return labelMap[key] || key;
     };
@@ -227,21 +228,27 @@ export function SidebarPrimary() {
       return items;
     }
 
-    // Normal mode: Add README icon at the top if exists
-    if (readmeRoute) {
-      const route = readmeRoute.path.replace("/*", "");
-      items.push({
-        icon: NavigationIcons[
-          readmeRoute.navigationConfig!.icon
-        ] as React.ComponentType,
-        label: getTranslatedLabel(readmeRoute.navigationConfig!.key),
-        href: route,
-        active: isRouteActive(route),
-        className:
-          "border-white bg-blue-500 hover:bg-blue-600 text-white hover:text-white",
-        index: currentIndex++,
-      });
-    }
+    // Normal mode: Add User Dashboard at the top for all users
+    items.push({
+      icon: NavigationIcons.Dashboard as React.ComponentType,
+      label: getTranslatedLabel(PLUGIN_NAME_ENUM.USER_DASHBOARD),
+      href: "/user-dashboard",
+      active: isRouteActive("/user-dashboard"),
+      className:
+        "border-white bg-amber-500 hover:bg-amber-600 text-white hover:text-white",
+      index: currentIndex++,
+    });
+
+    // Normal mode: Add README icon at the top (always show)
+    items.push({
+      icon: NavigationIcons.Readme as React.ComponentType,
+      label: getTranslatedLabel(PLUGIN_NAME_ENUM.README),
+      href: "/readme",
+      active: isRouteActive("/readme"),
+      className:
+        "border-white bg-blue-500 hover:bg-blue-600 text-white hover:text-white",
+      index: currentIndex++,
+    });
 
     // Add primary routes (excluding README)
     otherPrimaryRoutes.forEach((route) => {
@@ -275,6 +282,7 @@ export function SidebarPrimary() {
     location.pathname,
     t,
     isAdminRoute,
+    isAdmin,
   ]);
 
   // Handle navigation click
@@ -325,7 +333,7 @@ export function SidebarPrimary() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-between shrink-0 py-2.5 gap-5 w-[70px] lg:w-(--sidebar-collapsed-width)">
+    <div className="flex flex-col items-center justify-between shrink-0 py-2.5 gap-5 w-[70px] lg:w-(--sidebar-collapsed-width) bg-white dark:bg-zinc-950">
       {/* Logo/Brand Icon */}
       <div className="mb-2 mt-2">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center">
@@ -387,7 +395,7 @@ export function SidebarPrimary() {
             </Avatar>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-64 mb-4 bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 shadow-lg"
+            className="w-64 mb-4 bg-white dark:bg-zinc-950 border-gray-200 dark:border-gray-700 shadow-lg"
             side="right"
             align="start"
             sideOffset={11}
@@ -419,7 +427,7 @@ export function SidebarPrimary() {
             {/* Theme Toggle */}
             <DropdownMenuItem
               onClick={toggleTheme}
-              className="cursor-pointer data-[highlighted]:bg-gray-100 dark:data-[highlighted]:bg-gray-800 transition-colors"
+              className="cursor-pointer data-[highlighted]:bg-gray-100 dark:data-[highlighted]:bg-zinc-900 transition-colors"
             >
               {isDarkMode ? (
                 <Sun className="size-4" />
@@ -435,11 +443,11 @@ export function SidebarPrimary() {
 
             {/* Language Switcher */}
             <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="cursor-pointer data-[highlighted]:bg-gray-100 dark:data-[highlighted]:bg-gray-800 transition-colors focus:outline-none focus:ring-0 focus:border-0 data-[here]:border-0 data-[highlighted]:border-0 hover:border-0 border-0">
+              <DropdownMenuSubTrigger className="cursor-pointer data-[highlighted]:bg-gray-100 dark:data-[highlighted]:bg-zinc-900 transition-colors focus:outline-none focus:ring-0 focus:border-0 data-[here]:border-0 data-[highlighted]:border-0 hover:border-0 border-0">
                 <Globe className="size-4" />
                 <span>{t("sidebar.language")}</span>
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700">
+              <DropdownMenuSubContent className="bg-white dark:bg-zinc-950 border-gray-200 dark:border-gray-700">
                 {Object.entries(SUPPORTED_LANGUAGES).map(([code, lang]) => {
                   const langCode = code as SupportedLanguage;
                   const isActive = langCode === currentLanguage;
@@ -447,7 +455,7 @@ export function SidebarPrimary() {
                     <DropdownMenuItem
                       key={code}
                       onClick={() => switchLanguage(langCode)}
-                      className={`cursor-pointer data-[highlighted]:bg-gray-100 dark:data-[highlighted]:bg-gray-800 transition-colors ${
+                      className={`cursor-pointer data-[highlighted]:bg-gray-100 dark:data-[highlighted]:bg-zinc-900 transition-colors ${
                         isActive
                           ? "bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400"
                           : ""
@@ -480,7 +488,7 @@ export function SidebarPrimary() {
             {!isAdminRoute && (
               <DropdownMenuItem
                 onClick={() => navigate("/profile")}
-                className={`cursor-pointer data-[highlighted]:bg-gray-100 dark:data-[highlighted]:bg-gray-800 transition-colors ${
+                className={`cursor-pointer data-[highlighted]:bg-gray-100 dark:data-[highlighted]:bg-zinc-900 transition-colors ${
                   location.pathname.startsWith("/profile")
                     ? "bg-[#F4F4F5] dark:bg-black text-gray-900 dark:text-gray-100"
                     : ""
@@ -496,7 +504,7 @@ export function SidebarPrimary() {
             {/* Action Items */}
             <DropdownMenuItem
               onClick={handleLogout}
-              className="cursor-pointer data-[highlighted]:bg-gray-100 dark:data-[highlighted]:bg-gray-800 transition-colors"
+              className="cursor-pointer data-[highlighted]:bg-gray-100 dark:data-[highlighted]:bg-zinc-900 transition-colors"
             >
               <LogOut />
               <span>{t("sidebar.signOut")}</span>

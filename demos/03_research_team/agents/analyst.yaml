@@ -5,7 +5,7 @@ type: "openagents.agents.collaborator_agent.CollaboratorAgent"
 agent_id: "analyst"
 
 config:
-  model_name: "gpt-4o-mini"
+  model_name: "auto"
 
   # CRITICAL: Limit tool calls
   max_iterations: 3

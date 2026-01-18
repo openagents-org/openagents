@@ -36,6 +36,7 @@ import {
   AlertTriangle,
   LayoutDashboard,
   Blocks,
+  Share2,
 } from "lucide-react"
 
 interface TransportConfig {
@@ -52,6 +53,7 @@ interface TransportConfig {
   maxBodySize?: number
   serveMcp?: boolean
   serveStudio?: boolean
+  serveA2a?: boolean
   maxMessageSize?: number
   keepAliveInterval?: number
   pingInterval?: number
@@ -132,6 +134,11 @@ const TransportConfigPage: React.FC = () => {
             t.serveStudio ||
             config.serve_studio ||
             config.serveStudio,
+          serveA2a:
+            t.serve_a2a ||
+            t.serveA2a ||
+            config.serve_a2a ||
+            config.serveA2a,
           maxMessageSize:
             t.max_message_size ||
             t.maxMessageSize ||
@@ -341,7 +348,7 @@ const TransportConfigPage: React.FC = () => {
             <Badge
               variant="info"
               appearance="light"
-              size="md"
+              size="sm"
               className="gap-1.5"
             >
               <Server className="w-3.5 h-3.5" />
@@ -471,7 +478,7 @@ const TransportConfigPage: React.FC = () => {
 
                     {/* HTTP Features - Services served by this transport */}
                     {transport.type === "http" &&
-                      (transport.serveMcp || transport.serveStudio) && (
+                      (transport.serveMcp || transport.serveStudio || transport.serveA2a) && (
                         <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/50">
                           <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 font-medium uppercase tracking-wide">
                             Serving
@@ -481,6 +488,12 @@ const TransportConfigPage: React.FC = () => {
                               <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-md">
                                 <Blocks className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                                 <span className="text-xs font-medium text-blue-700 dark:text-blue-300">MCP Server</span>
+                              </div>
+                            )}
+                            {transport.serveA2a && (
+                              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded-md">
+                                <Share2 className="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+                                <span className="text-xs font-medium text-green-700 dark:text-green-300">A2A Server</span>
                               </div>
                             )}
                             {transport.serveStudio && (
@@ -662,6 +675,19 @@ const TransportEditForm: React.FC<TransportEditFormProps> = ({
                 />
                 <span className="text-sm text-gray-700 dark:text-gray-300">
                   {t("transports.edit.serveMcp")}
+                </span>
+              </label>
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.serveA2a || false}
+                  onChange={(e) =>
+                    setFormData({ ...formData, serveA2a: e.target.checked })
+                  }
+                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  {t("transports.edit.serveA2a")}
                 </span>
               </label>
               <label className="flex items-center gap-2.5 cursor-pointer">

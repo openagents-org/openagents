@@ -3,6 +3,9 @@ Network topology abstraction layer for OpenAgents.
 
 This module provides the NetworkTopology abstraction and implementations
 for both centralized and decentralized network topologies.
+
+The topology layer manages agent connections across different transports
+(gRPC, WebSocket, HTTP, A2A, MCP).
 """
 
 from abc import ABC, abstractmethod
@@ -36,6 +39,15 @@ class NetworkTopology(ABC):
         # Agent group membership tracking
         # Maps agent_id -> group_name
         self.agent_group_membership: Dict[str, str] = {}
+
+        # A2A registry (initialized if A2A transport is used)
+        self.a2a_registry: Optional["A2AAgentRegistry"] = None
+
+        # Kicked agents tracking with cooldown
+        # Maps agent_id -> kick timestamp
+        # Prevents kicked agents from re-registering immediately
+        self.kicked_agents: Dict[str, float] = {}
+        self.kick_cooldown_seconds: float = 60.0  # Default 60 second cooldown
 
     @abstractmethod
     async def initialize(self) -> bool:
@@ -97,6 +109,50 @@ class NetworkTopology(ABC):
         """
         return agent_id in self.agent_registry
 
+    def mark_agent_kicked(self, agent_id: str) -> None:
+        """Mark an agent as kicked, starting the cooldown period.
+
+        Args:
+            agent_id: ID of the agent that was kicked
+        """
+        self.kicked_agents[agent_id] = time.time()
+        logger.info(f"Agent {agent_id} marked as kicked, cooldown: {self.kick_cooldown_seconds}s")
+
+    def is_agent_in_kick_cooldown(self, agent_id: str) -> bool:
+        """Check if an agent is in kick cooldown period.
+
+        Args:
+            agent_id: ID of the agent to check
+
+        Returns:
+            bool: True if agent is in cooldown and cannot re-register
+        """
+        if agent_id not in self.kicked_agents:
+            return False
+
+        kick_time = self.kicked_agents[agent_id]
+        elapsed = time.time() - kick_time
+
+        if elapsed >= self.kick_cooldown_seconds:
+            # Cooldown expired, remove from kicked list
+            del self.kicked_agents[agent_id]
+            logger.info(f"Agent {agent_id} kick cooldown expired, can now re-register")
+            return False
+
+        remaining = self.kick_cooldown_seconds - elapsed
+        logger.info(f"Agent {agent_id} in kick cooldown, {remaining:.1f}s remaining")
+        return True
+
+    def clear_kick_cooldown(self, agent_id: str) -> None:
+        """Clear the kick cooldown for an agent (admin override).
+
+        Args:
+            agent_id: ID of the agent to clear cooldown for
+        """
+        if agent_id in self.kicked_agents:
+            del self.kicked_agents[agent_id]
+            logger.info(f"Kick cooldown cleared for agent {agent_id}")
+
     @abstractmethod
     async def register_event_handler(self, handler: Callable[[Event], Awaitable[None]]):
         """Register an event handler to process events sent via the unified SendEvent method.
@@ -141,7 +197,7 @@ class NetworkTopology(ABC):
             Dict[str, AgentInfo]: Dictionary of agent ID to agent info
         """
         return self.agent_registry.copy()
-    
+
     def get_agent_group_membership(self) -> Dict[str, str]:
         """Get all agent group membership.
 
@@ -160,6 +216,22 @@ class NetworkTopology(ABC):
             Optional[AgentConnection]: Agent connection if found, None otherwise
         """
         return self.agent_registry.get(agent_id)
+
+    def get_agents_by_transport(
+        self, transport_type: TransportType
+    ) -> List[AgentConnection]:
+        """Get all agents using a specific transport type.
+
+        Args:
+            transport_type: The transport type to filter by
+
+        Returns:
+            List of agent connections using that transport
+        """
+        return [
+            conn for conn in self.agent_registry.values()
+            if conn.transport_type == transport_type
+        ]
 
     def register_event_handler(self, handler: Callable[[Event], Awaitable[None]]):
         """Register an event handler to process events sent via the unified SendEvent method.
@@ -304,13 +376,38 @@ class NetworkTopology(ABC):
         if agent_id in self.agent_registry:
             connection = self.agent_registry[agent_id]
             transport_type = connection.transport_type
+
+            # Let the transport clean up
             if transport_type in self.transports:
                 self.transports[transport_type].cleanup_agent(agent_id)
+
+            # Let A2A registry clean up if applicable
+            if self.a2a_registry and connection.transport_type == TransportType.A2A:
+                self.a2a_registry.cleanup_agent(agent_id)
+
             del self.agent_registry[agent_id]
 
         # Remove from group membership
         if agent_id in self.agent_group_membership:
             del self.agent_group_membership[agent_id]
+
+    def _init_a2a_registry(self) -> None:
+        """Initialize the A2A registry if A2A transport is configured."""
+        # Check if A2A transport is in config
+        has_a2a = any(
+            tc.type == TransportType.A2A
+            for tc in self.config.transports
+        )
+
+        if has_a2a:
+            from .a2a_registry import A2AAgentRegistry
+
+            # Get A2A config from remote_agents config
+            remote_config = getattr(self.config, 'remote_agents', {}) or {}
+            self.a2a_registry = A2AAgentRegistry(remote_config)
+            self.a2a_registry.set_agent_registry(self.agent_registry)
+            logger.info("A2A Agent Registry initialized")
+
 
 class CentralizedTopology(NetworkTopology):
     """Centralized network topology using a coordinator/registry server."""
@@ -322,6 +419,9 @@ class CentralizedTopology(NetworkTopology):
     async def initialize(self) -> bool:
         """Initialize the centralized topology."""
         try:
+            # Initialize A2A registry if configured
+            self._init_a2a_registry()
+
             # Initialize all transports from config
             for transport_config in self.config.transports:
                 transport_type = transport_config.type
@@ -353,6 +453,13 @@ class CentralizedTopology(NetworkTopology):
                     transport = MCPTransport(
                         config=transport_config.config,
                         context=self.network_context,  # NetworkContext set by AgentNetwork
+                    )
+                elif transport_type == TransportType.A2A:
+                    from .transports import A2ATransport
+
+                    transport = A2ATransport(
+                        config=transport_config.config,
+                        a2a_registry=self.a2a_registry,
                     )
                 else:
                     logger.error(f"Unsupported transport type: {transport_type}")
@@ -426,6 +533,10 @@ class CentralizedTopology(NetworkTopology):
             self.is_running = True
             self.heartbeat_task = asyncio.create_task(self._heartbeat_monitor())
 
+            # Start A2A registry background tasks
+            if self.a2a_registry:
+                await self.a2a_registry.start()
+
             logger.info(
                 f"Centralized topology initialized with {len(self.transports)} transports"
             )
@@ -441,6 +552,11 @@ class CentralizedTopology(NetworkTopology):
             transport_type = connection.transport_type
             if transport_type in self.transports:
                 self.transports[transport_type].cleanup_agent(agent_id)
+
+            # Let A2A registry clean up if applicable
+            if self.a2a_registry and connection.transport_type == TransportType.A2A:
+                self.a2a_registry.cleanup_agent(agent_id)
+
             del self.agent_registry[agent_id]
 
         # Remove from group membership
@@ -465,6 +581,10 @@ class CentralizedTopology(NetworkTopology):
 
                 # Check all connected agents for activity
                 for agent_id, connection in self.agent_registry.items():
+                    # Skip A2A agents - they have their own health check mechanism
+                    if connection.transport_type == TransportType.A2A:
+                        continue
+
                     time_since_activity = current_time - connection.last_seen
 
                     if time_since_activity > agent_timeout:
@@ -498,6 +618,10 @@ class CentralizedTopology(NetworkTopology):
                 await self.heartbeat_task
             except asyncio.CancelledError:
                 pass
+
+        # Stop A2A registry
+        if self.a2a_registry:
+            await self.a2a_registry.stop()
 
         # Shutdown all transports (make a copy to avoid modification during iteration)
         for transport_type, transport in list(self.transports.items()):

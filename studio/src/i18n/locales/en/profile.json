@@ -33,6 +33,10 @@
         }
     },
     "dashboard": {
+        "title": "User Panel",
+        "networkStatus": {
+            "title": "Network Status"
+        },
         "network": {
             "title": "Network Information",
             "online": "Online",
@@ -80,7 +84,50 @@
             "available": "Available Modules",
             "activation": "Module Activation",
             "noModules": "No modules information available",
-            "count_enabled": "{{count}}/{{total}} Enabled"
+            "count_enabled": "{{count}}/{{total}} Enabled",
+            "apps": "Apps",
+            "primaryModules": "Main Functions",
+            "secondaryModules": "Settings & Tools",
+            "noModulesAvailable": "No modules available",
+            "messaging": {
+                "desc": "Send and receive messages"
+            },
+            "feed": {
+                "desc": "View information feed"
+            },
+            "project": {
+                "desc": "Project management and collaboration"
+            },
+            "forum": {
+                "desc": "Participate in discussions and communication"
+            },
+            "artifact": {
+                "desc": "View and manage artifacts"
+            },
+            "wiki": {
+                "desc": "Browse and edit documents"
+            },
+            "documents": {
+                "desc": "Collaboratively edit documents"
+            },
+            "agentworld": {
+                "desc": "Agent World"
+            },
+            "profile": {
+                "desc": "View and manage personal profile"
+            },
+            "mod_management": {
+                "desc": "Manage module configuration"
+            },
+            "readme": {
+                "desc": "View README documentation"
+            },
+            "service-agents": {
+                "desc": "Service agents management"
+            },
+            "llm_logs": {
+                "desc": "View LLM logs"
+            }
         },
         "system": {
             "title": "System Settings",
@@ -119,6 +166,7 @@
         "saving": "Saving..."
     },
     "settings": {
+        "title": "Settings",
         "notifications": "Notifications",
         "emailNotifications": "Email Notifications",
         "pushNotifications": "Push Notifications",
@@ -129,7 +177,14 @@
         "theme": "Theme",
         "lightMode": "Light Mode",
         "darkMode": "Dark Mode",
-        "autoMode": "Auto"
+        "autoMode": "Auto",
+        "generalSettings": "General Settings",
+        "generalDescription": "General configuration options coming soon...",
+        "networkSettings": "Network Settings",
+        "networkDescription": "Network configuration options coming soon...",
+        "networkConfigPanel": "Network configuration panel coming soon...",
+        "themeSettings": "Theme Settings",
+        "themeConfigPanel": "Theme configuration panel coming soon..."
     },
     "messages": {
         "updateSuccess": "Profile updated successfully",
@@ -143,15 +198,5 @@
         "loadingProfileData": "Loading profile data...",
         "failedToLoadProfileData": "Failed to load profile data",
         "tryAgain": "Try Again"
-    },
-    "settings": {
-        "title": "Settings",
-        "generalSettings": "General Settings",
-        "generalDescription": "General configuration options coming soon...",
-        "networkSettings": "Network Settings",
-        "networkDescription": "Network configuration options coming soon...",
-        "networkConfigPanel": "Network configuration panel coming soon...",
-        "themeSettings": "Theme Settings",
-        "themeConfigPanel": "Theme configuration panel coming soon..."
     }
 }

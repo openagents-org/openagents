@@ -103,7 +103,7 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
             <Button
               onClick={handleClose}
               variant="ghost"
-              size="icon"
+              size="sm"
               className="absolute top-4 right-4"
               aria-label="Close"
             >
@@ -184,7 +184,7 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon"
+                  size="sm"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2"
                   tabIndex={-1}

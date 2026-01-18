@@ -30,6 +30,7 @@
         "loading": "加载 Wiki 页面中...",
         "searchPlaceholder": "搜索 Wiki 页面...",
         "newPage": "新建页面",
+        "refresh": "刷新",
         "proposals": "提案 ({{count}})",
         "tryAgain": "重试",
         "untitled": "无标题",

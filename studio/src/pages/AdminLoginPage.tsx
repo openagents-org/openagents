@@ -4,8 +4,10 @@ import { useAuthStore } from "@/stores/authStore";
 import { useNavigate, useLocation } from "react-router-dom";
 import { hashPassword } from "@/utils/passwordHash";
 import { networkFetch } from "@/utils/httpClient";
-import { Shield } from "lucide-react";
+import { Shield, Lock } from "lucide-react";
 import { NetworkConnection } from "@/types/connection";
+import { Label } from "@/components/layout/ui/label";
+import { Input, InputGroup, InputAddon } from "@/components/layout/ui/input";
 
 const ADMIN_AGENT_NAME = "admin";
 
@@ -173,37 +175,37 @@ const AdminLoginPage: React.FC = () => {
         )}
 
         {/* Form */}
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="space-y-4">
           {/* Password Input */}
-          <div className="mb-6 text-left">
-            <label
-              htmlFor="password"
-              className="block text-sm font-semibold mb-2 text-gray-700 dark:text-gray-300"
-            >
+          <div className="space-y-2 text-left">
+            <Label htmlFor="password">
               {t("agentSetup.adminPassword")} <span className="text-red-500 ml-1">*</span>
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setPasswordError("");
-              }}
-              className={`w-full px-4 py-3 border-2 rounded-lg text-base transition-all duration-150 focus:outline-none focus:ring-3 bg-white text-gray-800 focus:border-amber-500 focus:ring-amber-500/10 dark:bg-gray-600 dark:text-gray-50 dark:focus:border-amber-400 dark:focus:ring-amber-400/10 ${
-                passwordError
-                  ? "border-red-500 dark:border-red-400"
-                  : "border-gray-300 dark:border-gray-500"
-              }`}
-              placeholder={t("agentSetup.adminPasswordPlaceholder")}
-              autoComplete="current-password"
-              autoFocus
-              required
-            />
+            </Label>
+            <InputGroup>
+              <InputAddon mode="icon" variant="lg">
+                <Lock size={16} />
+              </InputAddon>
+              <Input
+                id="password"
+                type="password"
+                variant="lg"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setPasswordError("");
+                }}
+                className={passwordError ? "border-red-500 dark:border-red-400" : ""}
+                placeholder={t("agentSetup.adminPasswordPlaceholder")}
+                autoComplete="current-password"
+                autoFocus
+                required
+                aria-invalid={!!passwordError}
+              />
+            </InputGroup>
 
             {/* Password Error */}
             {passwordError && (
-              <div className="text-red-500 dark:text-red-400 text-sm mt-2 flex items-start gap-1">
+              <div className="text-red-500 dark:text-red-400 text-sm flex items-start gap-1">
                 <span className="mt-0.5">⚠️</span>
                 <span>{passwordError}</span>
               </div>

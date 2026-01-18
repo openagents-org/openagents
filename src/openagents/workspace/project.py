@@ -53,7 +53,11 @@ class ProjectTemplate(BaseModel):
         default=None,
         description="Custom JSON schema for tool inputs"
     )
-    
+    tool_mode: str = Field(
+        default="sync",
+        description="Tool execution mode: 'sync' (wait for completion) or 'async' (two tools: start and get_result)"
+    )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert template to dictionary."""
         return self.model_dump()

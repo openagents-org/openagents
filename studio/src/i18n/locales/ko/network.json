@@ -54,9 +54,12 @@
         "kicking": "추방 중...",
         "table": {
             "id": "에이전트 ID",
+            "group": "그룹",
             "status": "상태",
             "actions": "작업"
         },
+        "statusOnline": "온라인",
+        "statusOffline": "오프라인",
         "kickConfirm": {
             "title": "에이전트 추방",
             "message": "에이전트 \"{{name}}\"을(를) 추방하시겠습니까? 이렇게 하면 네트워크에서 연결이 끊어집니다.",
@@ -72,6 +75,63 @@
         }
     },
     "groups": {
+        "title": "에이전트 그룹 관리",
+        "subtitle": "에이전트 그룹 및 권한 관리",
+        "networkSettings": "네트워크 설정",
+        "defaultGroup": "기본 그룹",
+        "defaultGroupDesc": "유효한 자격 증명이 없는 에이전트의 기본 그룹",
+        "requirePassword": "비밀번호 필요",
+        "requirePasswordDesc": "모든 에이전트에 비밀번호 인증 필요",
+        "saveSettings": "설정 저장",
+        "saving": "저장 중...",
+        "agentGroups": "에이전트 그룹",
+        "create": "그룹 만들기",
+        "empty": "에이전트 그룹이 구성되지 않음",
+        "edit": "편집",
+        "delete": "삭제",
+        "set": "설정됨",
+        "none": "없음",
+        "searchPlaceholder": "그룹 검색...",
+        "table": {
+            "group": "그룹명",
+            "description": "설명",
+            "members": "멤버",
+            "password": "비밀번호",
+            "actions": "작업"
+        },
+        "modal": {
+            "createTitle": "새 그룹 만들기",
+            "editTitle": "그룹 편집: {{name}}",
+            "name": "그룹 이름",
+            "namePlaceholder": "예: moderators",
+            "nameCannotChange": "그룹 이름은 생성 후 변경할 수 없습니다",
+            "description": "설명",
+            "descriptionPlaceholder": "예: 콘텐츠 관리 권한이 있는 관리자 그룹",
+            "password": "비밀번호",
+            "passwordRequiredHint": "이 역할에는 비밀번호가 필요합니다",
+            "clearPassword": "기존 비밀번호 지우기",
+            "permissions": "권한 (쉼표로 구분)",
+            "permissionsPlaceholder": "예: moderate_content, ban_users, view_reports",
+            "cancel": "취소",
+            "create": "그룹 만들기",
+            "update": "그룹 업데이트",
+            "save": "변경 사항 저장",
+            "errors": {
+                "nameRequired": "그룹 이름은 필수입니다",
+                "nameInvalid": "그룹 이름은 영숫자와 밑줄만 포함해야 합니다",
+                "nameTooLong": "그룹 이름은 64자 이하여야 합니다",
+                "descriptionTooLong": "설명은 512자 이하여야 합니다",
+                "passwordRequired": "guests 역할을 제외한 모든 역할에 비밀번호가 필요합니다",
+                "passwordMinLength": "비밀번호는 최소 4자 이상이어야 합니다"
+            }
+        },
+        "messages": {
+            "createSuccess": "그룹이 성공적으로 생성되었습니다",
+            "updateSuccess": "그룹이 성공적으로 업데이트되었습니다",
+            "deleteSuccess": "그룹이 성공적으로 삭제되었습니다",
+            "settingsSuccess": "네트워크 설정이 성공적으로 저장되었습니다",
+            "deleteConfirm": "그룹 \"{{name}}\"을(를) 삭제하시겠습니까? 이 작업은 취소할 수 없습니다."
+        },
         "changePassword": {
             "button": "비밀번호 변경",
             "modal": {

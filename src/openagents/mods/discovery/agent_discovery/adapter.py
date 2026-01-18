@@ -91,19 +91,94 @@ class AgentDiscoveryAdapter(BaseModAdapter):
         )
 
         response = await self.connector.send_event(event)
-        
+
         if response:
             return {
                 "success": response.success,
                 "message": response.message,
                 "data": response.data
             }
-        
+
         return {
             "success": True,
             "message": "Capabilities set request sent",
             "data": {"capabilities": self._capabilities}
         }
+
+    async def announce_skills(self, skills: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Announce agent skills in A2A-compatible format.
+
+        This method allows local agents to announce their skills in a structured
+        format compatible with A2A AgentSkill, enabling capability-based routing
+        to work seamlessly across both A2A and local agents.
+
+        Args:
+            skills: List of skill dictionaries with A2A-compatible structure.
+                Each skill should have:
+                - id (str, required): Unique skill identifier
+                - name (str, required): Human-readable skill name
+                - description (str, optional): Skill description
+                - tags (List[str], optional): Categorization tags
+                - input_modes (List[str], optional): Supported input modes (default: ["text"])
+                - output_modes (List[str], optional): Supported output modes (default: ["text"])
+
+        Returns:
+            Dict with success status and the structured capabilities
+
+        Example:
+            await adapter.announce_skills([
+                {
+                    "id": "translation",
+                    "name": "Document Translation",
+                    "description": "Translate documents between languages",
+                    "tags": ["language", "nlp"],
+                    "input_modes": ["text", "file"],
+                    "output_modes": ["text"]
+                },
+                {
+                    "id": "summarization",
+                    "name": "Text Summarization",
+                    "tags": ["nlp"]
+                }
+            ])
+        """
+        # Normalize skills to ensure all fields have defaults
+        normalized_skills = []
+        for skill in skills:
+            normalized_skill = {
+                "id": skill.get("id", ""),
+                "name": skill.get("name", skill.get("id", "")),
+                "description": skill.get("description"),
+                "tags": skill.get("tags", []),
+                "input_modes": skill.get("input_modes", ["text"]),
+                "output_modes": skill.get("output_modes", ["text"]),
+            }
+            normalized_skills.append(normalized_skill)
+
+        # Aggregate tags and modes across all skills
+        all_tags = set()
+        all_input_modes = set()
+        all_output_modes = set()
+
+        for skill in normalized_skills:
+            all_tags.update(skill.get("tags", []))
+            all_input_modes.update(skill.get("input_modes", ["text"]))
+            all_output_modes.update(skill.get("output_modes", ["text"]))
+
+        # Build structured capabilities
+        capabilities = {
+            "skills": normalized_skills,
+            "tags": list(all_tags),
+            "input_modes": list(all_input_modes),
+            "output_modes": list(all_output_modes),
+        }
+
+        logger.info(
+            f"Agent {self.agent_id} announcing {len(normalized_skills)} skills "
+            f"with tags={list(all_tags)}"
+        )
+
+        return await self.set_capabilities(capabilities)
 
     async def get_capabilities(self, agent_id: str) -> Optional[Dict[str, Any]]:
         """Get capabilities of a specific agent.
@@ -238,6 +313,60 @@ class AgentDiscoveryAdapter(BaseModAdapter):
             func=self.set_capabilities
         )
         tools.append(set_capabilities_tool)
+
+        # Tool for announcing skills in A2A-compatible format
+        announce_skills_tool = AgentTool(
+            name="announce_skills",
+            description=(
+                "Announce agent skills in A2A-compatible format for capability-based routing. "
+                "This enables the task delegation mod to route tasks based on skills."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "skills": {
+                        "type": "array",
+                        "description": "List of skills in A2A-compatible format",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "description": "Unique skill identifier"
+                                },
+                                "name": {
+                                    "type": "string",
+                                    "description": "Human-readable skill name"
+                                },
+                                "description": {
+                                    "type": "string",
+                                    "description": "Skill description"
+                                },
+                                "tags": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Categorization tags"
+                                },
+                                "input_modes": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Supported input modes (default: ['text'])"
+                                },
+                                "output_modes": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "Supported output modes (default: ['text'])"
+                                }
+                            },
+                            "required": ["id", "name"]
+                        }
+                    }
+                },
+                "required": ["skills"]
+            },
+            func=self.announce_skills
+        )
+        tools.append(announce_skills_tool)
 
         # Tool for getting capabilities
         get_capabilities_tool = AgentTool(

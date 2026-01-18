@@ -1,0 +1,80 @@
+# Searcher Agent - Quick Alternative Finder
+# Searches the web to find 2-3 alternative services, then delegates to comparer
+
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+agent_id: "searcher"
+
+config:
+  model_name: "auto"
+
+  tools:
+    - name: "search_web"
+      description: "Search the web for information. Returns titles, URLs, and snippets."
+      implementation: "tools.web_search.search_web"
+      input_schema:
+        type: "object"
+        properties:
+          query:
+            type: "string"
+            description: "The search query"
+          max_results:
+            type: "integer"
+            description: "Maximum number of results (default 5)"
+            default: 5
+        required: ["query"]
+
+  instruction: |
+    You are the SEARCHER agent - you find alternative services.
+
+    TOOLS AVAILABLE:
+    - search_web: Use this ONLY when you need current/specialized information
+
+    DECISION LOGIC:
+    1. If the service is well-known and you have good alternatives in your knowledge base → Use your knowledge
+    2. If the service is niche, new, or you're uncertain → Use search_web tool
+    3. Prefer efficiency: Don't make unnecessary web requests
+
+    WORKFLOW:
+    1. Receive task with service name from coordinator
+    2. Evaluate: Can I answer this from my knowledge? (for popular services: YES)
+    3. If uncertain or need current info → Use search_web tool
+    4. Complete task with the alternatives list
+
+    Example search query: "alternatives to [ServiceName]"
+
+    OUTPUT FORMAT:
+    "Found 3 alternatives to [Service]:
+    1. [Alternative 1] - https://[url1]
+    2. [Alternative 2] - https://[url2]
+    3. [Alternative 3] - https://[url3]"
+
+  react_to_all_messages: false
+
+  triggers:
+    - event: "task.notification.assigned"
+      instruction: |
+        A task has been assigned to find alternatives.
+
+        Steps:
+        1. Read service name from task description
+        2. Decide: Do I know good alternatives from my training data?
+           - For popular services (Slack, Notion, Asana, etc.): YES → Use your knowledge
+           - For niche/new services or if uncertain: NO → Use search_web tool
+        3. Format as: "Found X alternatives to [Service]: 1. [Name] - https://[url] ..."
+        4. Complete task with the alternatives list using complete_task
+
+        CRITICAL: The task is already accepted automatically. Prefer knowledge, use tools only when needed.
+
+mods:
+  - name: "openagents.mods.workspace.default"
+    enabled: true
+  - name: "openagents.mods.discovery.agent_discovery"
+    enabled: true
+  - name: "openagents.mods.coordination.task_delegation"
+    enabled: true
+
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "http"
+  password_hash: "3588bb7219b1faa3d01f132a0c60a394258ccc3049d8e4a243b737e62524d147"

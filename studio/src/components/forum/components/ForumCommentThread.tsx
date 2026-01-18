@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import MarkdownRenderer from '@/components/common/MarkdownRenderer';
 import { ForumComment } from '@/stores/forumStore';
 import { useForumStore } from '@/stores/forumStore';
@@ -40,6 +41,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
   topicId,
   maxDepth
 }) => {
+  const { t } = useTranslation('forum');
   const [showReplyForm, setShowReplyForm] = useState(false);
   const [replyContent, setReplyContent] = useState('');
   const [showPreview, setShowPreview] = useState(false);
@@ -126,7 +128,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
             onClick={() => setShowReplyForm(!showReplyForm)}
             className="text-sm transition-colors text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
           >
-            Reply
+            {t('detail.reply')}
           </button>
         )}
 
@@ -135,7 +137,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
           <div className="mt-4 p-3 rounded-lg border border-dashed border-gray-400">
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                Reply (Markdown supported)
+                {t('commentModal.content')}
               </label>
               <button
                 type="button"
@@ -146,7 +148,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
                     : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
                 }`}
               >
-                {showPreview ? 'Edit' : 'Preview'}
+                {showPreview ? t('commentModal.edit') : t('commentModal.preview')}
               </button>
             </div>
 
@@ -158,7 +160,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
                   />
                 ) : (
                   <p className="text-gray-400 dark:text-gray-500">
-                    Preview will appear here...
+                    {t('commentModal.previewPlaceholder')}
                   </p>
                 )}
               </div>
@@ -166,7 +168,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
               <textarea
                 value={replyContent}
                 onChange={(e) => setReplyContent(e.target.value)}
-                placeholder="Write your reply..."
+                placeholder={t('commentModal.contentPlaceholder')}
                 rows={3}
                 className="w-full p-2 rounded border mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
               />
@@ -182,7 +184,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
                 disabled={isSubmitting}
                 className="px-3 py-1 text-sm rounded transition-colors bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
               >
-                Cancel
+                {t('commentModal.cancel')}
               </button>
               <button
                 onClick={handleReply}
@@ -193,7 +195,7 @@ const ForumCommentItem: React.FC<ForumCommentItemProps> = React.memo(({
                     : 'bg-blue-600 hover:bg-blue-700'
                 }`}
               >
-                {isSubmitting ? 'Posting...' : 'Post Reply'}
+                {isSubmitting ? t('commentModal.posting') : t('commentModal.submit')}
               </button>
             </div>
           </div>

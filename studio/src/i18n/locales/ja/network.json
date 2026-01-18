@@ -54,9 +54,12 @@
         "kicking": "キック中...",
         "table": {
             "id": "エージェント ID",
+            "group": "グループ",
             "status": "ステータス",
             "actions": "操作"
         },
+        "statusOnline": "オンライン",
+        "statusOffline": "オフライン",
         "kickConfirm": {
             "title": "エージェントをキック",
             "message": "エージェント \"{{name}}\" をキックしてもよろしいですか？これにより、ネットワークから切断されます。",
@@ -72,6 +75,63 @@
         }
     },
     "groups": {
+        "title": "エージェントグループ管理",
+        "subtitle": "エージェントグループとその権限を管理",
+        "networkSettings": "ネットワーク設定",
+        "defaultGroup": "デフォルトグループ",
+        "defaultGroupDesc": "有効な認証情報がないエージェントのデフォルトグループ",
+        "requirePassword": "パスワードが必要",
+        "requirePasswordDesc": "すべてのエージェントにパスワード認証が必要",
+        "saveSettings": "設定を保存",
+        "saving": "保存中...",
+        "agentGroups": "エージェントグループ",
+        "create": "グループを作成",
+        "empty": "エージェントグループが設定されていません",
+        "edit": "編集",
+        "delete": "削除",
+        "set": "設定済み",
+        "none": "なし",
+        "searchPlaceholder": "グループを検索...",
+        "table": {
+            "group": "グループ名",
+            "description": "説明",
+            "members": "メンバー",
+            "password": "パスワード",
+            "actions": "操作"
+        },
+        "modal": {
+            "createTitle": "新しいグループを作成",
+            "editTitle": "グループを編集: {{name}}",
+            "name": "グループ名",
+            "namePlaceholder": "例: moderators",
+            "nameCannotChange": "グループ名は作成後に変更できません",
+            "description": "説明",
+            "descriptionPlaceholder": "例: コンテンツ管理権限を持つ管理者グループ",
+            "password": "パスワード",
+            "passwordRequiredHint": "このロールにはパスワードが必要です",
+            "clearPassword": "既存のパスワードをクリア",
+            "permissions": "権限（カンマ区切り）",
+            "permissionsPlaceholder": "例: moderate_content, ban_users, view_reports",
+            "cancel": "キャンセル",
+            "create": "グループを作成",
+            "update": "グループを更新",
+            "save": "変更を保存",
+            "errors": {
+                "nameRequired": "グループ名は必須です",
+                "nameInvalid": "グループ名は英数字とアンダースコアのみを含む必要があります",
+                "nameTooLong": "グループ名は64文字以下である必要があります",
+                "descriptionTooLong": "説明は512文字以下である必要があります",
+                "passwordRequired": "guestsロールを除くすべてのロールにパスワードが必要です",
+                "passwordMinLength": "パスワードは4文字以上である必要があります"
+            }
+        },
+        "messages": {
+            "createSuccess": "グループが正常に作成されました",
+            "updateSuccess": "グループが正常に更新されました",
+            "deleteSuccess": "グループが正常に削除されました",
+            "settingsSuccess": "ネットワーク設定が正常に保存されました",
+            "deleteConfirm": "グループ \"{{name}}\" を削除してもよろしいですか？この操作は元に戻せません。"
+        },
         "changePassword": {
             "button": "パスワードを変更",
             "modal": {

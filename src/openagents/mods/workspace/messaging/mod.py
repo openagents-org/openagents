@@ -1370,12 +1370,14 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Check if the original message exists
         if reply_to_id not in self.message_history:
             logger.warning(
-                f"Cannot create reply: original message {reply_to_id} not found"
+                f"Cannot create reply thread: original message {reply_to_id} not found. "
+                f"Reply will still be broadcast to channel members."
             )
+            # Even if we can't create the thread structure, we should still
+            # broadcast the reply to channel members so they receive it in real-time
+            if message.payload and "channel" in message.payload:
+                await self._broadcast_channel_message(message)
             return
-
-        # Add the reply message to history
-        self._add_to_history(message)
 
         original_message = self.message_history[reply_to_id]
 

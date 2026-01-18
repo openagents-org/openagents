@@ -38,8 +38,32 @@ from aiohttp import web
 # No need for external CORS library, implement manually
 
 from .base import Transport
-from openagents.models.transport import TransportType, ConnectionState, ConnectionInfo
+from openagents.models.transport import TransportType, ConnectionState, ConnectionInfo, RemoteAgentStatus
 from openagents.models.event import Event, EventVisibility
+from openagents.models.a2a import (
+    AgentCard,
+    AgentSkill,
+    AgentCapabilities,
+    AgentProvider,
+    Task,
+    TaskState,
+    TaskStatus,
+    A2AMessage,
+    Artifact,
+    TextPart,
+    Role,
+    JSONRPCRequest,
+    A2AErrorCode,
+    parse_parts,
+    create_text_message,
+)
+from openagents.core.a2a_task_store import TaskStore, InMemoryTaskStore
+from openagents.models.external_access import ExternalAccessConfig
+from openagents.utils.a2a_converters import (
+    A2ATaskEventNames,
+    a2a_message_to_event,
+    create_task_from_message,
+)
 
 if TYPE_CHECKING:
     from openagents.core.network import AgentNetwork
@@ -99,6 +123,12 @@ class HttpTransport(Transport):
         # Studio serving configuration (enabled via serve_studio: true)
         self._serve_studio = self.config.get("serve_studio", False)
         self._studio_build_dir: Optional[str] = None
+
+        # A2A serving configuration (enabled via serve_a2a: true)
+        self._serve_a2a = self.config.get("serve_a2a", False)
+        self._a2a_task_store: Optional[TaskStore] = None
+        self._a2a_agent_config: Dict[str, Any] = self.config.get("a2a_agent", {})
+        self._a2a_auth_config: Dict[str, Any] = self.config.get("a2a_auth", {})
 
         self.workspace_path = workspace_path  # Workspace path for LLM logs API
 
@@ -216,6 +246,19 @@ class HttpTransport(Transport):
             self.app.router.add_get("/robots.txt", self._handle_studio_root_asset)
             logger.info("HTTP transport: Studio frontend enabled at /studio")
 
+        # A2A routes (if serve_a2a: true)
+        if self._serve_a2a:
+            # Agent card discovery
+            self.app.router.add_get("/a2a/.well-known/agent.json", self._handle_a2a_agent_card)
+            # JSON-RPC endpoint
+            self.app.router.add_post("/a2a", self._handle_a2a_jsonrpc)
+            # Info endpoint
+            self.app.router.add_get("/a2a", self._handle_a2a_info)
+            # CORS preflight
+            self.app.router.add_options("/a2a", self._handle_a2a_options)
+            self.app.router.add_options("/a2a/.well-known/agent.json", self._handle_a2a_options)
+            logger.info("HTTP transport: A2A protocol enabled at /a2a")
+
     @web.middleware
     async def cors_middleware(self, request, handler):
         """CORS middleware for browser compatibility."""
@@ -248,6 +291,11 @@ class HttpTransport(Transport):
                 logger.info(f"HTTP transport: Studio build directory found at {self._studio_build_dir}")
             else:
                 logger.warning("HTTP transport: Studio build directory not found, /studio will return 404")
+
+        # Initialize A2A task store if serve_a2a is enabled
+        if self._serve_a2a:
+            self._a2a_task_store = InMemoryTaskStore()
+            logger.info("HTTP transport: A2A task store initialized")
 
         self.is_initialized = True
         return True
@@ -2605,17 +2653,24 @@ class HttpTransport(Transport):
             return web.Response(status=200, text="Session terminated")
         return web.Response(status=404, text="Session not found")
 
-    def _get_external_access_config(self):
+    def _get_external_access_config(self) -> Optional[ExternalAccessConfig]:
         """Get external_access configuration for tool filtering."""
+        external_access = None
+
         # Try network_context first
         if self.network_context:
-            return getattr(self.network_context, 'external_access', None)
+            external_access = getattr(self.network_context, 'external_access', None)
         # Fallback to network_instance.config
-        if self.network_instance:
+        elif self.network_instance:
             config = getattr(self.network_instance, 'config', None)
             if config:
-                return getattr(config, 'external_access', None)
-        return None
+                external_access = getattr(config, 'external_access', None)
+
+        # Convert dict to ExternalAccessConfig if needed
+        if external_access is not None and isinstance(external_access, dict):
+            return ExternalAccessConfig(**external_access)
+
+        return external_access
 
     async def _handle_mcp_tools_list(self, request: web.Request) -> web.Response:
         """Handle tools list request (admin UI endpoint).
@@ -2759,6 +2814,753 @@ class HttpTransport(Transport):
                     "isError": True,
                 },
             )
+
+    # ========================================================================
+    # A2A Protocol Handlers (enabled via serve_a2a: true)
+    # ========================================================================
+
+    async def _handle_a2a_options(self, request: web.Request) -> web.Response:
+        """Handle A2A CORS preflight requests."""
+        return web.Response()
+
+    async def _handle_a2a_info(self, request: web.Request) -> web.Response:
+        """Handle A2A info endpoint."""
+        return web.json_response({
+            "name": self._a2a_agent_config.get("name", "OpenAgents A2A"),
+            "protocol": "a2a",
+            "protocolVersion": "0.3",
+            "status": "running",
+        })
+
+    async def _handle_a2a_agent_card(self, request: web.Request) -> web.Response:
+        """Handle Agent Card discovery request at /a2a/.well-known/agent.json."""
+        card = self._a2a_generate_agent_card()
+        return web.json_response(
+            card.model_dump(by_alias=True, exclude_none=True)
+        )
+
+    def _a2a_generate_agent_card(self) -> AgentCard:
+        """Generate Agent Card with dynamically collected skills."""
+        skills = []
+        skills.extend(self._a2a_collect_skills_from_agents())
+        skills.extend(self._a2a_collect_skills_from_mods())
+
+        # Build provider info if configured
+        provider = None
+        provider_config = self._a2a_agent_config.get("provider")
+        if provider_config:
+            provider = AgentProvider(
+                organization=provider_config.get("organization", "OpenAgents"),
+                url=provider_config.get("url"),
+            )
+
+        # Determine URL - use configured URL or derive from listen address
+        url = self._a2a_agent_config.get(
+            "url", f"http://{self._listen_host}:{self._listen_port}/a2a"
+        )
+
+        return AgentCard(
+            name=self._a2a_agent_config.get("name", "OpenAgents Network"),
+            version=self._a2a_agent_config.get("version", "1.0.0"),
+            description=self._a2a_agent_config.get(
+                "description", "OpenAgents A2A Server"
+            ),
+            url=url,
+            protocol_version="0.3",
+            skills=skills,
+            capabilities=AgentCapabilities(
+                streaming=False,
+                push_notifications=False,
+                state_transition_history=False,
+            ),
+            provider=provider,
+        )
+
+    def _a2a_collect_skills_from_agents(self) -> List[AgentSkill]:
+        """Collect skills from all registered agents (local and remote)."""
+        skills = []
+
+        if not self.network_instance:
+            return skills
+
+        topology = getattr(self.network_instance, "topology", None)
+        if not topology:
+            return skills
+
+        agent_registry = getattr(topology, "agent_registry", {})
+
+        # Collect from local agents
+        for agent_id, agent_conn in agent_registry.items():
+            agent_metadata = getattr(agent_conn, "metadata", {}) or {}
+            agent_skills = agent_metadata.get("skills", [])
+
+            for skill in agent_skills:
+                skill_id = skill.get("id", "default")
+                skills.append(AgentSkill(
+                    id=f"{agent_id}.{skill_id}",
+                    name=skill.get("name", skill_id),
+                    description=skill.get("description"),
+                    input_modes=skill.get("input_modes", ["text"]),
+                    output_modes=skill.get("output_modes", ["text"]),
+                    tags=[agent_id] + skill.get("tags", []),
+                    examples=skill.get("examples", []),
+                ))
+
+        # Collect from A2A agents via registry
+        a2a_registry = getattr(topology, "a2a_registry", None)
+        if a2a_registry:
+            skills.extend(a2a_registry.get_all_skills())
+
+        return skills
+
+    def _a2a_collect_skills_from_mods(self) -> List[AgentSkill]:
+        """Collect skills from loaded mods (tools)."""
+        skills = []
+
+        if not self.network_instance:
+            return skills
+
+        mods = getattr(self.network_instance, "mods", {})
+
+        for mod_id, mod in mods.items():
+            get_tools = getattr(mod, "get_tools", None)
+            if not callable(get_tools):
+                continue
+
+            try:
+                mod_tools = get_tools()
+                for tool in mod_tools:
+                    tool_name = tool.get("name", "default")
+                    skills.append(AgentSkill(
+                        id=f"mod.{mod_id}.{tool_name}",
+                        name=tool_name,
+                        description=tool.get("description"),
+                        input_modes=["text"],
+                        output_modes=["text", "data"],
+                        tags=["mod", mod_id],
+                    ))
+            except Exception as e:
+                logger.warning(f"Failed to get tools from mod {mod_id}: {e}")
+
+        return skills
+
+    async def _handle_a2a_jsonrpc(self, request: web.Request) -> web.Response:
+        """Handle A2A JSON-RPC requests at /a2a."""
+        # Check authentication
+        auth_error = self._a2a_check_auth(request)
+        if auth_error:
+            return auth_error
+
+        # Parse request
+        try:
+            body = await request.json()
+            rpc_request = JSONRPCRequest(**body)
+        except Exception as e:
+            logger.warning(f"A2A JSON-RPC parse error: {e}")
+            return self._a2a_jsonrpc_error(
+                None, A2AErrorCode.PARSE_ERROR, f"Parse error: {e}"
+            )
+
+        # Route to method handler
+        method_handlers = {
+            # Standard A2A methods
+            "message/send": self._a2a_handle_send_message,
+            "tasks/get": self._a2a_handle_get_task,
+            "tasks/list": self._a2a_handle_list_tasks,
+            "tasks/cancel": self._a2a_handle_cancel_task,
+            # OpenAgents extensions (A2A-aligned)
+            "agents/announce": self._a2a_handle_announce_agent,
+            "agents/withdraw": self._a2a_handle_withdraw_agent,
+            "agents/list": self._a2a_handle_list_agents,
+            "events/send": self._a2a_handle_send_event,
+        }
+
+        handler = method_handlers.get(rpc_request.method)
+        if not handler:
+            return self._a2a_jsonrpc_error(
+                rpc_request.id,
+                A2AErrorCode.METHOD_NOT_FOUND,
+                f"Method not found: {rpc_request.method}",
+            )
+
+        # Execute handler
+        try:
+            result = await handler(rpc_request.params or {})
+            return self._a2a_jsonrpc_success(rpc_request.id, result)
+        except ValueError as e:
+            return self._a2a_jsonrpc_error(
+                rpc_request.id,
+                A2AErrorCode.INVALID_PARAMS,
+                str(e),
+            )
+        except Exception as e:
+            logger.exception(f"Error handling A2A {rpc_request.method}")
+            return self._a2a_jsonrpc_error(
+                rpc_request.id,
+                A2AErrorCode.INTERNAL_ERROR,
+                str(e),
+            )
+
+    def _a2a_check_auth(self, request: web.Request) -> Optional[web.Response]:
+        """Check A2A authentication if required."""
+        auth_type = self._a2a_auth_config.get("type")
+        if not auth_type:
+            return None
+
+        if auth_type == "bearer":
+            token = self._a2a_auth_config.get("token")
+            token_env = self._a2a_auth_config.get("token_env")
+
+            if token_env:
+                expected_token = os.environ.get(token_env)
+            else:
+                expected_token = token
+
+            if not expected_token:
+                return None  # No token configured, allow access
+
+            auth_header = request.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer "):
+                return self._a2a_jsonrpc_error(
+                    None,
+                    A2AErrorCode.AUTH_REQUIRED,
+                    "Bearer token required",
+                )
+
+            if auth_header[7:] != expected_token:
+                return self._a2a_jsonrpc_error(
+                    None,
+                    A2AErrorCode.AUTH_REQUIRED,
+                    "Invalid token",
+                )
+
+        return None
+
+    def _a2a_jsonrpc_success(self, id: Any, result: Any) -> web.Response:
+        """Create a JSON-RPC success response."""
+        return web.json_response({
+            "jsonrpc": "2.0",
+            "result": result,
+            "id": id,
+        })
+
+    def _a2a_jsonrpc_error(
+        self, id: Any, code: int, message: str, data: Any = None
+    ) -> web.Response:
+        """Create a JSON-RPC error response."""
+        error: Dict[str, Any] = {"code": code, "message": message}
+        if data is not None:
+            error["data"] = data
+
+        return web.json_response({
+            "jsonrpc": "2.0",
+            "error": error,
+            "id": id,
+        })
+
+    async def _a2a_emit_event(
+        self, event_name: str, data: Dict[str, Any]
+    ) -> None:
+        """Emit an internal A2A event for tracking/logging."""
+        if not self.event_handler:
+            return
+
+        event = Event(
+            event_name=event_name,
+            source_id="a2a:http-transport",
+            payload=data,
+        )
+
+        try:
+            await self.event_handler(event)
+        except Exception as e:
+            logger.debug(f"A2A event emission ignored: {e}")
+
+    async def _a2a_handle_send_message(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle message/send method."""
+        if not self._a2a_task_store:
+            raise ValueError("A2A task store not initialized")
+
+        message_data = params.get("message", {})
+        context_id = params.get("contextId")
+        task_id = params.get("taskId")
+
+        # Parse message
+        parts = parse_parts(message_data.get("parts", []))
+        if not parts:
+            parts = [TextPart(text="")]
+
+        message = A2AMessage(
+            role=Role(message_data.get("role", "user")),
+            parts=parts,
+            metadata=message_data.get("metadata"),
+        )
+
+        # Get existing task or create new one
+        if task_id:
+            task = await self._a2a_task_store.get_task(task_id)
+            if not task:
+                raise ValueError(f"Task not found: {task_id}")
+
+            await self._a2a_task_store.add_message(task_id, message)
+            await self._a2a_emit_event(
+                A2ATaskEventNames.CONTEXT_CONTINUED,
+                {"task_id": task_id},
+            )
+        else:
+            task = create_task_from_message(message, context_id)
+            await self._a2a_task_store.create_task(task)
+            await self._a2a_emit_event(
+                A2ATaskEventNames.CREATED,
+                {"task_id": task.id, "context_id": task.context_id},
+            )
+
+        # Convert to Event and process through network
+        event = a2a_message_to_event(
+            message, task.id, task.context_id, source_id="a2a:http-external"
+        )
+
+        # Update task status to working
+        await self._a2a_task_store.update_task_state(task.id, TaskState.WORKING)
+        await self._a2a_emit_event(
+            A2ATaskEventNames.WORKING,
+            {"task_id": task.id},
+        )
+
+        # Process via event handler (connected to network)
+        if self.event_handler:
+            try:
+                response = await self.event_handler(event)
+                await self._a2a_process_event_response(task.id, response)
+            except Exception as e:
+                logger.error(f"A2A event handler error: {e}")
+                await self._a2a_task_store.update_status(
+                    task.id,
+                    TaskStatus(
+                        state=TaskState.FAILED,
+                        message=create_text_message(
+                            f"Processing error: {e}", Role.AGENT
+                        ),
+                    ),
+                )
+                await self._a2a_emit_event(
+                    A2ATaskEventNames.FAILED,
+                    {"task_id": task.id, "error": str(e)},
+                )
+        else:
+            await self._a2a_task_store.update_task_state(
+                task.id, TaskState.COMPLETED
+            )
+            await self._a2a_emit_event(
+                A2ATaskEventNames.COMPLETED,
+                {"task_id": task.id},
+            )
+
+        # Return updated task
+        task = await self._a2a_task_store.get_task(task.id)
+        return task.model_dump(by_alias=True, exclude_none=True)
+
+    async def _a2a_process_event_response(
+        self, task_id: str, response
+    ) -> None:
+        """Process an event response and update task accordingly."""
+        if not self._a2a_task_store:
+            return
+
+        if not response:
+            await self._a2a_task_store.update_task_state(
+                task_id, TaskState.COMPLETED
+            )
+            await self._a2a_emit_event(
+                A2ATaskEventNames.COMPLETED,
+                {"task_id": task_id},
+            )
+            return
+
+        if response.success:
+            if response.data:
+                if isinstance(response.data, dict):
+                    text = response.data.get("text", str(response.data))
+                else:
+                    text = str(response.data)
+
+                artifact = Artifact(
+                    name="response",
+                    parts=[TextPart(text=text)],
+                )
+                await self._a2a_task_store.add_artifact(task_id, artifact)
+                await self._a2a_emit_event(
+                    A2ATaskEventNames.ARTIFACT_ADDED,
+                    {"task_id": task_id},
+                )
+
+            await self._a2a_task_store.update_task_state(
+                task_id, TaskState.COMPLETED
+            )
+            await self._a2a_emit_event(
+                A2ATaskEventNames.COMPLETED,
+                {"task_id": task_id},
+            )
+        else:
+            await self._a2a_task_store.update_status(
+                task_id,
+                TaskStatus(
+                    state=TaskState.FAILED,
+                    message=create_text_message(
+                        response.message or "Processing failed",
+                        Role.AGENT,
+                    ),
+                ),
+            )
+            await self._a2a_emit_event(
+                A2ATaskEventNames.FAILED,
+                {"task_id": task_id, "error": response.message},
+            )
+
+    async def _a2a_handle_get_task(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle tasks/get method."""
+        if not self._a2a_task_store:
+            raise ValueError("A2A task store not initialized")
+
+        task_id = params.get("id")
+        if not task_id:
+            raise ValueError("Task ID is required")
+
+        task = await self._a2a_task_store.get_task(task_id)
+        if not task:
+            raise ValueError(f"Task not found: {task_id}")
+
+        await self._a2a_emit_event(
+            A2ATaskEventNames.GET,
+            {"task_id": task_id},
+        )
+
+        # Apply history length limit if specified
+        history_length = params.get("historyLength")
+        if history_length is not None and history_length >= 0:
+            task_dict = task.model_dump(by_alias=True, exclude_none=True)
+            task_dict["history"] = task_dict.get("history", [])[-history_length:]
+            return task_dict
+
+        return task.model_dump(by_alias=True, exclude_none=True)
+
+    async def _a2a_handle_list_tasks(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle tasks/list method."""
+        if not self._a2a_task_store:
+            raise ValueError("A2A task store not initialized")
+
+        context_id = params.get("contextId")
+        limit = params.get("limit", 100)
+        offset = params.get("offset", 0)
+
+        tasks = await self._a2a_task_store.list_tasks(context_id, limit, offset)
+
+        await self._a2a_emit_event(
+            A2ATaskEventNames.LIST,
+            {"count": len(tasks), "context_id": context_id},
+        )
+
+        return {
+            "tasks": [
+                t.model_dump(by_alias=True, exclude_none=True)
+                for t in tasks
+            ]
+        }
+
+    async def _a2a_handle_cancel_task(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle tasks/cancel method."""
+        if not self._a2a_task_store:
+            raise ValueError("A2A task store not initialized")
+
+        task_id = params.get("id")
+        if not task_id:
+            raise ValueError("Task ID is required")
+
+        task = await self._a2a_task_store.get_task(task_id)
+        if not task:
+            raise ValueError(f"Task not found: {task_id}")
+
+        # Check if task can be canceled
+        terminal_states = [
+            TaskState.COMPLETED,
+            TaskState.FAILED,
+            TaskState.CANCELED,
+            TaskState.REJECTED,
+        ]
+        if task.status.state in terminal_states:
+            raise ValueError(
+                f"Task cannot be canceled in state: {task.status.state.value}"
+            )
+
+        await self._a2a_task_store.update_task_state(task_id, TaskState.CANCELED)
+
+        await self._a2a_emit_event(
+            A2ATaskEventNames.CANCELED,
+            {"task_id": task_id},
+        )
+
+        task = await self._a2a_task_store.get_task(task_id)
+        return task.model_dump(by_alias=True, exclude_none=True)
+
+    async def _a2a_handle_announce_agent(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle agents/announce method - remote agent announces its endpoint."""
+        url = params.get("url")
+        if not url:
+            raise ValueError("url is required")
+
+        preferred_id = params.get("agent_id") or params.get("agentId")
+        metadata = params.get("metadata", {})
+
+        logger.info(f"A2A HTTP agent announcement: {url} (preferred_id={preferred_id})")
+
+        topology = getattr(self.network_instance, "topology", None) if self.network_instance else None
+        if not topology:
+            return {
+                "success": False,
+                "url": url,
+                "error": "Network topology not available",
+            }
+
+        # Use A2A registry for agent management
+        a2a_registry = getattr(topology, "a2a_registry", None)
+        if not a2a_registry:
+            return {
+                "success": False,
+                "url": url,
+                "error": "A2A registry not available",
+            }
+
+        try:
+            connection = await a2a_registry.announce_agent(
+                url=url,
+                preferred_id=preferred_id,
+                metadata=metadata,
+            )
+
+            logger.info(f"A2A HTTP: Announced agent {connection.agent_id} at {url}")
+
+            return {
+                "success": True,
+                "agent_id": connection.agent_id,
+                "url": connection.address,
+                "message": "Agent announced successfully",
+                "skills": [
+                    {"id": s.id, "name": s.name}
+                    for s in (connection.agent_card.skills if connection.agent_card else [])
+                ],
+            }
+
+        except ConnectionError as e:
+            logger.warning(f"Failed to announce agent at {url}: {e}")
+            return {
+                "success": False,
+                "url": url,
+                "error": str(e),
+            }
+        except Exception as e:
+            logger.error(f"A2A HTTP agent announcement error: {e}")
+            return {
+                "success": False,
+                "url": url,
+                "error": str(e),
+            }
+
+    async def _a2a_handle_withdraw_agent(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle agents/withdraw method - remote agent leaves the network."""
+        agent_id = params.get("agent_id") or params.get("agentId")
+        if not agent_id:
+            raise ValueError("agent_id is required")
+
+        logger.info(f"A2A HTTP agent withdrawal: {agent_id}")
+
+        topology = getattr(self.network_instance, "topology", None) if self.network_instance else None
+        if not topology:
+            return {
+                "success": False,
+                "agent_id": agent_id,
+                "error": "Network topology not available",
+            }
+
+        # Use A2A registry for agent management
+        a2a_registry = getattr(topology, "a2a_registry", None)
+        if not a2a_registry:
+            return {
+                "success": False,
+                "agent_id": agent_id,
+                "error": "A2A registry not available",
+            }
+
+        success = await a2a_registry.withdraw_agent(agent_id)
+
+        if success:
+            logger.info(f"A2A HTTP: Withdrawn agent {agent_id}")
+            return {
+                "success": True,
+                "agent_id": agent_id,
+                "message": "Agent withdrawn successfully",
+            }
+        else:
+            return {
+                "success": False,
+                "agent_id": agent_id,
+                "error": "Agent not found or not an A2A agent",
+            }
+
+    async def _a2a_handle_list_agents(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle agents/list method - list all agents in the network.
+
+        Returns all agents registered in the network, grouped by transport type.
+
+        Args:
+            params: Request parameters containing:
+                - transport: Optional filter by transport type
+                - status: Optional filter by status (for A2A agents)
+
+        Returns:
+            List of agents with their info
+        """
+        transport_filter = params.get("transport")
+        status_filter = params.get("status")
+
+        agents = []
+
+        topology = getattr(self.network_instance, "topology", None) if self.network_instance else None
+
+        if topology:
+            agent_registry = getattr(topology, "agent_registry", {})
+
+            for agent_id, conn in agent_registry.items():
+                transport_type = conn.transport_type
+
+                # Apply transport filter
+                if transport_filter:
+                    transport_str = (
+                        transport_type.value if hasattr(transport_type, 'value')
+                        else str(transport_type)
+                    )
+                    if transport_str != transport_filter:
+                        continue
+
+                # Apply status filter for A2A agents
+                if status_filter and transport_type == TransportType.A2A:
+                    if conn.remote_status:
+                        status_str = (
+                            conn.remote_status.value if hasattr(conn.remote_status, 'value')
+                            else str(conn.remote_status)
+                        )
+                        if status_str != status_filter:
+                            continue
+
+                # Build agent info
+                transport_str = (
+                    transport_type.value if hasattr(transport_type, 'value')
+                    else str(transport_type) if transport_type else "unknown"
+                )
+
+                agent_info = {
+                    "agent_id": conn.agent_id,
+                    "transport": transport_str,
+                    "address": conn.address,
+                    "last_seen": conn.last_seen,
+                }
+
+                # Add A2A-specific fields
+                if transport_type == TransportType.A2A:
+                    status_str = (
+                        conn.remote_status.value if hasattr(conn.remote_status, 'value')
+                        else str(conn.remote_status) if conn.remote_status else "unknown"
+                    )
+                    agent_info["status"] = status_str
+                    agent_info["skills"] = [
+                        {"id": s.id, "name": s.name}
+                        for s in (conn.agent_card.skills if conn.agent_card else [])
+                    ]
+                    agent_info["announced_at"] = conn.announced_at
+                else:
+                    # For non-A2A agents, get skills from metadata
+                    metadata = getattr(conn, "metadata", {}) or {}
+                    agent_info["skills"] = metadata.get("skills", [])
+                    agent_info["status"] = "active"
+
+                agents.append(agent_info)
+
+        # Count by transport
+        transport_counts = {}
+        for agent in agents:
+            transport = agent.get("transport", "unknown")
+            transport_counts[transport] = transport_counts.get(transport, 0) + 1
+
+        return {
+            "agents": agents,
+            "total": len(agents),
+            "by_transport": transport_counts,
+        }
+
+    async def _a2a_handle_send_event(
+        self, params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle events/send method - send an event through the network."""
+        event_name = params.get("event_name") or params.get("eventName")
+        source_id = params.get("source_id") or params.get("sourceId")
+
+        if not event_name:
+            raise ValueError("event_name is required")
+        if not source_id:
+            raise ValueError("source_id is required")
+
+        destination_id = params.get("destination_id") or params.get("destinationId")
+        payload = params.get("payload", {})
+        metadata = params.get("metadata", {})
+        visibility = params.get("visibility", "network")
+
+        event = Event(
+            event_name=event_name,
+            source_id=source_id,
+            destination_id=destination_id,
+            payload=payload,
+            metadata=metadata,
+            visibility=visibility,
+            timestamp=int(time.time()),
+        )
+
+        logger.debug(f"A2A HTTP SendEvent: {event_name} from {source_id}")
+
+        if self.event_handler:
+            try:
+                response = await self.event_handler(event)
+                return {
+                    "success": response.success if response else True,
+                    "message": response.message if response else "",
+                    "data": response.data if response else None,
+                    "event_name": event_name,
+                }
+            except Exception as e:
+                logger.error(f"A2A HTTP SendEvent error: {e}")
+                return {
+                    "success": False,
+                    "message": str(e),
+                    "event_name": event_name,
+                }
+        else:
+            return {
+                "success": True,
+                "message": "Event processed (standalone mode)",
+                "event_name": event_name,
+            }
 
     # ========================================================================
     # Studio Static File Handlers (enabled via serve_studio: true)

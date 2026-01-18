@@ -238,7 +238,9 @@ class NetworkToolCollector:
                     mod_instance = mods.get(mod_name)
                     if mod_instance:
                         adapter_instance.bind_mod(mod_instance)
-                        logger.debug(f"Bound mod '{mod_name}' to adapter")
+                        logger.info(f"Bound mod '{mod_name}' to adapter (mod has {len(getattr(mod_instance, 'templates', {}))} templates)")
+                    else:
+                        logger.warning(f"No mod instance found for '{mod_name}' in mods dict (keys: {list(mods.keys())})")
 
                 # Get tools from the adapter
                 if hasattr(adapter_instance, "get_tools"):

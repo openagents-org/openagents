@@ -17,14 +17,16 @@ import time
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
-from openagents.mods.coordination.task_delegation.mod import (
-    TaskDelegationMod,
-    Task,
-    STATUS_IN_PROGRESS,
-    STATUS_COMPLETED,
-    STATUS_FAILED,
-    STATUS_TIMED_OUT,
-)
+from openagents.mods.coordination.task_delegation.mod import TaskDelegationMod
+from openagents.models.task import Task, TaskState
+
+# Compatibility aliases for old constant names
+# Note: New tasks start as "submitted", not "working"
+STATUS_SUBMITTED = TaskState.SUBMITTED.value
+STATUS_IN_PROGRESS = TaskState.WORKING.value  # Tasks move to "working" when accepted
+STATUS_COMPLETED = TaskState.COMPLETED.value
+STATUS_FAILED = TaskState.FAILED.value
+STATUS_TIMED_OUT = "timed_out"  # This may need to be mapped to FAILED
 from openagents.mods.coordination.task_delegation.adapter import TaskDelegationAdapter
 from openagents.models.event import Event
 
@@ -36,6 +38,8 @@ def mock_network():
     network.network_id = "test-network"
     network.workspace_manager = None  # Will use temp directory
     network.process_event = AsyncMock(return_value=None)
+    # Set a2a_task_store to None so mod creates its own InMemoryTaskStore
+    network.a2a_task_store = None
     return network
 
 
@@ -44,18 +48,24 @@ def task_delegation_mod(mock_network, tmp_path):
     """Create a TaskDelegationMod instance for testing."""
     # Patch get_storage_path to use tmp_path
     mod = TaskDelegationMod()
-    
+
     # Mock the get_storage_path to return a tmp directory
     mod.get_storage_path = lambda: tmp_path / "task_delegation"
     (tmp_path / "task_delegation").mkdir(parents=True, exist_ok=True)
-    
-    # Bind the mock network
+
+    # Bind the mock network - this sets up the real task_store
     mod.bind_network(mock_network)
-    
+
     yield mod
-    
-    # Cleanup
-    mod.shutdown()
+
+    # Cleanup - shutdown is async now
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(mod.shutdown())
+    except RuntimeError:
+        # No running loop, just skip async shutdown
+        pass
 
 
 @pytest.fixture
@@ -89,17 +99,18 @@ class TestTaskDelegationMod:
         assert response.success is True
         assert response.message == "Task delegated successfully"
         assert "task_id" in response.data
-        assert response.data["status"] == STATUS_IN_PROGRESS
+        assert response.data["status"] == STATUS_SUBMITTED  # New tasks start as submitted
         assert "created_at" in response.data
 
         # Verify task was stored
         task_id = response.data["task_id"]
-        assert task_id in task_delegation_mod.tasks
-        task = task_delegation_mod.tasks[task_id]
-        assert task.delegator_id == "agent_alice"
-        assert task.assignee_id == "agent_bob"
-        assert task.description == "Search for AI trends"
-        assert task.status == STATUS_IN_PROGRESS
+        task = await task_delegation_mod.task_store.get_task(task_id)
+        assert task is not None
+        delegation = task.metadata.get("delegation", {})
+        assert delegation.get("delegator_id") == "agent_alice"
+        assert delegation.get("assignee_id") == "agent_bob"
+        assert delegation.get("description") == "Search for AI trends"
+        assert task.status.state.value == STATUS_SUBMITTED  # New tasks start as submitted
 
     @pytest.mark.asyncio
     async def test_delegate_task_missing_assignee(self, task_delegation_mod):
@@ -171,10 +182,15 @@ class TestTaskDelegationMod:
         assert response.data["task_id"] == task_id
         assert response.data["progress_count"] == 1
 
-        # Verify progress was stored
-        task = task_delegation_mod.tasks[task_id]
-        assert len(task.progress_reports) == 1
-        assert task.progress_reports[0]["message"] == "Searching web sources..."
+        # Verify progress was stored in task history
+        task = await task_delegation_mod.task_store.get_task(task_id)
+        assert len(task.history) >= 1
+        # Progress message should contain the text
+        last_message = task.history[-1]
+        message_text = "".join(
+            part.text for part in last_message.parts if hasattr(part, "text")
+        )
+        assert "Searching web sources" in message_text
 
     @pytest.mark.asyncio
     async def test_report_progress_unauthorized(self, task_delegation_mod):
@@ -245,9 +261,19 @@ class TestTaskDelegationMod:
         assert "completed_at" in response.data
 
         # Verify task was updated
-        task = task_delegation_mod.tasks[task_id]
-        assert task.status == STATUS_COMPLETED
-        assert task.result == {"findings": ["Finding 1", "Finding 2"], "summary": "AI is advancing rapidly"}
+        task = await task_delegation_mod.task_store.get_task(task_id)
+        assert task.status.state.value == STATUS_COMPLETED
+        # Result is stored in artifacts
+        assert len(task.artifacts) >= 1
+        result_artifact = task.artifacts[-1]
+        # Check that result data is in the artifact parts
+        result_data = None
+        for part in result_artifact.parts:
+            if hasattr(part, "data"):
+                result_data = part.data
+                break
+        assert result_data is not None
+        assert result_data.get("findings") == ["Finding 1", "Finding 2"]
 
     @pytest.mark.asyncio
     async def test_complete_task_unauthorized(self, task_delegation_mod):
@@ -314,9 +340,11 @@ class TestTaskDelegationMod:
         assert response.data["status"] == STATUS_FAILED
 
         # Verify task was updated
-        task = task_delegation_mod.tasks[task_id]
-        assert task.status == STATUS_FAILED
-        assert task.error == "Unable to complete search - network error"
+        task = await task_delegation_mod.task_store.get_task(task_id)
+        assert task.status.state.value == STATUS_FAILED
+        # Error is stored in error_details, not delegation
+        error_details = task.metadata.get("error_details", {})
+        assert error_details.get("error") == "Unable to complete search - network error"
 
     @pytest.mark.asyncio
     async def test_fail_task_unauthorized(self, task_delegation_mod):
@@ -474,12 +502,12 @@ class TestTaskDelegationMod:
         )
         await task_delegation_mod._handle_task_complete(complete_event)
 
-        # List only in_progress tasks
+        # List only submitted tasks (not completed)
         list_event = Event(
             event_name="task.list",
             source_id="agent_alice",
             payload={
-                "filter": {"role": "delegated_by_me", "status": ["in_progress"]},
+                "filter": {"role": "delegated_by_me", "status": ["submitted"]},
             },
         )
 
@@ -569,63 +597,88 @@ class TestTaskDelegationMod:
     @pytest.mark.asyncio
     async def test_timeout_task(self, task_delegation_mod, mock_network):
         """Test automatic task timeout."""
-        # Create a task with very short timeout
+        from openagents.models.a2a import Task as A2ATask, TaskStatus, TaskState as A2ATaskState
+
+        # Create a task with very short timeout using A2A Task
         task_id = str(uuid.uuid4())
-        task = Task(
-            task_id=task_id,
-            delegator_id="agent_alice",
-            assignee_id="agent_bob",
-            description="Short timeout task",
-            payload={},
-            status=STATUS_IN_PROGRESS,
-            timeout_seconds=1,  # 1 second timeout
-            created_at=time.time() - 2,  # Created 2 seconds ago
+        task = A2ATask(
+            id=task_id,
+            status=TaskStatus(state=A2ATaskState.WORKING),
+            metadata={
+                "delegation": {
+                    "delegator_id": "agent_alice",
+                    "assignee_id": "agent_bob",
+                    "description": "Short timeout task",
+                    "payload": {},
+                    "timeout_seconds": 1,  # 1 second timeout
+                    "created_at": time.time() - 2,  # Created 2 seconds ago
+                }
+            },
         )
-        task_delegation_mod.tasks[task_id] = task
+        await task_delegation_mod.task_store.create_task(task)
 
         # Run timeout check
         await task_delegation_mod._check_timeouts()
 
         # Verify task was timed out
-        assert task.status == STATUS_TIMED_OUT
-        assert task.completed_at is not None
+        updated_task = await task_delegation_mod.task_store.get_task(task_id)
+        assert updated_task.status.state == A2ATaskState.FAILED
+        assert updated_task.metadata.get("delegation", {}).get("completed_at") is not None
 
         # Verify notifications were sent
         assert mock_network.process_event.call_count >= 2  # At least 2 notifications
 
-    def test_get_state(self, task_delegation_mod):
+    @pytest.mark.asyncio
+    async def test_get_state(self, task_delegation_mod):
         """Test getting mod state."""
-        # Add some tasks with different statuses
-        task_delegation_mod.tasks["task1"] = Task(
-            task_id="task1",
-            delegator_id="alice",
-            assignee_id="bob",
-            description="Task 1",
-            payload={},
-            status=STATUS_IN_PROGRESS,
-            timeout_seconds=300,
-            created_at=time.time(),
+        from openagents.models.a2a import Task as A2ATask, TaskStatus, TaskState as A2ATaskState
+
+        # Add some tasks with different statuses using task_store
+        task1 = A2ATask(
+            id="task1",
+            status=TaskStatus(state=A2ATaskState.WORKING),
+            metadata={
+                "delegation": {
+                    "delegator_id": "alice",
+                    "assignee_id": "bob",
+                    "description": "Task 1",
+                    "payload": {},
+                    "timeout_seconds": 300,
+                    "created_at": time.time(),
+                }
+            },
         )
-        task_delegation_mod.tasks["task2"] = Task(
-            task_id="task2",
-            delegator_id="alice",
-            assignee_id="bob",
-            description="Task 2",
-            payload={},
-            status=STATUS_COMPLETED,
-            timeout_seconds=300,
-            created_at=time.time(),
+        task2 = A2ATask(
+            id="task2",
+            status=TaskStatus(state=A2ATaskState.COMPLETED),
+            metadata={
+                "delegation": {
+                    "delegator_id": "alice",
+                    "assignee_id": "bob",
+                    "description": "Task 2",
+                    "payload": {},
+                    "timeout_seconds": 300,
+                    "created_at": time.time(),
+                }
+            },
         )
-        task_delegation_mod.tasks["task3"] = Task(
-            task_id="task3",
-            delegator_id="alice",
-            assignee_id="bob",
-            description="Task 3",
-            payload={},
-            status=STATUS_FAILED,
-            timeout_seconds=300,
-            created_at=time.time(),
+        task3 = A2ATask(
+            id="task3",
+            status=TaskStatus(state=A2ATaskState.FAILED),
+            metadata={
+                "delegation": {
+                    "delegator_id": "alice",
+                    "assignee_id": "bob",
+                    "description": "Task 3",
+                    "payload": {},
+                    "timeout_seconds": 300,
+                    "created_at": time.time(),
+                }
+            },
         )
+        await task_delegation_mod.task_store.create_task(task1)
+        await task_delegation_mod.task_store.create_task(task2)
+        await task_delegation_mod.task_store.create_task(task3)
 
         state = task_delegation_mod.get_state()
 
@@ -633,7 +686,6 @@ class TestTaskDelegationMod:
         assert state["active_tasks"] == 1
         assert state["completed_tasks"] == 1
         assert state["failed_tasks"] == 1
-        assert state["timed_out_tasks"] == 0
 
     @pytest.mark.asyncio
     async def test_cannot_complete_already_completed_task(self, task_delegation_mod):
@@ -738,79 +790,62 @@ class TestTaskDelegationAdapter:
 
 
 class TestTaskDataClass:
-    """Tests for the Task dataclass."""
+    """Tests for the Task models (native and A2A)."""
 
     def test_task_creation(self):
-        """Test creating a Task instance."""
+        """Test creating a native Task instance."""
+        # Native Task model uses 'id' and 'state', with delegator/assignee as direct fields
         task = Task(
-            task_id="test-123",
+            id="test-123",
             delegator_id="alice",
             assignee_id="bob",
-            description="Test task",
-            payload={"key": "value"},
-            status=STATUS_IN_PROGRESS,
-            timeout_seconds=300,
-            created_at=time.time(),
+            state=TaskState.WORKING,
         )
 
-        assert task.task_id == "test-123"
+        assert task.id == "test-123"
         assert task.delegator_id == "alice"
         assert task.assignee_id == "bob"
-        assert task.status == STATUS_IN_PROGRESS
-        assert task.completed_at is None
-        assert task.progress_reports == []
-        assert task.result is None
-        assert task.error is None
+        assert task.state == TaskState.WORKING
+        assert task.artifacts == []
+        assert task.metadata is None
 
     def test_task_to_dict(self):
-        """Test Task to_dict method."""
-        current_time = time.time()
+        """Test Task model_dump method (Pydantic)."""
         task = Task(
-            task_id="test-123",
+            id="test-123",
             delegator_id="alice",
             assignee_id="bob",
-            description="Test task",
-            payload={"key": "value"},
-            status=STATUS_IN_PROGRESS,
-            timeout_seconds=300,
-            created_at=current_time,
+            state=TaskState.WORKING,
+            metadata={"key": "value"},
         )
 
-        task_dict = task.to_dict()
+        # Pydantic models use model_dump() instead of to_dict()
+        task_dict = task.model_dump()
 
-        assert task_dict["task_id"] == "test-123"
+        assert task_dict["id"] == "test-123"
         assert task_dict["delegator_id"] == "alice"
         assert task_dict["assignee_id"] == "bob"
-        assert task_dict["description"] == "Test task"
-        assert task_dict["payload"] == {"key": "value"}
-        assert task_dict["created_at"] == current_time
+        assert task_dict["state"] == TaskState.WORKING
+        assert task_dict["metadata"] == {"key": "value"}
 
     def test_task_from_dict(self):
-        """Test Task from_dict class method."""
+        """Test Task creation from dict (Pydantic)."""
         task_data = {
-            "task_id": "test-456",
+            "id": "test-456",
             "delegator_id": "charlie",
             "assignee_id": "dave",
-            "description": "Another task",
-            "payload": {"data": "value"},
-            "status": STATUS_COMPLETED,
-            "timeout_seconds": 600,
-            "created_at": 1234567890.0,
-            "completed_at": 1234567990.0,
-            "progress_reports": [{"timestamp": 1234567900.0, "message": "Progress"}],
-            "result": {"outcome": "success"},
-            "error": None,
+            "state": TaskState.COMPLETED,
+            "metadata": {"outcome": "success"},
         }
 
-        task = Task.from_dict(task_data)
+        # Pydantic models can be created directly from dict or using model_validate()
+        task = Task(**task_data)
 
-        assert task.task_id == "test-456"
+        assert task.id == "test-456"
         assert task.delegator_id == "charlie"
         assert task.assignee_id == "dave"
-        assert task.status == STATUS_COMPLETED
-        assert task.completed_at == 1234567990.0
-        assert len(task.progress_reports) == 1
-        assert task.result == {"outcome": "success"}
+        assert task.state == TaskState.COMPLETED
+        assert task.metadata == {"outcome": "success"}
 
 
 if __name__ == "__main__":

@@ -45,6 +45,13 @@ network:
   message_timeout: 30.0
   message_routing_enabled: true
 
+  agent_groups:
+    admin:
+      description: "Administrator agents with full permissions"
+      password_hash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # password: admin
+      metadata:
+        permissions: ["all"]
+
   # Mod configuration - forum mod only
   mods:
     - name: "openagents.mods.workspace.forum"

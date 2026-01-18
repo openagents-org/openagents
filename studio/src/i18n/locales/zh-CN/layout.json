@@ -36,8 +36,9 @@
         "modManagement": "模块管理",
         "serviceAgents": "智能体服务",
         "llmLogs": "LLM 日志",
-        "connectionGuide": "连接代理",
+        "connectionGuide": "连接智能体",
         "admin": "管理",
+        "userDashboard": "用户仪表板",
         "switchToAdmin": {
             "title": "进入管理控制台",
             "confirm": "确定要进入管理控制台吗？",

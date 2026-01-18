@@ -27,7 +27,7 @@ In a separate terminal:
 
 ```bash
 cd demos/00_hello_world
-openagents launch-agent agents/charlie.yaml
+openagents agent start agents/charlie.yaml
 ```
 
 ### 3. Connect and Chat

@@ -51,7 +51,7 @@ openagents network start network.yaml
 ### 2. Launch the Agent
 
 ```bash
-openagents launch-agent agents/grammar_checker.yaml
+openagents agent start agents/grammar_checker.yaml
 ```
 
 ### 3. Connect via Studio

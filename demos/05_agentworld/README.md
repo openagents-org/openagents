@@ -31,7 +31,7 @@ In a separate terminal:
 
 ```bash
 cd demos/05_agentworld
-openagents launch-agent agents/explorer.yaml
+openagents agent start agents/explorer.yaml
 ```
 
 ### 4. Interact with the Agent

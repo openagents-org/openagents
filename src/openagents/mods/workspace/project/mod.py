@@ -76,10 +76,11 @@ class DefaultProjectNetworkMod(BaseMod):
                     expose_as_tool=template_data.get("expose_as_tool", False),
                     tool_name=template_data.get("tool_name"),
                     tool_description=template_data.get("tool_description"),
-                    input_schema=template_data.get("input_schema")
+                    input_schema=template_data.get("input_schema"),
+                    tool_mode=template_data.get("tool_mode", "sync")
                 )
                 self.templates[template_id] = template
-                tool_info = f" (exposed as tool)" if template.expose_as_tool else ""
+                tool_info = f" (exposed as tool, mode={template.tool_mode})" if template.expose_as_tool else ""
                 logger.info(f"Loaded template: {template_id}{tool_info}")
             except Exception as e:
                 logger.error(f"Failed to load template {template_id}: {e}")

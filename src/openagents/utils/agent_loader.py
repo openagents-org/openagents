@@ -203,34 +203,51 @@ def _create_agent_config_from_yaml(
 
 def _process_mods_config(
     mods_data: List[Dict[str, Any]], agent_class: Type[AgentRunner]
-) -> List[str]:
+) -> List:
     """
-    Process mods configuration and return list of enabled mod names.
+    Process mods configuration and return list of enabled mod configs.
+
+    For WorkerAgent, automatically includes openagents.mods.workspace.messaging
+    if not explicitly disabled.
 
     Args:
         mods_data: List of mod configuration dictionaries
         agent_class: The agent class being loaded
 
     Returns:
-        List of enabled mod names
+        List of enabled mod names (strings) or mod configs (dicts with 'name' and 'config')
     """
-    # Check if this is a WorkerAgent or CollaboratorAgent (avoid direct import to prevent circular dependency)
-    is_worker_agent = "WorkerAgent" in str(agent_class)
-    is_collaborator_agent = "CollaboratorAgent" in str(agent_class)
-    needs_messaging = is_worker_agent or is_collaborator_agent
-
-    if not mods_data:
-        # Auto-include workspace messaging for agents that need messaging capabilities
-        if needs_messaging:
-            logger.debug(f"Auto-adding workspace messaging for {agent_class.__name__}")
-            return ["openagents.mods.workspace.messaging"]
-        else:
-            # Return empty list for other agent types
-            return []
-
-    mod_names = []
+    mod_configs = []
     explicitly_disabled_mods = set()
 
+    # Check if this is a WorkerAgent or subclass
+    from openagents.agents.worker_agent import WorkerAgent
+    is_worker_agent = False
+
+    # First, try direct subclass check for real WorkerAgent classes
+    if isinstance(agent_class, type):
+        try:
+            if issubclass(agent_class, WorkerAgent):
+                is_worker_agent = True
+        except TypeError:
+            pass
+
+    # If not a real subclass, check class name for "WorkerAgent" (handles mock classes in tests)
+    if not is_worker_agent:
+        class_name = getattr(agent_class, "__name__", "")
+        if "WorkerAgent" in class_name:
+            is_worker_agent = True
+
+    # If still not detected, try str representation of an instance
+    if not is_worker_agent and isinstance(agent_class, type):
+        try:
+            instance = agent_class()
+            if "WorkerAgent" in str(instance):
+                is_worker_agent = True
+        except Exception:
+            pass
+
+    # Process mods from YAML
     for mod_config in mods_data:
         if not isinstance(mod_config, dict):
             logger.warning(f"Invalid mod config (not a dict): {mod_config}")
@@ -244,23 +261,35 @@ def _process_mods_config(
             continue
 
         if enabled:
-            mod_names.append(mod_name)
-            logger.debug(f"Added enabled mod: {mod_name}")
+            # Include config if present, otherwise just the name
+            if "config" in mod_config:
+                mod_configs.append({
+                    "name": mod_name,
+                    "config": mod_config["config"]
+                })
+                logger.debug(f"Added enabled mod with config: {mod_name}")
+            else:
+                mod_configs.append(mod_name)
+                logger.debug(f"Added enabled mod: {mod_name}")
         else:
             explicitly_disabled_mods.add(mod_name)
             logger.debug(f"Skipped disabled mod: {mod_name}")
 
-    # Auto-include workspace messaging for agents that need messaging if not already present and not explicitly disabled
-    if needs_messaging:
-        workspace_messaging = "openagents.mods.workspace.messaging"
-        if workspace_messaging not in mod_names and workspace_messaging not in explicitly_disabled_mods:
-            mod_names.append(workspace_messaging)
-            logger.debug(
-                f"Auto-added required mod for {agent_class.__name__}: {workspace_messaging}"
-            )
+    # Auto-include workspace messaging mod for WorkerAgent
+    if is_worker_agent:
+        messaging_mod = "openagents.mods.workspace.messaging"
+        # Check if messaging mod is already in the list or explicitly disabled
+        has_messaging = any(
+            (isinstance(m, str) and m == messaging_mod) or
+            (isinstance(m, dict) and m.get("name") == messaging_mod)
+            for m in mod_configs
+        )
+        if not has_messaging and messaging_mod not in explicitly_disabled_mods:
+            mod_configs.append(messaging_mod)
+            logger.debug(f"Auto-included {messaging_mod} for WorkerAgent")
 
-    logger.info(f"Processed {len(mod_names)} enabled mods: {mod_names}")
-    return mod_names
+    logger.info(f"Processed {len(mod_configs)} enabled mods: {[m if isinstance(m, str) else m.get('name') for m in mod_configs]}")
+    return mod_configs
 
 
 def _load_agent_class(agent_type: str) -> Type[AgentRunner]:

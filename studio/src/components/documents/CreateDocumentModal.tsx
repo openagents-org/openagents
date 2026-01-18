@@ -1,5 +1,17 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Label } from '@/components/layout/ui/label';
+import { Input, InputGroup, InputAddon } from '@/components/layout/ui/input';
+import { Button } from '@/components/layout/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogBody,
+  DialogFooter,
+} from '@/components/layout/ui/dialog';
+import { FileText } from 'lucide-react';
 
 interface CreateDocumentModalProps {
   isOpen: boolean;
@@ -53,37 +65,15 @@ const CreateDocumentModal: React.FC<CreateDocumentModalProps> = ({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className={`
-        w-full max-w-2xl rounded-lg shadow-xl
-        ${currentTheme === 'dark' ? 'bg-gray-800' : 'bg-white'}
-      `}>
-        {/* Header */}
-        <div className={`border-b p-6 ${currentTheme === 'dark' ? 'border-gray-700' : 'border-gray-200'}`}>
-          <div className="flex items-center justify-between">
-            <h2 className={`text-xl font-bold ${currentTheme === 'dark' ? 'text-gray-200' : 'text-gray-800'}`}>
-              {t('createModal.title')}
-            </h2>
-            <button
-              onClick={handleClose}
-              disabled={isCreating}
-              className={`p-2 rounded-lg transition-colors ${currentTheme === 'dark'
-                  ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-200'
-                  : 'hover:bg-gray-100 text-gray-600 hover:text-gray-800'
-                } disabled:opacity-50`}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t('createModal.title')}</DialogTitle>
+        </DialogHeader>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form id="document-form" onSubmit={handleSubmit}>
+          <DialogBody className="space-y-6">
           {error && (
             <div className="p-3 rounded-lg bg-red-100 border border-red-300 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-400">
               {error}
@@ -91,37 +81,33 @@ const CreateDocumentModal: React.FC<CreateDocumentModalProps> = ({
           )}
 
           {/* Document Name */}
-          <div>
-            <label className={`block text-sm font-medium mb-2 ${currentTheme === 'dark' ? 'text-gray-200' : 'text-gray-700'
-              }`}>
+          <div className="space-y-2">
+            <Label htmlFor="documentName">
               {t('createModal.documentName')} *
-            </label>
-            <input
-              type="text"
-              value={documentName}
-              onChange={(e) => setDocumentName(e.target.value)}
-              placeholder={t('createModal.documentNamePlaceholder')}
-              disabled={isCreating}
-              className={`
-                w-full p-3 border rounded-lg transition-colors
-                ${currentTheme === 'dark'
-                  ? 'bg-gray-700 border-gray-600 text-gray-200 placeholder-gray-400 focus:border-blue-500'
-                  : 'bg-white border-gray-300 text-gray-800 placeholder-gray-500 focus:border-blue-500'
-                }
-                focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50
-                disabled:opacity-50
-              `}
-              required
-            />
+            </Label>
+            <InputGroup>
+              <InputAddon mode="icon">
+                <FileText size={16} />
+              </InputAddon>
+              <Input
+                id="documentName"
+                type="text"
+                value={documentName}
+                onChange={(e) => setDocumentName(e.target.value)}
+                placeholder={t('createModal.documentNamePlaceholder')}
+                disabled={isCreating}
+                required
+              />
+            </InputGroup>
           </div>
 
           {/* Initial Content */}
-          <div>
-            <label className={`block text-sm font-medium mb-2 ${currentTheme === 'dark' ? 'text-gray-200' : 'text-gray-700'
-              }`}>
+          <div className="space-y-2">
+            <Label htmlFor="initialContent">
               {t('createModal.initialContent')}
-            </label>
+            </Label>
             <textarea
+              id="initialContent"
               value={initialContent}
               onChange={(e) => setInitialContent(e.target.value)}
               placeholder={t('createModal.initialContentPlaceholder')}
@@ -139,37 +125,29 @@ const CreateDocumentModal: React.FC<CreateDocumentModalProps> = ({
             />
           </div>
 
-          {/* Actions */}
-          <div className="flex justify-end space-x-3">
-            <button
-              type="button"
-              onClick={handleClose}
-              disabled={isCreating}
-              className={`
-                px-4 py-2 rounded-lg transition-colors
-                ${currentTheme === 'dark'
-                  ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                }
-                disabled:opacity-50 disabled:cursor-not-allowed
-              `}
-            >
-              {t('createModal.cancel')}
-            </button>
-            <button
-              type="submit"
-              disabled={!documentName.trim() || isCreating}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
-            >
-              {isCreating && (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              )}
-              <span>{isCreating ? t('createModal.creating') : t('createModal.create')}</span>
-            </button>
-          </div>
+          </DialogBody>
         </form>
-      </div>
-    </div>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            onClick={handleClose}
+            disabled={isCreating}
+            variant="outline"
+          >
+            {t('createModal.cancel')}
+          </Button>
+          <Button
+            type="submit"
+            form="document-form"
+            disabled={!documentName.trim() || isCreating}
+            variant="primary"
+          >
+            {isCreating ? t('createModal.creating') : t('createModal.create')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

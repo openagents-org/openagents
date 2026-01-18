@@ -58,6 +58,8 @@
         "noCollaborators": "还没有协作者",
         "readOnlyPlaceholder": "此文档为只读",
         "startTypingPlaceholder": "开始输入文档内容...",
+        "toggleComments": "切换评论",
+        "lineLocked": "行被 {{user}} 锁定",
         "debugInfo": {
             "content": "内容",
             "chars": "字符",

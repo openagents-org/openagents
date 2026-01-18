@@ -312,11 +312,14 @@ const RouteGuard: React.FC<RouteGuardProps> = ({ children }) => {
     // Special case: admin routes (/admin/*) are always available for admin users
     // AdminRouteGuard will handle permission checking
     const isAdminRoute = currentPath.startsWith("/admin")
+    // Special case: user-dashboard route is always available for non-admin users
+    const isUserDashboardRoute = currentPath.startsWith("/user-dashboard")
 
     if (
       isModulesLoaded &&
       !isProjectRoute &&
       !isAdminRoute &&
+      !isUserDashboardRoute &&
       !isRouteAvailable(currentPath, enabledModules)
     ) {
       console.log(

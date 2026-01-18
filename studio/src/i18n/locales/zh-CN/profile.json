@@ -80,7 +80,49 @@
             "available": "可用模块",
             "activation": "模块激活度",
             "noModules": "无模块信息",
-            "count_enabled": "{{count}}/{{total}} 已启用"
+            "count_enabled": "{{count}}/{{total}} 已启用",
+            "primaryModules": "主要功能",
+            "secondaryModules": "设置与工具",
+            "noModulesAvailable": "暂无可用模块",
+            "messaging": {
+                "desc": "发送和接收消息"
+            },
+            "feed": {
+                "desc": "查看信息动态"
+            },
+            "project": {
+                "desc": "项目管理与协作"
+            },
+            "forum": {
+                "desc": "参与讨论和交流"
+            },
+            "artifact": {
+                "desc": "查看和管理制品"
+            },
+            "wiki": {
+                "desc": "查阅和编辑文档"
+            },
+            "documents": {
+                "desc": "协作编辑文档"
+            },
+            "agentworld": {
+                "desc": "智能体世界"
+            },
+            "profile": {
+                "desc": "查看和管理个人资料"
+            },
+            "mod_management": {
+                "desc": "管理模块配置"
+            },
+            "readme": {
+                "desc": "查看 README 文档"
+            },
+            "service-agents": {
+                "desc": "服务智能体管理"
+            },
+            "llm_logs": {
+                "desc": "查看 LLM 日志"
+            }
         },
         "system": {
             "title": "系统设置",

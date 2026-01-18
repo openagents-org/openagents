@@ -53,7 +53,17 @@
         "loading": "加载话题中...",
         "searchPlaceholder": "搜索话题...",
         "newTopic": "新建话题",
-        "tryAgain": "重试"
+        "tryAgain": "重试",
+        "refresh": "刷新"
+    },
+    "table": {
+        "title": "标题",
+        "author": "作者",
+        "time": "发布时间",
+        "votes": "投票",
+        "comments": "评论",
+        "actions": "操作",
+        "view": "查看"
     },
     "detail": {
         "comments": "评论",

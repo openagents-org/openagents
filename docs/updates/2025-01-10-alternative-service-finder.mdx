@@ -1,0 +1,446 @@
+---
+title: "Walkthrough - Creating a Multi-Agent Tool with Project Templates"
+summary: "Learn how to build a coordinated multi-agent workflow that exposes tools via MCP for querying by Claude Desktop or other AI assistants."
+topicTitle: "Updates"
+topicSlug: "updates"
+---
+
+# Walkthrough: Creating a Multi-Agent Tool with Project Templates
+
+This walkthrough teaches you how to build a **coordinated multi-agent workflow** that exposes a tool via MCP. We'll use an "Alternative Service Finder" as our example - a system where multiple agents work together to find and compare alternatives to web services.
+
+By the end, you'll be able to ask Claude:
+
+> "Find alternatives to Notion and compare them"
+
+And get a detailed comparison from your multi-agent system!
+
+## What You'll Learn
+
+- How to use **project templates** to define reusable workflows
+- How to **expose tools via MCP** for external access
+- How **coordinator agents** orchestrate multi-agent workflows
+- How to connect **Claude Desktop** to your agent network
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    OpenAgents Network                           │
+│                                                                 │
+│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐    │
+│  │ Coordinator  │────>│   Searcher   │────>│   Comparer   │    │
+│  │   (Python)   │     │    Agent     │     │    Agent     │    │
+│  └──────────────┘     └──────────────┘     └──────────────┘    │
+│         │                    │                    │             │
+│         │                    ▼                    ▼             │
+│         │             ┌──────────────┐     ┌──────────────┐    │
+│         │             │  search_web  │     │ fetch_webpage │    │
+│         │             │    (tool)    │     │    (tool)    │    │
+│         │             └──────────────┘     └──────────────┘    │
+│         │                                                       │
+│         ▼                                                       │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │              Project Template: find_alternatives         │   │
+│  │         Exposed as: find_service_alternatives tool       │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                              │                                  │
+│                           MCP ↓                                 │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+    ┌──────────────────────────┘
+    │
+    │   ┌──────────────────┐
+    └──>│  Claude Desktop  │ "Find alternatives to Slack"
+        │    (via MCP)     │
+        └──────────────────┘
+```
+
+## Step 1: Set Up Your Python Environment
+
+First, ensure you have Python 3.10 or higher installed.
+
+```bash
+# Check your Python version
+python --version
+```
+
+If you need to install Python, visit [python.org](https://www.python.org/downloads/) or use your system's package manager.
+
+## Step 2: Install OpenAgents
+
+Install the OpenAgents package from PyPI:
+
+```bash
+pip install openagents
+```
+
+<Banner type="info">
+**Tip:** Always upgrade to the latest version to get the newest features and bug fixes:
+```bash
+pip install --upgrade openagents
+```
+</Banner>
+
+## Step 3: Clone the OpenAgents Repository
+
+Clone the repository to get the demo files:
+
+```bash
+git clone https://github.com/openagentsinc/openagents.git
+cd openagents
+```
+
+## Step 4: Understand the Project Template
+
+Before starting the network, let's understand how project templates work. Open `demos/08_alternative_service_project/network.yaml` to see the template definition:
+
+```yaml
+project_templates:
+  find_alternatives:
+    name: Find Service Alternatives
+    description: Provides users with alternative options to given web services
+    expose_as_tool: true
+    tool_name: find_service_alternatives
+    tool_description: >
+      Find and compare alternative services to a given web service or SaaS tool.
+      Returns a detailed comparison with features, pricing, and recommendations.
+    agent_groups:
+      - coordinators
+      - workers
+```
+
+**Key settings:**
+- **`expose_as_tool: true`** - Makes this workflow callable as a tool via MCP
+- **`tool_name`** - The name external clients will use to call this tool
+- **`agent_groups`** - Which agents can participate in this workflow
+
+## Step 5: Start the Network
+
+Start the Alternative Service Finder network:
+
+```bash
+openagents network start demos/08_alternative_service_project
+```
+
+The Studio web interface will automatically open in your browser at `http://localhost:8700`.
+
+<Banner type="important">
+**Note:** If the browser doesn't open automatically, navigate to `http://localhost:8700` manually.
+</Banner>
+
+<!-- TODO: Screenshot - Studio login page for the Alternative Service Finder network -->
+![Studio Login Page](/images/tutorials/service-finder/login-page.png)
+
+## Step 6: Start the Worker Agents
+
+The network needs three agents to function. Open separate terminal windows for each:
+
+### Terminal 2: Start the Searcher Agent
+
+```bash
+cd openagents
+openagents agent start demos/08_alternative_service_project/agents/searcher.yaml
+```
+
+The Searcher agent finds alternative services using:
+- Its built-in knowledge for popular services
+- Web search (DuckDuckGo) for niche or new services
+
+### Terminal 3: Start the Comparer Agent
+
+```bash
+cd openagents
+openagents agent start demos/08_alternative_service_project/agents/comparer.yaml
+```
+
+The Comparer agent creates detailed comparisons using:
+- Its built-in knowledge for well-known services
+- Web page fetching for detailed feature/pricing info
+
+### Terminal 4: Start the Coordinator
+
+```bash
+cd openagents
+python demos/08_alternative_service_project/agents/coordinator.py
+```
+
+The Coordinator orchestrates the workflow:
+1. Receives project requests
+2. Delegates to Searcher to find alternatives
+3. Delegates to Comparer to analyze them
+4. Returns the final comparison
+
+<!-- TODO: Screenshot - Terminal windows showing all three agents running (coordinator, searcher, comparer) -->
+![Agents Running](/images/tutorials/service-finder/agents-running.png)
+
+## Step 7: Test the Workflow Locally
+
+Let's verify everything works before connecting Claude Desktop.
+
+Run the test script:
+
+```bash
+python demos/08_alternative_service_project/test_workflow.py "Notion"
+```
+
+You should see output like:
+
+```
+Starting project to find alternatives for: Notion
+Project started with ID: proj_abc123
+
+Waiting for project completion...
+Project completed!
+
+=== Search Results ===
+Found 5 alternatives to Notion:
+1. Obsidian - https://obsidian.md
+2. Coda - https://coda.io
+3. Craft - https://craft.do
+...
+
+=== Comparison Results ===
+| Service | Key Features | Pricing | Best For |
+|---------|--------------|---------|----------|
+| Obsidian | Local-first, plugins | Free/$8/mo | Power users |
+| Coda | Docs + spreadsheets | Free/$10/mo | Teams |
+...
+```
+
+<!-- TODO: Screenshot - Terminal output showing the test workflow results -->
+![Test Workflow Output](/images/tutorials/service-finder/test-output.png)
+
+<Banner type="info">
+**What's happening:** The coordinator receives your request, delegates to the searcher to find alternatives, then delegates to the comparer to create a detailed analysis. All communication happens through the OpenAgents network.
+</Banner>
+
+## Step 8: Login to Admin Dashboard
+
+1. In your browser at `http://localhost:8700`, click **"Login as Admin"**
+2. Enter the admin password: `admin`
+3. Click **"Login as Admin"**
+
+You'll see the Admin Dashboard with:
+- Network status
+- Connected agents (coordinator, searcher, comparer)
+- Project templates
+
+<!-- TODO: Screenshot - Admin Dashboard showing connected agents and project templates -->
+![Admin Dashboard](/images/tutorials/service-finder/admin-dashboard.png)
+
+## Step 9: Publish Your Network
+
+To connect Claude Desktop to your network, you need to publish it.
+
+### Get Your API Key
+
+1. Go to [https://openagents.org](https://openagents.org)
+2. Sign in or create an account
+3. Navigate to **Dashboard** → **API Keys**
+4. Create a new API key and copy it
+
+### Publish from Admin Dashboard
+
+1. In the Admin Dashboard, find the **"Network Status"** panel
+2. Click **"Publish Network"**
+3. Paste your API key when prompted
+4. Choose a unique network ID (e.g., `my-service-finder`)
+5. Click **"Publish"**
+
+Once published, you'll see:
+- **Network ID:** `my-service-finder`
+- **MCP URL:** `https://network.openagents.org/my-service-finder/mcp`
+
+Copy the **MCP URL** - you'll need it for Claude Desktop.
+
+<!-- TODO: Screenshot - Publish Network dialog showing Network ID and MCP URL -->
+![Publish Network](/images/tutorials/service-finder/publish-network.png)
+
+## Step 10: Connect Claude Desktop
+
+Now let's connect Claude Desktop to use your multi-agent tool.
+
+### Configure Claude Desktop
+
+Edit your Claude Desktop configuration file:
+
+**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+
+**Linux:** `~/.config/claude/claude_desktop_config.json`
+
+**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+Add your network to the MCP servers:
+
+```json
+{
+  "mcpServers": {
+    "service-finder": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropic-ai/mcp-remote",
+        "https://network.openagents.org/my-service-finder/mcp"
+      ]
+    }
+  }
+}
+```
+
+<Banner type="important">
+Replace `my-service-finder` with your actual network ID from the publish step.
+</Banner>
+
+### Restart Claude Desktop
+
+Quit and restart Claude Desktop to load the new configuration.
+
+## Step 11: Use Your Tool with Claude
+
+Open Claude Desktop and try these prompts:
+
+### Basic Query
+
+```
+Find alternatives to Slack and compare them
+```
+
+Claude will:
+1. Call the `find_service_alternatives` tool
+2. Your coordinator will orchestrate the searcher and comparer agents
+3. Claude receives and presents the detailed comparison
+
+<!-- TODO: Screenshot - Claude Desktop showing the find_service_alternatives tool being called and results -->
+![Claude Desktop Query](/images/tutorials/service-finder/claude-desktop-query.png)
+
+### More Example Queries
+
+| Query | What Happens |
+|-------|--------------|
+| "What are some alternatives to Mailchimp?" | Finds email marketing alternatives |
+| "Compare project management tools like Asana" | Finds and compares PM tools |
+| "I need a Figma alternative for my team" | Finds design tool alternatives |
+| "What's a good open-source alternative to Notion?" | Filters for open-source options |
+
+## How the Agents Work Together
+
+### The Coordinator (Python)
+
+The coordinator is a **non-LLM agent** that orchestrates the workflow:
+
+```python
+@on_event("project.notification.started")
+async def on_project_started(self, event):
+    # 1. Extract the service name from project goal
+    # 2. Delegate to searcher: "Find alternatives to {service}"
+    # 3. Wait for searcher to complete
+    # 4. Delegate to comparer: "Compare these alternatives"
+    # 5. Wait for comparer to complete
+    # 6. Mark project as complete
+```
+
+### The Searcher Agent (YAML + LLM)
+
+The searcher uses **intelligent tool selection**:
+
+```yaml
+instructions: |
+  DECISION LOGIC:
+  1. If the service is well-known (Slack, Notion, etc.) → Use your knowledge
+  2. If the service is niche or new → Use the search_web tool
+  3. Prefer efficiency: Don't make unnecessary web requests
+```
+
+### The Comparer Agent (YAML + LLM)
+
+The comparer also uses **intelligent tool selection**:
+
+```yaml
+instructions: |
+  DECISION LOGIC:
+  1. If you know the services well → Use your knowledge
+  2. If you need current pricing or features → Use fetch_webpage tool
+  3. Always provide a structured comparison table
+```
+
+## MCP Tools Available
+
+Once connected, Claude has access to:
+
+| Tool | Description |
+|------|-------------|
+| `find_service_alternatives` | Triggers the full workflow to find and compare alternatives |
+
+The tool accepts a service name and returns:
+- List of alternative services with URLs
+- Detailed comparison table (features, pricing, pros/cons)
+- Recommendations based on use case
+
+## Understanding Project Templates
+
+Project templates are a powerful way to:
+
+1. **Define reusable workflows** - Create once, use many times
+2. **Expose as tools** - Make workflows callable via MCP
+3. **Control access** - Specify which agent groups participate
+4. **Provide context** - Give agents background about the workflow
+
+```yaml
+project_templates:
+  find_alternatives:
+    name: Find Service Alternatives
+    description: Provides users with alternative options to given web services
+    expose_as_tool: true
+    tool_name: find_service_alternatives
+    context: |
+      This workflow helps users discover alternatives to popular SaaS tools.
+      The searcher finds options, the comparer analyzes them in detail.
+```
+
+## Troubleshooting
+
+### Agents Not Connecting
+
+```bash
+# Check if the network is running
+curl http://localhost:8700/health
+
+# Verify agents can reach the network
+openagents agent status
+```
+
+### Project Times Out
+
+1. Ensure all three agents are running (coordinator, searcher, comparer)
+2. Check agent logs for errors
+3. Verify LLM API keys are configured in `config/agent_env/_global.json`
+
+### Claude Can't Find the Tool
+
+1. Verify your network is published (check Admin Dashboard)
+2. Ensure the project template has `expose_as_tool: true`
+3. Restart Claude Desktop after config changes
+
+### Test MCP Endpoint
+
+```bash
+curl -X POST https://network.openagents.org/your-network-id/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+```
+
+## Next Steps
+
+Now that you have a working multi-agent tool, you can:
+
+1. **Create your own templates** - Define new workflows in `network.yaml`
+2. **Add more agents** - Create specialized agents for different tasks
+3. **Customize the tools** - Modify `tools/web_search.py` and `tools/web_fetch.py`
+4. **Build complex workflows** - Chain multiple project templates together
+
+## Related Documentation
+
+- **[Information Hub Walkthrough](/docs/updates/2025-12-18-elon-musk-tracker)** - Building a news aggregation network
+- **[Research Team Demo](/tutorials/demo-research-team)** - Router-based task delegation
+- **[Admin Dashboard Guide](/docs/updates/admin-dashboard)** - Full admin features reference

@@ -2,6 +2,8 @@ import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { DocumentInfo } from "../../types";
+import { EmptyState } from "@/components/layout/ui/empty-state";
+import { FileText } from "lucide-react";
 
 interface DocumentListProps {
   documents: DocumentInfo[];
@@ -55,27 +57,13 @@ const DocumentList: React.FC<DocumentListProps> = ({
 
   if (documents.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center">
-          <div
-            className={`text-6xl mb-4 ${currentTheme === "dark" ? "text-gray-600" : "text-gray-400"
-              }`}
-          >
-            📄
-          </div>
-          <h3
-            className={`text-lg font-medium mb-2 ${currentTheme === "dark" ? "text-gray-200" : "text-gray-800"
-              }`}
-          >
-            {t('list.noDocuments')}
-          </h3>
-          <p
-            className={`${currentTheme === "dark" ? "text-gray-400" : "text-gray-600"
-              } mb-4`}
-          >
-            {t('list.createFirst')}
-          </p>
-        </div>
+      <div className="h-full flex items-center justify-center p-6">
+        <EmptyState
+          variant="minimal"
+          icon={<FileText className="w-12 h-12" />}
+          title={t('list.noDocuments')}
+          description={t('list.createFirst')}
+        />
       </div>
     );
   }
@@ -90,7 +78,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
             className={`
               p-6 rounded-lg border cursor-pointer transition-all duration-200 hover:shadow-md
               ${currentTheme === "dark"
-                ? "bg-gray-800 border-gray-700 hover:bg-gray-750 hover:border-gray-600"
+                ? "bg-zinc-950 border-gray-700 hover:bg-zinc-900 hover:border-gray-600"
                 : "bg-white border-gray-200 hover:bg-gray-50 hover:border-gray-300"
               }
             `}

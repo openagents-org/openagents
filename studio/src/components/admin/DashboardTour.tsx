@@ -202,7 +202,7 @@ const DashboardTour: React.FC<DashboardTourProps> = ({
             <Button
               onClick={handleSkip}
               variant="ghost"
-              size="icon"
+              size="sm"
             >
               <svg
                 className="w-5 h-5"

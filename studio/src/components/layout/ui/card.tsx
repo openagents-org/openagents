@@ -26,7 +26,7 @@ const useCardContext = () => {
 const cardVariants = cva('flex flex-col items-stretch text-card-foreground rounded-xl', {
   variants: {
     variant: {
-      default: 'bg-card border border-border shadow-xs black/5',
+      default: 'bg-card border border-gray-200 dark:border-gray-700 shadow-xs black/5',
       accent: 'bg-muted shadow-xs p-1',
     },
   },
@@ -35,11 +35,11 @@ const cardVariants = cva('flex flex-col items-stretch text-card-foreground round
   },
 });
 
-const cardHeaderVariants = cva('flex items-center justify-between flex-wrap px-5 min-h-14 gap-2.5', {
+const cardHeaderVariants = cva('flex items-center justify-between flex-wrap min-h-14 gap-2.5', {
   variants: {
     variant: {
-      default: 'border-b border-border',
-      accent: '',
+      default: 'px-5 py-4 border-b border-gray-200 dark:border-gray-700',
+      accent: 'px-5 py-4',
     },
   },
   defaultVariants: {
@@ -74,7 +74,7 @@ const cardTableVariants = cva('grid grow', {
 const cardFooterVariants = cva('flex items-center px-5 min-h-14', {
   variants: {
     variant: {
-      default: 'border-t border-border',
+      default: 'border-t border-gray-200 dark:border-gray-700',
       accent: 'bg-card rounded-b-xl mt-[2px]',
     },
   },
@@ -126,7 +126,7 @@ function CardHeading({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
 }
 
 function CardToolbar({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div data-slot="card-toolbar" className={cn('flex items-center gap-2.5', className)} {...props} />;
+  return <div data-slot="card-toolbar" className={cn('flex items-center gap-2.5 ml-auto', className)} {...props} />;
 }
 
 function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {

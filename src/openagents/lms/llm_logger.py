@@ -323,14 +323,10 @@ def extract_token_usage(provider: str, raw_response: Any) -> Dict[str, Optional[
 
 
 class EventBasedLLMLogger:
-    """LLM Logger that sends logs via system events to the network.
+    """Event-based logger for LLM calls.
 
-    This logger is designed for external agents that connect to the network
-    remotely and need to report their LLM calls to the network for centralized
-    logging and monitoring.
-
-    Instead of writing to local files, it sends logs via the system.report_llm_log
-    event to the network, which then stores them in the workspace.
+    This logger is used by agents to track their LLM usage locally.
+    LLM logs are stored in local files for monitoring and analysis.
     """
 
     def __init__(self, agent_id: str, client: "AgentClient"):
@@ -353,7 +349,7 @@ class EventBasedLLMLogger:
         latency_ms: int,
         error: Optional[str] = None,
     ) -> str:
-        """Log an LLM call by sending it to the network.
+        """Log an LLM call locally.
 
         Args:
             model_name: Name of the model used
@@ -389,29 +385,7 @@ class EventBasedLLMLogger:
             error=error,
         )
 
-        # Send the log entry to the network via system event
-        try:
-            from openagents.config.globals import SYSTEM_EVENT_REPORT_LLM_LOG
-            from openagents.models.event import Event
-
-            event = Event(
-                event_name=SYSTEM_EVENT_REPORT_LLM_LOG,
-                source_id=self.agent_id,
-                destination_id="system:system",
-                payload={
-                    "agent_id": self.agent_id,
-                    "log_entry": entry.to_dict(),
-                },
-            )
-
-            response = await self.client.send_event(event)
-            if response and response.success:
-                logger.debug(f"Sent LLM log to network: {log_id}")
-            else:
-                error_msg = response.message if response else "No response"
-                logger.warning(f"Failed to send LLM log to network: {error_msg}")
-
-        except Exception as e:
-            logger.error(f"Error sending LLM log event: {e}")
+        # LLM logs are stored locally only
+        logger.debug(f"LLM call logged locally: {log_id}")
 
         return log_id

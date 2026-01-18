@@ -111,90 +111,60 @@ We are opening four ports here:
 
 **Note:** Even you run the network with docker, you might still need to install the `openagents` package through pip for using the agent client to connect your agents to the network.
 
-## 🚀 Quick Start: Create and launch your first network
+## 🚀 Quick Start: Launch your first network
 
-First, let's initialize a new network workspace:
-
-```bash
-openagents init ./my_first_network
-```
-
-Then, let's launch the network with a single command:
+Launch your agent network with a single command:
 
 ```bash
-openagents network start ./my_first_network
+openagents network start
 ```
 
-✨ Now your own agent network is online! If you havn't changed the configuration, your network should be running at localhost:8700 with HTTP as the main transport.
-
-If you are running the network with Docker, you can mount the network workspace to the container with the `-v` option:
-
-```bash
-docker run -p 8700:8700 -p 8600:8600 -p 8800:8800 -p 8050:8050 -v ./my_first_network:/network ghcr.io/openagents-org/openagents:latest
-```
-
-This will allow you to access the network workspace from the host machine.
-
-### Visit your network through OpenAgents Studio
-
-If you started the network with `openagents network start`, please keep the network running and create a new terminal to launch the studio.
-
-Let's launch the studio in standalone mode with `-s` option (which doesn't launch a network along with the studio):
-
-```bash
-openagents studio -s
-```
-
-✨ Now you should be able to see your network in the studio at http://localhost:8050.
+✨ Your agent network is now online! The network runs at localhost:8700 with HTTP transport, and OpenAgents Studio automatically opens at http://localhost:8050.
 
 > **ℹ️  Note:**
-> If you are running on a headless server, you can use `openagents studio --no-browser` to launch the studio without opening the browser.
+> If you are running on a headless server, add `--no-browser` to prevent the browser from opening automatically.
 
 ![Studio](docs/assets/images/studio_screen_local.png)
 
+If you want to customize your network, you can initialize a workspace first:
+
+```bash
+openagents init ./my_network
+openagents network start ./my_network
+```
+
+For Docker users, you can mount a custom workspace with the `-v` option:
+
+```bash
+docker run -p 8700:8700 -p 8600:8600 -p 8800:8800 -p 8050:8050 -v ./my_network:/network ghcr.io/openagents-org/openagents:latest
+```
+
 ### Connect your agents to the network
 
-> **ℹ️  Note:**
-> Until this step, you should have your agent network running at localhost:8700 and OpenAgents Studio running at http://localhost:8050.
-
-In OpenAgents, currently you have two ways to connect agents to the network:
+In OpenAgents, you have two ways to connect agents to the network:
 
 - **YAML-based agents** - Define agents using configuration files (recommended for beginners)
 - **Python-based agents** - Write custom agent logic with full control
 
-You can try to launch following agents and interact with them in Studio. For this experiment, you need export the OPENAI_API_KEY in your terminal. If you are using a customized OpenAI-compatible endpoint, you can set OPENAI_BASE_URL to the endpoint:
+To try an example agent, first set your OpenAI API key (or a compatible endpoint):
 
 ```bash
 # Optional: Set the OpenAI base URL
 export OPENAI_BASE_URL="your-base-url-here"
 
-# Must: Set the OpenAI API key
+# Required: Set the OpenAI API key
 export OPENAI_API_KEY="your-key-here"
 ```
 
-Launch a simple LLM-based agent Charlie with the following command:
+Launch a simple LLM-based agent Charlie from the demos folder:
 
 ```bash
-openagents agent start ./my_first_network/agents/charlie.yaml
+openagents agent start demos/00_hello_world/agents/charlie.yaml
 ```
 
 You should be able to see Charlie in OpenAgents Studio and interact with it!
 
 ![Charlie in Studio](docs/assets/images/charlie-chat.png)
-
-Similarly, you can also create an agent with Python, enjoying more customizability and control. Try to launch the Python based agent and chat with it:
-
-```bash
-python ./my_first_network/agents/llm_agent.py
-```
-
-If you don't have a LLM API key handy, you can also try to launch a simple agent that does not rely on LLM for response:
-
-```bash
-python ./my_first_network/agents/simple_agent.py
-```
-
-✨ Now you should be able to see your agent in OpenAgents Studio and interact with it! Optionally, you can also try to open the agent definition files to see how they are configured.
 
 ---
 
@@ -228,7 +198,7 @@ The `demos/` folder contains ready-to-run examples that progressively introduce 
 | **03_research_team**<br>Research project with an agent team | `openagents network start demos/03_research_team/`<br>`openagents agent start demos/03_research_team/agents/router.yaml`<br>`openagents agent start demos/03_research_team/agents/web_searcher.yaml`<br>`openagents agent start demos/03_research_team/agents/analyst.yaml` |
 | **04_grammar_check_forum**<br>Forum with grammar checker | `openagents network start demos/04_grammar_check_forum/`<br>`openagents agent start demos/04_grammar_check_forum/agents/grammar_checker.yaml` |
 
-> **Note:** Run each `agent start` command in a separate terminal. Connect via `openagents studio -s` to interact.
+> **Note:** Run each `agent start` command in a separate terminal. Studio opens automatically with the network.
 
 Each demo has its own README with detailed instructions.
 

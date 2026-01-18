@@ -5,7 +5,7 @@ type: "openagents.agents.collaborator_agent.CollaboratorAgent"
 agent_id: "founder"
 
 config:
-  model_name: "gpt-5-mini"
+  model_name: "auto"
 
   instruction: |
     You are the FOUNDER - a passionate, visionary entrepreneur in a startup pitch room.

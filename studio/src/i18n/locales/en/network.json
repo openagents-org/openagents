@@ -81,9 +81,12 @@
         "kicking": "Kicking...",
         "table": {
             "id": "Agent ID",
+            "group": "Group",
             "status": "Status",
             "actions": "Actions"
         },
+        "statusOnline": "Online",
+        "statusOffline": "Offline",
         "kickConfirm": {
             "title": "Kick Agent",
             "message": "Are you sure you want to kick agent \"{{name}}\"? This will disconnect them from the network.",
@@ -115,6 +118,7 @@
         "delete": "Delete",
         "set": "Set",
         "none": "None",
+        "searchPlaceholder": "Search groups...",
         "table": {
             "group": "Group",
             "description": "Description",
@@ -130,14 +134,23 @@
             "nameCannotChange": "Group name cannot be changed after creation",
             "description": "Description",
             "descriptionPlaceholder": "e.g., Admin group with content moderation permissions",
-            "password": "Password (optional)",
+            "password": "Password",
+            "passwordRequiredHint": "Password is required for this role",
             "clearPassword": "Clear existing password",
             "permissions": "Permissions (comma-separated)",
             "permissionsPlaceholder": "e.g., moderate_content, ban_users, view_reports",
             "cancel": "Cancel",
             "create": "Create Group",
             "update": "Update Group",
-            "save": "Save Changes"
+            "save": "Save Changes",
+            "errors": {
+                "nameRequired": "Group name is required",
+                "nameInvalid": "Group name must contain only alphanumeric characters and underscores",
+                "nameTooLong": "Group name must be 64 characters or less",
+                "descriptionTooLong": "Description must be 512 characters or less",
+                "passwordRequired": "Password is required for all roles except guests",
+                "passwordMinLength": "Password must be at least 4 characters"
+            }
         },
         "messages": {
             "createSuccess": "Group created successfully",

@@ -356,32 +356,54 @@ def is_mod_available(mod_name: str) -> bool:
     return validation["has_network_mod"] and validation["network_mod_valid"]
 
 
-def load_mod_adapters(mod_names: List[str]) -> List[BaseModAdapter]:
-    """Load multiple mod adapters (compatibility function).
+def load_mod_adapters(mod_configs: List) -> List[BaseModAdapter]:
+    """Load multiple mod adapters.
 
     Args:
-        mod_names: List of mod names to load adapters for
+        mod_configs: List of mod names (strings) or mod config dicts with 'name' and optional 'config' keys
 
     Returns:
         List of instantiated adapter instances
     """
     adapters = []
 
-    for mod_name in mod_names:
+    for item in mod_configs:
+        # Support both string names and config dicts
+        if isinstance(item, str):
+            mod_name = item
+            mod_config = {}
+        elif isinstance(item, dict):
+            mod_name = item.get("name")
+            mod_config = item.get("config", {})
+            if not mod_name:
+                logger.warning(f"Mod config missing 'name' field: {item}")
+                continue
+        else:
+            logger.warning(f"Invalid mod config type: {type(item)}")
+            continue
+
         adapter_class = load_mod_adapter(mod_name)
         if adapter_class:
             # Instantiate the adapter - try different constructor patterns
             try:
-                # First try no arguments (like ThreadMessagingAgentAdapter)
-                adapter_instance = adapter_class()
+                # First try with mod_config (new pattern for configurable adapters)
+                adapter_instance = adapter_class(mod_config=mod_config)
                 adapters.append(adapter_instance)
-                logger.info(f"Instantiated adapter for {mod_name} (no args)")
+                logger.info(f"Instantiated adapter for {mod_name} (with config)")
             except TypeError:
                 try:
-                    # Try with mod_name argument (like BaseModAdapter expects)
-                    adapter_instance = adapter_class(mod_name)
+                    # Try no arguments (like ThreadMessagingAgentAdapter)
+                    adapter_instance = adapter_class()
                     adapters.append(adapter_instance)
-                    logger.info(f"Instantiated adapter for {mod_name} (with mod_name)")
+                    logger.info(f"Instantiated adapter for {mod_name} (no args)")
+                except TypeError:
+                    try:
+                        # Try with mod_name argument (like BaseModAdapter expects)
+                        adapter_instance = adapter_class(mod_name)
+                        adapters.append(adapter_instance)
+                        logger.info(f"Instantiated adapter for {mod_name} (with mod_name)")
+                    except Exception as e:
+                        logger.error(f"Failed to instantiate adapter for {mod_name}: {e}")
                 except Exception as e:
                     logger.error(f"Failed to instantiate adapter for {mod_name}: {e}")
             except Exception as e:

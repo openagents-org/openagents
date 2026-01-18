@@ -16,4 +16,5 @@ export enum PLUGIN_NAME_ENUM {
   LLM_LOGS = "llm_logs",
   SERVICE_AGENTS = "service-agents",
   ADMIN = "admin",
+  USER_DASHBOARD = "user_dashboard",
 }

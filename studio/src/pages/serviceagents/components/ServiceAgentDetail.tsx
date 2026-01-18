@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
-import Editor from "@monaco-editor/react";
+import LazyMonacoEditor from "@/components/editors/LazyMonacoEditor";
 import {
   Select,
   SelectContent,
@@ -10,6 +10,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/layout/ui/select';
+import { Label } from "@/components/layout/ui/label";
+import { Input, InputGroup, InputAddon } from "@/components/layout/ui/input";
+import { Key, Tag } from "lucide-react";
 import {
   getAgentStatus,
   getAgentLogs,
@@ -993,7 +996,7 @@ const ServiceAgentDetail: React.FC = () => {
                     </div>
                   </div>
                 ) : (
-                  <Editor
+                  <LazyMonacoEditor
                     height="100%"
                     language={sourceInfo?.file_type === "yaml" ? "yaml" : "python"}
                     theme={document.documentElement.classList.contains("dark") ? "vs-dark" : "light"}
@@ -1096,29 +1099,41 @@ const ServiceAgentDetail: React.FC = () => {
                         {t('detail.env.addNew')}
                       </h3>
                       <div className="flex items-end space-x-3">
-                        <div className="flex-1">
-                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        <div className="flex-1 space-y-2">
+                          <Label htmlFor="newEnvKey" className="text-xs">
                             {t('detail.env.name')}
-                          </label>
-                          <input
-                            type="text"
-                            value={newEnvKey}
-                            onChange={(e) => setNewEnvKey(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "_"))}
-                            placeholder="OPENAI_API_KEY"
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
-                          />
+                          </Label>
+                          <InputGroup>
+                            <InputAddon mode="icon">
+                              <Tag size={16} />
+                            </InputAddon>
+                            <Input
+                              id="newEnvKey"
+                              type="text"
+                              value={newEnvKey}
+                              onChange={(e) => setNewEnvKey(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "_"))}
+                              placeholder="OPENAI_API_KEY"
+                              className="font-mono"
+                            />
+                          </InputGroup>
                         </div>
-                        <div className="flex-1">
-                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        <div className="flex-1 space-y-2">
+                          <Label htmlFor="newEnvValue" className="text-xs">
                             {t('detail.env.value')}
-                          </label>
-                          <input
-                            type="password"
-                            value={newEnvValue}
-                            onChange={(e) => setNewEnvValue(e.target.value)}
-                            placeholder="sk-..."
-                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
-                          />
+                          </Label>
+                          <InputGroup>
+                            <InputAddon mode="icon">
+                              <Key size={16} />
+                            </InputAddon>
+                            <Input
+                              id="newEnvValue"
+                              type="password"
+                              value={newEnvValue}
+                              onChange={(e) => setNewEnvValue(e.target.value)}
+                              placeholder="sk-..."
+                              className="font-mono"
+                            />
+                          </InputGroup>
                         </div>
                         <button
                           onClick={handleAddEnvVar}
@@ -1150,12 +1165,17 @@ const ServiceAgentDetail: React.FC = () => {
                                 </span>
                               </div>
                               <div className="flex-1">
-                                <input
-                                  type="password"
-                                  value={value}
-                                  onChange={(e) => handleUpdateEnvVar(key, e.target.value)}
-                                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-sm font-mono focus:ring-blue-500 focus:border-blue-500"
-                                />
+                                <InputGroup>
+                                  <InputAddon mode="icon">
+                                    <Key size={16} />
+                                  </InputAddon>
+                                  <Input
+                                    type="password"
+                                    value={value}
+                                    onChange={(e) => handleUpdateEnvVar(key, e.target.value)}
+                                    className="font-mono"
+                                  />
+                                </InputGroup>
                               </div>
                               <button
                                 onClick={() => handleDeleteEnvVar(key)}

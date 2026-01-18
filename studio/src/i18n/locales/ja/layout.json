@@ -38,6 +38,7 @@
         "llmLogs": "LLMログ",
         "connectionGuide": "エージェント接続",
         "admin": "管理",
+        "userDashboard": "ユーザーダッシュボード",
         "switchToAdmin": {
             "title": "管理コンソールに入る",
             "confirm": "管理コンソールに入りますか？",

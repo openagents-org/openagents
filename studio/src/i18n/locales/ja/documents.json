@@ -58,6 +58,8 @@
         "noCollaborators": "まだ共同編集者がいません",
         "readOnlyPlaceholder": "このドキュメントは読み取り専用です",
         "startTypingPlaceholder": "ドキュメントの入力を開始...",
+        "toggleComments": "コメントの切り替え",
+        "lineLocked": "行が {{user}} によってロックされています",
         "debugInfo": {
             "content": "内容",
             "chars": "文字",

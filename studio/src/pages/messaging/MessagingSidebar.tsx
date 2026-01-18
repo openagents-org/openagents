@@ -31,7 +31,7 @@ const ChannelItem: React.FC<{
       className={`w-full text-left text-sm truncate px-2 py-2 font-medium rounded transition-colors
         ${isActive
           ? "bg-[#F4F4F5] text-gray-900 dark:bg-[#F4F4F5] dark:text-gray-900 pl-2"
-          : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 pl-2.5"
+          : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-zinc-900 pl-2.5"
         }
       `}
       title={channel.description || channel.name}
@@ -65,7 +65,7 @@ const AgentItem: React.FC<{
       className={`w-full text-left text-sm truncate px-2 py-2 font-medium rounded transition-colors
         ${isActive
           ? "bg-[#F4F4F5] text-gray-900 dark:bg-[#F4F4F5] dark:text-gray-900 pl-2"
-          : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 pl-2.5"
+          : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-zinc-900 pl-2.5"
         }
       `}
       title={agent.metadata?.display_name || agent.agent_id}

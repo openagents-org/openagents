@@ -16,6 +16,12 @@ from .network_role import NetworkRole
 
 from .llm_log import LLMLogEntry, LLMLogStats
 
+# Native models (supersets of A2A protocol models)
+from .skill import Skill
+from .artifact import Artifact, ArtifactType
+from .task import Task, TaskState, TaskPriority
+from .profile import AgentProfile
+
 __all__ = [
     # Transport models
     "TransportType",
@@ -35,4 +41,12 @@ __all__ = [
     # LLM log models
     "LLMLogEntry",
     "LLMLogStats",
+    # Native models (supersets of A2A)
+    "Skill",
+    "Artifact",
+    "ArtifactType",
+    "Task",
+    "TaskState",
+    "TaskPriority",
+    "AgentProfile",
 ]

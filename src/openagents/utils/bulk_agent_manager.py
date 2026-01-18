@@ -406,8 +406,13 @@ class BulkAgentManager:
                 if connection_settings.get("network_id"):
                     env["OPENAGENTS_NETWORK_ID"] = connection_settings["network_id"]
             
-            # Set working directory to the agent file's directory
-            cwd = agent_instance.info.config_path.parent
+            # Set working directory: if agent is in an 'agents' subdirectory, use parent
+            # (network root) so that sibling directories like 'tools/' are accessible
+            config_parent = agent_instance.info.config_path.parent
+            if config_parent.name == "agents":
+                cwd = config_parent.parent  # Use network root directory
+            else:
+                cwd = config_parent
             
             # Start subprocess
             logger.info(f"Starting {agent_instance.info.file_type} agent '{agent_id}' with command: {' '.join(cmd)}")

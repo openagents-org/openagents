@@ -1,23 +1,19 @@
 /* Metronic Components  */
-@import './layout.css';
-@import './components/image-input.css';
-@import './components/apexcharts.css';
-@import './components/leaflet.css';
-@import './components/rating.css';
-@import './components/image-input.css';
-@import './components/scrollable.css';
+/* Note: The following imports are commented out as the files don't exist */
+/* @import './layout.css'; */
+/* @import './components/image-input.css'; */
+/* @import './components/apexcharts.css'; */
+/* @import './components/leaflet.css'; */
+/* @import './components/rating.css'; */
+/* @import './components/scrollable.css'; */
 
 /* Demos */
-@import './demos/demo1.css';
+/* @import './demos/demo1.css'; */
 
-/** Dark/Light Theme Variant **/
-@custom-variant dark (&:is(.dark *));
-@custom-variant light (&:not(.dark *));
-
-/** Custom Font Size **/
-@theme {
+/** Custom Font Size - Tailwind v3 compatible **/
+:root {
   --text-2sm: 0.8125rem;
-  --text-2sm--line-height: calc(1.075 / 0.8125);
+  --text-2sm-line-height: calc(1.075 / 0.8125);
   --text-2xs: 0.6875rem;
-  --text-2xs--line-height: calc(0.825 / 0.6875);
+  --text-2xs-line-height: calc(0.825 / 0.6875);
 }

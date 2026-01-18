@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import yaml
+from dotenv import dotenv_values
 
 logger = logging.getLogger(__name__)
 
@@ -689,14 +690,14 @@ class AgentManager:
         return self.env_vars_dir / f"{agent_id}.json"
 
     def _get_global_env_vars_file(self) -> Path:
-        """Get the path to the global environment variables file."""
-        return self.env_vars_dir / "_global.json"
+        """Get the path to the global environment variables file (.env in workspace root)."""
+        return self.workspace_path / ".env"
 
     def get_global_env_vars(self) -> Dict[str, str]:
         """Get global environment variables shared by all agents.
 
         Returns:
-            dict: Global environment variables
+            dict: Global environment variables loaded from .env file
         """
         env_file = self._get_global_env_vars_file()
 
@@ -704,12 +705,13 @@ class AgentManager:
             return {}
 
         try:
-            with open(env_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data.get("env_vars", {})
+            # Use python-dotenv to parse .env file
+            env_vars = dotenv_values(env_file)
+            # Convert to Dict[str, str] (dotenv_values returns Dict[str, str | None])
+            return {k: v for k, v in env_vars.items() if v is not None}
 
         except Exception as e:
-            logger.error(f"Error reading global env vars: {e}")
+            logger.error(f"Error reading global env vars from .env: {e}")
             return {}
 
     def set_global_env_vars(self, env_vars: Dict[str, str]) -> Dict[str, Any]:
@@ -724,24 +726,27 @@ class AgentManager:
         env_file = self._get_global_env_vars_file()
 
         try:
-            # Load existing data or create new
-            data = {}
-            if env_file.exists():
-                try:
-                    with open(env_file, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                except:
-                    pass
+            # Build .env file content
+            lines = [
+                "# OpenAgents Global Environment Variables",
+                f"# Updated: {datetime.now().isoformat()}",
+                "",
+            ]
 
-            # Update env vars
-            data["env_vars"] = env_vars
-            data["updated_at"] = datetime.now().isoformat()
+            for key, value in env_vars.items():
+                # Quote values that contain spaces, quotes, or special characters
+                if any(c in value for c in [' ', '"', "'", '\n', '#', '=']):
+                    # Escape existing double quotes and wrap in double quotes
+                    escaped_value = value.replace('\\', '\\\\').replace('"', '\\"')
+                    lines.append(f'{key}="{escaped_value}"')
+                else:
+                    lines.append(f"{key}={value}")
 
-            # Write to file
+            # Write to .env file
             with open(env_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+                f.write("\n".join(lines) + "\n")
 
-            logger.info(f"Saved {len(env_vars)} global environment variables")
+            logger.info(f"Saved {len(env_vars)} global environment variables to .env")
 
             return {
                 "success": True,
@@ -749,7 +754,7 @@ class AgentManager:
             }
 
         except Exception as e:
-            logger.error(f"Error saving global env vars: {e}")
+            logger.error(f"Error saving global env vars to .env: {e}")
             return {"success": False, "message": f"Failed to save: {e}"}
 
     def get_agent_env_vars(self, agent_id: str) -> Optional[Dict[str, str]]:

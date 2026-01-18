@@ -39,9 +39,10 @@ async def shared_artifact_test_network():
     # Load config and use random port to avoid conflicts
     config = load_network_config(str(config_path))
 
-    # Update the gRPC transport port to avoid conflicts - Shared artifact test range: 46000-47999
-    grpc_port = random.randint(46000, 47999)
-    http_port = grpc_port + 2000  # HTTP port should be different
+    # Update the gRPC transport port to avoid conflicts - Shared artifact test range: 45000-45999
+    # Keep http_port within the same exclusive range to avoid overlaps with other test files
+    grpc_port = random.randint(45000, 45499)
+    http_port = grpc_port + 500  # HTTP port in range 45500-45999
 
     for transport in config.network.transports:
         if transport.type == "grpc":

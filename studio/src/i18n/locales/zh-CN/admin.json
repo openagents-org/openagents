@@ -6,8 +6,11 @@
     "refresh": "刷新",
     "refreshing": "刷新中...",
     "networkInfo": "网络",
+    "networkStatus": {
+      "title": "网络状态"
+    },
     "stats": {
-      "agents": "代理",
+      "agents": "智能体",
       "online": "在线",
       "channels": "通道",
       "active": "活跃",
@@ -26,10 +29,10 @@
       "transportsDesc": "管理传输协议",
       "importExport": "导入 / 导出",
       "importExportDesc": "备份或恢复配置",
-      "connectedAgents": "已连接代理",
-      "connectedAgentsDesc": "查看所有已连接的代理",
-      "agentGroups": "代理组",
-      "agentGroupsDesc": "管理代理组",
+      "connectedAgents": "已连接智能体",
+      "connectedAgentsDesc": "查看所有已连接的智能体",
+      "agentGroups": "智能体组",
+      "agentGroupsDesc": "管理智能体组",
       "connectionGuide": "连接指南",
       "connectionGuideDesc": "设置连接步骤",
       "modManagement": "模块管理",
@@ -41,27 +44,35 @@
       "restartNetwork": "重启网络",
       "restartNetworkDesc": "重启网络服务器",
       "broadcastMessage": "广播消息",
-      "broadcastMessageDesc": "向所有代理发送消息",
+      "broadcastMessageDesc": "向所有智能体发送消息",
       "updateAdminPassword": "修改 Admin 密码",
       "updateAdminPasswordDesc": "修改 admin 组密码",
       "startTour": "新手引导"
     },
     "menuGroups": {
-      "serviceAgentsDesc": "管理服务代理",
+      "serviceAgentsDesc": "管理服务智能体",
       "eventExplorerDesc": "搜索和浏览事件",
       "llmLogsDesc": "查看 LLM 请求日志"
     },
+    "defaultLLM": {
+      "title": "默认 LLM",
+      "configure": "配置",
+      "notConfigured": "未配置",
+      "apiKeySet": "API Key 已设置"
+    },
     "serviceAgents": {
-      "title": "服务代理",
+      "title": "服务智能体",
       "viewAll": "查看全部",
       "startAll": "全部启动",
       "stopAll": "全部停止",
-      "allRunning": "所有代理已在运行中",
-      "allStopped": "所有代理已停止",
-      "startAllSuccess": "成功启动 {{count}} 个代理",
-      "stopAllSuccess": "成功停止 {{count}} 个代理",
-      "startAllPartial": "已启动 {{success}} 个代理，{{failed}} 个失败",
-      "stopAllPartial": "已停止 {{success}} 个代理，{{failed}} 个失败"
+      "noAgents": "暂无服务智能体",
+      "allRunning": "所有智能体已在运行中",
+      "allStopped": "所有智能体已停止",
+      "startAllSuccess": "成功启动 {{count}} 个智能体",
+      "stopAllSuccess": "成功停止 {{count}} 个智能体",
+      "startAllPartial": "已启动 {{success}} 个智能体，{{failed}} 个失败",
+      "startAllModelConfigError": "已启动 {{success}} 个智能体，{{failed}} 个失败。请先配置默认模型。",
+      "stopAllPartial": "已停止 {{success}} 个智能体，{{failed}} 个失败"
     },
     "recentActivity": {
       "title": "最近活动",
@@ -69,7 +80,7 @@
     },
     "broadcast": {
       "title": "广播消息",
-      "subtitle": "向所有已连接的代理发送消息",
+      "subtitle": "向所有已连接的智能体发送消息",
       "placeholder": "请输入您的消息...",
       "cancel": "取消",
       "send": "发送广播",
@@ -80,7 +91,7 @@
     },
     "restart": {
       "title": "重启网络",
-      "confirm": "您确定要重启网络吗？这将断开所有代理的连接。",
+      "confirm": "您确定要重启网络吗？这将断开所有智能体的连接。",
       "restart": "重启",
       "cancel": "取消",
       "requested": "网络重启请求已发送。此功能需要后端支持。",
@@ -99,19 +110,19 @@
   "tour": {
     "step1": {
       "title": "Dashboard 概览",
-      "content": "这里显示网络的关键统计信息，包括在线代理数量、通道数量、运行时间和事件频率。点击卡片可以快速访问相关页面。"
+      "content": "这里显示网络的关键统计信息，包括在线智能体数量、通道数量、运行时间和事件频率。点击卡片可以快速访问相关页面。"
     },
     "step2": {
       "title": "快捷操作",
-      "content": "快速操作区域提供了常用功能的快速访问，包括网络配置、代理管理、模块管理等重要功能。"
+      "content": "快速操作区域提供了常用功能的快速访问，包括网络配置、智能体管理、模块管理等重要功能。"
     },
     "step3": {
-      "title": "代理组管理",
-      "content": "代理组管理功能允许您创建和管理不同的代理组，设置权限和密码保护。这是管理网络访问控制的重要工具。"
+      "title": "智能体组管理",
+      "content": "智能体组管理功能允许您创建和管理不同的智能体组，设置权限和密码保护。这是管理网络访问控制的重要工具。"
     },
     "step4": {
       "title": "发布网络",
-      "content": "将您的网络发布到 OpenAgents 目录，让其他代理可以发现您的网络。这允许外部代理连接并与您的网络服务进行交互。"
+      "content": "将您的网络发布到 OpenAgents 目录，让其他智能体可以发现您的网络。这允许外部智能体连接并与您的网络服务进行交互。"
     },
     "previous": "上一步",
     "next": "下一步",
@@ -122,7 +133,7 @@
     "sections": {
       "overview": "概览",
       "network": "网络",
-      "agents": "代理",
+      "agents": "智能体",
       "modules": "模块",
       "networkAsService": "网络即服务",
       "monitoring": "监控"
@@ -133,9 +144,9 @@
       "transports": "传输协议",
       "publishNetwork": "发布网络",
       "importExport": "导入 / 导出",
-      "connectedAgents": "已连接代理",
-      "agentGroups": "代理组",
-      "serviceAgents": "服务代理",
+      "connectedAgents": "已连接智能体",
+      "agentGroups": "智能体组",
+      "serviceAgents": "服务智能体",
       "defaultModels": "默认模型",
       "connectionGuide": "连接指南",
       "modManagement": "模块管理",
@@ -182,6 +193,7 @@
       "corsOrigins": "CORS 来源（逗号分隔）",
       "corsPlaceholder": "*, http://localhost:3000",
       "serveMcp": "提供 MCP 协议",
+      "serveA2a": "提供 A2A 协议",
       "serveStudio": "提供 Studio 前端",
       "maxMessageSize": "最大消息大小（字节）",
       "pingInterval": "Ping 间隔（毫秒）",
@@ -266,7 +278,7 @@
     },
     "publishedNetworks": {
       "title": "已发布的网络",
-      "agents": "个代理",
+      "agents": "个智能体",
       "noNetworks": "尚未发布任何网络。填写下面的表单发布您的第一个网络。"
     },
     "unpublish": {
@@ -296,7 +308,7 @@
       "successRelay": "网络可通过中继访问且配置有效！",
       "successPublic": "网络可公开访问且配置有效！",
       "detectedName": "检测到的名称：",
-      "onlineAgents": "在线代理：",
+      "onlineAgents": "在线智能体：",
       "enabledMods": "已启用的模块："
     },
     "errors": {
@@ -349,8 +361,10 @@
       "python": "Python SDK",
       "yaml": "YAML 配置",
       "langchain": "LangChain",
-      "mcp": "MCP 集成"
+      "mcp": "MCP 集成",
+      "a2a": "A2A 协议"
     },
+    "a2aDescription": "使用官方 a2a-sdk 连接外部符合 A2A 标准的智能体。支持智能体发现和跨网络通信。",
     "yamlDescription": "无需编写代码即可声明式启动智能体。使用: openagents agent start ./config.yaml",
     "mcpDescription": "配置 Claude Desktop 以将此网络作为 MCP 服务器连接。",
     "langchainDescription": "使用 LangChainAgentRunner 包装现有的 LangChain 智能体以连接到网络。",
@@ -459,7 +473,28 @@
     "response": "响应",
     "timestamp": "时间戳",
     "previous": "上一页",
-    "next": "下一页"
+    "next": "下一页",
+    "columns": {
+      "direction": "方向",
+      "eventName": "事件名称",
+      "source": "来源",
+      "destination": "目标",
+      "time": "时间",
+      "status": "状态",
+      "sent": "发送",
+      "received": "接收",
+      "success": "成功",
+      "failed": "失败",
+      "method": "方法",
+      "endpoint": "端点",
+      "statusCode": "状态码",
+      "host": "主机",
+      "duration": "耗时",
+      "actions": "操作"
+    },
+    "eventDetail": "事件详情",
+    "httpDetail": "HTTP 请求详情",
+    "close": "关闭"
   },
   "eventDebugger": {
     "title": "事件调试器",
@@ -491,7 +526,7 @@
   },
   "defaultModels": {
     "title": "默认模型",
-    "subtitle": "为此网络中的服务代理配置默认的 LLM 模型。",
+    "subtitle": "为此网络中的服务智能体配置默认的 LLM 模型。",
     "providerLabel": "提供商",
     "selectProvider": "选择提供商",
     "modelNameLabel": "模型名称",
@@ -499,7 +534,7 @@
     "modelNamePlaceholder": "输入模型名称",
     "apiKeyLabel": "API 密钥",
     "apiKeyPlaceholder": "输入您的 API 密钥",
-    "hint": "此配置将作为所有未单独配置模型的服务代理的默认设置。",
+    "hint": "此配置将作为所有未单独配置模型的服务智能体的默认设置。",
     "saveButton": "保存配置",
     "clearButton": "清除",
     "saving": "保存中...",
@@ -520,15 +555,15 @@
   },
   "readme": {
     "title": "网络 README",
-    "subtitle": "编辑网络的 README 文档。此内容将显示给通过 MCP 连接的代理。",
+    "subtitle": "编辑网络的 README 文档。此内容将显示给通过 MCP 连接的智能体。",
     "status": "当前状态",
     "configured": "README 已配置",
     "notConfigured": "未配置 README",
     "characters": "个字符",
     "label": "README 内容 (Markdown)",
     "placeholder": "# 我的网络\n\n在此描述您的网络...\n\n## 可用服务\n\n- 服务 1\n- 服务 2\n\n## 使用说明\n\n说明如何使用您的网络...",
-    "hint": "支持 Markdown 格式。此内容在外部代理通过 MCP 连接时用作说明。",
-    "info": "README 会在外部代理通过 MCP 连接时显示。它帮助他们了解您的网络提供什么以及如何与之交互。",
+    "hint": "支持 Markdown 格式。此内容在外部智能体通过 MCP 连接时用作说明。",
+    "info": "README 会在外部智能体通过 MCP 连接时显示。它帮助他们了解您的网络提供什么以及如何与之交互。",
     "saveButton": "保存",
     "clearButton": "清除",
     "resetButton": "重置",
@@ -538,7 +573,7 @@
   },
   "exportedTools": {
     "title": "导出的工具",
-    "subtitle": "管理通过 MCP 协议向外部代理公开的工具",
+    "subtitle": "管理通过 MCP 协议向外部智能体公开的工具",
     "refresh": "刷新",
     "fetchFailed": "获取工具失败",
     "mcpProtocol": "MCP 协议",
@@ -553,7 +588,7 @@
     "totalTools": "{{count}} 个工具",
     "excludedTools": "{{count}} 个已排除",
     "mcpNotEnabled": "MCP 协议未启用",
-    "mcpNotEnabledDesc": "请在传输协议配置中启用 MCP 协议以向外部代理公开工具。",
+    "mcpNotEnabledDesc": "请在传输协议配置中启用 MCP 协议以向外部智能体公开工具。",
     "noTools": "没有可用的工具",
     "noToolsDesc": "当前没有可导出的工具。",
     "noToolsFound": "未找到工具",
@@ -574,6 +609,6 @@
     "fromMod": "来自模块: {{mod}}",
     "fromWorkspace": "来自 workspace/tools 文件夹的自定义工具",
     "fromEvent": "来自 workspace/events 文件夹的事件工具",
-    "info": "禁用的工具将不会对通过 MCP 连接的外部代理可用。更改会立即生效。"
+    "info": "禁用的工具将不会对通过 MCP 连接的外部智能体可用。更改会立即生效。"
   }
 }

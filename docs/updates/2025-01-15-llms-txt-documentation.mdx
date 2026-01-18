@@ -1,0 +1,128 @@
+---
+title: "Enhanced LLM-Friendly Documentation with llms.txt"
+summary: "We've added comprehensive documentation in llms.txt format to help AI coding assistants understand and work with OpenAgents more effectively."
+topicTitle: "Updates"
+topicSlug: "updates"
+---
+
+# Enhanced LLM-Friendly Documentation with llms.txt
+
+We've added a new `llms.txt` file to the OpenAgents repository - a structured documentation format designed specifically for AI coding assistants like Claude Code, Cursor, and GitHub Copilot. This makes it easier for LLMs to understand and help you build with OpenAgents.
+
+## What is llms.txt?
+
+The `llms.txt` format is a convention for providing LLM-friendly documentation at the root of a repository. When AI assistants read this file, they gain immediate context about:
+
+- What the project does
+- How to install and configure it
+- Key APIs and patterns
+- Common usage examples
+
+## What's Included
+
+### Core Mechanisms
+
+The new documentation covers the fundamental building blocks of OpenAgents:
+
+**Event System** - OpenAgents uses an event-driven architecture where all communication happens through events:
+
+```python
+@on_event("channel.message.posted")
+async def handle_message(self, context: EventContext):
+    # React to channel messages
+    pass
+
+@on_event("project.notification.started")
+async def handle_project(self, context: EventContext):
+    # React when added to a project
+    pass
+```
+
+Common event types are now documented:
+- `channel.message.posted` - Message posted to a channel
+- `channel.message.replied` - Reply to a channel message
+- `agent.message` - Direct message between agents
+- `channel.message.mentioned` - Agent was @mentioned
+- `file.upload.completed` - File upload finished
+
+**Transports** - Documentation now covers all three transport protocols:
+
+| Transport | Port | Use Case |
+|-----------|------|----------|
+| HTTP | 8700 | Network discovery, REST API, web clients |
+| gRPC | 8600 | High-performance agent connections |
+| MCP | 8800 | Model Context Protocol for LLM tool integration |
+
+### Mod Usage Documentation
+
+We've added practical examples for using the Project and Feed mods:
+
+**Project Mod** - Template-based workflows with lifecycle management:
+
+```python
+# Start a project from template
+project = await ws.project().start(
+    template_id="research",
+    goal="Research: AI trends",
+    collaborators=["analyst-agent"]
+)
+
+# Store artifacts
+await ws.project().set_artifact(
+    project.project_id,
+    key="findings",
+    value={"summary": "Key insights..."}
+)
+```
+
+**Feed Mod** - One-way broadcasting for announcements:
+
+```python
+# Create an immutable post
+post = await ws.feed().create_post(
+    title="Weekly Update",
+    content="Here's what happened...",
+    tags=["news", "update"]
+)
+
+# Search posts
+results = await ws.feed().search("quarterly report")
+```
+
+## How AI Assistants Use This
+
+When you're working with an AI coding assistant in the OpenAgents codebase, the assistant can now:
+
+1. **Understand the architecture** - Event-driven communication, transport options, mod system
+2. **Write correct code** - Using accurate event types, proper API patterns
+3. **Suggest best practices** - Recommending gRPC for agents, proper event handlers
+4. **Help with configuration** - Network YAML, mod setup, transport configuration
+
+## Try It Out
+
+If you're using Claude Code or another AI assistant:
+
+1. Clone or open the OpenAgents repository
+2. Ask questions about building agents or configuring networks
+3. The assistant will reference `llms.txt` for accurate, up-to-date guidance
+
+Example prompts that now work better:
+- "How do I handle direct messages between agents?"
+- "What's the difference between HTTP and gRPC transports?"
+- "How do I use the project mod to coordinate agents?"
+- "Create an agent that broadcasts updates to a feed"
+
+## What's Next
+
+We'll continue expanding `llms.txt` with:
+- More mod documentation (wiki, documents, task delegation)
+- Advanced patterns (multi-agent coordination, tool exposure)
+- Deployment and production configuration
+
+The goal is to make OpenAgents the most AI-assistant-friendly agent framework available.
+
+## Related Resources
+
+- [llms.txt specification](https://llmstxt.org/)
+- [OpenAgents GitHub Repository](https://github.com/openagents-org/openagents)
+- [Full Documentation](https://openagents.org/docs/)

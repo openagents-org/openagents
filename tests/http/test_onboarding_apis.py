@@ -35,6 +35,8 @@ def hash_password(password: str) -> str:
 
 def create_minimal_network_config(workspace_dir: Path) -> Path:
     """Create a minimal network config for testing."""
+    from openagents import __version__
+
     config = {
         "network": {
             "name": "TestNetwork",
@@ -63,6 +65,7 @@ def create_minimal_network_config(workspace_dir: Path) -> Path:
             "agent_groups": {},
             "mods": [],
             "initialized": False,  # Fresh network needs onboarding
+            "created_by_version": __version__,  # Mark as new config (not legacy)
         },
         "log_level": "DEBUG",
         "data_dir": str(workspace_dir / "data"),
@@ -341,17 +344,15 @@ class TestModelConfigAPI:
                     data = await resp.json()
                     assert data["success"] is True
 
-                # Verify config was saved
-                config_dir = workspace_dir / "config" / "agent_env"
-                global_config_file = config_dir / "_global.json"
+                # Verify config was saved to .env file
+                env_file = workspace_dir / ".env"
 
-                assert global_config_file.exists(), f"Global config file not created at {global_config_file}"
+                assert env_file.exists(), f"Global env file not created at {env_file}"
 
-                with open(global_config_file, 'r') as f:
-                    saved_config = json.load(f)
+                # Read and parse .env file
+                from dotenv import dotenv_values
+                env_vars = dotenv_values(env_file)
 
-                # Config may be flat or nested under env_vars
-                env_vars = saved_config.get("env_vars", saved_config)
                 assert env_vars.get("DEFAULT_LLM_PROVIDER") == "openai"
                 assert env_vars.get("DEFAULT_LLM_MODEL_NAME") == "gpt-4o"
                 assert env_vars.get("DEFAULT_LLM_API_KEY") == "sk-test-key-12345"

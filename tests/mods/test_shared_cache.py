@@ -37,9 +37,10 @@ async def shared_cache_test_network():
     # Load config and use random port to avoid conflicts
     config = load_network_config(str(config_path))
 
-    # Update the gRPC transport port to avoid conflicts - Shared cache test range: 44000-45999
-    grpc_port = random.randint(44000, 45999)
-    http_port = grpc_port + 2000  # HTTP port should be different
+    # Update the gRPC transport port to avoid conflicts - Shared cache test range: 44000-44999
+    # Keep http_port within the same exclusive range to avoid overlaps with other test files
+    grpc_port = random.randint(44000, 44499)
+    http_port = grpc_port + 500  # HTTP port in range 44500-44999
 
     for transport in config.network.transports:
         if transport.type == "grpc":

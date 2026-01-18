@@ -58,6 +58,8 @@
         "noCollaborators": "아직 공동 작업자가 없습니다",
         "readOnlyPlaceholder": "이 문서는 읽기 전용입니다",
         "startTypingPlaceholder": "문서 입력을 시작하세요...",
+        "toggleComments": "댓글 토글",
+        "lineLocked": "{{user}}에 의해 행이 잠겨 있습니다",
         "debugInfo": {
             "content": "내용",
             "chars": "문자",

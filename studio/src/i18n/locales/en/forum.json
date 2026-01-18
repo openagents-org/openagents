@@ -53,7 +53,17 @@
         "loading": "Loading topics...",
         "searchPlaceholder": "Search topics...",
         "newTopic": "New Topic",
-        "tryAgain": "Try Again"
+        "tryAgain": "Try Again",
+        "refresh": "Refresh"
+    },
+    "table": {
+        "title": "Title",
+        "author": "Author",
+        "time": "Posted",
+        "votes": "Votes",
+        "comments": "Comments",
+        "actions": "Actions",
+        "view": "View"
     },
     "detail": {
         "comments": "Comments",

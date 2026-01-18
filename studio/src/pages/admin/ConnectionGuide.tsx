@@ -1,80 +1,84 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { useTranslation } from "react-i18next";
-import { useOpenAgents } from "@/context/OpenAgentsProvider";
-import { useAuthStore } from "@/stores/authStore";
-import { toast } from "sonner";
-import { Button } from "@/components/layout/ui/button";
-import { lookupNetworkPublication } from "@/services/networkService";
-import { Globe, Server, Copy } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react"
+import { useTranslation } from "react-i18next"
+import { useOpenAgents } from "@/context/OpenAgentsProvider"
+import { useAuthStore } from "@/stores/authStore"
+import { toast } from "sonner"
+import { Button } from "@/components/layout/ui/button"
+import { lookupNetworkPublication } from "@/services/networkService"
+import { Globe, Server, Copy } from "lucide-react"
 
 interface TransportInfo {
-  type: string;
-  enabled: boolean;
-  port: number;
-  host: string;
-  url?: string;
+  type: string
+  enabled: boolean
+  port: number
+  host: string
+  url?: string
 }
 
 interface ConnectionGuideData {
-  transports: TransportInfo[];
-  groups: string[];
-  requiresPassword: boolean;
-  defaultGroup: string;
-  recommendedTransport?: string;
+  transports: TransportInfo[]
+  groups: string[]
+  requiresPassword: boolean
+  defaultGroup: string
+  recommendedTransport?: string
 }
 
-type IntegrationType = "python" | "yaml" | "langchain" | "mcp";
-type ConnectionMode = "direct" | "network_id";
+type IntegrationType = "python" | "yaml" | "langchain" | "mcp" | "a2a"
+type ConnectionMode = "direct" | "network_id"
 
 const ConnectionGuide: React.FC = () => {
-  const { t } = useTranslation('admin');
-  const { connector } = useOpenAgents();
-  const { selectedNetwork } = useAuthStore();
+  const { t } = useTranslation("admin")
+  const { connector } = useOpenAgents()
+  const { selectedNetwork } = useAuthStore()
 
   const [data, setData] = useState<ConnectionGuideData>({
     transports: [],
     groups: [],
     requiresPassword: false,
     defaultGroup: "default",
-  });
-  const [loading, setLoading] = useState(true);
-  const [selectedTab, setSelectedTab] = useState<IntegrationType>("python");
-  const [connectionMode, setConnectionMode] = useState<ConnectionMode>("direct");
+  })
+  const [loading, setLoading] = useState(true)
+  const [selectedTab, setSelectedTab] = useState<IntegrationType>("python")
+  const [connectionMode, setConnectionMode] = useState<ConnectionMode>("direct")
   const [networkPublication, setNetworkPublication] = useState<{
-    published: boolean;
-    networkId?: string;
-    loading: boolean;
-  }>({ published: false, loading: true });
-  const [networkUuid, setNetworkUuid] = useState<string | null>(null);
+    published: boolean
+    networkId?: string
+    loading: boolean
+  }>({ published: false, loading: true })
+  const [networkUuid, setNetworkUuid] = useState<string | null>(null)
 
   // Load connection guide data
   const fetchGuideData = useCallback(async () => {
     if (!connector) {
-      setLoading(false);
-      return;
+      setLoading(false)
+      return
     }
 
     try {
-      setLoading(true);
-      const healthData = await connector.getNetworkHealth();
+      setLoading(true)
+      const healthData = await connector.getNetworkHealth()
 
       // Get transport information
-      const transportsData = healthData?.data?.transports || [];
+      const transportsData = healthData?.data?.transports || []
       const transportsList: TransportInfo[] = transportsData
         .filter((t: any) => t.enabled !== false)
         .map((t: any) => {
-          const host = t.host || selectedNetwork?.host || "0.0.0.0";
-          const port = t.port || t.config?.port || 8700;
-          const protocol = t.tls?.enabled ? "https" : "http";
-          let url = "";
+          const host = t.host || selectedNetwork?.host || "0.0.0.0"
+          const port = t.port || t.config?.port || 8700
+          const protocol = t.tls?.enabled ? "https" : "http"
+          let url = ""
 
           if (t.type === "http") {
-            url = `${protocol}://${host === "0.0.0.0" ? "localhost" : host}:${port}`;
+            url = `${protocol}://${
+              host === "0.0.0.0" ? "localhost" : host
+            }:${port}`
           } else if (t.type === "grpc") {
-            url = `${host === "0.0.0.0" ? "localhost" : host}:${port}`;
+            url = `${host === "0.0.0.0" ? "localhost" : host}:${port}`
           } else if (t.type === "websocket") {
-            const wsProtocol = t.tls?.enabled ? "wss" : "ws";
-            url = `${wsProtocol}://${host === "0.0.0.0" ? "localhost" : host}:${port}`;
+            const wsProtocol = t.tls?.enabled ? "wss" : "ws"
+            url = `${wsProtocol}://${
+              host === "0.0.0.0" ? "localhost" : host
+            }:${port}`
           }
 
           return {
@@ -83,8 +87,8 @@ const ConnectionGuide: React.FC = () => {
             port,
             host,
             url,
-          };
-        });
+          }
+        })
 
       // If no transport information, add default HTTP transport
       if (transportsList.length === 0 && selectedNetwork) {
@@ -93,8 +97,12 @@ const ConnectionGuide: React.FC = () => {
           enabled: true,
           port: selectedNetwork.port || 8700,
           host: selectedNetwork.host || "0.0.0.0",
-          url: `http://${selectedNetwork.host === "0.0.0.0" ? "localhost" : selectedNetwork.host}:${selectedNetwork.port || 8700}`,
-        });
+          url: `http://${
+            selectedNetwork.host === "0.0.0.0"
+              ? "localhost"
+              : selectedNetwork.host
+          }:${selectedNetwork.port || 8700}`,
+        })
       }
 
       // Get agent group information
@@ -102,17 +110,20 @@ const ConnectionGuide: React.FC = () => {
         ? Object.keys(healthData.data.groups)
         : healthData?.groups
         ? Object.keys(healthData.groups)
-        : [];
+        : []
 
       // Get password requirement and default group
-      const requiresPassword = healthData?.data?.requires_password || false;
-      const defaultGroup = healthData?.data?.default_agent_group || "default";
-      const recommendedTransport = healthData?.data?.recommended_transport || transportsList[0]?.type || "http";
+      const requiresPassword = healthData?.data?.requires_password || false
+      const defaultGroup = healthData?.data?.default_agent_group || "default"
+      const recommendedTransport =
+        healthData?.data?.recommended_transport ||
+        transportsList[0]?.type ||
+        "http"
 
       // Capture network_uuid for publishing status lookup
-      const uuid = healthData?.data?.network_uuid || healthData?.network_uuid;
+      const uuid = healthData?.data?.network_uuid || healthData?.network_uuid
       if (uuid) {
-        setNetworkUuid(uuid);
+        setNetworkUuid(uuid)
       }
 
       setData({
@@ -121,102 +132,109 @@ const ConnectionGuide: React.FC = () => {
         requiresPassword,
         defaultGroup,
         recommendedTransport,
-      });
+      })
     } catch (error) {
-      console.error("Failed to fetch connection guide data:", error);
-      toast.error(t('connectionGuide.loadFailed'));
+      console.error("Failed to fetch connection guide data:", error)
+      toast.error(t("connectionGuide.loadFailed"))
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  }, [connector, selectedNetwork, t]);
+  }, [connector, selectedNetwork, t])
 
   // Check network publication status
   useEffect(() => {
     const checkPublication = async () => {
       if (!networkUuid) {
-        setNetworkPublication({ published: false, loading: false });
-        return;
+        setNetworkPublication({ published: false, loading: false })
+        return
       }
 
-      setNetworkPublication(prev => ({ ...prev, loading: true }));
-      const result = await lookupNetworkPublication({ networkUuid });
+      setNetworkPublication((prev) => ({ ...prev, loading: true }))
+      const result = await lookupNetworkPublication({ networkUuid })
       setNetworkPublication({
         published: result.published,
         networkId: result.networkId,
         loading: false,
-      });
+      })
 
       // If published, default to network_id mode
       if (result.published) {
-        setConnectionMode("network_id");
+        setConnectionMode("network_id")
       }
-    };
+    }
 
-    checkPublication();
-  }, [networkUuid]);
+    checkPublication()
+  }, [networkUuid])
 
   useEffect(() => {
-    fetchGuideData();
-  }, [fetchGuideData]);
+    fetchGuideData()
+  }, [fetchGuideData])
 
   // Get currently selected transport
-  const currentTransport = data.transports[0];
+  const currentTransport = data.transports[0]
 
   // Copy to clipboard with fallback for HTTP
   const copyToClipboard = async (text: string, successMessage: string) => {
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(text);
+        await navigator.clipboard.writeText(text)
       } else {
         // Fallback for non-secure contexts (HTTP)
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-        textArea.style.position = 'fixed';
-        textArea.style.left = '-9999px';
-        document.body.appendChild(textArea);
-        textArea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textArea);
+        const textArea = document.createElement("textarea")
+        textArea.value = text
+        textArea.style.position = "fixed"
+        textArea.style.left = "-9999px"
+        document.body.appendChild(textArea)
+        textArea.select()
+        document.execCommand("copy")
+        document.body.removeChild(textArea)
       }
-      toast.success(successMessage);
+      toast.success(successMessage)
     } catch (err) {
-      toast.error(t('connectionGuide.copyFailed'));
+      toast.error(t("connectionGuide.copyFailed"))
     }
-  };
+  }
 
   // Copy code to clipboard
   const handleCopyCode = (code: string) => {
-    copyToClipboard(code, t('connectionGuide.copyCode'));
-  };
+    copyToClipboard(code, t("connectionGuide.copyCode"))
+  }
 
   // Get connection parameters based on mode
   const getConnectionParams = () => {
-    if (connectionMode === "network_id" && networkPublication.published && networkPublication.networkId) {
+    if (
+      connectionMode === "network_id" &&
+      networkPublication.published &&
+      networkPublication.networkId
+    ) {
       return {
         useNetworkId: true,
         networkId: networkPublication.networkId,
         host: "",
         port: 0,
-      };
+      }
     }
-    const host = currentTransport?.host === "0.0.0.0" ? "localhost" : (currentTransport?.host || selectedNetwork?.host || "localhost");
-    const port = currentTransport?.port || selectedNetwork?.port || 8700;
+    const host =
+      currentTransport?.host === "0.0.0.0"
+        ? "localhost"
+        : currentTransport?.host || selectedNetwork?.host || "localhost"
+    const port = currentTransport?.port || selectedNetwork?.port || 8700
     return {
       useNetworkId: false,
       networkId: "",
       host,
       port,
-    };
-  };
+    }
+  }
 
   // Generate Python code example
   const generatePythonCode = (): string => {
-    const params = getConnectionParams();
+    const params = getConnectionParams()
 
     const connectionCode = params.useNetworkId
       ? `            network_id="${params.networkId}",`
       : `            network_host="${params.host}",
-            network_port=${params.port},`;
+            network_port=${params.port},`
 
     return `import asyncio
 from openagents.agents.worker_agent import WorkerAgent
@@ -259,12 +277,12 @@ ${connectionCode}
         await agent.async_stop()
 
 if __name__ == "__main__":
-    asyncio.run(main())`;
-  };
+    asyncio.run(main())`
+  }
 
   // Generate YAML agent configuration
   const generateYAMLCode = (): string => {
-    const params = getConnectionParams();
+    const params = getConnectionParams()
 
     const connectionSection = params.useNetworkId
       ? `connection:
@@ -272,7 +290,7 @@ if __name__ == "__main__":
       : `connection:
   host: "${params.host}"
   port: ${params.port}
-  transport: "grpc"`;
+  transport: "grpc"`
 
     return `# my_agent.yaml - Agent configuration file
 type: "openagents.agents.collaborator_agent.CollaboratorAgent"
@@ -297,17 +315,17 @@ mods:
 
 ${connectionSection}
 
-# Launch with: openagents agent start ./my_agent.yaml`;
-  };
+# Launch with: openagents agent start ./my_agent.yaml`
+  }
 
   // Generate LangChain integration code
   const generateLangChainCode = (): string => {
-    const params = getConnectionParams();
+    const params = getConnectionParams()
 
     const connectionCode = params.useNetworkId
       ? `            network_id="${params.networkId}",`
       : `            network_host="${params.host}",
-            network_port=${params.port},`;
+            network_port=${params.port},`
 
     return `from langchain_openai import ChatOpenAI
 from langchain.agents import create_tool_calling_agent, AgentExecutor
@@ -363,97 +381,265 @@ ${connectionCode}
         runner.stop()
 
 if __name__ == "__main__":
-    main()`;
-  };
+    main()`
+  }
 
   // Generate MCP Client code (for Claude Desktop / MCP clients)
   const generateMCPCode = (): string => {
-    const params = getConnectionParams();
+    const params = getConnectionParams()
 
     // Determine the MCP URL and network name
-    let mcpUrl: string;
-    let networkName: string;
+    let mcpUrl: string
+    let networkName: string
 
     if (params.useNetworkId && params.networkId) {
-      mcpUrl = `https://network.openagents.org/${params.networkId}/mcp`;
-      networkName = params.networkId;
+      mcpUrl = `https://network.openagents.org/${params.networkId}/mcp`
+      networkName = params.networkId
     } else {
-      mcpUrl = `http://${params.host}:${params.port}/mcp`;
+      mcpUrl = `http://${params.host}:${params.port}/mcp`
       // Create a safe network name from host (replace dots and colons)
-      networkName = params.host.replace(/\./g, '_').replace(/:/g, '_');
+      networkName = params.host.replace(/\./g, "_").replace(/:/g, "_")
     }
 
     const config = {
       mcpServers: {
         [networkName]: {
           command: "npx",
-          args: [
-            "-y",
-            "@anthropic-ai/mcp-remote",
-            mcpUrl
-          ]
-        }
-      }
-    };
+          args: ["-y", "@anthropic-ai/mcp-remote", mcpUrl],
+        },
+      },
+    }
 
-    return JSON.stringify(config, null, 2);
-  };
+    return JSON.stringify(config, null, 2)
+  }
+
+  // Generate A2A SDK code example
+  const generateA2ACode = (): string => {
+    const params = getConnectionParams()
+
+    // Determine the A2A endpoint URL
+    let a2aUrl: string
+    if (params.useNetworkId && params.networkId) {
+      a2aUrl = `https://network.openagents.org/${params.networkId}/a2a`
+    } else {
+      a2aUrl = `http://${params.host}:${params.port}/a2a`
+    }
+
+    return `"""
+A2A Agent connecting to OpenAgents Network using the official a2a-sdk.
+
+This example shows how to create an A2A-compliant agent that can:
+1. Be discovered by the OpenAgents network
+2. Receive and respond to messages via JSON-RPC
+3. Manage task lifecycle
+
+Install: pip install a2a-sdk uvicorn httpx
+"""
+import uvicorn
+import httpx
+
+from a2a.server.apps import A2AStarletteApplication
+from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.tasks import InMemoryTaskStore
+from a2a.server.agent_execution import AgentExecutor, RequestContext
+from a2a.server.events import EventQueue
+from a2a.types import AgentCard, AgentSkill, AgentCapabilities
+from a2a.utils import new_agent_text_message
+
+
+class MyAgentExecutor(AgentExecutor):
+    """Custom agent executor that processes incoming messages."""
+
+    async def execute(
+        self,
+        context: RequestContext,
+        event_queue: EventQueue,
+    ) -> None:
+        # Extract text from the incoming message
+        user_message = ""
+        if context.message and context.message.parts:
+            for part in context.message.parts:
+                if hasattr(part, "text"):
+                    user_message = part.text
+                    break
+
+        # Generate response (replace with your actual logic)
+        response_text = f"Hello from A2A agent! You said: {user_message}"
+
+        # Send response back via event queue
+        await event_queue.enqueue_event(new_agent_text_message(response_text))
+
+    async def cancel(
+        self,
+        context: RequestContext,
+        event_queue: EventQueue,
+    ) -> None:
+        raise Exception("Cancel not supported")
+
+
+def create_agent_card(agent_url: str = "http://localhost:9000") -> AgentCard:
+    """Create the agent card describing this agent's capabilities."""
+    return AgentCard(
+        name="My A2A Agent",
+        description="An A2A-compliant agent for the OpenAgents network",
+        url=agent_url,
+        version="1.0.0",
+        default_input_modes=["text"],
+        default_output_modes=["text"],
+        capabilities=AgentCapabilities(streaming=False),
+        skills=[
+            AgentSkill(
+                id="chat",
+                name="Chat",
+                description="General conversation and Q&A",
+                tags=["chat", "assistant"],
+                examples=["Hello", "What can you do?"],
+            ),
+        ],
+    )
+
+
+async def announce_to_network(openagents_url: str, agent_url: str, agent_id: str) -> bool:
+    """Announce this agent to the OpenAgents network."""
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                openagents_url,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "agents/announce",
+                    "params": {"url": agent_url, "agent_id": agent_id},
+                    "id": "1",
+                },
+                timeout=10.0,
+            )
+            result = response.json()
+            return result.get("result", {}).get("success", False)
+        except Exception as e:
+            print(f"Failed to announce: {e}")
+            return False
+
+
+async def withdraw_from_network(openagents_url: str, agent_id: str) -> bool:
+    """Withdraw this agent from the OpenAgents network."""
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                openagents_url,
+                json={
+                    "jsonrpc": "2.0",
+                    "method": "agents/withdraw",
+                    "params": {"agent_id": agent_id},
+                    "id": "1",
+                },
+                timeout=10.0,
+            )
+            result = response.json()
+            return result.get("result", {}).get("success", False)
+        except Exception as e:
+            print(f"Failed to withdraw: {e}")
+            return False
+
+
+def main():
+    # Configuration
+    agent_id = "my-a2a-agent"
+    agent_host = "0.0.0.0"
+    agent_port = 9000
+    agent_url = f"http://localhost:{agent_port}"
+    openagents_url = "${a2aUrl}"
+
+    # Create agent card
+    agent_card = create_agent_card(agent_url)
+
+    # Create request handler with agent executor
+    request_handler = DefaultRequestHandler(
+        agent_executor=MyAgentExecutor(),
+        task_store=InMemoryTaskStore(),
+    )
+
+    # Create A2A server application
+    server = A2AStarletteApplication(
+        agent_card=agent_card,
+        http_handler=request_handler,
+    )
+
+    print(f"Starting A2A agent on http://{agent_host}:{agent_port}...")
+    print(f"OpenAgents network: {openagents_url}")
+    print("Press Ctrl+C to stop")
+
+    # Run the server with uvicorn
+    uvicorn.run(server.build(), host=agent_host, port=agent_port)
+
+
+if __name__ == "__main__":
+    main()`
+  }
 
   // Get current code example
   const getCurrentCode = (): string => {
     switch (selectedTab) {
       case "python":
-        return generatePythonCode();
+        return generatePythonCode()
       case "yaml":
-        return generateYAMLCode();
+        return generateYAMLCode()
       case "langchain":
-        return generateLangChainCode();
+        return generateLangChainCode()
       case "mcp":
-        return generateMCPCode();
+        return generateMCPCode()
+      case "a2a":
+        return generateA2ACode()
       default:
-        return generatePythonCode();
+        return generatePythonCode()
     }
-  };
+  }
 
   // Tab configuration
   const tabs: { id: IntegrationType; label: string; description: string }[] = [
     {
       id: "python",
-      label: t('connectionGuide.tabs.python'),
-      description: t('connectionGuide.subtitle'),
+      label: t("connectionGuide.tabs.python"),
+      description: t("connectionGuide.subtitle"),
     },
     {
       id: "yaml",
-      label: t('connectionGuide.tabs.yaml'),
-      description: t('connectionGuide.yamlDescription'),
+      label: t("connectionGuide.tabs.yaml"),
+      description: t("connectionGuide.yamlDescription"),
     },
     {
       id: "langchain",
-      label: t('connectionGuide.tabs.langchain'),
-      description: t('connectionGuide.langchainDescription'),
+      label: t("connectionGuide.tabs.langchain"),
+      description: t("connectionGuide.langchainDescription"),
     },
     {
       id: "mcp",
-      label: t('connectionGuide.tabs.mcp'),
-      description: t('connectionGuide.mcpDescription'),
+      label: t("connectionGuide.tabs.mcp"),
+      description: t("connectionGuide.mcpDescription"),
     },
-  ];
+    {
+      id: "a2a",
+      label: t("connectionGuide.tabs.a2a"),
+      description: t("connectionGuide.a2aDescription"),
+    },
+  ]
 
   if (loading) {
     return (
       <div className="p-6 h-full flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">{t('connectionGuide.loadFailed')}</p>
+          <p className="text-gray-600 dark:text-gray-400">
+            {t("connectionGuide.loadFailed")}
+          </p>
         </div>
       </div>
-    );
+    )
   }
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Tab Navigation - Fixed at top */}
-      <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+      <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-zinc-950">
         <div className="flex">
           {tabs.map((tab) => (
             <button
@@ -472,14 +658,14 @@ if __name__ == "__main__":
       </div>
 
       {/* Content Area - Scrollable */}
-      <div className="flex-1 overflow-y-auto p-6 dark:bg-gray-800">
+      <div className="flex-1 overflow-y-auto p-6 dark:bg-zinc-950">
         {/* Header */}
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
-            {t('connectionGuide.title')}
+            {t("connectionGuide.title")}
           </h1>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            {tabs.find(t => t.id === selectedTab)?.description}
+            {tabs.find((t) => t.id === selectedTab)?.description}
           </p>
         </div>
 
@@ -487,7 +673,7 @@ if __name__ == "__main__":
         {networkPublication.published && networkPublication.networkId && (
           <div className="mb-6">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 block">
-              {t('connectionGuide.connectionMethod')}
+              {t("connectionGuide.connectionMethod")}
             </label>
             <div className="flex gap-3">
               <button
@@ -498,34 +684,40 @@ if __name__ == "__main__":
                     : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600"
                 }`}
               >
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  connectionMode === "network_id"
-                    ? "bg-blue-100 dark:bg-blue-900/50"
-                    : "bg-gray-100 dark:bg-gray-700"
-                }`}>
-                  <Globe className={`w-5 h-5 ${
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center ${
                     connectionMode === "network_id"
-                      ? "text-blue-600 dark:text-blue-400"
-                      : "text-gray-500 dark:text-gray-400"
-                  }`} />
+                      ? "bg-blue-100 dark:bg-blue-900/50"
+                      : "bg-gray-100 dark:bg-zinc-800"
+                  }`}
+                >
+                  <Globe
+                    className={`w-5 h-5 ${
+                      connectionMode === "network_id"
+                        ? "text-blue-600 dark:text-blue-400"
+                        : "text-gray-500 dark:text-gray-400"
+                    }`}
+                  />
                 </div>
                 <div className="text-left">
-                  <div className={`font-medium ${
-                    connectionMode === "network_id"
-                      ? "text-blue-900 dark:text-blue-100"
-                      : "text-gray-900 dark:text-gray-100"
-                  }`}>
-                    {t('connectionGuide.networkId')}
+                  <div
+                    className={`font-medium ${
+                      connectionMode === "network_id"
+                        ? "text-blue-900 dark:text-blue-100"
+                        : "text-gray-900 dark:text-gray-100"
+                    }`}
+                  >
+                    {t("connectionGuide.networkId")}
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
-                    <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
+                    <code className="bg-gray-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded">
                       {networkPublication.networkId}
                     </code>
                   </div>
                 </div>
                 {connectionMode === "network_id" && (
                   <span className="ml-auto text-xs font-medium text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded">
-                    {t('connectionGuide.recommended')}
+                    {t("connectionGuide.recommended")}
                   </span>
                 )}
               </button>
@@ -538,27 +730,33 @@ if __name__ == "__main__":
                     : "border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600"
                 }`}
               >
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                  connectionMode === "direct"
-                    ? "bg-blue-100 dark:bg-blue-900/50"
-                    : "bg-gray-100 dark:bg-gray-700"
-                }`}>
-                  <Server className={`w-5 h-5 ${
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center ${
                     connectionMode === "direct"
-                      ? "text-blue-600 dark:text-blue-400"
-                      : "text-gray-500 dark:text-gray-400"
-                  }`} />
+                      ? "bg-blue-100 dark:bg-blue-900/50"
+                      : "bg-gray-100 dark:bg-zinc-800"
+                  }`}
+                >
+                  <Server
+                    className={`w-5 h-5 ${
+                      connectionMode === "direct"
+                        ? "text-blue-600 dark:text-blue-400"
+                        : "text-gray-500 dark:text-gray-400"
+                    }`}
+                  />
                 </div>
                 <div className="text-left">
-                  <div className={`font-medium ${
-                    connectionMode === "direct"
-                      ? "text-blue-900 dark:text-blue-100"
-                      : "text-gray-900 dark:text-gray-100"
-                  }`}>
-                    {t('connectionGuide.directConnection')}
+                  <div
+                    className={`font-medium ${
+                      connectionMode === "direct"
+                        ? "text-blue-900 dark:text-blue-100"
+                        : "text-gray-900 dark:text-gray-100"
+                    }`}
+                  >
+                    {t("connectionGuide.directConnection")}
                   </div>
                   <div className="text-xs text-gray-500 dark:text-gray-400">
-                    <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">
+                    <code className="bg-gray-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded">
                       {selectedNetwork?.host}:{selectedNetwork?.port}
                     </code>
                   </div>
@@ -572,11 +770,11 @@ if __name__ == "__main__":
         <div className="bg-gray-900 rounded-lg overflow-hidden">
           <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
             <span className="text-sm text-gray-400">
-              {selectedTab === "yaml" 
-                ? t('connectionGuide.codeLanguage.yaml')
-                : selectedTab === "mcp" 
-                ? t('connectionGuide.codeLanguage.json')
-                : t('connectionGuide.codeLanguage.python')}
+              {selectedTab === "yaml"
+                ? t("connectionGuide.codeLanguage.yaml")
+                : selectedTab === "mcp"
+                ? t("connectionGuide.codeLanguage.json")
+                : t("connectionGuide.codeLanguage.python")}
             </span>
             <Button
               onClick={() => handleCopyCode(getCurrentCode())}
@@ -585,7 +783,7 @@ if __name__ == "__main__":
               className="text-gray-400 hover:text-white hover:bg-gray-700"
             >
               <Copy className="w-4 h-4 mr-2" />
-              {t('connectionGuide.copy')}
+              {t("connectionGuide.copy")}
             </Button>
           </div>
           <div className="p-4 overflow-x-auto">
@@ -596,7 +794,7 @@ if __name__ == "__main__":
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default ConnectionGuide;
+export default ConnectionGuide

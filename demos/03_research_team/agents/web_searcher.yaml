@@ -5,7 +5,7 @@ type: "openagents.agents.collaborator_agent.CollaboratorAgent"
 agent_id: "web-searcher"
 
 config:
-  model_name: "gpt-4o-mini"
+  model_name: "auto"
 
   # CRITICAL: Limit tool calls to prevent duplicates
   max_iterations: 5

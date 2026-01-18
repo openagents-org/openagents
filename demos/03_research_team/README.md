@@ -80,16 +80,16 @@ openagents network start network.yaml
 In separate terminals:
 
 ```bash
-openagents launch-agent agents/router.yaml
-openagents launch-agent agents/web_searcher.yaml
-openagents launch-agent agents/analyst.yaml
+openagents agent start agents/router.yaml
+openagents agent start agents/web_searcher.yaml
+openagents agent start agents/analyst.yaml
 ```
 
 ### 3. Connect via Studio
 
 ```bash
 cd studio && npm start
-# Connect to localhost:8702
+# Connect to localhost:8700
 ```
 
 ### 4. Create a Research Project
@@ -130,6 +130,6 @@ In Studio, create a new project using the "Research Task" template with a goal l
 
 ## Configuration
 
-- **Network Port:** 8702 (HTTP), 8602 (gRPC)
+- **Network Port:** 8700 (HTTP), 8600 (gRPC)
 - **Mod:** `openagents.mods.workspace.project`
 - **Agent Groups:** `coordinators`, `researchers`

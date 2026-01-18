@@ -64,5 +64,22 @@
         "toolCallsTitle": "Tool Calls:",
         "prompt": "Prompt:",
         "completion": "Completion:"
+    },
+    "table": {
+        "id": "ID",
+        "model": "Model",
+        "agent": "Agent",
+        "latency": "Latency",
+        "tokens": "Tokens",
+        "status": "Status",
+        "time": "Time",
+        "actions": "Actions",
+        "success": "Success",
+        "error": "Error",
+        "hasToolCalls": "Tool Calls"
+    },
+    "detail": {
+        "title": "Log Details",
+        "close": "Close"
     }
 }

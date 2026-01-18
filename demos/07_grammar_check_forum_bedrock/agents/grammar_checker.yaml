@@ -6,9 +6,7 @@ type: "openagents.agents.collaborator_agent.CollaboratorAgent"
 agent_id: "grammar-checker"
 
 config:
-  model_name: "anthropic.claude-3-5-haiku-20241022-v1:0"
-  provider: "bedrock"
-  region: "us-east-1"
+  model_name: "auto"
 
   instruction: |
     You are the GRAMMAR CHECKER - a helpful writing assistant that reviews forum posts.

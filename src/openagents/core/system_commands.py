@@ -34,7 +34,6 @@ from openagents.config.globals import (
     SYSTEM_EVENT_UPDATE_NETWORK_PROFILE,
     SYSTEM_EVENT_UPDATE_AGENT_GROUPS,
     SYSTEM_EVENT_UPDATE_EXTERNAL_ACCESS,
-    SYSTEM_EVENT_REPORT_LLM_LOG,
     SYSTEM_NOTIFICATION_AGENT_KICKED,
 )
 from openagents.models.event import Event
@@ -85,7 +84,6 @@ class SystemCommandProcessor:
             SYSTEM_EVENT_UPDATE_NETWORK_PROFILE: self.handle_update_network_profile,
             SYSTEM_EVENT_UPDATE_AGENT_GROUPS: self.handle_update_agent_groups,
             SYSTEM_EVENT_UPDATE_EXTERNAL_ACCESS: self.handle_update_external_access,
-            SYSTEM_EVENT_REPORT_LLM_LOG: self.handle_report_llm_log,
         }
 
     async def process_command(self, system_event: Event) -> Optional[EventResponse]:
@@ -949,7 +947,10 @@ class SystemCommandProcessor:
             
             if unregister_response.success:
                 self.logger.info(f"Agent {target_agent_id} kicked by admin {requesting_agent_id}")
-                
+
+                # Mark agent as kicked to prevent immediate re-registration
+                self.network.topology.mark_agent_kicked(target_agent_id)
+
                 # Create and broadcast the agent_kicked notification event
                 kick_notification = Event(
                     event_name=SYSTEM_NOTIFICATION_AGENT_KICKED,
@@ -1884,92 +1885,5 @@ class SystemCommandProcessor:
                 data={
                     "type": "system_response",
                     "command": "update_agent_groups",
-                }
-            )
-
-    async def handle_report_llm_log(self, event: Event) -> EventResponse:
-        """Handle the report_llm_log command.
-
-        Receives LLM call logs from agents and stores them in the workspace.
-        This allows external agents to report their LLM usage to the network
-        for centralized logging and monitoring.
-
-        Expected payload:
-        - agent_id: ID of the agent reporting the log
-        - log_entry: Dict containing LLM log data (model, messages, completion, tokens, etc.)
-        """
-        requesting_agent_id = event.payload.get("agent_id", event.source_id)
-        log_entry = event.payload.get("log_entry")
-
-        if not requesting_agent_id:
-            return EventResponse(
-                success=False,
-                message="Missing agent_id",
-                data={
-                    "type": "system_response",
-                    "command": "report_llm_log",
-                }
-            )
-
-        if not log_entry:
-            return EventResponse(
-                success=False,
-                message="Missing log_entry in payload",
-                data={
-                    "type": "system_response",
-                    "command": "report_llm_log",
-                }
-            )
-
-        try:
-            # Get workspace path from network
-            workspace_path = None
-            if hasattr(self.network, "workspace_manager") and self.network.workspace_manager:
-                workspace_path = self.network.workspace_manager.workspace_path
-
-            if not workspace_path:
-                return EventResponse(
-                    success=False,
-                    message="Workspace not configured on network",
-                    data={
-                        "type": "system_response",
-                        "command": "report_llm_log",
-                    }
-                )
-
-            # Use LLMCallLogger to write the log
-            from openagents.lms.llm_logger import LLMCallLogger
-            from openagents.models.llm_log import LLMLogEntry
-            from pathlib import Path
-
-            logger_instance = LLMCallLogger(Path(workspace_path), requesting_agent_id)
-
-            # Convert dict to LLMLogEntry and write
-            entry = LLMLogEntry.from_dict(log_entry)
-            logger_instance._write_log_entry(entry)
-
-            self.logger.debug(f"Stored LLM log from agent {requesting_agent_id}: {entry.log_id}")
-
-            return EventResponse(
-                success=True,
-                message="LLM log stored successfully",
-                data={
-                    "type": "system_response",
-                    "command": "report_llm_log",
-                    "log_id": entry.log_id,
-                    "agent_id": requesting_agent_id,
-                }
-            )
-
-        except Exception as e:
-            self.logger.error(f"Error storing LLM log from {requesting_agent_id}: {e}")
-            import traceback
-            self.logger.error(f"Traceback: {traceback.format_exc()}")
-            return EventResponse(
-                success=False,
-                message=f"Failed to store LLM log: {str(e)}",
-                data={
-                    "type": "system_response",
-                    "command": "report_llm_log",
                 }
             )

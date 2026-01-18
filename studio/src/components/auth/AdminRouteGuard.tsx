@@ -33,7 +33,7 @@ const AdminRouteGuard: React.FC<AdminRouteGuardProps> = ({ children }) => {
     // Immediately redirect non-admin users to their default route
     console.log("🛡️ Non-admin user attempted to access admin route, redirecting to default route...");
     toast.error(t("noAdminPrivileges"));
-    return <Navigate to={defaultRoute || "/messaging"} replace />;
+    return <Navigate to={defaultRoute || "/user-dashboard"} replace />;
   }
 
   return <>{children}</>;

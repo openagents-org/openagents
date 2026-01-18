@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from .event import Event
+from .a2a import AgentCard
 from dataclasses import dataclass, field
 
 
@@ -20,6 +21,7 @@ class TransportType(str, Enum):
     WEBRTC = "webrtc"
     HTTP = "http"
     MCP = "mcp"
+    A2A = "a2a"
 
 
 class ConnectionState(Enum):
@@ -74,8 +76,21 @@ class ConnectionInfo(BaseModel):
     )
 
 
+class RemoteAgentStatus(str, Enum):
+    """Status of a remote A2A agent."""
+
+    ACTIVE = "active"          # Reachable, card is fresh
+    STALE = "stale"            # Failed health check, may be temporarily down
+    REFRESHING = "refreshing"  # Card refresh in progress
+
+
 class AgentConnection(BaseModel):
-    """Information about an agent in the network."""
+    """Information about an agent in the network.
+
+    All agents are treated uniformly regardless of transport type.
+    A2A-specific fields (agent_card, remote_status, etc.) are optional
+    and only populated for agents using the A2A transport.
+    """
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -94,6 +109,37 @@ class AgentConnection(BaseModel):
     )
     address: Optional[str] = Field(None, description="Network address of the agent")
     role: Optional[str] = Field(None, description="Role of the agent in the network")
+
+    # A2A transport-specific fields (optional, only for A2A agents)
+    agent_card: Optional[AgentCard] = Field(
+        None, description="Agent Card for A2A agents"
+    )
+    remote_status: Optional[RemoteAgentStatus] = Field(
+        None, description="Status of A2A agent (active, stale, refreshing)"
+    )
+    announced_at: Optional[float] = Field(
+        None, description="Timestamp when A2A agent was announced"
+    )
+    last_health_check: Optional[float] = Field(
+        None, description="Timestamp of last health check for A2A agents"
+    )
+    failure_count: int = Field(
+        default=0, description="Number of consecutive failures for A2A agent"
+    )
+
+    def is_a2a(self) -> bool:
+        """Check if this agent uses the A2A transport."""
+        return self.transport_type == TransportType.A2A
+
+    def is_healthy(self) -> bool:
+        """Check if agent is healthy.
+
+        For A2A agents, checks the remote_status.
+        For other transports, always returns True (health is managed by heartbeats).
+        """
+        if not self.is_a2a():
+            return True
+        return self.remote_status == RemoteAgentStatus.ACTIVE
 
 
 class TLSConfig(BaseModel):

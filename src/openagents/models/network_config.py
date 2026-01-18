@@ -164,8 +164,14 @@ class NetworkConfig(BaseModel):
 
     # Network initialization state
     initialized: bool = Field(
-        default=True,
+        default=False,
         description="Whether the network has been initialized. When False, initialization APIs are available.",
+    )
+
+    # Version tracking
+    created_by_version: Optional[str] = Field(
+        default=None,
+        description="OpenAgents version that created this network configuration.",
     )
 
     @field_validator("name")

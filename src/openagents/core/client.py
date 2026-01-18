@@ -50,12 +50,19 @@ class EventHandlerEntry(BaseModel):
     patterns: List[str] = Field(default_factory=list)
 
 
-class EventWaitingEntry(BaseModel):
-    model_config = {"arbitrary_types_allowed": True}
+class EventWaitingEntry:
+    """Entry for tracking event waiters. Using a plain class instead of Pydantic
+    to avoid dictionary copying issues with the result field."""
 
-    event: asyncio.Event
-    condition: Optional[Callable[[Event], bool]] = None
-    result: Dict[str, Any] = Field(default_factory=dict)
+    def __init__(
+        self,
+        event: asyncio.Event,
+        condition: Optional[Callable[[Event], bool]] = None,
+        result: Optional[Dict[str, Any]] = None
+    ):
+        self.event = event
+        self.condition = condition
+        self.result = result if result is not None else {}
 
 
 class AgentClient:
@@ -879,7 +886,13 @@ class AgentClient:
             condition = waiter.condition
 
             # Check if event matches condition
-            if condition is None or condition(event):
+            try:
+                matches = condition is None or condition(event)
+            except Exception as e:
+                logger.error(f"_notify_event_waiters: condition check failed: {e}")
+                matches = False
+
+            if matches:
                 waiter.result["event"] = event
                 waiters_to_notify.append(waiter)
                 # Remove from waiters list since it's been satisfied

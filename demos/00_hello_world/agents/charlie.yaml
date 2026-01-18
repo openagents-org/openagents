@@ -5,7 +5,7 @@ type: "openagents.agents.collaborator_agent.CollaboratorAgent"
 agent_id: "charlie"
 
 config:
-  model_name: "gpt-5-mini"
+  model_name: "auto"
 
   instruction: |
     You are Charlie, a friendly agent in an OpenAgents demo.

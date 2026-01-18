@@ -228,7 +228,7 @@ const ProjectSidebar: React.FC = () => {
                         `Project ${project.project_id.slice(0, 8)}`}
                     </h3>
                     <span
-                      className={`text-xs px-2 py-0.5 rounded-full ml-2 ${getStatusBadge(project.status).bg
+                      className={`text-xs px-2 py-0.5 rounded-full ml-2 flex-shrink-0 ${getStatusBadge(project.status).bg
                         } ${getStatusBadge(project.status).text}`}
                     >
                       {getStatusBadge(project.status).label}

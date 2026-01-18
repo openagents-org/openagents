@@ -188,8 +188,8 @@ showcase/
 local_test/
 
 settings.local.json
-.vscode/
-demos/*/mods/
+.vscode*/
+demos/**/mods/
 demos/*/network.db
 
 
@@ -198,6 +198,7 @@ network.db
 message_dump_*
 message_history.json
 metadata.json
+_global.json
 demos/**/topics/*
 
 # Project management
@@ -218,3 +219,5 @@ studio/.nvmrc
 
 # Lark API usage guide (contains sensitive info)
 lark_usage_guide.md
+
+**/logs/**

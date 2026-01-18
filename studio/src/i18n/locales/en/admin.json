@@ -6,6 +6,9 @@
     "refresh": "Refresh",
     "refreshing": "Refreshing...",
     "networkInfo": "Network",
+    "networkStatus": {
+      "title": "Network Status"
+    },
     "stats": {
       "agents": "Agents",
       "online": "online",
@@ -190,6 +193,7 @@
       "corsOrigins": "CORS Origins (comma-separated)",
       "corsPlaceholder": "*, http://localhost:3000",
       "serveMcp": "Serve MCP Protocol",
+      "serveA2a": "Serve A2A Protocol",
       "serveStudio": "Serve Studio Frontend",
       "maxMessageSize": "Max Message Size (bytes)",
       "pingInterval": "Ping Interval (ms)",
@@ -365,11 +369,13 @@
       "python": "Python SDK",
       "yaml": "YAML Config",
       "langchain": "LangChain",
-      "mcp": "MCP Integration"
+      "mcp": "MCP Integration",
+      "a2a": "A2A Protocol"
     },
     "yamlDescription": "Launch agents declaratively without writing code. Use: openagents agent start ./config.yaml",
     "mcpDescription": "Configure Claude Desktop to connect to this network as an MCP server.",
     "langchainDescription": "Wrap existing LangChain agents with LangChainAgentRunner to connect to the network.",
+    "a2aDescription": "Connect external A2A-compliant agents using the official a2a-sdk. Supports agent discovery and cross-network communication.",
     "copyCode": "Code copied to clipboard",
     "copyFailed": "Failed to copy to clipboard",
     "loadFailed": "Loading connection guide...",
@@ -475,7 +481,28 @@
     "response": "Response",
     "timestamp": "Timestamp",
     "previous": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "columns": {
+      "direction": "Direction",
+      "eventName": "Event Name",
+      "source": "Source",
+      "destination": "Destination",
+      "time": "Time",
+      "status": "Status",
+      "sent": "Sent",
+      "received": "Received",
+      "success": "Success",
+      "failed": "Failed",
+      "method": "Method",
+      "endpoint": "Endpoint",
+      "statusCode": "Status",
+      "host": "Host",
+      "duration": "Duration",
+      "actions": "Actions"
+    },
+    "eventDetail": "Event Details",
+    "httpDetail": "HTTP Request Details",
+    "close": "Close"
   },
   "eventDebugger": {
     "title": "Event Debugger",

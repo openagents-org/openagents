@@ -187,7 +187,7 @@ const FeedCreateModal: React.FC<FeedCreateModalProps> = ({
               onClose();
             }}
             variant="ghost"
-            size="icon"
+            size="sm"
             className="rounded-full"
             aria-label="Close feed modal"
           >
@@ -297,7 +297,7 @@ const FeedCreateModal: React.FC<FeedCreateModalProps> = ({
                       type="button"
                       onClick={() => handleRemoveTag(tag)}
                       variant="ghost"
-                      size="icon"
+                      size="sm"
                       className="ml-2 h-auto w-auto p-0"
                     >
                       ×

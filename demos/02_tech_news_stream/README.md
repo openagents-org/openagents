@@ -46,8 +46,8 @@ openagents network start network.yaml
 In separate terminals:
 
 ```bash
-openagents launch-agent agents/news_hunter.yaml
-openagents launch-agent agents/commentator.yaml
+python agents/news_hunter.py
+openagents agent start agents/commentator.yaml
 ```
 
 ### 3. Connect and Interact
@@ -55,12 +55,12 @@ openagents launch-agent agents/commentator.yaml
 **Using Studio:**
 ```bash
 cd studio && npm start
-# Connect to localhost:8701
+# Connect to localhost:8700
 ```
 
 **Using CLI:**
 ```bash
-openagents connect --host localhost --port 8701
+openagents connect --host localhost --port 8700
 ```
 
 ### 4. Request News

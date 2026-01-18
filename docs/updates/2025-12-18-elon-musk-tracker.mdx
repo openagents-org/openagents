@@ -66,6 +66,9 @@ The Studio web interface will automatically open in your browser at `http://loca
 
 You should see the OpenAgents Studio login page.
 
+<!-- TODO: Screenshot - Studio login page showing "Login as Admin" button -->
+![Studio Login Page](/images/tutorials/elon-tracker/login-page.png)
+
 ## Step 5: Login as Admin
 
 1. Click **"Login as Admin"** button at the bottom of the login page
@@ -74,7 +77,8 @@ You should see the OpenAgents Studio login page.
 
 You'll be redirected to the **Admin Dashboard**.
 
-![Admin Dashboard](/images/tutorials/admin-dashboard.png)
+<!-- TODO: Screenshot - Admin Dashboard overview showing network status -->
+![Admin Dashboard](/images/tutorials/elon-tracker/admin-dashboard.png)
 
 ## Step 6: Start the News Collector Agent
 
@@ -91,6 +95,9 @@ The agent will begin collecting news from:
 
 You'll see the agent status change to **"Running"**.
 
+<!-- TODO: Screenshot - Service Agents page with elon-fan-agent showing "Running" status -->
+![Service Agents Page](/images/tutorials/elon-tracker/service-agents.png)
+
 <Banner type="info">
 **What's happening:** The agent fetches news every 5 minutes and posts them to the network's feed. Each post is automatically tagged (tesla, spacex, x-twitter, etc.) based on content.
 </Banner>
@@ -106,7 +113,8 @@ Let's verify the agent is working by viewing the feed as a regular user.
 
 You'll now see the main user interface. Navigate to **"Info Feed"** in the sidebar to see the collected news posts.
 
-![Feed View](/images/tutorials/feed-view.png)
+<!-- TODO: Screenshot - Info Feed showing collected news posts with tags -->
+![Feed View](/images/tutorials/elon-tracker/feed-view.png)
 
 ## Step 8: Publish Your Network
 
@@ -134,6 +142,9 @@ Once published, you'll see:
 - **MCP URL:** `https://network.openagents.org/my-elon-tracker/mcp`
 
 Copy the **MCP URL** - you'll need it for Claude Desktop.
+
+<!-- TODO: Screenshot - Publish Network dialog showing Network ID and MCP URL -->
+![Publish Network](/images/tutorials/elon-tracker/publish-network.png)
 
 ## Step 9: Connect Claude Desktop
 
@@ -186,6 +197,9 @@ What did Elon do in the last 24 hours based on the feed?
 Claude will:
 1. Call the `get_recent_feed_posts` tool to fetch recent posts
 2. Summarize the news for you
+
+<!-- TODO: Screenshot - Claude Desktop showing query results with news summary -->
+![Claude Desktop Query](/images/tutorials/elon-tracker/claude-desktop-query.png)
 
 ### More Example Queries
 

@@ -1,0 +1,174 @@
+# A2A Protocol Integration
+
+**Date:** December 28, 2025
+**Version:** 0.8.0
+
+## Overview
+
+OpenAgents now supports the Agent2Agent (A2A) protocol, enabling seamless interoperability with AI agents built on different frameworks like LangGraph, CrewAI, Pydantic AI, and more.
+
+A2A is served via HTTP transport at `/a2a` (port 8700 by default), alongside MCP at `/mcp` and Studio at `/studio`.
+
+## Quick Start
+
+### Enable A2A in Your Network
+
+```yaml
+# network.yaml
+network:
+  transports:
+    - type: "http"
+      config:
+        port: 8700
+        serve_a2a: true     # A2A at /a2a
+        serve_mcp: true     # MCP at /mcp
+        serve_studio: true  # Studio at /studio
+```
+
+### Access A2A Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `http://localhost:8700/a2a` | JSON-RPC 2.0 endpoint |
+| `http://localhost:8700/a2a/.well-known/agent.json` | Agent Card discovery |
+
+## Configuration Options
+
+### HTTP Transport A2A Settings
+
+```yaml
+transports:
+  - type: "http"
+    config:
+      port: 8700
+      serve_a2a: true
+
+      # Agent Card configuration
+      a2a_agent:
+        name: "My Agent Network"
+        version: "1.0.0"
+        description: "OpenAgents A2A-enabled network"
+        provider:
+          organization: "My Company"
+          url: "https://mycompany.com"
+
+      # Optional authentication
+      a2a_auth:
+        type: "bearer"
+        token_env: "A2A_AUTH_TOKEN"  # Read from environment
+```
+
+### Standalone A2A Transport (Port 8900)
+
+For dedicated A2A deployment:
+
+```yaml
+transports:
+  - type: "a2a"
+    config:
+      port: 8900
+      host: "0.0.0.0"
+      agent:
+        name: "Standalone A2A Server"
+```
+
+## A2A Protocol Methods
+
+### Standard A2A Methods
+
+| Method | Description |
+|--------|-------------|
+| `message/send` | Send message, create/continue task |
+| `tasks/get` | Get task by ID |
+| `tasks/list` | List tasks with filtering |
+| `tasks/cancel` | Cancel a running task |
+
+### OpenAgents Extensions
+
+| Method | Description |
+|--------|-------------|
+| `agents/announce` | Remote agent joins network |
+| `agents/withdraw` | Remote agent leaves network |
+| `agents/list` | List all agents (local + remote) |
+| `events/send` | Send event through network |
+
+## Example: Sending a Message
+
+```bash
+curl -X POST http://localhost:8700/a2a \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "message/send",
+    "params": {
+      "message": {
+        "role": "user",
+        "parts": [{"type": "text", "text": "Hello, agent!"}]
+      }
+    },
+    "id": "1"
+  }'
+```
+
+## Example: Announcing a Remote Agent
+
+```bash
+curl -X POST http://localhost:8700/a2a \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "agents/announce",
+    "params": {
+      "url": "https://remote-agent.example.com",
+      "agent_id": "my-remote-agent"
+    },
+    "id": "1"
+  }'
+```
+
+## Cross-Protocol Communication
+
+A2A integrates with existing transports for seamless cross-protocol communication:
+
+```
+              ┌─────────────────────────────────────────┐
+              │          OpenAgents Network              │
+              │                                          │
+   ┌──────────┼──────────────────────────────────────┐  │
+   │          │      Unified Agent Registry          │  │
+   │          │                                      │  │
+   │  ┌───────┴───────┐  ┌──────────────────────┐   │  │
+   │  │  Local Agents │  │    Remote Agents     │   │  │
+   │  │   (gRPC/WS)   │  │      (A2A)           │   │  │
+   │  └───────────────┘  └──────────────────────┘   │  │
+   └─────────────────────────────────────────────────┘  │
+              │                                          │
+              │     ┌───────────────────────────┐       │
+              │     │   HTTP Transport :8700    │       │
+              │     │                           │       │
+              │     │  /a2a ─── A2A Protocol   │       │
+              │     │  /mcp ─── MCP Protocol   │       │
+              │     │  /studio ─ Web UI        │       │
+              │     └───────────────────────────┘       │
+              └─────────────────────────────────────────┘
+```
+
+## Agent Skills
+
+Skills are automatically collected from:
+
+1. **Local agents** - Skills declared in agent metadata
+2. **Remote A2A agents** - Skills from Agent Cards
+3. **Mods** - Tools exposed by loaded mods
+
+Access the Agent Card to see all available skills:
+
+```bash
+curl http://localhost:8700/a2a/.well-known/agent.json
+```
+
+## Related Documentation
+
+- [A2A Protocol Specification](https://a2a-protocol.org/latest/specification/)
+- [HTTP Transport Configuration](/docs/network-configuration/transports)
+- [Cross-Protocol Communication](/docs/concepts/transports)

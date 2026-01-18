@@ -148,10 +148,13 @@ class AgentRunner(ABC):
             try:
                 # Try to add common tool paths to sys.path
                 current_dir = os.getcwd()
+                parent_dir = os.path.dirname(current_dir)
                 possible_tool_paths = [
                     current_dir,
+                    parent_dir,  # Parent dir for when cwd is agents/ but tools/ is sibling
                     os.path.join(current_dir, "private_networks", "yaml_coordinator_test_network"),
                     os.path.join(current_dir, "tools"),
+                    os.path.join(parent_dir, "tools"),  # Tools as sibling to agents dir
                 ]
                 
                 for path in possible_tool_paths:

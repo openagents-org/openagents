@@ -3,6 +3,18 @@ import { useTranslation } from 'react-i18next';
 import MarkdownRenderer from '@/components/common/MarkdownRenderer';
 import { useForumStore } from '@/stores/forumStore';
 import { useHealthGroups } from '@/hooks/useHealthGroups';
+import { Label } from '@/components/layout/ui/label';
+import { Input, InputGroup, InputAddon } from '@/components/layout/ui/input';
+import { Button } from '@/components/layout/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogBody,
+  DialogFooter,
+} from '@/components/layout/ui/dialog';
+import { Type, FileText } from 'lucide-react';
 
 interface ForumCreateModalProps {
   isOpen: boolean;
@@ -80,57 +92,39 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-        {/* Background overlay */}
-        <div
-          className="fixed inset-0 transition-opacity bg-black bg-opacity-50"
-        />
+    <Dialog open={isOpen} onOpenChange={handleClose}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t('createModal.title')}</DialogTitle>
+        </DialogHeader>
 
-        {/* Modal */}
-        <div className="absolute inline-block w-full max-w-2xl left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 overflow-hidden text-left align-middle transition-all transform shadow-xl rounded-lg bg-white dark:bg-gray-800">
-          {/* Header */}
-          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                {t('createModal.title')}
-              </h3>
-              <button
-                onClick={handleClose}
-                className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className="px-6 py-4 space-y-4">
+        <DialogBody className="space-y-4">
             {/* Title input */}
-            <div>
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+            <div className="space-y-2">
+              <Label htmlFor="topicTitle">
                 {t('createModal.topicTitle')}
-              </label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={t('createModal.topicTitlePlaceholder')}
-                className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
-              />
+              </Label>
+              <InputGroup>
+                <InputAddon mode="icon">
+                  <Type size={16} />
+                </InputAddon>
+                <Input
+                  id="topicTitle"
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={t('createModal.topicTitlePlaceholder')}
+                />
+              </InputGroup>
             </div>
 
             {/* Content input */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="topicContent">
                   {t('createModal.content')}
-                </label>
+                </Label>
                 <button
                   type="button"
                   onClick={() => setShowPreview(!showPreview)}
@@ -167,11 +161,11 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
             </div>
 
             {/* Permission Groups (Optional) */}
-            <div>
-              <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+            <div className="space-y-2">
+              <Label>
                 {t('createModal.permissionGroups')}
-              </label>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+              </Label>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {t('createModal.permissionGroupsHint')}
               </p>
 
@@ -266,31 +260,26 @@ const ForumCreateModal: React.FC<ForumCreateModalProps> = ({
                 </div>
               )}
             </div>
-          </div>
+        </DialogBody>
 
-          {/* Footer buttons */}
-          <div className="px-6 py-4 border-t flex justify-end space-x-3 border-gray-200 dark:border-gray-700">
-            <button
-              onClick={handleClose}
-              disabled={isSubmitting}
-              className="px-4 py-2 text-sm font-medium rounded-md transition-colors bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
-            >
-              {t('createModal.cancel')}
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={!title.trim() || !content.trim() || isSubmitting}
-              className={`px-4 py-2 text-sm font-medium text-white rounded-md transition-colors ${!title.trim() || !content.trim() || isSubmitting
-                  ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700'
-                }`}
-            >
-              {isSubmitting ? t('createModal.creating') : t('createModal.create')}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button
+            onClick={handleClose}
+            disabled={isSubmitting}
+            variant="outline"
+          >
+            {t('createModal.cancel')}
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={!title.trim() || !content.trim() || isSubmitting}
+            variant="primary"
+          >
+            {isSubmitting ? t('createModal.creating') : t('createModal.create')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

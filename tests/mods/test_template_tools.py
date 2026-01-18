@@ -108,25 +108,25 @@ class TestMergeInputSchemas:
         assert "priority" in result["properties"]
         assert result["properties"]["goal"]["description"] == "Custom goal"
 
-    def test_goal_is_always_required(self):
-        """Test that goal is always added to required if missing."""
+    def test_task_is_always_required(self):
+        """Test that task is always added to required if missing."""
         custom = {
             "type": "object",
             "properties": {"priority": {"type": "string"}},
             "required": ["priority"]
         }
         result = merge_input_schemas({}, custom)
-        assert "goal" in result["required"]
+        assert "task" in result["required"]
 
-    def test_goal_not_duplicated(self):
-        """Test that goal is not duplicated if already in required."""
+    def test_task_not_duplicated(self):
+        """Test that task is not duplicated if already in required."""
         custom = {
             "type": "object",
-            "properties": {"goal": {"type": "string"}},
-            "required": ["goal"]
+            "properties": {"task": {"type": "string"}},
+            "required": ["task"]
         }
         result = merge_input_schemas({}, custom)
-        assert result["required"].count("goal") == 1
+        assert result["required"].count("task") == 1
 
     def test_type_defaults_to_object(self):
         """Test that type defaults to object if not specified."""
@@ -139,7 +139,7 @@ class TestMergeInputSchemas:
         custom = {"type": "object"}
         result = merge_input_schemas({}, custom)
         assert "properties" in result
-        assert "goal" in result["properties"]
+        assert "task" in result["properties"]
 
 
 class TestCreateTemplateTool:
@@ -194,7 +194,7 @@ class TestCreateTemplateTool:
         handler = AsyncMock()
         tool = create_template_tool(template, handler)
         assert "severity" in tool.input_schema["properties"]
-        assert "goal" in tool.input_schema["properties"]
+        assert "task" in tool.input_schema["properties"]
 
     @pytest.mark.asyncio
     async def test_tool_execution_calls_handler(self):
@@ -210,12 +210,12 @@ class TestCreateTemplateTool:
         handler = AsyncMock(return_value={"success": True})
         tool = create_template_tool(template, handler)
 
-        result = await tool.execute(goal="Test goal", name="My Project")
+        result = await tool.execute(task="Test task", name="My Project")
 
         handler.assert_called_once()
         call_args = handler.call_args
         assert call_args.kwargs["template_id"] == "test_proj"
-        assert call_args.kwargs["goal"] == "Test goal"
+        assert call_args.kwargs["goal"] == "Test task"
         assert call_args.kwargs["name"] == "My Project"
 
     @pytest.mark.asyncio
@@ -231,7 +231,7 @@ class TestCreateTemplateTool:
             input_schema={
                 "type": "object",
                 "properties": {
-                    "goal": {"type": "string"},
+                    "task": {"type": "string"},
                     "severity": {"type": "string"}
                 }
             }
@@ -239,7 +239,7 @@ class TestCreateTemplateTool:
         handler = AsyncMock(return_value={"success": True})
         tool = create_template_tool(template, handler)
 
-        await tool.execute(goal="Fix bug", severity="high")
+        await tool.execute(task="Fix bug", severity="high")
 
         call_args = handler.call_args
         assert call_args.kwargs["custom_params"] == {"severity": "high"}
@@ -258,7 +258,7 @@ class TestCreateTemplateTool:
         handler = AsyncMock(return_value={"success": True})
         tool = create_template_tool(template, handler)
 
-        await tool.execute(goal="Goal", project_name="Project Name")
+        await tool.execute(task="Task", project_name="Project Name")
 
         call_args = handler.call_args
         assert call_args.kwargs["name"] == "Project Name"

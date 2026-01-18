@@ -38,6 +38,7 @@
         "llmLogs": "LLM Logs",
         "connectionGuide": "Connect Agent",
         "admin": "Admin",
+        "userDashboard": "User Dashboard",
         "switchToAdmin": {
             "title": "Enter Admin Console",
             "confirm": "Are you sure you want to enter the admin console?",

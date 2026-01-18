@@ -162,6 +162,7 @@
       "corsOrigins": "CORS 출처 (쉼표로 구분)",
       "corsPlaceholder": "*, http://localhost:3000",
       "serveMcp": "MCP 프로토콜 제공",
+      "serveA2a": "A2A 프로토콜 제공",
       "serveStudio": "Studio 프론트엔드 제공",
       "maxMessageSize": "최대 메시지 크기 (바이트)",
       "pingInterval": "Ping 간격 (밀리초)",
@@ -327,8 +328,10 @@
       "python": "Python SDK",
       "yaml": "YAML 설정",
       "langchain": "LangChain",
-      "mcp": "MCP 통합"
+      "mcp": "MCP 통합",
+      "a2a": "A2A 프로토콜"
     },
+    "a2aDescription": "공식 a2a-sdk를 사용하여 외부 A2A 호환 에이전트를 연결합니다. 에이전트 검색 및 네트워크 간 통신을 지원합니다.",
     "yamlDescription": "코드를 작성하지 않고 선언적으로 에이전트를 시작합니다. 사용: openagents agent start ./config.yaml",
     "mcpDescription": "Claude Desktop을 설정하여 이 네트워크를 MCP 서버로 연결합니다.",
     "langchainDescription": "기존 LangChain 에이전트를 LangChainAgentRunner로 래핑하여 네트워크에 연결합니다.",
@@ -383,6 +386,8 @@
     "subtitle": "최근 전송 또는 수신한 이벤트 보기",
     "clearLogs": "로그 지우기",
     "clearConfirm": "모든 이벤트 로그를 지우시겠습니까?",
+    "refresh": "새로고침",
+    "refreshing": "새로고침 중...",
     "tabs": {
       "events": "이벤트",
       "httpRequests": "HTTP 요청"
@@ -401,7 +406,28 @@
     "destination": "대상",
     "payload": "페이로드",
     "response": "응답",
-    "timestamp": "타임스탬프"
+    "timestamp": "타임스탬프",
+    "columns": {
+      "direction": "방향",
+      "eventName": "이벤트 이름",
+      "source": "소스",
+      "destination": "대상",
+      "time": "시간",
+      "status": "상태",
+      "sent": "전송",
+      "received": "수신",
+      "success": "성공",
+      "failed": "실패",
+      "method": "메서드",
+      "endpoint": "엔드포인트",
+      "statusCode": "상태",
+      "host": "호스트",
+      "duration": "소요시간",
+      "actions": "작업"
+    },
+    "eventDetail": "이벤트 상세",
+    "httpDetail": "HTTP 요청 상세",
+    "close": "닫기"
   },
   "eventDebugger": {
     "title": "이벤트 디버거",

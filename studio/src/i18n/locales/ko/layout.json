@@ -38,6 +38,7 @@
         "llmLogs": "LLM 로그",
         "connectionGuide": "에이전트 연결",
         "admin": "관리",
+        "userDashboard": "사용자 대시보드",
         "switchToAdmin": {
             "title": "관리 콘솔로 이동",
             "confirm": "관리 콘솔로 이동하시겠습니까?",

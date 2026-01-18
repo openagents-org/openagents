@@ -1,11 +1,11 @@
-import React, { useState, useRef, useEffect } from "react";
-import { useTranslation } from "react-i18next";
-import { Button } from "@/components/layout/ui/button";
+import React, { useState, useRef, useEffect } from "react"
+import { useTranslation } from "react-i18next"
+import { Button } from "@/components/layout/ui/button"
 
 interface AgentInfo {
-  agent_id: string;
-  display_name?: string;
-  status?: string;
+  agent_id: string
+  display_name?: string
+  status?: string
 }
 
 interface MessageInputProps {
@@ -14,36 +14,36 @@ interface MessageInputProps {
     replyTo?: string,
     quotedMessageId?: string,
     attachmentData?: {
-      file_id: string;
-      filename: string;
-      size: number;
+      file_id: string
+      filename: string
+      size: number
     }
-  ) => void;
-  currentTheme: "light" | "dark";
-  placeholder?: string;
-  disabled?: boolean;
-  agents?: AgentInfo[];
+  ) => void
+  currentTheme: "light" | "dark"
+  placeholder?: string
+  disabled?: boolean
+  agents?: AgentInfo[]
   replyingTo?: {
-    messageId: string;
-    text: string;
-    author: string;
-  } | null;
+    messageId: string
+    text: string
+    author: string
+  } | null
   quotingMessage?: {
-    messageId: string;
-    text: string;
-    author: string;
-  } | null;
-  onCancelReply?: () => void;
-  currentChannel?: string;
-  currentDirectMessage?: string;
-  currentAgentId?: string;
-  currentAgentSecret?: string | null;
-  networkBaseUrl?: string;
-  onCancelQuote?: () => void;
+    messageId: string
+    text: string
+    author: string
+  } | null
+  onCancelReply?: () => void
+  currentChannel?: string
+  currentDirectMessage?: string
+  currentAgentId?: string
+  currentAgentSecret?: string | null
+  networkBaseUrl?: string
+  onCancelQuote?: () => void
   // Disable features for simple chat rooms (like project chat rooms)
-  disableEmoji?: boolean;
-  disableMentions?: boolean;
-  disableFileUpload?: boolean;
+  disableEmoji?: boolean
+  disableMentions?: boolean
+  disableFileUpload?: boolean
 }
 
 const styles = `
@@ -54,7 +54,7 @@ const styles = `
   }
   
   .thread-input-container.dark {
-    background: #1f2937;
+    background: var(--background);
     border-top: 1px solid #334155;
   }
   
@@ -187,7 +187,7 @@ const styles = `
   }
   
   .message-textarea.dark {
-    background: #1f2937;
+    background: var(--background);
     border-color: #4b5563;
     color: #f9fafb;
   }
@@ -530,9 +530,9 @@ const styles = `
     background: #374151;
     color: #f3f4f6;
   }
-`;
+`
 
-const MAX_MESSAGE_LENGTH = 2000;
+const MAX_MESSAGE_LENGTH = 2000
 
 const MessageInput: React.FC<MessageInputProps> = ({
   onSendMessage,
@@ -553,35 +553,35 @@ const MessageInput: React.FC<MessageInputProps> = ({
   disableMentions = false,
   disableFileUpload = false,
 }) => {
-  const { t } = useTranslation('messaging');
-  const [message, setMessage] = useState("");
+  const { t } = useTranslation("messaging")
+  const [message, setMessage] = useState("")
   const [pendingAttachment, setPendingAttachment] = useState<{
-    file_id: string;
-    filename: string;
-    size: number;
-  } | null>(null);
-  const [showMentions, setShowMentions] = useState(false);
-  const [mentionFilter, setMentionFilter] = useState("");
-  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+    file_id: string
+    filename: string
+    size: number
+  } | null>(null)
+  const [showMentions, setShowMentions] = useState(false)
+  const [mentionFilter, setMentionFilter] = useState("")
+  const [selectedMentionIndex, setSelectedMentionIndex] = useState(0)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Clear input content when switching between channels or direct messages
   useEffect(() => {
-    console.log('🧹 MessageInput: Channel/DM changed, clearing input content');
-    setMessage("");
-    setPendingAttachment(null);
-    setShowMentions(false);
-    setMentionFilter("");
-    setSelectedMentionIndex(0);
-    setShowEmojiPicker(false);
+    console.log("🧹 MessageInput: Channel/DM changed, clearing input content")
+    setMessage("")
+    setPendingAttachment(null)
+    setShowMentions(false)
+    setMentionFilter("")
+    setSelectedMentionIndex(0)
+    setShowEmojiPicker(false)
 
     // Reset textarea height
     if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = "auto"
     }
-  }, [currentChannel, currentDirectMessage]);
+  }, [currentChannel, currentDirectMessage])
 
   // Common emojis organized by category
   const emojiCategories = {
@@ -657,29 +657,29 @@ const MessageInput: React.FC<MessageInputProps> = ({
       "✅",
       "❌",
     ],
-  };
+  }
 
   const handleEmojiSelect = (emoji: string) => {
     if (textareaRef.current) {
-      const textarea = textareaRef.current;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const newMessage = message.slice(0, start) + emoji + message.slice(end);
-      setMessage(newMessage);
+      const textarea = textareaRef.current
+      const start = textarea.selectionStart
+      const end = textarea.selectionEnd
+      const newMessage = message.slice(0, start) + emoji + message.slice(end)
+      setMessage(newMessage)
 
       // Set cursor position after emoji
       setTimeout(() => {
         if (textareaRef.current) {
-          textareaRef.current.focus();
+          textareaRef.current.focus()
           textareaRef.current.setSelectionRange(
             start + emoji.length,
             start + emoji.length
-          );
+          )
         }
-      }, 0);
+      }, 0)
     }
-    setShowEmojiPicker(false);
-  };
+    setShowEmojiPicker(false)
+  }
 
   // Close emoji picker when clicking outside
   useEffect(() => {
@@ -691,170 +691,170 @@ const MessageInput: React.FC<MessageInputProps> = ({
           .closest(".thread-input-container")
           ?.contains(event.target as Node)
       ) {
-        setShowEmojiPicker(false);
+        setShowEmojiPicker(false)
       }
-    };
+    }
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showEmojiPicker]);
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [showEmojiPicker])
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+    e.preventDefault()
     if (message.trim() && !disabled) {
       onSendMessage(
         message.trim(),
         replyingTo?.messageId,
         quotingMessage?.messageId,
         pendingAttachment || undefined
-      );
-      setMessage("");
-      setPendingAttachment(null);
-      adjustTextareaHeight();
+      )
+      setMessage("")
+      setPendingAttachment(null)
+      adjustTextareaHeight()
     }
-  };
+  }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Handle mention navigation
     if (showMentions && filteredAgents.length > 0) {
       if (e.key === "ArrowDown") {
-        e.preventDefault();
+        e.preventDefault()
         setSelectedMentionIndex((prev) =>
           prev < filteredAgents.length - 1 ? prev + 1 : 0
-        );
-        return;
+        )
+        return
       } else if (e.key === "ArrowUp") {
-        e.preventDefault();
+        e.preventDefault()
         setSelectedMentionIndex((prev) =>
           prev > 0 ? prev - 1 : filteredAgents.length - 1
-        );
-        return;
+        )
+        return
       } else if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
+        e.preventDefault()
         if (filteredAgents[selectedMentionIndex]) {
-          insertMention(filteredAgents[selectedMentionIndex]);
+          insertMention(filteredAgents[selectedMentionIndex])
         }
-        return;
+        return
       } else if (e.key === "Escape") {
-        e.preventDefault();
-        setShowMentions(false);
-        setMentionFilter("");
-        return;
+        e.preventDefault()
+        setShowMentions(false)
+        setMentionFilter("")
+        return
       }
     }
 
     if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
+      e.preventDefault()
+      handleSubmit(e)
     } else if (e.key === "Escape") {
       if (quotingMessage && onCancelQuote) {
-        onCancelQuote();
+        onCancelQuote()
       } else if (replyingTo && onCancelReply) {
-        onCancelReply();
+        onCancelReply()
       }
     }
-  };
+  }
 
   const adjustTextareaHeight = () => {
-    const textarea = textareaRef.current;
+    const textarea = textareaRef.current
     if (textarea) {
-      textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+      textarea.style.height = "auto"
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`
     }
-  };
+  }
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newValue = e.target.value;
+    const newValue = e.target.value
     if (newValue.length <= MAX_MESSAGE_LENGTH) {
-      setMessage(newValue);
-      adjustTextareaHeight();
+      setMessage(newValue)
+      adjustTextareaHeight()
 
       // Check for mentions (only if mentions are enabled)
       if (!disableMentions) {
-        const lastWord = newValue.split(" ").pop() || "";
+        const lastWord = newValue.split(" ").pop() || ""
         if (lastWord.startsWith("@")) {
-          const filter = lastWord.substring(1); // Remove the @ symbol
-          setMentionFilter(filter);
-          setShowMentions(true);
-          setSelectedMentionIndex(0);
+          const filter = lastWord.substring(1) // Remove the @ symbol
+          setMentionFilter(filter)
+          setShowMentions(true)
+          setSelectedMentionIndex(0)
         } else {
-          setShowMentions(false);
-          setMentionFilter("");
+          setShowMentions(false)
+          setMentionFilter("")
         }
       } else {
         // If mentions are disabled, ensure they're not shown
-        setShowMentions(false);
-        setMentionFilter("");
+        setShowMentions(false)
+        setMentionFilter("")
       }
     }
-  };
+  }
 
   // Filter agents based on mention input
   const filteredAgents = agents.filter((agent) => {
-    if (!mentionFilter) return true;
-    const displayName = agent.display_name || agent.agent_id;
+    if (!mentionFilter) return true
+    const displayName = agent.display_name || agent.agent_id
     return (
       displayName.toLowerCase().includes(mentionFilter.toLowerCase()) ||
       agent.agent_id.toLowerCase().includes(mentionFilter.toLowerCase())
-    );
-  });
+    )
+  })
 
   const handleFileUpload = () => {
-    fileInputRef.current?.click();
-  };
+    fileInputRef.current?.click()
+  }
 
   const insertMention = (agent: AgentInfo) => {
-    const displayName = agent.display_name || agent.agent_id;
-    const words = message.split(" ");
-    words[words.length - 1] = `@${displayName} `;
-    const newMessage = words.join(" ");
-    setMessage(newMessage);
-    setShowMentions(false);
-    setMentionFilter("");
+    const displayName = agent.display_name || agent.agent_id
+    const words = message.split(" ")
+    words[words.length - 1] = `@${displayName} `
+    const newMessage = words.join(" ")
+    setMessage(newMessage)
+    setShowMentions(false)
+    setMentionFilter("")
 
     // Focus back on textarea
     setTimeout(() => {
-      textareaRef.current?.focus();
-    }, 0);
-  };
+      textareaRef.current?.focus()
+    }, 0)
+  }
 
   const handleMentionClick = (agent: AgentInfo) => {
-    insertMention(agent);
-  };
+    insertMention(agent)
+  }
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const file = e.target.files?.[0]
+    if (!file) return
 
     if (!currentAgentId) {
-      console.error("Missing agent ID for file upload");
-      return;
+      console.error("Missing agent ID for file upload")
+      return
     }
 
     try {
       // Upload file using HTTP API to shared cache
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("agent_id", currentAgentId);
+      const formData = new FormData()
+      formData.append("file", file)
+      formData.append("agent_id", currentAgentId)
       // Include secret for authentication
       if (currentAgentSecret) {
-        formData.append("secret", currentAgentSecret);
+        formData.append("secret", currentAgentSecret)
       }
       // Empty allowed_agent_groups means all agents can access
-      formData.append("allowed_agent_groups", "");
+      formData.append("allowed_agent_groups", "")
 
       // Build the upload URL - use network base URL if available, otherwise use relative path
       const uploadUrl = networkBaseUrl
         ? `${networkBaseUrl}/cache/upload`
-        : `/api/cache/upload`;
+        : `/api/cache/upload`
 
       const response = await fetch(uploadUrl, {
         method: "POST",
         body: formData,
-      });
+      })
 
       if (response.ok) {
-        const result = await response.json();
+        const result = await response.json()
         if (result.success) {
           // Store attachment data for later sending
           // Use cache_id as file_id for compatibility
@@ -862,36 +862,36 @@ const MessageInput: React.FC<MessageInputProps> = ({
             file_id: result.cache_id,
             filename: result.filename,
             size: result.file_size,
-          };
+          }
 
-          setPendingAttachment(attachmentData);
+          setPendingAttachment(attachmentData)
 
           // Show a visual indicator in the message input
           if (!message.trim()) {
-            setMessage(`📎 ${result.filename} - `);
+            setMessage(`📎 ${result.filename} - `)
           }
         } else {
-          console.error("File upload failed:", result.error || result);
+          console.error("File upload failed:", result.error || result)
         }
       } else {
-        console.error("HTTP error during file upload:", response.status);
+        console.error("HTTP error during file upload:", response.status)
       }
     } catch (error) {
-      console.error("Error uploading file:", error);
+      console.error("Error uploading file:", error)
     }
 
     // Reset file input
     if (e.target) {
-      e.target.value = "";
+      e.target.value = ""
     }
-  };
+  }
 
   const getCharacterCountClass = () => {
-    const length = message.length;
-    if (length > MAX_MESSAGE_LENGTH * 0.9) return "error";
-    if (length > MAX_MESSAGE_LENGTH * 0.8) return "warning";
-    return "";
-  };
+    const length = message.length
+    if (length > MAX_MESSAGE_LENGTH * 0.9) return "error"
+    if (length > MAX_MESSAGE_LENGTH * 0.8) return "warning"
+    return ""
+  }
 
   return (
     <div className={`thread-input-container ${currentTheme}`}>
@@ -901,15 +901,17 @@ const MessageInput: React.FC<MessageInputProps> = ({
         <div className={`reply-preview ${currentTheme}`}>
           <div className="reply-header">
             <div className={`reply-label ${currentTheme}`}>
-              ↪️ {t('input.replyingTo', { user: replyingTo.author })}
+              ↪️ {t("input.replyingTo", { user: replyingTo.author })}
             </div>
             {onCancelReply && (
               <Button
                 variant="ghost"
-                size="icon"
-                className={`cancel-reply ${currentTheme === "dark" ? "dark" : ""}`}
+                size="sm"
+                className={`cancel-reply ${
+                  currentTheme === "dark" ? "dark" : ""
+                }`}
                 onClick={onCancelReply}
-                aria-label={t('input.cancel')}
+                aria-label={t("input.cancel")}
               >
                 ✕
               </Button>
@@ -927,15 +929,17 @@ const MessageInput: React.FC<MessageInputProps> = ({
         <div className={`quote-preview ${currentTheme}`}>
           <div className="quote-header">
             <div className={`quote-label ${currentTheme}`}>
-              📝 {t('input.quotingFrom', { user: quotingMessage.author })}
+              📝 {t("input.quotingFrom", { user: quotingMessage.author })}
             </div>
             {onCancelQuote && (
               <Button
                 variant="ghost"
-                size="icon"
-                className={`cancel-quote ${currentTheme === "dark" ? "dark" : ""}`}
+                size="sm"
+                className={`cancel-quote ${
+                  currentTheme === "dark" ? "dark" : ""
+                }`}
                 onClick={onCancelQuote}
-                aria-label={t('input.cancel')}
+                aria-label={t("input.cancel")}
               >
                 ✕
               </Button>
@@ -960,7 +964,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             <Button
               type="button"
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={() => setPendingAttachment(null)}
               className={`remove-attachment ${currentTheme}`}
               title="Remove attachment"
@@ -976,15 +980,16 @@ const MessageInput: React.FC<MessageInputProps> = ({
           {!disableMentions && showMentions && filteredAgents.length > 0 && (
             <div className={`mention-suggestions ${currentTheme}`}>
               {filteredAgents.map((agent, index) => {
-                const displayName = agent.display_name || agent.agent_id;
-                const avatar = displayName.charAt(0).toUpperCase();
-                const isSelected = index === selectedMentionIndex;
+                const displayName = agent.display_name || agent.agent_id
+                const avatar = displayName.charAt(0).toUpperCase()
+                const isSelected = index === selectedMentionIndex
 
                 return (
                   <div
                     key={agent.agent_id}
-                    className={`mention-item ${currentTheme} ${isSelected ? "selected" : ""
-                      }`}
+                    className={`mention-item ${currentTheme} ${
+                      isSelected ? "selected" : ""
+                    }`}
                     onClick={() => handleMentionClick(agent)}
                   >
                     <div className={`mention-avatar ${currentTheme}`}>
@@ -994,7 +999,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
                       {displayName}
                     </div>
                   </div>
-                );
+                )
               })}
             </div>
           )}
@@ -1015,7 +1020,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
+                size="sm"
                 className={`action-button ${currentTheme}`}
                 onClick={handleFileUpload}
                 disabled={disabled}
@@ -1029,7 +1034,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
+                size="sm"
                 className={`action-button ${currentTheme}`}
                 disabled={disabled}
                 title="Add emoji"
@@ -1042,7 +1047,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             <Button
               type="submit"
               variant="primary"
-              size="icon"
+              size="sm"
               className="send-button"
               disabled={!message.trim() || disabled}
               title="Send message"
@@ -1111,7 +1116,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default MessageInput;
+export default MessageInput

@@ -1,215 +1,345 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { useTranslation } from "react-i18next";
-import { eventLogService, EventLogEntry, HttpRequestLogEntry } from "@/services/eventLogService";
-import { Button } from "@/components/layout/ui/button";
-import { Input } from "@/components/layout/ui/input";
-import { Card, CardContent } from "@/components/layout/ui/card";
-import { ScrollArea } from "@/components/layout/ui/scroll-area";
-import { Badge } from "@/components/layout/ui/badge";
+import React, { useState, useEffect, useMemo, useCallback } from "react"
+import { useTranslation } from "react-i18next"
+import { ColumnDef } from "@tanstack/react-table"
+import {
+  eventLogService,
+  EventLogEntry,
+  HttpRequestLogEntry,
+} from "@/services/eventLogService"
+import { Button } from "@/components/layout/ui/button"
+import { DataTable } from "@/components/layout/ui/data-table"
+import { Badge } from "@/components/layout/ui/badge"
 import {
   X,
   FileText,
   ArrowLeftRight,
-  ChevronDown,
   Send,
-  Circle,
+  ArrowDownToLine,
   Trash2,
   Activity,
-  Layers,
-  RefreshCw
-} from "lucide-react";
+  RefreshCw,
+  Eye,
+} from "lucide-react"
 
-type LogEntry = EventLogEntry | HttpRequestLogEntry;
+type LogEntry = EventLogEntry | HttpRequestLogEntry
 
-const ITEMS_PER_PAGE = 20;
-
-type TabType = "events" | "http";
-type FilterMode = "include" | "exclude";
+type TabType = "events" | "http"
 
 const EventLogs: React.FC = () => {
-  const { t } = useTranslation('admin');
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [activeTab, setActiveTab] = useState<TabType>("events");
-  const [searchKeyword, setSearchKeyword] = useState<string>("");
-  const [filterMode, setFilterMode] = useState<FilterMode>("include");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [refreshing, setRefreshing] = useState(false);
+  const { t } = useTranslation("admin")
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [activeTab, setActiveTab] = useState<TabType>("events")
+  const [refreshing, setRefreshing] = useState(false)
+  const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null)
 
-  // Check if log matches search keyword
-  const matchesKeyword = useCallback((log: LogEntry, keyword: string): boolean => {
-    if (!keyword.trim()) return true;
-
-    const lowerKeyword = keyword.toLowerCase();
-
-    // Check HTTP request logs
-    if ("type" in log && log.type === "http_request") {
-      const httpLog = log as HttpRequestLogEntry;
-      const searchableText = [
-        httpLog.method,
-        httpLog.url,
-        httpLog.endpoint,
-        httpLog.host,
-        String(httpLog.port),
-        httpLog.error,
-        JSON.stringify(httpLog.requestBody),
-        JSON.stringify(httpLog.responseBody),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return searchableText.includes(lowerKeyword);
-    }
-
-    // Check event logs
-    const eventLog = log as EventLogEntry;
-    const searchableText = [
-      eventLog.event.event_name,
-      eventLog.event.source_id,
-      eventLog.event.destination_id,
-      JSON.stringify(eventLog.event.payload),
-      JSON.stringify(eventLog.event),
-      JSON.stringify(eventLog.response),
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    return searchableText.includes(lowerKeyword);
-  }, []);
-
-  // Filter logs by active tab and search keyword
+  // Filter logs by active tab
   const filteredLogs = useMemo(() => {
-    let result = logs;
-
-    // Filter by tab type
     if (activeTab === "events") {
-      result = result.filter((log) => !("type" in log) || log.type !== "http_request");
+      return logs.filter(
+        (log) => !("type" in log) || log.type !== "http_request"
+      )
     } else {
-      // For HTTP requests tab, exclude api/poll endpoint
-      result = result.filter((log) => {
+      return logs.filter((log) => {
         if ("type" in log && log.type === "http_request") {
-          const httpLog = log as HttpRequestLogEntry;
-          // Exclude api/poll endpoint
-          return !httpLog.endpoint.includes("/api/poll");
+          const httpLog = log as HttpRequestLogEntry
+          return !httpLog.endpoint.includes("/api/poll")
         }
-        return false;
-      });
+        return false
+      })
     }
-
-    // Filter by search keyword
-    if (searchKeyword.trim()) {
-      if (filterMode === "include") {
-        result = result.filter((log) => matchesKeyword(log, searchKeyword));
-      } else {
-        result = result.filter((log) => !matchesKeyword(log, searchKeyword));
-      }
-    }
-
-    return result;
-  }, [logs, activeTab, searchKeyword, filterMode, matchesKeyword]);
-
-  // Get paginated data for filtered logs
-  const paginatedData = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    const end = start + ITEMS_PER_PAGE;
-    return {
-      logs: filteredLogs.slice(start, end),
-      total: filteredLogs.length,
-      totalPages: Math.ceil(filteredLogs.length / ITEMS_PER_PAGE),
-    };
-  }, [filteredLogs, currentPage]);
-
-  // Reset page when tab or filter mode changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [activeTab, filterMode]);
+  }, [logs, activeTab])
 
   // Load logs
   const loadLogs = useCallback(() => {
-    const allLogs = eventLogService.getAllLogs();
-    setLogs(allLogs);
-  }, []);
+    const allLogs = eventLogService.getAllLogs()
+    setLogs(allLogs)
+  }, [])
 
   // Handle refresh
   const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    loadLogs();
-    setTimeout(() => setRefreshing(false), 300);
-  }, [loadLogs]);
+    setRefreshing(true)
+    loadLogs()
+    setTimeout(() => setRefreshing(false), 300)
+  }, [loadLogs])
 
   useEffect(() => {
-    // Initial load
-    loadLogs();
-
-    // Subscribe to updates
+    loadLogs()
     const unsubscribe = eventLogService.subscribe((updatedLogs) => {
-      setLogs(updatedLogs);
-    });
-
+      setLogs(updatedLogs)
+    })
     return () => {
-      unsubscribe();
-    };
-  }, [loadLogs]);
-
-  // Toggle expand/collapse
-  const toggleExpand = (id: string) => {
-    setExpandedIds((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(id)) {
-        newSet.delete(id);
-      } else {
-        newSet.add(id);
-      }
-      return newSet;
-    });
-  };
+      unsubscribe()
+    }
+  }, [loadLogs])
 
   // Clear logs
   const handleClearLogs = () => {
-    if (window.confirm(t('eventLogs.clearConfirm'))) {
-      eventLogService.clearLogs();
-      setCurrentPage(1);
-      setExpandedIds(new Set());
+    if (window.confirm(t("eventLogs.clearConfirm"))) {
+      eventLogService.clearLogs()
+      setSelectedLog(null)
     }
-  };
+  }
 
   // Format time
   const formatTime = (timestamp: number) => {
-    const date = new Date(timestamp);
-    return date.toLocaleString("en-US", {
-      year: "numeric",
+    const date = new Date(timestamp)
+    return date.toLocaleString("zh-CN", {
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
-    });
-  };
+    })
+  }
 
   // Format JSON
   const formatJSON = (obj: any) => {
     try {
-      return JSON.stringify(obj, null, 2);
+      return JSON.stringify(obj, null, 2)
     } catch {
-      return String(obj);
+      return String(obj)
     }
-  };
+  }
 
   // Get event counts
-  const eventCount = logs.filter((log) => !("type" in log) || log.type !== "http_request").length;
-  const httpCount = logs.filter((log) => "type" in log && log.type === "http_request").length;
+  const eventCount = logs.filter(
+    (log) => !("type" in log) || log.type !== "http_request"
+  ).length
+  const httpCount = logs.filter(
+    (log) => "type" in log && log.type === "http_request"
+  ).length
+
+  // Event columns
+  const eventColumns: ColumnDef<EventLogEntry>[] = useMemo(
+    () => [
+      {
+        accessorKey: "direction",
+        header: t("eventLogs.columns.direction"),
+        cell: ({ row }) => {
+          const isSent = row.original.direction === "sent"
+          return (
+            <span
+              className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                isSent
+                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                  : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+              }`}
+            >
+              {isSent ? (
+                <Send className="w-3 h-3 mr-1" />
+              ) : (
+                <ArrowDownToLine className="w-3 h-3 mr-1" />
+              )}
+              {isSent
+                ? t("eventLogs.columns.sent")
+                : t("eventLogs.columns.received")}
+            </span>
+          )
+        },
+      },
+      {
+        accessorKey: "event.event_name",
+        header: t("eventLogs.columns.eventName"),
+        cell: ({ row }) => (
+          <span className="font-medium text-gray-900 dark:text-gray-100">
+            {row.original.event.event_name}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "event.source_id",
+        header: t("eventLogs.columns.source"),
+        cell: ({ row }) => (
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            {row.original.event.source_id || "-"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "event.destination_id",
+        header: t("eventLogs.columns.destination"),
+        cell: ({ row }) => (
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            {row.original.event.destination_id || "-"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "timestamp",
+        header: t("eventLogs.columns.time"),
+        cell: ({ row }) => (
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            {formatTime(row.original.timestamp)}
+          </span>
+        ),
+      },
+      {
+        id: "status",
+        header: t("eventLogs.columns.status"),
+        cell: ({ row }) => {
+          const entry = row.original
+          if (entry.direction === "received") {
+            return (
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                -
+              </span>
+            )
+          }
+          const isSuccess = entry.response?.success
+          return (
+            <span
+              className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                isSuccess
+                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                  : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full mr-1.5 ${
+                  isSuccess ? "bg-green-500" : "bg-red-500"
+                }`}
+              />
+              {isSuccess
+                ? t("eventLogs.columns.success")
+                : t("eventLogs.columns.failed")}
+            </span>
+          )
+        },
+      },
+      {
+        id: "actions",
+        header: () => (
+          <div className="text-center">{t("eventLogs.columns.actions")}</div>
+        ),
+        cell: ({ row }) => (
+          <div className="text-center">
+            <Button
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation()
+                setSelectedLog(row.original)
+              }}
+            >
+              <Eye className="w-4 h-4" />
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [t]
+  )
+
+  // HTTP columns
+  const httpColumns: ColumnDef<HttpRequestLogEntry>[] = useMemo(
+    () => [
+      {
+        accessorKey: "method",
+        header: t("eventLogs.columns.method"),
+        cell: ({ row }) => (
+          <span className="px-2 py-1 text-xs font-mono font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded">
+            {row.original.method}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "endpoint",
+        header: t("eventLogs.columns.endpoint"),
+        cell: ({ row }) => (
+          <span className="font-medium text-gray-900 dark:text-gray-100 truncate max-w-[200px] block">
+            {row.original.endpoint}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "responseStatus",
+        header: t("eventLogs.columns.statusCode"),
+        cell: ({ row }) => {
+          const status = row.original.responseStatus
+          const isSuccess = status && status >= 200 && status < 300
+          if (!status) {
+            return (
+              <span className="text-xs text-gray-400 dark:text-gray-500">
+                -
+              </span>
+            )
+          }
+          return (
+            <span
+              className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                isSuccess
+                  ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                  : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+              }`}
+            >
+              {status}
+            </span>
+          )
+        },
+      },
+      {
+        accessorKey: "host",
+        header: t("eventLogs.columns.host"),
+        cell: ({ row }) => (
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            {row.original.host}:{row.original.port}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "duration",
+        header: t("eventLogs.columns.duration"),
+        cell: ({ row }) => (
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            {row.original.duration !== undefined
+              ? `${row.original.duration}ms`
+              : "-"}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "timestamp",
+        header: t("eventLogs.columns.time"),
+        cell: ({ row }) => (
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            {formatTime(row.original.timestamp)}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: () => (
+          <div className="text-center">{t("eventLogs.columns.actions")}</div>
+        ),
+        cell: ({ row }) => (
+          <div className="text-center">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation()
+                setSelectedLog(row.original)
+              }}
+            >
+              <Eye className="w-4 h-4" />
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [t]
+  )
 
   return (
-    <ScrollArea className="h-full">
-      <div className="p-6">
+    <div className="h-full flex flex-col">
+      <div className="p-6 flex-1 overflow-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-              {t('eventLogs.title')}
+              {t("eventLogs.title")}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-              {t('eventLogs.subtitle')}
+              {t("eventLogs.subtitle")}
             </p>
           </div>
 
@@ -220,8 +350,10 @@ const EventLogs: React.FC = () => {
               variant="outline"
               size="sm"
             >
-              <RefreshCw className={`w-4 h-4 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
-              {refreshing ? t('eventLogs.refreshing') : t('eventLogs.refresh')}
+              <RefreshCw
+                className={`w-4 h-4 mr-1.5 ${refreshing ? "animate-spin" : ""}`}
+              />
+              {refreshing ? t("eventLogs.refreshing") : t("eventLogs.refresh")}
             </Button>
             <Button
               onClick={handleClearLogs}
@@ -230,7 +362,7 @@ const EventLogs: React.FC = () => {
               className="bg-red-600 hover:bg-red-700 text-white"
             >
               <Trash2 className="w-4 h-4 mr-1.5" />
-              {t('eventLogs.clearLogs')}
+              {t("eventLogs.clearLogs")}
             </Button>
           </div>
         </div>
@@ -247,8 +379,13 @@ const EventLogs: React.FC = () => {
               }`}
             >
               <Activity className="w-4 h-4" />
-              {t('eventLogs.tabs.events')}
-              <Badge variant={activeTab === "events" ? "secondary" : "secondary"} appearance="light" size="sm" className="ml-1">
+              {t("eventLogs.tabs.events")}
+              <Badge
+                variant="secondary"
+                appearance="light"
+                size="sm"
+                className="ml-1"
+              >
                 {eventCount}
               </Badge>
             </button>
@@ -261,446 +398,237 @@ const EventLogs: React.FC = () => {
               }`}
             >
               <ArrowLeftRight className="w-4 h-4" />
-              {t('eventLogs.tabs.httpRequests')}
-              <Badge variant={activeTab === "http" ? "secondary" : "secondary"} appearance="light" size="sm" className="ml-1">
+              {t("eventLogs.tabs.httpRequests")}
+              <Badge
+                variant="secondary"
+                appearance="light"
+                size="sm"
+                className="ml-1"
+              >
                 {httpCount}
               </Badge>
             </button>
           </div>
         </div>
 
-        {/* Search & Filter */}
-        <Card className="mb-6 border-gray-200 dark:border-gray-700">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              {/* Search Input */}
-              <div className="flex-1 relative">
-                <Input
-                  type="text"
-                  value={searchKeyword}
-                  onChange={(e) => {
-                    setSearchKeyword(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  placeholder={t('eventLogs.searchPlaceholder')}
-                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10"
-                />
-                {searchKeyword && (
-                  <button
-                    onClick={() => {
-                      setSearchKeyword("");
-                      setCurrentPage(1);
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
+        {/* Data Table */}
+        {activeTab === "events" ? (
+          <DataTable
+            columns={eventColumns}
+            data={filteredLogs as EventLogEntry[]}
+            searchable={true}
+            searchPlaceholder={t("eventLogs.searchPlaceholder")}
+            searchColumn="event.event_name"
+            pagination={true}
+            pageSize={20}
+            emptyMessage={t("eventLogs.empty")}
+            emptyIcon={<FileText className="w-12 h-12 text-gray-400" />}
+            onRowClick={(row) => setSelectedLog(row)}
+          />
+        ) : (
+          <DataTable
+            columns={httpColumns}
+            data={filteredLogs as HttpRequestLogEntry[]}
+            searchable={true}
+            searchPlaceholder={t("eventLogs.searchPlaceholder")}
+            searchColumn="endpoint"
+            pagination={true}
+            pageSize={20}
+            emptyMessage={t("eventLogs.empty")}
+            emptyIcon={<ArrowLeftRight className="w-12 h-12 text-gray-400" />}
+            onRowClick={(row) => setSelectedLog(row)}
+          />
+        )}
+      </div>
 
-              {/* Filter Mode Toggle */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  {t('eventLogs.filter')}
-                </span>
-                <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
-                  <button
-                    onClick={() => setFilterMode("include")}
-                    className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                      filterMode === "include"
-                        ? "bg-blue-600 text-white"
-                        : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
-                    }`}
-                  >
-                    {t('eventLogs.include')}
-                  </button>
-                  <button
-                    onClick={() => setFilterMode("exclude")}
-                    className={`px-3 py-1.5 text-xs font-medium transition-colors border-l border-gray-200 dark:border-gray-700 ${
-                      filterMode === "exclude"
-                        ? "bg-blue-600 text-white"
-                        : "bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
-                    }`}
-                  >
-                    {t('eventLogs.exclude')}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Search Result Info */}
-            {searchKeyword && (
-              <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-                {filteredLogs.length} {filteredLogs.length === 1 ? "result" : "results"} for "
-                <span className="font-medium text-gray-700 dark:text-gray-300">{searchKeyword}</span>"
-                ({filterMode === "include" ? t('eventLogs.include') : t('eventLogs.exclude')})
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Stats */}
-        <div className="mb-6 grid grid-cols-2 gap-4">
-          <Card className="border-gray-200 dark:border-gray-700">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
-                  <Layers className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    {t('eventLogs.totalEvents')}
-                  </div>
-                  <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-                    {filteredLogs.length}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="border-gray-200 dark:border-gray-700">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400">
-                  <FileText className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                    {t('eventLogs.currentPage')}
-                  </div>
-                  <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-                    {paginatedData.totalPages > 0 ? currentPage : 0} / {paginatedData.totalPages}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Event List */}
-        <div className="space-y-2">
-          {paginatedData.logs.length === 0 ? (
-            <Card className="border-gray-200 dark:border-gray-700">
-              <CardContent className="p-12">
-                <div className="text-center">
-                  <FileText className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {t('eventLogs.empty')}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            paginatedData.logs.map((entry) => {
-              const isExpanded = expandedIds.has(entry.id);
-
-              // Check if this is an HTTP request log or event log
-              if ('type' in entry && entry.type === 'http_request') {
-                const httpEntry = entry as HttpRequestLogEntry;
-                const isSuccess = httpEntry.responseStatus && httpEntry.responseStatus >= 200 && httpEntry.responseStatus < 300;
-
-                return (
-                  <Card
-                    key={entry.id}
-                    className="border-gray-200 dark:border-gray-700 overflow-hidden"
-                  >
-                    <CardContent className="p-0">
-                      {/* HTTP Request Header */}
-                      <button
-                        onClick={() => toggleExpand(entry.id)}
-                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-                      >
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
-                          {/* HTTP Icon */}
-                          <div className={`p-1.5 rounded-lg ${
-                            isSuccess
-                              ? "bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400"
-                              : httpEntry.error
-                                ? "bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400"
-                                : "bg-yellow-50 dark:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400"
-                          }`}>
-                            <ArrowLeftRight className="w-4 h-4" />
-                          </div>
-
-                          {/* HTTP Request Info */}
-                          <div className="flex-1 min-w-0 text-left">
-                            <div className="flex items-center gap-2">
-                              <span className="px-1.5 py-0.5 text-xs font-mono font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded">
-                                {httpEntry.method}
-                              </span>
-                              <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                                {httpEntry.endpoint}
-                              </span>
-                              {httpEntry.responseStatus && (
-                                <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
-                                  isSuccess
-                                    ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
-                                    : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400"
-                                }`}>
-                                  {httpEntry.responseStatus}
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              {formatTime(httpEntry.timestamp)}
-                              {httpEntry.host && (
-                                <span className="mx-1.5">•</span>
-                              )}
-                              {httpEntry.host && (
-                                <span>{httpEntry.host}:{httpEntry.port}</span>
-                              )}
-                              {httpEntry.duration !== undefined && (
-                                <>
-                                  <span className="mx-1.5">•</span>
-                                  <span>{httpEntry.duration}ms</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Expand Icon */}
-                        <ChevronDown
-                          className={`w-5 h-5 text-gray-400 flex-shrink-0 ml-2 transition-transform ${
-                            isExpanded ? "transform rotate-180" : ""
-                          }`}
-                        />
-                      </button>
-
-                      {/* HTTP Request Details */}
-                      {isExpanded && (
-                        <div className="px-4 pb-4 border-t border-gray-100 dark:border-gray-700/50">
-                          <div className="pt-4 space-y-4">
-                            {/* Request Info */}
-                            <div>
-                              <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 uppercase tracking-wide">
-                                Request
-                              </h4>
-                              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 overflow-x-auto">
-                                <div className="space-y-1 text-xs">
-                                  <div><span className="font-medium text-gray-500">URL:</span> <span className="font-mono text-gray-800 dark:text-gray-200">{httpEntry.url}</span></div>
-                                  <div><span className="font-medium text-gray-500">Method:</span> <span className="font-mono text-gray-800 dark:text-gray-200">{httpEntry.method}</span></div>
-                                  <div><span className="font-medium text-gray-500">Host:</span> <span className="font-mono text-gray-800 dark:text-gray-200">{httpEntry.host}:{httpEntry.port}</span></div>
-                                  <div><span className="font-medium text-gray-500">Endpoint:</span> <span className="font-mono text-gray-800 dark:text-gray-200">{httpEntry.endpoint}</span></div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Request Body */}
-                            {httpEntry.requestBody && (
-                              <div>
-                                <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 uppercase tracking-wide">
-                                  Request Body
-                                </h4>
-                                <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 overflow-x-auto">
-                                  <pre className="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words font-mono">
-                                    {formatJSON(httpEntry.requestBody)}
-                                  </pre>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Response */}
-                            {httpEntry.responseStatus !== undefined && (
-                              <div>
-                                <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 uppercase tracking-wide">
-                                  {t('eventLogs.response')}
-                                </h4>
-                                <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 overflow-x-auto">
-                                  <div className="mb-2 flex items-center gap-2">
-                                    <span
-                                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                        isSuccess
-                                          ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
-                                          : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
-                                      }`}
-                                    >
-                                      {httpEntry.responseStatus} {isSuccess ? "OK" : "Error"}
-                                    </span>
-                                    {httpEntry.duration !== undefined && (
-                                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                                        {httpEntry.duration}ms
-                                      </span>
-                                    )}
-                                  </div>
-                                  {httpEntry.responseBody && (
-                                    <pre className="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words font-mono">
-                                      {formatJSON(httpEntry.responseBody)}
-                                    </pre>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Error */}
-                            {httpEntry.error && (
-                              <div>
-                                <h4 className="text-xs font-semibold text-red-700 dark:text-red-300 mb-2 uppercase tracking-wide">
-                                  Error
-                                </h4>
-                                <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 border border-red-200 dark:border-red-800">
-                                  <p className="text-xs text-red-800 dark:text-red-200 font-mono">
-                                    {httpEntry.error}
-                                  </p>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              }
-
-              // Event log entry
-              const eventEntry = entry as EventLogEntry;
-              const isSent = eventEntry.direction === "sent";
-
-              return (
-                <Card
-                  key={entry.id}
-                  className="border-gray-200 dark:border-gray-700 overflow-hidden"
-                >
-                  <CardContent className="p-0">
-                    {/* Event Header */}
-                    <button
-                      onClick={() => toggleExpand(entry.id)}
-                      className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        {/* Direction Icon */}
-                        <div className={`p-1.5 rounded-lg ${
-                          isSent
-                            ? "bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400"
-                            : "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
-                        }`}>
-                          {isSent ? (
-                            <Send className="w-4 h-4" />
-                          ) : (
-                            <Circle className="w-4 h-4" />
-                          )}
-                        </div>
-
-                        {/* Event Name */}
-                        <div className="flex-1 min-w-0 text-left">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                              {eventEntry.event.event_name}
-                            </span>
-                            <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${
-                              isSent
-                                ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
-                                : "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400"
-                            }`}>
-                              {isSent ? "Sent" : "Received"}
-                            </span>
-                          </div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {formatTime(eventEntry.timestamp)}
-                            {eventEntry.event.source_id && (
-                              <>
-                                <span className="mx-1.5">•</span>
-                                <span>{t('eventLogs.from')}: {eventEntry.event.source_id}</span>
-                              </>
-                            )}
-                            {eventEntry.event.destination_id && (
-                              <>
-                                <span className="mx-1.5">•</span>
-                                <span>{t('eventLogs.to')}: {eventEntry.event.destination_id}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Expand Icon */}
-                      <ChevronDown
-                        className={`w-5 h-5 text-gray-400 flex-shrink-0 ml-2 transition-transform ${
-                          isExpanded ? "transform rotate-180" : ""
-                        }`}
-                      />
-                    </button>
-
-                    {/* Event Details */}
-                    {isExpanded && (
-                      <div className="px-4 pb-4 border-t border-gray-100 dark:border-gray-700/50">
-                        <div className="pt-4 space-y-4">
-                          {/* Event Data */}
-                          <div>
-                            <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 uppercase tracking-wide">
-                              Event Data
-                            </h4>
-                            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 overflow-x-auto">
-                              <pre className="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words font-mono">
-                                {formatJSON(eventEntry.event)}
-                              </pre>
-                            </div>
-                          </div>
-
-                          {/* Response (for sent events) */}
-                          {isSent && eventEntry.response && (
-                            <div>
-                              <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 uppercase tracking-wide">
-                                {t('eventLogs.response')}
-                              </h4>
-                              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 overflow-x-auto">
-                                <div className="mb-2">
-                                  <span
-                                    className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                      eventEntry.response.success
-                                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
-                                        : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
-                                    }`}
-                                  >
-                                    {eventEntry.response.success ? "Success" : "Failed"}
-                                  </span>
-                                </div>
-                                <pre className="text-xs text-gray-800 dark:text-gray-200 whitespace-pre-wrap break-words font-mono">
-                                  {formatJSON(eventEntry.response)}
-                                </pre>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })
-          )}
-        </div>
-
-        {/* Pagination */}
-        {paginatedData.totalPages > 1 && (
-          <div className="mt-6 flex items-center justify-between">
-            <div className="text-sm text-gray-500 dark:text-gray-400">
-              {(currentPage - 1) * ITEMS_PER_PAGE + 1} - {Math.min(currentPage * ITEMS_PER_PAGE, paginatedData.total)} / {paginatedData.total}
-            </div>
-            <div className="flex gap-2">
+      {/* Detail Modal */}
+      {selectedLog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                {"type" in selectedLog && selectedLog.type === "http_request"
+                  ? t("eventLogs.httpDetail")
+                  : t("eventLogs.eventDetail")}
+              </h2>
               <Button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                variant="outline"
+                onClick={() => setSelectedLog(null)}
+                variant="ghost"
                 size="sm"
               >
-                {t('eventLogs.previous')}
+                <X className="w-5 h-5" />
               </Button>
-              <Button
-                onClick={() => setCurrentPage((p) => Math.min(paginatedData.totalPages, p + 1))}
-                disabled={currentPage === paginatedData.totalPages}
-                variant="outline"
-                size="sm"
-              >
-                {t('eventLogs.next')}
+            </div>
+            <div className="p-4 overflow-auto flex-1">
+              {"type" in selectedLog && selectedLog.type === "http_request" ? (
+                // HTTP Request Detail
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                        {t("eventLogs.columns.method")}
+                      </span>
+                      <p className="mt-1 font-mono text-sm text-gray-900 dark:text-gray-100">
+                        {(selectedLog as HttpRequestLogEntry).method}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                        {t("eventLogs.columns.statusCode")}
+                      </span>
+                      <p className="mt-1 font-mono text-sm text-gray-900 dark:text-gray-100">
+                        {(selectedLog as HttpRequestLogEntry).responseStatus ||
+                          "-"}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                        {t("eventLogs.columns.host")}
+                      </span>
+                      <p className="mt-1 font-mono text-sm text-gray-900 dark:text-gray-100">
+                        {(selectedLog as HttpRequestLogEntry).host}:
+                        {(selectedLog as HttpRequestLogEntry).port}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                        {t("eventLogs.columns.duration")}
+                      </span>
+                      <p className="mt-1 font-mono text-sm text-gray-900 dark:text-gray-100">
+                        {(selectedLog as HttpRequestLogEntry).duration !==
+                        undefined
+                          ? `${(selectedLog as HttpRequestLogEntry).duration}ms`
+                          : "-"}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                      URL
+                    </span>
+                    <p className="mt-1 font-mono text-sm text-gray-900 dark:text-gray-100 break-all">
+                      {(selectedLog as HttpRequestLogEntry).url}
+                    </p>
+                  </div>
+                  {(selectedLog as HttpRequestLogEntry).requestBody && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                        Request Body
+                      </span>
+                      <pre className="mt-1 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs font-mono text-gray-800 dark:text-gray-200 overflow-auto max-h-48">
+                        {formatJSON(
+                          (selectedLog as HttpRequestLogEntry).requestBody
+                        )}
+                      </pre>
+                    </div>
+                  )}
+                  {(selectedLog as HttpRequestLogEntry).responseBody && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                        Response Body
+                      </span>
+                      <pre className="mt-1 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs font-mono text-gray-800 dark:text-gray-200 overflow-auto max-h-48">
+                        {formatJSON(
+                          (selectedLog as HttpRequestLogEntry).responseBody
+                        )}
+                      </pre>
+                    </div>
+                  )}
+                  {(selectedLog as HttpRequestLogEntry).error && (
+                    <div>
+                      <span className="text-xs font-medium text-red-500 uppercase">
+                        Error
+                      </span>
+                      <p className="mt-1 p-3 bg-red-50 dark:bg-red-900/20 rounded-lg text-sm text-red-800 dark:text-red-200 font-mono">
+                        {(selectedLog as HttpRequestLogEntry).error}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                // Event Detail
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                        {t("eventLogs.columns.eventName")}
+                      </span>
+                      <p className="mt-1 font-mono text-sm text-gray-900 dark:text-gray-100">
+                        {(selectedLog as EventLogEntry).event.event_name}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                        {t("eventLogs.columns.direction")}
+                      </span>
+                      <p className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                        {(selectedLog as EventLogEntry).direction === "sent"
+                          ? t("eventLogs.columns.sent")
+                          : t("eventLogs.columns.received")}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                        {t("eventLogs.columns.source")}
+                      </span>
+                      <p className="mt-1 font-mono text-sm text-gray-900 dark:text-gray-100">
+                        {(selectedLog as EventLogEntry).event.source_id || "-"}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                        {t("eventLogs.columns.destination")}
+                      </span>
+                      <p className="mt-1 font-mono text-sm text-gray-900 dark:text-gray-100">
+                        {(selectedLog as EventLogEntry).event.destination_id ||
+                          "-"}
+                      </p>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                      Event Data
+                    </span>
+                    <pre className="mt-1 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs font-mono text-gray-800 dark:text-gray-200 overflow-auto max-h-48">
+                      {formatJSON((selectedLog as EventLogEntry).event)}
+                    </pre>
+                  </div>
+                  {(selectedLog as EventLogEntry).response && (
+                    <div>
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                        {t("eventLogs.response")}
+                      </span>
+                      <div className="mt-1">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium mb-2 ${
+                            (selectedLog as EventLogEntry).response?.success
+                              ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
+                              : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+                          }`}
+                        >
+                          {(selectedLog as EventLogEntry).response?.success
+                            ? t("eventLogs.columns.success")
+                            : t("eventLogs.columns.failed")}
+                        </span>
+                        <pre className="p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs font-mono text-gray-800 dark:text-gray-200 overflow-auto max-h-48">
+                          {formatJSON((selectedLog as EventLogEntry).response)}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+              <Button onClick={() => setSelectedLog(null)} variant="outline">
+                {t("eventLogs.close")}
               </Button>
             </div>
           </div>
-        )}
-      </div>
-    </ScrollArea>
-  );
-};
+        </div>
+      )}
+    </div>
+  )
+}
 
-export default EventLogs;
+export default EventLogs

@@ -28,6 +28,7 @@
         "refreshing": "正在刷新...",
         "noAgents": "无服务智能体",
         "noAgentsHint": "暂无可用服务智能体",
+        "searchPlaceholder": "搜索智能体...",
         "viewDetails": "查看详情",
         "start": "启动",
         "starting": "启动中...",
@@ -65,6 +66,13 @@
             "fetchFailed": "获取模型配置失败",
             "saveSuccess": "模型配置保存成功",
             "saveFailed": "保存模型配置失败"
+        },
+        "table": {
+            "agentId": "智能体 ID",
+            "status": "状态",
+            "type": "类型",
+            "pid": "进程 ID",
+            "actions": "操作"
         },
         "globalEnv": {
             "title": "全局环境变量",

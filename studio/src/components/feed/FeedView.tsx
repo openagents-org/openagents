@@ -8,7 +8,7 @@ import FeedPostCard from "./components/FeedPostCard";
 import { FEED_SORT_FIELDS } from "@/types/feed";
 import { Badge } from "@/components/layout/ui/badge";
 import { Button } from "@/components/layout/ui/button";
-import { Card, CardContent } from "@/components/layout/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardHeading, CardTitle, CardToolbar } from "@/components/layout/ui/card";
 import { ScrollArea } from "@/components/layout/ui/scroll-area";
 import {
   Select,
@@ -180,29 +180,28 @@ const FeedView: React.FC = () => {
   }, [filters]);
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden">
-      {/* Header */}
-      <div className="flex-shrink-0 px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-background">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <h1 className="text-lg font-semibold text-foreground">
+    <div className="flex-1 flex flex-col h-full overflow-hidden p-6 bg-gray-50 dark:bg-gray-900">
+      <Card variant="default" className="flex-1 flex flex-col overflow-hidden">
+        <CardHeader>
+          <CardHeading>
+            <CardTitle className="flex items-center gap-3">
               {t('header.title')}
-            </h1>
-            <Badge variant="secondary" appearance="light" size="sm">
-              {t('stats.posts', { count: totalPosts })}
-            </Badge>
-            <span className="text-sm text-muted-foreground">
+              <Badge variant="secondary" appearance="light" size="sm">
+                {t('stats.posts', { count: totalPosts })}
+              </Badge>
+            </CardTitle>
+            <CardDescription>
               {t('stats.page', { current: page, total: totalPages })}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
+            </CardDescription>
+          </CardHeading>
+          <CardToolbar>
             <Button
               type="button"
               onClick={() => setFiltersExpanded((prev) => !prev)}
               variant={filtersExpanded ? "secondary" : "outline"}
               size="sm"
             >
-              <Filter className="w-4 h-4 mr-1.5" />
+              <Filter className="w-4 h-4 mr-1" />
               {filtersExpanded ? t('filters.hide') : t('filters.show')}
             </Button>
             <Button
@@ -211,7 +210,7 @@ const FeedView: React.FC = () => {
               size="sm"
               disabled={postsLoading}
             >
-              <RefreshCw className={`w-4 h-4 mr-1.5 ${postsLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 mr-1 ${postsLoading ? 'animate-spin' : ''}`} />
               {t('actions.refresh')}
             </Button>
             <Button
@@ -219,15 +218,15 @@ const FeedView: React.FC = () => {
               variant="primary"
               size="sm"
             >
-              <Plus className="w-4 h-4 mr-1.5" />
+              <Plus className="w-4 h-4 mr-1" />
               {t('actions.newPost')}
             </Button>
-          </div>
-        </div>
-      </div>
+          </CardToolbar>
+        </CardHeader>
+        <CardContent className="flex-1 flex flex-col overflow-hidden p-0">
 
       {filtersExpanded && (
-        <Card className="mx-6 mt-4 border-gray-200 dark:border-gray-700">
+        <Card className="mx-5 mt-4 border-gray-200 dark:border-gray-700">
           <CardContent className="p-4 space-y-4">
             <form
               className="flex flex-col lg:flex-row lg:flex-wrap gap-4"
@@ -259,7 +258,7 @@ const FeedView: React.FC = () => {
                         <Button
                           type="button"
                           variant="ghost"
-                          size="icon"
+                          size="sm"
                           className="ml-2 h-auto w-auto p-0 hover:text-indigo-900 dark:hover:text-indigo-100"
                           onClick={() => handleRemoveSearchTag(tag)}
                         >
@@ -427,7 +426,7 @@ const FeedView: React.FC = () => {
                           <Button
                             type="button"
                             variant="ghost"
-                            size="icon"
+                            size="sm"
                             className="ml-2 h-auto w-auto p-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                             onClick={() => handleRemoveFilterTag(tag)}
                           >
@@ -510,7 +509,7 @@ const FeedView: React.FC = () => {
       )}
 
       {newPostCount > 0 && (
-        <Card className="mx-6 mt-4 border-amber-300 dark:border-amber-500/60 bg-amber-50 dark:bg-amber-900/20">
+        <Card className="mx-5 mt-4 border-amber-300 dark:border-amber-500/60 bg-amber-50 dark:bg-amber-900/20">
           <CardContent className="p-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold text-amber-800 dark:text-amber-100">
@@ -533,7 +532,7 @@ const FeedView: React.FC = () => {
       )}
 
       {recentPosts.length > 0 && (
-        <Card className="mx-6 mt-4 border-emerald-200 dark:border-emerald-500/50 bg-emerald-50 dark:bg-emerald-900/20">
+        <Card className="mx-5 mt-4 border-emerald-200 dark:border-emerald-500/50 bg-emerald-50 dark:bg-emerald-900/20">
           <CardContent className="p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div>
@@ -569,7 +568,7 @@ const FeedView: React.FC = () => {
         </Card>
       )}
 
-      <ScrollArea className="flex-1 px-6 py-4">
+      <ScrollArea className="flex-1 px-5 py-4">
         {searchResults && (
           <div className="text-sm text-gray-600 dark:text-gray-300">
             Showing {searchResults.length} search result
@@ -616,7 +615,7 @@ const FeedView: React.FC = () => {
       </ScrollArea>
 
       {!searchResults && visiblePosts.length > 0 && (
-        <div className="flex-shrink-0 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="flex-shrink-0 px-5 py-4 border-t border-gray-200 dark:border-gray-700">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="text-sm text-muted-foreground">
               Page {page} / {totalPages}
@@ -659,6 +658,8 @@ const FeedView: React.FC = () => {
           </div>
         </div>
       )}
+        </CardContent>
+      </Card>
 
       <FeedCreateModal
         isOpen={isCreateOpen}

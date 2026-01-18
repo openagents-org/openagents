@@ -49,6 +49,12 @@ network:
   requires_password: false
 
   agent_groups:
+    admin:
+      description: "Administrator agents with full permissions"
+      password_hash: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"  # password: admin
+      metadata:
+        permissions: ["all"]
+
     coordinators:
       description: "Router agents that coordinate research tasks"
       password_hash: "bf24385098410391a81d92b2de72d3a2946d24f42ee387e51004a868281a2408"  # password: coordinator

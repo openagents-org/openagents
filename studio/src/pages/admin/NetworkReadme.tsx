@@ -1,70 +1,71 @@
-import React, { useState, useEffect } from "react";
-import { useTranslation } from "react-i18next";
-import { Save, Check, AlertCircle, FileText } from "lucide-react";
-import { useOpenAgents } from "@/context/OpenAgentsProvider";
-import { useAuthStore } from "@/stores/authStore";
-import { useThemeStore } from "@/stores/themeStore";
-import Editor from "@monaco-editor/react";
+import React, { useState, useEffect } from "react"
+import { useTranslation } from "react-i18next"
+import { Save, Check, AlertCircle, FileText } from "lucide-react"
+import { useOpenAgents } from "@/context/OpenAgentsProvider"
+import { useAuthStore } from "@/stores/authStore"
+import { useThemeStore } from "@/stores/themeStore"
+import LazyMonacoEditor from "@/components/editors/LazyMonacoEditor"
 
 interface NetworkProfileData {
-  name?: string;
-  description?: string;
-  readme?: string;
-  discoverable?: boolean;
-  required_openagents_version?: string;
-  [key: string]: unknown;
+  name?: string
+  description?: string
+  readme?: string
+  discoverable?: boolean
+  required_openagents_version?: string
+  [key: string]: unknown
 }
 
 const NetworkReadme: React.FC = () => {
-  const { t } = useTranslation("admin");
-  const { connector } = useOpenAgents();
-  const { agentName } = useAuthStore();
-  const { theme } = useThemeStore();
+  const { t } = useTranslation("admin")
+  const { connector } = useOpenAgents()
+  const { agentName } = useAuthStore()
+  const { theme } = useThemeStore()
 
-  const [readme, setReadme] = useState("");
-  const [originalReadme, setOriginalReadme] = useState("");
-  const [networkProfile, setNetworkProfile] = useState<NetworkProfileData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [saveError, setSaveError] = useState("");
+  const [readme, setReadme] = useState("")
+  const [originalReadme, setOriginalReadme] = useState("")
+  const [networkProfile, setNetworkProfile] =
+    useState<NetworkProfileData | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
+  const [saveError, setSaveError] = useState("")
 
-  const hasChanges = readme !== originalReadme;
+  const hasChanges = readme !== originalReadme
 
   // Determine Monaco theme based on app theme
-  const monacoTheme = theme === "dark" ? "vs-dark" : "light";
+  const monacoTheme = theme === "dark" ? "vs-dark" : "light"
 
   // Load current README on mount
   useEffect(() => {
     const loadReadme = async () => {
       if (!connector) {
-        setIsLoading(false);
-        return;
+        setIsLoading(false)
+        return
       }
 
       try {
-        const healthResponse = await connector.getNetworkHealth();
-        const profile = healthResponse?.network_profile;
-        const currentReadme = profile?.readme || healthResponse?.readme || "";
-        setReadme(currentReadme);
-        setOriginalReadme(currentReadme);
-        setNetworkProfile(profile || null);
+        const healthResponse = await connector.getNetworkHealth()
+        const profile = healthResponse?.network_profile
+        const currentReadme = profile?.readme || healthResponse?.readme || ""
+        setReadme(currentReadme)
+        setOriginalReadme(currentReadme)
+        setNetworkProfile(profile || null)
       } catch (error) {
-        console.error("Failed to load README:", error);
+        console.error("Failed to load README:", error)
       } finally {
-        setIsLoading(false);
+        setIsLoading(false)
       }
-    };
+    }
 
-    loadReadme();
-  }, [connector]);
+    loadReadme()
+  }, [connector])
 
   const handleSave = async () => {
-    if (!connector) return;
+    if (!connector) return
 
-    setIsSaving(true);
-    setSaveSuccess(false);
-    setSaveError("");
+    setIsSaving(true)
+    setSaveSuccess(false)
+    setSaveError("")
 
     try {
       // Build profile payload with required fields from existing profile
@@ -73,16 +74,17 @@ const NetworkReadme: React.FC = () => {
         readme: readme,
         // Always include required fields with defaults if not present
         discoverable: networkProfile?.discoverable ?? false,
-        required_openagents_version: networkProfile?.required_openagents_version || "0.8.0",
-      };
+        required_openagents_version:
+          networkProfile?.required_openagents_version || "0.8.0",
+      }
 
       // Include other fields if they exist in the current profile
       if (networkProfile) {
         if (networkProfile.name) {
-          profilePayload.name = networkProfile.name;
+          profilePayload.name = networkProfile.name
         }
         if (networkProfile.description) {
-          profilePayload.description = networkProfile.description;
+          profilePayload.description = networkProfile.description
         }
       }
 
@@ -93,45 +95,45 @@ const NetworkReadme: React.FC = () => {
           agent_id: agentName || "system",
           profile: profilePayload,
         },
-      });
+      })
 
       if (response.success) {
-        setSaveSuccess(true);
-        setOriginalReadme(readme);
-        setTimeout(() => setSaveSuccess(false), 3000);
+        setSaveSuccess(true)
+        setOriginalReadme(readme)
+        setTimeout(() => setSaveSuccess(false), 3000)
       } else {
-        setSaveError(response.message || t("readme.saveFailed"));
+        setSaveError(response.message || t("readme.saveFailed"))
       }
     } catch (error) {
-      console.error("Failed to save README:", error);
-      setSaveError(t("readme.saveFailed"));
+      console.error("Failed to save README:", error)
+      setSaveError(t("readme.saveFailed"))
     } finally {
-      setIsSaving(false);
+      setIsSaving(false)
     }
-  };
+  }
 
   const handleClear = () => {
-    setReadme("");
-  };
+    setReadme("")
+  }
 
   const handleReset = () => {
-    setReadme(originalReadme);
-  };
+    setReadme(originalReadme)
+  }
 
   const handleEditorChange = (value: string | undefined) => {
-    setReadme(value || "");
-  };
+    setReadme(value || "")
+  }
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
       </div>
-    );
+    )
   }
 
   return (
-    <div className="p-6 h-full flex flex-col">
+    <div className="p-6 h-full flex flex-col dark:bg-zinc-950">
       {/* Header */}
       <div className="mb-4 flex items-start justify-between">
         <div>
@@ -144,7 +146,7 @@ const NetworkReadme: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           {/* Status badge */}
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-lg">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 dark:bg-zinc-800 rounded-lg">
             <FileText className="w-4 h-4 text-gray-500 dark:text-gray-400" />
             {originalReadme ? (
               <span className="text-sm text-green-600 dark:text-green-400">
@@ -160,9 +162,9 @@ const NetworkReadme: React.FC = () => {
       </div>
 
       {/* Editor Card */}
-      <div className="flex-1 flex flex-col bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden min-h-0">
+      <div className="flex-1 flex flex-col bg-white dark:bg-zinc-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden min-h-0">
         {/* Editor Header */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-zinc-900/50">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
             {t("readme.label")}
           </span>
@@ -173,7 +175,7 @@ const NetworkReadme: React.FC = () => {
 
         {/* Monaco Editor */}
         <div className="flex-1 min-h-0">
-          <Editor
+          <LazyMonacoEditor
             height="100%"
             language="markdown"
             theme={monacoTheme}
@@ -192,7 +194,8 @@ const NetworkReadme: React.FC = () => {
               insertSpaces: true,
               folding: true,
               lineHeight: 22,
-              fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+              fontFamily:
+                "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
             }}
           />
         </div>
@@ -265,7 +268,7 @@ const NetworkReadme: React.FC = () => {
         </div>
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default NetworkReadme;
+export default NetworkReadme

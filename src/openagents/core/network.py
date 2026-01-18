@@ -199,6 +199,12 @@ class AgentNetwork:
         if port is not None:
             config.network.port = port
 
+        # Set the version that created this config if not already set
+        if config.created_by_version is None:
+            from openagents import __version__
+            config.created_by_version = __version__
+            logger.info(f"Setting created_by_version to {__version__}")
+
         # Create the network instance
         network = AgentNetwork(config, workspace_path)
 
@@ -325,6 +331,13 @@ class AgentNetwork:
                 network_config = NetworkConfig(**network_config_dict)
                 logger.info(f"Loaded network configuration from {config_path}")
 
+                # Check if this is an older config without version tracking
+                # If so, skip onboarding by setting initialized=true
+                is_legacy_config = 'created_by_version' not in network_config_dict
+                if is_legacy_config and not network_config.initialized:
+                    logger.info("Legacy config detected (no created_by_version), skipping onboarding")
+                    network_config.initialized = True
+
                 # Create the network instance using create_from_config for consistent mod loading
                 network = AgentNetwork.create_from_config(
                     network_config, port, workspace_path
@@ -334,6 +347,10 @@ class AgentNetwork:
                 network.config_path = str(config_path.resolve())
                 # Update network context now that config_path is set
                 network._update_network_context()
+
+                # Save the config if version was just set (to persist it to the YAML file)
+                if is_legacy_config:
+                    network.save_config()
 
                 # Load metadata if specified in config
                 if "metadata" in config_dict:
@@ -468,6 +485,15 @@ class AgentNetwork:
         Returns:
             bool: True if registration successful
         """
+        # Check if agent is in kick cooldown
+        if self.topology.is_agent_in_kick_cooldown(agent_id):
+            remaining = self.topology.kick_cooldown_seconds - (
+                time.time() - self.topology.kicked_agents.get(agent_id, 0)
+            )
+            return EventResponse(
+                success=False,
+                message=f"Agent {agent_id} was recently kicked. Please wait {remaining:.0f} seconds before re-registering.",
+            )
 
         # Create agent info
         agent_info = AgentConnection(
@@ -655,6 +681,7 @@ class AgentNetwork:
             "network_uuid": self.network_uuid,
             "network_name": self.network_name,
             "initialized": getattr(self.config, 'initialized', False),
+            "created_by_version": getattr(self.config, 'created_by_version', None),
             "is_running": self.is_running,
             "uptime_seconds": uptime,
             "agent_count": len(agent_registry),
@@ -732,6 +759,10 @@ class AgentNetwork:
 
             # Update the network section with current config values
             config_dict['network']['initialized'] = self.config.initialized
+
+            # Save version info if set
+            if self.config.created_by_version:
+                config_dict['network']['created_by_version'] = self.config.created_by_version
 
             # Update admin group password if it exists
             if 'admin' in self.config.agent_groups:

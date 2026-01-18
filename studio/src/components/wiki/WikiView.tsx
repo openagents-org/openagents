@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { OpenAgentsService } from '../../services/openAgentsService';
 import { Button } from '@/components/layout/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardHeading,
+  CardTitle,
+  CardToolbar,
+} from '@/components/layout/ui/card';
+import { EmptyState } from '@/components/layout/ui/empty-state';
+import { Plus, RefreshCw, Clock, FileText } from 'lucide-react';
 
 interface WikiPage {
   page_path: string;
@@ -340,7 +351,7 @@ const WikiView: React.FC<WikiViewProps> = ({
                 setCurrentView('list');
               }}
               variant="ghost"
-              size="icon"
+              size="sm"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -399,7 +410,7 @@ const WikiView: React.FC<WikiViewProps> = ({
             <Button
               onClick={() => setCurrentView('page')}
               variant="ghost"
-              size="icon"
+              size="sm"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -476,7 +487,7 @@ const WikiView: React.FC<WikiViewProps> = ({
             <Button
               onClick={() => setCurrentView('list')}
               variant="ghost"
-              size="icon"
+              size="sm"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -552,101 +563,101 @@ const WikiView: React.FC<WikiViewProps> = ({
 
   // Pages list view (default)
   return (
-    <div className="h-full flex flex-col dark:bg-gray-800">
-      {/* Header */}
-      <div className="border-b border-gray-200 dark:border-gray-700 dark:bg-gray-800 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center space-x-3">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
-                Wiki
-              </h1>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Collaborative knowledge base
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-3">
+    <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-900 p-6">
+      <Card variant="default" className="flex-1 flex flex-col">
+        <CardHeader>
+          <CardHeading>
+            <CardTitle>Wiki</CardTitle>
+            <CardDescription>Collaborative knowledge base</CardDescription>
+          </CardHeading>
+          <CardToolbar>
             {proposals.filter(p => p.status === 'pending').length > 0 && (
               <Button
                 onClick={() => setCurrentView('proposals')}
-                variant="primary"
-                className="bg-yellow-600 hover:bg-yellow-700"
+                variant="outline"
+                size="sm"
+                className="bg-yellow-500 text-white hover:bg-yellow-600"
               >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span>Proposals ({proposals.filter(p => p.status === 'pending').length})</span>
+                <Clock className="w-4 h-4 mr-1" />
+                Proposals ({proposals.filter(p => p.status === 'pending').length})
               </Button>
             )}
             <Button
-              onClick={() => setShowCreatePage(true)}
-              variant="primary"
+              onClick={() => loadPages()}
+              variant="outline"
+              size="sm"
             >
-              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              <span>New Page</span>
+              <RefreshCw className="w-4 h-4 mr-1" />
+              Refresh
             </Button>
-          </div>
-        </div>
-
-        {/* Search */}
-        <div className="relative">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search wiki pages..."
-            className="w-full pl-10 pr-4 py-2 rounded-lg border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-400"
-          />
-          <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-        </div>
-      </div>
-
-      {/* Pages list */}
-      <div className="flex-1 overflow-y-auto p-6 dark:bg-gray-800">
-        <div className="space-y-4">
-          {pages.map((page) => (
-            <div
-              key={page.page_path}
-              onClick={() => {
-                setSelectedPage(page);
-                setCurrentView('page');
-                loadPage(page.page_path);
-              }}
-              className="p-4 rounded-lg border cursor-pointer transition-colors bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750"
+            <Button
+              onClick={() => setShowCreatePage(true)}
+              variant="outline"
+              size="sm"
+              className="bg-blue-500 text-white"
             >
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-200">
-                    {page.title || 'Untitled'}
-                  </h3>
-                  <p className="text-sm mb-3 line-clamp-2 text-gray-600 dark:text-gray-400">
-                    {page.wiki_content ? page.wiki_content.substring(0, 150) : 'No content'}
-                    {page.wiki_content && page.wiki_content.length > 150 && '...'}
-                  </p>
-                  <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
-                    <span>{page.page_path || 'Unknown path'}</span>
-                    <span className="whitespace-nowrap">by {page.creator_id || 'Unknown'}</span>
-                    <span className="whitespace-nowrap">v{page.version || 1}</span>
-                    <span>{page.last_modified ? new Date(page.last_modified * 1000).toLocaleDateString() : 'Unknown date'}</span>
+              <Plus className="w-4 h-4 mr-1" />
+              New Page
+            </Button>
+          </CardToolbar>
+        </CardHeader>
+        <CardContent className="flex-1 overflow-auto">
+          {/* Search */}
+          <div className="relative mb-4">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search wiki pages..."
+              className="w-full pl-10 pr-4 py-2 rounded-lg border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-200 placeholder-gray-500 dark:placeholder-gray-400"
+            />
+            <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+
+          {/* Pages list */}
+          <div className="space-y-4">
+            {pages.map((page) => (
+              <div
+                key={page.page_path}
+                onClick={() => {
+                  setSelectedPage(page);
+                  setCurrentView('page');
+                  loadPage(page.page_path);
+                }}
+                className="p-4 rounded-lg border cursor-pointer transition-colors bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-200">
+                      {page.title || 'Untitled'}
+                    </h3>
+                    <p className="text-sm mb-3 line-clamp-2 text-gray-600 dark:text-gray-400">
+                      {page.wiki_content ? page.wiki_content.substring(0, 150) : 'No content'}
+                      {page.wiki_content && page.wiki_content.length > 150 && '...'}
+                    </p>
+                    <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
+                      <span>{page.page_path || 'Unknown path'}</span>
+                      <span className="whitespace-nowrap">by {page.creator_id || 'Unknown'}</span>
+                      <span className="whitespace-nowrap">v{page.version || 1}</span>
+                      <span>{page.last_modified ? new Date(page.last_modified * 1000).toLocaleDateString() : 'Unknown date'}</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
-          {pages.length === 0 && (
-            <div className="text-center py-8">
-              <p className="text-gray-600 dark:text-gray-400">
-                {searchQuery ? 'No pages found matching your search' : 'No wiki pages yet'}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
+            ))}
+            {pages.length === 0 && (
+              <EmptyState
+                variant="minimal"
+                icon={<FileText className="w-12 h-12" />}
+                title={searchQuery ? 'No pages found matching your search' : 'No wiki pages yet'}
+                description={searchQuery ? 'Try adjusting your search terms' : 'Create your first wiki page to get started'}
+              />
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Create page modal */}
       {showCreatePage && (

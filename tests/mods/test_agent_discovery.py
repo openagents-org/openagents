@@ -391,9 +391,10 @@ class TestAgentDiscoveryAdapter:
         """Test adapter returns tools."""
         tools = adapter.get_tools()
 
-        assert len(tools) == 4
+        assert len(tools) == 5
         tool_names = [t.name for t in tools]
         assert "set_capabilities" in tool_names
+        assert "announce_skills" in tool_names
         assert "get_agent_capabilities" in tool_names
         assert "search_agents" in tool_names
         assert "list_agents" in tool_names

@@ -67,7 +67,7 @@ Once the network is running with MCP enabled (serve_mcp: true in network.yaml), 
 
 ### Network Configuration (network.yaml)
 
-- **Port**: HTTP on 8750, gRPC on 8650
+- **Port**: HTTP on 8700, gRPC on 8600
 - **Feed mod**: Enabled with search capability
 - **Categories**: news, elon-musk, tesla, spacex, x-twitter, neuralink
 

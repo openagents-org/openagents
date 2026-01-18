@@ -69,7 +69,7 @@
         "error": "更新网络配置文件失败"
     },
     "agents": {
-        "title": "已连接代理",
+        "title": "已连接智能体",
         "subtitle": "管理网络中连接的智能体",
         "loading": "加载智能体中...",
         "refresh": "刷新",
@@ -81,9 +81,12 @@
         "kicking": "踢出中...",
         "table": {
             "id": "智能体 ID",
+            "group": "分组",
             "status": "状态",
             "actions": "操作"
         },
+        "statusOnline": "在线",
+        "statusOffline": "离线",
         "kickConfirm": {
             "title": "踢出智能体",
             "message": "确定要踢出智能体 \"{{name}}\" 吗? 这将断开其与网络的连接。",
@@ -115,6 +118,7 @@
         "delete": "删除",
         "set": "已设置",
         "none": "无",
+        "searchPlaceholder": "搜索智能体组...",
         "table": {
             "group": "组名",
             "description": "描述",
@@ -130,14 +134,23 @@
             "nameCannotChange": "组名创建后无法修改",
             "description": "描述",
             "descriptionPlaceholder": "例如: 具有内容管理权限的管理员组",
-            "password": "密码 (可选)",
+            "password": "密码",
+            "passwordRequiredHint": "此角色需要设置密码",
             "clearPassword": "清除现有密码",
             "permissions": "权限 (逗号分隔)",
             "permissionsPlaceholder": "例如: moderate_content, ban_users, view_reports",
             "cancel": "取消",
             "create": "创建组",
             "update": "更新组",
-            "save": "保存更改"
+            "save": "保存更改",
+            "errors": {
+                "nameRequired": "组名称是必需的",
+                "nameInvalid": "组名称只能包含字母、数字和下划线",
+                "nameTooLong": "组名称不能超过64个字符",
+                "descriptionTooLong": "描述不能超过512个字符",
+                "passwordRequired": "除guests角色外，其他所有角色都需要设置密码",
+                "passwordMinLength": "密码长度至少为4个字符"
+            }
         },
         "messages": {
             "createSuccess": "组创建成功",
@@ -197,7 +210,7 @@
             "networkName": "网络名称",
             "networkMode": "网络模式",
             "modules": "模块 ({{count}})",
-            "agentGroups": "代理组 ({{count}})",
+            "agentGroups": "智能体组 ({{count}})",
             "transports": "传输协议 ({{count}})",
             "exportTime": "导出时间",
             "exportNotes": "导出备注",
@@ -213,7 +226,7 @@
         "exportOptions": {
             "title": "导出选项",
             "includePasswordHashes": "包含密码哈希",
-            "includePasswordHashesDesc": "导出代理组密码哈希值（用于恢复密码）",
+            "includePasswordHashesDesc": "导出智能体组密码哈希值（用于恢复密码）",
             "includeSensitiveConfig": "包含敏感配置",
             "includeSensitiveConfigDesc": "导出 API 密钥、密钥等敏感配置信息",
             "notes": "备注（可选）",

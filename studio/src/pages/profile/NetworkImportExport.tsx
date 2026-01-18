@@ -1,125 +1,134 @@
-import React, { useState } from "react";
-import { useTranslation } from "react-i18next";
-import { networkManagementService } from "@/services/networkManagementService";
-import { ImportMode } from "@/types/networkManagement";
-import ImportDropzone from "@/components/network/ImportDropzone";
-import ImportPreviewModal from "@/components/network/ImportPreviewModal";
-import ExportOptionsModal from "@/components/network/ExportOptionsModal";
-import ConfirmDialog from "@/components/ui/ConfirmDialog";
-import { profileSelectors } from "@/stores/profileStore";
-import { useAuthStore } from "@/stores/authStore";
-import { useOpenAgents } from "@/context/OpenAgentsProvider";
+import React, { useState } from "react"
+import { useTranslation } from "react-i18next"
+import { networkManagementService } from "@/services/networkManagementService"
+import { ImportMode } from "@/types/networkManagement"
+import ImportDropzone from "@/components/network/ImportDropzone"
+import ImportPreviewModal from "@/components/network/ImportPreviewModal"
+import ExportOptionsModal from "@/components/network/ExportOptionsModal"
+import ConfirmDialog from "@/components/ui/ConfirmDialog"
+import { profileSelectors } from "@/stores/profileStore"
+import { useAuthStore } from "@/stores/authStore"
+import { useOpenAgents } from "@/context/OpenAgentsProvider"
+import { Button } from "@/components/layout/ui/button"
 
 const NetworkImportExport: React.FC = () => {
-  const { t } = useTranslation('network');
-  const networkInfo = profileSelectors.useNetworkInfo();
-  const { selectedNetwork, agentName } = useAuthStore();
-  const { connector } = useOpenAgents();
-  const networkName = networkInfo?.networkName || "Network";
+  const { t } = useTranslation("network")
+  const networkInfo = profileSelectors.useNetworkInfo()
+  const { selectedNetwork, agentName } = useAuthStore()
+  const { connector } = useOpenAgents()
+  const networkName = networkInfo?.networkName || "Network"
 
   // Export state
-  const [showExportOptions, setShowExportOptions] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
+  const [showExportOptions, setShowExportOptions] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
 
   // Import state
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [validationResult, setValidationResult] = useState<any>(null);
-  const [showPreview, setShowPreview] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
-  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false);
-  const [pendingImportMode, setPendingImportMode] = useState<ImportMode | null>(null);
-  const [pendingNewName, setPendingNewName] = useState<string | undefined>(undefined);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [validationResult, setValidationResult] = useState<any>(null)
+  const [showPreview, setShowPreview] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
+  const [showOverwriteConfirm, setShowOverwriteConfirm] = useState(false)
+  const [pendingImportMode, setPendingImportMode] = useState<ImportMode | null>(
+    null
+  )
+  const [pendingNewName, setPendingNewName] = useState<string | undefined>(
+    undefined
+  )
 
   // Handle export
   const handleExportClick = () => {
-    setShowExportOptions(true);
-  };
+    setShowExportOptions(true)
+  }
 
   const handleExportConfirm = async (options: any) => {
-    setIsExporting(true);
-    setShowExportOptions(false);
+    setIsExporting(true)
+    setShowExportOptions(false)
 
     try {
       // Get secret and agentId for authentication
-      const secret = connector?.getSecret() || null;
-      const agentId = agentName || null;
+      const secret = connector?.getSecret() || null
+      const agentId = agentName || null
 
       if (!secret || !agentId) {
-        throw new Error(t('importExport.export.loginRequired'));
+        throw new Error(t("importExport.export.loginRequired"))
       }
 
       const blob = await networkManagementService.exportNetwork(
         options,
         agentId,
         secret
-      );
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const filename = `${networkName}_${timestamp}.zip`;
-      networkManagementService.downloadBlob(blob, filename);
+      )
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+      const filename = `${networkName}_${timestamp}.zip`
+      networkManagementService.downloadBlob(blob, filename)
     } catch (error: any) {
-      alert(t('importExport.export.failed', { error: error.message }));
+      alert(t("importExport.export.failed", { error: error.message }))
     } finally {
-      setIsExporting(false);
+      setIsExporting(false)
     }
-  };
+  }
 
   // Handle import file selection
   const handleFileSelected = async (file: File) => {
-    setSelectedFile(file);
-    setIsImporting(true);
+    setSelectedFile(file)
+    setIsImporting(true)
 
     try {
       // Get secret and agentId for authentication
-      const secret = connector?.getSecret() || null;
-      const agentId = agentName || null;
+      const secret = connector?.getSecret() || null
+      const agentId = agentName || null
 
       if (!secret || !agentId) {
-        throw new Error(t('importExport.import.loginRequired'));
+        throw new Error(t("importExport.import.loginRequired"))
       }
 
       const result = await networkManagementService.validateImport(
         file,
         agentId,
         secret
-      );
-      setValidationResult(result);
+      )
+      setValidationResult(result)
       if (result.valid) {
-        setShowPreview(true);
+        setShowPreview(true)
       } else {
-        alert(`${t('importExport.import.validationFailed')}:\n${result.errors.join("\n")}`);
+        alert(
+          `${t("importExport.import.validationFailed")}:\n${result.errors.join(
+            "\n"
+          )}`
+        )
       }
     } catch (error: any) {
-      alert(`${t('importExport.import.validationFailed')}: ${error.message}`);
+      alert(`${t("importExport.import.validationFailed")}: ${error.message}`)
     } finally {
-      setIsImporting(false);
+      setIsImporting(false)
     }
-  };
+  }
 
   // Handle import confirm
   const handleImportConfirm = (mode: ImportMode, newName?: string) => {
     if (mode === ImportMode.OVERWRITE) {
-      setPendingImportMode(mode);
-      setPendingNewName(newName);
-      setShowOverwriteConfirm(true);
+      setPendingImportMode(mode)
+      setPendingNewName(newName)
+      setShowOverwriteConfirm(true)
     } else {
-      performImport(mode, newName);
+      performImport(mode, newName)
     }
-  };
+  }
 
   const performImport = async (mode: ImportMode, newName?: string) => {
-    if (!selectedFile) return;
+    if (!selectedFile) return
 
-    setShowPreview(false);
-    setShowOverwriteConfirm(false);
-    setIsImporting(true);
+    setShowPreview(false)
+    setShowOverwriteConfirm(false)
+    setIsImporting(true)
 
     try {
       // Get secret and agentId for authentication
-      const secret = connector?.getSecret() || null;
-      const agentId = agentName || null;
+      const secret = connector?.getSecret() || null
+      const agentId = agentName || null
 
       if (!secret || !agentId) {
-        throw new Error(t('importExport.import.loginRequiredImport'));
+        throw new Error(t("importExport.import.loginRequiredImport"))
       }
 
       const result = await networkManagementService.applyImport(
@@ -128,76 +137,84 @@ const NetworkImportExport: React.FC = () => {
         newName,
         agentId,
         secret
-      );
+      )
 
       if (result.success) {
-        const appliedNetworkName = result.applied_config?.network_name || networkName;
+        const appliedNetworkName =
+          result.applied_config?.network_name || networkName
         if (result.network_restarted) {
-          alert(t('importExport.import.importSuccess', { name: appliedNetworkName }));
+          alert(
+            t("importExport.import.importSuccess", { name: appliedNetworkName })
+          )
           // Refresh profile data after successful import
           setTimeout(() => {
-            window.location.reload();
-          }, 2000);
+            window.location.reload()
+          }, 2000)
         } else {
           // 如果是异步执行，network_restarted 会是 false，但导入已启动
-          const errorMsg = result.errors && result.errors.length > 0 
-            ? result.errors.join("\n")
-            : t('importExport.import.networkRestartUnknown');
+          const errorMsg =
+            result.errors && result.errors.length > 0
+              ? result.errors.join("\n")
+              : t("importExport.import.networkRestartUnknown")
           alert(
-            t('importExport.import.importStarted', { name: appliedNetworkName, status: errorMsg })
-          );
+            t("importExport.import.importStarted", {
+              name: appliedNetworkName,
+              status: errorMsg,
+            })
+          )
         }
       } else {
-        const errorMsg = result.errors && result.errors.length > 0
-          ? result.errors.join("\n")
-          : result.message;
-        alert(t('importExport.import.importFailed', { error: errorMsg }));
+        const errorMsg =
+          result.errors && result.errors.length > 0
+            ? result.errors.join("\n")
+            : result.message
+        alert(t("importExport.import.importFailed", { error: errorMsg }))
       }
     } catch (error: any) {
-      alert(t('importExport.import.importFailed', { error: error.message }));
+      alert(t("importExport.import.importFailed", { error: error.message }))
     } finally {
-      setIsImporting(false);
-      setSelectedFile(null);
-      setValidationResult(null);
-      setPendingImportMode(null);
-      setPendingNewName(undefined);
+      setIsImporting(false)
+      setSelectedFile(null)
+      setValidationResult(null)
+      setPendingImportMode(null)
+      setPendingNewName(undefined)
     }
-  };
+  }
 
   const handleOverwriteConfirm = () => {
     if (pendingImportMode) {
-      performImport(pendingImportMode, pendingNewName);
+      performImport(pendingImportMode, pendingNewName)
     }
-  };
+  }
 
   if (!selectedNetwork) {
     return (
       <div className="p-6 dark:bg-gray-900 h-full">
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
           <p className="text-sm text-yellow-800 dark:text-yellow-200">
-            {t('importExport.connectFirst')}
+            {t("importExport.connectFirst")}
           </p>
         </div>
       </div>
-    );
+    )
   }
 
   return (
-    <div className="p-6 dark:bg-gray-900 h-full overflow-y-auto">
+    <div className="p-6 dark:bg-zinc-950 h-full overflow-y-auto">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-          {t('importExport.title')}
+          {t("importExport.title")}
         </h1>
         <p className="text-gray-600 dark:text-gray-400 mt-1">
-          {t('importExport.subtitle')}
+          {t("importExport.subtitle")}
         </p>
       </div>
 
       <div className="max-w-4xl">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Export Section */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 flex flex-col">
+          <div className="bg-white dark:bg-zinc-900 rounded-lg shadow p-6 flex flex-col">
             <div className="flex items-center mb-3">
               <div className="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mr-3">
                 <svg
@@ -215,23 +232,27 @@ const NetworkImportExport: React.FC = () => {
                 </svg>
               </div>
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {t('importExport.export.title')}
+                {t("importExport.export.title")}
               </h2>
             </div>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 flex-1">
-              {t('importExport.export.description')}
+              {t("importExport.export.description")}
             </p>
-            <button
+            <Button
               onClick={handleExportClick}
               disabled={isExporting}
-              className="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              size="lg"
+              variant="primary"
+              className="w-full"
             >
-              {isExporting ? t('importExport.export.exporting') : t('importExport.export.button')}
-            </button>
+              {isExporting
+                ? t("importExport.export.exporting")
+                : t("importExport.export.button")}
+            </Button>
           </div>
 
           {/* Import Section */}
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 flex flex-col">
+          <div className="bg-white dark:bg-zinc-900 rounded-lg shadow p-6 flex flex-col">
             <div className="flex items-center mb-3">
               <div className="w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center mr-3">
                 <svg
@@ -249,11 +270,11 @@ const NetworkImportExport: React.FC = () => {
                 </svg>
               </div>
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {t('importExport.import.title')}
+                {t("importExport.import.title")}
               </h2>
             </div>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-              {t('importExport.import.description')}
+              {t("importExport.import.description")}
             </p>
             <ImportDropzone
               onFileSelected={handleFileSelected}
@@ -274,9 +295,9 @@ const NetworkImportExport: React.FC = () => {
       <ImportPreviewModal
         isOpen={showPreview}
         onClose={() => {
-          setShowPreview(false);
-          setSelectedFile(null);
-          setValidationResult(null);
+          setShowPreview(false)
+          setSelectedFile(null)
+          setValidationResult(null)
         }}
         onConfirm={handleImportConfirm}
         validationResult={validationResult}
@@ -285,21 +306,20 @@ const NetworkImportExport: React.FC = () => {
 
       <ConfirmDialog
         isOpen={showOverwriteConfirm}
-        title={t('importExport.overwriteConfirm.title')}
-        message={t('importExport.overwriteConfirm.message')}
-        confirmText={t('importExport.overwriteConfirm.confirm')}
-        cancelText={t('importExport.overwriteConfirm.cancel')}
+        title={t("importExport.overwriteConfirm.title")}
+        message={t("importExport.overwriteConfirm.message")}
+        confirmText={t("importExport.overwriteConfirm.confirm")}
+        cancelText={t("importExport.overwriteConfirm.cancel")}
         onConfirm={handleOverwriteConfirm}
         onCancel={() => {
-          setShowOverwriteConfirm(false);
-          setPendingImportMode(null);
-          setPendingNewName(undefined);
+          setShowOverwriteConfirm(false)
+          setPendingImportMode(null)
+          setPendingNewName(undefined)
         }}
         type="warning"
       />
     </div>
-  );
-};
+  )
+}
 
-export default NetworkImportExport;
-
+export default NetworkImportExport

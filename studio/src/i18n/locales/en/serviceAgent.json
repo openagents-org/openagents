@@ -28,6 +28,7 @@
         "refreshing": "Refreshing...",
         "noAgents": "No service agents",
         "noAgentsHint": "No service agents available",
+        "searchPlaceholder": "Search agents...",
         "viewDetails": "View Details",
         "start": "Start",
         "starting": "Starting...",
@@ -81,6 +82,13 @@
             "saveFailed": "Failed to save global environment variables",
             "variableNameRequired": "Variable name is required",
             "variableExists": "Variable already exists"
+        },
+        "table": {
+            "agentId": "Agent ID",
+            "status": "Status",
+            "type": "Type",
+            "pid": "Process ID",
+            "actions": "Actions"
         }
     },
     "detail": {

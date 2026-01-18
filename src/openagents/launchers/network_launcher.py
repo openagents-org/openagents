@@ -84,6 +84,11 @@ async def async_launch_network(
                 workspace_path = str(config_dir)
                 logger.info(f"Using workspace directory (derived from config): {workspace_path}")
 
+        # Configure file logging to workspace directory (lazy import to avoid circular dependency)
+        if workspace_path:
+            from openagents.cli import configure_workspace_logging
+            configure_workspace_logging(Path(workspace_path))
+
         # Create network with workspace support
         if workspace_path:
             if not (config_path and Path(config_path).parent.resolve() == Path(workspace_path).resolve()):

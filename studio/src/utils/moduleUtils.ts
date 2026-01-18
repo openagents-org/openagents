@@ -2,17 +2,27 @@ import { PLUGIN_NAME_ENUM } from "@/types/plugins"
 import { updateRouteVisibility } from "@/config/routeConfig"
 
 // Module name to plugin enum mapping
+// Supports both short names and full qualified names from dynamic mods
 const MODULE_PLUGIN_MAP: Record<string, PLUGIN_NAME_ENUM> = {
+  // Short names
   messaging: PLUGIN_NAME_ENUM.MESSAGING,
   feed: PLUGIN_NAME_ENUM.FEED,
   project: PLUGIN_NAME_ENUM.PROJECT,
-  "openagents.mods.workspace.project": PLUGIN_NAME_ENUM.PROJECT,
   documents: PLUGIN_NAME_ENUM.DOCUMENTS,
   forum: PLUGIN_NAME_ENUM.FORUM,
   wiki: PLUGIN_NAME_ENUM.WIKI,
   agentworld: PLUGIN_NAME_ENUM.AGENTWORLD,
-  "openagents.mods.games.agentworld": PLUGIN_NAME_ENUM.AGENTWORLD,
   artifact: PLUGIN_NAME_ENUM.ARTIFACT,
+  shared_artifact: PLUGIN_NAME_ENUM.ARTIFACT,
+  // Full qualified names (dynamic mods)
+  "openagents.mods.workspace.messaging": PLUGIN_NAME_ENUM.MESSAGING,
+  "openagents.mods.workspace.feed": PLUGIN_NAME_ENUM.FEED,
+  "openagents.mods.workspace.project": PLUGIN_NAME_ENUM.PROJECT,
+  "openagents.mods.workspace.documents": PLUGIN_NAME_ENUM.DOCUMENTS,
+  "openagents.mods.workspace.forum": PLUGIN_NAME_ENUM.FORUM,
+  "openagents.mods.workspace.wiki": PLUGIN_NAME_ENUM.WIKI,
+  "openagents.mods.workspace.shared_artifact": PLUGIN_NAME_ENUM.ARTIFACT,
+  "openagents.mods.games.agentworld": PLUGIN_NAME_ENUM.AGENTWORLD,
 }
 
 // Extract enabled modules from API health check response
@@ -102,40 +112,14 @@ export const updateRouteVisibilityFromModules = (
 }
 
 /**
- * Get default route (first enabled module)
+ * Get default route - always returns user dashboard as the landing page
  */
 export const getDefaultRoute = (
   enabledModules: string[],
   hasReadme: boolean = false
 ): string => {
-  // If README content is available, prioritize the readme page
-  if (hasReadme) {
-    return "/readme"
-  }
-
-  if (enabledModules.length === 0) {
-    // If no modules enabled, fallback to profile
-    return "/profile"
-  }
-
-  // Sort modules by priority
-  const priorityOrder = [
-    "messaging",
-    "documents",
-    "forum",
-    "artifact",
-    "wiki",
-    "feed",
-  ]
-
-  for (const priority of priorityOrder) {
-    if (enabledModules.includes(priority)) {
-      return `/${priority}`
-    }
-  }
-
-  // If no matching priority module, return first available
-  return `/${enabledModules[0]}`
+  // Always redirect to user dashboard as the default landing page
+  return "/user-dashboard"
 }
 
 /**

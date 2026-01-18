@@ -2,15 +2,7 @@ import React from "react"
 import { useLocation } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import DefaultSidebar from "./DefaultSidebar"
-import MessagingSidebar from "@/pages/messaging/MessagingSidebar"
-import DocumentsSidebar from "@/pages/documents/DocumentsSidebar"
-import ForumSidebar from "@/pages/forum/ForumSidebar"
-import WikiSidebar from "@/pages/wiki/WikiSidebar"
-import ProfileSidebar from "@/pages/profile/ProfileSidebar"
-import ProjectSidebar from "@/pages/project/ProjectSidebar"
-import FeedSidebar from "@/pages/feed/FeedSidebar"
-import ArtifactSidebar from "@/pages/artifact/ArtifactSidebar"
-import ReadmeSidebar from "@/pages/readme/ReadmeSidebar"
+import UserDashboardSidebar from "@/pages/profile/UserDashboardSidebar"
 import ServiceAgentsSidebar from "@/pages/serviceagents/ServiceAgentsSidebar"
 import AdminSidebar from "@/pages/admin/AdminSidebar"
 
@@ -27,45 +19,47 @@ const SidebarContent: React.FC = () => {
 
     // AgentWorld does not display sidebar
     if (pathname.startsWith("/agentworld")) {
-      return null
+      return <UserDashboardSidebar/>
     }
 
+    // Messaging sidebar is now handled in MessagingMainPage, not here
     if (pathname.startsWith("/messaging")) {
-      return <MessagingSidebar />
+      return <UserDashboardSidebar/>
     }
 
+    // Project sidebar is now handled in ProjectMainPage, not here
     if (pathname.startsWith("/project")) {
-      // ProjectSidebar gets needed data through hooks itself
-      return <ProjectSidebar />
+      return <UserDashboardSidebar/>
     }
 
+    // Feed sidebar is now handled in FeedMainPage, not here
     if (pathname.startsWith("/feed")) {
-      return <FeedSidebar />
+      return <UserDashboardSidebar/>
     }
 
+    // Forum sidebar is now handled in ForumMainPage, not here
     if (pathname.startsWith("/forum")) {
-      // ForumSidebar gets needed data through hooks itself
-      return <ForumSidebar />
+      return <UserDashboardSidebar/>
     }
 
+    // Wiki sidebar is now handled in WikiMainPage, not here
     if (pathname.startsWith("/wiki")) {
-      // WikiSidebar gets needed data through hooks itself
-      return <WikiSidebar />
+      return <UserDashboardSidebar/>
     }
 
+    // Documents sidebar is now handled in DocumentsMainPage, not here
     if (pathname.startsWith("/documents")) {
-      // DocumentsSidebar gets needed data through hooks itself
-      return <DocumentsSidebar />
+      return <UserDashboardSidebar/>
     }
 
+    // Artifact sidebar is now handled in ArtifactMainPage, not here
     if (pathname.startsWith("/artifact")) {
-      // ArtifactSidebar gets needed data through hooks itself
-      return <ArtifactSidebar />
+      return <UserDashboardSidebar/>
     }
 
+    // Readme sidebar is now handled in ReadmeMainPage, not here
     if (pathname.startsWith("/readme")) {
-      // ReadmeSidebar gets needed data through hooks itself
-      return <ReadmeSidebar />
+      return <UserDashboardSidebar/>
     }
 
     if (pathname.startsWith("/settings")) {
@@ -101,8 +95,13 @@ const SidebarContent: React.FC = () => {
       return <AdminSidebar />
     }
 
+    if (pathname.startsWith("/user-dashboard")) {
+      return null
+    }
+
+    // Profile sidebar is now handled in ProfileMainPage, not here
     if (pathname.startsWith("/profile")) {
-      return <ProfileSidebar />
+      return <UserDashboardSidebar/>
     }
 
     if (pathname.startsWith("/studio/agents/service")) {
