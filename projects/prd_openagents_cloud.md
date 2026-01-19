@@ -103,9 +103,9 @@ Local demo (easy)          Deployment (hard - users drop off)
 │                                                                  │
 │  Your network is live:                                           │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │ https://my-research-team.cloud.openagents.com           │   │
+│  │ openagents://my-research-team                            │   │
 │  └─────────────────────────────────────────────────────────┘   │
-│  [Copy URL]  [Open Studio]                                       │
+│  [Copy URI]  [Open Studio]                                       │
 │                                                                  │
 │  ─────────────────────────────────────────────────────────────  │
 │                                                                  │
@@ -118,13 +118,13 @@ Local demo (easy)          Deployment (hard - users drop off)
 │  │                                                          │   │
 │  │ # Create agent.yaml                                      │   │
 │  │ name: my-agent                                           │   │
+│  │ network: openagents://my-research-team                  │   │
 │  │ llm:                                                     │   │
 │  │   provider: openai                                       │   │
 │  │   api_key: ${OPENAI_API_KEY}                            │   │
 │  │                                                          │   │
-│  │ # Run and connect                                        │   │
-│  │ openagents agent run agent.yaml \                        │   │
-│  │   --network https://my-research-team.cloud.openagents.com│   │
+│  │ # Run agent                                              │   │
+│  │ openagents agent run agent.yaml                          │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │  [Copy]                                                          │
 │                                                                  │
@@ -133,7 +133,7 @@ Local demo (easy)          Deployment (hard - users drop off)
 │  │ {                                                        │   │
 │  │   "mcpServers": {                                       │   │
 │  │     "my-research-team": {                               │   │
-│  │       "url": "https://my-research-team.cloud..."        │   │
+│  │       "url": "https://us1.cloud.openagents.com:10042/mcp"│   │
 │  │     }                                                    │   │
 │  │   }                                                      │   │
 │  │ }                                                        │   │
@@ -146,11 +146,18 @@ Local demo (easy)          Deployment (hard - users drop off)
 │  │                                                          │   │
 │  │ agent = Agent(                                           │   │
 │  │     name="my-agent",                                     │   │
-│  │     network="https://my-research-team.cloud...",        │   │
+│  │     network="openagents://my-research-team"             │   │
 │  │ )                                                        │   │
 │  │ agent.run()                                              │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │  [Copy]                                                          │
+│                                                                  │
+│  ─────────────────────────────────────────────────────────────  │
+│                                                                  │
+│  📋 Direct Endpoints (Advanced)                                  │
+│  HTTP:  https://us1.cloud.openagents.com:10042                  │
+│  gRPC:  us1.cloud.openagents.com:10043                          │
+│  WS:    wss://us1.cloud.openagents.com:10042/ws                 │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -195,75 +202,214 @@ Local demo (easy)          Deployment (hard - users drop off)
 
 ## 3. Technical Architecture
 
-### 3.1 Multi-tenant VPS Architecture
+### 3.1 Network Resolution Architecture
+
+Each network gets a friendly URI that resolves to actual endpoints:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    OpenAgents Cloud Server                       │
-│                    (Single VPS: 4-8GB RAM)                       │
+│                    Network Resolution Flow                       │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  Nginx (Reverse Proxy)                                           │
-│  ├── SSL termination (Let's Encrypt wildcard)                   │
-│  ├── Route: *.cloud.openagents.com → App Server                 │
-│  └── WebSocket upgrade handling                                  │
+│  User configures:                                                │
+│  network: openagents://my-research-team                         │
 │                                                                  │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                    App Server (FastAPI)                  │   │
-│  │                                                          │   │
-│  │  ┌─────────────────────────────────────────────────┐   │   │
-│  │  │              Network Manager                     │   │   │
-│  │  │                                                  │   │   │
-│  │  │  In-Memory (LRU Cache, max 100 networks)        │   │   │
-│  │  │  ├── Network "abc123" (active)                  │   │   │
-│  │  │  ├── Network "def456" (active)                  │   │   │
-│  │  │  └── Network "ghi789" (idle, will evict)        │   │   │
-│  │  │                                                  │   │   │
-│  │  │  Lazy loading: Load from disk on first request  │   │   │
-│  │  │  Eviction: Save to disk, free memory            │   │   │
-│  │  └─────────────────────────────────────────────────┘   │   │
-│  │                                                          │   │
-│  │  ┌─────────────────────────────────────────────────┐   │   │
-│  │  │              WebSocket Manager                   │   │   │
-│  │  │                                                  │   │   │
-│  │  │  Multiplexed connections:                        │   │   │
-│  │  │  wss://cloud.openagents.com/ws/{network_id}     │   │   │
-│  │  │                                                  │   │   │
-│  │  │  Routes messages to correct network instance     │   │   │
-│  │  └─────────────────────────────────────────────────┘   │   │
-│  │                                                          │   │
-│  └─────────────────────────────────────────────────────────┘   │
+│           │                                                      │
+│           ▼                                                      │
 │                                                                  │
-│  Storage                                                         │
-│  ├── /data/networks/{network_id}/network.db (SQLite per network)│
-│  ├── /data/networks/{network_id}/config.yaml                    │
-│  └── /data/users.db (User accounts, network ownership)          │
+│  Client calls Resolution API:                                    │
+│  GET https://cloud.openagents.com/resolve/my-research-team      │
+│                                                                  │
+│           │                                                      │
+│           ▼                                                      │
+│                                                                  │
+│  Response:                                                       │
+│  {                                                               │
+│    "network_id": "my-research-team",                            │
+│    "endpoints": {                                                │
+│      "http": "https://us1.cloud.openagents.com:10042",          │
+│      "grpc": "us1.cloud.openagents.com:10043",                  │
+│      "ws": "wss://us1.cloud.openagents.com:10042/ws",           │
+│      "mcp": "https://us1.cloud.openagents.com:10042/mcp"        │
+│    },                                                            │
+│    "region": "us1"                                               │
+│  }                                                               │
+│                                                                  │
+│           │                                                      │
+│           ▼                                                      │
+│                                                                  │
+│  Client connects to resolved endpoint (HTTP or gRPC)            │
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Request Flow
+### 3.2 Multi-Server Architecture
 
 ```
-Agent connects to: https://my-team.cloud.openagents.com/ws
-
-1. DNS: *.cloud.openagents.com → VPS IP
-2. Nginx: Extract subdomain "my-team" → forward to app
-3. App: NetworkManager.get_network("my-team")
-   ├── If in memory → return
-   └── If not → load from /data/networks/my-team/
-4. WebSocket established with network instance
-5. Agent registered, can send/receive messages
+┌─────────────────────────────────────────────────────────────────┐
+│  cloud.openagents.com (Control Plane)                            │
+│  ├── Resolution API: /resolve/{network_name}                    │
+│  ├── Management API: /api/cloud/networks                        │
+│  ├── User Dashboard                                              │
+│  ├── GitHub OAuth                                                │
+│  └── Network Registry (PostgreSQL)                              │
+└─────────────────────────────────────────────────────────────────┘
+                           │
+         ┌─────────────────┼─────────────────┐
+         ▼                 ▼                 ▼
+┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+│ us1.cloud.xxx   │ │ eu1.cloud.xxx   │ │ asia1.cloud.xxx │
+│ (US Region)     │ │ (EU Region)     │ │ (Asia Region)   │
+│                 │ │                 │ │                 │
+│ Port 10001: A   │ │ Port 10001: X   │ │ Port 10001: P   │
+│ Port 10002: A   │ │ Port 10002: X   │ │ Port 10002: P   │
+│ Port 10003: B   │ │ Port 10003: Y   │ │ ...             │
+│ Port 10004: B   │ │ ...             │ │                 │
+│ (HTTP)  (gRPC)  │ │                 │ │                 │
+└─────────────────┘ └─────────────────┘ └─────────────────┘
 ```
 
-### 3.3 Network Lifecycle
+### 3.3 Port Allocation Strategy
+
+Each network gets 2 dedicated ports:
+
+```
+Network "my-research-team":
+├── HTTP port: 10042 (API, WebSocket, MCP, Studio)
+└── gRPC port: 10043 (Agent connections)
+
+Network "code-review":
+├── HTTP port: 10044
+└── gRPC port: 10045
+
+Port range: 10000-60000 (50,000 ports)
+Networks per server: ~25,000 (50,000 / 2)
+```
+
+### 3.4 Network Host Server Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Network Host Server                           │
+│                    (us1.cloud.openagents.com)                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Process Manager (systemd / supervisor)                         │
+│  ├── Network "abc" process (ports 10001, 10002)                │
+│  ├── Network "def" process (ports 10003, 10004)                │
+│  └── Network "ghi" process (ports 10005, 10006)                │
+│                                                                  │
+│  OR                                                              │
+│                                                                  │
+│  Single Process with Port Multiplexing                          │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │  Network Manager                                         │   │
+│  │  ├── Listen on ports 10001-10100 (HTTP)                 │   │
+│  │  ├── Listen on ports 10101-10200 (gRPC)                 │   │
+│  │  └── Route to correct network by port                    │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                  │
+│  Storage                                                         │
+│  └── /data/networks/{network_id}/                               │
+│      ├── network.yaml                                           │
+│      └── network.db                                             │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 3.5 Network Registry Database
+
+```sql
+-- Control plane database
+CREATE TABLE networks (
+    id TEXT PRIMARY KEY,
+    name TEXT UNIQUE,              -- "my-research-team"
+    owner_id TEXT,                 -- User ID
+    server TEXT,                   -- "us1.cloud.openagents.com"
+    http_port INT,                 -- 10042
+    grpc_port INT,                 -- 10043
+    region TEXT,                   -- "us1"
+    template TEXT,                 -- "research"
+    visibility TEXT,               -- "public" or "private"
+    status TEXT,                   -- "active", "sleeping", "deleted"
+    created_at TIMESTAMP,
+    last_active_at TIMESTAMP
+);
+
+CREATE TABLE port_allocations (
+    server TEXT,
+    port INT,
+    network_id TEXT,
+    port_type TEXT,                -- "http" or "grpc"
+    PRIMARY KEY (server, port)
+);
+```
+
+### 3.6 Resolution API
+
+```python
+# GET /resolve/{network_name}
+@app.get("/resolve/{network_name}")
+async def resolve_network(network_name: str):
+    network = db.get_network_by_name(network_name)
+    if not network:
+        raise HTTPException(404, "Network not found")
+
+    return {
+        "network_id": network.id,
+        "name": network.name,
+        "endpoints": {
+            "http": f"https://{network.server}:{network.http_port}",
+            "grpc": f"{network.server}:{network.grpc_port}",
+            "ws": f"wss://{network.server}:{network.http_port}/ws",
+            "mcp": f"https://{network.server}:{network.http_port}/mcp"
+        },
+        "region": network.region,
+        "status": network.status
+    }
+```
+
+### 3.7 Client Resolution Flow
+
+```python
+# In openagents client SDK
+class NetworkResolver:
+    RESOLUTION_SERVER = "https://cloud.openagents.com"
+
+    def resolve(self, network_uri: str) -> dict:
+        """Resolve openagents:// URI to actual endpoints."""
+
+        # Parse openagents://my-network
+        if network_uri.startswith("openagents://"):
+            network_name = network_uri.replace("openagents://", "")
+
+            response = requests.get(
+                f"{self.RESOLUTION_SERVER}/resolve/{network_name}"
+            )
+            if response.status_code == 404:
+                raise NetworkNotFoundError(network_name)
+
+            return response.json()["endpoints"]
+
+        # Already a direct URL (http:// or grpc://), return as-is
+        return {"http": network_uri}
+
+# Usage in agent
+agent = Agent(
+    name="my-agent",
+    network="openagents://my-research-team"  # Auto-resolved
+)
+```
+
+### 3.8 Network Lifecycle
 
 ```
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
 │   Created   │───►│   Active    │───►│  Sleeping   │
 │             │    │             │    │             │
-│ In DB only  │    │ In memory   │    │ On disk     │
-│             │    │ Serving     │    │ Evicted     │
+│ Ports       │    │ Process     │    │ Process     │
+│ allocated   │    │ running     │    │ stopped     │
+│ In registry │    │ Serving     │    │ Ports held  │
 └─────────────┘    └─────────────┘    └─────────────┘
                           │                  │
                           │   No activity    │
@@ -277,7 +423,8 @@ Agent connects to: https://my-team.cloud.openagents.com/ws
                                   │
                           ┌──────▼───────┐
                           │  Wake up     │
-                          │  (lazy load) │
+                          │  Start proc  │
+                          │  (~2 sec)    │
                           └──────────────┘
 ```
 
@@ -285,7 +432,34 @@ Agent connects to: https://my-team.cloud.openagents.com/ws
 
 ## 4. API Design
 
-### 4.1 Cloud Management API
+### 4.1 Resolution API (Public)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `GET /resolve/{network_name}` | GET | Resolve network name to endpoints |
+
+**Example:**
+```http
+GET /resolve/my-research-team
+```
+
+**Response:**
+```json
+{
+  "network_id": "abc123",
+  "name": "my-research-team",
+  "endpoints": {
+    "http": "https://us1.cloud.openagents.com:10042",
+    "grpc": "us1.cloud.openagents.com:10043",
+    "ws": "wss://us1.cloud.openagents.com:10042/ws",
+    "mcp": "https://us1.cloud.openagents.com:10042/mcp"
+  },
+  "region": "us1",
+  "status": "active"
+}
+```
+
+### 4.2 Cloud Management API (Authenticated)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -296,7 +470,7 @@ Agent connects to: https://my-team.cloud.openagents.com/ws
 | `GET /api/cloud/networks/{id}/stats` | GET | Get network statistics |
 | `POST /api/cloud/networks/{id}/wake` | POST | Force wake sleeping network |
 
-### 4.2 Request/Response Examples
+### 4.3 Request/Response Examples
 
 **Create Network:**
 ```http
@@ -306,7 +480,8 @@ Authorization: Bearer {user_token}
 {
   "name": "my-research-team",
   "template": "research",
-  "visibility": "public"
+  "visibility": "public",
+  "region": "us1"
 }
 ```
 
@@ -315,13 +490,20 @@ Authorization: Bearer {user_token}
 {
   "id": "abc123",
   "name": "my-research-team",
-  "url": "https://my-research-team.cloud.openagents.com",
+  "uri": "openagents://my-research-team",
+  "endpoints": {
+    "http": "https://us1.cloud.openagents.com:10042",
+    "grpc": "us1.cloud.openagents.com:10043",
+    "ws": "wss://us1.cloud.openagents.com:10042/ws",
+    "mcp": "https://us1.cloud.openagents.com:10042/mcp"
+  },
+  "region": "us1",
   "status": "active",
   "created_at": "2025-01-15T10:30:00Z",
   "mcp_config": {
     "mcpServers": {
       "my-research-team": {
-        "url": "https://my-research-team.cloud.openagents.com/mcp"
+        "url": "https://us1.cloud.openagents.com:10042/mcp"
       }
     }
   }
@@ -491,21 +673,25 @@ Phase 3: Kubernetes (Scale)
 | ID | Requirement | Priority |
 |----|-------------|----------|
 | CL-01 | One-click network creation | P0 |
-| CL-02 | Instant URL assignment | P0 |
-| CL-03 | GitHub OAuth login | P0 |
-| CL-04 | Network templates (research, support, etc.) | P0 |
-| CL-05 | Copy-paste connection instructions | P0 |
-| CL-06 | MCP config generation | P0 |
-| CL-07 | Dashboard with network list | P0 |
-| CL-08 | Network deletion | P0 |
-| CL-09 | Free tier limits enforcement | P0 |
-| CL-10 | Network sleep/wake on idle | P1 |
-| CL-11 | Usage statistics | P1 |
-| CL-12 | Export network config | P1 |
-| CL-13 | Upgrade prompts | P1 |
-| CL-14 | Custom network settings | P2 |
-| CL-15 | Network sharing/transfer | P2 |
-| CL-16 | Webhook notifications | P2 |
+| CL-02 | openagents:// URI scheme support | P0 |
+| CL-03 | Network resolution API | P0 |
+| CL-04 | Port allocation per network (HTTP + gRPC) | P0 |
+| CL-05 | GitHub OAuth login | P0 |
+| CL-06 | Network templates (research, support, etc.) | P0 |
+| CL-07 | Copy-paste connection instructions | P0 |
+| CL-08 | MCP config generation with resolved endpoint | P0 |
+| CL-09 | Dashboard with network list | P0 |
+| CL-10 | Network deletion | P0 |
+| CL-11 | Free tier limits enforcement | P0 |
+| CL-12 | Client SDK resolver for openagents:// URIs | P0 |
+| CL-13 | Network sleep/wake on idle | P1 |
+| CL-14 | Usage statistics | P1 |
+| CL-15 | Export network config | P1 |
+| CL-16 | Upgrade prompts | P1 |
+| CL-17 | Multi-region support (us1, eu1, asia1) | P1 |
+| CL-18 | Custom network settings | P2 |
+| CL-19 | Network sharing/transfer | P2 |
+| CL-20 | Webhook notifications | P2 |
 
 ---
 
@@ -524,14 +710,19 @@ Phase 3: Kubernetes (Scale)
 ## 11. Acceptance Criteria
 
 - [ ] User can sign up with GitHub in < 30 seconds
-- [ ] User can create network and get URL in < 1 minute
-- [ ] Agent can connect to hosted network via CLI
-- [ ] Agent can connect via MCP config
+- [ ] User can create network and get openagents:// URI in < 1 minute
+- [ ] Resolution API returns correct endpoints for network name
+- [ ] Each network gets dedicated HTTP and gRPC ports
+- [ ] Agent can connect using openagents:// URI (auto-resolved)
+- [ ] Agent can connect via direct HTTP endpoint
+- [ ] Agent can connect via direct gRPC endpoint
+- [ ] Agent can connect via MCP config with resolved URL
 - [ ] Studio UI works with hosted networks
-- [ ] Networks sleep after 30 min idle
-- [ ] Networks wake on request in < 2 seconds
+- [ ] Networks sleep after 30 min idle (process stopped, ports held)
+- [ ] Networks wake on request in < 3 seconds
 - [ ] Free tier limits are enforced
 - [ ] Upgrade path is clear when limits hit
+- [ ] Client SDK correctly resolves openagents:// URIs
 
 ---
 
