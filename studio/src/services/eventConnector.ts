@@ -55,6 +55,7 @@ export class HttpEventConnector {
   private passwordHash: string | null = null;
   private agentGroup: string | null = null;
   private isReregistering = false; // Flag to prevent concurrent re-registration attempts
+  private isPolling = false; // Flag to prevent concurrent poll requests
   private reregisterPromise: Promise<boolean> | null = null; // Promise for concurrent callers to wait on
   private instanceId: string; // Unique ID for this connector instance (for debugging)
   private registryKey: string; // Key used in the static registry
@@ -66,6 +67,7 @@ export class HttpEventConnector {
    */
   static getInstance(options: ConnectionOptions): HttpEventConnector {
     const key = HttpEventConnector.generateRegistryKey(options);
+    console.log(`🔑 getInstance called with key: ${key} (registry size: ${HttpEventConnector.activeConnectors.size})`);
     const existing = HttpEventConnector.activeConnectors.get(key);
 
     if (existing && !existing.connectionAborted) {
@@ -200,9 +202,10 @@ export class HttpEventConnector {
       this.isConnecting = false;
 
       // Start polling for events
+      console.log(`🚀 [${this.instanceId}] Starting event polling...`);
       this.startEventPolling();
 
-      console.log("✅ Connected to OpenAgents network successfully");
+      console.log(`✅ [${this.instanceId}] Connected to OpenAgents network successfully`);
       this.emit("connected", { agentId: this.agentId });
 
       return true;
@@ -699,16 +702,34 @@ export class HttpEventConnector {
    * Start polling for events
    */
   private startEventPolling(): void {
+    // Guard: Clear any existing polling interval before starting a new one
+    if (this.pollingInterval) {
+      console.log(`⚠️ [${this.instanceId}] Clearing existing polling interval before starting new one`);
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
+    }
+
+    console.log(`🔄 [${this.instanceId}] Starting new polling interval`);
     this.pollingInterval = setInterval(async () => {
       if (!this.connected || this.connectionAborted) {
         return;
       }
 
+      // Prevent concurrent poll requests - if a previous poll is still in progress
+      // (e.g., during re-registration), skip this interval to avoid race conditions
+      if (this.isPolling) {
+        console.log("⏭️ Skipping poll - previous poll still in progress");
+        return;
+      }
+
+      this.isPolling = true;
       try {
         await this.pollEvents();
       } catch (error) {
         console.error("Event polling error:", error);
         this.handleReconnect();
+      } finally {
+        this.isPolling = false;
       }
     }, 2000); // Poll every 2 seconds
   }
@@ -722,6 +743,8 @@ export class HttpEventConnector {
       const secretParam = this.secret
         ? `&secret=${encodeURIComponent(this.secret)}`
         : "";
+      // Add instance ID to track which connector is polling
+      console.log(`🔍 [${this.instanceId}] Polling with secret: ${this.secret?.substring(0, 8)}...`);
       const response = await this.sendHttpRequest(
         `/api/poll?agent_id=${this.agentId}${secretParam}`,
         "GET"

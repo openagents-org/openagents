@@ -31,7 +31,9 @@ export class EventNetworkService {
     this.agentId = options.agentId;
     this.connection = options.connection;
 
-    this.connector = new HttpEventConnector({
+    // Use getInstance() to ensure singleton behavior - prevents multiple connectors
+    // from fighting over the same agent_id's secret
+    this.connector = HttpEventConnector.getInstance({
       host: this.connection.host,
       port: this.connection.port,
       agentId: this.agentId,

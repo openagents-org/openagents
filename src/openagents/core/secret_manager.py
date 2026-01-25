@@ -35,7 +35,7 @@ class SecretManager:
         # Store the secret
         self._agent_secrets[agent_id] = secret
 
-        logger.debug(f"Generated secret for agent {agent_id}")
+        logger.info(f"🔐 Generated secret for agent {agent_id}: {secret[:8]}... (stored, total agents: {len(self._agent_secrets)})")
         return secret
 
     def validate_secret(self, agent_id: str, secret: str) -> bool:
@@ -53,12 +53,14 @@ class SecretManager:
 
         stored_secret = self._agent_secrets.get(agent_id)
         if not stored_secret:
-            logger.warning(f"No secret found for agent {agent_id}")
+            logger.warning(f"🔐 No secret found for agent {agent_id} (agents with secrets: {list(self._agent_secrets.keys())})")
             return False
 
         is_valid = secrets.compare_digest(stored_secret, secret)
         if not is_valid:
-            logger.warning(f"Invalid secret provided for agent {agent_id}")
+            logger.warning(f"🔐 Invalid secret for agent {agent_id}: provided={secret[:8]}... stored={stored_secret[:8]}...")
+        else:
+            logger.debug(f"🔐 Secret validated for agent {agent_id}")
 
         return is_valid
 
