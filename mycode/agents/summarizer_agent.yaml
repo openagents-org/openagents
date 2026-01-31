@@ -1,0 +1,27 @@
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+agent_id: "summarizer_agent"
+config:
+  model_name: "auto"
+  instruction: |
+    You are SummarizerAgent, a professional document organizer.
+    YOUR ROLE:
+    1. Receive all sub-task results from Dispatcher
+    2. Integrate the information into a structured Markdown document
+    3. The document must have clear sections: Title, Overview, Details, Tips
+    4. Return the document content to Dispatcher, only respond to Dispatcher
+
+    BEHAVIOR:
+    - The document must be easy to read, with clear headings
+    - Do not include redundant information
+    - Add a "Tips" section at the end (1-2 key reminders)
+
+  react_to_all_messages: false
+mods:
+  - name: "openagents.mods.workspace.messaging"
+    enabled: true
+  - name: "openagents.mods.tools.document"
+    enabled: true  # 文档生成模块
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "grpc"

@@ -1,0 +1,27 @@
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+agent_id: "planner_agent"
+config:
+  model_name: "auto"
+  instruction: |
+    You are PlannerAgent, a professional schedule planner.
+    YOUR ROLE:
+    1. Receive planning tasks from Dispatcher (trip, daily schedule)
+    2. Combine information from SearchAgent (weather, flight) to make a reasonable plan
+    3. Split the plan into step-by-step items, easy to follow
+    4. Return the plan to Dispatcher, only respond to Dispatcher
+
+    BEHAVIOR:
+    - The plan must be practical (e.g., avoid outdoor activities if it rains)
+    - Split the plan by time periods (morning/afternoon/evening)
+    - Add 1-2 tips (e.g., wear comfortable shoes for travel)
+
+  react_to_all_messages: false
+mods:
+  - name: "openagents.mods.workspace.messaging"
+    enabled: true
+  - name: "openagents.mods.tools.calendar"
+    enabled: true  # 日历规划模块
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "grpc"

@@ -1,0 +1,74 @@
+network:
+  name: PersonalAssistantNetwork
+  mode: centralized
+  node_id: personal-assistant-1
+  initialized: true
+  transports:
+  - type: http
+    config:
+      port: 8700
+      serve_studio: true
+      serve_mcp: true
+  - type: grpc
+    config:
+      port: 8600
+      max_message_size: 104857600
+      compression: gzip
+      keepalive_time: 60000
+      keepalive_timeout: 30000
+  manifest_transport: http
+  recommended_transport: grpc
+  encryption_enabled: false
+  discovery_interval: 10
+  discovery_enabled: true
+  max_connections: 10
+  connection_timeout: 30.0
+  retry_attempts: 3
+  heartbeat_interval: 60
+  agent_timeout: 180
+  message_queue_size: 1000
+  message_timeout: 30.0
+  message_routing_enabled: true
+  agent_groups:
+    admin:
+      description: Administrator agents with full permissions
+      password_hash: 8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918
+      metadata:
+        permissions:
+        - all
+  mods:
+  - name: openagents.mods.workspace.messaging
+    enabled: true
+    config:
+      default_channels:
+      - name: personal-assistant-main
+        description: Main channel for personal task management (schedule, search, summary)
+      - name: task-results
+        description: Channel for storing task results (documents, schedules)
+      max_thread_depth: 5
+      thread_collapse_threshold: 10
+  created_by_version: 0.8.5.post5
+network_profile:
+  discoverable: true
+  name: Personal Assistant Network
+  description: A multi-agent system for personal task management - dispatcher, searcher, planner, summarizer collaborate to handle daily tasks  # 5. 修改描述：贴合个人事务助手
+  tags:
+  - personal-assistant
+  - task-management
+  - multi-agent
+  - automation
+  categories:
+  - productivity
+  - personal
+  - collaboration
+  country: Worldwide
+  required_openagents_version: 0.6.13
+  capacity: 10
+  authentication:
+    type: none
+  host: 0.0.0.0
+  port: 8700
+log_level: INFO
+data_dir: ./data/personal-assistant-network
+runtime_limit: null
+shutdown_timeout: 30

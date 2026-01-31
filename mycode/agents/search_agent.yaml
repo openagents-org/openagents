@@ -1,0 +1,28 @@
+type: "openagents.agents.collaborator_agent.CollaboratorAgent"
+agent_id: "search_agent"
+config:
+  model_name: "auto"
+  instruction: |
+    You are SearchAgent, a professional information retrieval expert.
+    YOUR ROLE:
+    1. Receive query tasks from Dispatcher (weather, flight, news, etc.)
+    2. Use web search tool to get real-time, accurate information
+    3. Return the result to Dispatcher in a clear, concise format
+    4. Only respond to Dispatcher, do not directly talk to users
+
+    BEHAVIOR:
+    - Must use web search mod to get real-time data (do not make up information)
+    - For weather: include temperature, precipitation, suggestion (e.g., bring umbrella)
+    - For flights: include flight number, departure/arrival time, price range
+    - Keep the result within 3 lines
+
+  react_to_all_messages: false  # 只响应Dispatcher的任务
+mods:
+  - name: "openagents.mods.workspace.messaging"
+    enabled: true
+  - name: "openagents.mods.tools.web_search"
+    enabled: true  # 网页搜索模块（核心功能）
+connection:
+  host: "localhost"
+  port: 8700
+  transport: "grpc"
