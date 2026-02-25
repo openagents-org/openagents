@@ -1507,7 +1507,7 @@ class HttpTransport(Transport):
         if self._relay_ws and not self._relay_ws.closed:
             try:
                 await self._relay_ws.send_json({"type": "unregister"})
-            except:
+            except Exception:
                 pass
             await self._relay_ws.close()
 
@@ -1526,7 +1526,7 @@ class HttpTransport(Transport):
             try:
                 data = await request.json()
                 relay_url = data.get("relay_url", DEFAULT_RELAY_URL)
-            except:
+            except Exception:
                 relay_url = DEFAULT_RELAY_URL
 
             # Check if already connected

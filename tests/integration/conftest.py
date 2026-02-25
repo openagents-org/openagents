@@ -104,9 +104,9 @@ async def hello_world_network(hello_world_network_config_path) -> Tuple:
                         if resp.status == 200:
                             print(f"Network health check passed on attempt {attempt + 1}")
                             break
-                except:
+                except Exception:
                     pass
-        except:
+        except Exception:
             pass
 
         if attempt < max_retries - 1:

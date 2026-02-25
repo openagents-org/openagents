@@ -56,7 +56,7 @@ async def test_network():
             print(f"❌ Network initialization failed on attempt {attempt + 1}, retrying...")
             try:
                 await network.shutdown()
-            except:
+            except Exception:
                 pass
             if attempt == max_retries - 1:
                 raise RuntimeError(f"Failed to initialize network after {max_retries} attempts")

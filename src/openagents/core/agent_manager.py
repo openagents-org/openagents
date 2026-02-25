@@ -433,7 +433,7 @@ class AgentManager:
             if agent_info.log_file_handle:
                 try:
                     agent_info.log_file_handle.close()
-                except:
+                except Exception:
                     pass
                 agent_info.log_file_handle = None
             
@@ -507,7 +507,7 @@ class AgentManager:
                     agent_info.log_file_handle.write(f"[{timestamp}] Agent stopped\n")
                     agent_info.log_file_handle.write(f"{'='*60}\n\n")
                     agent_info.log_file_handle.close()
-                except:
+                except Exception:
                     pass
                 agent_info.log_file_handle = None
 
@@ -813,7 +813,7 @@ class AgentManager:
                 try:
                     with open(env_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
-                except:
+                except Exception:
                     pass
 
             # Update env vars
@@ -941,7 +941,7 @@ class AgentManager:
                                     )
                                     agent_info.log_file_handle.write(f"{'='*60}\n\n")
                                     agent_info.log_file_handle.close()
-                                except:
+                                except Exception:
                                     pass
                                 agent_info.log_file_handle = None
                             

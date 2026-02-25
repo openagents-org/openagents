@@ -469,7 +469,7 @@ class AgentRunner(ABC):
                                 msg_payload_preview = payload_str[:300] + "..."
                             else:
                                 msg_payload_preview = payload_str
-                        except:
+                        except Exception:
                             msg_payload_preview = str(unprocessed_message.payload)[:300]
 
                     event_name = getattr(unprocessed_message, 'event_name', 'unknown')
@@ -902,7 +902,7 @@ class AgentRunner(ABC):
             try:
                 self._loop_task.cancel()
                 await asyncio.sleep(0.1)  # Give the task a moment to cancel
-            except:
+            except Exception:
                 pass
         await self.client.disconnect()
 

@@ -14,7 +14,7 @@ def get_terminal_width() -> int:
     """
     try:
         return shutil.get_terminal_size().columns
-    except:
+    except Exception:
         return 100  # Default fallback
 
 

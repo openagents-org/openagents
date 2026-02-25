@@ -292,21 +292,21 @@ TBD - needs resource planning"""
             for agent in self.agents.values():
                 try:
                     await agent.close_document(self.demo_document_id)
-                except:
+                except Exception:
                     pass
         
         # Stop agents
         for agent in self.agents.values():
             try:
                 await agent.stop()
-            except:
+            except Exception:
                 pass
         
         # Stop network
         if self.network_manager:
             try:
                 await self.network_manager.stop()
-            except:
+            except Exception:
                 pass
         
         print("✅ Cleanup completed")

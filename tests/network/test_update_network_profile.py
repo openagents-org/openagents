@@ -101,7 +101,7 @@ async def network_with_profile():
     await network.shutdown()
     try:
         os.unlink(config_path)
-    except:
+    except Exception:
         pass
 
 

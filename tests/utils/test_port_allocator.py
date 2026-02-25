@@ -137,7 +137,7 @@ async def test_wait_for_port_free():
     finally:
         try:
             sock.close()
-        except:
+        except Exception:
             pass
         release_port(port)
 

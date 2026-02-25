@@ -233,7 +233,7 @@ def fetch_all_elon_news(count_per_source: int = 5) -> List[Dict]:
             dt = datetime.fromisoformat(item.get("published_date", ""))
             # Convert to timestamp for consistent comparison
             return dt.timestamp()
-        except:
+        except Exception:
             return 0.0
 
     all_items.sort(key=get_date, reverse=True)

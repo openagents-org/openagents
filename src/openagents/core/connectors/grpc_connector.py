@@ -369,7 +369,7 @@ class GRPCNetworkConnector(NetworkConnector):
                         response_data = {
                             "raw_response": response.data.value.decode("utf-8")
                         }
-                    except:
+                    except Exception:
                         response_data = {"error": "Failed to decode response data"}
 
             if response.success:
@@ -590,7 +590,7 @@ class GRPCNetworkConnector(NetworkConnector):
                 return {
                     k: self._make_json_serializable(v) for k, v in obj.__dict__.items()
                 }
-            except:
+            except Exception:
                 return str(obj)
         else:
             # Try to serialize directly, fallback to string representation

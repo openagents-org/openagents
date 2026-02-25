@@ -535,7 +535,7 @@ class AgentClient:
                             out_payload_preview = payload_str[:500] + "..."
                         else:
                             out_payload_preview = payload_str
-                    except:
+                    except Exception:
                         out_payload_preview = str(processed_event.payload)[:500]
 
                 # Print colored box for sending event
@@ -746,7 +746,7 @@ class AgentClient:
                     payload_preview = payload_str[:500] + "..."
                 else:
                     payload_preview = payload_str
-            except:
+            except Exception:
                 payload_preview = str(event.payload)[:500]
 
         # Print colored box for received event
