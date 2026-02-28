@@ -29,6 +29,12 @@ from .pydantic_ai_agent import (
     openagents_tool_to_pydantic,
     pydantic_tool_to_openagents,
 )
+from .smolagents_agent import (
+    SmolagentsAgentRunner,
+    create_smolagents_runner,
+    openagents_tool_to_smolagents,
+    smolagents_tool_to_openagents,
+)
 
 __all__ = [
     "AgentRunner",
@@ -54,4 +60,9 @@ __all__ = [
     "create_pydantic_runner",
     "openagents_tool_to_pydantic",
     "pydantic_tool_to_openagents",
+    # Smolagents integration
+    "SmolagentsAgentRunner",
+    "create_smolagents_runner",
+    "openagents_tool_to_smolagents",
+    "smolagents_tool_to_openagents",
 ]
