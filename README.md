@@ -381,3 +381,14 @@ Thank you to all the contributors who have helped make OpenAgents better!
 - General stability improvements
 
 ---
+
+
+## 使用示例
+
+```python
+import package_name
+
+# 基本用法
+result = package_name.do_something()
+print(result)
+```
