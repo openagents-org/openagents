@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react"
 import { useTranslation } from "react-i18next"
+import { useConfirm } from "@/context/ConfirmContext"
 import { ColumnDef } from "@tanstack/react-table"
 import {
   eventLogService,
@@ -27,6 +28,7 @@ type TabType = "events" | "http"
 
 const EventLogs: React.FC = () => {
   const { t } = useTranslation("admin")
+  const { confirm } = useConfirm()
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [activeTab, setActiveTab] = useState<TabType>("events")
   const [refreshing, setRefreshing] = useState(false)
@@ -73,11 +75,18 @@ const EventLogs: React.FC = () => {
   }, [loadLogs])
 
   // Clear logs
-  const handleClearLogs = () => {
-    if (window.confirm(t("eventLogs.clearConfirm"))) {
-      eventLogService.clearLogs()
-      setSelectedLog(null)
-    }
+  const handleClearLogs = async () => {
+    const confirmed = await confirm(
+      t("eventLogs.clearLogs"),
+      t("eventLogs.clearConfirm"),
+      {
+        confirmText: t("eventLogs.clearLogs"),
+        type: "warning",
+      }
+    )
+    if (!confirmed) return
+    eventLogService.clearLogs()
+    setSelectedLog(null)
   }
 
   // Format time

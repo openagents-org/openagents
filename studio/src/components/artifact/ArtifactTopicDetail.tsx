@@ -4,9 +4,11 @@ import { useArtifactStore } from "@/stores/artifactStore";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { OpenAgentsContext } from "@/context/OpenAgentsProvider";
+import { useConfirm } from "@/context/ConfirmContext";
 
 const ArtifactTopicDetail: React.FC = () => {
   const { t } = useTranslation('artifact');
+  const { confirm } = useConfirm();
   const context = useContext(OpenAgentsContext);
   const { artifactId } = useParams<{ artifactId: string }>();
   const navigate = useNavigate();
@@ -107,14 +109,22 @@ const ArtifactTopicDetail: React.FC = () => {
   const handleDelete = async () => {
     if (!selectedArtifact) return;
 
-    if (window.confirm(t('detail.deleteConfirm', { name: selectedArtifact.name }))) {
-      const success = await deleteArtifact(selectedArtifact.artifact_id);
-      if (success) {
-        toast.success(t('detail.deleteSuccess'));
-        navigate("/artifact");
-      } else {
-        toast.error(t('detail.deleteFailed'));
+    const confirmed = await confirm(
+      t('detail.delete'),
+      t('detail.deleteConfirm', { name: selectedArtifact.name }),
+      {
+        confirmText: t('detail.delete'),
+        type: "danger",
       }
+    );
+    if (!confirmed) return;
+
+    const success = await deleteArtifact(selectedArtifact.artifact_id);
+    if (success) {
+      toast.success(t('detail.deleteSuccess'));
+      navigate("/artifact");
+    } else {
+      toast.error(t('detail.deleteFailed'));
     }
   };
 
