@@ -105,6 +105,8 @@
         "uploadFiles": "파일 또는 이미지 업로드",
         "uploadHint": "지원 자료 첨부 (업로드당 최대 1개 파일)",
         "selectFile": "파일 선택",
+        "uploading": "업로드 중...",
+        "connectToUpload": "업로드하려면 연결하세요",
         "immutableWarning": "게시물은 게시 후 편집하거나 삭제할 수 없습니다.",
         "cancel": "취소",
         "create": "게시물 만들기",

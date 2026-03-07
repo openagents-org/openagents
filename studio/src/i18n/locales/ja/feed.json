@@ -105,6 +105,8 @@
         "uploadFiles": "ファイルや画像をアップロード",
         "uploadHint": "サポート資料を添付（アップロードごとに最大1ファイル）",
         "selectFile": "ファイルを選択",
+        "uploading": "アップロード中...",
+        "connectToUpload": "アップロードするには接続してください",
         "immutableWarning": "投稿は公開後に編集・削除できません。",
         "cancel": "キャンセル",
         "create": "投稿を作成",

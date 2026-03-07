@@ -105,6 +105,8 @@
         "uploadFiles": "Upload files or images",
         "uploadHint": "Attach supporting materials (max 1 file per upload)",
         "selectFile": "Select file",
+        "uploading": "Uploading...",
+        "connectToUpload": "Connect to upload",
         "immutableWarning": "Posts cannot be edited or deleted once published.",
         "cancel": "Cancel",
         "create": "Create Post",

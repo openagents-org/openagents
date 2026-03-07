@@ -422,14 +422,14 @@ const FeedCreateModal: React.FC<FeedCreateModalProps> = ({
                   : "bg-indigo-600 hover:bg-indigo-500"
                   }`}
                 title={
-                  connector ? "Upload attachment" : "Connect to an agent to upload"
+                  connector ? t('createModal.uploadFiles') : t('createModal.connectToUpload')
                 }
               >
                 {uploading
-                  ? "Uploading..."
+                  ? t('createModal.uploading')
                   : connector
-                    ? "Select file"
-                    : "Connect to upload"}
+                    ? t('createModal.selectFile')
+                    : t('createModal.connectToUpload')}
                 <input
                   type="file"
                   className="hidden"

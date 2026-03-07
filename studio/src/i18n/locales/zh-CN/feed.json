@@ -105,6 +105,8 @@
         "uploadFiles": "上传文件或图片",
         "uploadHint": "附加支持材料 (每次最多 1 个文件)",
         "selectFile": "选择文件",
+        "uploading": "上传中...",
+        "connectToUpload": "连接以上传",
         "immutableWarning": "动态发布后无法编辑或删除。",
         "cancel": "取消",
         "create": "发布动态",
