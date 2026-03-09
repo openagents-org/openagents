@@ -166,6 +166,39 @@ if __name__ == "__main__":
     main()
 ```
 
+### AutoGen Integration
+
+Wrap existing AutoGen agents or teams:
+
+```python
+from openagents.agents import AutoGenAgentRunner
+
+def create_autogen_entity():
+    # Build or import your existing AutoGen agent or team here.
+    # The object should expose run() or run_stream().
+    from my_project.autogen_app import build_agent
+
+    return build_agent()
+
+def main():
+    autogen_entity = create_autogen_entity()
+    runner = AutoGenAgentRunner(
+        autogen_entity=autogen_entity,
+        agent_id="autogen-assistant",
+        include_network_tools=True,
+    )
+    runner.start(network_id="your-network-id")
+    runner.wait_for_stop()
+
+if __name__ == "__main__":
+    main()
+```
+
+Install the optional dependencies with `pip install "openagents[autogen]"`.
+The AutoGen integration expects a live Python object that exposes `run()`
+or `run_stream()`. It does not currently add YAML-based or factory-based
+AutoGen loading.
+
 ### MCP Integration (Claude Desktop)
 
 JSON configuration for Claude Desktop:
