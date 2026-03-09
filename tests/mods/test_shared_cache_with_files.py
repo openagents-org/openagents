@@ -11,14 +11,21 @@ This test suite verifies the shared cache file operations:
 
 import pytest
 import asyncio
-import random
 import base64
+import socket
 from pathlib import Path
 
 from openagents.core.client import AgentClient
 from openagents.core.network import create_network
 from openagents.launchers.network_launcher import load_network_config
 from openagents.models.event import Event, EventVisibility
+
+
+def _get_free_port() -> int:
+    """Ask the OS for a currently free loopback TCP port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 @pytest.fixture
@@ -31,42 +38,21 @@ async def shared_cache_file_test_network():
         / "test_shared_cache.yaml"
     )
 
-    max_retries = 5
-    last_error = None
+    # Load config and use OS-assigned free ports to avoid collisions.
+    config = load_network_config(str(config_path))
+    grpc_port = _get_free_port()
+    http_port = _get_free_port()
 
-    for attempt in range(max_retries):
-        # Load config and use random port to avoid conflicts
-        config = load_network_config(str(config_path))
+    for transport in config.network.transports:
+        if transport.type == "grpc":
+            transport.config["host"] = "127.0.0.1"
+            transport.config["port"] = grpc_port
+        elif transport.type == "http":
+            transport.config["host"] = "127.0.0.1"
+            transport.config["port"] = http_port
 
-        # Update the gRPC transport port to avoid conflicts.
-        # File cache test range: 46000-46999
-        grpc_port = random.randint(46000, 46499)
-        http_port = grpc_port + 500
-
-        for transport in config.network.transports:
-            if transport.type == "grpc":
-                transport.config["port"] = grpc_port
-            elif transport.type == "http":
-                transport.config["port"] = http_port
-
-        network = create_network(config.network)
-        try:
-            await network.initialize()
-            break
-        except OSError as error:
-            last_error = error
-            if "address already in use" in str(error).lower():
-                print(
-                    f"Port {grpc_port}/{http_port} in use, retrying..."
-                    f" (attempt {attempt + 1}/{max_retries})"
-                )
-                await asyncio.sleep(0.5)
-                continue
-            raise
-    else:
-        raise last_error or RuntimeError(
-            "Failed to initialize shared cache file test network"
-        )
+    network = create_network(config.network)
+    await network.initialize()
 
     # Give network time to start up and verify HTTP readiness.
     await asyncio.sleep(1.0)
@@ -77,7 +63,7 @@ async def shared_cache_file_test_network():
 
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    f"http://localhost:{http_port}/api/health",
+                    f"http://127.0.0.1:{http_port}/api/health",
                     timeout=aiohttp.ClientTimeout(total=1.0),
                 ) as response:
                     if response.status == 200:
@@ -122,9 +108,9 @@ async def admin_client(shared_cache_file_test_network):
 
     client = AgentClient(agent_id="admin_file_agent")
     connected = await client.connect(
-        "localhost", http_port, password_hash=admin_password_hash
+        "127.0.0.1", http_port, password_hash=admin_password_hash
     )
-    assert connected, f"Failed to connect admin_file_agent to localhost:{http_port}"
+    assert connected, f"Failed to connect admin_file_agent to 127.0.0.1:{http_port}"
 
     # Give client time to connect and register
     await asyncio.sleep(1.0)
@@ -150,10 +136,10 @@ async def developer_client(shared_cache_file_test_network):
 
     client = AgentClient(agent_id="developer_file_agent")
     connected = await client.connect(
-        "localhost", http_port, password_hash=dev_password_hash
+        "127.0.0.1", http_port, password_hash=dev_password_hash
     )
     assert connected, (
-        f"Failed to connect developer_file_agent to localhost:{http_port}"
+        f"Failed to connect developer_file_agent to 127.0.0.1:{http_port}"
     )
 
     # Give client time to connect and register
@@ -180,9 +166,9 @@ async def user_client(shared_cache_file_test_network):
 
     client = AgentClient(agent_id="user_file_agent")
     connected = await client.connect(
-        "localhost", http_port, password_hash=user_password_hash
+        "127.0.0.1", http_port, password_hash=user_password_hash
     )
-    assert connected, f"Failed to connect user_file_agent to localhost:{http_port}"
+    assert connected, f"Failed to connect user_file_agent to 127.0.0.1:{http_port}"
 
     # Give client time to connect and register
     await asyncio.sleep(1.0)
