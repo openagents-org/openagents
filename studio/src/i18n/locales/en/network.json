@@ -75,6 +75,7 @@
         "refresh": "Refresh",
         "total": "Total Agents",
         "online": "Online Agents",
+        "searchPlaceholder": "Search agents...",
         "empty": "No agents connected",
         "you": "(You)",
         "kick": "Kick",
