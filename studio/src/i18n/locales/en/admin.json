@@ -435,6 +435,14 @@
       "static": "Static",
       "dynamic": "Dynamic"
     },
+    "table": {
+      "status": "Status",
+      "name": "Module Name",
+      "description": "Description",
+      "actions": "Actions",
+      "pageInfo": "Page {{current}} of {{total}}",
+      "totalRecords": "{{count}} records"
+    },
     "actions": {
       "enable": "Enable",
       "disable": "Disable",
@@ -465,6 +473,10 @@
       "maxPagesPerAgent": "Max Pages Per Agent",
       "maxPageContentLength": "Max Page Content Length",
       "configJson": "Config (JSON)",
+      "selectPlaceholder": "Please select...",
+      "addOptionPlaceholder": "Add option...",
+      "addItem": "Add item",
+      "unsupportedFieldType": "Unsupported field type",
       "noSchema": {
         "title": "No Configuration Schema",
         "description": "This mod has not defined a configuration schema. The schema will be defined in the mod's manifest.json file."

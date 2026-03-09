@@ -50,6 +50,8 @@ export interface DataTableProps<TData, TValue> {
   toolbar?: React.ReactNode
   className?: string
   onRowClick?: (row: TData) => void
+  paginationPageInfoLabel?: (currentPage: number, totalPages: number) => string
+  paginationTotalRecordsLabel?: (totalRecords: number) => string
 }
 
 export function DataTable<TData, TValue>({
@@ -67,6 +69,9 @@ export function DataTable<TData, TValue>({
   toolbar,
   className,
   onRowClick,
+  paginationPageInfoLabel = (currentPage, totalPages) =>
+    `Page ${currentPage} of ${totalPages}`,
+  paginationTotalRecordsLabel = (totalRecords) => `${totalRecords} records`,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
@@ -237,11 +242,17 @@ export function DataTable<TData, TValue>({
           <div className="flex items-center justify-between px-4 py-3 border-t">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span>
-                第 {table.getState().pagination.pageIndex + 1} 页，共{" "}
-                {table.getPageCount()} 页
+                {paginationPageInfoLabel(
+                  table.getState().pagination.pageIndex + 1,
+                  table.getPageCount()
+                )}
               </span>
               <span>•</span>
-              <span>共 {table.getFilteredRowModel().rows.length} 条记录</span>
+              <span>
+                {paginationTotalRecordsLabel(
+                  table.getFilteredRowModel().rows.length
+                )}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <Button

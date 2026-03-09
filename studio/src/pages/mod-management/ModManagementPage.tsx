@@ -411,6 +411,17 @@ const ModManagementPage: React.FC = () => {
           searchColumn={["id", "name", "displayName", "description"]}
           pagination={true}
           pageSize={10}
+          paginationPageInfoLabel={(currentPage, totalPages) =>
+            t("modManagement.table.pageInfo", "第 {{current}} 页，共 {{total}} 页", {
+              current: currentPage,
+              total: totalPages,
+            })
+          }
+          paginationTotalRecordsLabel={(totalRecords) =>
+            t("modManagement.table.totalRecords", "共 {{count}} 条记录", {
+              count: totalRecords,
+            })
+          }
           emptyMessage={t(
             "modManagement.enabledMods.empty",
             "No mods configured"

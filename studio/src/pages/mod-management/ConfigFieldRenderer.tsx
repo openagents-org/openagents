@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { ConfigField } from '@/types/modConfig';
 import { Input } from '@/components/layout/ui/input';
 import { Label } from '@/components/layout/ui/label';
@@ -29,6 +30,7 @@ const ConfigFieldRenderer: React.FC<ConfigFieldRendererProps> = ({
   errors = {},
   path = '',
 }) => {
+  const { t } = useTranslation('admin');
   const fieldPath = path ? `${path}.${field.key}` : field.key;
   const error = errors[fieldPath];
   const displayValue = value !== undefined && value !== null ? value : field.default;
@@ -100,7 +102,12 @@ const ConfigFieldRenderer: React.FC<ConfigFieldRendererProps> = ({
             }}
           >
             <SelectTrigger size="lg" className={error ? 'border-red-500' : ''}>
-              <SelectValue placeholder={field.placeholder || '请选择...'} />
+              <SelectValue
+                placeholder={
+                  field.placeholder ||
+                  t('modManagement.settings.selectPlaceholder', '请选择...')
+                }
+              />
             </SelectTrigger>
             <SelectContent>
               {field.options?.map((option) => (
@@ -126,7 +133,12 @@ const ConfigFieldRenderer: React.FC<ConfigFieldRendererProps> = ({
               }}
             >
               <SelectTrigger size="lg" className={error ? 'border-red-500' : ''}>
-                <SelectValue placeholder={field.placeholder || '添加选项...'} />
+                <SelectValue
+                  placeholder={
+                    field.placeholder ||
+                    t('modManagement.settings.addOptionPlaceholder', '添加选项...')
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
                 {field.options?.map((option) => (
@@ -248,7 +260,7 @@ const ConfigFieldRenderer: React.FC<ConfigFieldRendererProps> = ({
               className="text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/20"
             >
               <Plus className="w-4 h-4 mr-2" />
-              添加项
+              {t('modManagement.settings.addItem', '添加项')}
             </Button>
           </div>
         );
@@ -277,7 +289,7 @@ const ConfigFieldRenderer: React.FC<ConfigFieldRendererProps> = ({
       default:
         return (
           <div className="text-sm text-gray-500 dark:text-gray-400">
-            不支持的字段类型: {field.type}
+            {t('modManagement.settings.unsupportedFieldType', '不支持的字段类型')}: {field.type}
           </div>
         );
     }
