@@ -2,7 +2,6 @@
 Test cases for the AutoGen agent integration.
 """
 
-import tomllib
 from pathlib import Path
 
 import pytest
@@ -425,8 +424,9 @@ class TestSetupAndImports:
     def test_all_extra_includes_autogen(self):
         """The aggregate optional dependency set includes the autogen extra."""
         pyproject_path = Path(__file__).resolve().parents[2] / "pyproject.toml"
-        with pyproject_path.open("rb") as file_handle:
-            data = tomllib.load(file_handle)
-
-        all_extra = data["project"]["optional-dependencies"]["all"]
-        assert any("autogen" in item for item in all_extra)
+        pyproject_text = pyproject_path.read_text(encoding="utf-8")
+        assert "autogen = [" in pyproject_text
+        assert (
+            "openagents[p2p,webrtc,langchain,autogen,claude,dev,docs]"
+            in pyproject_text
+        )
