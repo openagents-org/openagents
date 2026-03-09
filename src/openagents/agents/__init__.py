@@ -29,6 +29,12 @@ from .pydantic_ai_agent import (
     openagents_tool_to_pydantic,
     pydantic_tool_to_openagents,
 )
+from .autogen_agent import (
+    AutoGenAgentRunner,
+    create_autogen_runner,
+    openagents_tool_to_autogen,
+    autogen_tool_to_openagents,
+)
 
 __all__ = [
     "AgentRunner",
@@ -54,4 +60,9 @@ __all__ = [
     "create_pydantic_runner",
     "openagents_tool_to_pydantic",
     "pydantic_tool_to_openagents",
+    # AutoGen integration
+    "AutoGenAgentRunner",
+    "create_autogen_runner",
+    "openagents_tool_to_autogen",
+    "autogen_tool_to_openagents",
 ]
