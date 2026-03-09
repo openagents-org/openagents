@@ -36,26 +36,63 @@ async def shared_artifact_test_network():
         / "shared_artifacts.yaml"
     )
 
-    # Load config and use random port to avoid conflicts
-    config = load_network_config(str(config_path))
+    max_retries = 5
+    last_error = None
 
-    # Update the gRPC transport port to avoid conflicts - Shared artifact test range: 45000-45999
-    # Keep http_port within the same exclusive range to avoid overlaps with other test files
-    grpc_port = random.randint(45000, 45499)
-    http_port = grpc_port + 500  # HTTP port in range 45500-45999
+    for attempt in range(max_retries):
+        config = load_network_config(str(config_path))
 
-    for transport in config.network.transports:
-        if transport.type == "grpc":
-            transport.config["port"] = grpc_port
-        elif transport.type == "http":
-            transport.config["port"] = http_port
+        # Shared artifact test range: 45000-45999
+        grpc_port = random.randint(45000, 45499)
+        http_port = grpc_port + 500
 
-    # Create and initialize network
-    network = create_network(config.network)
-    await network.initialize()
+        for transport in config.network.transports:
+            if transport.type == "grpc":
+                transport.config["port"] = grpc_port
+            elif transport.type == "http":
+                transport.config["port"] = http_port
 
-    # Give network time to start up
+        network = create_network(config.network)
+        try:
+            await network.initialize()
+            break
+        except OSError as error:
+            last_error = error
+            if "address already in use" in str(error).lower():
+                print(
+                    f"Port {grpc_port}/{http_port} in use, retrying..."
+                    f" (attempt {attempt + 1}/{max_retries})"
+                )
+                await asyncio.sleep(0.5)
+                continue
+            raise
+    else:
+        raise last_error or RuntimeError(
+            "Failed to initialize shared artifact test network"
+        )
+
     await asyncio.sleep(1.0)
+    max_ready_retries = 10
+    for attempt in range(max_ready_retries):
+        try:
+            import aiohttp
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"http://localhost:{http_port}/api/health",
+                    timeout=aiohttp.ClientTimeout(total=1.0),
+                ) as response:
+                    if response.status == 200:
+                        break
+        except Exception:
+            pass
+
+        if attempt < max_ready_retries - 1:
+            await asyncio.sleep(0.5)
+        else:
+            raise RuntimeError(
+                f"Shared artifact test network not ready on port {http_port}"
+            )
 
     # Extract gRPC and HTTP ports for client connections
     grpc_port = None
@@ -86,7 +123,10 @@ async def admin_client(shared_artifact_test_network):
         admin_password_hash = config.network.agent_groups["admin"].password_hash
 
     client = AgentClient(agent_id="admin_agent")
-    await client.connect("localhost", http_port, password_hash=admin_password_hash)
+    connected = await client.connect(
+        "localhost", http_port, password_hash=admin_password_hash
+    )
+    assert connected, f"Failed to connect admin_agent to localhost:{http_port}"
 
     # Give client time to connect and register
     await asyncio.sleep(1.0)
@@ -111,7 +151,10 @@ async def analyst_client(shared_artifact_test_network):
         analyst_password_hash = config.network.agent_groups["analysts"].password_hash
 
     client = AgentClient(agent_id="analyst_agent")
-    await client.connect("localhost", http_port, password_hash=analyst_password_hash)
+    connected = await client.connect(
+        "localhost", http_port, password_hash=analyst_password_hash
+    )
+    assert connected, f"Failed to connect analyst_agent to localhost:{http_port}"
 
     # Give client time to connect and register
     await asyncio.sleep(1.0)
@@ -136,7 +179,10 @@ async def user_client(shared_artifact_test_network):
         user_password_hash = config.network.agent_groups["users"].password_hash
 
     client = AgentClient(agent_id="user_agent")
-    await client.connect("localhost", http_port, password_hash=user_password_hash)
+    connected = await client.connect(
+        "localhost", http_port, password_hash=user_password_hash
+    )
+    assert connected, f"Failed to connect user_agent to localhost:{http_port}"
 
     # Give client time to connect and register
     await asyncio.sleep(1.0)
