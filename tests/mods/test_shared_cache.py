@@ -12,7 +12,7 @@ This test suite verifies the shared cache functionality:
 
 import pytest
 import asyncio
-import random
+import socket
 from pathlib import Path
 
 from openagents.core.client import AgentClient
@@ -22,6 +22,13 @@ from openagents.models.event import Event
 from openagents.models.event_response import EventResponse
 from openagents.utils.password_utils import hash_password
 
+
+
+def _get_free_port() -> int:
+    """Ask the OS for a currently free loopback TCP port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 @pytest.fixture
@@ -34,18 +41,18 @@ async def shared_cache_test_network():
         / "test_shared_cache.yaml"
     )
 
-    # Load config and use random port to avoid conflicts
+    # Load config and use OS-assigned free ports to avoid collisions.
     config = load_network_config(str(config_path))
 
-    # Update the gRPC transport port to avoid conflicts - Shared cache test range: 44000-44999
-    # Keep http_port within the same exclusive range to avoid overlaps with other test files
-    grpc_port = random.randint(44000, 44499)
-    http_port = grpc_port + 500  # HTTP port in range 44500-44999
+    grpc_port = _get_free_port()
+    http_port = _get_free_port()
 
     for transport in config.network.transports:
         if transport.type == "grpc":
+            transport.config["host"] = "127.0.0.1"
             transport.config["port"] = grpc_port
         elif transport.type == "http":
+            transport.config["host"] = "127.0.0.1"
             transport.config["port"] = http_port
 
     # Create and initialize network
@@ -84,7 +91,10 @@ async def admin_client(shared_cache_test_network):
         admin_password_hash = config.network.agent_groups["admin"].password_hash
 
     client = AgentClient(agent_id="admin_agent")
-    await client.connect("localhost", http_port, password_hash=admin_password_hash)
+    connected = await client.connect(
+        "localhost", http_port, password_hash=admin_password_hash
+    )
+    assert connected, f"Failed to connect admin_agent to localhost:{http_port}"
 
     # Give client time to connect and register
     await asyncio.sleep(1.0)
@@ -109,7 +119,10 @@ async def developer_client(shared_cache_test_network):
         dev_password_hash = config.network.agent_groups["developers"].password_hash
 
     client = AgentClient(agent_id="developer_agent")
-    await client.connect("localhost", http_port, password_hash=dev_password_hash)
+    connected = await client.connect(
+        "localhost", http_port, password_hash=dev_password_hash
+    )
+    assert connected, f"Failed to connect developer_agent to localhost:{http_port}"
 
     # Give client time to connect and register
     await asyncio.sleep(1.0)
@@ -134,7 +147,10 @@ async def user_client(shared_cache_test_network):
         user_password_hash = config.network.agent_groups["users"].password_hash
 
     client = AgentClient(agent_id="user_agent")
-    await client.connect("localhost", http_port, password_hash=user_password_hash)
+    connected = await client.connect(
+        "localhost", http_port, password_hash=user_password_hash
+    )
+    assert connected, f"Failed to connect user_agent to localhost:{http_port}"
 
     # Give client time to connect and register
     await asyncio.sleep(1.0)
@@ -446,6 +462,9 @@ async def test_update_restricted_cache_access_denied(admin_client, user_client):
     update_response = await user_client.send_event(update_event)
 
     # Verify update is denied
+    assert update_response is not None, (
+        "Network/client not connected; send_event returned None"
+    )
     assert update_response.success == False, "User should NOT be able to update restricted cache"
     assert "permission" in update_response.data.get("error", "").lower(), "Error should mention permission"
 
@@ -485,6 +504,9 @@ async def test_delete_restricted_cache_access_denied(admin_client, user_client):
     delete_response = await user_client.send_event(delete_event)
 
     # Verify delete is denied
+    assert delete_response is not None, (
+        "Network/client not connected; send_event returned None"
+    )
     assert delete_response.success == False, "User should NOT be able to delete restricted cache"
     assert "permission" in delete_response.data.get("error", "").lower(), "Error should mention permission"
 
