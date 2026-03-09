@@ -22,6 +22,22 @@ logging.basicConfig(
 def pytest_configure(config):
     """Configure pytest."""
     config.addinivalue_line("markers", "asyncio: mark a test as an asyncio test")
+    config.addinivalue_line("markers", "client: lightweight client tests (no SDK deps)")
+    config.addinivalue_line("markers", "sdk: tests requiring openagents[sdk] dependencies")
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-mark tests based on directory.
+
+    - ``workspace/backend/tests/`` → ``client``
+    - ``tests/`` (this directory) → ``sdk``
+    """
+    for item in items:
+        fspath = str(item.fspath)
+        if "workspace/backend/tests" in fspath:
+            item.add_marker(pytest.mark.client)
+        elif "/tests/" in fspath:
+            item.add_marker(pytest.mark.sdk)
 
 
 # We're not defining a custom event_loop fixture anymore

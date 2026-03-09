@@ -12,7 +12,13 @@ import uuid
 from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
 
-from jinja2 import Template
+try:
+    from jinja2 import Template
+except ImportError:
+    raise ImportError(
+        "jinja2 is required for agent orchestration. "
+        "Install with: pip install openagents[sdk]"
+    )
 
 from openagents.models.event_context import EventContext
 from openagents.models.tool import AgentTool

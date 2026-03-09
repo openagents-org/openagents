@@ -17,13 +17,14 @@ import os
 import shutil
 from typing import Optional
 
-from openagents.workspace_client import WorkspaceClient, DEFAULT_ENDPOINT
-from openagents.adapters.utils import generate_session_title, format_attachments_for_prompt, SESSION_DEFAULT_RE
+from openagents.adapters.base import BaseAdapter
+from openagents.adapters.utils import format_attachments_for_prompt
+from openagents.workspace_client import DEFAULT_ENDPOINT
 
 logger = logging.getLogger(__name__)
 
 
-class ClaudeAdapter:
+class ClaudeAdapter(BaseAdapter):
     """Connects Claude Code to an OpenAgents workspace."""
 
     def __init__(
@@ -35,123 +36,16 @@ class ClaudeAdapter:
         endpoint: str = DEFAULT_ENDPOINT,
         disabled_modules: set | None = None,
     ):
-        self.workspace_id = workspace_id
-        self.channel_name = channel_name  # default/initial channel
-        self.token = token
-        self.agent_name = agent_name
-        self.endpoint = endpoint
+        super().__init__(workspace_id, channel_name, token, agent_name, endpoint)
         self.disabled_modules = disabled_modules or set()
-        self.client = WorkspaceClient(endpoint=endpoint)
-        self.last_seen_id: Optional[str] = None
-        self._last_event_id: Optional[str] = None  # event ID cursor for polling
-        self._running = False
-        self._processed_ids: set = set()
-        self._titled_sessions: set = set()
         self._channel_sessions: dict[str, str] = {}  # channel_name → Claude CLI session_id
-        self._mode: str = "execute"  # "execute" or "plan"
-        self._last_control_id: Optional[str] = None
         self._current_process: Optional[asyncio.subprocess.Process] = None
-        self._message_queue: list[dict] = []  # messages arriving while busy
-        # Per-channel task tracking for parallel execution
-        self._channel_tasks: dict[str, asyncio.Task] = {}  # channel → running task
-        self._channel_queues: dict[str, list[dict]] = {}  # channel → queued messages
         self._channel_processes: dict[str, asyncio.subprocess.Process] = {}  # channel → subprocess
 
-    async def run(self):
-        """Start the adapter: heartbeat + poll loop."""
-        self._running = True
-
-        # Skip existing events so we only process messages arriving after connect
-        await self._skip_existing_events()
-
-        heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-        try:
-            await self._poll_loop()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self._running = False
-            heartbeat_task.cancel()
-            try:
-                await heartbeat_task
-            except asyncio.CancelledError:
-                pass
-            await self.client.disconnect(
-                self.workspace_id, self.agent_name, self.token
-            )
-
-    async def _skip_existing_events(self):
-        """Advance the event cursor past all existing events on startup.
-
-        This prevents re-processing messages from before the agent connected.
-        """
-        try:
-            while True:
-                _, raw_cursor = await self.client.poll_pending(
-                    workspace_id=self.workspace_id,
-                    token=self.token,
-                    agent_name=self.agent_name,
-                    after=self._last_event_id,
-                    limit=200,
-                )
-                if not raw_cursor or raw_cursor == self._last_event_id:
-                    break
-                self._last_event_id = raw_cursor
-            if self._last_event_id:
-                logger.debug(f"Skipped existing events, cursor at {self._last_event_id}")
-        except Exception as e:
-            logger.debug(f"Failed to skip existing events: {e}")
-
-    async def _heartbeat_loop(self):
-        """Send heartbeat every 30 seconds."""
-        while self._running:
-            try:
-                await self.client.heartbeat(
-                    self.workspace_id, self.agent_name, self.token
-                )
-            except Exception as e:
-                logger.debug(f"Heartbeat failed: {e}")
-            await asyncio.sleep(30)
-
-    async def _poll_control(self):
-        """Check for control events (e.g. mode changes) targeted at this agent."""
-        try:
-            events = await self.client.poll_control(
-                workspace_id=self.workspace_id,
-                token=self.token,
-                agent_name=self.agent_name,
-                after=self._last_control_id,
-            )
-            for ev in events:
-                ev_id = ev.get("id")
-                if ev_id:
-                    self._last_control_id = ev_id
-                payload = ev.get("payload") or {}
-                action = payload.get("action")
-                if action == "set_mode":
-                    new_mode = payload.get("mode", "execute")
-                    if new_mode in ("execute", "plan") and new_mode != self._mode:
-                        old_mode = self._mode
-                        self._mode = new_mode
-                        logger.info(f"Mode changed: {old_mode} -> {new_mode}")
-                        label = "Execute" if new_mode == "execute" else "Plan"
-                        try:
-                            await self.client.send_message(
-                                workspace_id=self.workspace_id,
-                                channel_name=self.channel_name,
-                                token=self.token,
-                                content=f"Switched to **{label}** mode",
-                                sender_type="agent",
-                                sender_name=self.agent_name,
-                                message_type="status",
-                                metadata={"agent_mode": new_mode},
-                            )
-                        except Exception:
-                            pass
-                elif action == "stop":
-                    await self._stop_current_process()
-        except Exception as e:
-            logger.debug(f"Control poll failed: {e}")
+    async def _on_control_action(self, action: Optional[str], payload: dict):
+        """Handle stop control action."""
+        if action == "stop":
+            await self._stop_current_process()
 
     async def _stop_process(self, proc: asyncio.subprocess.Process):
         """Kill a single Claude subprocess."""
@@ -175,7 +69,6 @@ class ClaudeAdapter:
         for channel, proc in procs:
             await self._stop_process(proc)
             self._channel_processes.pop(channel, None)
-            # Clear queued messages for this channel
             self._channel_queues.pop(channel, None)
             try:
                 await self.client.send_message(
@@ -190,114 +83,6 @@ class ClaudeAdapter:
                 )
             except Exception:
                 pass
-
-    def _is_channel_busy(self, channel: str) -> bool:
-        """Check if a channel has a running task."""
-        task = self._channel_tasks.get(channel)
-        return task is not None and not task.done()
-
-    async def _dispatch_message(self, msg: dict):
-        """Route a message to its channel — run in parallel or queue if channel is busy."""
-        channel = msg.get("sessionId") or self.channel_name
-
-        if self._is_channel_busy(channel):
-            # Queue for this specific channel
-            self._channel_queues.setdefault(channel, []).append(msg)
-            try:
-                await self.client.send_message(
-                    workspace_id=self.workspace_id,
-                    channel_name=channel,
-                    token=self.token,
-                    content="message queued — will process after current task",
-                    sender_type="agent",
-                    sender_name=self.agent_name,
-                    message_type="status",
-                    metadata={"agent_mode": self._mode},
-                )
-            except Exception:
-                pass
-            return
-
-        # Start a new task for this channel
-        task = asyncio.create_task(self._channel_worker(channel, msg))
-        self._channel_tasks[channel] = task
-
-    async def _channel_worker(self, channel: str, msg: dict):
-        """Process a message and then drain the channel's queue."""
-        try:
-            await self._handle_message(msg)
-        except Exception as e:
-            logger.exception(f"Error in channel worker for {channel}: {e}")
-
-        # Drain any messages queued for this channel while it was busy
-        while True:
-            queue = self._channel_queues.get(channel, [])
-            if not queue:
-                break
-            next_msg = queue.pop(0)
-            try:
-                await self._handle_message(next_msg)
-            except Exception as e:
-                logger.exception(f"Error processing queued message in {channel}: {e}")
-
-    async def _poll_loop(self):
-        """Poll for new messages across all channels and dispatch to Claude."""
-        idle_count = 0
-
-        # Start a persistent control poller
-        control_task = asyncio.create_task(self._control_poller_loop())
-
-        try:
-            while self._running:
-                try:
-                    messages, raw_cursor = await self.client.poll_pending(
-                        workspace_id=self.workspace_id,
-                        token=self.token,
-                        agent_name=self.agent_name,
-                        after=self._last_event_id,
-                    )
-                except Exception as e:
-                    logger.warning(f"Poll failed: {e}")
-                    await asyncio.sleep(5)
-                    continue
-
-                # Advance cursor
-                if raw_cursor:
-                    self._last_event_id = raw_cursor
-
-                # Filter out already-processed messages
-                incoming = []
-                for msg in messages:
-                    msg_id = msg.get("id") or msg.get("messageId")
-                    if msg_id and msg_id in self._processed_ids:
-                        continue
-                    incoming.append(msg)
-
-                if incoming:
-                    idle_count = 0
-                    for msg in incoming:
-                        msg_id = msg.get("id") or msg.get("messageId")
-                        if msg_id:
-                            self._processed_ids.add(msg_id)
-                        await self._dispatch_message(msg)
-                else:
-                    idle_count += 1
-
-                # Adaptive polling: 2s active, up to 15s idle
-                delay = min(2 + idle_count, 15) if not incoming else 2
-                await asyncio.sleep(delay)
-        finally:
-            control_task.cancel()
-            # Wait for all channel tasks to complete
-            tasks = [t for t in self._channel_tasks.values() if t and not t.done()]
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
-
-    async def _control_poller_loop(self):
-        """Persistent background loop for control events."""
-        while self._running:
-            await self._poll_control()
-            await asyncio.sleep(2)
 
     def _build_claude_cmd(self, prompt: str, channel_name: str) -> list[str]:
         """Build the claude CLI command for a specific channel."""
@@ -453,6 +238,7 @@ class ClaudeAdapter:
                         logger.info(f"Resuming channel {msg_channel} from {resume_from} (session {source_session})")
 
                 # Auto-title
+                from openagents.adapters.utils import generate_session_title, SESSION_DEFAULT_RE
                 title = generate_session_title(content)
                 if title:
                     if not info.get("titleManuallySet") and SESSION_DEFAULT_RE.match(info.get("title", "")):
@@ -463,33 +249,16 @@ class ClaudeAdapter:
                         logger.debug(f"Auto-titled channel: {title}")
             except Exception as e:
                 logger.debug(f"Failed to fetch/auto-title channel: {e}")
+        else:
+            pass  # already titled
 
         # Post "thinking..." status
-        try:
-            await self.client.send_message(
-                workspace_id=self.workspace_id,
-                channel_name=msg_channel,
-                token=self.token,
-                content="thinking...",
-                sender_type="agent",
-                sender_name=self.agent_name,
-                message_type="status",
-                metadata={"agent_mode": self._mode},
-            )
-        except Exception:
-            pass
+        await self._send_status(msg_channel, "thinking...")
 
         try:
             cmd = self._build_claude_cmd(content, msg_channel)
         except FileNotFoundError as e:
-            await self.client.send_message(
-                workspace_id=self.workspace_id,
-                channel_name=msg_channel,
-                token=self.token,
-                content=str(e),
-                sender_type="agent",
-                sender_name=self.agent_name,
-            )
+            await self._send_error(msg_channel, str(e))
             return
 
         # Build clean env without CLAUDECODE to allow nested sessions
@@ -543,19 +312,10 @@ class ClaudeAdapter:
                             else:
                                 # Stream intermediate tool use as status
                                 tool_input = str(block.get("input", ""))[:200]
-                                try:
-                                    await self.client.send_message(
-                                        workspace_id=self.workspace_id,
-                                        channel_name=msg_channel,
-                                        token=self.token,
-                                        content=f"**Using tool:** `{tool_name}`\n```\n{tool_input}\n```",
-                                        sender_type="agent",
-                                        sender_name=self.agent_name,
-                                        message_type="status",
-                                        metadata={"agent_mode": self._mode},
-                                    )
-                                except Exception:
-                                    pass
+                                await self._send_status(
+                                    msg_channel,
+                                    f"**Using tool:** `{tool_name}`\n```\n{tool_input}\n```",
+                                )
 
                 elif event_type == "result":
                     # Save session_id per channel for conversation continuity
@@ -569,12 +329,10 @@ class ClaudeAdapter:
                     logger.debug(f"CLI init: session={event.get('session_id')}")
 
                 elif event_type == "rate_limit_event":
-                    # Informational — CLI handles rate limits internally
                     info = event.get("rate_limit_info", {})
                     logger.debug(f"Rate limit status: {info.get('status')}")
 
                 else:
-                    # Skip unknown event types gracefully
                     logger.debug(f"Skipping event type: {event_type}")
 
             await process.wait()
@@ -592,34 +350,10 @@ class ClaudeAdapter:
             if not used_send_tool and response_text:
                 full_response = "\n".join(response_text).strip()
                 if full_response:
-                    await self.client.send_message(
-                        workspace_id=self.workspace_id,
-                        channel_name=msg_channel,
-                        token=self.token,
-                        content=full_response,
-                        sender_type="agent",
-                        sender_name=self.agent_name,
-                    )
+                    await self._send_response(msg_channel, full_response)
             elif not used_send_tool and not response_text:
-                await self.client.send_message(
-                    workspace_id=self.workspace_id,
-                    channel_name=msg_channel,
-                    token=self.token,
-                    content="No response generated. Please try again.",
-                    sender_type="agent",
-                    sender_name=self.agent_name,
-                )
+                await self._send_response(msg_channel, "No response generated. Please try again.")
 
         except Exception as e:
             logger.exception(f"Error handling message: {e}")
-            try:
-                await self.client.send_message(
-                    workspace_id=self.workspace_id,
-                    channel_name=msg_channel,
-                    token=self.token,
-                    content=f"Error processing message: {e}",
-                    sender_type="agent",
-                    sender_name=self.agent_name,
-                )
-            except Exception:
-                pass
+            await self._send_error(msg_channel, f"Error processing message: {e}")

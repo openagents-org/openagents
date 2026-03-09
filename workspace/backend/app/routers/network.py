@@ -61,6 +61,9 @@ class HeartbeatRequest(BaseModel):
     agent_name: str
     network: str
 
+class TokenResolveRequest(BaseModel):
+    token: str
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -136,7 +139,16 @@ async def join_network(
     db: Session = Depends(get_db),
 ):
     """Agent requests to join a network (workspace)."""
-    workspace = _resolve_workspace(db, body.network)
+    if body.network:
+        workspace = _resolve_workspace(db, body.network)
+    else:
+        # Token-only join: resolve workspace from token
+        workspace = db.execute(
+            select(Workspace).where(
+                Workspace.password_hash == body.token,
+                Workspace.status != "deleted",
+            )
+        ).scalar_one_or_none()
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
 
@@ -260,6 +272,33 @@ async def heartbeat(
         return json_response(ResponseCode.NOT_FOUND, "Agent not in network")
 
     return success_response({"agent_name": body.agent_name, "status": "online"})
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/token/resolve
+# ---------------------------------------------------------------------------
+
+@router.post("/token/resolve")
+async def resolve_token(
+    body: TokenResolveRequest,
+    db: Session = Depends(get_db),
+):
+    """Resolve a workspace token to workspace info."""
+    workspace = db.execute(
+        select(Workspace).where(
+            Workspace.password_hash == body.token,
+            Workspace.status != "deleted",
+        )
+    ).scalar_one_or_none()
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Invalid or expired token")
+
+    return success_response({
+        "workspace_id": str(workspace.id),
+        "slug": workspace.slug,
+        "name": workspace.name,
+        "endpoint": config.WORKSPACE_ENDPOINT if hasattr(config, 'WORKSPACE_ENDPOINT') else None,
+    })
 
 
 # ---------------------------------------------------------------------------

@@ -18,8 +18,9 @@ from typing import Optional
 
 import aiohttp
 
-from openagents.workspace_client import WorkspaceClient, DEFAULT_ENDPOINT
-from openagents.adapters.utils import generate_session_title, format_attachments_for_prompt, SESSION_DEFAULT_RE
+from openagents.adapters.base import BaseAdapter
+from openagents.adapters.utils import format_attachments_for_prompt
+from openagents.workspace_client import DEFAULT_ENDPOINT
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 MAX_HISTORY_ENTRIES = 50
 
 
-class OpenClawAdapter:
+class OpenClawAdapter(BaseAdapter):
     """Connects OpenClaw to an OpenAgents workspace."""
 
     def __init__(
@@ -42,17 +43,7 @@ class OpenClawAdapter:
         openclaw_token: Optional[str] = None,
         openclaw_agent_id: str = "main",
     ):
-        self.workspace_id = workspace_id
-        self.channel_name = channel_name  # default/initial channel
-        self.token = token
-        self.agent_name = agent_name
-        self.endpoint = endpoint
-        self.client = WorkspaceClient(endpoint=endpoint)
-        self.last_seen_id: Optional[str] = None
-        self._last_event_id: Optional[str] = None
-        self._running = False
-        self._processed_ids: set = set()
-        self._titled_sessions: set = set()
+        super().__init__(workspace_id, channel_name, token, agent_name, endpoint)
 
         # OpenClaw connection
         self.openclaw_host = openclaw_host
@@ -65,190 +56,6 @@ class OpenClawAdapter:
 
         # Conversation history for multi-turn context
         self._conversation_history: list[dict] = []
-
-        # Mode support (plan / execute)
-        self._mode: str = "execute"
-        self._last_control_id: Optional[str] = None
-
-        # Per-channel task tracking for parallel execution
-        self._channel_tasks: dict[str, asyncio.Task] = {}
-        self._channel_queues: dict[str, list[dict]] = {}
-
-    async def run(self):
-        """Start the adapter: heartbeat + poll loop."""
-        self._running = True
-        await self._skip_existing_events()
-        heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-        try:
-            await self._poll_loop()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self._running = False
-            heartbeat_task.cancel()
-            try:
-                await heartbeat_task
-            except asyncio.CancelledError:
-                pass
-            await self.client.disconnect(
-                self.workspace_id, self.agent_name, self.token
-            )
-
-    async def _skip_existing_events(self):
-        """Advance the event cursor past all existing events on startup."""
-        try:
-            while True:
-                _, raw_cursor = await self.client.poll_pending(
-                    workspace_id=self.workspace_id,
-                    token=self.token,
-                    agent_name=self.agent_name,
-                    after=self._last_event_id,
-                    limit=200,
-                )
-                if not raw_cursor or raw_cursor == self._last_event_id:
-                    break
-                self._last_event_id = raw_cursor
-        except Exception as e:
-            logger.debug(f"Failed to skip existing events: {e}")
-
-    async def _heartbeat_loop(self):
-        """Send heartbeat every 30 seconds."""
-        while self._running:
-            try:
-                await self.client.heartbeat(
-                    self.workspace_id, self.agent_name, self.token
-                )
-            except Exception as e:
-                logger.debug(f"Heartbeat failed: {e}")
-            await asyncio.sleep(30)
-
-    async def _poll_control(self):
-        """Check for control events (mode changes) targeted at this agent."""
-        try:
-            events = await self.client.poll_control(
-                workspace_id=self.workspace_id,
-                token=self.token,
-                agent_name=self.agent_name,
-                after=self._last_control_id,
-            )
-            for ev in events:
-                ev_id = ev.get("id")
-                if ev_id:
-                    self._last_control_id = ev_id
-                payload = ev.get("payload") or {}
-                action = payload.get("action", "")
-                if action == "set_mode":
-                    new_mode = payload.get("mode", "execute")
-                    if new_mode in ("execute", "plan") and new_mode != self._mode:
-                        old_mode = self._mode
-                        self._mode = new_mode
-                        logger.info(f"Mode changed: {old_mode} -> {new_mode}")
-                        label = "Execute" if new_mode == "execute" else "Plan"
-                        try:
-                            await self.client.send_message(
-                                workspace_id=self.workspace_id,
-                                channel_name=self.channel_name,
-                                token=self.token,
-                                content=f"Switched to **{label}** mode",
-                                sender_type="agent",
-                                sender_name=self.agent_name,
-                                message_type="status",
-                                metadata={"agent_mode": new_mode},
-                            )
-                        except Exception:
-                            pass
-                elif action == "stop":
-                    logger.info("Stop command received")
-        except Exception as e:
-            logger.debug(f"Control poll failed: {e}")
-
-    def _is_channel_busy(self, channel: str) -> bool:
-        task = self._channel_tasks.get(channel)
-        return task is not None and not task.done()
-
-    async def _dispatch_message(self, msg: dict):
-        """Route a message to its channel — run in parallel or queue if busy."""
-        channel = msg.get("sessionId") or self.channel_name
-
-        if self._is_channel_busy(channel):
-            self._channel_queues.setdefault(channel, []).append(msg)
-            try:
-                await self.client.send_message(
-                    workspace_id=self.workspace_id,
-                    channel_name=channel,
-                    token=self.token,
-                    content="message queued — will process after current task",
-                    sender_type="agent",
-                    sender_name=self.agent_name,
-                    message_type="status",
-                    metadata={"agent_mode": self._mode},
-                )
-            except Exception:
-                pass
-            return
-
-        task = asyncio.create_task(self._channel_worker(channel, msg))
-        self._channel_tasks[channel] = task
-
-    async def _channel_worker(self, channel: str, msg: dict):
-        """Process a message and then drain the channel's queue."""
-        try:
-            await self._handle_message(msg)
-        except Exception as e:
-            logger.exception(f"Error in channel worker for {channel}: {e}")
-
-        while True:
-            queue = self._channel_queues.get(channel, [])
-            if not queue:
-                break
-            next_msg = queue.pop(0)
-            try:
-                await self._handle_message(next_msg)
-            except Exception as e:
-                logger.exception(f"Error processing queued message in {channel}: {e}")
-
-    async def _poll_loop(self):
-        """Poll for new messages across all channels and dispatch to OpenClaw."""
-        idle_count = 0
-        while self._running:
-            await self._poll_control()
-            try:
-                messages, raw_cursor = await self.client.poll_pending(
-                    workspace_id=self.workspace_id,
-                    token=self.token,
-                    agent_name=self.agent_name,
-                    after=self._last_event_id,
-                )
-            except Exception as e:
-                logger.warning(f"Poll failed: {e}")
-                await asyncio.sleep(5)
-                continue
-
-            # Advance cursor based on ALL raw events so we don't get stuck
-            if raw_cursor:
-                self._last_event_id = raw_cursor
-
-            # Filter out already-processed messages
-            incoming = []
-            for msg in messages:
-                msg_id = msg.get("id") or msg.get("messageId")
-                if msg_id and msg_id in self._processed_ids:
-                    continue
-                incoming.append(msg)
-
-            if incoming:
-                idle_count = 0
-                for msg in incoming:
-                    msg_id = msg.get("id") or msg.get("messageId")
-                    if msg_id:
-                        self._processed_ids.add(msg_id)
-                    await self._dispatch_message(msg)
-            else:
-                idle_count += 1
-
-            # Adaptive polling: 2s active, up to 15s idle
-            delay = min(2 + idle_count, 15) if not incoming else 2
-            await asyncio.sleep(delay)
 
     def _build_system_prompt(self, channel_name: str) -> str:
         """Build system prompt with workspace context."""
@@ -311,7 +118,6 @@ class OpenClawAdapter:
         content = msg.get("content", "").strip()
         attachments = msg.get("attachments", [])
 
-        # Append attachment info so the agent knows about uploaded files
         att_text = format_attachments_for_prompt(attachments)
         if att_text:
             content = (content + att_text) if content else att_text.strip()
@@ -319,44 +125,13 @@ class OpenClawAdapter:
         if not content:
             return
 
-        # Use the message's channel so responses go to the correct channel
         msg_channel = msg.get("sessionId") or self.channel_name
 
         sender = msg.get("senderName") or msg.get("senderType", "user")
         logger.info(f"Processing message from {sender} in channel {msg_channel}: {content[:80]}...")
 
-        # Auto-title: skip if user has manually renamed the thread
-        if msg_channel not in self._titled_sessions:
-            self._titled_sessions.add(msg_channel)
-            title = generate_session_title(content)
-            if title:
-                try:
-                    info = await self.client.get_session(
-                        self.workspace_id, msg_channel, self.token,
-                    )
-                    if not info.get("titleManuallySet") and SESSION_DEFAULT_RE.match(info.get("title", "")):
-                        await self.client.update_session(
-                            self.workspace_id, msg_channel, self.token,
-                            title=title, auto_title=True,
-                        )
-                        logger.debug(f"Auto-titled channel: {title}")
-                except Exception as e:
-                    logger.debug(f"Failed to auto-title channel: {e}")
-
-        # Post "thinking..." status
-        try:
-            await self.client.send_message(
-                workspace_id=self.workspace_id,
-                channel_name=msg_channel,
-                token=self.token,
-                content="thinking...",
-                sender_type="agent",
-                sender_name=self.agent_name,
-                message_type="status",
-                metadata={"agent_mode": self._mode},
-            )
-        except Exception:
-            pass
+        await self._auto_title_channel(msg_channel, content)
+        await self._send_status(msg_channel, "thinking...")
 
         try:
             # Build messages for the API call
@@ -365,48 +140,27 @@ class OpenClawAdapter:
             if history_text:
                 system_prompt += "\n" + history_text
 
-            # Build the messages array
             messages = [{"role": "system", "content": system_prompt}]
-            # Add conversation history for multi-turn
             messages.extend(self._conversation_history)
-            # Add the new user message
             messages.append({"role": "user", "content": content})
 
-            # Call OpenClaw API with streaming
             response_text = await self._stream_completion(messages)
 
             if response_text:
-                # Store in conversation history
                 self._conversation_history.append(
                     {"role": "user", "content": content}
                 )
                 self._conversation_history.append(
                     {"role": "assistant", "content": response_text}
                 )
-                # Trim history to prevent unbounded growth
                 if len(self._conversation_history) > MAX_HISTORY_ENTRIES * 2:
                     self._conversation_history = (
                         self._conversation_history[-MAX_HISTORY_ENTRIES * 2:]
                     )
 
-                # Post response to workspace
-                await self.client.send_message(
-                    workspace_id=self.workspace_id,
-                    channel_name=msg_channel,
-                    token=self.token,
-                    content=response_text,
-                    sender_type="agent",
-                    sender_name=self.agent_name,
-                )
+                await self._send_response(msg_channel, response_text)
             else:
-                await self.client.send_message(
-                    workspace_id=self.workspace_id,
-                    channel_name=msg_channel,
-                    token=self.token,
-                    content="No response generated. Please try again.",
-                    sender_type="agent",
-                    sender_name=self.agent_name,
-                )
+                await self._send_response(msg_channel, "No response generated. Please try again.")
 
         except aiohttp.ClientConnectorError:
             error_msg = (
@@ -415,30 +169,10 @@ class OpenClawAdapter:
                 f"Is OpenClaw running? Start with: openclaw gateway start"
             )
             logger.error(error_msg)
-            try:
-                await self.client.send_message(
-                    workspace_id=self.workspace_id,
-                    channel_name=msg_channel,
-                    token=self.token,
-                    content=error_msg,
-                    sender_type="agent",
-                    sender_name=self.agent_name,
-                )
-            except Exception:
-                pass
+            await self._send_error(msg_channel, error_msg)
         except Exception as e:
             logger.exception(f"Error handling message: {e}")
-            try:
-                await self.client.send_message(
-                    workspace_id=self.workspace_id,
-                    channel_name=msg_channel,
-                    token=self.token,
-                    content=f"Error processing message: {e}",
-                    sender_type="agent",
-                    sender_name=self.agent_name,
-                )
-            except Exception:
-                pass
+            await self._send_error(msg_channel, f"Error processing message: {e}")
 
     async def _stream_completion(self, messages: list[dict]) -> str:
         """Call OpenClaw /v1/chat/completions with streaming and return response."""
@@ -469,7 +203,6 @@ class OpenClawAdapter:
                         f"OpenClaw API returned {resp.status}: {body[:300]}"
                     )
 
-                # Parse SSE stream
                 async for line in resp.content:
                     line = line.decode("utf-8", errors="replace").strip()
                     if not line:
@@ -477,7 +210,7 @@ class OpenClawAdapter:
                     if not line.startswith("data: "):
                         continue
 
-                    data = line[6:]  # Strip "data: " prefix
+                    data = line[6:]
                     if data == "[DONE]":
                         break
 
@@ -487,7 +220,6 @@ class OpenClawAdapter:
                         logger.debug(f"Non-JSON SSE chunk: {data[:100]}")
                         continue
 
-                    # Extract content delta from OpenAI-compatible format
                     choices = chunk.get("choices", [])
                     if choices:
                         delta = choices[0].get("delta", {})

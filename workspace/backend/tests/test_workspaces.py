@@ -134,3 +134,112 @@ class TestListWorkspaces:
 
         resp2 = client.get("/v1/workspaces", params={"agent_name": "nonexistent"})
         assert resp2.json()["data"] == []
+
+
+class TestRotateToken:
+    """POST /v1/workspaces/{id}/rotate-token — rotate workspace token."""
+
+    def test_rotate_with_valid_token(self, client, workspace):
+        """Rotating with current token returns a new token."""
+        resp = client.post(
+            f"/v1/workspaces/{workspace['id']}/rotate-token",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert "token" in data
+        assert data["token"] != workspace["token"]
+        assert data["workspace_id"] == workspace["id"]
+
+    def test_old_token_stops_working(self, client, workspace):
+        """After rotation, the old token should no longer work."""
+        old_token = workspace["token"]
+        resp = client.post(
+            f"/v1/workspaces/{workspace['id']}/rotate-token",
+            headers={"X-Workspace-Token": old_token},
+        )
+        new_token = resp.json()["data"]["token"]
+
+        # Old token should fail
+        resp2 = client.post(
+            f"/v1/workspaces/{workspace['id']}/rotate-token",
+            headers={"X-Workspace-Token": old_token},
+        )
+        assert resp2.status_code == 401
+
+        # New token should work
+        resp3 = client.post(
+            f"/v1/workspaces/{workspace['id']}/rotate-token",
+            headers={"X-Workspace-Token": new_token},
+        )
+        assert resp3.status_code == 200
+
+    def test_rotate_no_credentials(self, client, workspace):
+        """Rotation without credentials returns 401."""
+        resp = client.post(f"/v1/workspaces/{workspace['id']}/rotate-token")
+        assert resp.status_code == 401
+
+    def test_rotate_nonexistent_workspace(self, client):
+        """Rotation on nonexistent workspace returns 404."""
+        resp = client.post(
+            "/v1/workspaces/nonexistent/rotate-token",
+            headers={"X-Workspace-Token": "any"},
+        )
+        assert resp.status_code == 404
+
+    def test_new_token_works_for_join(self, client, workspace):
+        """After rotation, agents can join using the new token."""
+        resp = client.post(
+            f"/v1/workspaces/{workspace['id']}/rotate-token",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        new_token = resp.json()["data"]["token"]
+
+        # Join with new token
+        join_resp = client.post("/v1/join", json={
+            "agent_name": "new-agent",
+            "token": new_token,
+            "network": workspace["id"],
+        })
+        assert join_resp.status_code == 200
+
+
+class TestRemoveMember:
+    """DELETE /v1/workspaces/{id}/members/{agent_name} — remove member."""
+
+    def test_remove_member(self, client, workspace):
+        """Remove an agent from workspace."""
+        # Join an agent first
+        client.post("/v1/join", json={
+            "agent_name": "agent-to-remove",
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+
+        # Remove it
+        resp = client.delete(
+            f"/v1/workspaces/{workspace['id']}/members/agent-to-remove",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data"]["removed"] is True
+
+        # Verify agent no longer in discover
+        disc = client.get("/v1/discover", params={"network": workspace["id"]})
+        names = [a["address"] for a in disc.json()["data"]["agents"]]
+        assert "openagents:agent-to-remove" not in names
+
+    def test_remove_nonexistent_member(self, client, workspace):
+        """Removing nonexistent member returns 404."""
+        resp = client.delete(
+            f"/v1/workspaces/{workspace['id']}/members/nonexistent-agent",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        assert resp.status_code == 404
+
+    def test_remove_no_credentials(self, client, workspace):
+        """Removal without credentials returns 401."""
+        resp = client.delete(
+            f"/v1/workspaces/{workspace['id']}/members/agent-alpha",
+        )
+        assert resp.status_code == 401

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openagents"
-version = "0.8.6"
+version = "0.9.0"
 description = "A flexible framework for building multi-agent systems with customizable protocols"
 readme = "README.md"
 authors = [
@@ -32,42 +32,36 @@ dependencies = [
     "pyyaml>=6.0",
     "typing-extensions>=4.4.0",
     "packaging>=21.0",
-    
+
     # Async and networking
     "aiohttp>=3.9.0",
     "websockets>=11.0",
     "asyncio-throttle>=1.0.0",
     "requests>=2.25.0",
-    
-    # Transport layer dependencies
-    "grpcio>=1.50.0",          # gRPC transport support
-    "grpcio-tools>=1.50.0",    # gRPC code generation
-    
-    # Security and encryption
-    "cryptography>=40.0.0",    # Encryption for secure communications
-    "pynacl>=1.5.0",          # Fast cryptography for P2P
-    
+
     # CLI and user interface
     "click>=8.1.0",           # Enhanced CLI framework
     "rich>=13.0.0",           # Rich terminal output
     "typer>=0.9.0",           # Modern CLI framework
-    
-    # Configuration and templating  
-    "jinja2>=3.1.0",          # Template engine
+
+    # Configuration
     "python-dotenv>=1.0.0",   # Environment configuration
-    
-    # Monitoring and observability
-    "prometheus-client>=0.16.0",  # Metrics collection
-    "structlog>=23.0.0",          # Structured logging
-
-    # MCP (Model Context Protocol) integration
-    "mcp>=1.15.0",                # Model Context Protocol library
-
-    # Others
-    "openai>=1.98" # For CLI
 ]
 
 [project.optional-dependencies]
+# SDK: gRPC transport, crypto, MCP server, agent frameworks
+sdk = [
+    "grpcio>=1.50.0",
+    "grpcio-tools>=1.50.0",
+    "cryptography>=40.0.0",
+    "pynacl>=1.5.0",
+    "jinja2>=3.1.0",
+    "mcp>=1.15.0",
+    "openai>=1.98",
+    "prometheus-client>=0.16.0",
+    "structlog>=23.0.0",
+]
+
 # P2P networking (optional, for future libp2p integration)
 p2p = [
     "libp2p>=0.2.0",       # P2P networking library
@@ -125,7 +119,7 @@ docs = [
 
 # All optional dependencies
 all = [
-    "openagents[p2p,webrtc,langchain,autogen,claude,dev,docs]",
+    "openagents[sdk,p2p,webrtc,langchain,autogen,claude,dev,docs]",    
 ]
 
 [project.urls]
@@ -167,6 +161,10 @@ addopts = [
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+markers = [
+    "client: lightweight client tests (no SDK deps)",
+    "sdk: tests requiring openagents[sdk] dependencies",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",

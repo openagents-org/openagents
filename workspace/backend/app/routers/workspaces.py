@@ -351,6 +351,81 @@ async def claim_workspace(
 
 
 # ---------------------------------------------------------------------------
+# POST /v1/workspaces/{workspace_id}/rotate-token
+# ---------------------------------------------------------------------------
+
+@router.post("/{workspace_id}/rotate-token")
+async def rotate_token(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Rotate the workspace token. Old token immediately stops working.
+
+    Requires either the current workspace token or Firebase bearer auth
+    from the workspace owner.
+    """
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+
+    new_token = secrets.token_urlsafe(32)
+    workspace.password_hash = new_token
+    db.commit()
+
+    return success_response({
+        "workspace_id": str(workspace.id),
+        "token": new_token,
+    })
+
+
+# ---------------------------------------------------------------------------
+# DELETE /v1/workspaces/{workspace_id}/members/{agent_name}
+# ---------------------------------------------------------------------------
+
+@router.delete("/{workspace_id}/members/{agent_name}")
+async def remove_member(
+    workspace_id: str,
+    agent_name: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Remove an agent from a workspace."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+
+    member = db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.agent_name == agent_name,
+        )
+    ).scalar_one_or_none()
+
+    if not member:
+        return json_response(ResponseCode.NOT_FOUND, "Member not found")
+
+    db.delete(member)
+    db.commit()
+
+    return success_response({"agent_name": agent_name, "removed": True})
+
+
+# ---------------------------------------------------------------------------
 # GET /v1/workspaces/{workspace_id}/channels/{channel_name}
 # ---------------------------------------------------------------------------
 

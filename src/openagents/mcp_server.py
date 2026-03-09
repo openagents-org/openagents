@@ -16,9 +16,15 @@ import logging
 import sys
 from typing import Optional
 
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp import types
+try:
+    from mcp.server import Server
+    from mcp.server.stdio import stdio_server
+    from mcp import types
+except ImportError:
+    raise ImportError(
+        "mcp is required for the MCP server. "
+        "Install with: pip install openagents[sdk]"
+    )
 
 from openagents.workspace_client import WorkspaceClient, DEFAULT_ENDPOINT
 

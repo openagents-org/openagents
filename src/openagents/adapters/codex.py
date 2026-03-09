@@ -20,13 +20,13 @@ import logging
 import shutil
 from typing import Optional
 
-from openagents.workspace_client import WorkspaceClient, DEFAULT_ENDPOINT
-from openagents.adapters.utils import generate_session_title, SESSION_DEFAULT_RE
+from openagents.adapters.base import BaseAdapter
+from openagents.workspace_client import DEFAULT_ENDPOINT
 
 logger = logging.getLogger(__name__)
 
 
-class CodexAdapter:
+class CodexAdapter(BaseAdapter):
     """Connects OpenAI Codex CLI to an OpenAgents workspace."""
 
     def __init__(
@@ -37,108 +37,8 @@ class CodexAdapter:
         agent_name: str,
         endpoint: str = DEFAULT_ENDPOINT,
     ):
-        self.workspace_id = workspace_id
-        self.channel_name = channel_name  # default/initial channel
-        self.token = token
-        self.agent_name = agent_name
-        self.endpoint = endpoint
-        self.client = WorkspaceClient(endpoint=endpoint)
-        self.last_seen_id: Optional[str] = None
-        self._last_event_id: Optional[str] = None
-        self._running = False
-        self._processed_ids: set = set()
-        self._titled_sessions: set = set()
+        super().__init__(workspace_id, channel_name, token, agent_name, endpoint)
         self._codex_thread_id: Optional[str] = None
-
-    async def run(self):
-        """Start the adapter: heartbeat + poll loop."""
-        self._running = True
-        await self._skip_existing_events()
-        heartbeat_task = asyncio.create_task(self._heartbeat_loop())
-        try:
-            await self._poll_loop()
-        except asyncio.CancelledError:
-            pass
-        finally:
-            self._running = False
-            heartbeat_task.cancel()
-            try:
-                await heartbeat_task
-            except asyncio.CancelledError:
-                pass
-            await self.client.disconnect(
-                self.workspace_id, self.agent_name, self.token
-            )
-
-    async def _skip_existing_events(self):
-        """Advance the event cursor past all existing events on startup."""
-        try:
-            while True:
-                _, raw_cursor = await self.client.poll_pending(
-                    workspace_id=self.workspace_id,
-                    token=self.token,
-                    agent_name=self.agent_name,
-                    after=self._last_event_id,
-                    limit=200,
-                )
-                if not raw_cursor or raw_cursor == self._last_event_id:
-                    break
-                self._last_event_id = raw_cursor
-        except Exception as e:
-            logger.debug(f"Failed to skip existing events: {e}")
-
-    async def _heartbeat_loop(self):
-        """Send heartbeat every 30 seconds."""
-        while self._running:
-            try:
-                await self.client.heartbeat(
-                    self.workspace_id, self.agent_name, self.token
-                )
-            except Exception as e:
-                logger.debug(f"Heartbeat failed: {e}")
-            await asyncio.sleep(30)
-
-    async def _poll_loop(self):
-        """Poll for new messages across all channels and dispatch to Codex."""
-        idle_count = 0
-        while self._running:
-            try:
-                messages, raw_cursor = await self.client.poll_pending(
-                    workspace_id=self.workspace_id,
-                    token=self.token,
-                    agent_name=self.agent_name,
-                    after=self._last_event_id,
-                )
-            except Exception as e:
-                logger.warning(f"Poll failed: {e}")
-                await asyncio.sleep(5)
-                continue
-
-            # Advance cursor based on ALL raw events so we don't get stuck
-            if raw_cursor:
-                self._last_event_id = raw_cursor
-
-            # Filter out already-processed messages
-            incoming = []
-            for msg in messages:
-                msg_id = msg.get("id") or msg.get("messageId")
-                if msg_id and msg_id in self._processed_ids:
-                    continue
-                incoming.append(msg)
-
-            if incoming:
-                idle_count = 0
-                for msg in incoming:
-                    msg_id = msg.get("id") or msg.get("messageId")
-                    if msg_id:
-                        self._processed_ids.add(msg_id)
-                    await self._handle_message(msg)
-            else:
-                idle_count += 1
-
-            # Adaptive polling: 2s active, up to 15s idle
-            delay = min(2 + idle_count, 15) if not incoming else 2
-            await asyncio.sleep(delay)
 
     def _build_codex_cmd(self, prompt: str) -> list[str]:
         """Build the codex CLI command."""
@@ -169,55 +69,18 @@ class CodexAdapter:
         if not content:
             return
 
-        # Use the message's channel so responses go to the correct channel
         msg_channel = msg.get("sessionId") or self.channel_name
 
         sender = msg.get("senderName") or msg.get("senderType", "user")
         logger.info(f"Processing message from {sender} in channel {msg_channel}: {content[:80]}...")
 
-        # Auto-title: skip if user has manually renamed the thread
-        if msg_channel not in self._titled_sessions:
-            self._titled_sessions.add(msg_channel)
-            title = generate_session_title(content)
-            if title:
-                try:
-                    info = await self.client.get_session(
-                        self.workspace_id, msg_channel, self.token,
-                    )
-                    if not info.get("titleManuallySet") and SESSION_DEFAULT_RE.match(info.get("title", "")):
-                        await self.client.update_session(
-                            self.workspace_id, msg_channel, self.token,
-                            title=title, auto_title=True,
-                        )
-                        logger.debug(f"Auto-titled channel: {title}")
-                except Exception as e:
-                    logger.debug(f"Failed to auto-title channel: {e}")
-
-        # Post "thinking..." status
-        try:
-            await self.client.send_message(
-                workspace_id=self.workspace_id,
-                channel_name=msg_channel,
-                token=self.token,
-                content="thinking...",
-                sender_type="agent",
-                sender_name=self.agent_name,
-                message_type="status",
-            )
-        except Exception:
-            pass
+        await self._auto_title_channel(msg_channel, content)
+        await self._send_status(msg_channel, "thinking...")
 
         try:
             cmd = self._build_codex_cmd(content)
         except FileNotFoundError as e:
-            await self.client.send_message(
-                workspace_id=self.workspace_id,
-                channel_name=msg_channel,
-                token=self.token,
-                content=str(e),
-                sender_type="agent",
-                sender_name=self.agent_name,
-            )
+            await self._send_error(msg_channel, str(e))
             return
 
         try:
@@ -251,9 +114,7 @@ class CodexAdapter:
                     thread_id = event.get("thread_id")
                     if thread_id:
                         self._codex_thread_id = thread_id
-                    logger.debug(
-                        f"Codex thread started: {thread_id}"
-                    )
+                    logger.debug(f"Codex thread started: {thread_id}")
 
                 elif event_type == "item.completed":
                     item = event.get("item", {})
@@ -266,37 +127,15 @@ class CodexAdapter:
 
                     elif item_type == "command_execution":
                         cmd_text = item.get("command", "")[:200]
-                        try:
-                            await self.client.send_message(
-                                workspace_id=self.workspace_id,
-                                channel_name=msg_channel,
-                                token=self.token,
-                                content=(
-                                    f"**Running:** `{cmd_text}`"
-                                ),
-                                sender_type="agent",
-                                sender_name=self.agent_name,
-                                message_type="status",
-                            )
-                        except Exception:
-                            pass
+                        await self._send_status(
+                            msg_channel, f"**Running:** `{cmd_text}`",
+                        )
 
                     elif item_type == "file_change":
                         filename = item.get("filename", "")
-                        try:
-                            await self.client.send_message(
-                                workspace_id=self.workspace_id,
-                                channel_name=msg_channel,
-                                token=self.token,
-                                content=(
-                                    f"**Editing:** `{filename}`"
-                                ),
-                                sender_type="agent",
-                                sender_name=self.agent_name,
-                                message_type="status",
-                            )
-                        except Exception:
-                            pass
+                        await self._send_status(
+                            msg_channel, f"**Editing:** `{filename}`",
+                        )
 
                 elif event_type == "item.started":
                     item = event.get("item", {})
@@ -324,7 +163,6 @@ class CodexAdapter:
                     logger.warning(f"Codex error: {event}")
 
                 else:
-                    # Skip unknown event types gracefully
                     logger.debug(f"Skipping event type: {event_type}")
 
             await process.wait()
@@ -337,38 +175,15 @@ class CodexAdapter:
                 if stderr_text:
                     logger.warning(f"CLI stderr: {stderr_text[:300]}")
 
-            # Post the agent_message text to workspace
             if response_texts:
                 full_response = "\n".join(response_texts).strip()
                 if full_response:
-                    await self.client.send_message(
-                        workspace_id=self.workspace_id,
-                        channel_name=msg_channel,
-                        token=self.token,
-                        content=full_response,
-                        sender_type="agent",
-                        sender_name=self.agent_name,
-                    )
+                    await self._send_response(msg_channel, full_response)
             else:
-                await self.client.send_message(
-                    workspace_id=self.workspace_id,
-                    channel_name=msg_channel,
-                    token=self.token,
-                    content="No response generated. Please try again.",
-                    sender_type="agent",
-                    sender_name=self.agent_name,
+                await self._send_response(
+                    msg_channel, "No response generated. Please try again.",
                 )
 
         except Exception as e:
             logger.exception(f"Error handling message: {e}")
-            try:
-                await self.client.send_message(
-                    workspace_id=self.workspace_id,
-                    channel_name=msg_channel,
-                    token=self.token,
-                    content=f"Error processing message: {e}",
-                    sender_type="agent",
-                    sender_name=self.agent_name,
-                )
-            except Exception:
-                pass
+            await self._send_error(msg_channel, f"Error processing message: {e}")

@@ -6,6 +6,7 @@ A workspace is an ONM network with workspace-specific mods loaded.
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -54,3 +55,24 @@ app.include_router(workspaces.router)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/.well-known/openagents.json")
+async def network_manifest():
+    """ONM network manifest — standard discovery endpoint."""
+    base_url = os.environ.get(
+        "WORKSPACE_ENDPOINT",
+        f"http://{config.HOST}:{config.PORT}",
+    )
+    return {
+        "onm_version": "1.0",
+        "name": "OpenAgents Workspace",
+        "transports": [
+            {"type": "http", "url": f"{base_url}/v1"},
+        ],
+        "auth": {
+            "methods": ["token"],
+        },
+        "capabilities": ["channels", "files", "events", "presence"],
+        "mods": ["messaging", "file_storage", "browser"],
+    }

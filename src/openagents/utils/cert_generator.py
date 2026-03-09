@@ -11,10 +11,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional, Dict
 
-from cryptography import x509
-from cryptography.x509.oid import NameOID, ExtensionOID
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+try:
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID, ExtensionOID
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+except ImportError:
+    raise ImportError(
+        "cryptography is required for certificate generation. "
+        "Install with: pip install openagents[sdk]"
+    )
 
 logger = logging.getLogger(__name__)
 
