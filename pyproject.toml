@@ -85,6 +85,12 @@ langchain = [
     "langchain-openai>=0.1.0",    # OpenAI integration for LangChain
 ]
 
+# AutoGen integration (optional)
+autogen = [
+    "autogen-core>=0.7.5",
+    "autogen-agentchat>=0.7.5",
+]
+
 # Claude Code adapter — no extra Python deps needed.
 # Requires `claude` CLI: curl -fsSL https://claude.ai/install.sh | bash
 
@@ -119,7 +125,7 @@ docs = [
 
 # All optional dependencies
 all = [
-    "openagents[p2p,webrtc,langchain,claude,dev,docs]",
+    "openagents[p2p,webrtc,langchain,autogen,claude,dev,docs]",
 ]
 
 [project.urls]
