@@ -6,11 +6,14 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+import yaml
 from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich import box
 
 from openagents.client.cli_shared import app, console
+from openagents.client.cli_helpers import configure_workspace_logging
 
 agent_app = typer.Typer(
     name="agent",

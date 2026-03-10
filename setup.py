@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Setup script for OpenAgents.
 This is a minimal setup.py that defers to pyproject.toml for configuration.
@@ -6,8 +7,17 @@ This is a minimal setup.py that defers to pyproject.toml for configuration.
 
 import os
 import shutil
+import sys
 from pathlib import Path
 from setuptools import setup, find_packages
+
+def safe_print(message):
+    """Print with fallback for Windows encoding issues."""
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        # Fallback: remove non-ASCII characters
+        print(message.encode('ascii', 'replace').decode('ascii'))
 
 def copy_studio_build():
     """Copy studio build files to package directory if they exist."""
@@ -25,11 +35,11 @@ def copy_studio_build():
         
         # Copy build directory
         shutil.copytree(studio_build_src, studio_build_dst)
-        print(f"✅ Copied studio build files from {studio_build_src} to {studio_build_dst}")
+        safe_print(f"✅ Copied studio build files from {studio_build_src} to {studio_build_dst}")
     else:
-        print(f"⚠️  Studio build directory not found at {studio_build_src}")
-        print("   The package will work, but users will need Node.js to run the studio.")
-        print("   To include the built frontend, run 'npm run build' in the studio directory first.")
+        safe_print(f"⚠️  Studio build directory not found at {studio_build_src}")
+        safe_print("   The package will work, but users will need Node.js to run the studio.")
+        safe_print("   To include the built frontend, run 'npm run build' in the studio directory first.")
 
 if __name__ == "__main__":
     # Copy studio build files before setup
