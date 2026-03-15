@@ -19,7 +19,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
         h1: ({ children }) => (
           <h1
             className={`text-2xl font-bold mb-2 ${
-              currentTheme === "dark" ? "text-gray-100" : "text-gray-900"
+              currentTheme === "dark" ? "text-white" : "text-gray-900"
             }`}
           >
             {children}
@@ -28,7 +28,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
         h2: ({ children }) => (
           <h2
             className={`text-xl font-semibold mb-2 ${
-              currentTheme === "dark" ? "text-gray-100" : "text-gray-900"
+              currentTheme === "dark" ? "text-white" : "text-gray-900"
             }`}
           >
             {children}
@@ -37,7 +37,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
         h3: ({ children }) => (
           <h3
             className={`text-lg font-medium mb-2 ${
-              currentTheme === "dark" ? "text-gray-200" : "text-gray-800"
+              currentTheme === "dark" ? "text-white" : "text-gray-900"
             }`}
           >
             {children}
@@ -47,7 +47,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
         p: ({ children }) => (
           <p
             className={`mb-2 ${
-              currentTheme === "dark" ? "text-gray-300" : "text-gray-700"
+              currentTheme === "dark" ? "text-white" : "text-gray-900"
             }`}
           >
             {children}
@@ -99,7 +99,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
             <code
               className={`px-1 py-0.5 rounded text-sm font-mono ${
                 currentTheme === "dark"
-                  ? "bg-gray-700 text-gray-200"
+                  ? "bg-gray-700 text-white"
                   : "bg-gray-100 text-gray-800"
               }`}
               {...props}
@@ -113,8 +113,8 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
           <blockquote
             className={`border-l-4 pl-4 my-2 italic ${
               currentTheme === "dark"
-                ? "border-gray-600 text-gray-400"
-                : "border-gray-300 text-gray-600"
+                ? "border-gray-500 text-gray-200"
+                : "border-gray-300 text-gray-800"
             }`}
           >
             {children}
@@ -124,7 +124,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
         ul: ({ children }) => (
           <ul
             className={`list-disc pl-6 mb-2 ${
-              currentTheme === "dark" ? "text-gray-300" : "text-gray-700"
+              currentTheme === "dark" ? "text-white" : "text-gray-900"
             }`}
           >
             {children}
@@ -133,7 +133,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
         ol: ({ children }) => (
           <ol
             className={`list-decimal pl-6 mb-2 ${
-              currentTheme === "dark" ? "text-gray-300" : "text-gray-700"
+              currentTheme === "dark" ? "text-white" : "text-gray-900"
             }`}
           >
             {children}
@@ -144,7 +144,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
         strong: ({ children }) => (
           <strong
             className={`font-semibold ${
-              currentTheme === "dark" ? "text-gray-100" : "text-gray-900"
+              currentTheme === "dark" ? "text-white" : "text-gray-900"
             }`}
           >
             {children}
@@ -154,7 +154,7 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
         em: ({ children }) => (
           <em
             className={`italic ${
-              currentTheme === "dark" ? "text-gray-300" : "text-gray-700"
+              currentTheme === "dark" ? "text-white" : "text-gray-900"
             }`}
           >
             {children}
@@ -193,8 +193,8 @@ const MarkdownContent: React.FC<MarkdownContentProps> = ({ content }) => {
           <td
             className={`border p-2 ${
               currentTheme === "dark"
-                ? "border-gray-600 text-gray-300"
-                : "border-gray-300 text-gray-700"
+                ? "border-gray-600 text-gray-100"
+                : "border-gray-300 text-gray-900"
             }`}
           >
             {children}

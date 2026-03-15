@@ -5,7 +5,7 @@ import { ChatMessage } from './chat-message';
 import { IntermediateSteps } from './intermediate-steps';
 import { Button } from '@/components/ui/button';
 import { ArrowDown } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 
 // ── Message Grouping ──
@@ -47,9 +47,15 @@ interface ChatMessagesProps {
   className?: string;
   /** Increment to force scroll to bottom (e.g. after user sends a message). */
   scrollKey?: number;
+  /** Callback to load older messages (infinite scroll upward). */
+  loadOlder?: () => Promise<void>;
+  /** Whether there are older messages available to load. */
+  hasOlder?: boolean;
+  /** Whether older messages are currently being loaded. */
+  loadingOlder?: boolean;
 }
 
-export function ChatMessages({ messages, agents, showAllSteps, className, scrollKey }: ChatMessagesProps) {
+export function ChatMessages({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder }: ChatMessagesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
@@ -162,19 +168,39 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
     }
   }, [scrollKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Track scroll position for "scroll to bottom" button
+  // Track scroll position for "scroll to bottom" button + infinite scroll upward
+  const loadingOlderInternalRef = useRef(false);
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    const onScroll = () => {
+    const onScroll = async () => {
       const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
       setShowScrollBtn(!isNearBottom);
+
+      // Infinite scroll: load older messages when near the top
+      if (
+        el.scrollTop < 100 &&
+        hasOlder &&
+        !loadingOlder &&
+        !loadingOlderInternalRef.current &&
+        loadOlder
+      ) {
+        loadingOlderInternalRef.current = true;
+        const prevScrollHeight = el.scrollHeight;
+        await loadOlder();
+        // Maintain scroll position after prepending older messages
+        requestAnimationFrame(() => {
+          const newScrollHeight = el.scrollHeight;
+          el.scrollTop = newScrollHeight - prevScrollHeight;
+          loadingOlderInternalRef.current = false;
+        });
+      }
     };
 
     el.addEventListener('scroll', onScroll);
     return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+  }, [hasOlder, loadingOlder, loadOlder]);
 
   return (
     <div className="relative flex-1 min-h-0">
@@ -182,6 +208,27 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
         ref={containerRef}
         className={cn('flex flex-col h-full overflow-y-auto space-y-1', className)}
       >
+        {loadingOlder && (
+          <div className="flex items-center justify-center py-3">
+            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+        {hasOlder && !loadingOlder && loadOlder && (
+          <button
+            onClick={async () => {
+              const el = containerRef.current;
+              if (!el) return;
+              const prevScrollHeight = el.scrollHeight;
+              await loadOlder();
+              requestAnimationFrame(() => {
+                el.scrollTop = el.scrollHeight - prevScrollHeight;
+              });
+            }}
+            className="flex items-center justify-center py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Load older messages
+          </button>
+        )}
         {groups.map((group, gi) => {
           if (group.type === 'chat') {
             return (

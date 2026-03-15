@@ -54,6 +54,15 @@ interface ChatState {
   agentsError: string | null;
   agentsLoaded: boolean;
 
+  // Agent-to-agent DM conversations (observability)
+  agentConversations: Array<{
+    agents: [string, string];
+    lastMessage: { content: string; sender: string; timestamp: number };
+    messageCount: number;
+  }>;
+  agentConversationsLoaded: boolean;
+  currentAgentConversation: string | null; // "agentA,agentB" format
+
   // Connection helpers
   getConnection: () => any | null;
   isConnected: () => boolean;
@@ -61,8 +70,12 @@ interface ChatState {
   // Actions - Selection
   selectChannel: (channel: string) => void;
   selectDirectMessage: (targetAgentId: string) => void;
+  selectAgentConversation: (conversationKey: string) => void;
   clearSelection: () => void;
   clearAllChatData: () => void;
+
+  // Actions - Agent conversations
+  loadAgentConversations: () => Promise<void>;
 
   // Persistence actions
   restorePersistedSelection: () => Promise<void>;
@@ -259,6 +272,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   agentsError: null,
   agentsLoaded: false,
 
+  // Agent-to-agent conversations
+  agentConversations: [],
+  agentConversationsLoaded: false,
+  currentAgentConversation: null,
+
   // Event handler reference
   eventHandler: null,
 
@@ -276,7 +294,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     console.log(`ChatStore: Selecting channel #${channel}`);
     set({
       currentChannel: channel,
-      currentDirectMessage: null, // Clear direct message selection when switching to channel
+      currentDirectMessage: null,
+      currentAgentConversation: null,
       persistedSelectionType: "channel",
       persistedSelectionId: channel,
     });
@@ -289,7 +308,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     console.log(`ChatStore: Selecting direct message with ${targetAgentId}`);
     set({
       currentDirectMessage: targetAgentId,
-      currentChannel: null, // Clear channel selection when switching to direct message
+      currentChannel: null,
+      currentAgentConversation: null,
       persistedSelectionType: "agent",
       persistedSelectionId: targetAgentId,
     });
@@ -298,11 +318,58 @@ export const useChatStore = create<ChatState>((set, get) => ({
     get().saveSelectionToStorage("agent", targetAgentId);
   },
 
+  selectAgentConversation: (conversationKey: string) => {
+    console.log(`ChatStore: Selecting agent conversation ${conversationKey}`);
+    // Parse "agentA,agentB" format and load DMs between them
+    const [agentA, agentB] = conversationKey.split(",", 2);
+    set({
+      currentAgentConversation: conversationKey,
+      currentChannel: null,
+      currentDirectMessage: null,
+    });
+    // Load the conversation messages using existing DM retrieval
+    // We set source_id to agentA and target to agentB — the handler matches bidirectionally
+    const connection = get().getConnection();
+    if (connection && agentA && agentB) {
+      set({ messagesLoading: true, messagesError: null });
+      connection
+        .sendEvent({
+          event_name: EventNames.THREAD_DIRECT_MESSAGES_RETRIEVE,
+          source_id: agentA,
+          destination_id: "mod:openagents.mods.workspace.messaging",
+          payload: {
+            target_agent_id: agentB,
+            limit: 200,
+            offset: 0,
+            include_threads: true,
+            message_type: "message_retrieval",
+          },
+        })
+        .then((response: any) => {
+          if (response.success && response.data?.messages) {
+            const messages = response.data.messages.map((msg: any) =>
+              MessageAdapter.fromRaw(msg)
+            );
+            // Store in directMessages under the conversation key
+            const currentMessages = new Map(get().directMessages);
+            currentMessages.set(conversationKey, messages);
+            set({ directMessages: currentMessages, messagesLoading: false });
+          } else {
+            set({ messagesLoading: false });
+          }
+        })
+        .catch(() => {
+          set({ messagesLoading: false });
+        });
+    }
+  },
+
   clearSelection: () => {
     console.log("ChatStore: Clearing selection");
     set({
       currentChannel: null,
       currentDirectMessage: null,
+      currentAgentConversation: null,
       persistedSelectionType: null,
       persistedSelectionId: null,
     });
@@ -317,6 +384,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Reset selection
       currentChannel: null,
       currentDirectMessage: null,
+      currentAgentConversation: null,
       persistedSelectionType: null,
       persistedSelectionId: null,
 
@@ -340,6 +408,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       agentsLoading: false,
       agentsError: null,
       agentsLoaded: false,
+
+      // Reset agent conversations
+      agentConversations: [],
+      agentConversationsLoaded: false,
     });
 
     // Clear localStorage
@@ -914,6 +986,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
         agentsError: "Failed to load connected agents",
         agentsLoading: false,
       });
+    }
+  },
+
+  loadAgentConversations: async () => {
+    const connection = get().getConnection();
+    if (!connection) return;
+
+    try {
+      const response = await connection.getConversationsList();
+      if (response.success && response.data?.conversations) {
+        set({
+          agentConversations: response.data.conversations.map((c: any) => ({
+            agents: c.agents,
+            lastMessage: c.last_message,
+            messageCount: c.message_count,
+          })),
+          agentConversationsLoaded: true,
+        });
+      }
+    } catch (error) {
+      console.error("ChatStore: Failed to load agent conversations:", error);
     }
   },
 

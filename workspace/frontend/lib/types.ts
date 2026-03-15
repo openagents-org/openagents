@@ -122,6 +122,8 @@ export interface ONMEvent {
 export interface EventPollResponse {
   events: ONMEvent[];
   has_more: boolean;
+  oldest_id: string | null;
+  newest_id: string | null;
 }
 
 export interface NetworkAgent {
@@ -191,6 +193,12 @@ export interface PaginatedResponse<T> {
 export interface MessagePollResponse {
   messages: WorkspaceMessage[];
   hasMore: boolean;
+}
+
+export interface DMConversation {
+  agents: [string, string];
+  lastMessage: { content: string; sender: string; timestamp: number };
+  messageCount: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -615,6 +615,15 @@ export class HttpEventConnector {
     });
   }
 
+  async getConversationsList(): Promise<EventResponse> {
+    return this.sendEvent({
+      event_name: EventNames.THREAD_CONVERSATIONS_LIST,
+      source_id: this.agentId,
+      destination_id: "mod:openagents.mods.workspace.messaging",
+      payload: {},
+    });
+  }
+
   async getChannelAnnouncement(channel: string): Promise<EventResponse> {
     return this.sendEvent({
       event_name: "thread.announcement.get",

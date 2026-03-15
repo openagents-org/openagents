@@ -46,16 +46,12 @@ function cacheMessages(sessionId: string, msgs: WorkspaceMessage[]) {
 const PREFETCH_COUNT = 6;
 const CACHE_REFRESH_INTERVAL = 5_000; // refresh caches every 5s
 
-/** Fetch all messages for a session (initial load). */
+/** Fetch recent messages for a session (cache prefetch). */
 async function fetchSessionMessages(sessionId: string): Promise<WorkspaceMessage[]> {
   try {
-    const result = await workspaceApi.pollEvents({
-      channel: sessionId,
-      type: 'workspace.message',
-      sort: 'asc',
-      limit: 200,
-    });
-    return result.events.map(eventToMessage);
+    const result = await workspaceApi.loadMessageHistory(sessionId, { limit: 50 });
+    // Events come newest-first from sort=desc, reverse for chronological display
+    return result.events.map(eventToMessage).reverse();
   } catch {
     return [];
   }
@@ -136,7 +132,7 @@ export function ChatView() {
     initialMessagesRef.current = currentSessionId ? messageCache.get(currentSessionId) : undefined;
   }
 
-  const { messages, loading, forceRefresh, generation } = useMessagePolling({
+  const { messages, loading, forceRefresh, generation, loadOlder, hasOlder, loadingOlder } = useMessagePolling({
     sessionId: currentSessionId,
     initialMessages: initialMessagesRef.current,
   });
@@ -208,6 +204,7 @@ export function ChatView() {
     }
   }, [currentSessionId]);
 
+  const isDM = currentSessionId?.startsWith('dm:') ?? false;
   const currentSession = sessions.find((s) => s.sessionId === currentSessionId);
   const agentNames = agents.map((a) => a.agentName);
 
@@ -365,7 +362,15 @@ export function ChatView() {
               <ChevronLeft className="size-5" />
             </button>
           )}
-          {editingTitle ? (
+          {isDM ? (
+            <h2 className="text-sm font-semibold truncate flex items-center gap-1.5">
+              <MessageSquare className="size-3.5 text-muted-foreground" />
+              {currentSessionId!.slice(3).split(',').map((a) => a.replace(/^openagents:/, '')).join(' ↔ ')}
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-medium">
+                read-only
+              </span>
+            </h2>
+          ) : editingTitle ? (
             <input
               ref={titleInputRef}
               value={titleDraft}
@@ -404,8 +409,8 @@ export function ChatView() {
           })()}
         </div>
         <div className="flex items-center gap-1 lg:gap-1.5">
-          {/* Participant chips — hidden on mobile, shown on desktop */}
-          <div className="hidden lg:flex items-center gap-1 overflow-x-auto">
+          {/* Participant chips — hidden on mobile, shown on desktop, not shown for DMs */}
+          {!isDM && <div className="hidden lg:flex items-center gap-1 overflow-x-auto">
             {(() => {
               const participants = currentSession?.participants || [];
               const sessionAgents = participants.length > 0
@@ -435,7 +440,7 @@ export function ChatView() {
                 );
               });
             })()}
-          </div>
+          </div>}
 
           {/* Compact avatar stack on mobile */}
           {isMobile && (() => {
@@ -630,22 +635,27 @@ export function ChatView() {
             agents={agents}
             showAllSteps={showAllSteps}
             scrollKey={scrollKey}
+            loadOlder={loadOlder}
+            hasOlder={hasOlder}
+            loadingOlder={loadingOlder}
             className="flex-1 overflow-y-auto px-3 lg:px-5 py-3"
           />
         )}
 
-        {/* Input */}
-        <div className="px-3 lg:px-4 py-2 lg:py-3">
-          <div className="max-w-3xl mx-auto w-full">
-            <ChatInput
-              onSend={handleSend}
-              agents={agents}
-              draft={currentDraft}
-              onDraftChange={handleDraftChange}
-              focusKey={focusKey}
-            />
+        {/* Input — hidden for read-only DM views */}
+        {!isDM && (
+          <div className="px-3 lg:px-4 py-2 lg:py-3">
+            <div className="max-w-3xl mx-auto w-full">
+              <ChatInput
+                onSend={handleSend}
+                agents={agents}
+                draft={currentDraft}
+                onDraftChange={handleDraftChange}
+                focusKey={focusKey}
+              />
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

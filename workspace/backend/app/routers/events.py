@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
-from sqlalchemy import cast, select, Text
+from sqlalchemy import and_, cast, func, or_, select, Text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -123,9 +123,11 @@ async def send_event(
 async def poll_events(
     network: str = Query(..., description="Network (workspace) ID or slug"),
     after: Optional[str] = Query(None, description="Return events after this event ID"),
+    before: Optional[str] = Query(None, description="Return events before this event ID"),
     target: Optional[str] = Query(None, description="Filter by target address"),
     channel: Optional[str] = Query(None, description="Filter by channel name"),
     type: Optional[str] = Query(None, description="Filter by event type prefix"),
+    conversation: Optional[str] = Query(None, description="Filter to DM conversation between two agents (comma-separated addresses)"),
     search: Optional[str] = Query(None, description="Search message content (case-insensitive)"),
     member: Optional[str] = Query(None, description="Filter to channels where this agent is a member"),
     sort: Optional[str] = Query(None, description="Sort order: 'asc' (default) or 'desc'"),
@@ -170,12 +172,30 @@ async def poll_events(
             # Agent is not a member of any channel — return empty
             return success_response({"events": [], "has_more": False})
 
+    if conversation:
+        parts = [p.strip() for p in conversation.split(",", 1)]
+        if len(parts) == 2:
+            a, b = parts
+            query = query.where(
+                or_(
+                    and_(EventRecord.source == a, EventRecord.target == b),
+                    and_(EventRecord.source == b, EventRecord.target == a),
+                )
+            )
+
     if after:
         cursor_event = db.execute(
             select(EventRecord.timestamp).where(EventRecord.id == after)
         ).scalar_one_or_none()
         if cursor_event is not None:
             query = query.where(EventRecord.timestamp > cursor_event)
+
+    if before:
+        cursor_event = db.execute(
+            select(EventRecord.timestamp).where(EventRecord.id == before)
+        ).scalar_one_or_none()
+        if cursor_event is not None:
+            query = query.where(EventRecord.timestamp < cursor_event)
 
     if target:
         query = query.where(EventRecord.target == target)
@@ -216,4 +236,163 @@ async def poll_events(
             for e in events
         ],
         "has_more": has_more,
+        "oldest_id": (events[-1].id if sort == "desc" else events[0].id) if events else None,
+        "newest_id": (events[0].id if sort == "desc" else events[-1].id) if events else None,
     })
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/events/conversations — discover agent-to-agent DM conversations
+# ---------------------------------------------------------------------------
+
+@router.get("/events/conversations")
+async def list_conversations(
+    network: str = Query(..., description="Network (workspace) ID or slug"),
+    agent: Optional[str] = Query(None, description="Filter to conversations involving this agent"),
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    List active agent-to-agent DM conversations.
+
+    Returns distinct conversation pairs with their latest message,
+    ordered by most recent activity.
+    """
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(network))
+    ).scalar_one_or_none()
+
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    # Build a subquery to find the latest event per conversation pair.
+    # Normalize pairs so (A→B) and (B→A) are the same conversation.
+    lesser = func.least(EventRecord.source, EventRecord.target)
+    greater = func.greatest(EventRecord.source, EventRecord.target)
+
+    base = (
+        select(
+            lesser.label("agent_a"),
+            greater.label("agent_b"),
+            func.max(EventRecord.timestamp).label("last_ts"),
+            func.count().label("msg_count"),
+        )
+        .where(
+            EventRecord.network_id == workspace.id,
+            EventRecord.visibility == "direct",
+            # Exclude channel targets — those are not DMs
+            ~EventRecord.target.startswith("channel/"),
+        )
+    )
+
+    if agent:
+        base = base.where(
+            or_(EventRecord.source == agent, EventRecord.target == agent)
+        )
+
+    base = base.group_by("agent_a", "agent_b").order_by(func.max(EventRecord.timestamp).desc()).limit(limit)
+
+    pairs = db.execute(base).all()
+
+    # For each pair, fetch the actual latest event
+    conversations = []
+    for row in pairs:
+        latest_event = db.execute(
+            select(EventRecord)
+            .where(
+                EventRecord.network_id == workspace.id,
+                EventRecord.timestamp == row.last_ts,
+                or_(
+                    and_(EventRecord.source == row.agent_a, EventRecord.target == row.agent_b),
+                    and_(EventRecord.source == row.agent_b, EventRecord.target == row.agent_a),
+                ),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+
+        if latest_event:
+            payload = latest_event.payload or {}
+            conversations.append({
+                "agents": [row.agent_a, row.agent_b],
+                "last_message": {
+                    "content": payload.get("content", ""),
+                    "sender": latest_event.source,
+                    "timestamp": latest_event.timestamp,
+                },
+                "message_count": row.msg_count,
+            })
+
+    return success_response({"conversations": conversations})
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/events/latest-per-channel — bulk thread preview endpoint
+# ---------------------------------------------------------------------------
+
+@router.get("/events/latest-per-channel")
+async def latest_per_channel(
+    network: str = Query(..., description="Network (workspace) ID or slug"),
+    type: Optional[str] = Query("workspace.message", description="Event type prefix to filter"),
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Return the most recent event per channel in a single query.
+
+    Replaces N separate pollEvents calls for thread list previews.
+    Uses a SQL window function to efficiently pick the latest event per target.
+    """
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(network))
+    ).scalar_one_or_none()
+
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    # Window function: ROW_NUMBER() OVER (PARTITION BY target ORDER BY timestamp DESC)
+    row_num = func.row_number().over(
+        partition_by=EventRecord.target,
+        order_by=EventRecord.timestamp.desc(),
+    ).label("rn")
+
+    inner = (
+        select(EventRecord, row_num)
+        .where(
+            EventRecord.network_id == workspace.id,
+            EventRecord.target.startswith("channel/"),
+        )
+    )
+
+    if type:
+        inner = inner.where(EventRecord.type.startswith(type))
+
+    inner = inner.subquery()
+
+    # Select only the first row per partition
+    query = select(inner).where(inner.c.rn == 1)
+    rows = db.execute(query).all()
+
+    channels = {}
+    for row in rows:
+        channel_name = row.target.replace("channel/", "", 1)
+        channels[channel_name] = {
+            "id": row.id,
+            "type": row.type,
+            "source": row.source,
+            "target": row.target,
+            "payload": row.payload,
+            "metadata": row.metadata,
+            "timestamp": row.timestamp,
+            "visibility": row.visibility,
+        }
+
+    return success_response({"channels": channels})

@@ -111,16 +111,21 @@ const MessagingSidebar: React.FC = () => {
   const {
     currentChannel,
     currentDirectMessage,
+    currentAgentConversation,
     selectChannel,
     selectDirectMessage,
+    selectAgentConversation,
     channels,
     channelsLoading,
     channelsLoaded,
     agents,
     agentsLoading,
     agentsLoaded,
+    agentConversations,
+    agentConversationsLoaded,
     loadChannels,
     loadAgents,
+    loadAgentConversations,
     restorePersistedSelection,
     initializeWithDefaultSelection,
   } = useChatStore();
@@ -136,8 +141,11 @@ const MessagingSidebar: React.FC = () => {
         console.log('MessagingSidebar: Loading agents...');
         loadAgents();
       }
+      if (!agentConversationsLoaded) {
+        loadAgentConversations();
+      }
     }
-  }, [isConnected, channelsLoaded, channelsLoading, agentsLoaded, agentsLoading, loadChannels, loadAgents]);
+  }, [isConnected, channelsLoaded, channelsLoading, agentsLoaded, agentsLoading, agentConversationsLoaded, loadChannels, loadAgents, loadAgentConversations]);
 
   // Handle selection restoration and default selection - execute after data loading completes
   React.useEffect(() => {
@@ -176,6 +184,15 @@ const MessagingSidebar: React.FC = () => {
 
     handleSelectionInitialization();
   }, [channelsLoaded, agentsLoaded, currentChannel, currentDirectMessage, restorePersistedSelection, initializeWithDefaultSelection]);
+
+  // Periodically refresh agent conversations
+  React.useEffect(() => {
+    if (!isConnected) return;
+    const interval = setInterval(() => {
+      loadAgentConversations();
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, [isConnected, loadAgentConversations]);
 
   // Filter out current user
   const filteredAgents = React.useMemo(() => {
@@ -243,7 +260,7 @@ const MessagingSidebar: React.FC = () => {
 
       {/* Direct Messages Section */}
       <SectionHeader title={t('sidebar.directMessages')} />
-      <div className="flex-1 overflow-y-auto px-3 custom-scrollbar">
+      <div className="px-3">
         {agentsLoading && filteredAgents.length === 0 ? (
           <div className="text-gray-500 text-sm px-2 py-2 text-center">
             {t('sidebar.loadingAgents')}
@@ -267,6 +284,50 @@ const MessagingSidebar: React.FC = () => {
           </ul>
         )}
       </div>
+
+      {/* Agent-to-Agent Conversations Section */}
+      {agentConversations.length > 0 && (
+        <>
+          <SectionHeader title="Agent DMs" />
+          <div className="flex-1 overflow-y-auto px-3 custom-scrollbar">
+            <ul className="flex flex-col gap-1">
+              {agentConversations.map((convo) => {
+                const key = `${convo.agents[0]},${convo.agents[1]}`;
+                const isActive = currentAgentConversation === key;
+                const preview = convo.lastMessage.content
+                  ? `${convo.lastMessage.sender}: ${convo.lastMessage.content}`.slice(0, 60)
+                  : '';
+                return (
+                  <li key={key}>
+                    <button
+                      onClick={() => selectAgentConversation(key)}
+                      className={`w-full text-left text-sm px-2 py-2 font-medium rounded transition-colors
+                        ${isActive
+                          ? "bg-[#F4F4F5] text-gray-900 dark:bg-[#F4F4F5] dark:text-gray-900 pl-2"
+                          : "text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-zinc-900 pl-2.5"
+                        }
+                      `}
+                      title={`${convo.agents[0]} ↔ ${convo.agents[1]} (${convo.messageCount} messages)`}
+                    >
+                      <div className="flex items-center min-w-0">
+                        <span className="mr-2 text-gray-400 text-xs">↔</span>
+                        <span className="truncate text-xs">
+                          {convo.agents[0]} ↔ {convo.agents[1]}
+                        </span>
+                      </div>
+                      {preview && (
+                        <div className="text-xs text-gray-400 truncate mt-0.5 pl-5">
+                          {preview}
+                        </div>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </>
+      )}
     </div>
   );
 };

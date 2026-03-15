@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { PanelLeft, RefreshCw, Search, Star, Archive, Trash2, MoreVertical, ArchiveRestore, Wrench, Loader2, CheckCircle2 } from 'lucide-react';
+import { PanelLeft, RefreshCw, Search, Star, Archive, Trash2, MoreVertical, ArchiveRestore, Wrench, Loader2, CheckCircle2, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -65,8 +65,80 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   );
 }
 
+function DMSection({
+  conversations,
+  currentSessionId,
+  onSelect,
+}: {
+  conversations: { agents: [string, string]; lastMessage: { content: string; sender: string; timestamp: number }; messageCount: number }[];
+  currentSessionId: string | null;
+  onSelect: (sessionId: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-700">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 px-1 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+      >
+        <MessageCircle className="size-3" />
+        <span>Agent DMs ({conversations.length})</span>
+        <svg
+          className={cn('size-3 ml-auto transition-transform', expanded && 'rotate-180')}
+          viewBox="0 0 12 12"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M3 5l3 3 3-3" />
+        </svg>
+      </button>
+      {expanded && (
+        <div className="mt-1 space-y-1">
+          {conversations.map((convo) => {
+            const dmId = `dm:${convo.agents[0]},${convo.agents[1]}`;
+            const isSelected = currentSessionId === dmId;
+            const agentA = convo.agents[0].replace(/^openagents:/, '');
+            const agentB = convo.agents[1].replace(/^openagents:/, '');
+            const sender = convo.lastMessage.sender.replace(/^openagents:/, '');
+            const preview = `${sender}: ${convo.lastMessage.content}`;
+            const displayTime = convo.lastMessage.timestamp
+              ? timeAgo(new Date(convo.lastMessage.timestamp).toISOString())
+              : '';
+
+            return (
+              <div
+                key={dmId}
+                onClick={() => onSelect(dmId)}
+                className={cn(
+                  'w-full flex items-center gap-2.5 p-2 rounded-lg text-left transition-colors cursor-pointer',
+                  isSelected ? 'bg-zinc-100 dark:bg-zinc-800 ring-2 ring-indigo-500 dark:ring-indigo-400' : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
+                )}
+              >
+                <div className="shrink-0 flex items-center justify-center border border-zinc-200 dark:border-zinc-700 rounded-full size-[30px] bg-white dark:bg-zinc-900">
+                  <MessageCircle className="size-3.5 text-muted-foreground" />
+                </div>
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm flex-1 min-w-0 truncate font-normal text-foreground">
+                      {agentA} ↔ {agentB}
+                    </span>
+                    <span className="text-xs text-muted-foreground shrink-0">{displayTime}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate">{preview}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ThreadList() {
-  const { sessions, currentSessionId, setCurrentSessionId, agents, lastMessageBySession, activeSessionIds, completedSessionIds, updateSession } = useWorkspace();
+  const { sessions, currentSessionId, setCurrentSessionId, agents, lastMessageBySession, activeSessionIds, completedSessionIds, updateSession, dmConversations } = useWorkspace();
   const { sidebarToggle, isMobile, openMobileDetail } = useLayout();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
@@ -341,6 +413,18 @@ export function ThreadList() {
                 </>
               )}
             </div>
+          )}
+
+          {/* Agent DMs section */}
+          {!isSearching && dmConversations.length > 0 && (
+            <DMSection
+              conversations={dmConversations}
+              currentSessionId={currentSessionId}
+              onSelect={(id) => {
+                setCurrentSessionId(id);
+                if (isMobile) openMobileDetail();
+              }}
+            />
           )}
 
           {/* Archived section */}

@@ -69,8 +69,8 @@ export function getThreadStyleClass(level: number): string {
  */
 export function getMessageBackgroundClass(isOwnMessage: boolean): string {
   return isOwnMessage
-    ? "bg-blue-50 border-blue-200 hover:bg-slate-100 hover:border-slate-300 dark:bg-blue-900 dark:border-blue-500 dark:hover:bg-slate-700 dark:hover:border-slate-600"
-    : "bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-slate-300 dark:bg-slate-900 dark:border-slate-600 dark:hover:bg-slate-700 dark:hover:border-slate-500";
+    ? "bg-blue-50 border-blue-200 hover:bg-slate-100 hover:border-slate-300 dark:bg-blue-950/60 dark:border-blue-700 dark:hover:bg-slate-700 dark:hover:border-slate-600 dark:text-white"
+    : "bg-slate-50 border-slate-200 hover:bg-slate-100 hover:border-slate-300 dark:bg-slate-800 dark:border-slate-600 dark:hover:bg-slate-700 dark:hover:border-slate-500 dark:text-white";
 }
 
 /**
