@@ -39,6 +39,11 @@ from .thread_messages import (
 logger = logging.getLogger(__name__)
 
 
+def _bare_agent_id(aid: str) -> str:
+    """Strip the ``agent:`` prefix so prefixed and bare IDs compare equally."""
+    return aid[len("agent:"):] if aid.startswith("agent:") else aid
+
+
 class MessageThread:
     """Represents a conversation thread with Reddit-like nesting."""
 
@@ -907,10 +912,12 @@ class ThreadMessagingNetworkMod(BaseMod):
                 if not is_direct_message:
                     continue
 
-                source = msg.source_id
+                source = msg.source_id or ""
                 target = msg.payload["target_agent_id"]
+                bare_source = _bare_agent_id(source)
+                bare_target = _bare_agent_id(target)
                 # Normalize the pair so (A,B) and (B,A) are the same
-                pair = (min(source, target), max(source, target))
+                pair = (min(bare_source, bare_target), max(bare_source, bare_target))
 
                 content_text = ""
                 if msg.payload and "content" in msg.payload:
@@ -1895,14 +1902,10 @@ class ThreadMessagingNetworkMod(BaseMod):
 
             if is_direct_message:
                 payload_target = msg.payload["target_agent_id"]
-                # Normalize agent IDs by stripping "agent:" prefix for comparison
-                def _bare(aid: str) -> str:
-                    return aid[len("agent:"):] if aid.startswith("agent:") else aid
-
-                bare_agent = _bare(agent_id) if agent_id else ""
-                bare_target = _bare(target_agent_id) if target_agent_id else ""
-                bare_source = _bare(msg.source_id) if msg.source_id else ""
-                bare_payload_target = _bare(payload_target)
+                bare_agent = _bare_agent_id(agent_id) if agent_id else ""
+                bare_target = _bare_agent_id(target_agent_id) if target_agent_id else ""
+                bare_source = _bare_agent_id(msg.source_id) if msg.source_id else ""
+                bare_payload_target = _bare_agent_id(payload_target)
 
                 # Check if this message is between the requesting agents
                 is_direct_msg_between_agents = (

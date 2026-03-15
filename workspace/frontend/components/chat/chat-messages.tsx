@@ -5,7 +5,7 @@ import { ChatMessage } from './chat-message';
 import { IntermediateSteps } from './intermediate-steps';
 import { Button } from '@/components/ui/button';
 import { ArrowDown } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 
 // ── Message Grouping ──

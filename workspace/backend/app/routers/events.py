@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
-from sqlalchemy import and_, cast, func, or_, select, Text
+from sqlalchemy import and_, case, cast, func, or_, select, Text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -174,28 +174,42 @@ async def poll_events(
 
     if conversation:
         parts = [p.strip() for p in conversation.split(",", 1)]
-        if len(parts) == 2:
-            a, b = parts
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            return json_response(ResponseCode.BAD_REQUEST, "conversation must be two comma-separated addresses")
+        a, b = parts
+        query = query.where(
+            EventRecord.visibility == "direct",
+            ~EventRecord.target.startswith("channel/"),
+            or_(
+                and_(EventRecord.source == a, EventRecord.target == b),
+                and_(EventRecord.source == b, EventRecord.target == a),
+            ),
+        )
+
+    if after:
+        cursor_row = db.execute(
+            select(EventRecord.timestamp, EventRecord.id).where(EventRecord.id == after)
+        ).one_or_none()
+        if cursor_row is not None:
+            # Use (timestamp, id) tuple to avoid skipping/duplicating events with the same timestamp
             query = query.where(
                 or_(
-                    and_(EventRecord.source == a, EventRecord.target == b),
-                    and_(EventRecord.source == b, EventRecord.target == a),
+                    EventRecord.timestamp > cursor_row.timestamp,
+                    and_(EventRecord.timestamp == cursor_row.timestamp, EventRecord.id > cursor_row.id),
                 )
             )
 
-    if after:
-        cursor_event = db.execute(
-            select(EventRecord.timestamp).where(EventRecord.id == after)
-        ).scalar_one_or_none()
-        if cursor_event is not None:
-            query = query.where(EventRecord.timestamp > cursor_event)
-
     if before:
-        cursor_event = db.execute(
-            select(EventRecord.timestamp).where(EventRecord.id == before)
-        ).scalar_one_or_none()
-        if cursor_event is not None:
-            query = query.where(EventRecord.timestamp < cursor_event)
+        cursor_row = db.execute(
+            select(EventRecord.timestamp, EventRecord.id).where(EventRecord.id == before)
+        ).one_or_none()
+        if cursor_row is not None:
+            query = query.where(
+                or_(
+                    EventRecord.timestamp < cursor_row.timestamp,
+                    and_(EventRecord.timestamp == cursor_row.timestamp, EventRecord.id < cursor_row.id),
+                )
+            )
 
     if target:
         query = query.where(EventRecord.target == target)
@@ -213,9 +227,9 @@ async def poll_events(
         )
 
     if sort == "desc":
-        query = query.order_by(EventRecord.timestamp.desc()).limit(limit + 1)
+        query = query.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc()).limit(limit + 1)
     else:
-        query = query.order_by(EventRecord.timestamp.asc()).limit(limit + 1)
+        query = query.order_by(EventRecord.timestamp.asc(), EventRecord.id.asc()).limit(limit + 1)
     rows = db.execute(query).scalars().all()
 
     has_more = len(rows) > limit
@@ -272,8 +286,15 @@ async def list_conversations(
 
     # Build a subquery to find the latest event per conversation pair.
     # Normalize pairs so (A→B) and (B→A) are the same conversation.
-    lesser = func.least(EventRecord.source, EventRecord.target)
-    greater = func.greatest(EventRecord.source, EventRecord.target)
+    # Use case() instead of func.least/greatest for SQLite compatibility.
+    lesser = case(
+        (EventRecord.source <= EventRecord.target, EventRecord.source),
+        else_=EventRecord.target,
+    )
+    greater = case(
+        (EventRecord.source > EventRecord.target, EventRecord.source),
+        else_=EventRecord.target,
+    )
 
     base = (
         select(

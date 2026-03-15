@@ -1007,6 +1007,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     } catch (error) {
       console.error("ChatStore: Failed to load agent conversations:", error);
+      set({ agentConversationsLoaded: true });
     }
   },
 

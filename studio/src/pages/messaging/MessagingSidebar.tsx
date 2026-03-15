@@ -231,6 +231,7 @@ const MessagingSidebar: React.FC = () => {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
+     <div className="flex-1 overflow-y-auto">
       {/* Channels Section */}
       <SectionHeader title={t('sidebar.channels')} />
       <div className="px-3">
@@ -289,7 +290,7 @@ const MessagingSidebar: React.FC = () => {
       {agentConversations.length > 0 && (
         <>
           <SectionHeader title="Agent DMs" />
-          <div className="flex-1 overflow-y-auto px-3 custom-scrollbar">
+          <div className="px-3">
             <ul className="flex flex-col gap-1">
               {agentConversations.map((convo) => {
                 const key = `${convo.agents[0]},${convo.agents[1]}`;
@@ -328,6 +329,7 @@ const MessagingSidebar: React.FC = () => {
           </div>
         </>
       )}
+     </div>
     </div>
   );
 };

@@ -88,7 +88,13 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
 
       if (result.events.length > 0) {
         // Events come newest-first from sort=desc, reverse for chronological display
-        const historicMessages = result.events.map(eventToMessage).reverse();
+        const historicMessages = result.events.map((e) => {
+          const msg = eventToMessage(e);
+          // For DM sessions, override sessionId so all messages share the dm: sessionId
+          // (eventToMessage derives sessionId from event.target which differs per message)
+          if (dmPair && sessionId) msg.sessionId = sessionId;
+          return msg;
+        }).reverse();
         setMessages(historicMessages);
         // newest_id is the most recent event (first in desc order)
         newestIdRef.current = result.newest_id || historicMessages[historicMessages.length - 1].messageId;
@@ -121,7 +127,14 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
               const r = await workspaceApi.pollConversation(dmPair[0], dmPair[1], {
                 after: newestIdRef.current ?? undefined,
               });
-              return { messages: r.events.map(eventToMessage), hasMore: r.has_more };
+              return {
+                messages: r.events.map((e) => {
+                  const msg = eventToMessage(e);
+                  if (sessionId) msg.sessionId = sessionId;
+                  return msg;
+                }),
+                hasMore: r.has_more,
+              };
             })()
           : await workspaceApi.pollMessages(
               sessionId,
