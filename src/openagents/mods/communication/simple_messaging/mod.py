@@ -37,6 +37,11 @@ class SimpleMessagingNetworkMod(BaseMod):
         self.register_event_handler(
             self._handle_direct_message, "agent.direct_message.*"
         )
+        # Also handle thread-namespaced DM events (used by adapters that
+        # target the workspace/thread messaging mod pipeline).
+        self.register_event_handler(
+            self._handle_direct_message, "thread.direct_message.*"
+        )
         self.register_event_handler(
             self._handle_broadcast_message, "agent.broadcast_message.*"
         )
