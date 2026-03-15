@@ -249,7 +249,7 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
 
         # Create and send the message
         message = Event(
-            event_name="agent.direct_message.send",
+            event_name="thread.direct_message.send",
             source_id=self.agent_id,
             destination_id=target_agent_id,
             payload={
@@ -262,7 +262,10 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         # DO NOT add outbound messages to sender's threads - only recipients should process incoming messages
         # The message will be added to the recipient's thread when they receive it via process_incoming_direct_message
 
-        await self.connector.send_direct_message(message)
+        if hasattr(self.connector, "send_direct_message"):
+            await self.connector.send_direct_message(message)
+        else:
+            await self.connector.send_event(message)
         logger.debug(f"Sent direct message to {target_agent_id}")
 
     async def send_broadcast_message(self, content: Dict[str, Any]) -> None:
@@ -287,7 +290,10 @@ class SimpleMessagingAgentAdapter(BaseModAdapter):
         # Add message to the broadcast conversation thread
         message.thread_name = get_broadcast_event_thread_id()
 
-        await self.connector.send_broadcast_message(message)
+        if hasattr(self.connector, "send_broadcast_message"):
+            await self.connector.send_broadcast_message(message)
+        else:
+            await self.connector.send_event(message)
         logger.debug("Sent broadcast message")
 
     async def send_text_message(self, target_agent_id: str, text: str) -> None:
