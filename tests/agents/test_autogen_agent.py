@@ -14,7 +14,7 @@ from openagents.models.tool import AgentTool
 
 
 try:
-    from autogen_core.tools import FunctionTool  # type: ignore
+    from autogen_core.tools import BaseTool, FunctionTool  # type: ignore
 
     AUTOGEN_AVAILABLE = True
 except ImportError:
@@ -93,12 +93,12 @@ class TestToolConverters:
 
     @pytest.mark.skipif(not AUTOGEN_AVAILABLE, reason="AutoGen not installed")
     def test_openagents_to_autogen_conversion(self, sample_openagents_tool):
-        """Test converting OpenAgents tool to AutoGen FunctionTool."""
+        """Test converting OpenAgents tool to AutoGen BaseTool."""
         from openagents.agents.autogen_agent import openagents_tool_to_autogen
 
         autogen_tool = openagents_tool_to_autogen(sample_openagents_tool)
         assert autogen_tool is not None
-        assert isinstance(autogen_tool, FunctionTool)
+        assert isinstance(autogen_tool, BaseTool)
         assert autogen_tool.schema["name"] == "sample_tool"
         assert (
             autogen_tool.schema["parameters"]["properties"]["message"]["type"]

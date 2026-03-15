@@ -210,8 +210,7 @@ def autogen_tool_to_openagents(autogen_tool: Any) -> AgentTool:
                 hasattr(autogen_tool, "args_type")
                 and callable(autogen_tool.args_type)
             ):
-                args_model = autogen_tool.args_type()
-                args = args_model(**kwargs)
+                args = autogen_tool.args_type(**kwargs)
                 result = autogen_tool.run(args, cancellation_token)
             else:
                 result = autogen_tool.run(kwargs)
@@ -474,14 +473,6 @@ class AutoGenAgentRunner(AgentRunner):
         context: EventContext,
     ) -> Any:
         """Invoke wrapped AutoGen entity across common API shapes."""
-        metadata = {
-            "source_id": context.incoming_event.source_id,
-            "thread_id": context.incoming_thread_id,
-            "event_id": context.incoming_event.event_id,
-            "event_name": context.incoming_event.event_name,
-        }
-        del metadata
-
         attempts = [
             ("run", (), {"task": input_text}),
             ("run", (input_text,), {}),
