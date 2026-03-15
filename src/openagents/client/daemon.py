@@ -496,6 +496,9 @@ class DaemonManager:
                 if line.startswith("stop:"):
                     agent_name = line[5:].strip()
                     self._stop_agent(agent_name)
+                elif line.startswith("restart:"):
+                    agent_name = line[8:].strip()
+                    self._restart_agent(agent_name)
                 elif line == "reload":
                     self._reload_pending = True
                 else:
@@ -516,6 +519,32 @@ class DaemonManager:
             self._write_status()
         else:
             logger.warning(f"Cannot stop agent '{agent_name}': not running")
+
+    def _restart_agent(self, agent_name: str):
+        """Restart a single agent: stop it, reload config, then relaunch."""
+        # Stop if running
+        task = self.tasks.get(agent_name)
+        if task and not task.done():
+            logger.info(f"Stopping agent: {agent_name}")
+            self._stopped_agents.add(agent_name)
+            task.cancel()
+
+        # Reload config from disk to pick up any changes (e.g. connect/disconnect)
+        self.config = load_config(self.config_path)
+
+        # Find agent in refreshed config and relaunch
+        agent_cfg = None
+        for a in self.config.agents:
+            if a.name == agent_name:
+                agent_cfg = a
+                break
+        if agent_cfg is None:
+            logger.warning(f"Cannot restart '{agent_name}': not in config")
+            return
+
+        net = get_agent_network(agent_cfg, self.config)
+        self._launch_agent(agent_cfg, net)
+        logger.info(f"Restarted agent: {agent_name}")
 
     def _write_status(self):
         """Write current agent statuses to disk."""

@@ -74,10 +74,24 @@ class BrowserManager:
         from browserbase import Browserbase
         return Browserbase(api_key=BROWSERBASE_API_KEY)
 
-    async def _create_bb_session(self, tab_id: str) -> str:
-        """Create a Browserbase session and return its connect URL."""
+    async def _create_bb_session(self, tab_id: str, bb_context_id: str = None) -> str:
+        """Create a Browserbase session and return its connect URL.
+
+        If bb_context_id is provided, the session will use the persistent
+        context (cookies/localStorage restored) and persist changes back.
+        """
         bb = self._bb_client()
-        session = bb.sessions.create(project_id=BROWSERBASE_PROJECT_ID)
+
+        create_kwargs = {"project_id": BROWSERBASE_PROJECT_ID}
+        if bb_context_id:
+            create_kwargs["browser_settings"] = {
+                "context": {
+                    "id": bb_context_id,
+                    "persist": True,
+                }
+            }
+
+        session = bb.sessions.create(**create_kwargs)
         self._sessions[tab_id] = session.id
 
         # Get live debug URLs
@@ -90,12 +104,30 @@ class BrowserManager:
 
         return session.connect_url
 
+    def create_bb_context(self) -> str:
+        """Create a new BrowserBase persistent context. Returns the context ID."""
+        bb = self._bb_client()
+        context = bb.contexts.create(project_id=BROWSERBASE_PROJECT_ID)
+        return context.id
+
+    def delete_bb_context(self, bb_context_id: str) -> None:
+        """Delete a BrowserBase persistent context."""
+        bb = self._bb_client()
+        try:
+            bb.contexts.delete(bb_context_id)
+        except Exception as e:
+            logger.warning("Failed to delete BB context %s: %s", bb_context_id, e)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
-    async def open_tab(self, tab_id: str, url: str = "about:blank") -> dict:
-        """Create a new browser tab. Returns {url, title}."""
+    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None) -> dict:
+        """Create a new browser tab. Returns {url, title}.
+
+        If bb_context_id is provided (persistent context), the session will
+        start with cookies/storage from that context already loaded.
+        """
         async with self._global_lock:
             if len(self._pages) >= MAX_BROWSER_TABS:
                 raise RuntimeError(f"Maximum browser tabs ({MAX_BROWSER_TABS}) reached")
@@ -103,7 +135,7 @@ class BrowserManager:
             await self._ensure_playwright()
 
             if self.is_cloud:
-                connect_url = await self._create_bb_session(tab_id)
+                connect_url = await self._create_bb_session(tab_id, bb_context_id=bb_context_id)
                 browser = await self._playwright.chromium.connect_over_cdp(connect_url)
                 self._browsers_cdp[tab_id] = browser
                 # Browserbase gives us one default page

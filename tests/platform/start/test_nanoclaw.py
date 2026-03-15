@@ -1,7 +1,7 @@
 """
 Platform start tests for NanoClaw agent.
 
-Tests that `openagents start nanoclaw` can launch the agent daemon.
+Tests that `openagents create nanoclaw` can launch the agent daemon.
 NanoClaw uses direct API mode so no binary is needed — the adapter
 calls the chat completions API directly.
 
@@ -38,17 +38,17 @@ def cleanup_agent():
 
 
 class TestNanoClawStart:
-    """Test starting NanoClaw via `openagents start nanoclaw`."""
+    """Test starting NanoClaw via `openagents create nanoclaw`."""
 
     def test_openagents_start(self):
-        """`openagents start nanoclaw` should launch the daemon."""
+        """`openagents create nanoclaw` should launch the daemon."""
         result = run_openagents(
-            "start", AGENT_NAME, "--no-browser",
+            "create", AGENT_NAME, "--name", AGENT_NAME, "--no-browser",
             timeout=30,
             stdin_text="y\n\n",
         )
         assert result.returncode == 0, (
-            f"`openagents start {AGENT_NAME}` failed "
+            f"`openagents create {AGENT_NAME}` failed "
             f"(exit {result.returncode}).\n"
             f"stdout:\n{result.stdout[-1000:]}\n"
             f"stderr:\n{result.stderr[-1000:]}"
@@ -56,7 +56,7 @@ class TestNanoClawStart:
 
     def test_daemon_running(self):
         """After start, `openagents status` should show daemon running."""
-        run_openagents("start", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
+        run_openagents("create", AGENT_NAME, "--name", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
         time.sleep(2)
 
         result = run_openagents("status", timeout=10)
@@ -69,7 +69,7 @@ class TestNanoClawStart:
 
     def test_agent_remove(self):
         """`openagents remove` should remove the agent without killing the daemon."""
-        run_openagents("start", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
+        run_openagents("create", AGENT_NAME, "--name", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
         time.sleep(2)
 
         result = run_openagents("remove", AGENT_NAME, timeout=10, stdin_text="y\n")

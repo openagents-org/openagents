@@ -125,7 +125,7 @@ class TestCursorRespond:
         env = workspace_env
 
         result = run_openagents(
-            "start", AGENT_TYPE,
+            "create", AGENT_TYPE,
             "--name", env["agent_name"],
             "--join-workspace", env["token"],
             "--no-browser",
@@ -145,7 +145,7 @@ class TestCursorRespond:
         client = env["client"]
 
         run_openagents(
-            "start", AGENT_TYPE,
+            "create", AGENT_TYPE,
             "--name", env["agent_name"],
             "--join-workspace", env["token"],
             "--no-browser",
@@ -198,7 +198,7 @@ class TestCursorRespond:
         client = env["client"]
 
         start_result = run_openagents(
-            "start", AGENT_TYPE,
+            "create", AGENT_TYPE,
             "--name", env["agent_name"],
             "--join-workspace", env["token"],
             "--no-browser",

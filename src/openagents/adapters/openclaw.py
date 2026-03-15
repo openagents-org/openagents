@@ -146,17 +146,25 @@ class OpenClawAdapter(BaseAdapter):
         openclaw_token: Optional[str] = None,
         openclaw_agent_id: str = "main",
         disabled_modules: set | None = None,
+        working_dir: str | None = None,
     ):
         super().__init__(workspace_id, channel_name, token, agent_name, endpoint)
         self.disabled_modules = disabled_modules or set()
 
-        # Check for direct LLM API mode (bypasses OpenClaw gateway)
+        # Check for direct LLM API mode (bypasses OpenClaw gateway).
+        # Only use direct mode if explicitly requested via OPENCLAW_DIRECT_MODE=1,
+        # because the LLM env vars (OPENAI_API_KEY, OPENAI_BASE_URL) are also
+        # used by the OpenClaw gateway itself and don't imply direct mode.
         self._direct_api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "")
         self._direct_base_url = os.environ.get("OPENAI_BASE_URL", "").rstrip("/")
         self._direct_model = os.environ.get("OPENCLAW_MODEL", "")
-        self._direct_mode = bool(self._direct_api_key and self._direct_base_url)
+        self._direct_mode = os.environ.get("OPENCLAW_DIRECT_MODE", "").strip() == "1"
 
         if self._direct_mode:
+            if not (self._direct_api_key and self._direct_base_url):
+                raise ValueError(
+                    "OPENCLAW_DIRECT_MODE=1 requires OPENAI_API_KEY and OPENAI_BASE_URL"
+                )
             self.openclaw_url = f"{self._direct_base_url}/chat/completions"
             logger.info(f"Direct LLM mode: {self._direct_base_url} model={self._direct_model or 'default'}")
         else:

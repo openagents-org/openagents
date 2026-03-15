@@ -136,7 +136,7 @@ class TestOpenClawRespond:
         env = workspace_env
 
         result = run_openagents(
-            "start", AGENT_TYPE,
+            "create", AGENT_TYPE,
             "--name", env["agent_name"],
             "--join-workspace", env["token"],
             "--no-browser",
@@ -157,7 +157,7 @@ class TestOpenClawRespond:
 
         # Start agent and join workspace
         run_openagents(
-            "start", AGENT_TYPE,
+            "create", AGENT_TYPE,
             "--name", env["agent_name"],
             "--join-workspace", env["token"],
             "--no-browser",
@@ -214,7 +214,7 @@ class TestOpenClawRespond:
 
         # Start agent and join workspace
         start_result = run_openagents(
-            "start", AGENT_TYPE,
+            "create", AGENT_TYPE,
             "--name", env["agent_name"],
             "--join-workspace", env["token"],
             "--no-browser",

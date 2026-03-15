@@ -69,6 +69,7 @@ class AgentPlugin(ABC):
         agent_name: str,
         endpoint: str,
         options: Optional[dict] = None,
+        working_dir: Optional[str] = None,
     ) -> object:
         """Create and return an adapter instance with an async .run() method."""
 

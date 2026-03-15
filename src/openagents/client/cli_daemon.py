@@ -70,7 +70,7 @@ def daemon_up(
     if not cfg.agents:
         console.print(Panel(
             "[yellow]No agents configured.[/yellow]\n\n"
-            "Get started: [bold]openagents start openclaw[/bold]",
+            "Get started: [bold]openagents create openclaw[/bold]",
             title="[yellow]No Agents[/yellow]",
             border_style="yellow",
         ))
@@ -150,7 +150,7 @@ def daemon_status():
         else:
             console.print(Panel(
                 "[dim]Daemon is not running. No agents configured.[/dim]\n\n"
-                "Get started: [bold]openagents start openclaw[/bold]",
+                "Get started: [bold]openagents create openclaw[/bold]",
                 title="[dim]Daemon Stopped[/dim]",
                 border_style="dim",
             ))
@@ -267,13 +267,13 @@ def daemon_logs(
             console.print(f"\n[dim]Showing last {lines} of {total} lines. Use -n to show more, -f to follow.[/dim]")
 
 
-@app.command("start", rich_help_panel="Client")
-def daemon_start_agent(
+@app.command("create", rich_help_panel="Client")
+def daemon_create_agent(
     agent_type: str = typer.Argument(
         ..., help="Agent type (claude, openclaw, codex, etc.)",
     ),
-    name: Optional[str] = typer.Option(
-        None, "--name", "-n", help="Agent name (default: same as type)",
+    name: str = typer.Option(
+        ..., "--name", "-n", help="Agent name (must be unique)",
     ),
     path: Optional[str] = typer.Option(
         None, "--path", "-p", help="Working directory for the agent",
@@ -295,7 +295,7 @@ def daemon_start_agent(
         help="Workspace backend endpoint URL",
     ),
 ):
-    """🚀 Start an agent — creates it if it doesn't exist yet."""
+    """Create a new agent and start the daemon."""
     from rich.progress import Progress, SpinnerColumn, TextColumn
 
     from openagents.client.daemon_config import (
@@ -334,10 +334,6 @@ def daemon_start_agent(
         console.print(f"  [yellow]![/yellow] {plugin.label} — {message}")
         if not Confirm.ask("  Continue anyway?", default=False):
             raise typer.Exit(0)
-
-    # Default name = agent type (e.g. "claude")
-    if not name:
-        name = agent_type
 
     # Idempotent: if agent already exists, just ensure daemon is running
     existing = find_agent_in_config(name)
@@ -616,15 +612,50 @@ def daemon_stop_agent(
         raise typer.Exit(1)
 
 
-@app.command("create", hidden=True)
-def daemon_create(
-    agent_type: str = typer.Argument(..., help="Agent type"),
-    name: Optional[str] = typer.Option(None, "--name", "-n"),
-    path: Optional[str] = typer.Option(None, "--path", "-p"),
-    role: str = typer.Option("worker", "--role", "-r"),
+@app.command("start", rich_help_panel="Client")
+def daemon_start_agent(
+    agent_name: str = typer.Argument(..., help="Agent name to start/restart"),
 ):
-    """[hidden] Alias for 'start'. Use 'openagents start' instead."""
-    daemon_start_agent(agent_type=agent_type, name=name, path=path, role=role)
+    """Start (or restart) an existing agent by name."""
+    from openagents.client.daemon import read_daemon_pid
+    from openagents.client.daemon_config import CMD_PATH, find_agent_in_config, read_status
+
+    agent = find_agent_in_config(agent_name)
+    if agent is None:
+        console.print(f"[red]Agent '{agent_name}' not found in config.[/red]")
+        console.print(
+            f"Create it first: [bold]openagents create {agent_name.split('-')[0]}"
+            f" --name {agent_name}[/bold]"
+        )
+        raise typer.Exit(1)
+
+    pid = read_daemon_pid()
+    if pid is None:
+        # Daemon not running — start it (will launch all configured agents)
+        console.print(f"Daemon is not running. Starting daemon...")
+        _start_daemon()
+        return
+
+    # Daemon is running — send restart command
+    CMD_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CMD_PATH.write_text(f"restart:{agent_name}\n")
+    console.print(f"Starting [cyan]{agent_name}[/cyan]...")
+
+    import time
+    for _ in range(10):
+        time.sleep(1)
+        status_data = read_status()
+        agents_status = status_data.get("agents", {}) if status_data else {}
+        state = agents_status.get(agent_name, {}).get("state")
+        if state == "online":
+            console.print(f"[green]Agent '{agent_name}' is online.[/green]")
+            return
+        if state == "starting":
+            continue
+    console.print(
+        f"[yellow]Start command sent. Check status with:[/yellow] "
+        f"[bold]openagents status[/bold]"
+    )
 
 
 def _start_daemon():
@@ -697,7 +728,7 @@ def daemon_connect_agent(
     agent = find_agent_in_config(agent_name)
     if agent is None:
         console.print(f"[red]Agent '{agent_name}' not found.[/red]")
-        console.print("Start it first: [bold]openagents start " + agent_name.split("-")[0] + " --name " + agent_name + "[/bold]")
+        console.print("Create it first: [bold]openagents create " + agent_name.split("-")[0] + " --name " + agent_name + "[/bold]")
         raise typer.Exit(1)
 
     if agent.network:
@@ -766,8 +797,13 @@ def daemon_connect_agent(
     # Connect
     connect_agent_to_network(agent_name, net_entry.slug or net_entry.id)
 
-    # Signal daemon to reload config immediately
-    _signal_daemon_reload()
+    # Restart just this agent so it picks up the new network
+    from openagents.client.daemon import read_daemon_pid
+    from openagents.client.daemon_config import CMD_PATH
+    pid = read_daemon_pid()
+    if pid:
+        CMD_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CMD_PATH.write_text(f"restart:{agent_name}\n")
 
     console.print(
         f"\n[green]Connected[/green] [cyan]{agent_name}[/cyan] ({agent.type}) "
@@ -796,8 +832,13 @@ def daemon_disconnect_agent(
     old_network = agent.network
     disconnect_agent_from_network(agent_name)
 
-    # Signal daemon to reload config immediately
-    _signal_daemon_reload()
+    # Restart just this agent so it drops the network connection
+    from openagents.client.daemon import read_daemon_pid
+    from openagents.client.daemon_config import CMD_PATH
+    pid = read_daemon_pid()
+    if pid:
+        CMD_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CMD_PATH.write_text(f"restart:{agent_name}\n")
 
     console.print(
         f"[green]Disconnected[/green] [cyan]{agent_name}[/cyan] from {old_network}. "
@@ -951,7 +992,7 @@ def workspace_create(
         f"Share this token to invite others:\n"
         f"  [bold]openagents workspace join {ws.token}[/bold]\n\n"
         f"Connect an agent:\n"
-        f"  [bold]openagents start openclaw[/bold]",
+        f"  [bold]openagents create openclaw[/bold]",
         title="[green]✓ Workspace Created[/green]",
         border_style="green",
     ))
@@ -1023,7 +1064,7 @@ def workspace_join(
         f"[bold]{name}[/bold]\n\n"
         f"  URL  [link={ws_url}]{ws_url}[/link]\n\n"
         f"Connect an agent:\n"
-        f"  [bold]openagents start openclaw[/bold]",
+        f"  [bold]openagents create openclaw[/bold]",
         title="[green]✓ Joined Workspace[/green]",
         border_style="green",
     ))

@@ -86,8 +86,20 @@ export interface BrowserTab {
   sharedWith: string[];
   liveUrl: string | null;
   sessionId: string | null;
+  contextId: string | null;
   createdAt: string | null;
   lastActiveAt: string | null;
+}
+
+export interface BrowserPersistentContext {
+  id: string;
+  name: string;
+  domain: string | null;
+  status: string;
+  createdBy: string;
+  sharedWith: string[];
+  createdAt: string | null;
+  lastUsedAt: string | null;
 }
 
 // ---------------------------------------------------------------------------

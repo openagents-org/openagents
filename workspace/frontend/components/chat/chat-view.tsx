@@ -183,17 +183,42 @@ export function ChatView() {
     }
   }, [currentSessionId, messages]);
 
-  // Clear optimistic messages once the real user message arrives from the server
+  // Clear optimistic messages progressively:
+  // 1. Remove optimistic user msg once the real user message arrives from the server
+  // 2. Remove optimistic loading msg once any real agent message arrives after the user msg
   useEffect(() => {
     if (optimisticMessages.length === 0) return;
-    const optimisticUser = optimisticMessages.find((m) => m.messageId.startsWith('optimistic-user-'));
-    if (!optimisticUser) return;
-    // Check if a real message with matching content has arrived
-    const found = messages.some(
-      (m) => m.senderType !== 'agent' && m.content === optimisticUser.content
-    );
-    if (found) {
-      setOptimisticMessages([]);
+    let updated = [...optimisticMessages];
+
+    // Check if the real user message has arrived
+    const optimisticUser = updated.find((m) => m.messageId.startsWith('optimistic-user-'));
+    if (optimisticUser) {
+      const realUserFound = messages.some(
+        (m) => m.senderType !== 'agent' && m.content === optimisticUser.content
+      );
+      if (realUserFound) {
+        updated = updated.filter((m) => !m.messageId.startsWith('optimistic-user-'));
+      }
+    }
+
+    // Check if a real agent message has arrived AFTER the user message — clear loading indicator
+    const optimisticLoading = updated.find((m) => m.messageId.startsWith('optimistic-loading-'));
+    if (optimisticLoading) {
+      // Find the index of the real user message that replaced the optimistic one
+      const userMsgIdx = messages.findIndex(
+        (m) => m.senderType !== 'agent' && m.content === optimisticLoading.metadata?._userContent
+      );
+      // If user msg is confirmed AND there's an agent message after it, clear loading
+      const hasAgentAfterUser = userMsgIdx >= 0 && messages.slice(userMsgIdx + 1).some(
+        (m) => m.senderType === 'agent'
+      );
+      if (hasAgentAfterUser) {
+        updated = updated.filter((m) => !m.messageId.startsWith('optimistic-loading-'));
+      }
+    }
+
+    if (updated.length !== optimisticMessages.length) {
+      setOptimisticMessages(updated);
     }
   }, [messages, optimisticMessages]);
 
@@ -230,7 +255,7 @@ export function ChatView() {
     if (!currentSessionId) return;
     const lastMsg = displayMessages[displayMessages.length - 1];
     if (lastMsg) {
-      const isWorking = lastMsg.messageType === 'status' || lastMsg.messageType === 'thinking';
+      const isWorking = lastMsg.messageType === 'status' || lastMsg.messageType === 'thinking' || lastMsg.messageType === 'loading';
       updateLastMessage(currentSessionId, lastMsg.senderName, lastMsg.content, isWorking);
     } else {
       updateLastMessage(currentSessionId, '', '');
@@ -251,7 +276,7 @@ export function ChatView() {
       return;
     }
     const lastMsg = displayMessages[displayMessages.length - 1];
-    const isAgentWorking = lastMsg.senderType === 'agent' && (lastMsg.messageType === 'status' || lastMsg.messageType === 'thinking');
+    const isAgentWorking = lastMsg.senderType === 'agent' && (lastMsg.messageType === 'status' || lastMsg.messageType === 'thinking' || lastMsg.messageType === 'loading');
     setSessionActive(currentSessionId, isAgentWorking);
   }, [currentSessionId, displayMessages, setSessionActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -272,30 +297,30 @@ export function ChatView() {
 
       // Create optimistic messages for instant feedback
       const timestamp = Date.now();
+      const userContent = content || (files.length > 0 ? files.map((f) => f.file.name).join(', ') : '');
       const userOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-user-${timestamp}`,
         sessionId: currentSessionId,
         senderName: 'You',
         senderType: 'user',
-        content: content || (files.length > 0 ? files.map((f) => f.file.name).join(', ') : ''),
+        content: userContent,
         messageType: 'chat',
         mentions: [],
         targetAgents: null,
         createdAt: new Date().toISOString(),
         metadata: {},
       };
-
       const loadingOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-loading-${timestamp}`,
         sessionId: currentSessionId,
         senderName: agents.find((a) => a.role === 'master')?.agentName || agents[0]?.agentName || 'Agent',
         senderType: 'agent',
-        content: 'thinking...',
-        messageType: 'thinking',
+        content: '',
+        messageType: 'loading',
         mentions: [],
         targetAgents: null,
         createdAt: new Date().toISOString(),
-        metadata: {},
+        metadata: { _userContent: userContent },
       };
 
       // Add optimistic messages immediately and scroll to bottom

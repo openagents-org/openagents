@@ -43,16 +43,40 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
   }, [generation]);
   const displayMessages = useMemo(() => [...messages, ...optimisticMessages], [messages, optimisticMessages]);
 
-  // Clear optimistic messages once the real user message arrives from the server
+  // Clear optimistic messages progressively:
+  // 1. Remove optimistic user msg once the real user message arrives from the server
+  // 2. Remove optimistic loading indicator once any real agent message arrives after the user msg
   useEffect(() => {
     if (optimisticMessages.length === 0) return;
-    const optimisticUser = optimisticMessages.find((m) => m.messageId.startsWith('optimistic-user-'));
-    if (!optimisticUser) return;
-    const found = messages.some(
-      (m) => m.senderType !== 'agent' && m.content === optimisticUser.content
-    );
-    if (found) {
-      setOptimisticMessages([]);
+    let updated = [...optimisticMessages];
+
+    // Check if the real user message has arrived
+    const optimisticUser = updated.find((m) => m.messageId.startsWith('optimistic-user-'));
+    if (optimisticUser) {
+      const realUserFound = messages.some(
+        (m) => m.senderType !== 'agent' && m.content === optimisticUser.content
+      );
+      if (realUserFound) {
+        updated = updated.filter((m) => !m.messageId.startsWith('optimistic-user-'));
+      }
+    }
+
+    // Check if a real agent message has arrived AFTER the user message — clear loading indicator
+    const optimisticLoading = updated.find((m) => m.messageId.startsWith('optimistic-loading-'));
+    if (optimisticLoading) {
+      const userMsgIdx = messages.findIndex(
+        (m) => m.senderType !== 'agent' && m.content === optimisticLoading.metadata?._userContent
+      );
+      const hasAgentAfterUser = userMsgIdx >= 0 && messages.slice(userMsgIdx + 1).some(
+        (m) => m.senderType === 'agent'
+      );
+      if (hasAgentAfterUser) {
+        updated = updated.filter((m) => !m.messageId.startsWith('optimistic-loading-'));
+      }
+    }
+
+    if (updated.length !== optimisticMessages.length) {
+      setOptimisticMessages(updated);
     }
   }, [messages, optimisticMessages]);
 
@@ -85,12 +109,13 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
     async (content: string, mentions: string[] = [], files: PendingFile[] = []) => {
       // Optimistic messages
       const timestamp = Date.now();
+      const userContent = content || (files.length > 0 ? files.map((f) => f.file.name).join(', ') : '');
       const userOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-user-${timestamp}`,
         sessionId,
         senderName: 'You',
         senderType: 'user',
-        content: content || (files.length > 0 ? files.map((f) => f.file.name).join(', ') : ''),
+        content: userContent,
         messageType: 'chat',
         mentions: [],
         targetAgents: null,
@@ -103,12 +128,12 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
         sessionId,
         senderName: agents.find((a) => a.role === 'master')?.agentName || agents[0]?.agentName || 'Agent',
         senderType: 'agent',
-        content: 'thinking...',
-        messageType: 'thinking',
+        content: '',
+        messageType: 'loading',
         mentions: [],
         targetAgents: null,
         createdAt: new Date().toISOString(),
-        metadata: {},
+        metadata: { _userContent: userContent },
       };
 
       setOptimisticMessages([userOptimisticMsg, loadingOptimisticMsg]);

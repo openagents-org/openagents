@@ -99,14 +99,19 @@ def build_api_skills_prompt(
     caps.append("discover other agents in the workspace")
 
     sections.append(
-        "## Workspace Tools\n\n"
+        "## Workspace Tools (MANDATORY)\n\n"
         "You can " + ", ".join(caps) + ".\n"
         "These are WORKSPACE tools shared with all agents and users. "
         "They are different from your native tools.\n\n"
         "**HOW TO USE:** Call your `exec` tool to run the `curl` commands below. "
-        "Do NOT output curl commands as text — EXECUTE them with `exec`. "
-        "Do NOT use your native `browser` or `web_fetch` tools "
-        "for workspace operations — those are separate from the shared workspace.\n\n"
+        "Do NOT output curl commands as text — EXECUTE them with `exec`.\n\n"
+        "**IMPORTANT — tool priority:**\n"
+        "- ALWAYS use `exec` + `curl` (documented below) for workspace operations.\n"
+        "- Do NOT use `workspace_browser_*` native tools — they are not configured "
+        "and will fail.\n"
+        "- Do NOT use `web_fetch`, `browser`, or any native browsing tool "
+        "when the user asks to use the workspace browser — use `exec` + `curl` instead.\n"
+        "- The workspace browser is a *shared* browser visible to all users and agents.\n\n"
         "**Auth header** (include on every request):\n"
         f"`X-Workspace-Token: {token}`\n"
     )

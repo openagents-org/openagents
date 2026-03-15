@@ -1,6 +1,7 @@
 import type {
   AgentCatalogEntry,
   ApiResponse,
+  BrowserPersistentContext,
   BrowserTab,
   DMConversation,
   EventPollResponse,
@@ -306,46 +307,66 @@ class WorkspaceApi {
   // Browser
   // ---------------------------------------------------------------------------
 
+  /** Map raw backend tab object to BrowserTab. */
+  private mapTab(t: Record<string, unknown>): BrowserTab {
+    return {
+      id: t.id as string,
+      url: t.url as string,
+      title: (t.title as string) || null,
+      status: t.status as string,
+      createdBy: (t.created_by as string) || 'unknown',
+      sharedWith: (t.shared_with as string[]) || [],
+      liveUrl: (t.live_url as string) || null,
+      sessionId: (t.session_id as string) || null,
+      contextId: (t.context_id as string) || null,
+      createdAt: (t.created_at as string) || null,
+      lastActiveAt: (t.last_active_at as string) || null,
+    };
+  }
+
+  /** Map raw backend context object to BrowserPersistentContext. */
+  private mapContext(c: Record<string, unknown>): BrowserPersistentContext {
+    return {
+      id: c.id as string,
+      name: c.name as string,
+      domain: (c.domain as string) || null,
+      status: (c.status as string) || 'active',
+      createdBy: (c.created_by as string) || 'unknown',
+      sharedWith: (c.shared_with as string[]) || [],
+      createdAt: (c.created_at as string) || null,
+      lastUsedAt: (c.last_used_at as string) || null,
+    };
+  }
+
   /** List active browser tabs. */
   async listBrowserTabs(): Promise<{ tabs: BrowserTab[]; total: number }> {
     const result = await this.request<{ tabs: unknown[]; total: number }>(
       `/v1/browser/tabs?network=${this.workspaceId}`
     );
     return {
-      tabs: (result.tabs as Record<string, unknown>[]).map((t) => ({
-        id: t.id as string,
-        url: t.url as string,
-        title: (t.title as string) || null,
-        status: t.status as string,
-        createdBy: t.created_by as string,
-        sharedWith: (t.shared_with as string[]) || [],
-        liveUrl: (t.live_url as string) || null,
-        sessionId: (t.session_id as string) || null,
-        createdAt: (t.created_at as string) || null,
-        lastActiveAt: (t.last_active_at as string) || null,
-      })),
+      tabs: (result.tabs as Record<string, unknown>[]).map((t) => this.mapTab(t)),
       total: result.total,
     };
   }
 
-  /** Open a new browser tab. */
-  async openBrowserTab(url = 'about:blank'): Promise<BrowserTab> {
+  /** Open a new browser tab. Optionally open with a persistent context (already logged in). */
+  async openBrowserTab(url = 'about:blank', contextId?: string): Promise<BrowserTab> {
+    const body: Record<string, unknown> = { url, network: this.workspaceId, source: 'human:user' };
+    if (contextId) body.context_id = contextId;
     const result = await this.request<Record<string, unknown>>('/v1/browser/tabs', {
       method: 'POST',
-      body: JSON.stringify({ url, network: this.workspaceId, source: 'human:user' }),
+      body: JSON.stringify(body),
     });
-    return {
-      id: result.id as string,
-      url: result.url as string,
-      title: (result.title as string) || null,
-      status: result.status as string,
-      createdBy: result.created_by as string,
-      sharedWith: (result.shared_with as string[]) || [],
-      liveUrl: (result.live_url as string) || null,
-      sessionId: (result.session_id as string) || null,
-      createdAt: (result.created_at as string) || null,
-      lastActiveAt: (result.last_active_at as string) || null,
-    };
+    return this.mapTab(result);
+  }
+
+  /** Reconnect an expired browser tab (creates a new session). */
+  async reconnectBrowserTab(tabId: string): Promise<BrowserTab> {
+    const result = await this.request<Record<string, unknown>>(
+      `/v1/browser/tabs/${tabId}/reconnect`,
+      { method: 'POST' },
+    );
+    return this.mapTab(result);
   }
 
   /** Close a browser tab. */
@@ -356,6 +377,40 @@ class WorkspaceApi {
   /** Get screenshot URL for a browser tab. */
   getBrowserScreenshotUrl(tabId: string): string {
     return `${API_URL}/v1/browser/tabs/${tabId}/screenshot`;
+  }
+
+  /** Remove persistent state from a browser tab (revert to temporal). */
+  async unpersistBrowserTab(tabId: string): Promise<BrowserTab> {
+    const result = await this.request<Record<string, unknown>>(
+      `/v1/browser/tabs/${tabId}/unpersist`,
+      { method: 'POST' },
+    );
+    return this.mapTab(result);
+  }
+
+  /** Mark a browser tab as persistent (saves cookies/storage for reuse). */
+  async persistBrowserTab(tabId: string, name: string): Promise<{ tab: BrowserTab; context: BrowserPersistentContext }> {
+    const result = await this.request<{ tab: Record<string, unknown>; context: Record<string, unknown> }>(
+      `/v1/browser/tabs/${tabId}/persist`,
+      { method: 'POST', body: JSON.stringify({ name }) },
+    );
+    return { tab: this.mapTab(result.tab), context: this.mapContext(result.context) };
+  }
+
+  /** List persistent browser contexts (saved sessions). */
+  async listBrowserContexts(): Promise<{ contexts: BrowserPersistentContext[]; total: number }> {
+    const result = await this.request<{ contexts: unknown[]; total: number }>(
+      `/v1/browser/contexts?network=${this.workspaceId}`,
+    );
+    return {
+      contexts: (result.contexts as Record<string, unknown>[]).map((c) => this.mapContext(c)),
+      total: result.total,
+    };
+  }
+
+  /** Delete a persistent browser context (removes saved cookies/storage permanently). */
+  async deleteBrowserContext(contextId: string): Promise<void> {
+    await this.request<unknown>(`/v1/browser/contexts/${contextId}`, { method: 'DELETE' });
   }
 
   // ---------------------------------------------------------------------------

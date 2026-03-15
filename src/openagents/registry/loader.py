@@ -339,7 +339,7 @@ def _make_plugin_from_yaml(data: dict):
                 args.append(arg.replace("{agent_name}", agent_name))
             return [bin_path] + args
 
-        def create_adapter(self, workspace_id, channel_name, token, agent_name, endpoint, options=None):
+        def create_adapter(self, workspace_id, channel_name, token, agent_name, endpoint, options=None, working_dir=None):
             mod = importlib.import_module(adapter_cfg["module"])
             cls = getattr(mod, adapter_cfg["class"])
             opts = options or {}
@@ -355,6 +355,8 @@ def _make_plugin_from_yaml(data: dict):
                 agent_name=agent_name,
                 endpoint=endpoint,
             )
+            if working_dir:
+                kwargs["working_dir"] = working_dir
             # Add adapter-specific options
             for k, v in merged.items():
                 kwargs[k] = v

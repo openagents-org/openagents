@@ -31,6 +31,9 @@ interface LayoutState {
   openMobileDetail: () => void;
   /** Navigate back to list pane on mobile */
   openMobileList: () => void;
+  /** Whether the detail pane is expanded to full width (hides sidebar + list) */
+  isDetailExpanded: boolean;
+  toggleDetailExpanded: () => void;
 }
 
 const LayoutContext = createContext<LayoutState | undefined>(undefined);
@@ -41,10 +44,12 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   const [viewMode, setViewMode] = useState<ViewMode>('threads');
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>('list');
+  const [isDetailExpanded, setIsDetailExpanded] = useState(false);
 
   const isAgentPanelOpen = selectedAgentName !== null;
   const openMobileDetail = () => setMobilePane('detail');
   const openMobileList = () => setMobilePane('list');
+  const toggleDetailExpanded = () => setIsDetailExpanded((v) => !v);
 
   const cssVariables = useMemo(() => ({
     '--sidebar-width': '240px',
@@ -85,6 +90,8 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       mobilePane,
       openMobileDetail,
       openMobileList,
+      isDetailExpanded,
+      toggleDetailExpanded,
     }}>
       <div data-slot="layout-wrapper" className="flex grow">
         <TooltipProvider delayDuration={0}>

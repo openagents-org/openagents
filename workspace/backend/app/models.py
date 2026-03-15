@@ -222,6 +222,7 @@ class BrowserTab(Base):
     status = Column(Text, nullable=False, default="active")       # active | closed
     created_by = Column(Text, nullable=False)                      # "human:user" or "openagents:agent-name"
     shared_with = Column(JSONB, default=[])                        # list of agent names with access
+    context_id = Column(Text, ForeignKey("browser_contexts.id", ondelete="SET NULL"), nullable=True)  # persistent context
     session_id = Column(Text, nullable=True)                       # Browserbase session ID
     live_url = Column(Text, nullable=True)                         # Browserbase live view URL
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
@@ -229,6 +230,36 @@ class BrowserTab(Base):
 
     __table_args__ = (
         Index("idx_browser_tabs_workspace_status", "workspace_id", "status"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Persistent browser contexts (BrowserBase contexts for session persistence)
+# ---------------------------------------------------------------------------
+
+class BrowserContext(Base):
+    """A persistent browser context that preserves cookies/storage across sessions.
+
+    Users mark a tab as persistent by giving it a name (e.g. "LinkedIn Account").
+    A BrowserBase context is created and reused across tab open/close cycles,
+    so the logged-in state survives indefinitely.
+    """
+    __tablename__ = "browser_contexts"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)                          # user-provided label, e.g. "LinkedIn Account"
+    bb_context_id = Column(Text, nullable=True)                  # BrowserBase context ID (null in local mode)
+    domain = Column(Text, nullable=True)                         # auto-captured from tab URL, e.g. "linkedin.com"
+    status = Column(Text, nullable=False, default="active")      # active | expired
+    created_by = Column(Text, nullable=False)                    # "human:user" or "openagents:agent-name"
+    shared_with = Column(JSONB, default=[])                      # list of agent names that can use this context
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    last_used_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "name", name="uq_browser_context_workspace_name"),
+        Index("idx_browser_contexts_workspace_status", "workspace_id", "status"),
     )
 
 

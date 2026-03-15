@@ -314,7 +314,7 @@ def _show_agent_scan():
         console.print("Install an agent: [bold]openagents install claude[/bold]")
     elif ready_count > 0 and not cfg.agents:
         ready_names = [a["name"] for a in scan if a["ready"]]
-        console.print(f"Start an agent:   [bold]openagents start {ready_names[0]}[/bold]")
+        console.print(f"Create an agent:  [bold]openagents create {ready_names[0]}[/bold]")
     elif cfg.agents and not pid:
         console.print("Start agents:     [bold]openagents up[/bold]")
     elif not pid:

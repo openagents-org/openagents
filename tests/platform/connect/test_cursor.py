@@ -1,7 +1,7 @@
 """
 Platform connect tests for Cursor agent.
 
-Tests that `openagents start cursor --create-workspace ...` can create a
+Tests that `openagents create cursor --create-workspace ...` can create a
 workspace and connect the agent to it across Linux, macOS, and Windows.
 
 Run:
@@ -41,7 +41,7 @@ def agent_name():
 def _start_with_workspace(agent_name: str, ws_name: str, timeout: int = 60):
     """Start the agent with a unique name and create a workspace."""
     return run_openagents(
-        "start", AGENT_TYPE,
+        "create", AGENT_TYPE,
         "--name", agent_name,
         "--create-workspace", ws_name,
         "--no-browser",
@@ -54,7 +54,7 @@ class TestCursorConnect:
     """Test connecting Cursor to a workspace."""
 
     def test_create_workspace_and_connect(self, agent_name):
-        """`openagents start cursor --create-workspace` should create a
+        """`openagents create cursor --create-workspace` should create a
         workspace and connect the agent to it."""
         ws_name = f"ws-{agent_name}"
         result = _start_with_workspace(agent_name, ws_name)

@@ -69,6 +69,10 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
   // Track session identity to reset scroll state on thread switch
   const prevSessionRef = useRef<string | null>(null);
 
+  // Separate loading indicators (optimistic) from real messages
+  const loadingMessages = useMemo(() => messages.filter((m) => m.messageType === 'loading'), [messages]);
+  const realMessages = useMemo(() => messages.filter((m) => m.messageType !== 'loading'), [messages]);
+
   // Filter: skip empty status messages; when toggle is off, only show status messages after the last chat message
   const filteredMessages = useMemo(() => {
     const isStep = (msg: WorkspaceMessage) => msg.messageType === 'status' || msg.messageType === 'thinking';
@@ -76,11 +80,11 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
     // Deduplicate: if a chat message follows thinking from the same agent
     // with matching content, hide the thinking (it was the final answer
     // streamed early as "thinking" before being posted as "chat").
-    const deduped = messages.filter((msg, i) => {
+    const deduped = realMessages.filter((msg, i) => {
       if (msg.messageType !== 'thinking') return true;
       // Look ahead for a chat message from the same agent
-      for (let j = i + 1; j < messages.length; j++) {
-        const next = messages[j];
+      for (let j = i + 1; j < realMessages.length; j++) {
+        const next = realMessages[j];
         if (next.senderName !== msg.senderName) continue;
         if (next.messageType === 'status' || next.messageType === 'thinking') continue;
         // Found a chat message from the same agent — check content overlap.
@@ -129,7 +133,7 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
       if (msg.messageType !== 'status') return true;
       return index === lastStatusIndex;
     });
-  }, [messages, showAllSteps]);
+  }, [realMessages, showAllSteps]);
 
   // Group into chat messages and intermediate step clusters
   const groups = useMemo(() => groupMessages(filteredMessages), [filteredMessages]);
@@ -249,6 +253,16 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
             />
           );
         })}
+        {/* Optimistic loading indicator — breathing dots */}
+        {loadingMessages.length > 0 && (
+          <div className="flex items-start gap-3 py-1">
+            <div className="size-8 shrink-0" />
+            <div className="py-1.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/breathing-dots.gif" alt="Agent is working" width={44} height={14} className="opacity-90" />
+            </div>
+          </div>
+        )}
       </div>
 
       {showScrollBtn && (

@@ -1,7 +1,7 @@
 """
 Platform start tests for OpenClaw agent.
 
-Tests that `openagents start openclaw` can launch the agent daemon
+Tests that `openagents create openclaw` can launch the agent daemon
 across Linux, macOS, and Windows.
 
 Run:
@@ -33,7 +33,7 @@ def cleanup_agent():
 
 
 class TestOpenClawStart:
-    """Test starting OpenClaw via `openagents start openclaw`."""
+    """Test starting OpenClaw via `openagents create openclaw`."""
 
     def test_agent_installed(self):
         """OpenClaw must be installed before we can start it."""
@@ -43,18 +43,18 @@ class TestOpenClawStart:
         )
 
     def test_openagents_start(self):
-        """`openagents start openclaw` should launch the daemon.
+        """`openagents create openclaw` should launch the daemon.
 
         Uses stdin pipe so the interactive workspace prompt auto-selects
         'skip' (the default choice).
         """
         result = run_openagents(
-            "start", AGENT_NAME, "--no-browser",
+            "create", AGENT_NAME, "--name", AGENT_NAME, "--no-browser",
             timeout=30,
             stdin_text="y\n\n",  # "y" for readiness prompt, Enter for workspace skip
         )
         assert result.returncode == 0, (
-            f"`openagents start {AGENT_NAME}` failed "
+            f"`openagents create {AGENT_NAME}` failed "
             f"(exit {result.returncode}).\n"
             f"stdout:\n{result.stdout[-1000:]}\n"
             f"stderr:\n{result.stderr[-1000:]}"
@@ -63,7 +63,7 @@ class TestOpenClawStart:
     def test_daemon_running(self):
         """After start, `openagents status` should show daemon running."""
         # Start the agent first
-        run_openagents("start", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
+        run_openagents("create", AGENT_NAME, "--name", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
 
         # Give daemon a moment to spin up
         time.sleep(2)
@@ -78,7 +78,7 @@ class TestOpenClawStart:
 
     def test_agent_remove(self):
         """`openagents remove` should remove the agent without killing the daemon."""
-        run_openagents("start", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
+        run_openagents("create", AGENT_NAME, "--name", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
         time.sleep(2)
 
         result = run_openagents("remove", AGENT_NAME, timeout=10, stdin_text="y\n")

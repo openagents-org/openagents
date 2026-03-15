@@ -1,7 +1,7 @@
 """
 Platform start tests for Cursor agent.
 
-Tests that `openagents start cursor` can launch the agent daemon.
+Tests that `openagents create cursor` can launch the agent daemon.
 Cursor uses direct API mode so no binary is needed — the adapter
 calls the chat completions API directly.
 
@@ -38,17 +38,17 @@ def cleanup_agent():
 
 
 class TestCursorStart:
-    """Test starting Cursor via `openagents start cursor`."""
+    """Test starting Cursor via `openagents create cursor`."""
 
     def test_openagents_start(self):
-        """`openagents start cursor` should launch the daemon."""
+        """`openagents create cursor` should launch the daemon."""
         result = run_openagents(
-            "start", AGENT_NAME, "--no-browser",
+            "create", AGENT_NAME, "--name", AGENT_NAME, "--no-browser",
             timeout=30,
             stdin_text="y\n\n",
         )
         assert result.returncode == 0, (
-            f"`openagents start {AGENT_NAME}` failed "
+            f"`openagents create {AGENT_NAME}` failed "
             f"(exit {result.returncode}).\n"
             f"stdout:\n{result.stdout[-1000:]}\n"
             f"stderr:\n{result.stderr[-1000:]}"
@@ -56,7 +56,7 @@ class TestCursorStart:
 
     def test_daemon_running(self):
         """After start, `openagents status` should show daemon running."""
-        run_openagents("start", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
+        run_openagents("create", AGENT_NAME, "--name", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
         time.sleep(2)
 
         result = run_openagents("status", timeout=10)
@@ -69,7 +69,7 @@ class TestCursorStart:
 
     def test_agent_remove(self):
         """`openagents remove` should remove the agent without killing the daemon."""
-        run_openagents("start", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
+        run_openagents("create", AGENT_NAME, "--name", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
         time.sleep(2)
 
         result = run_openagents("remove", AGENT_NAME, timeout=10, stdin_text="y\n")

@@ -50,6 +50,7 @@ class CodexAdapter(BaseAdapter):
         agent_name: str,
         endpoint: str = DEFAULT_ENDPOINT,
         disabled_modules: set | None = None,
+        working_dir: str | None = None,
     ):
         super().__init__(workspace_id, channel_name, token, agent_name, endpoint)
         self.disabled_modules = disabled_modules or set()

@@ -40,9 +40,11 @@ class ClaudeAdapter(BaseAdapter):
         agent_name: str,
         endpoint: str = DEFAULT_ENDPOINT,
         disabled_modules: set | None = None,
+        working_dir: str | None = None,
     ):
         super().__init__(workspace_id, channel_name, token, agent_name, endpoint)
         self.disabled_modules = disabled_modules or set()
+        self.working_dir = working_dir
         self._channel_sessions: dict[str, str] = {}  # channel_name → Claude CLI session_id
         self._current_process: Optional[asyncio.subprocess.Process] = None
         self._channel_processes: dict[str, asyncio.subprocess.Process] = {}  # channel → subprocess
@@ -373,6 +375,7 @@ class ClaudeAdapter(BaseAdapter):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=clean_env,
+                cwd=self.working_dir,
                 limit=10 * 1024 * 1024,  # 10 MB line buffer (default 64KB too small for large tool outputs)
                 start_new_session=not is_windows,  # setsid is POSIX-only
             )

@@ -180,6 +180,7 @@ async def setup_agent(
         agent_name=agent_name,
         endpoint=endpoint,
         options=opts,
+        working_dir=working_dir,
     )
 
     return adapter

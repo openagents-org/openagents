@@ -15,7 +15,7 @@ import { MonitorGrid } from '@/components/monitor/monitor-grid';
 import { useWorkspace } from '@/lib/workspace-context';
 
 export function Wrapper() {
-  const { isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, mobilePane } = useLayout();
+  const { isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, isDetailExpanded, mobilePane } = useLayout();
   const { monitorMode } = useWorkspace();
 
   // ── Mobile layout: single-pane with list/detail switching ──
@@ -57,29 +57,32 @@ export function Wrapper() {
   // ── Desktop layout: sidebar + two panes ──
   return (
     <div className="flex h-screen w-full [&_.container-fluid]:px-5">
-      <Sidebar />
+      {!isDetailExpanded && <Sidebar />}
 
       <div className="flex flex-col flex-1 min-w-0 w-full">
         <div className="flex grow min-h-0 overflow-hidden mx-2.5 py-2.5 gap-2.5">
           {/* Invisible spacer for fixed sidebar */}
-          <div
-            className="shrink-0 transition-all duration-300"
-            style={{
-              width: isSidebarOpen
-                ? 'var(--sidebar-width)'
-                : 'var(--sidebar-width-collapsed)',
-            }}
-          />
+          {!isDetailExpanded && (
+            <div
+              className="shrink-0 transition-all duration-300"
+              style={{
+                width: isSidebarOpen
+                  ? 'var(--sidebar-width)'
+                  : 'var(--sidebar-width-collapsed)',
+              }}
+            />
+          )}
 
           {/* Monitor mode: replace both panes with 2x3 grid */}
           {viewMode === 'threads' && monitorMode ? (
-            <div className="flex-1 min-w-0">
+            <div className="relative flex-1 min-w-0">
               <MonitorGrid />
+              {isAgentPanelOpen && <AgentProfilePanel />}
             </div>
           ) : (
             <>
-              {/* Middle pane — thread list or file list (hidden for connect view) */}
-              {viewMode !== 'connect' && (
+              {/* Middle pane — thread list or file list (hidden for connect view or when expanded) */}
+              {viewMode !== 'connect' && !isDetailExpanded && (
                 <div className="shrink-0 w-[300px] xl:w-[400px] bg-background overflow-hidden border border-input rounded-xl shadow-xs flex flex-col">
                   {viewMode === 'threads' && <ThreadList />}
                   {viewMode === 'files' && <FileList />}

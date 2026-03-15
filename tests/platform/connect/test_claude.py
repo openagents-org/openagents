@@ -1,7 +1,7 @@
 """
 Platform connect tests for Claude Code agent.
 
-Tests that `openagents start claude --create-workspace ...` can create a
+Tests that `openagents create claude --create-workspace ...` can create a
 workspace and connect the agent to it across Linux, macOS, and Windows.
 
 Uses a unique --name for each test run so it doesn't collide with any
@@ -45,7 +45,7 @@ def _start_with_workspace(agent_name: str, ws_name: str, timeout: int = 60):
     (shown when the agent isn't fully configured/logged-in) is accepted.
     """
     return run_openagents(
-        "start", AGENT_TYPE,
+        "create", AGENT_TYPE,
         "--name", agent_name,
         "--create-workspace", ws_name,
         "--no-browser",
@@ -65,7 +65,7 @@ class TestClaudeConnect:
         )
 
     def test_create_workspace_and_connect(self, agent_name):
-        """`openagents start claude --create-workspace` should create a
+        """`openagents create claude --create-workspace` should create a
         workspace and connect the agent to it."""
         ws_name = f"ws-{agent_name}"
         result = _start_with_workspace(agent_name, ws_name)

@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useCallback, useEffect, useState } from 'react';
 import { workspaceApi } from './api';
 import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
-import type { BrowserTab, DMConversation, ONMEvent, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceSession } from './types';
+import type { BrowserPersistentContext, BrowserTab, DMConversation, ONMEvent, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceSession } from './types';
 
 interface LastMessageInfo {
   content: string;
@@ -49,8 +49,15 @@ interface WorkspaceContextValue {
   selectedBrowserTabId: string | null;
   setSelectedBrowserTabId: (id: string | null) => void;
   refreshBrowserTabs: () => Promise<void>;
-  openBrowserTab: (url?: string) => Promise<BrowserTab>;
+  openBrowserTab: (url?: string, contextId?: string) => Promise<BrowserTab>;
   closeBrowserTab: (tabId: string) => Promise<void>;
+  reconnectBrowserTab: (tabId: string) => Promise<BrowserTab>;
+  browserContexts: BrowserPersistentContext[];
+  refreshBrowserContexts: () => Promise<void>;
+  persistBrowserTab: (tabId: string, name: string) => Promise<BrowserPersistentContext>;
+  unpersistBrowserTab: (tabId: string) => Promise<void>;
+  deleteBrowserContext: (contextId: string) => Promise<void>;
+  openBrowserTabWithContext: (contextId: string, url?: string) => Promise<BrowserTab>;
   dmConversations: DMConversation[];
   refreshDMConversations: () => Promise<void>;
 }
@@ -99,6 +106,7 @@ export function WorkspaceProvider({
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [browserTabs, setBrowserTabs] = useState<BrowserTab[]>([]);
   const [selectedBrowserTabId, setSelectedBrowserTabId] = useState<string | null>(null);
+  const [browserContexts, setBrowserContexts] = useState<BrowserPersistentContext[]>([]);
   const [dmConversations, setDMConversations] = useState<DMConversation[]>([]);
   const [manuallyRenamedSessions, setManuallyRenamedSessions] = useState<Set<string>>(new Set());
 
@@ -307,9 +315,10 @@ export function WorkspaceProvider({
         }
       }
 
-      // Also refresh files, browser tabs, and DM conversations so sidebar counts stay current
+      // Also refresh files, browser tabs, persistent contexts, and DM conversations so sidebar counts stay current
       workspaceApi.listFiles().then((r) => setFiles(r.files)).catch(() => {});
       workspaceApi.listBrowserTabs().then((r) => setBrowserTabs(r.tabs)).catch(() => {});
+      workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {});
       workspaceApi.listConversations().then((c) => setDMConversations(c)).catch(() => {});
     } catch {
       // Non-critical — keep existing state
@@ -361,6 +370,51 @@ export function WorkspaceProvider({
     if (selectedBrowserTabId === tabId) setSelectedBrowserTabId(null);
   }, [selectedBrowserTabId]);
 
+  const reconnectBrowserTab = useCallback(async (tabId: string) => {
+    const tab = await workspaceApi.reconnectBrowserTab(tabId);
+    setBrowserTabs((prev) => prev.map((t) => (t.id === tabId ? tab : t)));
+    return tab;
+  }, []);
+
+  const refreshBrowserContexts = useCallback(async () => {
+    try {
+      const result = await workspaceApi.listBrowserContexts();
+      setBrowserContexts(result.contexts);
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
+  const persistBrowserTab = useCallback(async (tabId: string, name: string) => {
+    const result = await workspaceApi.persistBrowserTab(tabId, name);
+    // Update the tab in state with the new context_id
+    setBrowserTabs((prev) => prev.map((t) => (t.id === tabId ? result.tab : t)));
+    // Add the new context to state
+    setBrowserContexts((prev) => [result.context, ...prev]);
+    return result.context;
+  }, []);
+
+  const unpersistBrowserTab = useCallback(async (tabId: string) => {
+    const updatedTab = await workspaceApi.unpersistBrowserTab(tabId);
+    setBrowserTabs((prev) => prev.map((t) => (t.id === tabId ? updatedTab : t)));
+    // Refresh contexts to remove the deleted one
+    await refreshBrowserContexts();
+  }, [refreshBrowserContexts]);
+
+  const deleteBrowserContext = useCallback(async (contextId: string) => {
+    await workspaceApi.deleteBrowserContext(contextId);
+    setBrowserContexts((prev) => prev.filter((c) => c.id !== contextId));
+    // Clear context_id from any tabs that referenced it
+    setBrowserTabs((prev) => prev.map((t) => (t.contextId === contextId ? { ...t, contextId: null } : t)));
+  }, []);
+
+  const openBrowserTabWithContext = useCallback(async (contextId: string, url = 'about:blank') => {
+    const tab = await workspaceApi.openBrowserTab(url, contextId);
+    await refreshBrowserTabs();
+    setSelectedBrowserTabId(tab.id);
+    return tab;
+  }, [refreshBrowserTabs]);
+
   const refreshDMConversations = useCallback(async () => {
     try {
       const convos = await workspaceApi.listConversations();
@@ -381,6 +435,7 @@ export function WorkspaceProvider({
           workspaceApi.discover(),
           workspaceApi.listFiles().then((r) => setFiles(r.files)).catch(() => {}),
           workspaceApi.listBrowserTabs().then((r) => setBrowserTabs(r.tabs)).catch(() => {}),
+          workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {}),
         ]);
         if (cancelled) return;
 
@@ -638,6 +693,13 @@ export function WorkspaceProvider({
         refreshBrowserTabs,
         openBrowserTab,
         closeBrowserTab,
+        reconnectBrowserTab,
+        browserContexts,
+        refreshBrowserContexts,
+        persistBrowserTab,
+        unpersistBrowserTab,
+        deleteBrowserContext,
+        openBrowserTabWithContext,
         dmConversations,
         refreshDMConversations,
       }}

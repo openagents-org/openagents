@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Copy, Check, MessageSquare, Globe, Folder, Monitor, UserRoundCog } from 'lucide-react';
+import { X, Copy, Check, Plus, Globe, Folder, Monitor, UserRoundCog } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { getAgentColor, getAgentInitials } from '@/lib/helpers';
@@ -11,8 +11,8 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export function AgentProfilePanel() {
-  const { selectedAgentName, setSelectedAgentName, isMobile } = useLayout();
-  const { agents, refreshWorkspace } = useWorkspace();
+  const { selectedAgentName, setSelectedAgentName, isMobile, setViewMode } = useLayout();
+  const { agents, refreshWorkspace, createSession } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
 
   const agent = agents.find((a) => a.agentName === selectedAgentName);
@@ -44,6 +44,13 @@ export function AgentProfilePanel() {
       setSaving(false);
     }
   }, [agent, description, descDirty, refreshWorkspace]);
+
+  const handleStartThread = useCallback(async () => {
+    if (!agent) return;
+    await createSession({ master: agent.agentName, participants: [agent.agentName] });
+    setSelectedAgentName(null);
+    setViewMode('threads');
+  }, [agent, createSession, setSelectedAgentName, setViewMode]);
 
   if (!agent) return null;
 
@@ -186,9 +193,12 @@ export function AgentProfilePanel() {
         {/* Footer actions */}
         <div className="px-3.5 py-3 border-t">
           <div className="flex gap-2">
-            <button className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border bg-background hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors">
-              <MessageSquare className="size-3" />
-              Message
+            <button
+              onClick={handleStartThread}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border bg-background hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+            >
+              <Plus className="size-3" />
+              Start a Thread
             </button>
           </div>
         </div>

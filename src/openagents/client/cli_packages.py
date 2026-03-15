@@ -346,16 +346,13 @@ def daemon_remove(
 
     remove_agent_from_config(agent_name)
 
-    # Signal daemon to reload config so it stops the removed agent
+    # Stop just this agent in the daemon
     from openagents.client.daemon import read_daemon_pid
-    import platform as _plat
+    from openagents.client.daemon_config import CMD_PATH
     pid = read_daemon_pid()
-    if pid and _plat.system() != "Windows":
-        try:
-            import signal as _sig
-            os.kill(pid, _sig.SIGHUP)
-        except (ProcessLookupError, PermissionError):
-            pass
+    if pid:
+        CMD_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CMD_PATH.write_text(f"stop:{agent_name}\n")
 
     console.print(f"  [green]✓ Removed[/green] {agent_name}")
 
@@ -433,12 +430,12 @@ def install_agent(
         ))
         raise typer.Exit(1)
 
-    # Check if already installed
+    # Check if the binary is already installed (don't skip install
+    # just because an adapter module exists for direct API mode)
     plugin = registry.get(agent_type)
-    if plugin and plugin.is_installed():
+    if plugin and plugin.which():
         path = plugin.which()
-        loc = f"\n  Location: [dim]{path}[/dim]" if path else ""
-        console.print(f"  [green]✓[/green] {info.label} is already installed.{loc}")
+        console.print(f"  [green]✓[/green] {info.label} is already installed.\n  Location: [dim]{path}[/dim]")
         raise typer.Exit(0)
 
     cmd = info.install_command
@@ -496,7 +493,7 @@ def install_agent(
                 loc = f"\n  Location: [dim]{path}[/dim]" if path else ""
                 console.print(Panel(
                     f"[green]Successfully installed {info.label}[/green]{loc}\n\n"
-                    f"Next: [bold]openagents start {agent_type}[/bold]",
+                    f"Next: [bold]openagents create {agent_type}[/bold]",
                     title="[green]✓ Installed[/green]",
                     border_style="green",
                 ))
