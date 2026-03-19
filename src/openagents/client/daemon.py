@@ -421,7 +421,7 @@ class DaemonManager:
 
         # Determine API format from base URL
         is_anthropic = "anthropic" in base_url.lower() if base_url else bool(os.environ.get("ANTHROPIC_API_KEY"))
-        api_format = "anthropic-messages" if is_anthropic else "openai-chat"
+        api_format = "anthropic-messages" if is_anthropic else "openai-completions"
 
         # Build provider config
         provider_id = "openagents-llm"
