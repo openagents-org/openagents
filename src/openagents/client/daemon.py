@@ -335,12 +335,15 @@ class DaemonManager:
         """Ensure required setup for an agent type before starting.
 
         For OpenClaw: ensures the binary is on PATH and runs onboard if needed.
-        The adapter uses CLI mode (openclaw agent --local) which doesn't need
-        a running gateway — it runs the agent locally with full tool support.
+        For OpenCode: ensures the binary is on PATH.
         """
-        if agent_cfg.type != "openclaw":
-            return
+        if agent_cfg.type == "opencode":
+            await self._ensure_opencode_services()
+        elif agent_cfg.type == "openclaw":
+            await self._ensure_openclaw_services()
 
+    async def _ensure_openclaw_services(self):
+        """Ensure OpenClaw binary is on PATH, run onboard, and configure model."""
         import shutil
 
         # Ensure openclaw binary is on PATH
@@ -462,6 +465,48 @@ class DaemonManager:
             logger.info("Configured OpenClaw model: %s/%s", provider_id, model_id)
         except Exception as e:
             logger.warning("Failed to write OpenClaw model config: %s", e)
+
+    async def _ensure_opencode_services(self):
+        """Ensure opencode binary is available on PATH."""
+        import shutil
+
+        binary = shutil.which("opencode")
+        if binary:
+            logger.info("Found opencode binary: %s", binary)
+            return
+
+        # Try common npm / local paths
+        npm_dirs: list[str] = []
+        if IS_WINDOWS:
+            appdata = os.environ.get("APPDATA", "")
+            if appdata:
+                npm_dirs.append(os.path.join(appdata, "npm"))
+            userprofile = os.environ.get("USERPROFILE", "")
+            if userprofile:
+                npm_dirs.append(os.path.join(userprofile, "AppData", "Roaming", "npm"))
+        else:
+            home = os.path.expanduser("~")
+            npm_dirs.extend([
+                os.path.join(home, ".npm-global", "bin"),
+                "/usr/local/bin",
+                os.path.join(home, ".local", "bin"),
+                os.path.join(home, "go", "bin"),
+            ])
+        for d in npm_dirs:
+            candidate = os.path.join(d, "opencode")
+            if os.path.isfile(candidate):
+                binary = candidate
+                break
+
+        if binary:
+            bin_dir = os.path.dirname(binary)
+            if bin_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+                logger.info("Added %s to PATH for opencode", bin_dir)
+        else:
+            logger.warning(
+                "opencode binary not found. Please install opencode and ensure it is on PATH."
+            )
 
     async def _ensure_openclaw_identity(self, binary: str):
         """Ensure OpenClaw device identity exists via non-interactive onboard."""
