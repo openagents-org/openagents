@@ -277,7 +277,30 @@ def _make_plugin_from_yaml(data: dict):
                     if ext in win_exts:
                         return bare
                 return None
-            return shutil.which(binary)
+            found = shutil.which(binary)
+            if found:
+                return found
+            # nvm
+            home = Path.home()
+            nvm_dir = Path(os.environ.get("NVM_DIR", home / ".nvm"))
+            node_versions = nvm_dir / "versions" / "node"
+            if node_versions.is_dir():
+                for d in sorted(node_versions.iterdir(), reverse=True):
+                    c = d / "bin" / binary
+                    if c.is_file() and os.access(c, os.X_OK):
+                        return str(c)
+            # fnm
+            fnm_dir = home / ".local" / "share" / "fnm" / "node-versions"
+            if fnm_dir.is_dir():
+                for d in sorted(fnm_dir.iterdir(), reverse=True):
+                    c = d / "installation" / "bin" / binary
+                    if c.is_file() and os.access(c, os.X_OK):
+                        return str(c)
+            # volta
+            volta_bin = home / ".volta" / "bin" / binary
+            if volta_bin.is_file() and os.access(volta_bin, os.X_OK):
+                return str(volta_bin)
+            return None
 
         def is_installed(self) -> bool:
             if self._which_binary() is not None:
