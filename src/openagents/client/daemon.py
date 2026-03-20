@@ -471,6 +471,8 @@ class DaemonManager:
         import shutil
 
         binary = shutil.which("opencode")
+        if not binary and IS_WINDOWS:
+            binary = shutil.which("opencode.cmd") or shutil.which("opencode.exe")
         if binary:
             logger.info("Found opencode binary: %s", binary)
             return
@@ -492,15 +494,25 @@ class DaemonManager:
                 os.path.join(home, ".local", "bin"),
                 os.path.join(home, "go", "bin"),
             ])
+        names = ["opencode.cmd", "opencode"] if IS_WINDOWS else ["opencode"]
         for d in npm_dirs:
-            candidate = os.path.join(d, "opencode")
-            if os.path.isfile(candidate):
-                binary = candidate
+            for name in names:
+                candidate = os.path.join(d, name)
+                if os.path.isfile(candidate):
+                    binary = candidate
+                    break
+            if binary:
                 break
 
         if binary:
             bin_dir = os.path.dirname(binary)
-            if bin_dir not in os.environ.get("PATH", ""):
+            existing = os.environ.get("PATH", "").split(os.pathsep)
+            if IS_WINDOWS:
+                existing = [p.lower() for p in existing]
+                already = bin_dir.lower() in existing
+            else:
+                already = bin_dir in existing
+            if not already:
                 os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
                 logger.info("Added %s to PATH for opencode", bin_dir)
         else:

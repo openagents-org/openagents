@@ -11,10 +11,14 @@ import json
 import logging
 import platform
 import shutil
+from pathlib import Path
 from typing import Optional
 
 from openagents.adapters.base import BaseAdapter
-from openagents.adapters.workspace_prompt import build_openclaw_system_prompt
+from openagents.adapters.workspace_prompt import (
+    build_opencode_skill_md,
+    build_opencode_system_prompt,
+)
 from openagents.workspace_client import DEFAULT_ENDPOINT
 
 logger = logging.getLogger(__name__)
@@ -35,6 +39,15 @@ class OpenCodeAdapter(BaseAdapter):
         self.disabled_modules = disabled_modules or set()
         self.working_dir = working_dir
 
+        self._channel_sessions: dict[str, str] = {}
+        self._sessions_file = (
+            Path.home()
+            / ".openagents"
+            / "sessions"
+            / f"{workspace_id}_{agent_name}_opencode.json"
+        )
+        self._load_sessions()
+
         self._opencode_binary = self._find_opencode_binary()
         if self._opencode_binary:
             logger.info("Using OpenCode subprocess mode: %s", self._opencode_binary)
@@ -44,8 +57,46 @@ class OpenCodeAdapter(BaseAdapter):
                 "Install opencode: npm install -g opencode-ai@latest"
             )
 
+    def _load_sessions(self):
+        try:
+            if self._sessions_file.exists():
+                data = json.loads(self._sessions_file.read_text())
+                if isinstance(data, dict):
+                    self._channel_sessions.update(data)
+                    logger.info(
+                        f"Loaded {len(data)} session(s) from {self._sessions_file.name}"
+                    )
+        except Exception:
+            logger.debug("Could not load sessions file, starting fresh")
+
+    def _save_sessions(self):
+        try:
+            self._sessions_file.parent.mkdir(parents=True, exist_ok=True)
+            self._sessions_file.write_text(json.dumps(self._channel_sessions))
+        except Exception:
+            logger.debug("Could not save sessions file")
+
+    def _ensure_workspace_skill(self, channel_name: str):
+        if not self.working_dir:
+            return
+        skill_dir = Path(self.working_dir) / ".opencode" / "skills"
+        skill_file = skill_dir / "openagents-workspace.md"
+        try:
+            content = build_opencode_skill_md(
+                endpoint=self.endpoint,
+                workspace_id=self.workspace_id,
+                token=self.token,
+                agent_name=self.agent_name,
+                channel_name=channel_name,
+                disabled_modules=self.disabled_modules,
+            )
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            skill_file.write_text(content, encoding="utf-8")
+        except Exception:
+            logger.debug("Could not write workspace skill to %s", skill_file)
+
     def _build_system_context(self, channel_name: str) -> str:
-        return build_openclaw_system_prompt(
+        return build_opencode_system_prompt(
             agent_name=self.agent_name,
             workspace_id=self.workspace_id,
             channel_name=channel_name,
@@ -173,12 +224,39 @@ class OpenCodeAdapter(BaseAdapter):
 
         return "\n".join(texts).strip() if texts else raw.strip()
 
+    def _persist_session_id(self, channel: str, raw_output: str):
+        """Extract session_id from OpenCode JSON events and persist it.
+
+        Scans all JSON objects in the raw output for a ``sessionID`` field
+        (OpenCode's actual key name).  The last occurrence wins (typically the
+        final result/summary event).
+        """
+        events = self._split_json_objects(raw_output)
+        session_id: str | None = None
+        for event in events:
+            sid = event.get("sessionID")
+            if not sid and isinstance(event.get("session"), dict):
+                sid = event["session"].get("id")
+            if not sid and isinstance(event.get("part"), dict):
+                sid = event["part"].get("sessionID")
+            if sid and isinstance(sid, str):
+                session_id = sid
+
+        if session_id:
+            prev = self._channel_sessions.get(channel)
+            self._channel_sessions[channel] = session_id
+            self._save_sessions()
+            if prev != session_id:
+                logger.info("OpenCode session for channel %s: %s", channel, session_id)
+
     async def _run_opencode_subprocess(
         self,
         content: str,
         msg_channel: str,
     ) -> str:
-        opencode_bin = self._find_opencode_binary()
+        opencode_bin = self._opencode_binary or self._find_opencode_binary()
+        if opencode_bin:
+            self._opencode_binary = opencode_bin
         if not opencode_bin:
             await self._send_error(
                 msg_channel,
@@ -187,10 +265,18 @@ class OpenCodeAdapter(BaseAdapter):
             )
             return ""
 
-        context = self._build_system_context(msg_channel)
-        full_prompt = f"{context}\n\n---\n\n{content}"
+        cmd = [opencode_bin, "run", "--format", "json"]
 
-        cmd = [opencode_bin, "run", "--format", "json", full_prompt]
+        session_id = self._channel_sessions.get(msg_channel)
+        if session_id:
+            # Resumed session already has conversation history; send only user message
+            full_prompt = content
+            cmd.extend(["--session", session_id])
+        else:
+            # New session: inject workspace skill and prepend system context
+            self._ensure_workspace_skill(msg_channel)
+            context = self._build_system_context(msg_channel)
+            full_prompt = f"{context}\n\n---\n\n{content}"
 
         if platform.system() == "Windows" and cmd[0].lower().endswith(".cmd"):
             cmd = ["cmd.exe", "/c"] + cmd
@@ -198,6 +284,7 @@ class OpenCodeAdapter(BaseAdapter):
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=self.working_dir,
@@ -205,7 +292,7 @@ class OpenCodeAdapter(BaseAdapter):
             )
 
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(),
+                process.communicate(input=full_prompt.encode("utf-8")),
                 timeout=300,
             )
 
@@ -219,6 +306,7 @@ class OpenCodeAdapter(BaseAdapter):
                 )
 
             if stdout_text:
+                self._persist_session_id(msg_channel, stdout_text)
                 return self._extract_text_from_json(stdout_text)
 
             if stderr_text:
