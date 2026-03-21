@@ -590,6 +590,23 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
 
     # Agent messages: use LLM router for multi-agent threads
     if event.source.startswith("openagents:"):
+        # Explicit @mentions take priority over the LLM router.
+        if mentions:
+            sender = event.source[len("openagents:"):]
+            targets = [m for m in mentions if m != sender]
+            if targets:
+                event.metadata["target_agents"] = targets
+                # Auto-add mentioned agents as channel participants
+                from app.models import ChannelMember
+                if channel:
+                    existing = {p.agent_name for p in (channel.participants or [])}
+                    for t in targets:
+                        if t not in existing:
+                            db.add(ChannelMember(channel_id=channel.id, agent_name=t))
+                    db.flush()
+                return event
+            # All mentions were self → fall through to LLM router / master
+
         if channel and len(channel.participants or []) >= 2:
             # Multi-agent thread → LLM router decides next speaker
             from app.config import config
@@ -618,11 +635,9 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # Auto-name channel from first human message if title is default/empty
     _auto_title_channel(channel, content, db)
 
-    # If message starts with @agent-name, route directly to that agent.
-    # Other @mentions in the body are just references, not routing targets.
-    leading = _extract_leading_mention(content, known_agents)
-    if leading:
-        event.metadata["target_agents"] = [leading]
+    # Route to all @mentioned agents in the message.
+    if mentions:
+        event.metadata["target_agents"] = mentions
     elif channel.master_agent:
         # Default: route to channel master
         event.metadata["target_agents"] = [channel.master_agent]

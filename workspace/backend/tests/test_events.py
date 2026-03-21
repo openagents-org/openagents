@@ -176,13 +176,13 @@ class TestSendEvent:
         # Member's response should be routed back to the master
         assert data["metadata"]["target_agents"] == ["agent-alpha"]
 
-    def test_member_message_routes_to_master_in_fallback(self, client, workspace):
-        """Member agent messages in single-agent channels route to master (fallback).
+    def test_agent_message_with_mention_routes_to_mentioned(self, client, workspace):
+        """Agent messages with @mentions route to the mentioned agent(s).
 
-        With the LLM router disabled (no API key in tests), member messages
-        always route back to the channel master regardless of @mentions.
+        Explicit @mentions in agent messages take priority over the LLM
+        router and the master-fallback.
         """
-        # Add member agents to workspace (not to channel — so channel stays single-participant)
+        # Add member agents to workspace
         for name in ["agent-beta", "agent-gamma"]:
             client.post("/v1/join", json={
                 "agent_name": name,
@@ -201,8 +201,101 @@ class TestSendEvent:
 
         assert resp.status_code == 200
         data = resp.json()["data"]
-        # Fallback: member messages route to master
-        assert data["metadata"]["target_agents"] == ["agent-alpha"]
+        # @mention routing: agent-gamma is targeted
+        assert data["metadata"]["target_agents"] == ["agent-gamma"]
+
+    def test_agent_message_with_mid_text_mention(self, client, workspace):
+        """@mentions in the middle of an agent message also route correctly."""
+        for name in ["agent-beta", "agent-gamma"]:
+            client.post("/v1/join", json={
+                "agent_name": name,
+                "token": workspace["token"],
+                "network": workspace["id"],
+            })
+
+        channel_name = workspace["channel"]["name"]
+        resp = client.post("/v1/events", json={
+            "type": "workspace.message.posted",
+            "source": "openagents:agent-beta",
+            "target": f"channel/{channel_name}",
+            "payload": {"content": "Hey, I think @agent-gamma should look at this"},
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["metadata"]["target_agents"] == ["agent-gamma"]
+
+    def test_agent_message_with_multiple_mentions(self, client, workspace):
+        """Agent messages with multiple @mentions route to all mentioned agents."""
+        for name in ["agent-beta", "agent-gamma", "agent-delta"]:
+            client.post("/v1/join", json={
+                "agent_name": name,
+                "token": workspace["token"],
+                "network": workspace["id"],
+            })
+
+        channel_name = workspace["channel"]["name"]
+        resp = client.post("/v1/events", json={
+            "type": "workspace.message.posted",
+            "source": "openagents:agent-alpha",
+            "target": f"channel/{channel_name}",
+            "payload": {"content": "@agent-beta and @agent-gamma please collaborate"},
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        targets = data["metadata"]["target_agents"]
+        assert "agent-beta" in targets
+        assert "agent-gamma" in targets
+        assert len(targets) == 2
+
+    def test_human_message_with_multiple_mentions(self, client, workspace):
+        """Human messages with multiple @mentions route to all mentioned agents."""
+        for name in ["agent-beta", "agent-gamma"]:
+            client.post("/v1/join", json={
+                "agent_name": name,
+                "token": workspace["token"],
+                "network": workspace["id"],
+            })
+
+        channel_name = workspace["channel"]["name"]
+        resp = client.post("/v1/events", json={
+            "type": "workspace.message.posted",
+            "source": "human:user1",
+            "target": f"channel/{channel_name}",
+            "payload": {"content": "@agent-alpha and @agent-beta please help"},
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        targets = data["metadata"]["target_agents"]
+        assert "agent-alpha" in targets
+        assert "agent-beta" in targets
+        assert len(targets) == 2
+
+    def test_human_message_mid_text_mention(self, client, workspace):
+        """Human @mentions in the middle of text also trigger routing."""
+        client.post("/v1/join", json={
+            "agent_name": "agent-beta",
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+
+        channel_name = workspace["channel"]["name"]
+        resp = client.post("/v1/events", json={
+            "type": "workspace.message.posted",
+            "source": "human:user1",
+            "target": f"channel/{channel_name}",
+            "payload": {"content": "I think @agent-beta should handle this"},
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["metadata"]["target_agents"] == ["agent-beta"]
 
 
 class TestPollEvents:
