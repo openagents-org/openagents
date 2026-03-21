@@ -19,6 +19,7 @@ from openagents.adapters.workspace_prompt import (
     build_opencode_skill_md,
     build_opencode_system_prompt,
 )
+from openagents.client.daemon_config import AGENTS_DIR
 from openagents.workspace_client import DEFAULT_ENDPOINT
 
 logger = logging.getLogger(__name__)
@@ -39,13 +40,13 @@ class OpenCodeAdapter(BaseAdapter):
         self.disabled_modules = disabled_modules or set()
         self.working_dir = working_dir
 
+        # Agent home directory: ~/.openagents/agents/{agent_name}/
+        self.agent_home = AGENTS_DIR / agent_name
+        self.agent_home.mkdir(parents=True, exist_ok=True)
+
         self._channel_sessions: dict[str, str] = {}
-        self._sessions_file = (
-            Path.home()
-            / ".openagents"
-            / "sessions"
-            / f"{workspace_id}_{agent_name}_opencode.json"
-        )
+        self._sessions_file = self.agent_home / "sessions.json"
+        self._migrate_sessions_file(workspace_id, agent_name)
         self._load_sessions()
 
         self._opencode_binary = self._find_opencode_binary()
@@ -56,6 +57,25 @@ class OpenCodeAdapter(BaseAdapter):
                 "OpenCode binary not found. "
                 "Install opencode: npm install -g opencode-ai@latest"
             )
+
+    def _migrate_sessions_file(self, workspace_id: str, agent_name: str):
+        old_path = (
+            Path.home()
+            / ".openagents"
+            / "sessions"
+            / f"{workspace_id}_{agent_name}_opencode.json"
+        )
+        if old_path.exists() and not self._sessions_file.exists():
+            try:
+                self._sessions_file.write_text(old_path.read_text())
+                old_path.unlink()
+                logger.info(
+                    "Migrated sessions file from %s to %s",
+                    old_path,
+                    self._sessions_file,
+                )
+            except Exception:
+                logger.debug("Could not migrate sessions file from %s", old_path)
 
     def _load_sessions(self):
         try:
@@ -77,9 +97,7 @@ class OpenCodeAdapter(BaseAdapter):
             logger.debug("Could not save sessions file")
 
     def _ensure_workspace_skill(self, channel_name: str):
-        if not self.working_dir:
-            return
-        skill_dir = Path(self.working_dir) / ".opencode" / "skills"
+        skill_dir = self.agent_home / ".opencode" / "skills"
         skill_file = skill_dir / "openagents-workspace.md"
         try:
             content = build_opencode_skill_md(
@@ -265,7 +283,7 @@ class OpenCodeAdapter(BaseAdapter):
             )
             return ""
 
-        cmd = [opencode_bin, "run", "--format", "json"]
+        cmd = [opencode_bin, "run", "--format", "json", "--dir", str(self.agent_home)]
 
         session_id = self._channel_sessions.get(msg_channel)
         if session_id:
@@ -287,7 +305,7 @@ class OpenCodeAdapter(BaseAdapter):
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self.working_dir,
+                cwd=str(self.agent_home),
                 limit=10 * 1024 * 1024,  # 10 MB line buffer
             )
 
