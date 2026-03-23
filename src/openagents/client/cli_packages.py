@@ -500,6 +500,27 @@ def install_agent(
     try:
         result = subprocess.run(run_args, check=False, shell=use_shell)
         if result.returncode == 0:
+            # On Windows, aggressively refresh PATH after npm install
+            if is_windows:
+                _refresh_path_windows()
+                # Also check common npm global install locations
+                import shutil
+                appdata = os.environ.get("APPDATA", "")
+                if appdata:
+                    npm_path = os.path.join(appdata, "npm")
+                    if os.path.isdir(npm_path) and npm_path not in os.environ.get("PATH", ""):
+                        os.environ["PATH"] = npm_path + ";" + os.environ.get("PATH", "")
+                # Check user profile npm path
+                userprofile = os.environ.get("USERPROFILE", "")
+                if userprofile:
+                    npm_modules_path = os.path.join(userprofile, "AppData", "Roaming", "npm")
+                    if os.path.isdir(npm_modules_path) and npm_modules_path not in os.environ.get("PATH", ""):
+                        os.environ["PATH"] = npm_modules_path + ";" + os.environ.get("PATH", "")
+
+            # Give the system a moment to update file system
+            import time
+            time.sleep(1)
+
             # Verify installation
             plugin = registry.get(agent_type)
             if plugin and plugin.is_installed():
@@ -512,12 +533,24 @@ def install_agent(
                     border_style="green",
                 ))
             else:
-                console.print(Panel(
-                    f"[yellow]Installed but not detected in PATH.[/yellow]\n\n"
-                    "You may need to restart your terminal.",
-                    title="[yellow]Warning[/yellow]",
-                    border_style="yellow",
-                ))
+                # On Windows, provide more helpful guidance
+                if is_windows:
+                    console.print(Panel(
+                        f"[yellow]Installed but not detected in PATH.[/yellow]\n\n"
+                        "Try one of these solutions:\n"
+                        "1. Close and reopen PowerShell/Terminal\n"
+                        "2. Run: $env:Path = [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path','User')\n"
+                        "3. Check if npm global bin is in PATH: npm config get prefix",
+                        title="[yellow]Warning[/yellow]",
+                        border_style="yellow",
+                    ))
+                else:
+                    console.print(Panel(
+                        f"[yellow]Installed but not detected in PATH.[/yellow]\n\n"
+                        "You may need to restart your terminal.",
+                        title="[yellow]Warning[/yellow]",
+                        border_style="yellow",
+                    ))
         else:
             console.print(f"\n  [red]✗ Installation failed (exit code {result.returncode})[/red]")
             raise typer.Exit(1)

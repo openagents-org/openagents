@@ -675,12 +675,18 @@ class ConfigureAgentScreen(Screen[bool]):
                     placeholder = field.get("placeholder", f"Enter {field['name']}…")
 
                     yield Label(f"{field['description']}{req}")
+                    # Disable password masking on Windows to fix paste issues in PowerShell
+                    # Users can still see the value, but paste will work correctly
+                    import platform
+                    use_password_mode = is_password and platform.system() != "Windows"
                     yield Input(
                         value=current,
                         placeholder=placeholder,
-                        password=is_password,
+                        password=use_password_mode,
                         id=f"cfg-{field['name']}",
                     )
+                    if is_password and platform.system() == "Windows":
+                        yield Label("[dim]Note: Input visible on Windows for paste support[/dim]")
                     yield Label("")
                 with Horizontal(id="configure-buttons"):
                     yield Button("Save", variant="primary", id="btn-save")
