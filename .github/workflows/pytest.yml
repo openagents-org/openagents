@@ -8,6 +8,97 @@ on:
   workflow_dispatch:  # Allows manual triggering from GitHub UI
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-lint-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-lint-
+
+    - name: Collect changed Python files
+      id: changed-python
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          base_ref="${{ github.event.pull_request.base.ref }}"
+          git fetch --no-tags --prune --depth=1 origin "$base_ref"
+          merge_base="$(git merge-base "origin/$base_ref" "${{ github.sha }}")"
+          diff_from="$merge_base"
+        elif [ "${{ github.event_name }}" = "push" ]; then
+          before_sha="${{ github.event.before }}"
+          if [ -n "$before_sha" ] && [ "$before_sha" != "0000000000000000000000000000000000000000" ]; then
+            diff_from="$before_sha"
+          else
+            if git rev-parse --verify "${{ github.sha }}^" >/dev/null 2>&1; then
+              diff_from="$(git rev-parse "${{ github.sha }}^")"
+            else
+              diff_from="$(git hash-object -t tree /dev/null)"
+            fi
+          fi
+        else
+          echo "No PR/push diff context for ${GITHUB_EVENT_NAME}; skipping lint."
+          echo "has_python=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        mapfile -t files < <(git diff --name-only --diff-filter=ACMR "$diff_from" "${{ github.sha }}" -- '*.py')
+
+        if [ "${#files[@]}" -eq 0 ]; then
+          echo "No changed Python files detected; skipping lint."
+          echo "has_python=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        echo "Changed Python files:"
+        printf ' - %s\n' "${files[@]}"
+
+        {
+          echo "has_python=true"
+          echo "files<<EOF"
+          printf '%s\n' "${files[@]}"
+          echo "EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Install lint dependencies
+      if: steps.changed-python.outputs.has_python == 'true'
+      run: |
+        python -m pip install --upgrade pip
+        pip install ruff
+
+    - name: Run Ruff check
+      if: steps.changed-python.outputs.has_python == 'true'
+      shell: bash
+      env:
+        PYTHON_FILES: ${{ steps.changed-python.outputs.files }}
+      run: |
+        mapfile -t files <<< "$PYTHON_FILES"
+        ruff check "${files[@]}"
+
+    - name: Run Ruff format check
+      if: steps.changed-python.outputs.has_python == 'true'
+      shell: bash
+      env:
+        PYTHON_FILES: ${{ steps.changed-python.outputs.files }}
+      run: |
+        mapfile -t files <<< "$PYTHON_FILES"
+        ruff format --check "${files[@]}"
+
   # -----------------------------------------------------------------------
   # Fast client tests — lightweight base install only (no gRPC/crypto/MCP)
   # Runs ONM unit tests + workspace backend tests
