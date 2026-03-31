@@ -126,14 +126,17 @@ async function refreshDashboard() {
         const loginBasedTypes = ['claude', 'copilot', 'gemini', 'amp'];
         const isLoginBased = loginBasedTypes.includes(a.type);
         const isConnected = !!a.network;
+        const isUnsupported = isUnsupportedAgent(a);
         const wsLabel = a.network
           ? (a.networkName && a.networkName !== a.network ? `${a.network} (${a.networkName})` : a.network)
           : '';
 
         // Status indicators
-        const configStatus = (hasApiKey || isLoginBased)
-          ? '<span class="badge badge-success-sm">LLM configured</span>'
-          : '<span class="badge badge-warning-sm">LLM not configured</span>';
+        const configStatus = isUnsupported
+          ? '<span class="badge badge-danger-sm">Launcher unsupported</span>'
+          : ((hasApiKey || isLoginBased)
+            ? '<span class="badge badge-success-sm">LLM configured</span>'
+            : '<span class="badge badge-warning-sm">LLM not configured</span>');
         const connectStatus = isConnected
           ? `<span class="badge badge-success-sm">Connected: ${esc(wsLabel)}</span>`
           : '<span class="badge badge-muted-sm">Not connected</span>';
@@ -591,13 +594,23 @@ async function showNewAgentDialog() {
   showModal(`<div class="loading-text">Loading installed types...</div>`);
 
   try {
-    const catalog = await window.api.getCatalog();
+    const [catalog, supportedTypes] = await Promise.all([
+      window.api.getCatalog(),
+      window.api.getSupportedAgentTypes(),
+    ]);
+    const supportedSet = new Set(supportedTypes || []);
     const installed = catalog.filter((c) => c.installed);
+    const supportedInstalled = installed.filter((c) => supportedSet.has(c.name));
+    const unsupportedInstalled = installed.filter((c) => !supportedSet.has(c.name));
 
-    if (installed.length === 0) {
+    if (supportedInstalled.length === 0) {
+      const extraHint = unsupportedInstalled.length > 0
+        ? `<p class="hint">Installed but not supported in Launcher yet: ${esc(unsupportedInstalled.map((c) => c.label || c.name).join(', '))}</p>`
+        : '';
       showModal(`
         <h3>New Agent</h3>
-        <p class="hint">No agent runtimes installed. Install one first.</p>
+        <p class="hint">No Launcher-supported agent runtimes installed. Install one first.</p>
+        ${extraHint}
         <div class="modal-button-row">
           <button class="btn btn-primary" data-action="switch-tab" data-action-tab="install">Go to Install</button>
           <button class="btn" data-action="close-modal">Cancel</button>
@@ -606,7 +619,7 @@ async function showNewAgentDialog() {
       return;
     }
 
-    const typeOptions = installed.map((c) =>
+    const typeOptions = supportedInstalled.map((c) =>
       `<option value="${esc(c.name)}">${esc(c.label || c.name)}</option>`
     ).join('');
 
@@ -693,6 +706,7 @@ async function refreshAgentList() {
       const slug = a.network || '';
       const wsDisplay = slug ? (a.networkName && a.networkName !== slug ? `${slug} (${a.networkName})` : slug) : '';
       const hasKey = a.env?.LLM_API_KEY || a.env?.OPENAI_API_KEY || a.env?.ANTHROPIC_API_KEY;
+      const unsupported = isUnsupportedAgent(a);
       // Login-based agents (like Claude) don't need API keys in env — they use OAuth
       const loginBasedTypes = ['claude', 'copilot', 'gemini', 'amp'];
       const isLoginBased = loginBasedTypes.includes(a.type);
@@ -710,7 +724,7 @@ async function refreshAgentList() {
               </div>
               <span class="agent-type-label">${esc(a.type)}</span>
               <span class="agent-config-hint">
-                ${hasKey ? '&#128273; API key set' : isLoginBased ? '&#128273; Configured (login)' : '<span class="text-warning">&#9888; No API key</span>'}
+                ${unsupported ? '<span class="text-danger">Launcher unsupported</span>' : hasKey ? '&#128273; API key set' : isLoginBased ? '&#128273; Configured (login)' : '<span class="text-warning">&#9888; No API key</span>'}
                 ${envDisplay.length ? ' &middot; ' + envDisplay.map(esc).join(' &middot; ') : ''}
               </span>
               ${a.lastError ? `<span class="agent-error">${esc(a.lastError)}</span>` : ''}
@@ -1143,6 +1157,11 @@ function statusClass(state) {
   if (state === 'online' || state === 'running' || state === 'idle' || state === 'idle') return 'online';
   if (state === 'starting' || state === 'reconnecting') return 'starting';
   return 'offline';
+}
+
+function isUnsupportedAgent(agent) {
+  const msg = String(agent?.lastError || '');
+  return msg.includes('Unknown agent type:');
 }
 
 // ---- D25: Activity log ----

@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Agents
   listAgents: () => ipcRenderer.invoke('agents:list'),
+  getSupportedAgentTypes: () => ipcRenderer.invoke('agents:supported-types'),
   addAgent: (config) => ipcRenderer.invoke('agents:add', config),
   removeAgent: (name) => ipcRenderer.invoke('agents:remove', name),
   updateAgent: (name, config) => ipcRenderer.invoke('agents:update', name, config),

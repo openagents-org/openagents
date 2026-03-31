@@ -495,6 +495,7 @@ function setupIPC() {
 
   // Agent CRUD
   ipcMain.handle('agents:list', () => agentManager.getAgents());
+  ipcMain.handle('agents:supported-types', () => agentManager.getSupportedAgentTypes());
   ipcMain.handle('agents:add', (_e, config) => agentManager.addAgent(config));
   ipcMain.handle('agents:remove', (_e, name) => agentManager.removeAgent(name));
   ipcMain.handle('agents:update', (_e, name, config) => agentManager.updateAgent(name, config));

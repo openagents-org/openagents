@@ -38,6 +38,13 @@ class AgentManager {
     }
   }
 
+  getSupportedAgentTypes() {
+    const supported = core?.adapters?.ADAPTER_MAP
+      ? Object.keys(core.adapters.ADAPTER_MAP)
+      : [];
+    return supported.sort();
+  }
+
   /** Reload core library after install/update */
   reloadCore() {
     // Clear require cache for global path
@@ -92,6 +99,11 @@ class AgentManager {
   async addAgent(agentConfig) {
     const name = agentConfig.name;
     const type = agentConfig.type || 'openclaw';
+    const supportedTypes = this.getSupportedAgentTypes();
+
+    if (supportedTypes.length > 0 && !supportedTypes.includes(type)) {
+      throw new Error(`Agent type '${type}' is not supported in Launcher yet. Supported: ${supportedTypes.join(', ')}`);
+    }
 
     this._connector.addAgent({ name, type, role: 'worker' });
 
