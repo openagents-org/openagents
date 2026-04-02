@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e
 
+export PYTHONPATH=/app
+
 # Run database migrations
 alembic upgrade head
 

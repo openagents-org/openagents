@@ -8,6 +8,7 @@ Create Date: 2026-03-11
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = "005"
 down_revision = "004"
@@ -18,8 +19,8 @@ depends_on = None
 def upgrade() -> None:
     op.create_table(
         "workspace_collaborators",
-        sa.Column("id", sa.Text(), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("workspace_id", sa.Text(), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("workspace_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False),
         sa.Column("email", sa.Text(), nullable=False),
         sa.Column("role", sa.Text(), server_default="editor"),
         sa.Column("added_by", sa.Text(), nullable=True),

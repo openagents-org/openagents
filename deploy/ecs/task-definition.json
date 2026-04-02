@@ -1,0 +1,36 @@
+{
+  "family": "openagents-workspace-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "workspace-backend",
+      "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/openagents-workspace-backend:latest",
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "DATABASE_URL", "value": "postgresql://user:pass@host:5432/dbname?sslmode=require" },
+        { "name": "AUTH_MODE", "value": "workspace_token" },
+        { "name": "IDENTITY_MODE", "value": "standalone" },
+        { "name": "CORS_ORIGINS", "value": "*" },
+        { "name": "WORKSPACE_ENDPOINT", "value": "https://your-domain.example.com" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/openagents-workspace-backend",
+          "awslogs-region": "<REGION>",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "essential": true
+    }
+  ]
+}
