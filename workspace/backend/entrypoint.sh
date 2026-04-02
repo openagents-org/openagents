@@ -1,10 +1,10 @@
 #!/bin/sh
 set -e
 
-export PYTHONPATH=/app
+# Run database migrations (skip with RUN_MIGRATIONS=false for existing databases)
+if [ "${RUN_MIGRATIONS:-true}" = "true" ]; then
+    alembic upgrade head
+fi
 
-# Run database migrations
-alembic upgrade head
-
-# Start the application
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Start the application — Railway injects $PORT
+exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
