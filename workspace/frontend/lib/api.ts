@@ -3,6 +3,7 @@ import type {
   ApiResponse,
   BrowserPersistentContext,
   BrowserTab,
+  DMConversation,
   EventPollResponse,
   MessagePollResponse,
   NetworkDiscovery,
@@ -508,6 +509,7 @@ class WorkspaceApi {
   /** Poll events from the network. */
   async pollEvents(opts: {
     after?: string;
+    before?: string;
     target?: string;
     channel?: string;
     type?: string;
@@ -517,6 +519,7 @@ class WorkspaceApi {
   } = {}): Promise<EventPollResponse> {
     const params = new URLSearchParams({ network: this.workspaceId });
     if (opts.after) params.set('after', opts.after);
+    if (opts.before) params.set('before', opts.before);
     if (opts.target) params.set('target', opts.target);
     if (opts.channel) params.set('channel', opts.channel);
     if (opts.type) params.set('type', opts.type);
@@ -524,6 +527,23 @@ class WorkspaceApi {
     if (opts.sort) params.set('sort', opts.sort);
     if (opts.limit) params.set('limit', String(opts.limit));
     return this.request<EventPollResponse>(`/v1/events?${params}`);
+  }
+
+  /**
+   * Load message history for a channel (most recent first).
+   * Used for initial load and infinite scroll (loading older messages).
+   */
+  async loadMessageHistory(
+    channelName: string,
+    options?: { before?: string; limit?: number },
+  ): Promise<EventPollResponse> {
+    return this.pollEvents({
+      channel: channelName,
+      type: 'workspace.message',
+      before: options?.before,
+      sort: 'desc',
+      limit: options?.limit ?? 50,
+    });
   }
 
   /** Search messages across all channels. Returns events grouped by channel. */
@@ -538,6 +558,52 @@ class WorkspaceApi {
       snippet: (e.payload as Record<string, string>)?.content || '',
       messageId: e.id,
     }));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent DM conversations
+  // ---------------------------------------------------------------------------
+
+  /** List active agent-to-agent DM conversations. */
+  async listConversations(agentFilter?: string): Promise<DMConversation[]> {
+    const params = new URLSearchParams({ network: this.workspaceId });
+    if (agentFilter) params.set('agent', agentFilter);
+    const result = await this.request<{ conversations: Array<{
+      agents: [string, string];
+      last_message: { content: string; sender: string; timestamp: number };
+      message_count: number;
+    }> }>(`/v1/events/conversations?${params}`);
+    return result.conversations.map((c) => ({
+      agents: c.agents,
+      lastMessage: c.last_message,
+      messageCount: c.message_count,
+    }));
+  }
+
+  /** Poll messages for a DM conversation between two agents. */
+  async pollConversation(
+    agentA: string,
+    agentB: string,
+    opts?: { after?: string; before?: string; sort?: 'asc' | 'desc'; limit?: number },
+  ): Promise<EventPollResponse> {
+    const params = new URLSearchParams({ network: this.workspaceId });
+    params.set('conversation', `${agentA},${agentB}`);
+    params.set('type', 'workspace.message');
+    if (opts?.after) params.set('after', opts.after);
+    if (opts?.before) params.set('before', opts.before);
+    if (opts?.sort) params.set('sort', opts.sort);
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    return this.request<EventPollResponse>(`/v1/events?${params}`);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bulk thread previews
+  // ---------------------------------------------------------------------------
+
+  /** Fetch the latest message event per channel in a single request. */
+  async latestPerChannel(): Promise<{ channels: Record<string, ONMEvent> }> {
+    const params = new URLSearchParams({ network: this.workspaceId });
+    return this.request<{ channels: Record<string, ONMEvent> }>(`/v1/events/latest-per-channel?${params}`);
   }
 }
 

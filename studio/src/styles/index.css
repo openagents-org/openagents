@@ -1,6 +1,9 @@
 /* Tailwind CSS v4 */
 @import "tailwindcss";
 
+/* Use .dark class selector instead of prefers-color-scheme media query */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /** Colors - https://tailwindcss.com/docs/colors **/
 :root {
   --background: #ffffff;
