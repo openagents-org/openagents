@@ -3,6 +3,7 @@ label: OpenCode
 description: Open-source terminal-native AI coding agent
 homepage: https://opencode.ai
 tags: [coding, open-source, cli, terminal]
+builtin: true
 
 install:
   binary: opencode
@@ -10,3 +11,13 @@ install:
   macos: "npm install -g opencode-ai@latest"
   linux: "npm install -g opencode-ai@latest"
   windows: "npm install -g opencode-ai@latest"
+
+adapter:
+  module: openagents.adapters.opencode
+  class: OpenCodeAdapter
+
+launch:
+  args: []
+
+check_ready:
+  not_ready_message: "Not installed — run: openagents install opencode"

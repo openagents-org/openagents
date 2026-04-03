@@ -39,6 +39,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install pytest pytest-asyncio pytest-aiohttp pytest-mock
         pip install -e .
+        pip install -r workspace/backend/requirements.txt
 
     - name: Test ONM primitives
       run: pytest --tb=short -v tests/test_onm_addressing.py tests/test_onm_events.py tests/test_onm_pipeline.py

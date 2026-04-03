@@ -47,6 +47,7 @@ export enum EventNames {
   THREAD_CHANNEL_MESSAGES_RETRIEVE_RESPONSE = 'thread.channel_messages.retrieve_response',
   THREAD_DIRECT_MESSAGES_RETRIEVE = 'thread.direct_messages.retrieve',
   THREAD_DIRECT_MESSAGES_RETRIEVE_RESPONSE = 'thread.direct_messages.retrieve_response',
+  THREAD_CONVERSATIONS_LIST = 'thread.conversations.list',
   
   // System events
   SYSTEM_REGISTER_AGENT = 'system.register_agent',

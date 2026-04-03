@@ -39,6 +39,11 @@ from .thread_messages import (
 logger = logging.getLogger(__name__)
 
 
+def _bare_agent_id(aid: str) -> str:
+    """Strip the ``agent:`` prefix so prefixed and bare IDs compare equally."""
+    return aid[len("agent:"):] if aid.startswith("agent:") else aid
+
+
 class MessageThread:
     """Represents a conversation thread with Reddit-like nesting."""
 
@@ -877,6 +882,90 @@ class ThreadMessagingNetworkMod(BaseMod):
             lambda msg: self._handle_direct_messages_retrieval(msg),
             "Direct message retrieval completed successfully",
         )
+
+    @mod_event_handler("thread.conversations.list")
+    async def _handle_thread_conversations_list(
+        self, event: Event
+    ) -> Optional[EventResponse]:
+        """Handle listing all agent-to-agent DM conversations.
+
+        Scans message_history for direct messages and groups them by
+        conversation pair, returning metadata for each pair.
+        """
+        # Prevent infinite loops
+        if (
+            self.network
+            and event.source_id == self.network.network_id
+            and event.relevant_mod == "openagents.mods.workspace.messaging"
+        ):
+            return None
+
+        try:
+            conversations: Dict[tuple, Dict[str, Any]] = {}
+
+            for msg_id, msg in self.message_history.items():
+                is_direct_message = (
+                    msg.payload
+                    and "target_agent_id" in msg.payload
+                    and msg.destination_id
+                )
+                if not is_direct_message:
+                    continue
+
+                source = msg.source_id or ""
+                target = msg.payload["target_agent_id"]
+                bare_source = _bare_agent_id(source)
+                bare_target = _bare_agent_id(target)
+                # Normalize the pair so (A,B) and (B,A) are the same
+                pair = (min(bare_source, bare_target), max(bare_source, bare_target))
+
+                content_text = ""
+                if msg.payload and "content" in msg.payload:
+                    content = msg.payload["content"]
+                    if isinstance(content, dict):
+                        content_text = content.get("text", "")
+                    elif isinstance(content, str):
+                        content_text = content
+
+                ts = msg.timestamp or 0
+
+                if pair not in conversations:
+                    conversations[pair] = {
+                        "agents": list(pair),
+                        "last_message": {
+                            "content": content_text[:200],
+                            "sender": source,
+                            "timestamp": ts,
+                        },
+                        "message_count": 1,
+                    }
+                else:
+                    conversations[pair]["message_count"] += 1
+                    if ts > conversations[pair]["last_message"]["timestamp"]:
+                        conversations[pair]["last_message"] = {
+                            "content": content_text[:200],
+                            "sender": source,
+                            "timestamp": ts,
+                        }
+
+            # Sort by most recent activity
+            result = sorted(
+                conversations.values(),
+                key=lambda c: c["last_message"]["timestamp"],
+                reverse=True,
+            )
+
+            return self._create_event_response(
+                success=True,
+                message="Conversations listed successfully",
+                data={"conversations": result},
+            )
+        except Exception as e:
+            logger.error(f"Error listing conversations: {e}")
+            return self._create_event_response(
+                success=False,
+                message=f"Error listing conversations: {str(e)}",
+            )
 
     @mod_event_handler("thread.reaction.add")
     async def _handle_thread_reaction_add(
@@ -1809,15 +1898,19 @@ class ThreadMessagingNetworkMod(BaseMod):
                 msg.payload
                 and "target_agent_id" in msg.payload
                 and msg.destination_id
-                and msg.destination_id.startswith("agent:")
             )
 
             if is_direct_message:
                 payload_target = msg.payload["target_agent_id"]
+                bare_agent = _bare_agent_id(agent_id) if agent_id else ""
+                bare_target = _bare_agent_id(target_agent_id) if target_agent_id else ""
+                bare_source = _bare_agent_id(msg.source_id) if msg.source_id else ""
+                bare_payload_target = _bare_agent_id(payload_target)
+
                 # Check if this message is between the requesting agents
                 is_direct_msg_between_agents = (
-                    msg.source_id == agent_id and payload_target == target_agent_id
-                ) or (msg.source_id == target_agent_id and payload_target == agent_id)
+                    bare_source == bare_agent and bare_payload_target == bare_target
+                ) or (bare_source == bare_target and bare_payload_target == bare_agent)
                 if is_direct_msg_between_agents:
                     logger.debug(
                         f"Found direct message: {msg_id} from {msg.source_id} to {payload_target}"

@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { workspaceApi } from './api';
 import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
-import type { BrowserPersistentContext, BrowserTab, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceSession } from './types';
+import type { BrowserPersistentContext, BrowserTab, DMConversation, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceSession } from './types';
 
 interface LastMessageInfo {
   content: string;
@@ -58,6 +58,8 @@ interface WorkspaceContextValue {
   unpersistBrowserTab: (tabId: string) => Promise<void>;
   deleteBrowserContext: (contextId: string) => Promise<void>;
   openBrowserTabWithContext: (contextId: string, url?: string) => Promise<BrowserTab>;
+  dmConversations: DMConversation[];
+  refreshDMConversations: () => Promise<void>;
   notificationSound: boolean;
   setNotificationSound: (enabled: boolean) => void;
 }
@@ -107,6 +109,7 @@ export function WorkspaceProvider({
   const [browserTabs, setBrowserTabs] = useState<BrowserTab[]>([]);
   const [selectedBrowserTabId, setSelectedBrowserTabId] = useState<string | null>(null);
   const [browserContexts, setBrowserContexts] = useState<BrowserPersistentContext[]>([]);
+  const [dmConversations, setDMConversations] = useState<DMConversation[]>([]);
   const [manuallyRenamedSessions, setManuallyRenamedSessions] = useState<Set<string>>(new Set());
 
   // Auto-select browser tabs for split browser view:
@@ -356,10 +359,11 @@ export function WorkspaceProvider({
         }
       }
 
-      // Also refresh files, browser tabs, and persistent contexts so sidebar counts stay current
+      // Also refresh files, browser tabs, persistent contexts, and DM conversations so sidebar counts stay current
       workspaceApi.listFiles().then((r) => setFiles(r.files)).catch(() => {});
       workspaceApi.listBrowserTabs().then((r) => setBrowserTabs(r.tabs)).catch(() => {});
       workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {});
+      workspaceApi.listConversations().then((c) => setDMConversations(c)).catch(() => {});
     } catch {
       // Non-critical — keep existing state
     }
@@ -455,6 +459,15 @@ export function WorkspaceProvider({
     return tab;
   }, [refreshBrowserTabs]);
 
+  const refreshDMConversations = useCallback(async () => {
+    try {
+      const convos = await workspaceApi.listConversations();
+      setDMConversations(convos);
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
   // Initial load: workspace metadata + discover for channels
   useEffect(() => {
     let cancelled = false;
@@ -488,49 +501,41 @@ export function WorkspaceProvider({
           setCurrentSessionId(channelSessions[0].sessionId);
         }
 
-        // Fetch last message preview for each channel (newest first)
-        const previews = await Promise.all(
-          channelSessions.map(async (s) => {
-            try {
-              const result = await workspaceApi.pollEvents({
-                channel: s.sessionId,
-                type: 'workspace.message',
-                sort: 'desc',
-                limit: 10,
-              });
-              if (result.events.length === 0) return null;
-              const latest = result.events[0];
-              const latestPayload = latest.payload as Record<string, string>;
-              const latestType = latestPayload?.message_type || 'chat';
-              const isAgentWorking = latestType === 'status' || latestType === 'thinking';
-              // Find the latest chat message for preview
-              const lastChat = result.events.find((e) => {
-                const mt = (e.payload as Record<string, string>)?.message_type || 'chat';
-                return mt !== 'status' && mt !== 'thinking';
-              });
-              // If agent is actively working, show the status; otherwise show last chat
-              const pick = isAgentWorking ? latest : (lastChat || latest);
-              const payload = pick.payload as Record<string, string>;
-              {
-                const sender = pick.source.replace(/^(openagents:|human:)/, '');
-                const content = payload?.content || '';
-                const msgType = payload?.message_type || 'chat';
-                const isStatus = msgType === 'status' || msgType === 'thinking';
-                return { sessionId: s.sessionId, senderName: sender, content, isStatus };
-              }
-            } catch { /* ignore */ }
-            return null;
-          })
-        );
-        if (!cancelled) {
-          const batch: Record<string, LastMessageInfo> = {};
-          for (const p of previews) {
-            if (p && p.content) {
-              batch[p.sessionId] = { senderName: p.senderName, content: p.content.slice(0, 100), isStatus: p.isStatus };
-            }
+        // Seed previews from localStorage for instant display
+        const cacheKey = `previews:${workspaceId}`;
+        try {
+          const cached = localStorage.getItem(cacheKey);
+          if (cached && !cancelled) {
+            setLastMessageBySession((prev) => ({ ...JSON.parse(cached), ...prev }));
           }
-          setLastMessageBySession((prev) => ({ ...prev, ...batch }));
-        }
+        } catch { /* ignore corrupt cache */ }
+
+        // Bulk fetch latest message per channel (1 request instead of N)
+        try {
+          const bulk = await workspaceApi.latestPerChannel();
+          if (!cancelled) {
+            const batch: Record<string, LastMessageInfo> = {};
+            for (const [channelName, event] of Object.entries(bulk.channels)) {
+              const payload = event.payload as Record<string, string>;
+              const sender = event.source.replace(/^(openagents:|human:)/, '');
+              const content = payload?.content || '';
+              const msgType = payload?.message_type || 'chat';
+              const isStatus = msgType === 'status' || msgType === 'thinking';
+              if (content) {
+                batch[channelName] = { senderName: sender, content: content.slice(0, 100), isStatus };
+              }
+            }
+            setLastMessageBySession((prev) => ({ ...prev, ...batch }));
+            try {
+              localStorage.setItem(cacheKey, JSON.stringify(batch));
+            } catch { /* storage full */ }
+          }
+        } catch { /* non-critical */ }
+
+        // Also fetch DM conversations
+        workspaceApi.listConversations().then((c) => {
+          if (!cancelled) setDMConversations(c);
+        }).catch(() => {});
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Failed to load workspace');
@@ -541,6 +546,14 @@ export function WorkspaceProvider({
     })();
     return () => { cancelled = true; };
   }, [workspaceId, token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist previews to localStorage for instant rendering on reload
+  useEffect(() => {
+    if (Object.keys(lastMessageBySession).length === 0) return;
+    try {
+      localStorage.setItem(`previews:${workspaceId}`, JSON.stringify(lastMessageBySession));
+    } catch { /* storage full */ }
+  }, [lastMessageBySession, workspaceId]);
 
   // Discovery polling — adaptive: 5s when agents are active, 15s when idle
   const hasActiveAgentsRef = React.useRef(false);
@@ -753,6 +766,8 @@ export function WorkspaceProvider({
         unpersistBrowserTab,
         deleteBrowserContext,
         openBrowserTabWithContext,
+        dmConversations,
+        refreshDMConversations,
         notificationSound,
         setNotificationSound,
       }}

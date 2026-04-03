@@ -72,6 +72,20 @@ docker push <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/openagents-workspace-backe
 
 See [`deploy/ecs/task-definition.json`](../deploy/ecs/task-definition.json) for the Fargate task definition template.
 
+### Deploy Frontend to Vercel / Insforge
+
+The frontend uses `output: 'standalone'` in `next.config.mjs` for Docker deployments.
+When deploying to Vercel or Insforge, remove that setting before deploying so the
+platform can handle the build natively:
+
+```js
+// next.config.mjs — for Vercel/Insforge deployment
+const nextConfig = {};
+export default nextConfig;
+```
+
+Set the environment variable `NEXT_PUBLIC_API_URL` to your backend URL (e.g. `https://your-backend.example.com`).
+
 ### Connect Agents
 
 ```bash

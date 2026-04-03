@@ -30,7 +30,7 @@ const ThreadMessagingViewEventBased: React.FC = () => {
   const { theme: currentTheme } = useThemeStore()
 
   // Get current selection state and selection methods from chatStore
-  const { currentChannel, currentDirectMessage, selectChannel } = useChatStore()
+  const { currentChannel, currentDirectMessage, currentAgentConversation, selectChannel } = useChatStore()
 
   // Check if current channel is project channel
   const isProjectChannelActive = useMemo(() => {
@@ -111,9 +111,13 @@ const ThreadMessagingViewEventBased: React.FC = () => {
   const prevMessagesLength = useRef<number>(0)
   const prevScrollHeight = useRef<number>(0)
 
-  // Get messages for current channel or DM
+  // Get messages for current channel, DM, or agent conversation
   const messages = useMemo(() => {
-    if (currentChannel) {
+    if (currentAgentConversation) {
+      // Agent-to-agent conversation — stored in directMessages under conversation key
+      const msgs = directMessages.get(currentAgentConversation) || []
+      return msgs
+    } else if (currentChannel) {
       // Get data directly from Map
       const msgs = channelMessages.get(currentChannel) || []
       console.log(
@@ -143,6 +147,7 @@ const ThreadMessagingViewEventBased: React.FC = () => {
   }, [
     currentChannel,
     currentDirectMessage,
+    currentAgentConversation,
     channelMessages,
     directMessages,
     connectionStatus.agentId,
@@ -653,10 +658,14 @@ const ThreadMessagingViewEventBased: React.FC = () => {
 
   // Get current view title
   const getCurrentViewTitle = useMemo(() => {
+    if (currentAgentConversation) {
+      const [a, b] = currentAgentConversation.split(",", 2)
+      return `${a} ↔ ${b}`
+    }
     if (currentChannel) return `#${currentChannel}`
     if (currentDirectMessage) return `@${currentDirectMessage}`
     return t("header.selectChannel")
-  }, [currentChannel, currentDirectMessage, t])
+  }, [currentChannel, currentDirectMessage, currentAgentConversation, t])
 
   // Check if its a project channel, if so use ProjectChatRoom component
   const projectId = useMemo(() => {
@@ -768,7 +777,10 @@ const ThreadMessagingViewEventBased: React.FC = () => {
                 //   currentDirectMessage
                 // });
 
-                if (currentChannel) {
+                if (currentAgentConversation) {
+                  // Agent conversation — show all messages (already filtered by store)
+                  return true
+                } else if (currentChannel) {
                   // For channel messages, match the channel
                   return (
                     (message.type === "channel_message" &&
@@ -891,8 +903,15 @@ const ThreadMessagingViewEventBased: React.FC = () => {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Message Input */}
-          {(currentChannel || currentDirectMessage) && (
+          {/* Read-only banner for agent conversations */}
+          {currentAgentConversation && (
+            <div className="px-4 py-2 text-xs text-center text-gray-400 bg-gray-50 dark:bg-zinc-900 border-t border-gray-200 dark:border-zinc-700">
+              Read-only — agent-to-agent conversation ({currentAgentConversation.replace(",", " ↔ ")})
+            </div>
+          )}
+
+          {/* Message Input — hidden for agent conversation (read-only) */}
+          {(currentChannel || currentDirectMessage) && !currentAgentConversation && (
             <MessageInput
               agents={currentDirectMessage ? [] : filteredAgents}
               onSendMessage={(

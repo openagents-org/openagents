@@ -344,6 +344,15 @@ def _make_plugin_from_yaml(data: dict):
         def check_ready(self) -> tuple[bool, str]:
             if not self.is_installed():
                 return False, f"Not installed. Run: openagents install {data['name']}"
+            # If no readiness checks are configured, being installed is enough
+            has_checks = (
+                check_cfg.get('env_vars')
+                or check_cfg.get('saved_env_key')
+                or check_cfg.get('creds_file')
+                or check_cfg.get('keychain_service')
+            )
+            if not has_checks:
+                return True, 'Ready'
             # Check env vars (resolved names like OPENAI_API_KEY)
             for var in check_cfg.get("env_vars", []):
                 if os.environ.get(var):

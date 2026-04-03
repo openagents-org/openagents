@@ -282,7 +282,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         >
           {/* Message header */}
           <div className="flex items-center gap-2 mb-2 text-sm">
-            <span className="font-semibold text-slate-800 dark:text-slate-100">
+            <span className="font-semibold text-slate-800 dark:text-white">
               {isOwnMessage ? "You" : formatUsername(messageProps.senderId)}
             </span>
             <span className="text-xs text-slate-500 dark:text-slate-400">
@@ -294,7 +294,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
           </div>
 
           {/* Message content */}
-          <div className="message-content leading-6 break-words">
+          <div className="message-content leading-6 break-words text-gray-900 dark:text-white">
             {messageProps.content ? (
               <MarkdownContent content={messageProps.content} />
             ) : (
@@ -481,7 +481,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         >
           {/* Message header */}
           <div className="flex items-center gap-2 mb-2 text-sm">
-            <span className="font-semibold text-slate-800 dark:text-slate-100">
+            <span className="font-semibold text-slate-800 dark:text-white">
               {isOwnMessage ? "You" : formatUsername(message.senderId)}
             </span>
             <span className="text-xs text-slate-500 dark:text-slate-400">
@@ -493,7 +493,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
           </div>
 
           {/* Message content */}
-          <div className="message-content leading-6 break-words">
+          <div className="message-content leading-6 break-words text-gray-900 dark:text-white">
             {message.content ? (
               <MarkdownContent content={message.content} />
             ) : (
