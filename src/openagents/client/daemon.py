@@ -141,7 +141,10 @@ class DaemonManager:
             signal.signal(signal.SIGTERM, _sig_handler)
         else:
             for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(sig, self._handle_signal)
+                loop.add_signal_handler(
+                    sig,
+                    lambda s=sig: self._handle_signal_named(s.name),
+                )
             if hasattr(signal, "SIGHUP"):
                 loop.add_signal_handler(signal.SIGHUP, self._handle_reload)
 
@@ -159,8 +162,17 @@ class DaemonManager:
 
     def _handle_signal(self):
         """Signal handler — trigger graceful shutdown."""
+        self._handle_signal_named("UNKNOWN")
+
+    def _handle_signal_named(self, sig_name: str):
+        """Signal handler with signal name — trigger graceful shutdown."""
         if not self._shutting_down:
-            logger.info("Shutdown signal received")
+            import traceback
+            stack = "".join(traceback.format_stack())
+            logger.info(
+                f"Shutdown signal received: {sig_name} (PID {os.getpid()}). "
+                f"Stack:\n{stack}"
+            )
             self._shutting_down = True
             self._shutdown_event.set()
 
@@ -260,7 +272,7 @@ class DaemonManager:
             resolved = _plugin.resolve_env(type_env)
         else:
             resolved = type_env
-        for k, v in {**resolved, **agent_cfg.env}.items():
+        for k, v in {**type_env, **resolved, **agent_cfg.env}.items():
             os.environ[k] = v
 
         backoff = 2
@@ -268,6 +280,9 @@ class DaemonManager:
             try:
                 status.state = "starting"
                 self._write_status()
+
+                # Auto-start required services (e.g. OpenClaw gateway)
+                await self._ensure_agent_services(agent_cfg)
 
                 adapter = await setup_agent(
                     agent_type=agent_cfg.type,
@@ -328,6 +343,351 @@ class DaemonManager:
 
         status.state = "stopped"
 
+    async def _ensure_agent_services(self, agent_cfg: AgentEntry):
+        """Ensure required setup for an agent type before starting.
+
+        For OpenClaw: ensures the binary is on PATH and runs onboard if needed.
+        For OpenCode: ensures the binary is on PATH.
+        """
+        if agent_cfg.type == "opencode":
+            await self._ensure_opencode_services()
+        elif agent_cfg.type == "openclaw":
+            await self._ensure_openclaw_services()
+
+    async def _ensure_openclaw_services(self):
+        """Ensure OpenClaw binary is on PATH, run onboard, and configure model."""
+        import shutil
+
+        # Ensure openclaw binary is on PATH
+        binary = shutil.which("openclaw") or shutil.which("openclaw.cmd")
+        if not binary:
+            npm_dirs = []
+            if platform.system() == "Windows":
+                appdata = os.environ.get("APPDATA", "")
+                if appdata:
+                    npm_dirs.append(os.path.join(appdata, "npm"))
+                userprofile = os.environ.get("USERPROFILE", "")
+                if userprofile:
+                    npm_dirs.append(os.path.join(userprofile, "AppData", "Roaming", "npm"))
+            else:
+                home = os.path.expanduser("~")
+                npm_dirs.extend([
+                    os.path.join(home, ".npm-global", "bin"),
+                    "/usr/local/bin",
+                ])
+            for d in npm_dirs:
+                for name in ["openclaw.cmd", "openclaw"]:
+                    candidate = os.path.join(d, name)
+                    if os.path.isfile(candidate):
+                        binary = candidate
+                        os.environ["PATH"] = d + os.pathsep + os.environ.get("PATH", "")
+                        logger.info("Found openclaw at %s (added to PATH)", candidate)
+                        break
+                if binary:
+                    break
+
+        if not binary:
+            logger.warning("OpenClaw binary not found on PATH or npm global dirs")
+            return
+
+        # Run onboard to initialize workspace and config if needed
+        openclaw_dir = Path.home() / ".openclaw"
+        if not (openclaw_dir / "openclaw.json").exists():
+            logger.info("Running OpenClaw onboard...")
+            try:
+                use_shell = platform.system() == "Windows"
+                subprocess.run(
+                    [binary, "onboard", "--non-interactive", "--accept-risk"],
+                    capture_output=True, text=True, timeout=30,
+                    shell=use_shell,
+                )
+                logger.info("OpenClaw onboard completed")
+            except Exception as e:
+                logger.warning("OpenClaw onboard failed: %s", e)
+
+        # Configure model provider from OpenAgents env vars
+        self._configure_openclaw_model()
+
+    def _configure_openclaw_model(self):
+        """Write model provider config into openclaw.json from env vars.
+
+        OpenClaw's --local mode reads API keys from its own config, not
+        from environment variables. This syncs the OpenAgents LLM config
+        (OPENAI_API_KEY, OPENAI_BASE_URL, OPENCLAW_MODEL) into OpenClaw's
+        models.providers section.
+        """
+        import json
+
+        api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "")
+        base_url = os.environ.get("OPENAI_BASE_URL", "").rstrip("/")
+        model = os.environ.get("OPENCLAW_MODEL", "")
+
+        if not api_key:
+            return
+
+        openclaw_config = Path.home() / ".openclaw" / "openclaw.json"
+        if not openclaw_config.exists():
+            return
+
+        try:
+            config_data = json.loads(openclaw_config.read_text(encoding="utf-8"))
+        except Exception:
+            return
+
+        # Determine API format from base URL
+        is_anthropic = "anthropic" in base_url.lower() if base_url else bool(os.environ.get("ANTHROPIC_API_KEY"))
+        api_format = "anthropic-messages" if is_anthropic else "openai-completions"
+
+        # Build provider config
+        provider_id = "openagents-llm"
+        provider_config = {
+            "apiKey": api_key,
+            "api": api_format,
+        }
+        if base_url:
+            provider_config["baseUrl"] = base_url
+
+        model_id = model or ("claude-sonnet-4-6" if is_anthropic else "gpt-4o")
+        provider_config["models"] = [{
+            "id": model_id,
+            "name": model_id,
+            "contextWindow": 200000,
+            "maxTokens": 16384,
+        }]
+
+        # Update config
+        if "models" not in config_data:
+            config_data["models"] = {}
+        if "providers" not in config_data["models"]:
+            config_data["models"]["providers"] = {}
+        config_data["models"]["providers"][provider_id] = provider_config
+
+        # Set as default model for agents
+        if "agents" not in config_data:
+            config_data["agents"] = {}
+        if "defaults" not in config_data["agents"]:
+            config_data["agents"]["defaults"] = {}
+        config_data["agents"]["defaults"]["model"] = {
+            "primary": f"{provider_id}/{model_id}",
+            "fallbacks": [],
+        }
+
+        try:
+            openclaw_config.write_text(json.dumps(config_data, indent=2), encoding="utf-8")
+            logger.info("Configured OpenClaw model: %s/%s", provider_id, model_id)
+        except Exception as e:
+            logger.warning("Failed to write OpenClaw model config: %s", e)
+
+    async def _ensure_opencode_services(self):
+        """Ensure opencode binary is available on PATH."""
+        import shutil
+
+        binary = shutil.which("opencode")
+        if not binary and IS_WINDOWS:
+            binary = shutil.which("opencode.cmd") or shutil.which("opencode.exe")
+        if binary:
+            logger.info("Found opencode binary: %s", binary)
+            return
+
+        # Try common npm / local paths
+        npm_dirs: list[str] = []
+        if IS_WINDOWS:
+            appdata = os.environ.get("APPDATA", "")
+            if appdata:
+                npm_dirs.append(os.path.join(appdata, "npm"))
+            userprofile = os.environ.get("USERPROFILE", "")
+            if userprofile:
+                npm_dirs.append(os.path.join(userprofile, "AppData", "Roaming", "npm"))
+        else:
+            home = os.path.expanduser("~")
+            npm_dirs.extend([
+                os.path.join(home, ".npm-global", "bin"),
+                "/usr/local/bin",
+                os.path.join(home, ".local", "bin"),
+                os.path.join(home, "go", "bin"),
+            ])
+        names = ["opencode.cmd", "opencode"] if IS_WINDOWS else ["opencode"]
+        for d in npm_dirs:
+            for name in names:
+                candidate = os.path.join(d, name)
+                if os.path.isfile(candidate):
+                    binary = candidate
+                    break
+            if binary:
+                break
+
+        if binary:
+            bin_dir = os.path.dirname(binary)
+            existing = os.environ.get("PATH", "").split(os.pathsep)
+            if IS_WINDOWS:
+                existing = [p.lower() for p in existing]
+                already = bin_dir.lower() in existing
+            else:
+                already = bin_dir in existing
+            if not already:
+                os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+                logger.info("Added %s to PATH for opencode", bin_dir)
+        else:
+            logger.warning(
+                "opencode binary not found. Please install opencode and ensure it is on PATH."
+            )
+
+    async def _ensure_openclaw_identity(self, binary: str):
+        """Ensure OpenClaw device identity exists via non-interactive onboard."""
+        identity_dir = Path.home() / ".openclaw" / "identity"
+        if (identity_dir / "device.json").exists() and (identity_dir / "device-auth.json").exists():
+            return
+
+        logger.info("Running OpenClaw onboard to generate device identity...")
+        try:
+            use_shell = platform.system() == "Windows"
+            result = subprocess.run(
+                [binary, "onboard", "--non-interactive", "--accept-risk"],
+                capture_output=True, text=True, timeout=30,
+                shell=use_shell,
+            )
+            if result.returncode == 0:
+                logger.info("OpenClaw onboard completed")
+            else:
+                logger.warning("OpenClaw onboard exited %d: %s", result.returncode, result.stderr[:200])
+        except Exception as e:
+            logger.error("OpenClaw onboard failed: %s", e)
+
+    async def _ensure_openclaw_pairing(self, binary: str, host: str, port: int):
+        """Auto-pair the device with the local OpenClaw gateway.
+
+        After onboard creates the device identity, the first WS connection
+        triggers a PAIRING_REQUIRED challenge. We approve it via the CLI,
+        then reconnect to get a fresh token saved to device-auth.json.
+        """
+        import json
+        import aiohttp
+
+        identity_dir = Path.home() / ".openclaw" / "identity"
+        if not (identity_dir / "device.json").exists():
+            return
+
+        # Check if already paired
+        paired_file = Path.home() / ".openclaw" / "devices" / "paired.json"
+        if paired_file.exists():
+            try:
+                paired = json.loads(paired_file.read_text(encoding="utf-8"))
+                device = json.loads((identity_dir / "device.json").read_text(encoding="utf-8"))
+                if device.get("deviceId") in paired:
+                    logger.debug("OpenClaw device already paired")
+                    return
+            except Exception:
+                pass
+
+        logger.info("Auto-pairing OpenClaw device with gateway...")
+        try:
+            # Step 1: Connect to gateway — triggers PAIRING_REQUIRED
+            async with aiohttp.ClientSession() as session:
+                async with session.ws_connect(
+                    f"ws://{host}:{port}",
+                    headers={"Origin": f"http://localhost:{port}"},
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as ws:
+                    # Read challenge
+                    raw = await asyncio.wait_for(ws.receive(), timeout=5)
+                    challenge = json.loads(raw.data)
+                    nonce = challenge.get("payload", {}).get("nonce", "")
+
+                    # Sign and send connect
+                    from openagents.adapters.openclaw import _load_openclaw_device_identity, _sign_ws_challenge
+                    device_info = _load_openclaw_device_identity()
+                    if not device_info:
+                        logger.warning("No device identity for pairing")
+                        return
+
+                    params = _sign_ws_challenge(device_info, nonce)
+                    if not params:
+                        logger.warning("Failed to sign pairing challenge")
+                        return
+
+                    await ws.send_json({"type": "req", "id": "pair1", "method": "connect", "params": params})
+                    raw2 = await asyncio.wait_for(ws.receive(), timeout=5)
+                    res = json.loads(raw2.data)
+
+                    if res.get("ok"):
+                        logger.info("OpenClaw device already connected")
+                        return
+
+                    error = res.get("error", {})
+                    request_id = error.get("details", {}).get("requestId")
+                    if not request_id:
+                        logger.warning("Pairing failed without requestId: %s", error)
+                        return
+
+            # Step 2: Approve the pairing request via CLI
+            logger.info("Approving pairing request %s...", request_id)
+            use_shell = platform.system() == "Windows"
+            result = subprocess.run(
+                [binary, "devices", "approve", request_id],
+                capture_output=True, text=True, timeout=15,
+                shell=use_shell,
+            )
+            if "Approved" in result.stdout or result.returncode == 0:
+                logger.info("Pairing approved")
+            else:
+                logger.warning("Pairing approval may have failed: %s", result.stderr[:200])
+
+            # Step 3: Sync the device token from the gateway's paired.json
+            # After approval, the gateway has a new token for this device but
+            # device-auth.json still has the old one. Read the correct token
+            # from the gateway's records and update device-auth.json.
+            await asyncio.sleep(1)
+            self._sync_openclaw_device_token()
+
+        except Exception as e:
+            logger.error("Auto-pairing failed: %s", e)
+
+    def _sync_openclaw_device_token(self):
+        """Sync the device token from gateway's paired.json to device-auth.json.
+
+        After pairing approval, the gateway stores the correct token in its
+        paired.json but device-auth.json may have a stale token from the
+        initial onboard. This reads the paired token and updates device-auth.json.
+        """
+        import json
+
+        identity_dir = Path.home() / ".openclaw" / "identity"
+        paired_file = Path.home() / ".openclaw" / "devices" / "paired.json"
+        auth_file = identity_dir / "device-auth.json"
+        device_file = identity_dir / "device.json"
+
+        if not paired_file.exists() or not device_file.exists():
+            return
+
+        try:
+            device = json.loads(device_file.read_text(encoding="utf-8"))
+            paired = json.loads(paired_file.read_text(encoding="utf-8"))
+            device_id = device.get("deviceId", "")
+
+            if device_id not in paired:
+                return
+
+            paired_info = paired[device_id]
+            paired_tokens = paired_info.get("tokens", {})
+
+            if not paired_tokens:
+                return
+
+            # Build updated auth data
+            auth_data = {"tokens": {}}
+            for role, token_info in paired_tokens.items():
+                if isinstance(token_info, dict):
+                    auth_data["tokens"][role] = token_info
+                else:
+                    auth_data["tokens"][role] = {"token": token_info, "scopes": paired_info.get("scopes", [])}
+
+            auth_file.write_text(json.dumps(auth_data, indent=2), encoding="utf-8")
+            logger.info("Synced device token from gateway paired.json")
+        except Exception as e:
+            logger.warning("Failed to sync device token: %s", e)
+
+    # Keep _sync_openclaw_device_token for potential future gateway mode use
+
     async def _run_local_agent(
         self,
         agent_cfg: AgentEntry,
@@ -374,7 +734,7 @@ class DaemonManager:
                 if src_name not in type_env and os.environ.get(src_name):
                     type_env[src_name] = os.environ[src_name]
         resolved = _plugin.resolve_env(type_env) if _plugin else type_env
-        merged_env = {**resolved, **agent_cfg.env}
+        merged_env = {**type_env, **resolved, **agent_cfg.env}
         agent_env = {**os.environ, **merged_env} if merged_env else None
 
         while not self._shutting_down:
@@ -637,17 +997,14 @@ def _daemonize_unix():
 
 def _daemonize_windows():
     """Windows: re-launch this command as a detached subprocess."""
-    import shutil
 
     # Ensure common tool directories are on PATH before spawning daemon
     _ensure_windows_path()
 
-    # Find the openagents CLI entry point
-    openagents_bin = shutil.which("openagents")
-    if openagents_bin:
-        args = [openagents_bin, "up", "--foreground"]
-    else:
-        args = [sys.executable, "-m", "openagents", "up", "--foreground"]
+    # Always use sys.executable -m openagents for reliability on Windows;
+    # shutil.which("openagents") can return .cmd wrappers that fail when
+    # launched without a console.
+    args = [sys.executable, "-m", "openagents", "up", "--foreground"]
 
     # Pass through --config if it was provided
     for i, a in enumerate(sys.argv):
@@ -656,17 +1013,20 @@ def _daemonize_windows():
             break
 
     log_file = open(LOG_PATH, "a")
-    # CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS detaches from parent console
-    creation_flags = (
-        getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        | getattr(subprocess, "DETACHED_PROCESS", 0)
-    )
+    # CREATE_NO_WINDOW (0x08000000) hides the console window while keeping
+    # the process alive.  DETACHED_PROCESS (0x8) — alone or combined with
+    # CREATE_NEW_PROCESS_GROUP — causes the child to die immediately on
+    # some Windows configurations (observed on Windows Server with SSH).
+    CREATE_NO_WINDOW = 0x08000000
+    CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+    creation_flags = CREATE_NO_WINDOW | CREATE_BREAKAWAY_FROM_JOB
     proc = subprocess.Popen(
         args,
         stdout=log_file,
         stderr=log_file,
         stdin=subprocess.DEVNULL,
         creationflags=creation_flags,
+        env=os.environ.copy(),
     )
 
     PID_PATH.write_text(str(proc.pid))

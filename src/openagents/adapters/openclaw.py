@@ -151,41 +151,82 @@ class OpenClawAdapter(BaseAdapter):
         super().__init__(workspace_id, channel_name, token, agent_name, endpoint)
         self.disabled_modules = disabled_modules or set()
 
-        # Check for direct LLM API mode (bypasses OpenClaw gateway).
-        # Only use direct mode if explicitly requested via OPENCLAW_DIRECT_MODE=1,
-        # because the LLM env vars (OPENAI_API_KEY, OPENAI_BASE_URL) are also
-        # used by the OpenClaw gateway itself and don't imply direct mode.
-        self._direct_api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "")
-        self._direct_base_url = os.environ.get("OPENAI_BASE_URL", "").rstrip("/")
-        self._direct_model = os.environ.get("OPENCLAW_MODEL", "")
-        self._direct_mode = os.environ.get("OPENCLAW_DIRECT_MODE", "").strip() == "1"
-
-        if self._direct_mode:
-            if not (self._direct_api_key and self._direct_base_url):
-                raise ValueError(
-                    "OPENCLAW_DIRECT_MODE=1 requires OPENAI_API_KEY and OPENAI_BASE_URL"
-                )
-            self.openclaw_url = f"{self._direct_base_url}/chat/completions"
-            logger.info(f"Direct LLM mode: {self._direct_base_url} model={self._direct_model or 'default'}")
-        else:
-            self.openclaw_url = (
-                f"http://{openclaw_host}:{openclaw_port}/v1/chat/completions"
-            )
-
         self.openclaw_host = openclaw_host
         self.openclaw_port = openclaw_port
         self.openclaw_token = openclaw_token
         self.openclaw_agent_id = openclaw_agent_id
 
+        self.openclaw_url = (
+            f"http://{openclaw_host}:{openclaw_port}/v1/chat/completions"
+        )
+
         # Conversation history for multi-turn context
         self._conversation_history: list[dict] = []
 
-        # Device identity for gateway WS auth
-        self._device_identity = None if self._direct_mode else _load_openclaw_device_identity()
+        # Find the openclaw binary for CLI mode
+        self._openclaw_binary = self._find_openclaw_binary()
 
-        # Install workspace skill for gateway mode (system prompt injection)
-        if not self._direct_mode:
-            self._install_workspace_skill()
+        # Device identity for gateway WS auth (used when gateway mode is available)
+        self._device_identity = _load_openclaw_device_identity()
+
+        # Direct API mode: call LLM API via HTTP (no Node.js/OpenClaw CLI needed).
+        # Activated when OPENAI_API_KEY + OPENAI_BASE_URL are set and either:
+        #   - OpenClaw binary is not found, or
+        #   - OPENCLAW_DIRECT_API=1 is set (useful on low-memory machines)
+        self._direct_api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("ANTHROPIC_API_KEY", "")
+        self._direct_base_url = (os.environ.get("OPENAI_BASE_URL") or "").rstrip("/")
+        self._direct_model = os.environ.get("OPENCLAW_MODEL", "")
+        force_direct = os.environ.get("OPENCLAW_DIRECT_API", "").strip() in ("1", "true", "yes")
+        self._direct_mode = bool(self._direct_api_key and self._direct_base_url and force_direct)
+
+        if self._direct_mode:
+            self.openclaw_url = f"{self._direct_base_url}/chat/completions"
+
+        # Determine mode: CLI (preferred) or gateway WS/HTTP
+        # CLI mode uses `openclaw agent --local` which includes full tool support
+        # without needing gateway authentication or a running gateway process.
+        self._use_cli_mode = self._openclaw_binary is not None and not self._direct_mode
+        if self._direct_mode:
+            logger.info("Using direct LLM API mode (%s, model=%s)", self._direct_base_url, self._direct_model)
+        elif self._use_cli_mode:
+            logger.info("Using OpenClaw CLI mode (openclaw agent --local)")
+        else:
+            logger.info("OpenClaw binary not found, falling back to gateway HTTP mode")
+
+        # Install workspace skill (injects workspace context into OpenClaw's system prompt)
+        self._install_workspace_skill()
+
+    @staticmethod
+    def _find_openclaw_binary() -> Optional[str]:
+        """Find the openclaw binary on PATH or common npm locations."""
+        import shutil
+        import platform as _platform
+
+        binary = shutil.which("openclaw") or shutil.which("openclaw.cmd")
+        if binary:
+            return binary
+
+        # Check common npm global directories
+        npm_dirs = []
+        if _platform.system() == "Windows":
+            appdata = os.environ.get("APPDATA", "")
+            if appdata:
+                npm_dirs.append(os.path.join(appdata, "npm"))
+            userprofile = os.environ.get("USERPROFILE", "")
+            if userprofile:
+                npm_dirs.append(os.path.join(userprofile, "AppData", "Roaming", "npm"))
+        else:
+            home = os.path.expanduser("~")
+            npm_dirs.extend([
+                os.path.join(home, ".npm-global", "bin"),
+                "/usr/local/bin",
+            ])
+        for d in npm_dirs:
+            for name in ["openclaw.cmd", "openclaw"]:
+                candidate = os.path.join(d, name)
+                if os.path.isfile(candidate):
+                    return candidate
+        return None
 
     def _build_system_prompt(self, channel_name: str) -> str:
         """Build system prompt with workspace context and API skills."""
@@ -301,7 +342,10 @@ class OpenClawAdapter(BaseAdapter):
         try:
             if self._direct_mode:
                 response_text = await self._stream_completion_http(content, msg_channel)
+            elif self._use_cli_mode:
+                response_text = await self._run_cli_agent(content, msg_channel)
             else:
+                # Fallback: try gateway WS, then HTTP
                 response_text = await self._chat_via_ws(content, msg_channel)
 
             if response_text:
@@ -320,17 +364,90 @@ class OpenClawAdapter(BaseAdapter):
             else:
                 await self._send_response(msg_channel, "No response generated. Please try again.")
 
-        except aiohttp.ClientConnectorError:
-            error_msg = (
-                f"Cannot connect to OpenClaw Gateway at "
-                f"{self.openclaw_host}:{self.openclaw_port}. "
-                f"Is OpenClaw running? Start with: openclaw gateway start"
-            )
-            logger.error(error_msg)
-            await self._send_error(msg_channel, error_msg)
         except Exception as e:
             logger.exception(f"Error handling message: {e}")
             await self._send_error(msg_channel, f"Error processing message: {e}")
+
+    # ------------------------------------------------------------------
+    # CLI mode (openclaw agent --local)
+    # ------------------------------------------------------------------
+
+    async def _run_cli_agent(self, user_message: str, channel: str) -> str:
+        """Run OpenClaw via CLI (openclaw agent --local --json).
+
+        This is the preferred mode — it runs the agent locally with full
+        tool support (file editing, terminal, etc.) without needing a
+        running gateway or device authentication.
+        """
+        import subprocess as _sp
+        import platform as _platform
+
+        binary = self._openclaw_binary
+        if not binary:
+            raise RuntimeError("OpenClaw binary not found")
+
+        # Build a session key from the workspace+channel for conversation continuity
+        session_key = f"openagents-{self.workspace_id[:8]}-{channel[-8:]}"
+
+        cmd = [
+            binary, "agent", "--local",
+            "--agent", self.openclaw_agent_id,
+            "--session-id", session_key,
+            "--message", user_message,
+            "--json",
+        ]
+
+        logger.info("Running: %s", " ".join(cmd[:6]) + " ...")
+
+        use_shell = _platform.system() == "Windows"
+
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: _sp.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=600,
+                    shell=use_shell,
+                    cwd=os.environ.get("OPENCLAW_WORKSPACE_DIR"),
+                ),
+            )
+        except _sp.TimeoutExpired:
+            raise RuntimeError("OpenClaw agent timed out after 600 seconds")
+
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()[:300]
+            raise RuntimeError(f"OpenClaw agent exited with code {result.returncode}: {stderr}")
+
+        # Parse JSON output
+        stdout = (result.stdout or "").strip()
+        if not stdout:
+            return ""
+
+        # The output may have non-JSON lines (plugin warnings etc.) before the JSON
+        # Find the JSON object by looking for the first '{'
+        json_start = stdout.find("{")
+        if json_start < 0:
+            # No JSON — treat entire output as text
+            return stdout
+
+        try:
+            data = json.loads(stdout[json_start:])
+        except json.JSONDecodeError:
+            # Failed to parse JSON — return raw output
+            return stdout
+
+        # Extract response text from JSON
+        payloads = data.get("payloads", [])
+        if payloads:
+            texts = [p.get("text", "") for p in payloads if p.get("text")]
+            return "\n\n".join(texts)
+
+        return ""
 
     # ------------------------------------------------------------------
     # Gateway WebSocket mode (chat.send + tool events)

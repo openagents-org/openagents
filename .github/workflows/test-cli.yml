@@ -1,0 +1,74 @@
+name: Test CLI Install
+on: workflow_dispatch
+jobs:
+  test-macos:
+    runs-on: [self-hosted, macos, desktop-test]
+    steps:
+      - name: Clean previous install
+        run: |
+          npm uninstall -g @openagents-org/agent-connector 2>/dev/null || true
+          rm -rf ~/.openagents 2>/dev/null || true
+        continue-on-error: true
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run install.sh
+        working-directory: ${{ github.workspace }}
+        run: |
+          pwd
+          ls -la install.sh
+          bash install.sh
+      - name: Verify CLI installed
+        run: |
+          export PATH="/usr/local/bin:$HOME/.npm-global/bin:$PATH"
+          which agent-connector || echo "NOT FOUND"
+          agent-connector --version || echo "VERSION FAILED"
+      - name: Test CLI status
+        run: |
+          export PATH="/usr/local/bin:$HOME/.npm-global/bin:$PATH"
+          agent-connector status || true
+      - name: Test CLI list
+        run: |
+          export PATH="/usr/local/bin:$HOME/.npm-global/bin:$PATH"
+          agent-connector list || true
+
+  test-windows:
+    runs-on: [self-hosted, windows, desktop-test]
+    steps:
+      - name: Clean previous install
+        run: |
+          try { npm uninstall -g @openagents-org/agent-connector 2>$null } catch {}
+          try { Remove-Item -Recurse -Force "$env:USERPROFILE\.openagents" 2>$null } catch {}
+          echo "cleaned"
+        shell: powershell
+        continue-on-error: true
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Run install.ps1
+        working-directory: ${{ github.workspace }}
+        run: |
+          Get-Location
+          Get-ChildItem install.ps1
+          powershell -ExecutionPolicy Bypass -File install.ps1
+        shell: powershell
+        continue-on-error: true
+      - name: Verify CLI installed
+        run: |
+          $env:PATH = "$env:APPDATA\npm;$env:PATH"
+          try {
+            & agent-connector --version
+          } catch {
+            echo "agent-connector not found"
+          }
+        shell: powershell
+      - name: Test CLI status
+        run: |
+          $env:PATH = "$env:APPDATA\npm;$env:PATH"
+          & agent-connector status
+        shell: powershell
+        continue-on-error: true
+      - name: Test CLI list
+        run: |
+          $env:PATH = "$env:APPDATA\npm;$env:PATH"
+          & agent-connector list
+        shell: powershell
+        continue-on-error: true

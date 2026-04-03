@@ -213,7 +213,7 @@ def _fetch_remote_catalog() -> list[PluginInfo]:
 
 def _parse_cached() -> list[PluginInfo]:
     """Parse cached catalog JSON file."""
-    data = json.loads(CACHE_PATH.read_text())
+    data = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
     return [_entry_to_plugin_info(e) for e in data]
 
 

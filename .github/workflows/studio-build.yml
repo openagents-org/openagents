@@ -1,15 +1,17 @@
-name: Studio Build Check
+name: Studio Build Check (disabled)
 
+# Disabled — Studio is not actively maintained
+# on:
+#   push:
+#     branches: [ main, develop, release ]
+#     paths:
+#       - 'studio/**'
+#   pull_request:
+#     branches: [ main, develop, release ]
+#     paths:
+#       - 'studio/**'
 on:
-  push:
-    branches: [ main, develop, release ]
-    paths:
-      - 'studio/**'
-  pull_request:
-    branches: [ main, develop, release ]
-    paths:
-      - 'studio/**'
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:  # Manual triggering only
 
 jobs:
   build:

@@ -19,6 +19,54 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+_INSTALLED_MARKERS_PATH = Path.home() / ".openagents" / "installed_agents.json"
+
+
+def _load_installed_markers() -> set:
+    """Load the set of agent names that have been explicitly installed."""
+    try:
+        if _INSTALLED_MARKERS_PATH.exists():
+            data = json.loads(_INSTALLED_MARKERS_PATH.read_text(encoding="utf-8"))
+            return set(data) if isinstance(data, list) else set()
+    except Exception:
+        pass
+    return set()
+
+
+def _is_marked_installed(agent_name: str) -> bool:
+    if agent_name in _load_installed_markers():
+        return True
+    # Fallback: check per-agent marker file
+    try:
+        marker = _INSTALLED_MARKERS_PATH.parent / "installed" / agent_name
+        return marker.exists()
+    except Exception:
+        return False
+
+
+def mark_installed(agent_name: str) -> None:
+    """Persist an install marker for an agent.
+
+    Writes to ~/.openagents/installed_agents.json.
+    Also writes to a per-agent marker file as a fallback in case the
+    JSON file has issues (permissions, corruption, etc.).
+    """
+    markers = _load_installed_markers()
+    markers.add(agent_name)
+    try:
+        _INSTALLED_MARKERS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _INSTALLED_MARKERS_PATH.write_text(json.dumps(sorted(markers)), encoding="utf-8")
+    except Exception as e:
+        logger.warning("Failed to save install marker JSON for %s: %s", agent_name, e)
+
+    # Also write a per-agent marker file as fallback
+    try:
+        marker_dir = _INSTALLED_MARKERS_PATH.parent / "installed"
+        marker_dir.mkdir(parents=True, exist_ok=True)
+        (marker_dir / agent_name).write_text("")
+    except Exception as e:
+        logger.warning("Failed to save install marker file for %s: %s", agent_name, e)
+
 
 def get_current_platform() -> str:
     """Return the current platform key: 'macos', 'linux', or 'windows'."""
@@ -47,7 +95,7 @@ def _load_yaml(path: Path) -> dict:
     """Load a YAML file, falling back to a simple parser if PyYAML isn't available."""
     try:
         import yaml
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except ImportError:
         return _simple_yaml_parse(path)
@@ -65,7 +113,7 @@ def _simple_yaml_parse(path: Path) -> dict:
     current_dict: Optional[dict] = None
     indent_level = 0
 
-    for raw_line in path.read_text().splitlines():
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
         # Skip comments and blank lines
         stripped = raw_line.strip()
         if not stripped or stripped.startswith("#"):
@@ -229,16 +277,37 @@ def _make_plugin_from_yaml(data: dict):
                     if ext in win_exts:
                         return bare
                 return None
-            return shutil.which(binary)
+            found = shutil.which(binary)
+            if found:
+                return found
+            # nvm
+            home = Path.home()
+            nvm_dir = Path(os.environ.get("NVM_DIR", home / ".nvm"))
+            node_versions = nvm_dir / "versions" / "node"
+            if node_versions.is_dir():
+                for d in sorted(node_versions.iterdir(), reverse=True):
+                    c = d / "bin" / binary
+                    if c.is_file() and os.access(c, os.X_OK):
+                        return str(c)
+            # fnm
+            fnm_dir = home / ".local" / "share" / "fnm" / "node-versions"
+            if fnm_dir.is_dir():
+                for d in sorted(fnm_dir.iterdir(), reverse=True):
+                    c = d / "installation" / "bin" / binary
+                    if c.is_file() and os.access(c, os.X_OK):
+                        return str(c)
+            # volta
+            volta_bin = home / ".volta" / "bin" / binary
+            if volta_bin.is_file() and os.access(volta_bin, os.X_OK):
+                return str(volta_bin)
+            return None
 
         def is_installed(self) -> bool:
             if self._which_binary() is not None:
                 return True
-            # Agents with an adapter module can run in direct API mode
-            # without a local binary (e.g. NanoClaw).
-            if adapter_cfg.get("module"):
-                return True
-            return False
+            # Check persistent install marker (covers API-only agents and
+            # cases where the binary isn't on PATH yet after install)
+            return _is_marked_installed(data["name"])
 
         def which(self) -> Optional[str]:
             return self._which_binary()
@@ -275,6 +344,15 @@ def _make_plugin_from_yaml(data: dict):
         def check_ready(self) -> tuple[bool, str]:
             if not self.is_installed():
                 return False, f"Not installed. Run: openagents install {data['name']}"
+            # If no readiness checks are configured, being installed is enough
+            has_checks = (
+                check_cfg.get('env_vars')
+                or check_cfg.get('saved_env_key')
+                or check_cfg.get('creds_file')
+                or check_cfg.get('keychain_service')
+            )
+            if not has_checks:
+                return True, 'Ready'
             # Check env vars (resolved names like OPENAI_API_KEY)
             for var in check_cfg.get("env_vars", []):
                 if os.environ.get(var):
@@ -296,7 +374,7 @@ def _make_plugin_from_yaml(data: dict):
                 creds_path = Path(os.path.expanduser(creds_file))
                 if creds_path.exists():
                     try:
-                        creds = json.loads(creds_path.read_text())
+                        creds = json.loads(creds_path.read_text(encoding="utf-8"))
                         creds_key = check_cfg.get("creds_key")
                         if creds_key and creds.get(creds_key):
                             return True, "Ready (logged in)"

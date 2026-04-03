@@ -1,0 +1,528 @@
+[
+  {
+    "name": "aider",
+    "label": "Aider",
+    "description": "AI pair programming in your terminal",
+    "homepage": "https://aider.chat",
+    "tags": [
+      "coding",
+      "pair-programming",
+      "open-source"
+    ],
+    "install": {
+      "binary": "aider",
+      "macos": "curl -LsSf https://aider.chat/install.sh | sh",
+      "linux": "curl -LsSf https://aider.chat/install.sh | sh",
+      "windows": "powershell -c \\\"irm https://aider.chat/install.ps1 | iex\\\""
+    }
+  },
+  {
+    "name": "amp",
+    "label": "Amp (Sourcegraph)",
+    "description": "Sourcegraph's AI coding agent for CLI and VS Code",
+    "homepage": "https://ampcode.com",
+    "tags": [
+      "coding",
+      "sourcegraph",
+      "cli",
+      "vscode"
+    ],
+    "install": {
+      "binary": "amp",
+      "macos": "curl -fsSL https://ampcode.com/install.sh | bash",
+      "linux": "curl -fsSL https://ampcode.com/install.sh | bash",
+      "windows": "powershell -c \\\"irm https://ampcode.com/install.ps1 | iex\\\""
+    }
+  },
+  {
+    "name": "claude",
+    "label": "Claude Code CLI",
+    "description": "Anthropic's official CLI agent for Claude",
+    "homepage": "https://claude.ai/claude-code",
+    "tags": [
+      "coding",
+      "cli",
+      "anthropic"
+    ],
+    "featured": true,
+    "order": 1,
+    "support": { "install": true, "workspace": true, "collaboration": true },
+    "builtin": true,
+    "install": {
+      "binary": "claude",
+      "requires": [
+        "nodejs",
+        "git"
+      ],
+      "macos": "npm install -g @anthropic-ai/claude-code",
+      "linux": "npm install -g @anthropic-ai/claude-code",
+      "windows": "npm install -g @anthropic-ai/claude-code"
+    },
+    "adapter": {
+      "module": "openagents.adapters.claude",
+      "class": "ClaudeAdapter"
+    },
+    "launch": {
+      "args": [
+        "--append-system-prompt",
+        "Your agent name is '{agent_name}'."
+      ]
+    },
+    "check_ready": {
+      "env_vars": [
+        "ANTHROPIC_API_KEY"
+      ],
+      "creds_file": "~/.claude/sessions",
+      "creds_key": null,
+      "keychain_service": "Claude Code-credentials",
+      "not_ready_message": "Not logged in. Run: claude login",
+      "login_command": "claude login",
+      "alt_check": "claude --print hi"
+    },
+    "env_config": []
+  },
+  {
+    "name": "cline",
+    "label": "Cline",
+    "description": "Autonomous coding agent (VS Code extension)",
+    "homepage": "https://github.com/cline/cline",
+    "tags": [
+      "coding",
+      "vscode",
+      "autonomous"
+    ],
+    "install": {
+      "binary": "code",
+      "verify": "code --list-extensions 2>/dev/null | grep -qi claude-dev",
+      "verify_win": "code --list-extensions 2>nul | findstr /i claude-dev",
+      "macos": "code --install-extension saoudrizwan.claude-dev",
+      "linux": "code --install-extension saoudrizwan.claude-dev",
+      "windows": "code --install-extension saoudrizwan.claude-dev"
+    }
+  },
+  {
+    "name": "codex",
+    "label": "OpenAI Codex CLI",
+    "description": "OpenAI's coding agent for the terminal",
+    "homepage": "https://github.com/openai/codex",
+    "tags": [
+      "coding",
+      "openai",
+      "cli"
+    ],
+    "featured": true,
+    "order": 3,
+    "support": { "install": true, "workspace": true, "collaboration": true },
+    "builtin": true,
+    "install": {
+      "binary": "codex",
+      "requires": [
+        "nodejs"
+      ],
+      "macos": "npm install -g @openai/codex",
+      "linux": "npm install -g @openai/codex",
+      "windows": "npm install -g @openai/codex"
+    },
+    "adapter": {
+      "module": "openagents.adapters.codex",
+      "class": "CodexAdapter"
+    },
+    "launch": {
+      "args": [
+        null
+      ]
+    },
+    "env_config": [
+      {
+        "name": "OPENAI_API_KEY",
+        "description": "OpenAI API key",
+        "required": true,
+        "password": true
+      }
+    ],
+    "check_ready": {
+      "env_vars": [
+        "OPENAI_API_KEY"
+      ],
+      "saved_env_key": "OPENAI_API_KEY",
+      "not_ready_message": "No API key \u2014 press e to configure"
+    },
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "OPENAI_API_KEY"
+        },
+        {
+          "from": "LLM_BASE_URL",
+          "to": "OPENAI_BASE_URL"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "CODEX_MODEL"
+        }
+      ]
+    }
+  },
+  {
+    "name": "copilot",
+    "label": "GitHub Copilot CLI",
+    "description": "GitHub Copilot coding agent for the terminal",
+    "homepage": "https://github.com/features/copilot",
+    "tags": [
+      "coding",
+      "github",
+      "cli"
+    ],
+    "install": {
+      "binary": "gh",
+      "verify": "gh copilot --version >/dev/null 2>&1",
+      "verify_win": "gh copilot --version >nul 2>nul",
+      "macos": "gh extension install github/gh-copilot",
+      "linux": "gh extension install github/gh-copilot",
+      "windows": "gh extension install github/gh-copilot"
+    }
+  },
+  {
+    "name": "cursor",
+    "label": "Cursor",
+    "description": "AI-powered code editor with agent mode CLI",
+    "homepage": "https://cursor.com",
+    "tags": [
+      "coding",
+      "editor",
+      "cli",
+      "ai"
+    ],
+    "featured": true,
+    "order": 4,
+    "builtin": true,
+    "install": {
+      "binary": "cursor",
+      "verify": "cursor --version 2>/dev/null | grep -qi cursor",
+      "verify_win": "cursor --version 2>nul | findstr /i cursor",
+      "requires": [
+        null
+      ],
+      "macos": "curl https://cursor.com/install -fsSL | bash",
+      "linux": "curl https://cursor.com/install -fsSL | bash",
+      "windows": "echo 'Download Cursor from https://cursor.com/downloads'"
+    },
+    "adapter": {
+      "module": "openagents.adapters.cursor",
+      "class": "CursorAdapter"
+    },
+    "launch": {
+      "args": [
+        null
+      ]
+    },
+    "env_config": [
+      {
+        "name": "OPENAI_API_KEY",
+        "description": "API key for LLM inference",
+        "required": true,
+        "password": true
+      }
+    ],
+    "check_ready": {
+      "env_vars": [
+        "OPENAI_API_KEY"
+      ],
+      "saved_env_key": "OPENAI_API_KEY",
+      "not_ready_message": "No API key \u2014 press e to configure"
+    },
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "OPENAI_API_KEY"
+        },
+        {
+          "from": "LLM_BASE_URL",
+          "to": "OPENAI_BASE_URL"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "CURSOR_MODEL"
+        }
+      ]
+    }
+  },
+  {
+    "name": "gemini",
+    "label": "Gemini CLI",
+    "description": "Google's open-source AI agent for the command line",
+    "homepage": "https://github.com/google-gemini/gemini-cli",
+    "tags": [
+      "coding",
+      "google",
+      "open-source",
+      "cli"
+    ],
+    "install": {
+      "binary": "gemini",
+      "requires": [
+        "nodejs"
+      ],
+      "macos": "npm install -g @google/gemini-cli",
+      "linux": "npm install -g @google/gemini-cli",
+      "windows": "npm install -g @google/gemini-cli"
+    }
+  },
+  {
+    "name": "goose",
+    "label": "Goose",
+    "description": "An open-source AI developer agent by Block",
+    "homepage": "https://github.com/block/goose",
+    "tags": [
+      "coding",
+      "developer",
+      "open-source"
+    ],
+    "install": {
+      "binary": "goose",
+      "macos": "curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash",
+      "linux": "curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash",
+      "windows": "powershell -c \\\"irm https://raw.githubusercontent.com/block/goose/main/download_cli.ps1 | iex\\\""
+    }
+  },
+  {
+    "name": "nanoclaw",
+    "label": "NanoClaw",
+    "description": "Lightweight containerized coding agent built on Claude Agent SDK",
+    "homepage": "https://github.com/qwibitai/nanoclaw",
+    "tags": [
+      "coding",
+      "container",
+      "lightweight",
+      "open-source"
+    ],
+    "builtin": true,
+    "install": {
+      "binary": "nanoclaw",
+      "api_only": true,
+      "requires": [
+        "nodejs",
+        "git"
+      ],
+      "macos": "echo 'NanoClaw uses direct API mode \u2014 no binary install needed'",
+      "linux": "echo 'NanoClaw uses direct API mode \u2014 no binary install needed'",
+      "windows": "echo 'NanoClaw uses direct API mode \u2014 no binary install needed'"
+    },
+    "adapter": {
+      "module": "openagents.adapters.nanoclaw",
+      "class": "NanoClawAdapter"
+    },
+    "launch": {
+      "args": [
+        null
+      ]
+    },
+    "env_config": [
+      {
+        "name": "OPENAI_API_KEY",
+        "description": "API key for LLM inference",
+        "required": true,
+        "password": true
+      }
+    ],
+    "check_ready": {
+      "env_vars": [
+        "OPENAI_API_KEY"
+      ],
+      "saved_env_key": "OPENAI_API_KEY",
+      "not_ready_message": "No API key \u2014 press e to configure"
+    },
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "OPENAI_API_KEY"
+        },
+        {
+          "from": "LLM_BASE_URL",
+          "to": "OPENAI_BASE_URL"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "NANOCLAW_MODEL"
+        }
+      ]
+    }
+  },
+  {
+    "name": "openclaw",
+    "label": "OpenClaw",
+    "description": "Open-source coding agent with multi-model support",
+    "homepage": "https://github.com/openagents/openclaw",
+    "tags": [
+      "coding",
+      "open-source"
+    ],
+    "featured": true,
+    "order": 2,
+    "support": { "install": true, "workspace": true, "collaboration": true },
+    "builtin": true,
+    "install": {
+      "binary": "openclaw",
+      "requires": [
+        "nodejs>=22",
+        "git"
+      ],
+      "macos": "npm install -g openclaw@latest",
+      "linux": "npm install -g openclaw@latest",
+      "windows": "npm install -g openclaw@latest"
+    },
+    "adapter": {
+      "module": "openagents.adapters.openclaw",
+      "class": "OpenClawAdapter",
+      "options": {
+        "openclaw_host": "127.0.0.1",
+        "openclaw_port": 18789,
+        "openclaw_agent_id": "main"
+      }
+    },
+    "env_config": [
+      {
+        "name": "LLM_API_KEY",
+        "description": "API key",
+        "required": true,
+        "password": true
+      },
+      {
+        "name": "LLM_BASE_URL",
+        "description": "API base URL (OpenAI-compatible endpoint)",
+        "required": false,
+        "default": "https://api.openai.com/v1",
+        "placeholder": "https://api.openai.com/v1"
+      },
+      {
+        "name": "LLM_MODEL",
+        "description": "Model name",
+        "required": false,
+        "placeholder": "gpt-4o, claude-sonnet-4-20250514, deepseek-chat, etc."
+      }
+    ],
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "OPENAI_API_KEY",
+          "unless_base_url_contains": "anthropic"
+        },
+        {
+          "from": "LLM_API_KEY",
+          "to": "ANTHROPIC_API_KEY",
+          "if_base_url_contains": "anthropic"
+        },
+        {
+          "from": "LLM_BASE_URL",
+          "to": "OPENAI_BASE_URL"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "OPENCLAW_MODEL"
+        }
+      ]
+    },
+    "check_ready": {
+      "env_vars": [
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY"
+      ],
+      "saved_env_key": "LLM_API_KEY",
+      "not_ready_message": "Not configured \u2014 press e to configure"
+    }
+  },
+  {
+    "name": "opencode",
+    "label": "OpenCode",
+    "description": "Open-source terminal-native AI coding agent",
+    "homepage": "https://opencode.ai",
+    "tags": [
+      "coding",
+      "open-source",
+      "cli",
+      "terminal"
+    ],
+    "featured": true,
+    "order": 5,
+    "builtin": true,
+    "install": {
+      "binary": "opencode",
+      "requires": [
+        "nodejs"
+      ],
+      "macos": "npm install -g opencode-ai@latest",
+      "linux": "npm install -g opencode-ai@latest",
+      "windows": "npm install -g opencode-ai@latest"
+    },
+    "adapter": {
+      "module": "openagents.adapters.opencode",
+      "class": "OpenCodeAdapter"
+    },
+    "env_config": [
+      {
+        "name": "LLM_API_KEY",
+        "description": "API key",
+        "required": true,
+        "password": true
+      },
+      {
+        "name": "LLM_BASE_URL",
+        "description": "API base URL (OpenAI-compatible endpoint)",
+        "required": false,
+        "default": "https://api.openai.com/v1",
+        "placeholder": "https://api.openai.com/v1"
+      },
+      {
+        "name": "LLM_MODEL",
+        "description": "Model name",
+        "required": false,
+        "placeholder": "gpt-4o, claude-sonnet-4-20250514, etc."
+      }
+    ],
+    "resolve_env": {
+      "rules": [
+        {
+          "from": "LLM_API_KEY",
+          "to": "OPENAI_API_KEY"
+        },
+        {
+          "from": "LLM_BASE_URL",
+          "to": "OPENAI_BASE_URL"
+        },
+        {
+          "from": "LLM_MODEL",
+          "to": "OPENCODE_MODEL"
+        }
+      ]
+    },
+    "check_ready": {
+      "env_vars": [
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY"
+      ],
+      "saved_env_key": "LLM_API_KEY",
+      "not_ready_message": "Not configured \u2014 press e to configure"
+    }
+  },
+  {
+    "name": "swebench",
+    "label": "SWE-bench Agent",
+    "description": "Language model agent for software engineering tasks",
+    "homepage": "https://swe-agent.com",
+    "tags": [
+      "coding",
+      "benchmarks",
+      "research"
+    ],
+    "install": {
+      "binary": "sweagent",
+      "macos": "pip install sweagent",
+      "linux": "pip install sweagent",
+      "windows": "pip install sweagent"
+    }
+  }
+]

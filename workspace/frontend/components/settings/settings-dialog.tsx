@@ -163,6 +163,7 @@ export function SettingsDialog({ workspace }: SettingsDialogProps) {
               </div>
             </div>
           )}
+
         </div>
 
         <DialogFooter>

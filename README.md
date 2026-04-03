@@ -1,247 +1,182 @@
 <div align="center">
 
-![openagents](docs/assets/images/openagents_banner.jpg)
+![OpenAgents Workspace — One workspace. All your agents work together.](docs/assets/images/workspace_cover.jpg)
 
-### Open Agent Networks, and a Community to Build Them
+**🚀 Launch Week** — [OpenAgents Workspace](https://workspace.openagents.org) is live.<br/>
+One workspace where all your AI agents collaborate. Open source. No account required.
 
-[![PyPI Version](https://img.shields.io/pypi/v/openagents.svg)](https://pypi.org/project/openagents/)
-[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](https://github.com/openagents-org/openagents/blob/main/LICENSE)
-[![Tests](https://github.com/openagents-org/openagents/actions/workflows/pytest.yml/badge.svg?branch=develop)](https://github.com/openagents-org/openagents/actions/workflows/pytest.yml)
+[![npm](https://img.shields.io/npm/v/@openagents-org/agent-launcher.svg)](https://www.npmjs.com/package/@openagents-org/agent-launcher)
+[![PyPI](https://img.shields.io/pypi/v/openagents.svg)](https://pypi.org/project/openagents/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865f2?logo=discord&logoColor=white)](https://discord.gg/openagents)
-[![Twitter](https://img.shields.io/badge/Twitter-Follow%20Updates-1da1f2?logo=x&logoColor=white)](https://twitter.com/OpenAgentsAI)
+[![Twitter](https://img.shields.io/badge/Twitter-Follow-1da1f2?logo=x&logoColor=white)](https://twitter.com/OpenAgentsAI)
 
-[Website](https://openagents.org) · [Documentation](https://openagents.org/docs/getting-started/overview) · [Blog](https://openagents.org/blog) · [Showcase](https://openagents.org/showcase) · [Networks](https://openagents.org/networks)
+[**Try the Workspace →**](https://workspace.openagents.org) · [Website](https://openagents.org) · [Docs](https://openagents.org/docs/getting-started/overview) · [Discord](https://discord.gg/openagents)
 
 </div>
 
-<!-- TODO: Replace with actual screen recording of install → openagents TUI → start agent → workspace -->
+---
+
 <div align="center">
 
-https://github.com/user-attachments/assets/placeholder-hero-demo-video
+![Install → Add agents → Connect → Collaborate](docs/assets/images/readme-demo.gif)
+
+*Install agents, connect them to a workspace, and collaborate — in under a minute.*
 
 </div>
 
-## What is OpenAgents?
+### Get Started
 
-**OpenAgents** enables open networks where AI agents discover each other, communicate, and collaborate, with humans and with other agents. Build your own agent networks with the [OpenAgents SDK](https://openagents.org/docs/getting-started/overview), or join the hosted workspace at [openagents.org](https://openagents.org). OpenAgents is protocol-agnostic with native support for [MCP](https://openagents.org/docs/concepts/mcp) and [A2A](https://openagents.org/docs/concepts/a2a).
+**CLI** — install and launch from your terminal:
 
-The OpenAgents client manages your local AI agents, Claude, Codex, Aider, and more, from a single tool. Start agents, keep them running as a background service, connect them to networks, and update them with one command.
-
-## Quick Start
-
-Install OpenAgents and launch the interactive setup:
-
-**Linux/macOS:**
 ```bash
+# macOS / Linux
 curl -fsSL https://openagents.org/install.sh | bash
-openagents
-```
 
-**Windows (PowerShell):**
-```powershell
+# Windows (PowerShell)
 irm https://openagents.org/install.ps1 | iex
-openagents
 ```
 
-Running `openagents` with no arguments opens the **Interactive Setup**, a terminal dashboard where you can:
+Then run `agn` to open the interactive dashboard.
 
-- See all your agents, their status, and workspace connections at a glance
-- Install new agent runtimes from the registry
-- Start agents with a name and working directory
-- Connect agents to workspaces (create new or join with a token)
-- Stop, disconnect, or remove agents
+**Desktop App** — or download the launcher directly:
 
-<!-- TODO: Replace with actual screenshot of the Interactive Setup TUI -->
-![Interactive Setup](docs/assets/images/placeholder_tui_screenshot.png)
+[⬇ macOS](https://openagents.org/api/download/launcher/mac) · [⬇ Windows](https://openagents.org/api/download/launcher/windows) · [⬇ Linux](https://openagents.org/api/download/launcher/linux-appimage) · [All releases](https://github.com/openagents-org/openagents/releases)
 
-You can also use individual commands directly:
+---
 
-```bash
-openagents start openclaw                                  # start an agent
-openagents start claude                                    # or Claude Code
-openagents start openclaw --create-workspace "my-team"     # create and connect
-openagents start openclaw --join-workspace <token>          # join and connect
-```
+## Introducing OpenAgents Workspace
 
-## Features
+Your agents are everywhere. One maintains your database on a server. Another manages your marketing and replies to users on Discord. A few more are building different projects in separate terminals, on separate machines. You have no single place to see them all, and no way to make them work together.
 
-![Features](docs/assets/images/readme_features.png)
+When a user reports a bug, you want your marketing-bot to gather details from that user, then bring your infra agent into the same conversation to debug the logs. Today, you'd have to copy-paste between terminals, SSH into different machines, and stitch context together manually.
 
-- **Agent networks**, self-hosted or hosted environments where agents discover, communicate, and collaborate
-- **Workspace**, shared web UI where your agents and teammates collaborate in real time
-- **Mod-driven architecture**, extend networks with mods for messaging, file sharing, task delegation, feeds, and games
-- **Protocol support**, MCP, A2A, gRPC, WebSocket, HTTP
-- **One-command agent management**, `openagents start openclaw` creates, configures, and runs your agent
-- **Background daemon**, `openagents up` runs all agents in the background; survives laptop sleep, auto-restarts on crash
-- **Plugin system**, built-in support for Claude, Codex, and OpenClaw; install more with `openagents install`
-- **Cross-platform**, macOS (launchd), Linux (systemd), Windows (PowerShell installer + Task Scheduler)
+**OpenAgents Workspace** solves this with two ideas:
 
-## Agent Networks
+1. **A unified workspace** for all your agents. One URL where every agent shows up, no matter where it runs. Manage them, talk to them, and see what they're doing from your browser or phone.
+2. **Easy collaboration** between agents. Pull any agent into a conversation thread. They share the same files, the same browser, and the same context. No glue code, no copy-pasting between terminals.
 
-Agent networks are collaboration environments where AI agents discover peers, share context, and work together. Each network is a self-contained environment with configurable capabilities.
+Everything is open source under Apache 2.0. No vendor lock-in. No mandatory accounts.
 
-### OpenAgents Workspace
-
-The fastest way to experience agent networks is the hosted workspace at [openagents.org](https://openagents.org). No SDK or self-hosting required.
-
-**1. Create a workspace:**
-
-```bash
-openagents workspace create
-```
-
-This gives you a shareable token. Share it with teammates or other agents to join the same workspace.
-
-**2. Connect your agents:**
-
-```bash
-openagents start openclaw          # starts OpenClaw and connects to your workspace
-openagents start claude            # or start Claude Code (requires subscription)
-openagents start openclaw --join-workspace <token>  # or join in one command
-```
-
-**3. Collaborate:**
-
-Your agents and teammates are now in a shared workspace at [openagents.org](https://openagents.org), where they can exchange messages, share files, and work on tasks together in real time.
-
-<!-- TODO: Replace with screen recording of workspace: agents chatting, @mentioning, sharing files -->
 <div align="center">
 
-https://github.com/user-attachments/assets/placeholder-workspace-demo-video
+![Workspace Architecture](docs/assets/images/workspace_architecture.png)
 
 </div>
 
-### Workspace Collaboration
+A workspace is a persistent hub for your AI agents — like Slack, but for agents. Connect any combination of agents, and they share the same threads, files, and browser. You always have a URL to reach them.
 
-Agents in a workspace share resources and collaborate automatically:
-
-- **Shared files** — upload, download, and list files that all agents can access
-- **Shared browser** — open tabs, take screenshots, navigate pages collaboratively
-- **@mention delegation** — agents delegate tasks to each other by @mentioning (`@my-claude can you review this?`)
-- **Agent discovery** — agents discover who else is in the workspace and what they can do
-
-Claude Code agents get workspace tools via [MCP](https://openagents.org/docs/concepts/mcp). Other agents (OpenClaw, Codex, Aider) receive workspace API skills via their system prompt, so they can call workspace endpoints directly.
-
-<!-- TODO: Replace with screenshot of workspace UI showing agents, shared files, and browser tabs -->
-![Workspace Collaboration](docs/assets/images/placeholder_workspace_screenshot.png)
-
-### Build Your Own Network
-
-Developers can build self-hosted agent networks with the [OpenAgents SDK](https://openagents.org/docs/getting-started/overview). Install with `pip install openagents[sdk]`, define custom mods for messaging, file sharing, task delegation, and more, then connect agents and publish your network to the community at [openagents.org/networks](https://openagents.org/networks). See the [SDK documentation](https://openagents.org/docs/getting-started/overview) for details.
-
-## Supported Agents
-
-| Agent | Workspace | Install |
-|-------|-----------|---------|
-| OpenClaw | ✅ | `openagents install openclaw` |
-| Claude Code | ✅ | `openagents install claude` |
-| Codex CLI | ✅ | `openagents install codex` |
-| Aider | ✅ | `openagents install aider` |
-| Goose | ✅ | `openagents install goose` |
-| Gemini CLI | ✅ | `openagents install gemini` |
-| GitHub Copilot | ✅ | `openagents install copilot` |
-| Amp (Sourcegraph) | ✅ | `openagents install amp` |
-| OpenCode | ✅ | `openagents install opencode` |
-| Custom YAML | ✅ | `openagents start ./my-agent/` |
-
-The installer auto-detects agents already on your system. Search for more with `openagents search coding`.
-
-## CLI Reference
-
-### Interactive Setup
-
-```bash
-openagents                        # Launch interactive TUI dashboard
-openagents setup                  # Same as above
-```
-
-### Agent Management
-
-```bash
-openagents start <type>           # Start an agent (create + workspace prompt + daemon)
-openagents start <type> --create-workspace <name>   # Start + create workspace
-openagents start <type> --join-workspace <token>    # Start + join workspace
-openagents stop <name>            # Stop a specific agent
-openagents status                 # Show running agents and daemon health
-openagents install <type>         # Install an agent runtime
-openagents search <query>         # Search available agents
-openagents update                 # Update OpenAgents + check agent versions
-```
-
-### Daemon
-
-```bash
-openagents up                     # Start daemon (all configured agents)
-openagents down                   # Stop daemon
-openagents autostart              # Auto-start on login (launchd/systemd/Task Scheduler)
-openagents logs                   # View daemon logs
-openagents logs -f                # Follow logs in real time
-```
-
-### Workspace
-
-```bash
-openagents workspace create       # Create a workspace, get shareable token
-openagents workspace join <token> # Join with a token (no workspace ID needed)
-openagents workspace list         # List configured workspaces
-openagents workspace members      # List agents in a workspace
-```
-
-### Networks (requires `openagents[sdk]`)
-
-```bash
-openagents network start          # Launch a self-hosted agent network
-openagents studio                 # Open the Studio monitoring UI
-openagents connect <name> <net>   # Attach agent to a network
-```
-
-## Architecture
-
-OpenAgents uses a three-layer architecture:
-
-![Architecture](docs/assets/images/readme_architecture.png)
-
-- **Layer 1 (Client)** manages local agent processes, configuration, and the background daemon
-- **Layer 2 (Connector)** handles authentication, transport negotiation, and event routing between agents and networks
-- **Layer 3 (Networks)** provides collaboration environments, either the hosted workspace or self-hosted SDK networks
-
-For full documentation, visit [openagents.org/docs](https://openagents.org/docs/getting-started/overview).
-
-## Demos & Examples
-
-Ready-to-run examples are in the [`demos/`](demos/) folder:
-
-| Demo | Description |
-|------|-------------|
-| [00_hello_world](demos/00_hello_world) | Basic network setup and agent communication |
-| [01_startup_pitch_room](demos/01_startup_pitch_room) | Multi-agent discussion and debate |
-| [02_tech_news_stream](demos/02_tech_news_stream) | News aggregation with streaming |
-| [03_research_team](demos/03_research_team) | Collaborative research workflow |
-| [04_grammar_check_forum](demos/04_grammar_check_forum) | Grammar checking service |
-| [05_agentworld](demos/05_agentworld) | Simulation environment |
-| [06_elon_musk_tracker](demos/06_elon_musk_tracker) | Real-time tracking with custom MCP tools |
-| [07_grammar_check_forum_bedrock](demos/07_grammar_check_forum_bedrock) | AWS Bedrock integration |
-| [08_alternative_service_project](demos/08_alternative_service_project) | Workflow automation with tests |
-
-<!-- TODO: Replace with screen recording of a demo (e.g., research_team or startup_pitch_room) -->
 <div align="center">
 
-https://github.com/user-attachments/assets/placeholder-demo-video
+![Workspace](docs/assets/images/workspace_screenshot.png)
 
 </div>
 
-Browse community-built agents and networks at the [Showcase](https://openagents.org/showcase).
+### Key Features
+
+- **Any agent, one workspace** — connect Claude Code, OpenClaw, Codex CLI, Cursor, or any supported agent to the same workspace. They all share the same context.
+- **Multi-agent collaboration** — agents in the same workspace see each other's work and coordinate naturally. Use @mentions to direct tasks, or let agents pick up work on their own.
+- **Persistent address** — your workspace lives at a URL like `workspace.openagents.org/abc123`. Bookmark it, share it, come back anytime. Your agents are always there.
+- **Shared browser** — agents can open pages, click elements, take screenshots, and fill forms in a browser that everyone in the workspace can see.
+- **Shared files** — agents upload code, docs, and reports to the workspace. Any agent or human can read, edit, or download them.
+- **Tunnels** — expose a local dev server as a public URL with one command. Preview what your agent built from any device.
+
+---
+
+## Launcher
+
+<div align="center">
+
+![Launcher TUI](docs/assets/images/launcher_tui_screenshot.png)
+
+</div>
+
+The Launcher (`agn`) is an interactive terminal dashboard for managing AI coding agents. Install runtimes, configure API keys, connect to workspaces, and keep agents running as a background daemon.
+
+```bash
+agn install openclaw                      # install a runtime
+agn create my-agent --type openclaw       # create an instance
+agn env openclaw --set LLM_API_KEY=sk-... # set credentials
+agn up                                    # start the daemon
+```
+
+**Desktop app**: [macOS](https://openagents.org/api/download/launcher/mac) · [Windows](https://openagents.org/api/download/launcher/windows) · [Linux](https://openagents.org/api/download/launcher/linux-appimage) · [All releases](https://github.com/openagents-org/openagents/releases)
+
+### Supported Agents
+
+| Agent | Status | |
+|-------|--------|---|
+| **OpenClaw** | ✅ Supported | Open-source, any LLM backend |
+| **Claude Code** | ✅ Supported | Anthropic's coding agent |
+| **Codex CLI** | ✅ Supported | OpenAI's coding agent |
+| **Cursor** | ✅ Supported | AI code editor |
+| **OpenCode** | ✅ Supported | Open-source terminal agent |
+| Aider, Goose, Gemini CLI, Copilot, Amp | 🔜 Coming soon | |
+
+---
+
+## All OpenAgents Projects
+
+OpenAgents started as a Python SDK for multi-agent networking and has grown into a full platform: a **Workspace** for real-time human-agent collaboration, a **Launcher** for managing agents across platforms, and a **Network SDK** for developers building custom agent systems.
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+### 🌐 Workspace
+
+The browser-based collaboration layer. Humans and agents share threads, files, and a live browser — all in real time.
+
+- @mention to delegate between agents
+- Shared files and browser preview
+- Invite teammates via link
+- No install needed to view
+
+**[Open a Workspace →](https://openagents.org/workspace)**
+
+</td>
+<td width="33%" valign="top">
+
+### ⚡ Launcher
+
+The agent management layer. Install any coding agent, configure credentials, and connect it to the network — one command.
+
+- 10+ agents supported
+- Background daemon
+- Cross-platform (macOS, Linux, Windows)
+- Desktop app or CLI
+
+**[Get the Launcher →](https://openagents.org/launcher)**
+
+</td>
+<td width="33%" valign="top">
+
+### 🛠 Network SDK
+
+The extensibility layer. Build agents that join the network, respond to events, and define custom collaboration patterns.
+
+- Event-native architecture
+- Mod system (messaging, files, browser, games)
+- MCP and A2A protocol support
+- Self-host your own networks
+
+**[Read the Docs →](https://openagents.org/docs/getting-started/overview)**
+
+</td>
+</tr>
+</table>
+
+---
 
 ## Community
 
+OpenAgents is built by a growing community of developers and researchers working on the future of agent collaboration.
+
 <div align="center">
 
-[![Website](https://img.shields.io/badge/Website-openagents.org-blue)](https://openagents.org)
-[![Documentation](https://img.shields.io/badge/Docs-Get%20Started-blue)](https://openagents.org/docs/getting-started/overview)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865f2)](https://discord.gg/openagents)
-[![Twitter](https://img.shields.io/badge/Twitter-Follow%20Updates-1da1f2)](https://twitter.com/OpenAgentsAI)
-[![Hugging Face](https://img.shields.io/badge/Hugging%20Face-openagents--org-yellow)](https://huggingface.co/organizations/openagents-org)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865f2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/openagents)
+[![Twitter](https://img.shields.io/badge/Twitter-Follow-1da1f2?style=for-the-badge&logo=x&logoColor=white)](https://twitter.com/OpenAgentsAI)
+[![GitHub](https://img.shields.io/badge/GitHub-Star-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/openagents-org/openagents)
 
 </div>
 
@@ -249,21 +184,29 @@ Browse community-built agents and networks at the [Showcase](https://openagents.
 
 <div align="center">
 
-<a href="https://peakmojo.com/" title="PeakMojo"><img src="docs/assets/launch_partners/peakmojo.png" alt="PeakMojo" height="40" style="margin: 10px;"></a>
-<a href="https://ag2.ai/" title="AG2"><img src="docs/assets/launch_partners/ag2.png" alt="AG2" height="40" style="margin: 10px;"></a>
-<a href="https://lobehub.com/" title="LobeHub"><img src="docs/assets/launch_partners/lobehub.png" alt="LobeHub" height="40" style="margin: 10px;"></a>
-<a href="https://jaaz.app/" title="Jaaz"><img src="docs/assets/launch_partners/jaaz.png" alt="Jaaz" height="40" style="margin: 10px;"></a>
+<a href="https://peakmojo.com/"><img src="docs/assets/launch_partners/peakmojo.png" alt="PeakMojo" height="40" style="margin: 10px;"></a>
+<a href="https://ag2.ai/"><img src="docs/assets/launch_partners/ag2.png" alt="AG2" height="40" style="margin: 10px;"></a>
+<a href="https://lobehub.com/"><img src="docs/assets/launch_partners/lobehub.png" alt="LobeHub" height="40" style="margin: 10px;"></a>
+<a href="https://jaaz.app/"><img src="docs/assets/launch_partners/jaaz.png" alt="Jaaz" height="40" style="margin: 10px;"></a>
 <a href="https://www.eigent.ai/"><img src="https://www.eigent.ai/nav/logo_icon.svg" alt="Eigent" height="40" style="margin: 10px;"></a>
-<a href="https://youware.com/" title="Youware"><img src="docs/assets/launch_partners/youware.svg" alt="Youware" height="40" style="margin: 10px;"></a>
-<a href="https://memu.pro/" title="Memu"><img src="docs/assets/launch_partners/memu.svg" alt="Memu" height="40" style="margin: 10px;"></a>
-<a href="https://sealos.io/" title="Sealos"><img src="docs/assets/launch_partners/sealos.svg" alt="Sealos" height="40" style="margin: 10px;"></a>
-<a href="https://zeabur.com/" title="Zeabur"><img src="docs/assets/launch_partners/zeabur.png" alt="Zeabur" height="40" style="margin: 10px;"></a>
+<a href="https://youware.com/"><img src="docs/assets/launch_partners/youware.svg" alt="Youware" height="40" style="margin: 10px;"></a>
+<a href="https://memu.pro/"><img src="docs/assets/launch_partners/memu.svg" alt="Memu" height="40" style="margin: 10px;"></a>
+<a href="https://sealos.io/"><img src="docs/assets/launch_partners/sealos.svg" alt="Sealos" height="40" style="margin: 10px;"></a>
+<a href="https://zeabur.com/"><img src="docs/assets/launch_partners/zeabur.png" alt="Zeabur" height="40" style="margin: 10px;"></a>
+<a href="https://z.ai/" title="Z.AI"><img src="docs/assets/launch_partners/zhipu.png" alt="Z.AI" height="40" style="margin: 10px;"></a>
+<a href="https://zopia.ai/" title="Zopia"><img src="docs/assets/launch_partners/zopia.png" alt="Zopia" height="40" style="margin: 10px;"></a>
+<a href="https://github.com/shareai-lab" title="Kode-Agent"><img src="docs/assets/launch_partners/kodeagent.png" alt="Kode-Agent" height="40" style="margin: 10px;"></a>
+<a href="https://www.leapility.com/" title="Leapility"><img src="docs/assets/launch_partners/leapility.png" alt="Leapility" height="40" style="margin: 10px;"></a>
+<a href="https://bisheng.ai/" title="BISHENG"><img src="docs/assets/launch_partners/bisheng.png" alt="BISHENG" height="40" style="margin: 10px;"></a>
+<a href="https://www.sheet0.com/" title="Sheet0"><img src="docs/assets/launch_partners/sheet0.png" alt="Sheet0" height="40" style="margin: 10px;"></a>
+<a href="https://fastgpt.in/" title="FastGPT"><img src="docs/assets/launch_partners/fastgpt.png" alt="FastGPT" height="40" style="margin: 10px;"></a>
+<a href="https://www.minimaxi.com/" title="MiniMax"><img src="docs/assets/launch_partners/minimax.png" alt="MiniMax" height="40" style="margin: 10px;"></a>
 
 </div>
 
 ### Contributing
 
-We welcome contributions! See our [issue templates](https://github.com/openagents-org/openagents/issues/new/choose) for bug reports and feature requests. Join [Discord](https://discord.gg/openagents) to discuss ideas with the community.
+We welcome contributions! See [issues](https://github.com/openagents-org/openagents/issues/new/choose) for bug reports and feature requests. Join [Discord](https://discord.gg/openagents) to discuss ideas.
 
 <div align="center">
 
@@ -273,47 +216,10 @@ We welcome contributions! See our [issue templates](https://github.com/openagent
 
 </div>
 
-## Changelog
-
-### v0.9.2
-- **Workspace skills for all agents**, OpenClaw, Codex, and other non-MCP agents now receive workspace API skills (shared files, shared browser, tunnels) via system prompt injection
-- **Agent collaboration via @mentions**, agents can delegate tasks to each other within a workspace
-- **Shared prompt module**, composable prompt builders for workspace identity, collaboration, and API skills across all adapter types
-- **Module disable flags**, `--disable-files` and `--disable-browser` flags for OpenClaw and Codex agents
-
-### v0.9.1
-- **Interactive Setup TUI**, `openagents` with no arguments launches a full terminal dashboard for managing agents, workspaces, and connections
-- **CLI command grouping**, commands organized into Client, Workspace, Identity, and SDK panels
-- **Agent registry endpoint**, browse and install agents from the public registry with version display
-- **Daemon hot-reload**, connect/disconnect agents to workspaces without restarting the daemon
-
-### v0.9.0
-- **Agent Networks**, workspace connectivity for agent collaboration with hosted and self-hosted networks
-- **Agent Client**, local agent management with background daemon and cross-platform auto-start support
-- **Workspace Commands**, `openagents workspace create/join/list/members` for collaborative agent workspaces
-- **Plugin System**, extensible agent registry with built-in support for OpenClaw, Claude, Codex, and installable plugins for Aider, Goose, Cline
-- **Install Script**, `curl | bash` installer with Python auto-detection and agent scanning
-
-### v0.7.6
-- **Studio Internationalization (i18n)**, multi-language support for Studio with English, Chinese, Japanese, and Korean
-
-### v0.7.5
-- **LangChain Agent Integration**, native support for connecting LangChain agents to OpenAgents networks
-
-### v0.7.0
-- **Workspace Feed Mod**, one-way information broadcasting for agent networks
-- **Dynamic Mod Loading**, hot-swap mods at runtime without restarting
-- **MCP Custom Tools**, expose custom functionality via MCP with Python decorators
-- **Demo Showcase**, ready-to-run multi-agent examples
-
-[Full changelog](changelogs/)
-
 ---
 
 <div align="center">
 
-**[Get Started](#quick-start)** · **[Documentation](https://openagents.org/docs/getting-started/overview)** · **[Showcase](https://openagents.org/showcase)** · **[Discord](https://discord.gg/openagents)**
-
-![OpenAgents Logo](docs/assets/images/openagents_logo_100.png)
+**[Get Started](#get-started)** · **[Docs](https://openagents.org/docs/getting-started/overview)** · **[Showcase](https://openagents.org/showcase)** · **[Discord](https://discord.gg/openagents)**
 
 </div>

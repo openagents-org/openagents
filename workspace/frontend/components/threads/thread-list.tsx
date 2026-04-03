@@ -21,6 +21,24 @@ function AvatarStack({ agents, max = 3 }: { agents: WorkspaceAgent[]; max?: numb
   const extra = agents.length - max;
   const agentNames = agents.map((a) => a.agentName);
 
+  // Single agent: show a larger avatar
+  if (shown.length <= 1) {
+    const agent = shown[0];
+    if (!agent) return null;
+    const color = getAgentColor(agent.agentName, agentNames);
+    return (
+      <div
+        className={cn(
+          'size-[30px] rounded-full flex items-center justify-center text-white text-[10px] font-bold',
+          color.initials
+        )}
+      >
+        {getAgentInitials(agent.agentName)}
+      </div>
+    );
+  }
+
+  // Multiple agents: compact overlapping stack
   return (
     <div className="flex -space-x-1.5">
       {shown.map((agent) => {
@@ -29,7 +47,7 @@ function AvatarStack({ agents, max = 3 }: { agents: WorkspaceAgent[]; max?: numb
           <div
             key={agent.agentName}
             className={cn(
-              'size-5 rounded-full flex items-center justify-center text-white text-[8px] font-bold border-2 border-white',
+              'size-[18px] rounded-full flex items-center justify-center text-white text-[7px] font-bold ring-2 ring-white dark:ring-zinc-900',
               color.initials
             )}
           >
@@ -38,7 +56,7 @@ function AvatarStack({ agents, max = 3 }: { agents: WorkspaceAgent[]; max?: numb
         );
       })}
       {extra > 0 && (
-        <div className="size-5 rounded-full bg-zinc-200 flex items-center justify-center text-[8px] font-medium text-zinc-600 border-2 border-white">
+        <div className="size-[18px] rounded-full bg-zinc-200 flex items-center justify-center text-[7px] font-medium text-zinc-600 ring-2 ring-white dark:ring-zinc-900">
           +{extra}
         </div>
       )}
@@ -316,7 +334,7 @@ export function ThreadList() {
                 )}
               >
                 {/* Avatar stack — show only channel participants */}
-                <div className="shrink-0 flex items-center justify-center border border-zinc-200 dark:border-zinc-700 rounded-full size-[30px] bg-white dark:bg-zinc-900">
+                <div className="shrink-0">
                   <AvatarStack agents={
                     session.participants.length > 0
                       ? agents.filter((a) => session.participants.includes(a.agentName))

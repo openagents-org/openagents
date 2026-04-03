@@ -166,6 +166,7 @@ class InstallAgentScreen(Screen[dict | None]):
         with Vertical():
             yield Label(" [bold]Install Agent Runtime[/bold]  —  Enter to install, or update an installed runtime\n")
             yield Static("", id="install-status")
+            yield Static("", id="install-log")
             yield LoadingIndicator(id="install-spinner")
             table = DataTable(id="install-table", cursor_type="row")
             table.add_columns("Name", "Label", "Version", "Status", "Description")
@@ -199,9 +200,13 @@ class InstallAgentScreen(Screen[dict | None]):
     def _update_progress(self, msg: str) -> None:
         self.query_one("#install-status", Static).update(f" {msg}")
 
+    def _update_log(self, msg: str) -> None:
+        self.query_one("#install-log", Static).update(f" [dim]{msg}[/dim]")
+
     def _hide_progress(self, msg: str = "") -> None:
         self.query_one("#install-status", Static).update(f" {msg}" if msg else "")
         self.query_one("#install-spinner", LoadingIndicator).display = False
+        self.query_one("#install-log", Static).update("")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         if not self._items or self._installing:
@@ -247,18 +252,52 @@ class InstallAgentScreen(Screen[dict | None]):
         if is_windows and cmd.startswith("npm "):
             cmd = "npm.cmd " + cmd[4:]
 
+        # Force npm to produce streaming output (it suppresses progress when
+        # stdout is not a TTY, so without this we get zero lines until exit).
+        if "npm " in cmd or "npm.cmd " in cmd:
+            cmd += " --foreground-scripts --loglevel=verbose"
+
+        # Build env: suppress interactive prompts from npm/pip/etc.
+        env = os.environ.copy()
+        env["npm_config_yes"] = "true"
+        env["CI"] = "1"  # many tools skip prompts when CI is set
+        env["PYTHONUNBUFFERED"] = "1"  # force unbuffered output for pip
+
         try:
-            result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=600,
+            proc = subprocess.Popen(
+                cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, stdin=subprocess.DEVNULL, env=env,
+                bufsize=1, encoding="utf-8", errors="replace",
             )
-            if result.returncode == 0:
+            last_err = ""
+            while True:
+                line = proc.stdout.readline()
+                if not line and proc.poll() is not None:
+                    break
+                line = line.rstrip()
+                if line:
+                    # Show the latest output line so user sees progress
+                    display = line[:120]
+                    self.app.call_from_thread(self._update_log, display)
+                    # Track last meaningful line for error reporting
+                    if "err" in line.lower() or "warn" in line.lower():
+                        last_err = line.strip()[:200]
+
+            returncode = proc.wait(timeout=600)
+            if returncode == 0:
+                # Write install marker immediately (before UI callbacks) so it
+                # persists even if the user dismisses the screen before
+                # _finish_install runs on the main thread.
+                from openagents.registry.loader import mark_installed
+                mark_installed(item["name"])
+
                 self.app.call_from_thread(
                     self._hide_progress,
                     f"[green]✓ Installed {item['name']}[/green]  —  Press [bold]n[/bold] on the main screen to create an agent",
                 )
                 self.app.call_from_thread(self._finish_install, item)
             else:
-                err = result.stderr.strip()[:200] if result.stderr else "unknown error"
+                err = last_err or f"exit code {returncode}"
                 self.app.call_from_thread(self._hide_progress, f"[red]✗ Install failed:[/red] {err}")
                 self._installing = False
         except Exception as e:
@@ -330,8 +369,22 @@ class InstallAgentScreen(Screen[dict | None]):
 
     def _finish_install(self, item: dict) -> None:
         self._installing = False
+        # Refresh PATH on Windows so newly installed binaries are found
+        import platform as _platform
+        if _platform.system() == "Windows":
+            from openagents.client.cli_packages import _refresh_path_windows
+            _refresh_path_windows()
+        # Persist install marker so API-only agents stay "installed" across restarts
+        from openagents.registry.loader import mark_installed
+        mark_installed(item["name"])
         # Refresh table to show updated status
         self._items = _load_catalog()
+        # Force-mark the just-installed item as installed (in case PATH
+        # refresh didn't catch the new binary yet — the install succeeded)
+        for it in self._items:
+            if it["name"] == item["name"]:
+                it["installed"] = True
+                break
         table = self.query_one("#install-table", DataTable)
         table.clear()
         for it in self._items:
@@ -1257,28 +1310,106 @@ class OpenAgentsTUI(App):
             )
         except Exception as e:
             self.app.call_from_thread(self._log, f"[red]✗ Failed to start daemon:[/red] {e}")
+            return
         import time
-        time.sleep(2)
+        time.sleep(5)
         self.app.call_from_thread(self._refresh_table)
+        # Check if agent actually started — show daemon log errors if not
+        self._check_agent_started(name)
 
     @work(thread=True)
     def _do_restart(self, name: str) -> None:
-        """Restart a stopped agent by calling `openagents up`."""
-        try:
-            subprocess.Popen(
-                [sys.executable, "-m", "openagents.client.cli", "up"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+        """Restart a stopped agent by sending a restart command to the daemon."""
+        from openagents.client.daemon import read_daemon_pid
+        from openagents.client.daemon_config import CMD_PATH
+
+        pid = read_daemon_pid()
+        if pid is None:
+            # Daemon not running — start it (will launch all agents)
+            try:
+                subprocess.Popen(
+                    [sys.executable, "-m", "openagents.client.cli", "up"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                self.app.call_from_thread(
+                    self._log,
+                    f"[green]✓[/green] Starting daemon (will launch [cyan]{name}[/cyan])",
+                )
+            except Exception as e:
+                self.app.call_from_thread(self._log, f"[red]✗ Failed to start daemon:[/red] {e}")
+                return
+        else:
+            # Daemon running — send restart command via command file
+            try:
+                CMD_PATH.parent.mkdir(parents=True, exist_ok=True)
+                CMD_PATH.write_text(f"restart:{name}\n")
+                self.app.call_from_thread(
+                    self._log,
+                    f"[green]✓[/green] Restarting [cyan]{name}[/cyan] via daemon",
+                )
+            except Exception as e:
+                self.app.call_from_thread(self._log, f"[red]✗ Failed to restart:[/red] {e}")
+                return
+        import time
+        time.sleep(5)
+        self.app.call_from_thread(self._refresh_table)
+        # Check if agent actually started — show daemon log errors if not
+        self._check_agent_started(name)
+
+    def _check_agent_started(self, name: str) -> None:
+        """Check if agent came online; if not, surface daemon log errors."""
+        from openagents.client.daemon_config import read_status, LOG_PATH
+
+        status = read_status() or {}
+        agent_info = status.get("agents", {}).get(name, {})
+        state = agent_info.get("state", "stopped")
+
+        if state in ("online", "starting", "reconnecting"):
+            return  # Agent is fine
+
+        # Agent didn't start — check for last_error in status
+        last_err = agent_info.get("last_error", "")
+        if last_err:
             self.app.call_from_thread(
                 self._log,
-                f"[green]✓[/green] Restarting [cyan]{name}[/cyan] via daemon",
+                f"[red]✗ {name} failed:[/red] {last_err}",
             )
-        except Exception as e:
-            self.app.call_from_thread(self._log, f"[red]✗ Failed to restart:[/red] {e}")
-        import time
-        time.sleep(2)
-        self.app.call_from_thread(self._refresh_table)
+            return
+
+        # No error in status — tail the daemon log for clues
+        try:
+            if LOG_PATH.exists():
+                text = LOG_PATH.read_text(encoding="utf-8", errors="replace")
+                # Find last error/warning lines mentioning this agent or general errors
+                lines = text.splitlines()
+                error_lines = []
+                for line in reversed(lines):
+                    if len(error_lines) >= 3:
+                        break
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    low = stripped.lower()
+                    if "error" in low or "failed" in low or "crash" in low:
+                        error_lines.append(stripped)
+                if error_lines:
+                    error_lines.reverse()
+                    for line in error_lines:
+                        self.app.call_from_thread(
+                            self._log,
+                            f"[red]daemon:[/red] {line[:200]}",
+                        )
+                else:
+                    self.app.call_from_thread(
+                        self._log,
+                        f"[yellow]{name} not started yet — check daemon log for details[/yellow]",
+                    )
+        except Exception:
+            self.app.call_from_thread(
+                self._log,
+                f"[yellow]{name} not started yet — check daemon log for details[/yellow]",
+            )
 
     # -- Stop --
 
@@ -1519,13 +1650,30 @@ class OpenAgentsTUI(App):
     # -- Daemon up/down --
 
     def action_daemon_toggle(self) -> None:
-        """Start daemon if not running, stop it if running."""
+        """Start daemon if not running, stop it (with confirmation) if running."""
         from openagents.client.daemon import read_daemon_pid
         pid = read_daemon_pid()
         if pid:
-            self.action_daemon_down()
+            self._confirm_daemon_down()
         else:
             self.action_daemon_up()
+
+    def _confirm_daemon_down(self) -> None:
+        """Ask for confirmation before stopping the daemon."""
+        self.push_screen(
+            TextInputScreen(
+                "Stop daemon? This will disconnect ALL agents.\n"
+                "Type 'yes' to confirm:",
+                "Confirm Daemon Stop",
+            ),
+            callback=self._on_daemon_down_confirmed,
+        )
+
+    def _on_daemon_down_confirmed(self, result: str | None) -> None:
+        if result and result.strip().lower() == "yes":
+            self.action_daemon_down()
+        else:
+            self._log("[dim]Daemon stop cancelled[/dim]")
 
     def action_daemon_up(self) -> None:
         self._log("Starting daemon…")
@@ -1534,17 +1682,41 @@ class OpenAgentsTUI(App):
     @work(thread=True)
     def _do_daemon_up(self) -> None:
         try:
-            subprocess.Popen(
-                [sys.executable, "-m", "openagents.client.cli", "up"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            if sys.platform == "win32":
+                # On Windows+SSH, DETACHED_PROCESS and CREATE_NEW_PROCESS_GROUP
+                # cause children to die immediately.  Start the daemon as a
+                # plain child process with no special flags — it stays alive as
+                # long as the TUI (its parent) is alive, which is exactly what
+                # we want for the interactive TUI session.
+                from openagents.client.daemon import LOG_PATH, PID_PATH
+                LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+                log_file = open(LOG_PATH, "a")
+                self._daemon_proc = subprocess.Popen(
+                    [sys.executable, "-m", "openagents", "up", "--foreground"],
+                    stdout=log_file,
+                    stderr=log_file,
+                    stdin=subprocess.DEVNULL,
+                )
+                PID_PATH.write_text(str(self._daemon_proc.pid))
+            else:
+                subprocess.Popen(
+                    [sys.executable, "-m", "openagents.client.cli", "up"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
             self.app.call_from_thread(self._log, "[green]✓[/green] Daemon starting…")
         except Exception as e:
             self.app.call_from_thread(self._log, f"[red]✗ Failed:[/red] {e}")
+            return
         import time
-        time.sleep(3)
+        time.sleep(5)
         self.app.call_from_thread(self._refresh_table)
+        # Check if any configured agents failed to start
+        from openagents.client.daemon_config import load_config
+        cfg = load_config()
+        for agent in cfg.agents:
+            if agent.network:  # only check network agents
+                self._check_agent_started(agent.name)
 
     def action_daemon_down(self) -> None:
         self._log("Stopping daemon…")

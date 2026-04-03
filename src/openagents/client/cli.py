@@ -25,7 +25,7 @@ from rich.table import Table
 from rich import box
 
 # -- Shared state (re-export for backward compatibility) ----------------------
-from openagents.client.cli_shared import app, console
+from openagents.client.cli_shared import app, console, show_banner
 
 VERBOSE_MODE = False  # mutable global, updated by verbose_callback
 
@@ -195,26 +195,6 @@ def verbose_callback(value: bool):
     global VERBOSE_MODE
     VERBOSE_MODE = value
     return value
-
-
-def show_banner():
-    """Show a beautiful startup banner"""
-    banner_text = """
-[bold blue]   ___                              ___                          _       [/bold blue]
-[bold blue]  / _ \\ _ __    ___  _ __           /   \\  __ _   ___  _ __   | |_  ___ [/bold blue]
-[bold blue] | | | | '_ \\  / _ \\| '_ \\         / /\\ / / _` | / _ \\| '_ \\  | __|/ __[/bold blue]
-[bold blue] | |_| | |_) ||  __/| | | |       / /_// | (_| ||  __/| | | | | |_\\__ \\ [/bold blue]
-[bold blue]  \\___/| .__/  \\___||_| |_|      /___,'   \\__, | \\___||_| |_|  \\__|___/[/bold blue]
-[bold blue]       |_|                              |___/                        [/bold blue]
-
-[bold cyan]AI Agent Networks for Open Collaboration[/bold cyan]
-[dim]   Create and manage distributed AI agent networks with ease[/dim]
-"""
-    console.print(Panel(
-        banner_text.strip(),
-        border_style="blue",
-        expand=False
-    ))
 
 
 @app.callback()

@@ -20,7 +20,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich import box
 
-from openagents.client.cli_shared import app, console, OPENAGENTS_API_BASE
+from openagents.client.cli_shared import app, console, OPENAGENTS_API_BASE, show_banner
 from openagents.client.cli_helpers import (
     connect_to_relay,
     initialize_workspace,

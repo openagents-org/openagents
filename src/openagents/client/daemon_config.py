@@ -36,6 +36,7 @@ LOG_PATH = CONFIG_DIR / "daemon.log"
 STATUS_PATH = CONFIG_DIR / "daemon.status.json"
 CMD_PATH = CONFIG_DIR / "daemon.cmd"
 ENV_DIR = CONFIG_DIR / "env"
+AGENTS_DIR = CONFIG_DIR / "agents"
 
 DEFAULT_ENDPOINT = "https://workspace-endpoint.openagents.org"
 
@@ -114,7 +115,7 @@ def load_config(path: Optional[Path] = None) -> DaemonConfig:
         return DaemonConfig()
 
     try:
-        raw = yaml.safe_load(p.read_text()) or {}
+        raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     except Exception as e:
         logger.warning(f"Failed to parse {p}: {e}")
         return DaemonConfig()
@@ -159,7 +160,7 @@ def load_config(path: Optional[Path] = None) -> DaemonConfig:
 def _save_raw(data: dict, p: Path) -> None:
     """Write raw dict to YAML."""
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+    p.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False), encoding="utf-8")
     try:
         p.chmod(0o600)
     except OSError:
@@ -331,7 +332,7 @@ def write_status(statuses: dict, pid: int) -> None:
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "agents": statuses,
     }
-    STATUS_PATH.write_text(json.dumps(data, indent=2, default=str))
+    STATUS_PATH.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
 
 def read_status() -> Optional[dict]:
@@ -339,7 +340,7 @@ def read_status() -> Optional[dict]:
     if not STATUS_PATH.exists():
         return None
     try:
-        return json.loads(STATUS_PATH.read_text())
+        return json.loads(STATUS_PATH.read_text(encoding="utf-8"))
     except Exception:
         return None
 
@@ -355,7 +356,7 @@ def load_agent_env(agent_type: str) -> dict[str, str]:
         return {}
     env = {}
     try:
-        for line in env_file.read_text().splitlines():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
                 continue
@@ -371,7 +372,7 @@ def save_agent_env(agent_type: str, env: dict[str, str]) -> None:
     ENV_DIR.mkdir(parents=True, exist_ok=True)
     env_file = ENV_DIR / f"{agent_type}.env"
     lines = [f"{k}={v}" for k, v in env.items() if v]
-    env_file.write_text("\n".join(lines) + "\n" if lines else "")
+    env_file.write_text("\n".join(lines) + "\n" if lines else "", encoding="utf-8")
     try:
         env_file.chmod(0o600)
     except OSError:

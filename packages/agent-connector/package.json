@@ -1,0 +1,45 @@
+{
+  "name": "@openagents-org/agent-launcher",
+  "version": "0.2.98",
+  "description": "OpenAgents Launcher — install, configure, and run AI coding agents from your terminal",
+  "main": "src/index.js",
+  "bin": {
+    "agn": "bin/agent-connector.js",
+    "openagents": "bin/agent-connector.js",
+    "agent-connector": "bin/agent-connector.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build:registry": "node scripts/build-registry.js",
+    "lint": "eslint src/"
+  },
+  "keywords": [
+    "openagents",
+    "ai",
+    "agent",
+    "coding",
+    "cli",
+    "launcher"
+  ],
+  "author": "OpenAgents",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openagents-org/openagents",
+    "directory": "packages/agent-connector"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "src/",
+    "bin/",
+    "icons/",
+    "registry.json",
+    "README.md"
+  ],
+  "dependencies": {
+    "blessed": "^0.1.81",
+    "ws": "^8.18.0"
+  }
+}

@@ -7,6 +7,7 @@ builtin: true
 
 install:
   binary: nanoclaw
+  api_only: true
   requires: [nodejs, git]
   macos: "echo 'NanoClaw uses direct API mode — no binary install needed'"
   linux: "echo 'NanoClaw uses direct API mode — no binary install needed'"

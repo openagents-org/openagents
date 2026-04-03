@@ -5,7 +5,11 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { cn } from '@/lib/utils';
 import { getAgentColor } from '@/lib/helpers';
-import type { ReactNode } from 'react';
+import { memo, useMemo, type ReactNode } from 'react';
+
+// Stable plugin arrays — avoids re-creating on every render
+const remarkPlugins = [remarkGfm];
+const rehypePlugins = [rehypeHighlight];
 
 interface MarkdownContentProps {
   content: string;
@@ -47,8 +51,8 @@ function renderMentions(children: ReactNode, agentNames: string[]): ReactNode {
   return processNode(children);
 }
 
-export function MarkdownContent({ content, agentNames }: MarkdownContentProps) {
-  const components: Components = {
+export const MarkdownContent = memo(function MarkdownContent({ content, agentNames }: MarkdownContentProps) {
+  const components: Components = useMemo(() => ({
     // Block elements
     h1: ({ children }) => (
       <h1 className="text-lg font-bold mt-4 mb-2 first:mt-0">{children}</h1>
@@ -141,17 +145,18 @@ export function MarkdownContent({ content, agentNames }: MarkdownContentProps) {
     // Inline
     strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
     del: ({ children }) => <del className="text-muted-foreground">{children}</del>,
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [agentNames.join(',')]);
 
   return (
     <div className="markdown-content">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeHighlight]}
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
         components={components}
       >
         {content}
       </ReactMarkdown>
     </div>
   );
-}
+});

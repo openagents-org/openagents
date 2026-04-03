@@ -1,0 +1,293 @@
+name: Agent Mirror
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild even if version unchanged'
+        type: boolean
+        default: false
+      agent:
+        description: 'Agent to mirror (blank = all)'
+        type: string
+        default: ''
+
+env:
+  R2_BUCKET: openagents-mirror
+  R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}  # https://<account-id>.r2.cloudflarestorage.com
+  R2_ACCESS_KEY: ${{ secrets.R2_ACCESS_KEY }}
+  R2_SECRET_KEY: ${{ secrets.R2_SECRET_KEY }}
+  MIRROR_DOMAIN: mirror.openagents.org
+  NODE_VERSION: '22'
+
+jobs:
+  check-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      openclaw_version: ${{ steps.check.outputs.openclaw_version }}
+      openclaw_needs_build: ${{ steps.check.outputs.openclaw_needs_build }}
+      claude_version: ${{ steps.check.outputs.claude_version }}
+      claude_needs_build: ${{ steps.check.outputs.claude_needs_build }}
+      codex_version: ${{ steps.check.outputs.codex_version }}
+      codex_needs_build: ${{ steps.check.outputs.codex_needs_build }}
+    steps:
+      - name: Check latest versions vs mirror
+        id: check
+        run: |
+          check_agent() {
+            local name=$1 pkg=$2
+            local latest=$(npm view "$pkg" version 2>/dev/null || echo "")
+            if [ -z "$latest" ]; then
+              echo "${name}_version=" >> $GITHUB_OUTPUT
+              echo "${name}_needs_build=false" >> $GITHUB_OUTPUT
+              return
+            fi
+            echo "${name}_version=$latest" >> $GITHUB_OUTPUT
+
+            # Check if already mirrored
+            local manifest_url="https://${MIRROR_DOMAIN}/manifest.json"
+            local mirrored=$(curl -sf "$manifest_url" 2>/dev/null | jq -r ".${name}.version // empty" || echo "")
+
+            if [ "$latest" = "$mirrored" ] && [ "${{ inputs.force_rebuild }}" != "true" ]; then
+              echo "${name}_needs_build=false" >> $GITHUB_OUTPUT
+              echo "$name: $latest (already mirrored)"
+            else
+              echo "${name}_needs_build=true" >> $GITHUB_OUTPUT
+              echo "$name: $latest (needs build, was: $mirrored)"
+            fi
+          }
+
+          # Only check specified agent, or all
+          AGENT="${{ inputs.agent }}"
+          if [ -z "$AGENT" ] || [ "$AGENT" = "openclaw" ]; then
+            check_agent openclaw openclaw
+          else
+            echo "openclaw_needs_build=false" >> $GITHUB_OUTPUT
+          fi
+          if [ -z "$AGENT" ] || [ "$AGENT" = "claude" ]; then
+            check_agent claude @anthropic-ai/claude-code
+          else
+            echo "claude_needs_build=false" >> $GITHUB_OUTPUT
+          fi
+          if [ -z "$AGENT" ] || [ "$AGENT" = "codex" ]; then
+            check_agent codex @openai/codex
+          else
+            echo "codex_needs_build=false" >> $GITHUB_OUTPUT
+          fi
+
+  build-openclaw:
+    needs: check-versions
+    if: needs.check-versions.outputs.openclaw_needs_build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win-x64
+          - os: macos-13
+            platform: mac-x64
+          - os: macos-latest
+            platform: mac-arm64
+          - os: ubuntu-latest
+            platform: linux-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      AGENT_VERSION: ${{ needs.check-versions.outputs.openclaw_version }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install openclaw with native modules
+        shell: bash
+        run: |
+          mkdir -p openclaw-build
+          cd openclaw-build
+          npm init -y
+          npm install openclaw@${{ env.AGENT_VERSION }} --ignore-optional 2>&1 | tail -5
+          # Verify openclaw works
+          node -e "require('./node_modules/openclaw/openclaw.mjs')" 2>/dev/null && echo "openclaw loads OK" || echo "openclaw load check skipped"
+
+      - name: Package tarball
+        shell: bash
+        run: |
+          cd openclaw-build
+          # Remove unnecessary files to reduce size
+          find node_modules -name "*.md" -o -name "*.ts" -o -name "*.map" -o -name "CHANGELOG*" -o -name "LICENSE*" -o -name ".github" -type d | head -500 | xargs rm -rf 2>/dev/null || true
+          find node_modules -name "test" -o -name "tests" -o -name "__tests__" -o -name "example" -o -name "examples" | head -100 | xargs rm -rf 2>/dev/null || true
+          # Create tarball
+          tar -czf ../openclaw-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.tar.gz node_modules/openclaw node_modules/.package-lock.json 2>/dev/null || \
+          tar -czf ../openclaw-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.tar.gz node_modules/openclaw
+          ls -lh ../openclaw-*.tar.gz
+
+      - name: Compute checksum
+        shell: bash
+        run: |
+          sha256sum openclaw-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.tar.gz > openclaw-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.sha256 || \
+          shasum -a 256 openclaw-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.tar.gz > openclaw-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.sha256
+          cat openclaw-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openclaw-${{ matrix.platform }}
+          path: |
+            openclaw-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.tar.gz
+            openclaw-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.sha256
+
+  build-claude:
+    needs: check-versions
+    if: needs.check-versions.outputs.claude_needs_build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win-x64
+          - os: macos-13
+            platform: mac-x64
+          - os: macos-latest
+            platform: mac-arm64
+          - os: ubuntu-latest
+            platform: linux-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      AGENT_VERSION: ${{ needs.check-versions.outputs.claude_version }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install claude-code
+        shell: bash
+        run: |
+          mkdir -p claude-build
+          cd claude-build
+          npm init -y
+          npm install @anthropic-ai/claude-code@${{ env.AGENT_VERSION }} 2>&1 | tail -5
+
+      - name: Package tarball
+        shell: bash
+        run: |
+          cd claude-build
+          find node_modules -name "*.md" -o -name "*.ts" -o -name "*.map" -o -name "CHANGELOG*" | head -500 | xargs rm -rf 2>/dev/null || true
+          tar -czf ../claude-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.tar.gz node_modules/@anthropic-ai/claude-code node_modules/.bin/claude* 2>/dev/null || \
+          tar -czf ../claude-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.tar.gz node_modules/@anthropic-ai
+          ls -lh ../claude-*.tar.gz
+
+      - name: Compute checksum
+        shell: bash
+        run: |
+          sha256sum claude-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.tar.gz > claude-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.sha256 2>/dev/null || \
+          shasum -a 256 claude-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.tar.gz > claude-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-${{ matrix.platform }}
+          path: |
+            claude-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.tar.gz
+            claude-${{ env.AGENT_VERSION }}-${{ matrix.platform }}.sha256
+
+  publish:
+    needs: [check-versions, build-openclaw, build-claude]
+    if: always() && (needs.build-openclaw.result == 'success' || needs.build-claude.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Install AWS CLI (for R2 S3-compatible API)
+        run: |
+          pip install awscli
+
+      - name: Configure R2 credentials
+        run: |
+          aws configure set aws_access_key_id "$R2_ACCESS_KEY"
+          aws configure set aws_secret_access_key "$R2_SECRET_KEY"
+          aws configure set default.region auto
+
+      - name: Upload tarballs to R2
+        run: |
+          for f in artifacts/*/*.tar.gz; do
+            fname=$(basename "$f")
+            echo "Uploading $fname..."
+            aws s3 cp "$f" "s3://${R2_BUCKET}/agents/$fname" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --content-type "application/gzip"
+          done
+
+          for f in artifacts/*/*.sha256; do
+            fname=$(basename "$f")
+            aws s3 cp "$f" "s3://${R2_BUCKET}/agents/$fname" \
+              --endpoint-url "$R2_ENDPOINT" \
+              --content-type "text/plain"
+          done
+
+      - name: Generate and upload manifest
+        run: |
+          # Download existing manifest or start fresh
+          aws s3 cp "s3://${R2_BUCKET}/manifest.json" manifest.json \
+            --endpoint-url "$R2_ENDPOINT" 2>/dev/null || echo '{}' > manifest.json
+
+          OPENCLAW_VER="${{ needs.check-versions.outputs.openclaw_version }}"
+          CLAUDE_VER="${{ needs.check-versions.outputs.claude_version }}"
+          BASE="https://${MIRROR_DOMAIN}/agents"
+
+          # Build updated manifest with jq
+          cat manifest.json | jq \
+            --arg ov "$OPENCLAW_VER" \
+            --arg cv "$CLAUDE_VER" \
+            --arg base "$BASE" \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '
+            . as $m |
+            (if $ov != "" then
+              $m * { openclaw: {
+                version: $ov,
+                updated_at: $ts,
+                platforms: {
+                  "win-x64":   ($base + "/openclaw-" + $ov + "-win-x64.tar.gz"),
+                  "mac-x64":   ($base + "/openclaw-" + $ov + "-mac-x64.tar.gz"),
+                  "mac-arm64": ($base + "/openclaw-" + $ov + "-mac-arm64.tar.gz"),
+                  "linux-x64": ($base + "/openclaw-" + $ov + "-linux-x64.tar.gz")
+                }
+              }}
+            else $m end) |
+            (if $cv != "" then
+              . * { claude: {
+                version: $cv,
+                updated_at: $ts,
+                platforms: {
+                  "win-x64":   ($base + "/claude-" + $cv + "-win-x64.tar.gz"),
+                  "mac-x64":   ($base + "/claude-" + $cv + "-mac-x64.tar.gz"),
+                  "mac-arm64": ($base + "/claude-" + $cv + "-mac-arm64.tar.gz"),
+                  "linux-x64": ($base + "/claude-" + $cv + "-linux-x64.tar.gz")
+                }
+              }}
+            else . end)
+            ' > manifest-new.json
+
+          echo "Updated manifest:"
+          cat manifest-new.json | jq .
+
+          aws s3 cp manifest-new.json "s3://${R2_BUCKET}/manifest.json" \
+            --endpoint-url "$R2_ENDPOINT" \
+            --content-type "application/json" \
+            --cache-control "max-age=300"
+
+      - name: Summary
+        run: |
+          echo "## Agent Mirror Update" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ needs.check-versions.outputs.openclaw_version }}" ]; then
+            echo "- OpenClaw: v${{ needs.check-versions.outputs.openclaw_version }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -n "${{ needs.check-versions.outputs.claude_version }}" ]; then
+            echo "- Claude Code: v${{ needs.check-versions.outputs.claude_version }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Mirror: https://${MIRROR_DOMAIN}/manifest.json" >> $GITHUB_STEP_SUMMARY

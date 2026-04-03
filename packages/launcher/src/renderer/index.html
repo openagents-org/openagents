@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src https: http:;">
+  <title>OpenAgents Launcher</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <nav id="sidebar">
+      <div class="sidebar-header">
+        <h2>OpenAgents Launcher</h2>
+      </div>
+      <ul class="nav-items">
+        <li class="nav-item active" data-tab="dashboard">
+          <span class="nav-icon">&#9679;</span> Dashboard
+        </li>
+        <li class="nav-item" data-tab="agents">
+          <span class="nav-icon">&#9881;</span> Agents
+        </li>
+        <li class="nav-item" data-tab="install">
+          <span class="nav-icon">&#8595;</span> Install
+        </li>
+        <li class="nav-item" data-tab="logs">
+          <span class="nav-icon">&#9776;</span> Logs
+        </li>
+        <li class="nav-item" data-tab="settings">
+          <span class="nav-icon">&#9881;</span> Settings
+        </li>
+      </ul>
+      <div class="sidebar-footer">
+        <div id="update-banner" style="display:none;"></div>
+        <div class="version-info">
+          <span class="version-line" id="launcher-version">Launcher: --</span>
+          <span class="version-line" id="sdk-version">Core: --</span>
+        </div>
+        <div class="daemon-status" id="daemon-status" title="Daemon status">
+          <span class="status-dot offline"></span>
+          <span>Daemon: offline</span>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main content -->
+    <main id="content">
+
+      <!-- Dashboard tab -->
+      <section class="tab-content active" id="tab-dashboard">
+        <h1>Dashboard</h1>
+
+        <div class="banner warning" id="setup-banner" style="display:none;">
+          <strong>Setup Required</strong>
+          <p>OpenAgents SDK is not installed. Go to <a href="#" data-action="switch-tab" data-action-tab="install">Install</a> to set it up.</p>
+        </div>
+
+        <div class="card-grid" id="agent-cards">
+          <div class="card empty-state">
+            <p>No agents configured yet.</p>
+            <button class="btn" data-action="switch-tab" data-action-tab="agents">Add Agent</button>
+          </div>
+        </div>
+
+        <!-- Daemon lifecycle is automatic — tied to Launcher app -->
+
+        <!-- D25: Activity log panel -->
+        <div class="card" id="activity-log-card" style="margin-top:20px;">
+          <h3>Activity</h3>
+          <div id="activity-log" class="activity-log"></div>
+        </div>
+      </section>
+
+      <!-- Agents tab -->
+      <section class="tab-content" id="tab-agents">
+        <h1>My Agents</h1>
+        <div class="agents-toolbar">
+          <button class="btn btn-primary" id="btn-add-agent">+ New Agent</button>
+        </div>
+        <div id="agent-list"></div>
+      </section>
+
+      <!-- Install tab -->
+      <section class="tab-content" id="tab-install">
+        <h1>Install</h1>
+
+
+        <div class="card">
+          <h3>Agent Runtimes</h3>
+          <p class="hint">Select a runtime to install or update.</p>
+          <div class="catalog-search">
+            <input type="text" id="catalog-search-input" class="input" placeholder="Search agents..." autocomplete="off">
+          </div>
+          <div id="catalog-table-container">
+            <div class="loading-text">Loading catalog...</div>
+          </div>
+          <div class="install-output" id="catalog-install-output" style="display:none;"></div>
+        </div>
+      </section>
+
+      <!-- Logs tab -->
+      <section class="tab-content" id="tab-logs">
+        <h1>Logs</h1>
+        <div class="log-controls">
+          <select id="log-agent-filter">
+            <option value="">All agents</option>
+          </select>
+          <button class="btn" id="btn-refresh-logs">Refresh</button>
+          <button class="btn" id="btn-copy-logs">Copy Logs</button>
+          <label style="font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:4px;">
+            <input type="checkbox" id="log-auto-refresh" checked> Auto-refresh
+          </label>
+        </div>
+        <pre class="log-viewer" id="log-viewer">No logs available.</pre>
+      </section>
+
+      <!-- Settings tab -->
+      <section class="tab-content" id="tab-settings">
+        <h1>Settings</h1>
+        <div class="card">
+          <h3>General</h3>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="setting-start-on-boot"> Start on system boot
+            </label>
+          </div>
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="setting-minimize-to-tray" checked> Minimize to tray on close
+            </label>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Workspaces</h3>
+          <div id="settings-workspaces" class="hint">Loading...</div>
+        </div>
+        <div class="card">
+          <h3>Runtime</h3>
+          <div class="status-row">
+            <span>Node.js:</span>
+            <span id="settings-nodejs-version">Checking...</span>
+          </div>
+          <div class="status-row">
+            <span>npm:</span>
+            <span id="settings-npm-version">Checking...</span>
+          </div>
+          <div class="status-row">
+            <span>Core Library:</span>
+            <span id="settings-core-version">Checking...</span>
+          </div>
+          <div class="status-row">
+            <span>Latest Available:</span>
+            <span id="settings-core-latest">Checking...</span>
+          </div>
+        </div>
+        <div class="card">
+          <h3>About</h3>
+          <p>OpenAgents Launcher <span id="about-version">--</span></p>
+          <p><a href="#" id="link-docs">Documentation</a></p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Modal overlay -->
+  <div class="modal-overlay" id="modal-overlay" style="display:none;">
+    <div class="modal" id="modal-content"></div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

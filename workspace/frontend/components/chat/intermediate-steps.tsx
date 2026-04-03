@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Brain,
@@ -142,7 +142,7 @@ function getStepIcon(parsed: ParsedStep) {
 
 // ── Step Item ──
 
-function StepItem({ message }: { message: WorkspaceMessage }) {
+const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage }) {
   const [expanded, setExpanded] = useState(false);
   // Messages with messageType 'thinking' are already typed — parse as thinking directly
   const parsed = message.messageType === 'thinking'
@@ -234,7 +234,7 @@ function StepItem({ message }: { message: WorkspaceMessage }) {
       )}
     </div>
   );
-}
+});
 
 // ── Intermediate Steps Group ──
 
@@ -257,7 +257,7 @@ interface IntermediateStepsProps {
   isActive?: boolean;
 }
 
-export function IntermediateSteps({ steps, agents, isActive = false }: IntermediateStepsProps) {
+export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents, isActive = false }: IntermediateStepsProps) {
   const agentNames = agents?.map((a) => a.agentName) ?? [];
   if (steps.length === 0) return null;
 
@@ -302,4 +302,4 @@ export function IntermediateSteps({ steps, agents, isActive = false }: Intermedi
       </div>
     </div>
   );
-}
+});

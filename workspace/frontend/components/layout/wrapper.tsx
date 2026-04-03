@@ -15,7 +15,7 @@ import { MonitorGrid } from '@/components/monitor/monitor-grid';
 import { useWorkspace } from '@/lib/workspace-context';
 
 export function Wrapper() {
-  const { isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, isDetailExpanded, mobilePane } = useLayout();
+  const { isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, isDetailExpanded, mobilePane, splitBrowser, showBrowserPreview } = useLayout();
   const { monitorMode } = useWorkspace();
 
   // ── Mobile layout: single-pane with list/detail switching ──
@@ -37,8 +37,8 @@ export function Wrapper() {
               {viewMode === 'browser' && <BrowserTabList />}
             </div>
           ) : (
-            /* Detail pane — full width */
-            <div className="relative h-full mx-2 my-1.5 bg-background overflow-hidden border border-input rounded-xl shadow-xs">
+            /* Detail pane — full width, edge-to-edge on mobile */
+            <div className="relative h-full bg-background overflow-hidden">
               {viewMode === 'threads' && (
                 <main className="h-full" role="content">
                   <ChatView />
@@ -81,8 +81,9 @@ export function Wrapper() {
             </div>
           ) : (
             <>
-              {/* Middle pane — thread list or file list (hidden for connect view or when expanded) */}
-              {viewMode !== 'connect' && !isDetailExpanded && (
+              {/* Middle pane — thread list or file list
+                  Hidden for: connect view, expanded detail, or when browser preview is active */}
+              {viewMode !== 'connect' && !isDetailExpanded && !(splitBrowser && showBrowserPreview && viewMode === 'threads') && (
                 <div className="shrink-0 w-[300px] xl:w-[400px] bg-background overflow-hidden border border-input rounded-xl shadow-xs flex flex-col">
                   {viewMode === 'threads' && <ThreadList />}
                   {viewMode === 'files' && <FileList />}
@@ -91,19 +92,34 @@ export function Wrapper() {
               )}
 
               {/* Right pane — chat view, file preview, or connect agent */}
-              <div className="relative flex-1 min-w-0 bg-background overflow-hidden border border-input rounded-xl shadow-xs">
-                {viewMode === 'threads' && (
-                  <main className="h-full" role="content">
-                    <ChatView />
-                  </main>
-                )}
-                {viewMode === 'files' && <FilePreview />}
-                {viewMode === 'browser' && <BrowserView />}
-                {viewMode === 'connect' && <ConnectAgentView />}
+              {viewMode === 'threads' && splitBrowser && showBrowserPreview ? (
+                /* Split view: chat + browser side by side (thread list hidden) */
+                <div className="flex flex-1 min-w-0 gap-2.5">
+                  <div className="relative flex-1 min-w-0 bg-background overflow-hidden border border-input rounded-xl shadow-xs">
+                    <main className="h-full" role="content">
+                      <ChatView />
+                    </main>
+                    {isAgentPanelOpen && <AgentProfilePanel />}
+                  </div>
+                  <div className="relative flex-1 min-w-0 bg-background overflow-hidden border border-input rounded-xl shadow-xs">
+                    <BrowserView />
+                  </div>
+                </div>
+              ) : (
+                <div className="relative flex-1 min-w-0 bg-background overflow-hidden border border-input rounded-xl shadow-xs">
+                  {viewMode === 'threads' && (
+                    <main className="h-full" role="content">
+                      <ChatView />
+                    </main>
+                  )}
+                  {viewMode === 'files' && <FilePreview />}
+                  {viewMode === 'browser' && <BrowserView />}
+                  {viewMode === 'connect' && <ConnectAgentView />}
 
-                {/* Agent profile slide-over */}
-                {isAgentPanelOpen && <AgentProfilePanel />}
-              </div>
+                  {/* Agent profile slide-over */}
+                  {isAgentPanelOpen && <AgentProfilePanel />}
+                </div>
+              )}
             </>
           )}
         </div>

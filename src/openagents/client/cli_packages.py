@@ -50,6 +50,20 @@ def _refresh_path_windows():
         logger.debug(f"Failed to refresh PATH: {e}")
 
 
+def _run_silent(cmd, **kwargs):
+    """Run a subprocess with stdin closed and stdout/stderr suppressed.
+
+    This is safe to call from both the CLI and the TUI (where Textual owns
+    the terminal).  All kwargs are forwarded to subprocess.run; stdin, stdout
+    and stderr are forced to safe defaults.
+    """
+    kwargs.setdefault("check", True)
+    kwargs["stdin"] = subprocess.DEVNULL
+    kwargs["stdout"] = subprocess.DEVNULL
+    kwargs["stderr"] = subprocess.PIPE
+    return subprocess.run(cmd, **kwargs)
+
+
 def _install_nodejs(is_windows: bool, os_name: str) -> bool:
     """Auto-install Node.js. Returns True on success."""
     import shutil
@@ -65,14 +79,14 @@ def _install_nodejs(is_windows: bool, os_name: str) -> bool:
                 f"$ProgressPreference='SilentlyContinue'; "
                 f"Invoke-WebRequest -Uri '{msi_url}' -OutFile '{msi_path}' -UseBasicParsing"
             )
-            subprocess.run(
-                ["powershell", "-Command", ps_download],
-                check=True, timeout=300,
+            _run_silent(
+                ["powershell", "-NonInteractive", "-Command", ps_download],
+                timeout=300,
             )
             console.print(f"  Installing Node.js (this may take a moment)...")
-            subprocess.run(
+            _run_silent(
                 ["msiexec", "/i", msi_path, "/quiet", "/norestart"],
-                check=True, timeout=300,
+                timeout=300,
             )
             # Clean up
             try:
@@ -91,9 +105,9 @@ def _install_nodejs(is_windows: bool, os_name: str) -> bool:
             try:
                 # Use node@22 formula for specific major version
                 major = _NODE_VERSION.split(".")[0]
-                subprocess.run(["brew", "install", f"node@{major}"], check=True, timeout=300)
+                _run_silent(["brew", "install", f"node@{major}"], timeout=300)
                 # Link it so `node` and `npm` are on PATH
-                subprocess.run(
+                _run_silent(
                     ["brew", "link", "--overwrite", f"node@{major}"],
                     check=False, timeout=30,
                 )
@@ -105,9 +119,9 @@ def _install_nodejs(is_windows: bool, os_name: str) -> bool:
         pkg_url = f"https://nodejs.org/dist/v{_NODE_VERSION}/node-v{_NODE_VERSION}.pkg"
         pkg_path = "/tmp/node-installer.pkg"
         try:
-            subprocess.run(["curl", "-fsSL", "-o", pkg_path, pkg_url], check=True, timeout=120)
+            _run_silent(["curl", "-fsSL", "-o", pkg_path, pkg_url], timeout=120)
             console.print("  Installing Node.js (may require sudo)...")
-            subprocess.run(["sudo", "installer", "-pkg", pkg_path, "-target", "/"], check=True, timeout=60)
+            _run_silent(["sudo", "-n", "installer", "-pkg", pkg_path, "-target", "/"], timeout=60)
             os.remove(pkg_path)
             return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
@@ -119,10 +133,10 @@ def _install_nodejs(is_windows: bool, os_name: str) -> bool:
         if shutil.which("apt-get"):
             console.print("  Installing Node.js via apt...")
             try:
-                subprocess.run(["sudo", "apt-get", "update", "-qq"], check=True, timeout=60)
-                subprocess.run(
-                    ["sudo", "apt-get", "install", "-y", "-qq", "nodejs", "npm"],
-                    check=True, timeout=120,
+                _run_silent(["sudo", "-n", "apt-get", "update", "-qq"], timeout=60)
+                _run_silent(
+                    ["sudo", "-n", "apt-get", "install", "-y", "-qq", "nodejs", "npm"],
+                    timeout=120,
                 )
                 return True
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
@@ -130,23 +144,23 @@ def _install_nodejs(is_windows: bool, os_name: str) -> bool:
         if shutil.which("dnf"):
             console.print("  Installing Node.js via dnf...")
             try:
-                subprocess.run(["sudo", "dnf", "install", "-y", "nodejs", "npm"], check=True, timeout=120)
+                _run_silent(["sudo", "-n", "dnf", "install", "-y", "nodejs", "npm"], timeout=120)
                 return True
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass
         if shutil.which("pacman"):
             console.print("  Installing Node.js via pacman...")
             try:
-                subprocess.run(["sudo", "pacman", "-Sy", "--noconfirm", "nodejs", "npm"], check=True, timeout=120)
+                _run_silent(["sudo", "-n", "pacman", "-Sy", "--noconfirm", "nodejs", "npm"], timeout=120)
                 return True
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass
         # Fallback: NodeSource binary
         console.print(f"  Downloading Node.js v{_NODE_VERSION}...")
         try:
-            subprocess.run(
-                ["bash", "-c", "curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs"],
-                check=True, timeout=180,
+            _run_silent(
+                ["bash", "-c", "curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -n -E bash - && sudo -n apt-get install -y nodejs"],
+                timeout=180,
             )
             return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
@@ -263,15 +277,15 @@ def _install_git(is_windows: bool, os_name: str) -> bool:
                 f"$ProgressPreference='SilentlyContinue'; "
                 f"Invoke-WebRequest -Uri '{git_url}' -OutFile $env:TEMP\\git-installer.exe -UseBasicParsing"
             )
-            subprocess.run(
-                ["powershell", "-Command", ps_download],
-                check=True, timeout=300,
+            _run_silent(
+                ["powershell", "-NonInteractive", "-Command", ps_download],
+                timeout=300,
             )
             installer_path = os.path.join(os.environ.get("TEMP", "."), "git-installer.exe")
             console.print(f"  Installing Git (this may take a moment)...")
-            subprocess.run(
+            _run_silent(
                 [installer_path, "/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-"],
-                check=True, timeout=300,
+                timeout=300,
             )
             try:
                 os.remove(installer_path)
@@ -287,14 +301,14 @@ def _install_git(is_windows: bool, os_name: str) -> bool:
         if shutil.which("brew"):
             console.print("  Installing Git via Homebrew...")
             try:
-                subprocess.run(["brew", "install", "git"], check=True, timeout=300)
+                _run_silent(["brew", "install", "git"], timeout=300)
                 return True
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass
         # xcode-select triggers Git install on macOS
         console.print("  Installing Git via Xcode Command Line Tools...")
         try:
-            subprocess.run(["xcode-select", "--install"], check=True, timeout=300)
+            _run_silent(["xcode-select", "--install"], timeout=300)
             return True
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
             return False
@@ -304,22 +318,22 @@ def _install_git(is_windows: bool, os_name: str) -> bool:
         if shutil.which("apt-get"):
             console.print("  Installing Git via apt...")
             try:
-                subprocess.run(["sudo", "apt-get", "update", "-qq"], check=True, timeout=60)
-                subprocess.run(["sudo", "apt-get", "install", "-y", "-qq", "git"], check=True, timeout=120)
+                _run_silent(["sudo", "-n", "apt-get", "update", "-qq"], timeout=60)
+                _run_silent(["sudo", "-n", "apt-get", "install", "-y", "-qq", "git"], timeout=120)
                 return True
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass
         if shutil.which("dnf"):
             console.print("  Installing Git via dnf...")
             try:
-                subprocess.run(["sudo", "dnf", "install", "-y", "git"], check=True, timeout=120)
+                _run_silent(["sudo", "-n", "dnf", "install", "-y", "git"], timeout=120)
                 return True
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass
         if shutil.which("pacman"):
             console.print("  Installing Git via pacman...")
             try:
-                subprocess.run(["sudo", "pacman", "-Sy", "--noconfirm", "git"], check=True, timeout=120)
+                _run_silent(["sudo", "-n", "pacman", "-Sy", "--noconfirm", "git"], timeout=120)
                 return True
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass

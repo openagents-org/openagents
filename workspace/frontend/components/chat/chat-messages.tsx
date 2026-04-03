@@ -5,7 +5,8 @@ import { ChatMessage } from './chat-message';
 import { IntermediateSteps } from './intermediate-steps';
 import { Button } from '@/components/ui/button';
 import { ArrowDown } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 
 // ── Message Grouping ──
@@ -38,6 +39,13 @@ function groupMessages(messages: WorkspaceMessage[]): MessageGroup[] {
   return groups;
 }
 
+// Stable key for a group
+function groupKey(group: MessageGroup): string {
+  return group.type === 'chat'
+    ? group.message.messageId
+    : `steps-${group.messages[0].messageId}`;
+}
+
 // ── Component ──
 
 interface ChatMessagesProps {
@@ -58,12 +66,6 @@ interface ChatMessagesProps {
 export function ChatMessages({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder }: ChatMessagesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
-
-  const scrollToBottom = () => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  };
 
   const prevLengthRef = useRef(0);
   // Track session identity to reset scroll state on thread switch
@@ -138,6 +140,34 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
   // Group into chat messages and intermediate step clusters
   const groups = useMemo(() => groupMessages(filteredMessages), [filteredMessages]);
 
+  // Loading indicator counts as a virtual row when present
+  const hasLoading = loadingMessages.length > 0;
+  const totalCount = groups.length + (hasLoading ? 1 : 0);
+
+  // ── Virtualizer ──
+  const virtualizer = useVirtualizer({
+    count: totalCount,
+    getScrollElement: () => containerRef.current,
+    estimateSize: () => 80, // rough estimate; dynamic measurement corrects it
+    overscan: 10,
+    getItemKey: (index) => {
+      if (index < groups.length) return groupKey(groups[index]);
+      return 'loading-indicator';
+    },
+  });
+
+  const scrollToBottom = useCallback(() => {
+    if (totalCount > 0) {
+      virtualizer.scrollToIndex(totalCount - 1, { align: 'end' });
+      // Also nudge the native scroll in case the virtualizer hasn't measured the last item yet
+      requestAnimationFrame(() => {
+        if (containerRef.current) {
+          containerRef.current.scrollTop = containerRef.current.scrollHeight;
+        }
+      });
+    }
+  }, [totalCount, virtualizer]);
+
   // Derive the current session from messages for thread-switch detection
   const currentSessionId = messages.length > 0 ? messages[0].sessionId : null;
 
@@ -158,19 +188,18 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
     // Always scroll on initial load or thread switch; otherwise only if near bottom
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
     if (wasEmpty || isNearBottom) {
-      // Use rAF to ensure DOM has been laid out with the new content
       requestAnimationFrame(() => {
         scrollToBottom();
       });
     }
-  }, [messages.length, currentSessionId]);
+  }, [messages.length, currentSessionId, scrollToBottom]);
 
   // Force scroll when scrollKey changes (user sent a message)
   useEffect(() => {
     if (scrollKey) {
       requestAnimationFrame(() => scrollToBottom());
     }
-  }, [scrollKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [scrollKey, scrollToBottom]);
 
   // Track scroll position for "scroll to bottom" button + infinite scroll upward
   const loadingOlderInternalRef = useRef(false);
@@ -210,7 +239,7 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
     <div className="relative flex-1 min-h-0">
       <div
         ref={containerRef}
-        className={cn('flex flex-col h-full overflow-y-auto space-y-1', className)}
+        className={cn('h-full overflow-y-auto', className)}
       >
         {loadingOlder && (
           <div className="flex items-center justify-center py-3">
@@ -233,36 +262,72 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
             Load older messages
           </button>
         )}
-        {groups.map((group, gi) => {
-          if (group.type === 'chat') {
+        <div
+          style={{
+            height: virtualizer.getTotalSize(),
+            width: '100%',
+            position: 'relative',
+          }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const index = virtualRow.index;
+
+            // Loading indicator row (last virtual item when loading)
+            if (index >= groups.length) {
+              return (
+                <div
+                  key="loading-indicator"
+                  ref={virtualizer.measureElement}
+                  data-index={index}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div className="flex items-start gap-3 py-1">
+                    <div className="size-8 shrink-0" />
+                    <div className="py-1.5">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src="/breathing-dots.gif" alt="Agent is working" width={44} height={14} className="opacity-90" />
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            const group = groups[index];
             return (
-              <ChatMessage
-                key={group.message.messageId}
-                message={group.message}
-                agents={agents}
-              />
+              <div
+                key={groupKey(group)}
+                ref={virtualizer.measureElement}
+                data-index={index}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                {group.type === 'chat' ? (
+                  <ChatMessage
+                    message={group.message}
+                    agents={agents}
+                  />
+                ) : (
+                  <IntermediateSteps
+                    steps={group.messages}
+                    agents={agents}
+                    isActive={index === groups.length - 1}
+                  />
+                )}
+              </div>
             );
-          }
-          const isTrailing = gi === groups.length - 1;
-          return (
-            <IntermediateSteps
-              key={`steps-${group.messages[0].messageId}`}
-              steps={group.messages}
-              agents={agents}
-              isActive={isTrailing}
-            />
-          );
-        })}
-        {/* Optimistic loading indicator — breathing dots */}
-        {loadingMessages.length > 0 && (
-          <div className="flex items-start gap-3 py-1">
-            <div className="size-8 shrink-0" />
-            <div className="py-1.5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/breathing-dots.gif" alt="Agent is working" width={44} height={14} className="opacity-90" />
-            </div>
-          </div>
-        )}
+          })}
+        </div>
       </div>
 
       {showScrollBtn && (

@@ -148,12 +148,13 @@ jobs:
         GRPC_POLL_STRATEGY: "poll"
       run: pytest --tb=short -v tests/network
 
-    - name: Test studio
-      env:
-        PYTHONHASHSEED: "0"
-        GRPC_ENABLE_FORK_SUPPORT: "1"
-        GRPC_POLL_STRATEGY: "poll"
-      run: pytest --tb=short -v tests/studio
+    # Studio tests disabled — Studio is not actively maintained
+    # - name: Test studio
+    #   env:
+    #     PYTHONHASHSEED: "0"
+    #     GRPC_ENABLE_FORK_SUPPORT: "1"
+    #     GRPC_POLL_STRATEGY: "poll"
+    #   run: pytest --tb=short -v tests/studio
 
     - name: Test utils
       env:

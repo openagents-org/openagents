@@ -11,6 +11,7 @@ import asyncio
 import logging
 import re
 import shutil
+import socket
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ class Tunnel:
     async def start(self, timeout: float = 20) -> str:
         """Start cloudflared and return the public URL.
 
-        Raises RuntimeError if cloudflared is not installed.
+        Raises RuntimeError if cloudflared is not installed or the port is not healthy.
         Raises TimeoutError if the URL is not produced in time.
         """
         if not is_available():
@@ -41,6 +42,9 @@ class Tunnel:
                 "releases/latest/download/cloudflared-linux-amd64 "
                 "-o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared"
             )
+
+        # Pre-flight: verify the local port is listening and serving HTTP
+        _check_port_healthy(self.host, self.port)
 
         self._process = await asyncio.create_subprocess_exec(
             "cloudflared", "tunnel", "--url", f"http://{self.host}:{self.port}",
@@ -104,3 +108,52 @@ class Tunnel:
 def is_available() -> bool:
     """Check if cloudflared is installed on the system."""
     return shutil.which("cloudflared") is not None
+
+
+def _check_port_healthy(host: str, port: int) -> None:
+    """Verify that a local port is listening and responds to HTTP.
+
+    Raises RuntimeError with an actionable message if the port is not
+    reachable or returns an empty/invalid HTTP response.
+    """
+    # 1. Check that something is listening on the port
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(2)
+    try:
+        result = sock.connect_ex((host, port))
+        if result != 0:
+            raise RuntimeError(
+                f"Nothing is listening on {host}:{port}. "
+                f"Start a server on that port before exposing a tunnel."
+            )
+    finally:
+        sock.close()
+
+    # 2. Send a minimal HTTP request and check we get a real response
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(5)
+    try:
+        sock.connect((host, port))
+        sock.sendall(f"HEAD / HTTP/1.0\r\nHost: {host}\r\n\r\n".encode())
+        data = sock.recv(512)
+        if not data:
+            raise RuntimeError(
+                f"Port {host}:{port} is listening but returned an empty response. "
+                f"The server process may have a broken connection. "
+                f"Try restarting the server."
+            )
+        # Check for a valid HTTP status line (e.g. "HTTP/1.1 200 OK")
+        first_line = data.split(b"\r\n", 1)[0].split(b"\n", 1)[0]
+        if not first_line.startswith(b"HTTP/"):
+            logger.warning(
+                "Port %s:%d responded but not with HTTP (got: %s). "
+                "Tunnel may not work correctly.",
+                host, port, first_line[:80].decode(errors="replace"),
+            )
+    except (ConnectionRefusedError, ConnectionResetError, OSError) as exc:
+        raise RuntimeError(
+            f"Port {host}:{port} accepted a connection but failed on HTTP check: {exc}. "
+            f"The server may not be functioning correctly."
+        ) from exc
+    finally:
+        sock.close()

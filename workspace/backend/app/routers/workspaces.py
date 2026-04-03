@@ -22,7 +22,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.config import config
 from app.database import get_db
@@ -246,15 +246,11 @@ async def list_workspaces(
             WorkspaceMember.agent_name == agent_name
         )
 
+    query = query.options(selectinload(Workspace.members))
     workspaces = db.execute(query.order_by(Workspace.last_activity_at.desc())).scalars().all()
     now = datetime.now(timezone.utc)
 
-    results = []
-    for ws in workspaces:
-        members = db.execute(
-            select(WorkspaceMember).where(WorkspaceMember.workspace_id == ws.id)
-        ).scalars().all()
-        results.append(_format_workspace(ws, members, now))
+    results = [_format_workspace(ws, ws.members, now) for ws in workspaces]
 
     return success_response(results)
 

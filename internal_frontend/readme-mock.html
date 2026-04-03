@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>README Mock - Supported Agents</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      padding: 48px 24px;
+    }
+
+    .readme {
+      max-width: 860px;
+      width: 100%;
+    }
+
+    /* ── Header ── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 28px;
+      margin-bottom: 40px;
+    }
+
+    .logo {
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #2ea043, #1a7f37);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .logo svg {
+      width: 60px;
+      height: 60px;
+      fill: white;
+    }
+
+    .header-text h1 {
+      font-size: 32px;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .header-divider {
+      width: 2px;
+      height: 60px;
+      background: #30363d;
+      flex-shrink: 0;
+    }
+
+    .header-tagline {
+      font-size: 20px;
+      color: #8b949e;
+      line-height: 1.4;
+    }
+
+    .header-tagline strong {
+      color: #e6edf3;
+      font-weight: 600;
+    }
+
+    /* ── Section ── */
+    .section-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #21262d;
+    }
+
+    .section-subtitle {
+      color: #8b949e;
+      font-size: 14px;
+      margin-bottom: 28px;
+    }
+
+    /* ── Agent Grid ── */
+    .agent-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 24px 16px;
+      max-width: 640px;
+      margin: 0 auto 32px;
+    }
+
+    .agent-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      cursor: default;
+    }
+
+    .agent-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      position: relative;
+    }
+
+    .agent-icon svg.icon {
+      width: 34px;
+      height: 34px;
+    }
+
+    .agent-icon img.icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      object-fit: cover;
+    }
+
+    .agent-icon .check {
+      position: absolute;
+      bottom: -4px;
+      right: -4px;
+      width: 20px;
+      height: 20px;
+      background: #2ea043;
+      border-radius: 50%;
+      border: 2px solid #0d1117;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .agent-icon .check svg {
+      width: 12px;
+      height: 12px;
+      fill: none;
+      stroke: white;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .agent-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: #8b949e;
+      text-align: center;
+      line-height: 1.3;
+    }
+
+    /* ── Install commands ── */
+    .install-section {
+      margin-top: 32px;
+      padding-top: 20px;
+      border-top: 1px solid #21262d;
+    }
+
+    .install-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .install-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+    }
+
+    .install-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: #161b22;
+    }
+
+    .install-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .install-label {
+      font-size: 13px;
+      color: #8b949e;
+      flex-shrink: 0;
+      min-width: 110px;
+    }
+
+    .install-cmd {
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 12px;
+      color: #7ee787;
+      white-space: nowrap;
+    }
+
+    /* Colors */
+    .c-violet  { background: #8b5cf6; }
+    .c-amber   { background: #f59e0b; }
+    .c-emerald { background: #10b981; }
+    .c-blue    { background: #3b82f6; }
+    .c-rose    { background: #f43f5e; }
+    .c-sky     { background: #0ea5e9; }
+    .c-slate   { background: #64748b; }
+    .c-orange  { background: #f97316; }
+    .c-teal    { background: #14b8a6; }
+    .c-zinc    { background: #71717a; }
+
+    .d-violet  { background: #8b5cf6; }
+    .d-amber   { background: #f59e0b; }
+    .d-emerald { background: #10b981; }
+    .d-blue    { background: #3b82f6; }
+    .d-rose    { background: #f43f5e; }
+    .d-sky     { background: #0ea5e9; }
+    .d-slate   { background: #64748b; }
+    .d-orange  { background: #f97316; }
+    .d-teal    { background: #14b8a6; }
+    .d-zinc    { background: #71717a; }
+  </style>
+</head>
+<body>
+  <div class="readme">
+
+    <!-- Header -->
+    <div class="header">
+      <div class="logo">
+        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="40" fill="none" stroke="white" stroke-width="3"/>
+          <path d="M30 50 C30 30, 70 30, 70 50" fill="none" stroke="white" stroke-width="2.5"/>
+          <path d="M25 50 C25 25, 75 25, 75 50" fill="none" stroke="white" stroke-width="2"/>
+          <path d="M35 50 C35 35, 65 35, 65 50" fill="none" stroke="white" stroke-width="2"/>
+          <path d="M30 50 C30 70, 70 70, 70 50" fill="none" stroke="white" stroke-width="2.5"/>
+          <path d="M25 50 C25 75, 75 75, 75 50" fill="none" stroke="white" stroke-width="2"/>
+          <path d="M35 50 C35 65, 65 65, 65 50" fill="none" stroke="white" stroke-width="2"/>
+        </svg>
+      </div>
+      <div class="header-text">
+        <h1>OpenAgents<br/>Workspace</h1>
+      </div>
+      <div class="header-divider"></div>
+      <div class="header-tagline">
+        <strong>One workspace.</strong><br/>
+        All your agents<br/>
+        work together.
+      </div>
+    </div>
+
+    <!-- Supported Agents -->
+    <h2 class="section-title">Supported Agents</h2>
+    <p class="section-subtitle">Manage and configure your integrated agents below:</p>
+
+    <div class="agent-grid">
+
+      <!-- OpenClaw -->
+      <div class="agent-card">
+        <div class="agent-icon c-violet">
+          <img class="icon" src="icons/openclaw.png" alt="OpenClaw" />
+          <span class="check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></span>
+        </div>
+        <span class="agent-name">OpenClaw</span>
+      </div>
+
+      <!-- Claude Code -->
+      <div class="agent-card">
+        <div class="agent-icon c-amber">
+          <img class="icon" src="icons/claude.png" alt="Claude Code" />
+          <span class="check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></span>
+        </div>
+        <span class="agent-name">Claude Code</span>
+      </div>
+
+      <!-- Codex CLI -->
+      <div class="agent-card">
+        <div class="agent-icon c-emerald">
+          <img class="icon" src="icons/codex.png" alt="Codex CLI" />
+          <span class="check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></span>
+        </div>
+        <span class="agent-name">Codex CLI</span>
+      </div>
+
+      <!-- Aider -->
+      <div class="agent-card">
+        <div class="agent-icon c-blue">
+          <img class="icon" src="icons/aider.png" alt="Aider" />
+          <span class="check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></span>
+        </div>
+        <span class="agent-name">Aider</span>
+      </div>
+
+      <!-- Goose -->
+      <div class="agent-card">
+        <div class="agent-icon c-rose">
+          <img class="icon" src="icons/goose.png" alt="Goose" />
+          <span class="check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></span>
+        </div>
+        <span class="agent-name">Goose</span>
+      </div>
+
+      <!-- Gemini CLI -->
+      <div class="agent-card">
+        <div class="agent-icon c-sky">
+          <img class="icon" src="icons/gemini.png" alt="Gemini CLI" />
+          <span class="check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></span>
+        </div>
+        <span class="agent-name">Gemini CLI</span>
+      </div>
+
+      <!-- GitHub Copilot -->
+      <div class="agent-card">
+        <div class="agent-icon c-slate">
+          <img class="icon" src="icons/copilot.png" alt="GitHub Copilot" />
+          <span class="check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></span>
+        </div>
+        <span class="agent-name">GitHub Copilot</span>
+      </div>
+
+      <!-- Amp -->
+      <div class="agent-card">
+        <div class="agent-icon c-orange">
+          <img class="icon" src="icons/amp.png" alt="Amp" />
+          <span class="check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></span>
+        </div>
+        <span class="agent-name">Amp</span>
+      </div>
+
+      <!-- OpenCode -->
+      <div class="agent-card">
+        <div class="agent-icon c-teal">
+          <img class="icon" src="icons/opencode.png" alt="OpenCode" />
+          <span class="check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></span>
+        </div>
+        <span class="agent-name">OpenCode</span>
+      </div>
+
+      <!-- Custom YAML — keep gear SVG since there's no brand -->
+      <div class="agent-card">
+        <div class="agent-icon c-zinc">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" fill="none" stroke="white" stroke-width="2"/>
+            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1.08-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1.08 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001.08 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1.08z" fill="none" stroke="white" stroke-width="1.8"/>
+          </svg>
+          <span class="check"><svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg></span>
+        </div>
+        <span class="agent-name">Custom YAML</span>
+      </div>
+
+    </div>
+
+    <!-- Install commands -->
+    <div class="install-section">
+      <h3 class="install-title">Quick Install</h3>
+      <div class="install-grid">
+        <div class="install-row">
+          <div class="install-dot d-violet"></div>
+          <span class="install-label">OpenClaw</span>
+          <span class="install-cmd">openagents install openclaw</span>
+        </div>
+        <div class="install-row">
+          <div class="install-dot d-amber"></div>
+          <span class="install-label">Claude Code</span>
+          <span class="install-cmd">openagents install claude</span>
+        </div>
+        <div class="install-row">
+          <div class="install-dot d-emerald"></div>
+          <span class="install-label">Codex CLI</span>
+          <span class="install-cmd">openagents install codex</span>
+        </div>
+        <div class="install-row">
+          <div class="install-dot d-blue"></div>
+          <span class="install-label">Aider</span>
+          <span class="install-cmd">openagents install aider</span>
+        </div>
+        <div class="install-row">
+          <div class="install-dot d-rose"></div>
+          <span class="install-label">Goose</span>
+          <span class="install-cmd">openagents install goose</span>
+        </div>
+        <div class="install-row">
+          <div class="install-dot d-sky"></div>
+          <span class="install-label">Gemini CLI</span>
+          <span class="install-cmd">openagents install gemini</span>
+        </div>
+        <div class="install-row">
+          <div class="install-dot d-slate"></div>
+          <span class="install-label">GitHub Copilot</span>
+          <span class="install-cmd">openagents install copilot</span>
+        </div>
+        <div class="install-row">
+          <div class="install-dot d-orange"></div>
+          <span class="install-label">Amp</span>
+          <span class="install-cmd">openagents install amp</span>
+        </div>
+        <div class="install-row">
+          <div class="install-dot d-teal"></div>
+          <span class="install-label">OpenCode</span>
+          <span class="install-cmd">openagents install opencode</span>
+        </div>
+        <div class="install-row">
+          <div class="install-dot d-zinc"></div>
+          <span class="install-label">Custom YAML</span>
+          <span class="install-cmd">openagents start ./my-agent/</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

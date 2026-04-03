@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Copy, Check, User, FileIcon, Download, Eye } from 'lucide-react';
 import { toast } from 'sonner';
-import { useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { getAgentColor, getAgentInitials } from '@/lib/helpers';
 import { MarkdownContent } from './markdown-content';
@@ -105,7 +105,7 @@ interface ChatMessageProps {
   agents?: WorkspaceAgent[];
 }
 
-export function ChatMessage({ message, agents = [] }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: ChatMessageProps) {
   const isHuman = message.senderType === 'human';
   const isSystem = message.messageType === 'status';
   const [copied, setCopied] = useState(false);
@@ -221,4 +221,4 @@ export function ChatMessage({ message, agents = [] }: ChatMessageProps) {
       </div>
     </div>
   );
-}
+});

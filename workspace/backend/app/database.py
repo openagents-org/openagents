@@ -28,10 +28,18 @@ if _is_sqlite:
 _pool_kwargs = (
     {"poolclass": NullPool}
     if _is_serverless or _is_sqlite
-    else {"pool_pre_ping": True, "pool_size": 10, "max_overflow": 20, "poolclass": QueuePool}
+    else {"pool_pre_ping": True, "pool_size": 10, "max_overflow": 20, "pool_recycle": 300, "poolclass": QueuePool}
 )
 
-engine = create_engine(config.DATABASE_URL, **_pool_kwargs)
+# PgBouncer (e.g. Supabase port 6543) doesn't support prepared statements
+# or the 'options' startup parameter.  Use execution_options to disable
+# implicit statement caching so SQLAlchemy never issues PREPARE/DEALLOCATE.
+_is_pgbouncer = ":6543/" in config.DATABASE_URL
+_engine_kwargs = {**_pool_kwargs}
+if _is_pgbouncer:
+    _engine_kwargs["execution_options"] = {"no_cache": True}
+
+engine = create_engine(config.DATABASE_URL, **_engine_kwargs)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

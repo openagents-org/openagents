@@ -1,0 +1,265 @@
+name: Build OpenAgents Launcher
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'launcher-v*'
+      - 'desktop-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: packages/launcher
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: |
+          npm cache clean --force
+          npm install
+
+      - name: Import code signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          echo "$APPLE_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+      - name: Build and sign macOS app
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          # Write API key to file for electron-builder notarization
+          API_KEY_PATH=$RUNNER_TEMP/AuthKey_$APPLE_API_KEY_ID.p8
+          echo "${{ secrets.APPLE_API_KEY }}" | base64 --decode > "$API_KEY_PATH"
+          export APPLE_API_KEY="$API_KEY_PATH"
+
+          npm run build:mac
+
+      - name: Clean up keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-macos
+          path: |
+            packages/launcher/dist/*.dmg
+            packages/launcher/dist/*.zip
+          if-no-files-found: warn
+
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: packages/launcher
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: |
+          npm cache clean --force
+          npm install
+
+      - name: Build Windows app
+        run: npm run build:win
+
+      - name: Upload unsigned artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-windows-unsigned
+          path: |
+            packages/launcher/dist/*.exe
+            packages/launcher/dist/*.msi
+          if-no-files-found: warn
+
+  sign-windows:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/launcher-v') || startsWith(github.ref, 'refs/tags/desktop-v') || github.event_name == 'workflow_dispatch'
+    env:
+      SIGNPATH_API: https://app.signpath.io/API/v1/298e12fc-6d10-491f-814d-3418cd924ec8
+
+    steps:
+      - name: Download unsigned artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: launcher-windows-unsigned
+          path: unsigned
+
+      - name: Sign EXE via SignPath REST API
+        run: |
+          EXE_FILE=$(ls unsigned/*.exe | head -1)
+          echo "Signing $EXE_FILE..."
+
+          # Submit signing request with artifact as multipart form
+          RESPONSE=$(curl -s -X POST "$SIGNPATH_API/SigningRequests" \
+            -H "Authorization: Bearer ${{ secrets.SIGNPATH_API_TOKEN }}" \
+            -F "ProjectSlug=OpenAgents_Launcher" \
+            -F "SigningPolicySlug=OpenAgents_Launcher_Policy" \
+            -F "ArtifactConfigurationSlug=OpenAgents_Launcher_EXE" \
+            -F "Artifact=@$EXE_FILE")
+          echo "Response: $RESPONSE"
+          SIGNING_REQUEST_ID=$(echo "$RESPONSE" | jq -r '.signingRequestId')
+
+          if [ -z "$SIGNING_REQUEST_ID" ] || [ "$SIGNING_REQUEST_ID" = "null" ]; then
+            echo "Failed to create signing request"
+            exit 1
+          fi
+          echo "Signing request ID: $SIGNING_REQUEST_ID"
+
+          # Poll for completion
+          for i in $(seq 1 60); do
+            sleep 10
+            STATUS=$(curl -s "$SIGNPATH_API/SigningRequests/$SIGNING_REQUEST_ID" \
+              -H "Authorization: Bearer ${{ secrets.SIGNPATH_API_TOKEN }}" | jq -r '.status')
+            echo "Status: $STATUS (attempt $i/60)"
+            if [ "$STATUS" = "Completed" ]; then
+              break
+            elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Denied" ] || [ "$STATUS" = "Cancelled" ]; then
+              echo "Signing failed: $STATUS"
+              exit 1
+            fi
+          done
+
+          # Download signed artifact
+          mkdir -p signed
+          curl -s -L -o "signed/$(basename $EXE_FILE)" \
+            "$SIGNPATH_API/SigningRequests/$SIGNING_REQUEST_ID/SignedArtifact" \
+            -H "Authorization: Bearer ${{ secrets.SIGNPATH_API_TOKEN }}"
+          echo "Downloaded signed EXE: $(ls -la signed/*.exe)"
+
+      - name: Sign MSI via SignPath REST API
+        run: |
+          MSI_FILE=$(ls unsigned/*.msi | head -1)
+          echo "Signing $MSI_FILE..."
+
+          RESPONSE=$(curl -s -X POST "$SIGNPATH_API/SigningRequests" \
+            -H "Authorization: Bearer ${{ secrets.SIGNPATH_API_TOKEN }}" \
+            -F "ProjectSlug=OpenAgents_Launcher" \
+            -F "SigningPolicySlug=OpenAgents_Launcher_Policy" \
+            -F "ArtifactConfigurationSlug=OpenAgents_Launcher_MSI" \
+            -F "Artifact=@$MSI_FILE")
+          echo "Response: $RESPONSE"
+          SIGNING_REQUEST_ID=$(echo "$RESPONSE" | jq -r '.signingRequestId')
+
+          if [ -z "$SIGNING_REQUEST_ID" ] || [ "$SIGNING_REQUEST_ID" = "null" ]; then
+            echo "Failed to create signing request"
+            exit 1
+          fi
+          echo "Signing request ID: $SIGNING_REQUEST_ID"
+
+          for i in $(seq 1 60); do
+            sleep 10
+            STATUS=$(curl -s "$SIGNPATH_API/SigningRequests/$SIGNING_REQUEST_ID" \
+              -H "Authorization: Bearer ${{ secrets.SIGNPATH_API_TOKEN }}" | jq -r '.status')
+            echo "Status: $STATUS (attempt $i/60)"
+            if [ "$STATUS" = "Completed" ]; then
+              break
+            elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Denied" ] || [ "$STATUS" = "Cancelled" ]; then
+              echo "Signing failed: $STATUS"
+              exit 1
+            fi
+          done
+
+          curl -s -L -o "signed/$(basename $MSI_FILE)" \
+            "$SIGNPATH_API/SigningRequests/$SIGNING_REQUEST_ID/SignedArtifact" \
+            -H "Authorization: Bearer ${{ secrets.SIGNPATH_API_TOKEN }}"
+          echo "Downloaded signed MSI: $(ls -la signed/*.msi)"
+
+      - name: Upload signed artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-windows
+          path: signed/*
+          if-no-files-found: warn
+
+  build-linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/launcher
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: |
+          npm cache clean --force
+          npm install
+
+      - name: Build Linux app
+        run: npm run build:linux
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-linux
+          path: |
+            packages/launcher/dist/*.AppImage
+            packages/launcher/dist/*.deb
+          if-no-files-found: warn
+
+  release:
+    needs: [build-macos, sign-windows, build-linux]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/launcher-v') || startsWith(github.ref, 'refs/tags/desktop-v')
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "OpenAgents Launcher ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+          files: artifacts/*
+          generate_release_notes: true

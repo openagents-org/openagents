@@ -25,7 +25,14 @@ class PersistenceMod(ObserveMod):
     intercepts: List[str] = []   # Match all events
     priority = 90
 
+    # Event types that are handled by their mods (e.g. heartbeats update
+    # workspace_members.last_heartbeat) and don't need a permanent event record.
+    _SKIP_PERSIST = frozenset({"network.ping"})
+
     async def process(self, event: Event, context: PipelineContext) -> Optional[Event]:
+        if event.type in self._SKIP_PERSIST:
+            return None
+
         from app.models import EventRecord
 
         db = context.extra.get("db")

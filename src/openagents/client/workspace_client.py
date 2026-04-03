@@ -459,7 +459,6 @@ class WorkspaceClient:
         params: Dict[str, Any] = {
             "network": workspace_id,
             "type": "workspace.message",
-            "member": agent_name,
             "limit": limit,
         }
         if after:
@@ -696,9 +695,9 @@ class WorkspaceClient:
                 headers=self._ws_headers(token),
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
-                data = await resp.json()
                 if resp.status not in (200, 201):
-                    raise ConnectionError(f"Open tab failed: {data.get('message', resp.status)}")
+                    raise ConnectionError(f"Open tab failed: {await self._read_error(resp)}")
+                data = await resp.json(content_type=None)
                 return data.get("data", data)
 
     async def browser_list_tabs(self, workspace_id: str, token: str) -> dict:
@@ -711,8 +710,18 @@ class WorkspaceClient:
                 headers=self._ws_headers(token),
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
-                data = await resp.json()
+                data = await resp.json(content_type=None)
                 return data.get("data", data)
+
+    @staticmethod
+    async def _read_error(resp) -> str:
+        """Extract an error message from a failed response, tolerating any content type."""
+        try:
+            data = await resp.json(content_type=None)
+            return data.get("message", str(resp.status)) if isinstance(data, dict) else str(resp.status)
+        except Exception:
+            text = await resp.text()
+            return text[:200] if text else str(resp.status)
 
     async def browser_navigate(self, workspace_id: str, token: str, tab_id: str, url: str) -> dict:
         """Navigate a browser tab via POST /v1/browser/tabs/{id}/navigate."""
@@ -724,9 +733,9 @@ class WorkspaceClient:
                 headers=self._ws_headers(token),
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
-                data = await resp.json()
                 if resp.status not in (200, 201):
-                    raise ConnectionError(f"Navigate failed: {data.get('message', resp.status)}")
+                    raise ConnectionError(f"Navigate failed: {await self._read_error(resp)}")
+                data = await resp.json(content_type=None)
                 return data.get("data", data)
 
     async def browser_click(self, workspace_id: str, token: str, tab_id: str, selector: str) -> dict:
@@ -739,24 +748,57 @@ class WorkspaceClient:
                 headers=self._ws_headers(token),
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
-                data = await resp.json()
                 if resp.status not in (200, 201):
-                    raise ConnectionError(f"Click failed: {data.get('message', resp.status)}")
+                    raise ConnectionError(f"Click failed: {await self._read_error(resp)}")
+                data = await resp.json(content_type=None)
                 return data.get("data", data)
 
-    async def browser_type(self, workspace_id: str, token: str, tab_id: str, selector: str, text: str) -> dict:
+    async def browser_type(self, workspace_id: str, token: str, tab_id: str, selector: str, text: str, append: bool = False) -> dict:
         """Type text via POST /v1/browser/tabs/{id}/type."""
         import aiohttp
+        payload = {"selector": selector, "text": text}
+        if append:
+            payload["append"] = True
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{self.endpoint}/v1/browser/tabs/{tab_id}/type",
-                json={"selector": selector, "text": text},
+                json=payload,
+                headers=self._ws_headers(token),
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status not in (200, 201):
+                    raise ConnectionError(f"Type failed: {await self._read_error(resp)}")
+                data = await resp.json(content_type=None)
+                return data.get("data", data)
+
+    async def browser_press_key(self, workspace_id: str, token: str, tab_id: str, key: str) -> dict:
+        """Press a keyboard key via POST /v1/browser/tabs/{id}/press_key."""
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.endpoint}/v1/browser/tabs/{tab_id}/press_key",
+                json={"key": key},
+                headers=self._ws_headers(token),
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status not in (200, 201):
+                    raise ConnectionError(f"Press key failed: {await self._read_error(resp)}")
+                data = await resp.json(content_type=None)
+                return data.get("data", data)
+
+    async def browser_evaluate(self, workspace_id: str, token: str, tab_id: str, expression: str) -> dict:
+        """Evaluate JavaScript via POST /v1/browser/tabs/{id}/evaluate."""
+        import aiohttp
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{self.endpoint}/v1/browser/tabs/{tab_id}/evaluate",
+                json={"expression": expression},
                 headers=self._ws_headers(token),
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
-                data = await resp.json()
                 if resp.status not in (200, 201):
-                    raise ConnectionError(f"Type failed: {data.get('message', resp.status)}")
+                    raise ConnectionError(f"Evaluate failed: {await self._read_error(resp)}")
+                data = await resp.json(content_type=None)
                 return data.get("data", data)
 
     async def browser_screenshot(self, workspace_id: str, token: str, tab_id: str) -> bytes:
@@ -769,8 +811,7 @@ class WorkspaceClient:
                 timeout=aiohttp.ClientTimeout(total=30),
             ) as resp:
                 if resp.status != 200:
-                    data = await resp.json()
-                    raise ConnectionError(f"Screenshot failed: {data.get('message', resp.status)}")
+                    raise ConnectionError(f"Screenshot failed: {await self._read_error(resp)}")
                 return await resp.read()
 
     async def browser_snapshot(self, workspace_id: str, token: str, tab_id: str) -> str:
@@ -783,8 +824,7 @@ class WorkspaceClient:
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
                 if resp.status != 200:
-                    data = await resp.json()
-                    raise ConnectionError(f"Snapshot failed: {data.get('message', resp.status)}")
+                    raise ConnectionError(f"Snapshot failed: {await self._read_error(resp)}")
                 return await resp.text()
 
     async def browser_close_tab(self, workspace_id: str, token: str, tab_id: str) -> dict:
@@ -796,9 +836,9 @@ class WorkspaceClient:
                 headers=self._ws_headers(token),
                 timeout=aiohttp.ClientTimeout(total=15),
             ) as resp:
-                data = await resp.json()
                 if resp.status not in (200, 201):
-                    raise ConnectionError(f"Close tab failed: {data.get('message', resp.status)}")
+                    raise ConnectionError(f"Close tab failed: {await self._read_error(resp)}")
+                data = await resp.json(content_type=None)
                 return data.get("data", data)
 
     # ── Invitation methods (stubs — not yet event-native) ──

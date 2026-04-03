@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useCallback, useEffect, useState } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { workspaceApi } from './api';
 import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
 import type { BrowserPersistentContext, BrowserTab, DMConversation, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceSession } from './types';
@@ -60,6 +60,8 @@ interface WorkspaceContextValue {
   openBrowserTabWithContext: (contextId: string, url?: string) => Promise<BrowserTab>;
   dmConversations: DMConversation[];
   refreshDMConversations: () => Promise<void>;
+  notificationSound: boolean;
+  setNotificationSound: (enabled: boolean) => void;
 }
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -109,6 +111,48 @@ export function WorkspaceProvider({
   const [browserContexts, setBrowserContexts] = useState<BrowserPersistentContext[]>([]);
   const [dmConversations, setDMConversations] = useState<DMConversation[]>([]);
   const [manuallyRenamedSessions, setManuallyRenamedSessions] = useState<Set<string>>(new Set());
+
+  // Auto-select browser tabs for split browser view:
+  // - On first load: select the most recently created agent tab (if any)
+  // - On subsequent polls: select any newly appearing tab
+  const prevTabIdsRef = useRef<Set<string>>(new Set());
+  const initialSelectDoneRef = useRef(false);
+  useEffect(() => {
+    if (browserTabs.length === 0) return;
+    const currentIds = new Set(browserTabs.map(t => t.id));
+    const prevIds = prevTabIdsRef.current;
+
+    if (!initialSelectDoneRef.current) {
+      // First load — pick the most recent agent-opened tab if nothing is selected
+      initialSelectDoneRef.current = true;
+      if (!selectedBrowserTabId) {
+        const agentTabs = browserTabs.filter(t => t.createdBy?.startsWith('openagents:'));
+        if (agentTabs.length > 0) {
+          setSelectedBrowserTabId(agentTabs[agentTabs.length - 1].id);
+        }
+      }
+    } else {
+      // Subsequent polls — auto-select any newly appearing tab
+      const newTabs = browserTabs.filter(t => !prevIds.has(t.id));
+      if (newTabs.length > 0) {
+        setSelectedBrowserTabId(newTabs[newTabs.length - 1].id);
+      }
+    }
+    prevTabIdsRef.current = currentIds;
+  }, [browserTabs]);
+
+  // Notification sound — client-side preference stored in localStorage
+  const [notificationSound, _setNotificationSound] = useState(false);
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('oa_notification_sound');
+      if (stored === 'true') _setNotificationSound(true);
+    } catch {}
+  }, []);
+  const setNotificationSound = useCallback((enabled: boolean) => {
+    _setNotificationSound(enabled);
+    try { localStorage.setItem('oa_notification_sound', String(enabled)); } catch {}
+  }, []);
 
   const updateLastMessage = useCallback((sessionId: string, senderName: string, content: string, isStatus?: boolean) => {
     setLastMessageBySession((prev) => {
@@ -651,6 +695,28 @@ export function WorkspaceProvider({
     });
   }, []);
 
+  // Play notification sound when a thread completes
+  const notificationSoundRef = React.useRef(notificationSound);
+  notificationSoundRef.current = notificationSound;
+  const prevCompletedRef = React.useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!notificationSoundRef.current) {
+      prevCompletedRef.current = completedSessionIds;
+      return;
+    }
+    // Detect newly completed sessions
+    const prev = prevCompletedRef.current;
+    const hasNew = Array.from(completedSessionIds).some((id) => !prev.has(id));
+    prevCompletedRef.current = completedSessionIds;
+    if (hasNew) {
+      try {
+        const audio = new Audio('/notification.mp3');
+        audio.volume = 0.25;
+        audio.play().catch(() => {});
+      } catch {}
+    }
+  }, [completedSessionIds]);
+
   return (
     <WorkspaceContext.Provider
       value={{
@@ -702,6 +768,8 @@ export function WorkspaceProvider({
         openBrowserTabWithContext,
         dmConversations,
         refreshDMConversations,
+        notificationSound,
+        setNotificationSound,
       }}
     >
       {children}
