@@ -25,6 +25,22 @@ if _is_sqlite:
         SQLiteTypeCompiler.visit_JSONB = lambda self, type_, **kw: "JSON"
         SQLiteTypeCompiler.visit_UUID = lambda self, type_, **kw: "TEXT"
 
+    # Patch PostgreSQL server_defaults that SQLite can't handle.
+    # Must run before models are imported and mapper caches column metadata.
+    import sqlalchemy as _sa
+    _orig_column_init = _sa.Column.__init__
+
+    def _patched_column_init(self, *args, **kwargs):
+        _orig_column_init(self, *args, **kwargs)
+        if self.server_default is not None:
+            sd_text = str(self.server_default.arg) if hasattr(self.server_default, 'arg') else ""
+            if "gen_random_uuid" in sd_text:
+                self.server_default = None
+            elif sd_text == "NOW()":
+                self.server_default = _sa.schema.FetchedValue()
+
+    _sa.Column.__init__ = _patched_column_init
+
 _pool_kwargs = (
     {"poolclass": NullPool}
     if _is_serverless or _is_sqlite
