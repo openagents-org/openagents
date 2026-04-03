@@ -7,6 +7,7 @@ including stdio, SSE, and HTTP streaming-based servers.
 
 import logging
 import os
+from contextlib import AsyncExitStack
 from typing import Any, Dict, List
 
 try:
@@ -34,6 +35,7 @@ class MCPConnector:
         self._mcp_clients: Dict[str, Any] = {}
         self._mcp_tools: List[AgentTool] = []
         self._mcp_sessions: Dict[str, ClientSession] = {}
+        self._exit_stack = AsyncExitStack()
 
     async def setup_mcp_clients(self, mcp_configs: List[MCPServerConfig]) -> List[AgentTool]:
         """Setup MCP clients based on configuration.
@@ -97,25 +99,26 @@ class MCPConnector:
                 env=env
             )
             
-            # Use the stdio client from the MCP library
-            transport = await stdio_client(server_params).__aenter__()
-            read_stream, write_stream = transport
-            
-            # Create a session over those streams
-            session = ClientSession(read_stream, write_stream)
-            await session.__aenter__()
+            # Use AsyncExitStack to properly manage the nested context managers
+            # (stdio_client spawns background tasks that must stay alive)
+            read_stream, write_stream = await self._exit_stack.enter_async_context(
+                stdio_client(server_params)
+            )
+
+            session = await self._exit_stack.enter_async_context(
+                ClientSession(read_stream, write_stream)
+            )
             
             # Initialize the session
             await session.initialize()
             
             logger.info(f"Connected to stdio MCP server '{mcp_config.name}'")
             
-            # Store the session and transport info
+            # Store the session info (transport managed by AsyncExitStack)
             mcp_client = {
                 "name": mcp_config.name,
                 "type": "stdio",
                 "session": session,
-                "transport": transport,
                 "config": mcp_config
             }
             
@@ -225,7 +228,7 @@ class MCPConnector:
                     name=f"mcp_{server_name}_{tool_name}",
                     description=tool_description,
                     func=self._create_mcp_session_tool_function(server_name, tool_name),
-                    parameters=tool_parameters
+                    input_schema=tool_parameters
                 )
                 
                 self._mcp_tools.append(adapter_tool)

@@ -802,7 +802,6 @@ class AgentRunner(ABC):
 
             self._running = True
             # Start the loop in a background task
-            # Start the loop in a background task
             self._loop_task = asyncio.create_task(self._async_loop())
             # Setup the agent
             await self.setup()

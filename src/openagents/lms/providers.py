@@ -160,13 +160,43 @@ class AnthropicProvider(BaseModelProvider):
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Generate chat completion using Anthropic API."""
-        # Convert messages to Anthropic format
+        # Convert messages from OpenAI format to Anthropic format.
+        # Key differences:
+        #   OpenAI  role:"assistant" + tool_calls  → Anthropic role:"assistant" + tool_use content blocks
+        #   OpenAI  role:"tool"                    → Anthropic role:"user" + tool_result content blocks
         anthropic_messages = []
         system_message = None
 
         for msg in messages:
             if msg["role"] == "system":
                 system_message = msg["content"]
+            elif msg["role"] == "assistant" and msg.get("tool_calls"):
+                # Convert assistant tool_calls to Anthropic tool_use content blocks
+                content_blocks = []
+                if msg.get("content"):
+                    content_blocks.append({"type": "text", "text": msg["content"]})
+                for tc in msg["tool_calls"]:
+                    func = tc.get("function", tc)
+                    content_blocks.append({
+                        "type": "tool_use",
+                        "id": tc["id"],
+                        "name": func.get("name", tc.get("name", "")),
+                        "input": json.loads(func["arguments"]) if isinstance(func.get("arguments"), str) else func.get("arguments", {}),
+                    })
+                anthropic_messages.append({"role": "assistant", "content": content_blocks})
+            elif msg["role"] == "tool":
+                # Convert tool results to Anthropic tool_result content blocks.
+                # Consecutive tool results are merged into a single user message.
+                tool_result_block = {
+                    "type": "tool_result",
+                    "tool_use_id": msg.get("tool_call_id", ""),
+                    "content": str(msg.get("content", "")),
+                }
+                # Merge with previous user message if it already has tool_result blocks
+                if anthropic_messages and anthropic_messages[-1]["role"] == "user" and isinstance(anthropic_messages[-1]["content"], list):
+                    anthropic_messages[-1]["content"].append(tool_result_block)
+                else:
+                    anthropic_messages.append({"role": "user", "content": [tool_result_block]})
             else:
                 anthropic_messages.append(
                     {"role": msg["role"], "content": msg["content"]}
