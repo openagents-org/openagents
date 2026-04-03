@@ -1,0 +1,34 @@
+name: Check Commit Messages
+
+on:
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  no-co-authored-by:
+    name: Reject Co-Authored-By lines
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for Co-Authored-By in commit messages
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+          BAD_COMMITS=$(git log --format="%H %s" "$BASE".."$HEAD" | while read -r sha rest; do
+            if git log -1 --format="%B" "$sha" | grep -qi '^Co-Authored-By:'; then
+              echo "  $sha ($rest)"
+            fi
+          done)
+          if [ -n "$BAD_COMMITS" ]; then
+            echo "::error::The following commits contain Co-Authored-By lines that must be removed:"
+            echo "$BAD_COMMITS"
+            echo ""
+            echo "To fix: use 'git rebase -i' to edit the commits, or enable the repo hook:"
+            echo "  git config core.hooksPath .githooks"
+            exit 1
+          fi
+          echo "All commit messages are clean."
