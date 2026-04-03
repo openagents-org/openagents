@@ -40,6 +40,20 @@ Events flow through a mod pipeline: `mod/auth` → `mod/workspace` → `mod/pers
 | `CORS_ORIGINS` | `*` | Allowed CORS origins (comma-separated) |
 | `AGENT_TIMEOUT_SECONDS` | `60` | Seconds before agent is considered offline |
 
+## Deploy Frontend to Vercel / Insforge
+
+The frontend uses `output: 'standalone'` in `next.config.mjs` for Docker deployments.
+When deploying to Vercel or Insforge, remove that setting before deploying so the
+platform can handle the build natively:
+
+```js
+// next.config.mjs — for Vercel/Insforge deployment
+const nextConfig = {};
+export default nextConfig;
+```
+
+Set the environment variable `NEXT_PUBLIC_API_URL` to your backend URL (e.g. `https://your-backend.example.com`).
+
 ## Development
 
 ```bash
