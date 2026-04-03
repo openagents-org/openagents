@@ -1,0 +1,22 @@
+name: hermes
+label: Hermes Agent
+description: Nous Hermes Agent with tools, profiles, memory, and messaging support
+homepage: https://github.com/NousResearch/hermes-agent
+tags: [coding, tools, orchestration, profiles]
+builtin: true
+
+install:
+  binary: hermes
+  requires: [python3]
+  macos: "pip install hermes-agent"
+  linux: "pip install hermes-agent"
+  windows: "pip install hermes-agent"
+
+adapter:
+  module: openagents.adapters.hermes
+  class: HermesAdapter
+  options:
+    hermes_profile: auto
+    hermes_source: tool
+    max_turns: 60
+    yolo: false

@@ -109,6 +109,7 @@ agn up                                    # start the daemon
 | **OpenClaw** | ✅ Supported | Open-source, any LLM backend |
 | **Claude Code** | ✅ Supported | Anthropic's coding agent |
 | **Codex CLI** | ✅ Supported | OpenAI's coding agent |
+| **Hermes Agent** | ✅ Supported | Nous Hermes CLI with tools, profiles, and memory |
 | **Cursor** | ✅ Supported | AI code editor |
 | **OpenCode** | ✅ Supported | Open-source terminal agent |
 | Aider, Goose, Gemini CLI, Copilot, Amp | 🔜 Coming soon | |
