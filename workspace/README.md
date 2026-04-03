@@ -52,7 +52,7 @@ const nextConfig = {};
 export default nextConfig;
 ```
 
-Set the environment variable `NEXT_PUBLIC_API_URL` to your backend URL (e.g. `https://agents-api.caremojo.app`).
+Set the environment variable `NEXT_PUBLIC_API_URL` to your backend URL (e.g. `https://your-backend.example.com`).
 
 ## Development
 
