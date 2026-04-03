@@ -300,6 +300,16 @@ class AgentClient:
                 ssl_client_key=ssl_client_key,
                 ssl_verify=ssl_verify,
             )
+        elif transport_type == "workspace":
+            logger.info(f"Creating Workspace connector for agent {self.agent_id}")
+            from openagents.sdk.connectors.workspace_connector import WorkspaceConnector
+
+            self.connector = WorkspaceConnector(
+                optimal_transport_host, optimal_transport_port, self.agent_id, metadata, password_hash
+            )
+            # Pass network_id to the connector so it can join the right workspace
+            if network_id:
+                self.connector.network_id = network_id
         elif transport_type == "http":
             logger.info(f"Creating HTTP connector for agent {self.agent_id}")
             from openagents.sdk.connectors.http_connector import HTTPNetworkConnector
@@ -910,8 +920,8 @@ class AgentClient:
         while True:
             try:
                 await asyncio.sleep(
-                    1.0
-                )  # Poll every 1 second for faster message delivery
+                    5.0
+                )  # Poll every 5 seconds — reactive agents don't need sub-second latency
                 poll_count += 1
                 logger.debug(
                     f"🔧 CLIENT: Polling attempt #{poll_count} for agent {self.agent_id}"

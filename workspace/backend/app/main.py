@@ -9,10 +9,12 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
 from app.config import config
+from app.database import get_db
 from app.routers import browser, events, files, network, workspaces
 
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +27,7 @@ async def lifespan(app: FastAPI):
     from app.database import engine, Base, _is_sqlite
     if _is_sqlite:
         from app import models  # noqa: F401 — ensure all models are registered
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=engine, checkfirst=True)
         logger.info("SQLite: auto-created tables")
     yield
     # Shutdown: close Playwright browser
@@ -45,7 +47,7 @@ origins = [o.strip() for o in config.CORS_ORIGINS.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -61,6 +63,32 @@ app.include_router(workspaces.router)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/health")
+async def api_health(db: Session = Depends(get_db)):
+    """Network stats endpoint expected by the OpenAgents SDK agent launcher."""
+    from app.models import Workspace
+    from sqlalchemy import select
+    workspace = db.execute(
+        select(Workspace).where(Workspace.status != "deleted")
+        .order_by(Workspace.created_at.desc()).limit(1)
+    ).scalar_one_or_none()
+    return {
+        "success": True,
+        "network_id": str(workspace.id) if workspace else "unknown",
+        "network_name": workspace.name if workspace else "OpenAgents Workspace",
+        "is_running": True,
+        "uptime_seconds": 0,
+        "topology_mode": "centralized",
+        "transports": [
+            {"type": "workspace", "config": {}},
+        ],
+        "agents": {},
+        "mods": [
+            {"name": "openagents.mods.workspace.messaging", "enabled": True, "config": {}},
+        ],
+    }
 
 
 @app.get("/.well-known/openagents.json")

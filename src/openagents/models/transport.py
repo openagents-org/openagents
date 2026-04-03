@@ -20,6 +20,7 @@ class TransportType(str, Enum):
     GRPC = "grpc"
     WEBRTC = "webrtc"
     HTTP = "http"
+    WORKSPACE = "workspace"
     MCP = "mcp"
     A2A = "a2a"
 

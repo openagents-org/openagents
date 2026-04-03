@@ -76,6 +76,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         self.temp_dir = None
         self.file_storage_path = None
         self.available_channels: List[Dict[str, Any]] = []  # Channel list cache
+        self._event_channel_map: Dict[str, str] = {}  # event_id -> channel name
 
     def initialize(self) -> bool:
         """Initialize the protocol.
@@ -113,6 +114,33 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             )
 
         return True
+
+    async def process_incoming_event(self, event: Event) -> Optional[Event]:
+        """Route thread.* response events to their handlers, pass everything else through."""
+        # Track event_id → channel for reply resolution
+        if event.event_id:
+            channel = (event.payload or {}).get("channel", "")
+            if not channel and event.destination_id:
+                # Extract channel from destination like "channel:foo" or "channel/foo"
+                dest = event.destination_id
+                if dest.startswith("channel:") or dest.startswith("channel/"):
+                    channel = dest.split(":", 1)[-1].split("/", 1)[-1]
+            if channel:
+                self._event_channel_map[event.event_id] = channel
+
+        if event.event_name.startswith("thread.") and event.event_name.endswith("_response"):
+            await self.process_incoming_mod_message(event)
+            return None  # consumed — don't add raw response to event_threads
+        if event.event_name == "thread.reaction.notification":
+            await self.process_incoming_mod_message(event)
+            return event  # let it also appear in threads
+        if event.event_name == "thread.channel_message.notification":
+            await self.process_incoming_mod_message(event)
+            return event
+        if event.event_name == "thread.direct_message.notification":
+            await self.process_incoming_mod_message(event)
+            return event
+        return event
 
     async def process_incoming_direct_message(self, message: Event) -> None:
         """Process an incoming direct message.
@@ -528,12 +556,12 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             return None
 
     async def reply_channel_message(
-        self, channel: str, reply_to_id: str, text: str, quote: Optional[str] = None
+        self, channel: str = "", reply_to_id: str = "", text: str = "", quote: Optional[str] = None
     ) -> None:
         """Reply to a message in a channel (creates/continues thread).
 
         Args:
-            channel: Channel name
+            channel: Channel name (optional — auto-resolved from reply_to_id if omitted)
             reply_to_id: ID of message being replied to
             text: Reply text content
             quote: Optional message ID to quote
@@ -542,6 +570,13 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             logger.error(
                 f"Cannot send reply: connector is None for agent {self.agent_id}"
             )
+            return
+
+        # Auto-resolve channel from the message being replied to
+        if not channel and reply_to_id:
+            channel = self._event_channel_map.get(reply_to_id, "")
+        if not channel:
+            logger.error(f"Cannot reply: no channel specified and could not resolve from reply_to_id {reply_to_id}")
             return
 
         # Handle quoting if specified
@@ -574,7 +609,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         limit: int = 50,
         offset: int = 0,
         include_threads: bool = True,
-    ) -> None:
+    ) -> Optional[List[Dict[str, Any]]]:
         """Retrieve messages from a specific channel.
 
         Args:
@@ -582,17 +617,20 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             limit: Maximum number of messages to retrieve (1-500, default 50)
             offset: Number of messages to skip for pagination (default 0)
             include_threads: Whether to include threaded messages (default True)
+
+        Returns:
+            List of message dicts, or None on failure.
         """
         if self.connector is None:
             logger.error(
                 f"Cannot retrieve messages: connector is None for agent {self.agent_id}"
             )
-            return
+            return None
 
         # Validate limit
         if not 1 <= limit <= 500:
             logger.error("Limit must be between 1 and 500")
-            return
+            return None
 
         # Create retrieval request
         retrieval_msg = MessageRetrievalMessage.create(
@@ -614,20 +652,33 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
             payload=retrieval_msg.model_dump(),
         )
 
-        # Store pending request
-        self.pending_retrieval_requests[message.event_id] = {
+        # Store pending request with a result slot
+        request_entry = {
             "action": "retrieve_channel_messages",
             "channel": channel,
             "limit": limit,
             "offset": offset,
             "include_threads": include_threads,
             "timestamp": message.timestamp,
+            "_result": None,  # filled by _handle_channel_messages_response
         }
+        self.pending_retrieval_requests[message.event_id] = request_entry
 
         await self.agent_client.send_event(message)
         logger.debug(
             f"Requested channel messages for {channel} (limit={limit}, offset={offset})"
         )
+
+        # Wait for response with timeout (same pattern as list_channels)
+        import asyncio
+        for _ in range(25):  # 25 * 0.2 = 5 seconds
+            if request_entry.get("_result") is not None:
+                return request_entry["_result"]
+            await asyncio.sleep(0.2)
+
+        logger.warning("Channel messages retrieval timed out for %s", channel)
+        self.pending_retrieval_requests.pop(message.event_id, None)
+        return None
 
     async def retrieve_direct_messages(
         self,
@@ -1032,7 +1083,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         request_id = content.get("request_id")
 
         if request_id in self.pending_retrieval_requests:
-            request_info = self.pending_retrieval_requests.pop(request_id)
+            request_info = self.pending_retrieval_requests[request_id]
 
             if content.get("success", False):
                 # Successful retrieval
@@ -1046,6 +1097,9 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                 logger.debug(
                     f"Retrieved {len(messages)} channel messages from {channel}"
                 )
+
+                # Signal the waiting retrieve_channel_messages call
+                request_info["_result"] = messages
 
                 # Notify handlers
                 for handler_id, handler in self.message_handlers.items():
@@ -1069,6 +1123,9 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                 # Failed retrieval
                 error = content.get("error", "Unknown error")
                 logger.error(f"Channel messages retrieval failed: {error}")
+
+                # Signal failure so the waiting call exits
+                request_info["_result"] = []
 
                 # Notify handlers of error
                 for handler_id, handler in self.message_handlers.items():
@@ -1326,11 +1383,11 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
         # Tool 3: Reply to channel message
         reply_channel_tool = AgentTool(
             name="reply_channel_message",
-            description="Reply to a message in a channel (creates/continues thread, max 5 levels)",
+            description="Reply to a message in a channel (creates/continues thread, max 5 levels). Channel is auto-resolved from reply_to_id if omitted.",
             input_schema={
                 "type": "object",
                 "properties": {
-                    "channel": {"type": "string", "description": "Channel name"},
+                    "channel": {"type": "string", "description": "Channel name (optional — auto-resolved from reply_to_id)"},
                     "reply_to_id": {
                         "type": "string",
                         "description": "ID of the message being replied to",
@@ -1341,7 +1398,7 @@ class ThreadMessagingAgentAdapter(BaseModAdapter):
                         "description": "Optional message ID to quote",
                     },
                 },
-                "required": ["channel", "reply_to_id", "text"],
+                "required": ["reply_to_id", "text"],
             },
             func=self.reply_channel_message,
         )
