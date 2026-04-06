@@ -5,13 +5,13 @@ FROM node:20-alpine AS studio-builder
 WORKDIR /app/studio
 
 # Copy studio package files
-COPY studio/package*.json ./
+COPY sdk/studio/package*.json ./
 
 # Install dependencies
 RUN npm ci --legacy-peer-deps
 
 # Copy studio source code
-COPY studio/ ./
+COPY sdk/studio/ ./
 
 # Build the production bundle
 RUN npm run build
@@ -35,16 +35,16 @@ RUN apt-get update && apt-get install -y \
 
 # Copy Python project files
 COPY pyproject.toml setup.py setup.cfg MANIFEST.in ./
-COPY src/ ./src/
+COPY sdk/src/ ./sdk/src/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -e .
 
 # Copy built studio from stage 1 (served via HTTP transport at /studio)
-COPY --from=studio-builder /app/studio/build /app/studio/build
+COPY --from=studio-builder /app/studio/build /app/sdk/studio/build
 
 # Copy network configuration
-COPY examples/default_network/ /network/
+COPY sdk/examples/default_network/ /network/
 
 # Copy startup script
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh

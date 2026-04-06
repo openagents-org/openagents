@@ -449,7 +449,7 @@ async def network_profile(
 # ── Agent catalog (supported client types) ──────────────────────────────
 
 # Static catalog mirroring the SDK plugin_registry.  Kept in sync manually;
-# the source of truth is src/openagents/client/plugin_registry.py.
+# the source of truth is sdk/src/openagents/client/plugin_registry.py.
 
 _AGENT_CATALOG = [
     {

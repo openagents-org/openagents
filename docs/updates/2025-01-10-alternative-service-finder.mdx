@@ -93,7 +93,7 @@ cd openagents
 
 ## Step 4: Understand the Project Template
 
-Before starting the network, let's understand how project templates work. Open `demos/08_alternative_service_project/network.yaml` to see the template definition:
+Before starting the network, let's understand how project templates work. Open `sdk/demos/08_alternative_service_project/network.yaml` to see the template definition:
 
 ```yaml
 project_templates:
@@ -120,7 +120,7 @@ project_templates:
 Start the Alternative Service Finder network:
 
 ```bash
-openagents network start demos/08_alternative_service_project
+openagents network start sdk/demos/08_alternative_service_project
 ```
 
 The Studio web interface will automatically open in your browser at `http://localhost:8700`.
@@ -140,7 +140,7 @@ The network needs three agents to function. Open separate terminal windows for e
 
 ```bash
 cd openagents
-openagents agent start demos/08_alternative_service_project/agents/searcher.yaml
+openagents agent start sdk/demos/08_alternative_service_project/agents/searcher.yaml
 ```
 
 The Searcher agent finds alternative services using:
@@ -151,7 +151,7 @@ The Searcher agent finds alternative services using:
 
 ```bash
 cd openagents
-openagents agent start demos/08_alternative_service_project/agents/comparer.yaml
+openagents agent start sdk/demos/08_alternative_service_project/agents/comparer.yaml
 ```
 
 The Comparer agent creates detailed comparisons using:
@@ -162,7 +162,7 @@ The Comparer agent creates detailed comparisons using:
 
 ```bash
 cd openagents
-python demos/08_alternative_service_project/agents/coordinator.py
+python sdk/demos/08_alternative_service_project/agents/coordinator.py
 ```
 
 The Coordinator orchestrates the workflow:
@@ -181,7 +181,7 @@ Let's verify everything works before connecting Claude Desktop.
 Run the test script:
 
 ```bash
-python demos/08_alternative_service_project/test_workflow.py "Notion"
+python sdk/demos/08_alternative_service_project/test_workflow.py "Notion"
 ```
 
 You should see output like:

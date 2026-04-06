@@ -9,7 +9,7 @@ __pycache__/
 # Distribution / packaging
 .Python
 ./build/
-studio/build/
+sdk/studio/build/
 develop-eggs/
 dist/
 downloads/
@@ -189,8 +189,8 @@ local_test/
 
 settings.local.json
 .vscode*/
-demos/**/mods/
-demos/*/network.db
+sdk/demos/**/mods/
+sdk/demos/*/network.db
 
 
 # Network database
@@ -199,7 +199,7 @@ message_dump_*
 message_history.json
 metadata.json
 _global.json
-demos/**/topics/*
+sdk/demos/**/topics/*
 
 # Project management
 projects
@@ -207,16 +207,16 @@ private_networks
 node_modules/
 
 # Generated during PyPI publish (copied from examples/default_network/)
-src/openagents/studio/build/
+sdk/src/openagents/studio/build/
 node_modules/
 
-studio/my_first_network/README.md
-studio/my_first_network/agents/llm_agent.py
-studio/my_first_network/agents/simple_agent.py
-studio/my_first_network/events/.keep
-studio/my_first_network/mods/.keep
-studio/my_first_network/tools/.keep
-studio/.nvmrc
+sdk/studio/my_first_network/README.md
+sdk/studio/my_first_network/agents/llm_agent.py
+sdk/studio/my_first_network/agents/simple_agent.py
+sdk/studio/my_first_network/events/.keep
+sdk/studio/my_first_network/mods/.keep
+sdk/studio/my_first_network/tools/.keep
+sdk/studio/.nvmrc
 
 **/logs/**
 *.lock

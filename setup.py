@@ -12,8 +12,8 @@ from setuptools import setup, find_packages
 def copy_studio_build():
     """Copy studio build files to package directory if they exist."""
     project_root = Path(__file__).parent
-    studio_build_src = project_root / "studio" / "build"
-    studio_build_dst = project_root / "src" / "openagents" / "studio" / "build"
+    studio_build_src = project_root / "sdk" / "studio" / "build"
+    studio_build_dst = project_root / "sdk" / "src" / "openagents" / "studio" / "build"
     
     if studio_build_src.exists() and studio_build_src.is_dir():
         # Create destination directory
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     copy_studio_build()
     
     setup(
-        packages=find_packages(where="src"),
-        package_dir={"": "src"},
+        packages=find_packages(where="sdk/src"),
+        package_dir={"": "sdk/src"},
         test_suite="tests",
-    ) 
+    )

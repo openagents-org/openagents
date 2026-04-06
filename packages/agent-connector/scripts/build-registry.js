@@ -2,7 +2,7 @@
 'use strict';
 
 /**
- * Converts YAML plugin definitions from src/openagents/registry/*.yaml
+ * Converts YAML plugin definitions from sdk/src/openagents/registry/*.yaml
  * into a bundled registry.json for the agent-connector package.
  *
  * Usage: node scripts/build-registry.js

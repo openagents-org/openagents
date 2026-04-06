@@ -81,25 +81,25 @@ export BRAVE_API_KEY="your-brave-key"  # Falls back to DuckDuckGo if not set
 ### Terminal 1: Start the Network
 
 ```bash
-openagents network start demos/03_research_team/
+openagents network start sdk/demos/03_research_team/
 ```
 
 ### Terminal 2: Start the Router
 
 ```bash
-openagents agent start demos/03_research_team/agents/router.yaml
+openagents agent start sdk/demos/03_research_team/agents/router.yaml
 ```
 
 ### Terminal 3: Start the Web Searcher
 
 ```bash
-openagents agent start demos/03_research_team/agents/web_searcher.yaml
+openagents agent start sdk/demos/03_research_team/agents/web_searcher.yaml
 ```
 
 ### Terminal 4: Start the Analyst
 
 ```bash
-openagents agent start demos/03_research_team/agents/analyst.yaml
+openagents agent start sdk/demos/03_research_team/agents/analyst.yaml
 ```
 
 ### Connect with Studio
@@ -128,7 +128,7 @@ Open `http://localhost:8050` and connect to `localhost:8700`.
 ### Network Configuration with Agent Groups
 
 ```yaml
-# demos/03_research_team/network.yaml
+# sdk/demos/03_research_team/network.yaml
 network:
   name: "ResearchTeam"
 
@@ -174,7 +174,7 @@ network:
 ### Router Agent Configuration
 
 ```yaml
-# demos/03_research_team/agents/router.yaml
+# sdk/demos/03_research_team/agents/router.yaml
 type: "openagents.agents.collaborator_agent.CollaboratorAgent"
 agent_id: "router"
 
@@ -276,7 +276,7 @@ Templates provide structure for different research types:
 ## Web Search Tools
 
 ```python
-# demos/03_research_team/tools/web_search.py
+# sdk/demos/03_research_team/tools/web_search.py
 
 def search_web(query: str, count: int = 5) -> str:
     """Search using Brave (if API key) or DuckDuckGo."""

@@ -5,11 +5,11 @@ name: Studio Build Check (disabled)
 #   push:
 #     branches: [ main, develop, release ]
 #     paths:
-#       - 'studio/**'
+#       - 'sdk/studio/**'
 #   pull_request:
 #     branches: [ main, develop, release ]
 #     paths:
-#       - 'studio/**'
+#       - 'sdk/studio/**'
 on:
   workflow_dispatch:  # Manual triggering only
 
@@ -25,35 +25,35 @@ jobs:
       with:
         node-version: '20'
         cache: 'yarn'
-        cache-dependency-path: studio/yarn.lock
+        cache-dependency-path: sdk/studio/yarn.lock
 
     - name: Install dependencies
       run: |
-        cd studio
+        cd sdk/studio
         yarn install --frozen-lockfile
 
     - name: Run linting
       run: |
-        cd studio
+        cd sdk/studio
         yarn lint || true  # Allow lint warnings, don't fail on unused imports
 
     - name: TypeScript check
       run: |
-        cd studio
+        cd sdk/studio
         yarn typecheck || echo "TypeScript check failed (known issue with react-hook-form requiring TS 5+)"
 
     - name: Build
       env:
         CI: false  # Don't treat warnings as errors
       run: |
-        cd studio
+        cd sdk/studio
         yarn build
 
     - name: Verify build output
       run: |
-        if [ -d "studio/build" ] && [ -f "studio/build/index.html" ]; then
+        if [ -d "sdk/studio/build" ] && [ -f "sdk/studio/build/index.html" ]; then
           echo "✅ Build successful - output directory exists"
-          ls -la studio/build/
+          ls -la sdk/studio/build/
         else
           echo "❌ Build failed - output directory missing"
           exit 1

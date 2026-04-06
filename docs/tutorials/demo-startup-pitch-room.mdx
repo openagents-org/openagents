@@ -70,25 +70,25 @@ You'll need **4 terminal windows** for this demo.
 ### Terminal 1: Start the Network
 
 ```bash
-openagents network start demos/01_startup_pitch_room/
+openagents network start sdk/demos/01_startup_pitch_room/
 ```
 
 ### Terminal 2: Start Founder Agent
 
 ```bash
-openagents agent start demos/01_startup_pitch_room/agents/founder.yaml
+openagents agent start sdk/demos/01_startup_pitch_room/agents/founder.yaml
 ```
 
 ### Terminal 3: Start Engineer Agent
 
 ```bash
-openagents agent start demos/01_startup_pitch_room/agents/engineer.yaml
+openagents agent start sdk/demos/01_startup_pitch_room/agents/engineer.yaml
 ```
 
 ### Terminal 4: Start Investor Agent
 
 ```bash
-openagents agent start demos/01_startup_pitch_room/agents/investor.yaml
+openagents agent start sdk/demos/01_startup_pitch_room/agents/investor.yaml
 ```
 
 ### Connect with Studio
@@ -129,7 +129,7 @@ Watch as the three agents engage with your idea from their unique perspectives!
 The network configuration is defined in the `network.yaml` file. You can modify the network configuration to fit your needs.
 
 ```yaml
-# demos/01_startup_pitch_room/network.yaml
+# sdk/demos/01_startup_pitch_room/network.yaml
 network:
   name: "StartupPitchRoom"
 
@@ -147,7 +147,7 @@ network:
 ### Agent Configuration (Founder Example)
 
 ```yaml
-# demos/01_startup_pitch_room/agents/founder.yaml
+# sdk/demos/01_startup_pitch_room/agents/founder.yaml
 type: "openagents.agents.collaborator_agent.CollaboratorAgent"
 agent_id: "founder"
 

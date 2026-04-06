@@ -5,7 +5,7 @@
  * `opencode run --format json` as a subprocess. OpenCode handles its own
  * model configuration, provider selection, and tool chain.
  *
- * Port of Python PR #316: src/openagents/adapters/opencode.py
+ * Port of Python PR #316: sdk/src/openagents/adapters/opencode.py
  */
 
 'use strict';

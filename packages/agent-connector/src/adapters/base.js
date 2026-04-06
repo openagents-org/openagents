@@ -12,7 +12,7 @@
  *
  * Subclasses must implement _handleMessage(msg).
  *
- * Direct port of Python: src/openagents/adapters/base.py
+ * Direct port of Python: sdk/src/openagents/adapters/base.py
  */
 
 'use strict';

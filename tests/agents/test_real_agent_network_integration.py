@@ -75,7 +75,7 @@ async def test_network():
         http_port = base_port
         grpc_port = base_port + 100
 
-        network = AgentNetwork.load("examples/workspace_test.yaml")
+        network = AgentNetwork.load("sdk/examples/workspace_test.yaml")
         network.config.transports = [
             TransportConfigItem(type=TransportType.HTTP, config={"port": http_port}),
             TransportConfigItem(type=TransportType.GRPC, config={"port": grpc_port}),

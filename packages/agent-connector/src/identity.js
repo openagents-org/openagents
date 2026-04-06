@@ -3,7 +3,7 @@
 /**
  * Local identity management (~/.openagents/identity.json).
  *
- * Port of Python: src/openagents/client/workspace_client.py (identity section)
+ * Port of Python: sdk/src/openagents/client/workspace_client.py (identity section)
  */
 
 const fs = require('fs');

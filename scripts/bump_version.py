@@ -4,7 +4,7 @@
 This script automates the version bumping process by:
 1. Reading the current version from pyproject.toml
 2. Incrementing the version based on the specified type (major/minor/patch/post)
-3. Updating both pyproject.toml and src/openagents/__init__.py
+3. Updating both pyproject.toml and sdk/src/openagents/__init__.py
 4. Committing the changes to git
 5. Creating a git tag
 6. Optionally pushing changes and tag to remote
@@ -78,7 +78,7 @@ def bump_version(version_type, push=False):
     """
     # File paths
     pyproject_file = Path("pyproject.toml")
-    init_file = Path("src/openagents/__init__.py")
+    init_file = Path("sdk/src/openagents/__init__.py")
     
     # Validate files exist
     if not pyproject_file.exists():
@@ -141,7 +141,7 @@ def bump_version(version_type, push=False):
     
     # Git operations
     print("\nPerforming git operations...")
-    run_command("git add pyproject.toml src/openagents/__init__.py")
+    run_command("git add pyproject.toml sdk/src/openagents/__init__.py")
     run_command(f'git commit -m "chore(release): bump version to {new_version}"')
     print("✓ Created commit")
     

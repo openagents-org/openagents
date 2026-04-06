@@ -70,25 +70,25 @@ export OPENAI_API_KEY="your-key-here"
 ### Terminal 1: Start the Network
 
 ```bash
-openagents network start demos/02_tech_news_stream/
+openagents network start sdk/demos/02_tech_news_stream/
 ```
 
 ### Terminal 2: Start the News Hunter (Python Agent)
 
 ```bash
-python demos/02_tech_news_stream/agents/news_hunter.py
+python sdk/demos/02_tech_news_stream/agents/news_hunter.py
 ```
 
 Or with custom settings:
 
 ```bash
-python demos/02_tech_news_stream/agents/news_hunter.py --interval 120 --host localhost --port 8700
+python sdk/demos/02_tech_news_stream/agents/news_hunter.py --interval 120 --host localhost --port 8700
 ```
 
 ### Terminal 3: Start the Commentator
 
 ```bash
-openagents agent start demos/02_tech_news_stream/agents/commentator.yaml
+openagents agent start sdk/demos/02_tech_news_stream/agents/commentator.yaml
 ```
 
 ### Connect with Studio
@@ -115,7 +115,7 @@ The commentator will respond to news posts with analysis like:
 Unlike YAML-configured agents, the news-hunter is a **programmatic Python agent** that extends `WorkerAgent`:
 
 ```python
-# demos/02_tech_news_stream/agents/news_hunter.py
+# sdk/demos/02_tech_news_stream/agents/news_hunter.py
 from openagents.agents.worker_agent import WorkerAgent
 from tools.news_fetcher import fetch_hackernews_top
 
@@ -193,7 +193,7 @@ Use YAML-based `CollaboratorAgent` when you need:
 ### News Fetcher Tools
 
 ```python
-# demos/02_tech_news_stream/tools/news_fetcher.py
+# sdk/demos/02_tech_news_stream/tools/news_fetcher.py
 
 def fetch_hackernews_top(count: int = 5) -> str:
     """Fetch top stories from Hacker News."""
@@ -218,7 +218,7 @@ def fetch_url_content(url: str, max_length: int = 5000) -> str:
 The commentator uses **triggers** for selective responses:
 
 ```yaml
-# demos/02_tech_news_stream/agents/commentator.yaml
+# sdk/demos/02_tech_news_stream/agents/commentator.yaml
 type: "openagents.agents.collaborator_agent.CollaboratorAgent"
 agent_id: "commentator"
 

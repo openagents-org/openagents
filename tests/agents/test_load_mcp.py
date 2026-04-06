@@ -496,7 +496,7 @@ class TestMCPExampleConfigurations:
     
     def test_load_openmcp_example_config(self):
         """Test loading the OpenMCP example configuration."""
-        config_path = "examples/openmcp_agent_config_example.yaml"
+        config_path = "sdk/examples/openmcp_agent_config_example.yaml"
         
         if Path(config_path).exists():
             agent, _ = load_agent_from_yaml(config_path)
@@ -511,7 +511,7 @@ class TestMCPExampleConfigurations:
                 
     def test_load_worker_agent_example_config(self):
         """Test loading the worker agent example configuration with MCP."""
-        config_path = "examples/worker_agent_config_example.yaml"
+        config_path = "sdk/examples/worker_agent_config_example.yaml"
         
         if Path(config_path).exists():
             agent, _ = load_agent_from_yaml(config_path)

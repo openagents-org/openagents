@@ -4,7 +4,7 @@
  * Calls OpenAI-compatible chat completions API directly with SSE streaming.
  * No CLI binary needed — just OPENAI_API_KEY + OPENAI_BASE_URL.
  *
- * Port of Python: src/openagents/adapters/nanoclaw.py & cursor.py
+ * Port of Python: sdk/src/openagents/adapters/nanoclaw.py & cursor.py
  */
 
 'use strict';

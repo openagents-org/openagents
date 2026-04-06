@@ -46,7 +46,7 @@ jobs:
 
     - name: Test workspace backend
       env:
-        PYTHONPATH: workspace/backend:src
+        PYTHONPATH: workspace/backend:sdk/src
       run: pytest --tb=short -v workspace/backend/tests/
 
   # -----------------------------------------------------------------------

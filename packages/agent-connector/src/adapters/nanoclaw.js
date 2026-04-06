@@ -2,7 +2,7 @@
  * NanoClaw adapter — lightweight containerized coding agent.
  *
  * Uses direct LLM API mode (OpenAI-compatible chat completions).
- * Port of Python: src/openagents/adapters/nanoclaw.py
+ * Port of Python: sdk/src/openagents/adapters/nanoclaw.py
  */
 
 'use strict';

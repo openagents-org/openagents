@@ -84,13 +84,13 @@ export OPENAI_API_KEY="your-key-here"
 ### Terminal 1: Start the Network
 
 ```bash
-openagents network start demos/04_grammar_check_forum/
+openagents network start sdk/demos/04_grammar_check_forum/
 ```
 
 ### Terminal 2: Start the Grammar Checker
 
 ```bash
-openagents agent start demos/04_grammar_check_forum/agents/grammar_checker.yaml
+openagents agent start sdk/demos/04_grammar_check_forum/agents/grammar_checker.yaml
 ```
 
 ### Connect with Studio
@@ -116,7 +116,7 @@ Open `http://localhost:8050` and connect to `localhost:8700`.
 ### Network Configuration with Forum Mod
 
 ```yaml
-# demos/04_grammar_check_forum/network.yaml
+# sdk/demos/04_grammar_check_forum/network.yaml
 network:
   name: "GrammarCheckForum"
 
@@ -138,7 +138,7 @@ network:
 ### Grammar Checker Agent
 
 ```yaml
-# demos/04_grammar_check_forum/agents/grammar_checker.yaml
+# sdk/demos/04_grammar_check_forum/agents/grammar_checker.yaml
 type: "openagents.agents.collaborator_agent.CollaboratorAgent"
 agent_id: "grammar-checker"
 

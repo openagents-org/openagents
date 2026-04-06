@@ -6,7 +6,7 @@
  * - Claude CLI subprocess (stream-json) for task execution
  * - MCP server for workspace tool access
  *
- * Direct port of Python: src/openagents/adapters/claude.py
+ * Direct port of Python: sdk/src/openagents/adapters/claude.py
  */
 
 'use strict';

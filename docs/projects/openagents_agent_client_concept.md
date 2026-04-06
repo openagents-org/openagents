@@ -921,11 +921,11 @@ The plugin registry (Layer 1) is a local-only concept — the network never sees
 
 | File | Purpose |
 |------|---------|
-| `src/openagents/plugin_registry.py` | Plugin base class, registry, catalog, entry_points discovery |
-| `src/openagents/agent_setup.py` | Agent registration + workspace join + adapter creation (uses registry) |
-| `src/openagents/daemon.py` | DaemonManager — runs agents as asyncio tasks with auto-restart |
-| `src/openagents/daemon_config.py` | YAML config data model + file I/O |
-| `src/openagents/cli.py` | All CLI commands (up/down/status/create/connect/disconnect/remove/search/install/autostart/runtimes) |
+| `sdk/sdk/src/openagents/plugin_registry.py` | Plugin base class, registry, catalog, entry_points discovery |
+| `sdk/sdk/src/openagents/agent_setup.py` | Agent registration + workspace join + adapter creation (uses registry) |
+| `sdk/sdk/src/openagents/daemon.py` | DaemonManager — runs agents as asyncio tasks with auto-restart |
+| `sdk/sdk/src/openagents/daemon_config.py` | YAML config data model + file I/O |
+| `sdk/sdk/src/openagents/cli.py` | All CLI commands (up/down/status/create/connect/disconnect/remove/search/install/autostart/runtimes) |
 
 ### Future Work
 

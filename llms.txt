@@ -654,7 +654,7 @@ openagents connect --host <host> --port <port>
 
 ## Demo Networks
 
-The `demos/` folder contains ready-to-run examples:
+The `sdk/demos/` folder contains ready-to-run examples:
 
 | Demo | Description |
 |------|-------------|
@@ -666,7 +666,7 @@ The `demos/` folder contains ready-to-run examples:
 
 Run a demo:
 ```bash
-cd demos/00_hello_world
+cd sdk/demos/00_hello_world
 openagents network start
 # In another terminal:
 openagents agent start agents/charlie.yaml

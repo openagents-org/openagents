@@ -30,7 +30,7 @@ class TestYAMLAgentCustomTools:
     @pytest.fixture
     def test_agent_yaml_path(self):
         """Path to test agent YAML configuration."""
-        return "examples/test_agents/test_agent_with_tools.yaml"
+        return "sdk/examples/test_agents/test_agent_with_tools.yaml"
 
     @pytest.fixture
     def original_cwd(self):
@@ -42,7 +42,7 @@ class TestYAMLAgentCustomTools:
     def setup_test_environment(self):
         """Setup test environment with proper path handling."""
         original_cwd = os.getcwd()
-        test_agents_dir = Path("examples/test_agents").resolve()
+        test_agents_dir = Path("sdk/examples/test_agents").resolve()
         os.chdir(test_agents_dir)
         
         # Add test_agents directory to sys.path temporarily
@@ -100,9 +100,9 @@ class TestYAMLAgentCustomTools:
 
     def test_agent_config_with_custom_tools(self):
         """Test creating AgentConfig with custom tools."""
-        # Change to examples/test_agents directory for imports
+        # Change to sdk/examples/test_agents directory for imports
         original_cwd = os.getcwd()
-        os.chdir("examples/test_agents")
+        os.chdir("sdk/examples/test_agents")
         
         try:
             # Create tool configs
@@ -138,8 +138,8 @@ class TestYAMLAgentCustomTools:
         if not Path(test_agent_yaml_path).exists():
             pytest.skip(f"Test agent YAML not found: {test_agent_yaml_path}")
         
-        # Change to examples/test_agents directory for tool imports
-        os.chdir("examples/test_agents")
+        # Change to sdk/examples/test_agents directory for tool imports
+        os.chdir("sdk/examples/test_agents")
         
         try:
             # Load agent from YAML
@@ -175,7 +175,7 @@ class TestYAMLAgentCustomTools:
     def test_tool_schema_generation(self):
         """Test automatic schema generation from function signatures."""
         original_cwd = os.getcwd()
-        os.chdir("examples/test_agents")
+        os.chdir("sdk/examples/test_agents")
         
         try:
             # Test tool with optional parameter
@@ -204,7 +204,7 @@ class TestYAMLAgentCustomTools:
     def test_tool_openai_format_conversion(self):
         """Test conversion of tools to OpenAI function format."""
         original_cwd = os.getcwd()
-        os.chdir("examples/test_agents")
+        os.chdir("sdk/examples/test_agents")
         
         try:
             tool_config = AgentToolConfig(
@@ -230,7 +230,7 @@ class TestYAMLAgentCustomTools:
     @pytest.mark.asyncio
     async def test_agent_tool_execution(self, original_cwd):
         """Test that agent tools can be executed asynchronously."""
-        os.chdir("examples/test_agents")
+        os.chdir("sdk/examples/test_agents")
         
         try:
             tool_config = AgentToolConfig(
@@ -254,7 +254,7 @@ class TestYAMLAgentCustomTools:
     def test_tool_error_handling(self):
         """Test error handling in tool loading and execution."""
         original_cwd = os.getcwd()
-        os.chdir("examples/test_agents")
+        os.chdir("sdk/examples/test_agents")
         
         try:
             # Test invalid implementation path
@@ -281,7 +281,7 @@ class TestYAMLAgentCustomTools:
     def test_custom_input_schema_override(self):
         """Test providing custom input schema instead of auto-generation."""
         original_cwd = os.getcwd()
-        os.chdir("examples/test_agents")
+        os.chdir("sdk/examples/test_agents")
         
         try:
             custom_schema = {
@@ -313,7 +313,7 @@ class TestYAMLAgentCustomTools:
     @pytest.mark.integration
     def test_agent_tools_in_orchestration(self, original_cwd):
         """Integration test: verify tools are available in agent orchestration."""
-        os.chdir("examples/test_agents")
+        os.chdir("sdk/examples/test_agents")
         
         try:
             # Load agent

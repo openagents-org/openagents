@@ -129,10 +129,10 @@ Showcase = "https://openagents.org/showcase"
 openagents = "openagents.cli:cli_main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = {"" = "sdk/src"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["sdk/src"]
 
 [tool.setuptools.package-data]
 openagents = [
@@ -155,7 +155,7 @@ addopts = [
     "--disable-warnings",       # Disable most warnings for cleaner output
 ]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["sdk/src"]
 asyncio_mode = "auto"
 markers = [
     "client: lightweight client tests (no SDK deps)",
@@ -169,7 +169,7 @@ filterwarnings = [
 
 # Coverage configuration
 [tool.coverage.run]
-source = ["src/openagents"]
+source = ["sdk/src/openagents"]
 branch = true
 omit = [
     "*/tests/*",

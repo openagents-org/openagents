@@ -6,7 +6,7 @@
 
 ```
 openagents/
-├── src/openagents/              # Python SDK (backend, ONM, adapters)
+├── sdk/sdk/src/openagents/              # Python SDK (backend, ONM, adapters)
 ├── packages/
 │   ├── agent-connector/         # @openagents-org/agent-connector (Node.js library + CLI)
 │   └── launcher/       # OpenAgents Launcher — desktop app (Windows/macOS/Linux)
@@ -67,7 +67,7 @@ openagents/
 | 44 | Windows installer — `install.ps1` for native PowerShell | `install.ps1` | Done |
 | 45 | Homebrew formula template for `brew install openagents` | `Formula/openagents.rb` | Done |
 | 46 | Agent registry API — model, CRUD endpoints, 15 tests | `openagents-web: models.py, agent_registry.py, test_agent_registry.py` | Done |
-| 47 | Repository restructure — layered architecture (3 phases) | `src/openagents/client/`, `src/openagents/sdk/`, `src/openagents/core/` | Done |
+| 47 | Repository restructure — layered architecture (3 phases) | `sdk/sdk/src/openagents/client/`, `sdk/sdk/src/openagents/sdk/`, `sdk/sdk/src/openagents/core/` | Done |
 | 48 | CI pipeline split — client-tests (fast) + sdk-tests (full) | `.github/workflows/pytest.yml` | Done |
 
 ### Desktop App (Electron) — Completed
@@ -194,10 +194,10 @@ packages/agent-connector/
 ### What Stays in Python
 
 - **Workspace backend** (`workspace/backend/`) — FastAPI + PostgreSQL, server-side
-- **ONM primitives** (`src/openagents/core/onm_*.py`) — shared protocol definitions
-- **Python SDK** (`src/openagents/sdk/`) — custom agents/networks in Python
+- **ONM primitives** (`sdk/sdk/src/openagents/core/onm_*.py`) — shared protocol definitions
+- **Python SDK** (`sdk/sdk/src/openagents/sdk/`) — custom agents/networks in Python
 - **Python-based agents** (Aider, SWE-bench) — connector just runs `pip install` + spawns binary
-- **Adapters** (`src/openagents/adapters/`) — agent protocol bridges, run inside daemon
+- **Adapters** (`sdk/sdk/src/openagents/adapters/`) — agent protocol bridges, run inside daemon
 
 ### API Surface
 

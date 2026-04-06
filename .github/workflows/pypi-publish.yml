@@ -18,27 +18,27 @@ jobs:
     #   with:
     #     node-version: '20'
     #     cache: 'npm'
-    #     cache-dependency-path: studio/package-lock.json
+    #     cache-dependency-path: sdk/studio/package-lock.json
     #
     # - name: Build Studio frontend
     #   run: |
-    #     cd studio
+    #     cd sdk/studio
     #     npm ci
     #     npm run build
     #
     # - name: Copy Studio build to package
     #   run: |
-    #     mkdir -p src/openagents/studio
-    #     cp -r studio/build src/openagents/studio/
+    #     mkdir -p sdk/src/openagents/studio
+    #     cp -r sdk/studio/build sdk/src/openagents/studio/
 
     - name: Copy default network template to package
       run: |
-        mkdir -p src/openagents/templates/default_network
-        cp -r examples/default_network/* src/openagents/templates/default_network/
-        echo '# OpenAgents templates package' > src/openagents/templates/__init__.py
-        echo '# Default network template' > src/openagents/templates/default_network/__init__.py
+        mkdir -p sdk/src/openagents/templates/default_network
+        cp -r sdk/examples/default_network/* sdk/src/openagents/templates/default_network/
+        echo '# OpenAgents templates package' > sdk/src/openagents/templates/__init__.py
+        echo '# Default network template' > sdk/src/openagents/templates/default_network/__init__.py
         # Create __init__.py for agents subpackage
-        echo '# Agent templates' > src/openagents/templates/default_network/agents/__init__.py
+        echo '# Agent templates' > sdk/src/openagents/templates/default_network/agents/__init__.py
 
     - name: Set up Python
       uses: actions/setup-python@v4

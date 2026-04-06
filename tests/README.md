@@ -79,7 +79,7 @@ pytest tests/test_network.py::TestAgentNetwork::test_network_initialization
 
 ```bash
 # Run tests with coverage
-pytest --cov=src/openagents --cov-report=html
+pytest --cov=sdk/src/openagents --cov-report=html
 
 # Run tests in parallel (requires pytest-xdist)
 pytest -n auto
@@ -141,7 +141,7 @@ Generate coverage reports to see test coverage:
 
 ```bash
 # Generate HTML coverage report
-pytest --cov=src/openagents --cov-report=html
+pytest --cov=sdk/src/openagents --cov-report=html
 
 # View coverage report
 open htmlcov/index.html  # macOS
@@ -154,7 +154,7 @@ The test suite is designed to run in CI environments:
 
 ```bash
 # CI-friendly test command
-pytest --cov=src/openagents --cov-report=xml --junitxml=test-results.xml
+pytest --cov=sdk/src/openagents --cov-report=xml --junitxml=test-results.xml
 ```
 
 ## Test Architecture

@@ -23,7 +23,7 @@ After migration:
 ```
 openagents/                              # SDK repo root
 │
-├── src/openagents/                      # Python SDK package (pip install openagents)
+├── sdk/sdk/src/openagents/                      # Python SDK package (pip install openagents)
 │   ├── core/
 │   │   ├── events.py                    # 🆕 ONM Event envelope model
 │   │   ├── addressing.py                # 🆕 ONM address parsing & validation
@@ -130,11 +130,11 @@ openagents/                              # SDK repo root
 
 | Component | Location | Installable? |
 |-----------|----------|--------------|
-| ONM primitives (Event, Pipeline, Mod, Addressing) | `src/openagents/core/` | Yes — part of `pip install openagents` |
+| ONM primitives (Event, Pipeline, Mod, Addressing) | `sdk/sdk/src/openagents/core/` | Yes — part of `pip install openagents` |
 | Workspace backend (FastAPI) | `workspace/backend/` | No — deployed as a service |
 | Workspace frontend (Next.js) | `workspace/frontend/` | No — deployed as a service |
 | Workspace mods (auth, persistence, etc.) | `workspace/backend/app/mods/` | No — workspace-specific |
-| SDK workspace client | `src/openagents/core/workspace.py` | Yes — used by `openagents connect` |
+| SDK workspace client | `sdk/sdk/src/openagents/core/workspace.py` | Yes — used by `openagents connect` |
 
 The SDK is a **library** (`pip install`). The workspace is a **product** (`docker compose up`).
 The workspace backend imports the SDK for shared ONM primitives.
@@ -143,7 +143,7 @@ The workspace backend imports the SDK for shared ONM primitives.
 
 ## 3. ONM Primitives in the SDK
 
-These live in `src/openagents/core/` and are shared by both the SDK runtime and the workspace product.
+These live in `sdk/sdk/src/openagents/core/` and are shared by both the SDK runtime and the workspace product.
 
 ### 3.1 Event Envelope — `core/events.py`
 
@@ -827,7 +827,7 @@ Add Alembic, configurable DB, remove Firebase dependency. Docker Compose for loc
 
 ### Phase B: ONM Primitives in SDK ✅
 
-Add `Event`, `Pipeline`, `Mod`, `Address` to `src/openagents/core/`.
+Add `Event`, `Pipeline`, `Mod`, `Address` to `sdk/sdk/src/openagents/core/`.
 Unit tests for all primitives. No changes to workspace yet.
 
 **Result:** SDK ships ONM primitives. `pip install openagents` includes them.

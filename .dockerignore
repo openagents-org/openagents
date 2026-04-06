@@ -56,8 +56,8 @@ yarn-error.log*
 package-lock.json
 
 # Studio build artifacts
-studio/build/
-studio/node_modules/
+sdk/studio/build/
+sdk/studio/node_modules/
 
 # OpenAgents runtime
 openagents.log
@@ -84,14 +84,13 @@ docs/
 
 # Tests
 tests/
-archived_tests/
 pytest.ini
 
 # Demo and example data
-demos/
+sdk/demos/
 reports/
 # Allow default network config for Docker
-!examples/default_network/
+!sdk/examples/default_network/
 
 # Config files
 .env

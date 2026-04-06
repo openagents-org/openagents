@@ -2,7 +2,7 @@
  * Cursor adapter — AI-powered code editor agent mode.
  *
  * Uses direct LLM API mode (OpenAI-compatible chat completions).
- * Port of Python: src/openagents/adapters/cursor.py
+ * Port of Python: sdk/src/openagents/adapters/cursor.py
  */
 
 'use strict';

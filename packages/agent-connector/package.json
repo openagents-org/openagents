@@ -1,6 +1,6 @@
 {
   "name": "@openagents-org/agent-launcher",
-  "version": "0.2.98",
+  "version": "0.2.103",
   "description": "OpenAgents Launcher — install, configure, and run AI coding agents from your terminal",
   "main": "src/index.js",
   "bin": {

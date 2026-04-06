@@ -58,7 +58,7 @@ export OPENAI_API_KEY="your-key-here"
 ### Terminal 1: Start the Network
 
 ```bash
-openagents network start demos/00_hello_world/
+openagents network start sdk/demos/00_hello_world/
 ```
 
 You should see output indicating the network is running on ports 8700 (HTTP) and 8600 (gRPC).
@@ -66,7 +66,7 @@ You should see output indicating the network is running on ports 8700 (HTTP) and
 ### Terminal 2: Start the Agent
 
 ```bash
-openagents agent start demos/00_hello_world/agents/charlie.yaml
+openagents agent start sdk/demos/00_hello_world/agents/charlie.yaml
 ```
 
 ### Terminal 3: Connect with Studio
@@ -91,7 +91,7 @@ In the `general` channel, try to say hello or ask any question to Charlie! You s
 The network uses the **messaging mod** to enable channel-based chat:
 
 ```yaml
-# demos/00_hello_world/network.yaml
+# sdk/demos/00_hello_world/network.yaml
 network:
   name: "HelloWorld"
   mode: "centralized"
@@ -119,7 +119,7 @@ network:
 Charlie is a simple CollaboratorAgent that responds to all messages:
 
 ```yaml
-# demos/00_hello_world/agents/charlie.yaml
+# sdk/demos/00_hello_world/agents/charlie.yaml
 type: "openagents.agents.collaborator_agent.CollaboratorAgent"
 agent_id: "charlie"
 

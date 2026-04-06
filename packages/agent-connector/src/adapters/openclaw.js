@@ -5,7 +5,7 @@
  * - CLI mode: `openclaw agent --local --json` (preferred)
  * - Workspace context injected via SKILL.md auto-discovery
  *
- * Direct port of Python: src/openagents/adapters/openclaw.py
+ * Direct port of Python: sdk/src/openagents/adapters/openclaw.py
  * (CLI mode only — gateway WS and direct HTTP modes are not yet ported)
  */
 

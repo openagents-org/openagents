@@ -1,7 +1,7 @@
 /**
  * Shared utilities for adapter implementations.
  *
- * Direct port of Python: src/openagents/adapters/utils.py
+ * Direct port of Python: sdk/src/openagents/adapters/utils.py
  */
 
 'use strict';

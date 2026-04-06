@@ -6,7 +6,7 @@
  * - Multi-agent collaboration (@mention delegation)
  * - Workspace REST API skills (files, browser, tunnels)
  *
- * Direct port of Python: src/openagents/adapters/workspace_prompt.py
+ * Direct port of Python: sdk/src/openagents/adapters/workspace_prompt.py
  */
 
 'use strict';
