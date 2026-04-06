@@ -28,7 +28,7 @@ if _is_sqlite:
 _pool_kwargs = (
     {"poolclass": NullPool}
     if _is_serverless or _is_sqlite
-    else {"pool_pre_ping": True, "pool_size": 10, "max_overflow": 20, "pool_recycle": 300, "poolclass": QueuePool}
+    else {"pool_pre_ping": True, "pool_size": 5, "max_overflow": 10, "pool_recycle": 300, "pool_timeout": 10, "poolclass": QueuePool}
 )
 
 # PgBouncer (e.g. Supabase port 6543) doesn't support prepared statements
