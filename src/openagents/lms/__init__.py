@@ -10,6 +10,7 @@ from .providers import (
     AnthropicProvider,
     BedrockProvider,
     GeminiProvider,
+    MiniMaxProvider,
     SimpleGenericProvider,
 )
 
@@ -29,6 +30,7 @@ __all__ = [
     "AnthropicProvider",
     "BedrockProvider",
     "GeminiProvider",
+    "MiniMaxProvider",
     "SimpleGenericProvider",
     # LLM logging
     "LLMCallLogger",

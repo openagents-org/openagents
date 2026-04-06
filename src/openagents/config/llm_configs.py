@@ -27,6 +27,7 @@ class LLMProviderType(str, Enum):
     PERPLEXITY = "perplexity"
     GROQ = "groq"
     OPENROUTER = "openrouter"
+    MINIMAX = "minimax"
     CUSTOM = "custom"  # Custom OpenAI-compatible endpoint
     OPENAI_COMPATIBLE = "openai-compatible"  # Alias for custom
 
@@ -183,6 +184,16 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         "api_base": "https://openrouter.ai/api/v1",
         "models": [],  # User specifies model name (e.g., "anthropic/claude-3-opus")
         "API_KEY_ENV_VAR": "OPENROUTER_API_KEY",
+    },
+    # MiniMax
+    "minimax": {
+        "provider": "minimax",
+        "api_base": "https://api.minimax.io/v1",
+        "models": [
+            "MiniMax-M2.7",
+            "MiniMax-M2.7-highspeed",
+        ],
+        "API_KEY_ENV_VAR": "MINIMAX_API_KEY",
     },
     # Custom OpenAI-compatible endpoint (e.g., Ollama, vLLM, local models)
     "custom": {
@@ -343,6 +354,8 @@ def determine_provider(
         detected_provider = "cohere"
     elif "sonar" in model_lower:
         detected_provider = "perplexity"
+    elif "minimax" in model_lower:
+        detected_provider = "minimax"
     elif "anthropic." in model_name:
         detected_provider = "bedrock"
 
@@ -426,6 +439,7 @@ def create_model_provider(
         AnthropicProvider,
         BedrockProvider,
         GeminiProvider,
+        MiniMaxProvider,
         SimpleGenericProvider,
     )
 
@@ -445,6 +459,11 @@ def create_model_provider(
         return BedrockProvider(model_name=model_name, **kwargs)
     elif provider == "gemini":
         return GeminiProvider(model_name=model_name, api_key=api_key, **kwargs)
+    elif provider == "minimax":
+        effective_api_base = api_base or MODEL_CONFIGS["minimax"]["api_base"]
+        return MiniMaxProvider(
+            model_name=model_name, api_base=effective_api_base, api_key=api_key, **kwargs
+        )
     elif provider == "custom" or provider == "openai-compatible":
         # Custom OpenAI-compatible endpoint requires api_base
         if not api_base:

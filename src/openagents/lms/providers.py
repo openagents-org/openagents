@@ -399,6 +399,78 @@ class GeminiProvider(BaseModelProvider):
         return []  # Tool calling implementation would go here
 
 
+class MiniMaxProvider(BaseModelProvider):
+    """MiniMax provider using OpenAI-compatible API."""
+
+    def __init__(
+        self,
+        model_name: str,
+        api_base: Optional[str] = None,
+        api_key: Optional[str] = None,
+        **kwargs,
+    ):
+        self.model_name = model_name
+        self.api_base = api_base or "https://api.minimax.io/v1"
+
+        try:
+            from openai import AsyncOpenAI
+        except ImportError:
+            raise ImportError(
+                "openai package is required for MiniMax provider. Install with: pip install openai"
+            )
+
+        effective_api_key = api_key or os.getenv("MINIMAX_API_KEY")
+        if not effective_api_key:
+            logger.warning("No MINIMAX_API_KEY provided for MiniMax provider")
+        self.client = AsyncOpenAI(base_url=self.api_base, api_key=effective_api_key or "dummy")
+
+    async def chat_completion(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Generate chat completion using MiniMax OpenAI-compatible API."""
+        kwargs = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": 1.0,  # MiniMax requires temperature in (0.0, 1.0]
+        }
+
+        if tools:
+            kwargs["tools"] = [{"type": "function", "function": tool} for tool in tools]
+            kwargs["tool_choice"] = "auto"
+
+        response = await self.client.chat.completions.create(**kwargs)
+
+        # Standardize response format
+        message = response.choices[0].message
+        result = {"content": message.content, "tool_calls": []}
+
+        if hasattr(message, "tool_calls") and message.tool_calls:
+            for tool_call in message.tool_calls:
+                result["tool_calls"].append(
+                    {
+                        "id": tool_call.id,
+                        "name": tool_call.function.name,
+                        "arguments": tool_call.function.arguments,
+                    }
+                )
+
+        # Extract token usage
+        if hasattr(response, "usage") and response.usage:
+            result["usage"] = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+            }
+
+        return result
+
+    def format_tools(self, tools: List[Any]) -> List[Dict[str, Any]]:
+        """Format tools for MiniMax function calling."""
+        return [tool.to_openai_function() for tool in tools]
+
+
 class SimpleGenericProvider(BaseModelProvider):
     """Generic provider for OpenAI-compatible APIs (DeepSeek, Qwen, Grok, etc.)."""
 
