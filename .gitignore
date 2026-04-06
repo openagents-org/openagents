@@ -230,3 +230,6 @@ docs/projects
 .playwright-mcp/
 tsconfig.tsbuildinfo
 infra/
+archived_tests/
+internal_frontend/
+Formula/
