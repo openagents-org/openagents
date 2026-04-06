@@ -160,6 +160,10 @@ asyncio_mode = "auto"
 markers = [
     "client: lightweight client tests (no SDK deps)",
     "sdk: tests requiring openagents[sdk] dependencies",
+    "asyncio: mark a test as an asyncio test",
+    "timeout: mark a test with a timeout",
+    "integration: mark a test as an integration test (slower, requires network setup)",
+    "unit: mark a test as a unit test (fast, isolated)",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
