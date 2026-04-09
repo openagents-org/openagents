@@ -1,12 +1,12 @@
 name: cursor
 label: Cursor
-description: AI-powered code editor with agent mode CLI
+description: Cursor official CLI agent
 homepage: https://cursor.com
 tags: [coding, editor, cli, ai]
 builtin: true
 
 install:
-  binary: cursor
+  binary: cursor-agent
   requires: []
   macos: "curl https://cursor.com/install -fsSL | bash"
   linux: "curl https://cursor.com/install -fsSL | bash"
@@ -20,21 +20,16 @@ launch:
   args: []
 
 env_config:
-  - name: OPENAI_API_KEY
-    description: API key for LLM inference
+  - name: CURSOR_API_KEY
+    description: Cursor API key
     required: true
     password: true
+  - name: CURSOR_MODEL
+    description: Optional Cursor model override
+    required: false
+    placeholder: "claude-4-sonnet, gpt-5, auto, etc."
 
 check_ready:
-  env_vars: [OPENAI_API_KEY]
-  saved_env_key: OPENAI_API_KEY
-  not_ready_message: "No API key — press e to configure"
-
-resolve_env:
-  rules:
-    - from: LLM_API_KEY
-      to: OPENAI_API_KEY
-    - from: LLM_BASE_URL
-      to: OPENAI_BASE_URL
-    - from: LLM_MODEL
-      to: CURSOR_MODEL
+  env_vars: [CURSOR_API_KEY]
+  saved_env_key: CURSOR_API_KEY
+  not_ready_message: "Cursor API key not configured — press e to configure"

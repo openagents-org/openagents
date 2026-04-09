@@ -186,7 +186,7 @@
   {
     "name": "cursor",
     "label": "Cursor",
-    "description": "AI-powered code editor with agent mode CLI",
+    "description": "Cursor official CLI agent",
     "homepage": "https://cursor.com",
     "tags": [
       "coding",
@@ -196,9 +196,9 @@
     ],
     "builtin": true,
     "install": {
-      "binary": "cursor",
-      "verify": "cursor --version 2>/dev/null | grep -qi cursor",
-      "verify_win": "cursor --version 2>nul | findstr /i cursor",
+      "binary": "cursor-agent",
+      "verify": "cursor-agent --version >/dev/null 2>&1",
+      "verify_win": "cursor-agent --version >nul 2>nul",
       "requires": [
         null
       ],
@@ -217,28 +217,30 @@
     },
     "env_config": [
       {
-        "name": "OPENAI_API_KEY",
-        "description": "API key for LLM inference",
+        "name": "CURSOR_API_KEY",
+        "description": "Cursor API key",
         "required": true,
         "password": true
+      },
+      {
+        "name": "CURSOR_MODEL",
+        "description": "Optional Cursor model override",
+        "required": false,
+        "placeholder": "claude-4-sonnet, gpt-5, auto, etc."
       }
     ],
     "check_ready": {
       "env_vars": [
-        "OPENAI_API_KEY"
+        "CURSOR_API_KEY"
       ],
-      "saved_env_key": "OPENAI_API_KEY",
-      "not_ready_message": "No API key \u2014 press e to configure"
+      "saved_env_key": "CURSOR_API_KEY",
+      "not_ready_message": "Cursor API key not configured \u2014 press e to configure"
     },
     "resolve_env": {
       "rules": [
         {
           "from": "LLM_API_KEY",
-          "to": "OPENAI_API_KEY"
-        },
-        {
-          "from": "LLM_BASE_URL",
-          "to": "OPENAI_BASE_URL"
+          "to": "CURSOR_API_KEY"
         },
         {
           "from": "LLM_MODEL",

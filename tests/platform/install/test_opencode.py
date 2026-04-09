@@ -1,38 +1,36 @@
 """
-Platform install tests for Cursor agent.
+Platform install tests for OpenCode agent.
 
-Tests the real user experience: `openagents install cursor`
-and verifies the official `cursor-agent` binary is available.
+Tests the real user experience: `openagents install opencode`
+across Linux, macOS, and Windows.
 
 Run:
-    pytest tests/platform/install/test_cursor.py -v
+    pytest tests/platform/install/test_opencode.py -v
 """
 
-import subprocess
 import shutil
+import subprocess
 
 import pytest
 
 from tests.platform.conftest import run_cmd, run_openagents, safe_print, agent_config
 
 
-AGENT_TYPE = "cursor"
+AGENT_TYPE = "opencode"
 _cfg = agent_config(AGENT_TYPE)
 BINARY_NAME = _cfg.get("binary", AGENT_TYPE)
 
 
-class TestCursorInstall:
-    """Test installing Cursor via `openagents install cursor`."""
+class TestOpenCodeInstall:
+    """Test installing OpenCode via `openagents install opencode`."""
 
     def test_openagents_cli_available(self, has_openagents):
-        """`openagents` CLI must be available."""
         assert has_openagents, (
             "openagents CLI is not installed. "
             "Run: pip install openagents"
         )
 
-    def test_openagents_install_cursor(self):
-        """`openagents install cursor --yes` should succeed."""
+    def test_openagents_install_opencode(self):
         try:
             result = run_openagents("install", AGENT_TYPE, "--yes", timeout=300)
         except subprocess.TimeoutExpired:
@@ -55,7 +53,6 @@ class TestCursorInstall:
         )
 
     def test_binary_on_path(self):
-        """After install, `cursor-agent` should be on PATH."""
         path = shutil.which(BINARY_NAME)
         assert path is not None, (
             f"'{BINARY_NAME}' not found on PATH after "
@@ -63,7 +60,6 @@ class TestCursorInstall:
         )
 
     def test_binary_version(self):
-        """`cursor-agent --version` should return a version string."""
         if shutil.which(BINARY_NAME) is None:
             pytest.skip(f"'{BINARY_NAME}' not on PATH")
 
@@ -76,11 +72,10 @@ class TestCursorInstall:
         assert len(result.stdout.strip()) > 0, "Version output is empty"
 
 
-class TestCursorInstallReport:
+class TestOpenCodeInstallReport:
     """Collect environment info for the test report."""
 
     def test_report_environment(self, os_platform, openagents_version):
-        """Log environment details (always passes, for diagnostics)."""
         binary_path = shutil.which(BINARY_NAME)
         report = {
             "platform": os_platform,

@@ -26,7 +26,7 @@ function runWithConfig(tmpDir, ...args) {
 describe('CLI', () => {
   it('help', () => {
     const out = run('help');
-    assert.ok(out.includes('Usage: agent-connector'));
+    assert.ok(out.includes('Usage: agn'));
     assert.ok(out.includes('up'));
     assert.ok(out.includes('down'));
     assert.ok(out.includes('search'));
@@ -34,12 +34,12 @@ describe('CLI', () => {
 
   it('--help flag', () => {
     const out = run('--help');
-    assert.ok(out.includes('Usage: agent-connector'));
+    assert.ok(out.includes('Usage: agn'));
   });
 
   it('version', () => {
     const out = run('version');
-    assert.ok(out.includes('@openagents-org/agent-connector'));
+    assert.ok(out.includes('@openagents-org/agent-launcher'));
     const pkg = require('../package.json');
     assert.ok(out.includes(pkg.version));
   });

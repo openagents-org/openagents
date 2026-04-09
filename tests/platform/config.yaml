@@ -34,8 +34,15 @@ agents:
       - OPENAI_API_KEY
 
   cursor:
-    binary: cursor
-    model: claude-sonnet-4-6
+    binary: cursor-agent
+    model: auto
+    credential_env:
+      - CURSOR_API_KEY
+
+  opencode:
+    binary: opencode
+    model: gpt-5.4
     credential_env:
       - LLM_API_KEY
       - OPENAI_API_KEY
+      - ANTHROPIC_API_KEY

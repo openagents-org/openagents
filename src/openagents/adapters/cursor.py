@@ -1,35 +1,37 @@
 """
-Cursor adapter for OpenAgents workspace.
+Cursor CLI adapter for OpenAgents workspace.
 
-Bridges Cursor to an OpenAgents workspace via:
+Bridges the official ``cursor-agent`` CLI to an OpenAgents workspace via:
 - Polling loop for incoming messages
-- Direct HTTP mode for OpenAI-compatible LLM APIs (primary)
-- Workspace context injected via system prompt
-
-In direct mode (when OPENAI_API_KEY and OPENAI_BASE_URL are set),
-the adapter calls the chat completions API directly — no Cursor
-CLI binary or subscription needed.
+- Cursor CLI subprocess execution with JSON output
+- OpenAgents MCP server exposed through Cursor's global ``mcp.json``
+- Per-channel session resume for conversation continuity
 """
 
+import asyncio
 import json
 import logging
 import os
-from typing import Optional
-
-import aiohttp
+from pathlib import Path
+from typing import Any, Optional
 
 from openagents.adapters.base import BaseAdapter
+from openagents.adapters.utils import (
+    ensure_runtime_env_home,
+    find_executable,
+    first_text,
+    format_attachments_for_prompt,
+    write_json_file,
+    build_workspace_mcp_server,
+)
 from openagents.adapters.workspace_prompt import build_openclaw_system_prompt
 from openagents.workspace_client import DEFAULT_ENDPOINT
 
 logger = logging.getLogger(__name__)
 
-# Max conversation history entries to keep in memory
-MAX_HISTORY_ENTRIES = 50
-
 
 class CursorAdapter(BaseAdapter):
-    """Connects Cursor to an OpenAgents workspace."""
+    """Connects Cursor CLI to an OpenAgents workspace."""
 
     def __init__(
         self,
@@ -43,32 +45,44 @@ class CursorAdapter(BaseAdapter):
     ):
         super().__init__(workspace_id, channel_name, token, agent_name, endpoint)
         self.disabled_modules = disabled_modules or set()
-
-        # Direct LLM API mode
-        self._direct_api_key = os.environ.get("OPENAI_API_KEY", "")
-        self._direct_base_url = os.environ.get("OPENAI_BASE_URL", "").rstrip("/")
-        self._direct_model = (
-            os.environ.get("CURSOR_MODEL", "")
-            or os.environ.get("OPENCLAW_MODEL", "")
+        self.working_dir = working_dir
+        self._cursor_binary = find_executable("cursor-agent", "cursor")
+        self._cursor_model = os.environ.get("CURSOR_MODEL", "").strip()
+        self._sessions_file = (
+            Path.home() / ".openagents" / "sessions" / f"{workspace_id}_{agent_name}_cursor.json"
         )
-        self._direct_mode = bool(self._direct_api_key and self._direct_base_url)
+        self._runtime_home = (
+            Path.home() / ".openagents" / "runtime" / "cursor" / f"{workspace_id}_{agent_name}"
+        )
+        self._channel_sessions: dict[str, str] = {}
+        self._load_sessions()
 
-        if self._direct_mode:
-            logger.info(
-                f"Direct LLM mode: {self._direct_base_url} "
-                f"model={self._direct_model or 'gpt-4o'}"
-            )
-        else:
-            logger.warning(
-                "Cursor adapter started without direct API config. "
-                "Set OPENAI_API_KEY + OPENAI_BASE_URL for direct mode."
-            )
+    def _load_sessions(self):
+        try:
+            if self._sessions_file.exists():
+                data = json.loads(self._sessions_file.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    self._channel_sessions.update(
+                        {
+                            str(channel): str(session_id)
+                            for channel, session_id in data.items()
+                            if session_id
+                        }
+                    )
+        except Exception:
+            logger.debug("Could not load Cursor session state", exc_info=True)
 
-        # Conversation history for multi-turn context
-        self._conversation_history: list[dict] = []
+    def _save_sessions(self):
+        try:
+            self._sessions_file.parent.mkdir(parents=True, exist_ok=True)
+            self._sessions_file.write_text(
+                json.dumps(self._channel_sessions, indent=2),
+                encoding="utf-8",
+            )
+        except Exception:
+            logger.debug("Could not save Cursor session state", exc_info=True)
 
     def _build_system_prompt(self, channel_name: str) -> str:
-        """Build workspace context system prompt."""
         return build_openclaw_system_prompt(
             agent_name=self.agent_name,
             workspace_id=self.workspace_id,
@@ -79,117 +93,195 @@ class CursorAdapter(BaseAdapter):
             disabled_modules=self.disabled_modules,
         )
 
+    def _cursor_env(self, channel_name: str) -> dict[str, str]:
+        runtime_home = self._runtime_home
+        env = ensure_runtime_env_home(os.environ, runtime_home)
+        env["CURSOR_API_KEY"] = os.environ.get("CURSOR_API_KEY", "")
+        mcp_config = {
+            "mcpServers": build_workspace_mcp_server(
+                self.workspace_id,
+                channel_name,
+                self.agent_name,
+                self.endpoint,
+                self.token,
+                disable_files="files" in self.disabled_modules,
+                disable_browser="browser" in self.disabled_modules,
+            )
+        }
+        write_json_file(runtime_home / ".cursor" / "mcp.json", mcp_config)
+        return env
+
+    def _extract_tool_name(self, event: dict[str, Any]) -> str:
+        for key in ("tool_name", "toolName", "name"):
+            if isinstance(event.get(key), str) and event[key]:
+                return event[key]
+        for container_key in ("tool_call", "tool", "call"):
+            container = event.get(container_key)
+            if isinstance(container, dict):
+                for key in ("name", "tool", "toolName"):
+                    if isinstance(container.get(key), str) and container[key]:
+                        return container[key]
+        return ""
+
+    def _extract_session_id(self, event: dict[str, Any]) -> str:
+        for key in ("session_id", "sessionId", "conversation_id", "conversationId"):
+            value = event.get(key)
+            if isinstance(value, str) and value:
+                return value
+        result = event.get("result")
+        if isinstance(result, dict):
+            for key in ("session_id", "sessionId", "conversation_id", "conversationId"):
+                value = result.get(key)
+                if isinstance(value, str) and value:
+                    return value
+        return ""
+
+    def _extract_result_text(self, event: dict[str, Any]) -> str:
+        candidates = [
+            event.get("result"),
+            event.get("message"),
+            event.get("content"),
+            event.get("text"),
+            event.get("output"),
+            event.get("assistant_message"),
+        ]
+        for candidate in candidates:
+            text = first_text(candidate).strip()
+            if text:
+                return text
+        return ""
+
+    def _build_cursor_cmd(self, prompt: str, channel_name: str) -> list[str]:
+        if not self._cursor_binary:
+            raise FileNotFoundError(
+                "cursor-agent CLI not found. Install Cursor CLI and ensure 'cursor-agent' is on PATH."
+            )
+
+        full_prompt = f"{self._build_system_prompt(channel_name)}\n\n---\n\n{prompt}"
+
+        cmd = [
+            self._cursor_binary,
+            "-p",
+            full_prompt,
+            "--print",
+            "--output-format",
+            "stream-json",
+        ]
+        if self._mode != "plan":
+            cmd.append("--force")
+        if self._cursor_model:
+            cmd.extend(["-m", self._cursor_model])
+
+        session_id = self._channel_sessions.get(channel_name)
+        if session_id:
+            cmd.extend(["--resume", session_id])
+
+        return cmd
+
     async def _handle_message(self, msg: dict):
-        """Process a single incoming message."""
         content = msg.get("content", "").strip()
+        attachments = msg.get("attachments", [])
+
+        att_text = format_attachments_for_prompt(attachments)
+        if att_text:
+            content = (content + att_text) if content else att_text.strip()
         if not content:
             return
 
-        msg_channel = msg.get("sessionId") or self.channel_name
+        if not os.environ.get("CURSOR_API_KEY"):
+            await self._send_error(
+                msg.get("sessionId") or self.channel_name,
+                "Cursor is not configured. Set CURSOR_API_KEY and restart the agent.",
+            )
+            return
 
+        msg_channel = msg.get("sessionId") or self.channel_name
         sender = msg.get("senderName") or msg.get("senderType", "user")
         logger.info(
-            f"Processing message from {sender} in channel "
-            f"{msg_channel}: {content[:80]}..."
+            "Processing Cursor message from %s in channel %s: %s...",
+            sender,
+            msg_channel,
+            content[:80],
         )
 
         await self._auto_title_channel(msg_channel, content)
         await self._send_status(msg_channel, "thinking...")
 
         try:
-            if self._direct_mode:
-                response_text = await self._call_completion_api(
-                    content, msg_channel
+            cmd = self._build_cursor_cmd(content, msg_channel)
+        except FileNotFoundError as exc:
+            await self._send_error(msg_channel, str(exc))
+            return
+
+        env = self._cursor_env(msg_channel)
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            cwd=self.working_dir,
+        )
+
+        final_chunks: list[str] = []
+        last_text = ""
+
+        try:
+            assert process.stdout is not None
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+
+                raw = line.decode("utf-8", errors="replace").strip()
+                if not raw:
+                    continue
+
+                try:
+                    event = json.loads(raw)
+                except json.JSONDecodeError:
+                    logger.debug("Cursor non-JSON line: %s", raw[:200])
+                    continue
+
+                session_id = self._extract_session_id(event)
+                if session_id:
+                    self._channel_sessions[msg_channel] = session_id
+                    self._save_sessions()
+
+                event_type = event.get("type", "")
+                if event_type == "tool_call_started":
+                    tool_name = self._extract_tool_name(event) or "tool"
+                    await self._send_status(msg_channel, f"Using tool: `{tool_name}`")
+                    continue
+                if event_type in {"tool_call_completed", "tool_call_finished"}:
+                    continue
+
+                text = self._extract_result_text(event)
+                if text and text != last_text:
+                    last_text = text
+                    if event_type == "result":
+                        final_chunks = [text]
+                    else:
+                        final_chunks.append(text)
+
+            returncode = await process.wait()
+            stderr_text = ""
+            if process.stderr is not None:
+                stderr_text = (
+                    (await process.stderr.read()).decode("utf-8", errors="replace").strip()
                 )
-            else:
-                response_text = ""
-                await self._send_error(
-                    msg_channel,
-                    "Cursor direct API mode not configured. "
-                    "Set OPENAI_API_KEY + OPENAI_BASE_URL.",
-                )
+
+            if returncode != 0:
+                detail = stderr_text or "cursor-agent exited with an error"
+                await self._send_error(msg_channel, detail[:1200])
                 return
 
-            if response_text:
-                self._conversation_history.append(
-                    {"role": "user", "content": content}
-                )
-                self._conversation_history.append(
-                    {"role": "assistant", "content": response_text}
-                )
-                if len(self._conversation_history) > MAX_HISTORY_ENTRIES * 2:
-                    self._conversation_history = (
-                        self._conversation_history[-MAX_HISTORY_ENTRIES * 2 :]
-                    )
-                await self._send_response(msg_channel, response_text)
-            else:
-                await self._send_response(
-                    msg_channel, "No response generated. Please try again."
-                )
-
-        except Exception as e:
-            logger.exception(f"Error handling message: {e}")
-            await self._send_error(
-                msg_channel, f"Error processing message: {e}"
-            )
-
-    async def _call_completion_api(
-        self, user_message: str, channel: str
-    ) -> str:
-        """Call OpenAI-compatible chat completions API directly."""
-        system_prompt = self._build_system_prompt(channel)
-
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(self._conversation_history)
-        messages.append({"role": "user", "content": user_message})
-
-        url = f"{self._direct_base_url}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self._direct_api_key}",
-        }
-        payload = {
-            "model": self._direct_model or "gpt-4o",
-            "messages": messages,
-            "stream": True,
-        }
-
-        full_text = ""
-
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                url,
-                headers=headers,
-                json=payload,
-                timeout=aiohttp.ClientTimeout(total=300),
-            ) as resp:
-                if resp.status != 200:
-                    body = await resp.text()
-                    raise RuntimeError(
-                        f"LLM API returned {resp.status}: {body[:300]}"
-                    )
-
-                async for line in resp.content:
-                    line = line.decode("utf-8", errors="replace").strip()
-                    if not line or not line.startswith("data: "):
-                        continue
-
-                    data = line[6:]
-                    if data == "[DONE]":
-                        break
-
-                    try:
-                        chunk = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
-
-                    choices = chunk.get("choices", [])
-                    if not choices:
-                        continue
-
-                    delta = choices[0].get("delta", {})
-                    text = delta.get("content")
-                    if text:
-                        full_text += text
-
-        return full_text.strip()
+            response = "\n".join(chunk for chunk in final_chunks if chunk).strip()
+            if not response:
+                response = stderr_text.strip()
+            if not response:
+                response = "No response generated. Please try again."
+            await self._send_response(msg_channel, response)
+        finally:
+            if process.returncode is None:
+                process.kill()
+                await process.wait()

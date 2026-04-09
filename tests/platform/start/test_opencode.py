@@ -1,25 +1,26 @@
 """
-Platform start tests for Cursor agent.
+Platform start tests for OpenCode agent.
 
-Tests that `openagents create cursor` can launch the agent daemon
-using the official Cursor CLI runtime.
+Tests that `openagents create opencode` can launch the agent daemon.
 
 Run:
-    pytest tests/platform/start/test_cursor.py -v
+    pytest tests/platform/start/test_opencode.py -v
 """
 
-import time
 import shutil
+import time
 
 import pytest
 
 from tests.platform.conftest import (
-    run_cmd, run_openagents, safe_print,
-    is_daemon_running_with_agents, agent_config,
+    run_openagents,
+    safe_print,
+    is_daemon_running_with_agents,
+    agent_config,
 )
 
 
-AGENT_NAME = "cursor"
+AGENT_NAME = "opencode"
 _cfg = agent_config(AGENT_NAME)
 BINARY_NAME = _cfg.get("binary", AGENT_NAME)
 
@@ -31,23 +32,20 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(autouse=True)
 def cleanup_agent():
-    """Remove the test agent after each test; daemon stays running."""
     yield
     run_openagents("remove", AGENT_NAME, timeout=10, stdin_text="y\n")
 
 
-class TestCursorStart:
-    """Test starting Cursor via `openagents create cursor`."""
+class TestOpenCodeStart:
+    """Test starting OpenCode via `openagents create opencode`."""
 
     def test_agent_installed(self):
-        """Cursor CLI must be installed before start tests run."""
         assert shutil.which(BINARY_NAME) is not None, (
             f"'{BINARY_NAME}' not on PATH. "
-            f"Run install tests first: pytest tests/platform/install/test_cursor.py"
+            f"Run install tests first: pytest tests/platform/install/test_opencode.py"
         )
 
     def test_openagents_start(self):
-        """`openagents create cursor` should launch the daemon."""
         result = run_openagents(
             "create", AGENT_NAME, "--name", AGENT_NAME, "--no-browser",
             timeout=30,
@@ -61,7 +59,6 @@ class TestCursorStart:
         )
 
     def test_daemon_running(self):
-        """After start, `openagents status` should show daemon running."""
         run_openagents("create", AGENT_NAME, "--name", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
         time.sleep(2)
 
@@ -74,7 +71,6 @@ class TestCursorStart:
         )
 
     def test_agent_remove(self):
-        """`openagents remove` should remove the agent without killing the daemon."""
         run_openagents("create", AGENT_NAME, "--name", AGENT_NAME, "--no-browser", timeout=30, stdin_text="y\n\n")
         time.sleep(2)
 
@@ -92,11 +88,10 @@ class TestCursorStart:
         )
 
 
-class TestCursorStartReport:
+class TestOpenCodeStartReport:
     """Collect environment info for the test report."""
 
     def test_report_environment(self, os_platform, openagents_version):
-        """Log environment details (always passes, for diagnostics)."""
         binary_path = shutil.which(BINARY_NAME)
         report = {
             "platform": os_platform,

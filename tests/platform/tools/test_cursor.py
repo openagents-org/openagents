@@ -171,4 +171,4 @@ class TestCursorToolsReport:
         """Log environment details."""
         safe_print(f"  platform: {os_platform}")
         safe_print(f"  openagents_version: {openagents_version}")
-        safe_print(f"  agent_binary: {shutil.which(BINARY_NAME) or '(direct API mode)'}")
+        safe_print(f"  agent_binary: {shutil.which(BINARY_NAME)}")

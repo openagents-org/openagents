@@ -1,46 +1,49 @@
 /**
- * OpenCode adapter for OpenAgents workspace.
+ * OpenCode CLI adapter for OpenAgents workspace.
  *
- * Bridges OpenCode (opencode-ai) to an OpenAgents workspace by running
- * `opencode run --format json` as a subprocess. OpenCode handles its own
- * model configuration, provider selection, and tool chain.
- *
- * Port of Python PR #316: src/openagents/adapters/opencode.py
+ * Bridges the official `opencode` CLI to an OpenAgents workspace via:
+ * - Polling loop for incoming messages
+ * - `opencode run --format json` subprocess execution
+ * - Runtime-injected OpenCode config for model/provider/MCP settings
+ * - Per-channel session resume for conversation continuity
  */
 
 'use strict';
 
 const fs = require('fs');
-const path = require('path');
 const os = require('os');
+const path = require('path');
 const { execSync, spawn } = require('child_process');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt } = require('./utils');
-const { buildOpenCodeSkillMd, buildOpenCodeSystemPrompt } = require('./workspace-prompt');
+const {
+  ensureRuntimeEnvHome,
+  findExecutable,
+  firstText,
+  formatAttachmentsForPrompt,
+  getCliInvocation,
+} = require('./utils');
+const { buildOpenCodeSystemPrompt } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
 
 class OpenCodeAdapter extends BaseAdapter {
-  /**
-   * @param {object} opts - BaseAdapter opts plus:
-   * @param {Set} [opts.disabledModules]
-   * @param {string} [opts.workingDir]
-   */
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
-
-    // Agent home directory: ~/.openagents/agents/{agentName}/
-    this.agentHome = path.join(os.homedir(), '.openagents', 'agents', this.agentName);
-    fs.mkdirSync(this.agentHome, { recursive: true });
-
+    this._opencodeBinary = findExecutable('opencode') || this._findOpencodeBinary();
+    this._runtimeRoot = path.join(
+      os.homedir(), '.openagents', 'runtime', 'opencode',
+      `${this.workspaceId}_${this.agentName}`
+    );
+    this._sessionsFile = path.join(
+      os.homedir(), '.openagents', 'sessions',
+      `${this.workspaceId}_${this.agentName}_opencode.json`
+    );
     this._channelSessions = {};
-    this._sessionsFile = path.join(this.agentHome, 'sessions.json');
     this._migrateSessionsFile();
     this._loadSessions();
 
-    this._opencodeBinary = this._findOpencodeBinary();
     if (this._opencodeBinary) {
       this._log(`Using OpenCode subprocess mode: ${this._opencodeBinary}`);
     } else {
@@ -48,18 +51,14 @@ class OpenCodeAdapter extends BaseAdapter {
     }
   }
 
-  /**
-   * Migrate sessions file from old location to agent home.
-   */
   _migrateSessionsFile() {
     const oldPath = path.join(
-      os.homedir(), '.openagents', 'sessions',
-      `${this.workspaceId}_${this.agentName}_opencode.json`
+      os.homedir(), '.openagents', 'agents', this.agentName, 'sessions.json'
     );
     try {
       if (fs.existsSync(oldPath) && !fs.existsSync(this._sessionsFile)) {
+        fs.mkdirSync(path.dirname(this._sessionsFile), { recursive: true });
         fs.copyFileSync(oldPath, this._sessionsFile);
-        fs.unlinkSync(oldPath);
         this._log(`Migrated sessions file from ${oldPath}`);
       }
     } catch {}
@@ -67,42 +66,21 @@ class OpenCodeAdapter extends BaseAdapter {
 
   _loadSessions() {
     try {
-      if (fs.existsSync(this._sessionsFile)) {
-        const data = JSON.parse(fs.readFileSync(this._sessionsFile, 'utf-8'));
-        if (data && typeof data === 'object') {
-          Object.assign(this._channelSessions, data);
-          this._log(`Loaded ${Object.keys(data).length} session(s)`);
-        }
+      if (!fs.existsSync(this._sessionsFile)) return;
+      const data = JSON.parse(fs.readFileSync(this._sessionsFile, 'utf-8'));
+      if (!data || typeof data !== 'object') return;
+      for (const [channel, sessionId] of Object.entries(data)) {
+        if (sessionId) this._channelSessions[String(channel)] = String(sessionId);
       }
     } catch {
-      this._log('Could not load sessions file, starting fresh');
+      this._log('Could not load OpenCode session state');
     }
   }
 
   _saveSessions() {
     try {
       fs.mkdirSync(path.dirname(this._sessionsFile), { recursive: true });
-      fs.writeFileSync(this._sessionsFile, JSON.stringify(this._channelSessions));
-    } catch {}
-  }
-
-  /**
-   * Write workspace skill to OpenCode's skill directory for auto-discovery.
-   */
-  _ensureWorkspaceSkill(channelName) {
-    const skillDir = path.join(this.agentHome, '.opencode', 'skills');
-    const skillFile = path.join(skillDir, 'openagents-workspace.md');
-    try {
-      const content = buildOpenCodeSkillMd({
-        endpoint: this.endpoint,
-        workspaceId: this.workspaceId,
-        token: this.token,
-        agentName: this.agentName,
-        channelName,
-        disabledModules: this.disabledModules,
-      });
-      fs.mkdirSync(skillDir, { recursive: true });
-      fs.writeFileSync(skillFile, content, 'utf-8');
+      fs.writeFileSync(this._sessionsFile, JSON.stringify(this._channelSessions, null, 2));
     } catch {}
   }
 
@@ -118,261 +96,372 @@ class OpenCodeAdapter extends BaseAdapter {
     });
   }
 
-  // ------------------------------------------------------------------
-  // Binary discovery
-  // ------------------------------------------------------------------
+  _resolveProviderConfig() {
+    const env = this.agentEnv || process.env;
+    let modelName = (
+      env.OPENCODE_MODEL ||
+      env.LLM_MODEL ||
+      env.OPENCLAW_MODEL ||
+      ''
+    ).trim();
+    const llmBaseUrl = (env.LLM_BASE_URL || env.OPENAI_BASE_URL || '').trim();
+    const llmApiKey = (env.LLM_API_KEY || env.OPENAI_API_KEY || env.ANTHROPIC_API_KEY || '').trim();
+
+    if (llmBaseUrl) {
+      modelName = modelName || 'gpt-5.4';
+      const providerId = 'openagents-openai-compatible';
+      return {
+        modelRef: `${providerId}/${modelName}`,
+        provider: {
+          [providerId]: {
+            npm: '@ai-sdk/openai-compatible',
+            name: 'OpenAgents OpenAI-compatible',
+            options: {
+              baseURL: llmBaseUrl,
+              apiKey: llmApiKey,
+            },
+            models: {
+              [modelName]: {
+                name: modelName,
+              },
+            },
+          },
+        },
+      };
+    }
+
+    if (env.ANTHROPIC_API_KEY && (modelName.startsWith('claude') || !modelName)) {
+      modelName = modelName || 'claude-sonnet-4-5';
+      return {
+        modelRef: `anthropic/${modelName}`,
+        provider: {
+          anthropic: {
+            options: {
+              apiKey: env.ANTHROPIC_API_KEY,
+            },
+          },
+        },
+      };
+    }
+
+    modelName = modelName || 'gpt-5.4';
+    return {
+      modelRef: `openai/${modelName}`,
+      provider: {
+        openai: {
+          options: {
+            apiKey: env.OPENAI_API_KEY || llmApiKey,
+          },
+        },
+      },
+    };
+  }
+
+  _runtimeEnv(channelName) {
+    const { modelRef, provider } = this._resolveProviderConfig();
+    fs.mkdirSync(this._runtimeRoot, { recursive: true });
+
+    const cli = getCliInvocation();
+    const command = [
+      cli.command,
+      ...cli.args,
+      'mcp-server',
+      '--workspace-id',
+      this.workspaceId,
+      '--channel-name',
+      channelName,
+      '--agent-name',
+      this.agentName,
+      '--endpoint',
+      this.endpoint,
+    ];
+    if (this.disabledModules.has('files')) command.push('--disable-files');
+    if (this.disabledModules.has('browser')) command.push('--disable-browser');
+
+    const config = {
+      $schema: 'https://opencode.ai/config.json',
+      model: modelRef,
+      provider,
+      permission: this._mode !== 'plan'
+        ? { '*': 'allow' }
+        : { '*': 'allow', edit: 'deny', bash: 'deny', task: 'deny' },
+      mcp: {
+        'openagents-workspace': {
+          type: 'local',
+          command,
+          enabled: true,
+          environment: {
+            OA_WORKSPACE_TOKEN: this.token,
+          },
+        },
+      },
+    };
+
+    const env = ensureRuntimeEnvHome(this.agentEnv || process.env, path.join(this._runtimeRoot, 'home'));
+    env.OPENCODE_CONFIG_CONTENT = JSON.stringify(config);
+    env.XDG_CONFIG_HOME = path.join(this._runtimeRoot, 'config');
+    env.XDG_DATA_HOME = path.join(this._runtimeRoot, 'data');
+    env.XDG_STATE_HOME = path.join(this._runtimeRoot, 'state');
+    return { env, modelRef };
+  }
 
   _findOpencodeBinary() {
-    // Tier 1: PATH
     try {
       if (IS_WINDOWS) {
-        const r = execSync('where opencode.cmd 2>nul || where opencode.exe 2>nul || where opencode 2>nul', {
-          encoding: 'utf-8', timeout: 5000,
+        const result = execSync('where opencode.cmd 2>nul || where opencode.exe 2>nul || where opencode 2>nul', {
+          encoding: 'utf-8',
+          timeout: 5000,
         });
-        return r.split(/\r?\n/)[0].trim();
-      } else {
-        return execSync('which opencode', { encoding: 'utf-8', timeout: 5000 }).trim();
+        return result.split(/\r?\n/)[0].trim();
       }
+      return execSync('which opencode', { encoding: 'utf-8', timeout: 5000 }).trim();
     } catch {}
 
-    // Tier 2: Next to Node.js
     const ext = IS_WINDOWS ? '.cmd' : '';
     const nearNode = path.join(path.dirname(process.execPath), `opencode${ext}`);
     if (fs.existsSync(nearNode)) return nearNode;
 
-    // Tier 3: Common locations
     const home = os.homedir();
-    const candidates = IS_WINDOWS ? [
-      path.join(process.env.APPDATA || '', 'npm', 'opencode.cmd'),
-    ] : [
-      path.join(home, '.openagents', 'npm-global', 'bin', 'opencode'),
-      path.join(home, '.npm-global', 'bin', 'opencode'),
-      path.join(home, '.local', 'bin', 'opencode'),
-      '/usr/local/bin/opencode',
-    ];
-    for (const c of candidates) {
-      if (fs.existsSync(c)) return c;
+    const candidates = IS_WINDOWS
+      ? [path.join(process.env.APPDATA || '', 'npm', 'opencode.cmd')]
+      : [
+          path.join(home, '.openagents', 'npm-global', 'bin', 'opencode'),
+          path.join(home, '.npm-global', 'bin', 'opencode'),
+          path.join(home, '.local', 'bin', 'opencode'),
+          '/usr/local/bin/opencode',
+        ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return candidate;
     }
     return null;
   }
 
-  // ------------------------------------------------------------------
-  // Message handler
-  // ------------------------------------------------------------------
-
-  async _handleMessage(msg) {
-    let content = (msg.content || '').trim();
-    const attachments = msg.attachments || [];
-
-    const attText = formatAttachmentsForPrompt(attachments);
-    if (attText) {
-      content = content ? content + attText : attText.trim();
-    }
-
-    if (!content) return;
-
-    const msgChannel = msg.sessionId || this.channelName;
-    const sender = msg.senderName || msg.senderType || 'user';
-    this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
-
-    await this._autoTitleChannel(msgChannel, content);
-    await this.sendStatus(msgChannel, 'thinking...');
-
-    try {
-      const responseText = await this._runOpencode(content, msgChannel);
-
-      if (responseText) {
-        await this.sendResponse(msgChannel, responseText);
-      } else {
-        await this.sendResponse(msgChannel, 'No response generated. Please try again.');
+  _extractSessionId(event) {
+    const properties = event.properties;
+    if (properties && typeof properties === 'object') {
+      if (typeof properties.sessionID === 'string' && properties.sessionID) {
+        return properties.sessionID;
       }
-    } catch (e) {
-      this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // JSON output parsing
-  // ------------------------------------------------------------------
-
-  /**
-   * Split a string containing concatenated JSON objects.
-   */
-  static _splitJsonObjects(raw) {
-    const objects = [];
-    raw = raw.trim();
-    let pos = 0;
-    while (pos < raw.length) {
-      if (' \t\r\n'.includes(raw[pos])) { pos++; continue; }
-      if (raw[pos] !== '{') { pos++; continue; }
-      // Find matching brace
-      let depth = 0;
-      let inStr = false;
-      let escape = false;
-      let start = pos;
-      for (let i = pos; i < raw.length; i++) {
-        const ch = raw[i];
-        if (escape) { escape = false; continue; }
-        if (ch === '\\' && inStr) { escape = true; continue; }
-        if (ch === '"') { inStr = !inStr; continue; }
-        if (inStr) continue;
-        if (ch === '{') depth++;
-        else if (ch === '}') {
-          depth--;
-          if (depth === 0) {
-            try {
-              const obj = JSON.parse(raw.slice(start, i + 1));
-              if (typeof obj === 'object' && obj !== null) objects.push(obj);
-            } catch {}
-            pos = i + 1;
-            break;
-          }
-        }
-        if (i === raw.length - 1) pos = raw.length; // no match, skip
-      }
-      if (depth !== 0) break; // unbalanced, stop
-    }
-    return objects;
-  }
-
-  /**
-   * Extract user-visible text from a single opencode JSON event.
-   */
-  static _extractTextFromEvent(event) {
-    const eventType = event.type || '';
-    if (['step_start', 'step_finish', 'tool_use'].includes(eventType)) return null;
-
-    const part = event.part;
-    if (part && typeof part === 'object') {
-      const text = part.text || part.content || '';
-      if (text) return text;
-    }
-
-    const item = event.item || event;
-    const text = item.text || item.content || '';
-    return text || null;
-  }
-
-  /**
-   * Extract human-readable text from opencode --format json output.
-   */
-  static _extractTextFromJson(raw) {
-    const events = OpenCodeAdapter._splitJsonObjects(raw);
-    if (!events.length) return raw.trim();
-
-    const texts = [];
-    for (const event of events) {
-      const text = OpenCodeAdapter._extractTextFromEvent(event);
-      if (text) texts.push(text);
-    }
-    return texts.length ? texts.join('\n').trim() : raw.trim();
-  }
-
-  /**
-   * Extract and persist session_id from OpenCode JSON events.
-   */
-  _persistSessionId(channel, rawOutput) {
-    const events = OpenCodeAdapter._splitJsonObjects(rawOutput);
-    let sessionId = null;
-    for (const event of events) {
-      let sid = event.sessionID;
-      if (!sid && event.session && typeof event.session === 'object') {
-        sid = event.session.id;
-      }
-      if (!sid && event.part && typeof event.part === 'object') {
-        sid = event.part.sessionID;
-      }
-      if (sid && typeof sid === 'string') sessionId = sid;
-    }
-
-    if (sessionId) {
-      const prev = this._channelSessions[channel];
-      this._channelSessions[channel] = sessionId;
-      this._saveSessions();
-      if (prev !== sessionId) {
-        this._log(`OpenCode session for channel ${channel}: ${sessionId}`);
+      const info = properties.info;
+      if (info && typeof info === 'object' && typeof info.id === 'string' && info.id) {
+        return info.id;
       }
     }
+    return '';
   }
 
-  // ------------------------------------------------------------------
-  // Subprocess execution
-  // ------------------------------------------------------------------
+  _toolStatusText(part) {
+    const toolName = part.tool || 'tool';
+    const state = part.state || {};
+    const status = state.status;
+    const title = firstText(state.title || state.metadata || '').trim();
+    if (status === 'running') return title || `Using tool: \`${toolName}\``;
+    if (status === 'completed') return title || `Completed tool: \`${toolName}\``;
+    if (status === 'error') {
+      const error = firstText(state.error).trim();
+      return error || `Tool failed: \`${toolName}\``;
+    }
+    return `Using tool: \`${toolName}\``;
+  }
 
-  _runOpencode(content, msgChannel) {
-    const binary = this._opencodeBinary || this._findOpencodeBinary();
-    if (binary) this._opencodeBinary = binary;
-    if (!binary) {
-      return Promise.reject(new Error(
-        'opencode CLI not found. Install with: npm install -g opencode-ai@latest'
-      ));
+  _buildOpencodeCmd(prompt, channelName, modelRef) {
+    if (!this._opencodeBinary) {
+      throw new Error(
+        "opencode CLI not found. Install it with 'openagents install opencode' or ensure 'opencode' is on PATH."
+      );
     }
 
-    const cmd = [binary, 'run', '--format', 'json', '--dir', this.agentHome];
+    const cmd = [
+      this._opencodeBinary,
+      'run',
+      '--format',
+      'json',
+      '--model',
+      modelRef,
+    ];
+    const sessionId = this._channelSessions[channelName];
+    if (sessionId) cmd.push('--session', sessionId);
+    cmd.push(`${this._buildSystemContext(channelName)}\n\n---\n\n${prompt}`);
+    return cmd;
+  }
 
-    const sessionId = this._channelSessions[msgChannel];
-    let fullPrompt;
-    if (sessionId) {
-      fullPrompt = content;
-      cmd.push('--session', sessionId);
-    } else {
-      this._ensureWorkspaceSkill(msgChannel);
-      const context = this._buildSystemContext(msgChannel);
-      fullPrompt = `${context}\n\n---\n\n${content}`;
-    }
-
-    this._log(`CLI: ${binary} ${cmd.slice(1, 5).join(' ')} ...`);
-
-    const spawnEnv = { ...(this.agentEnv || process.env) };
+  _runOpencode(prompt, channelName) {
+    const { env, modelRef } = this._runtimeEnv(channelName);
+    const cmd = this._buildOpencodeCmd(prompt, channelName, modelRef);
 
     let spawnBinary = cmd[0];
     let spawnArgs = cmd.slice(1);
     if (IS_WINDOWS && spawnBinary.toLowerCase().endsWith('.cmd')) {
       spawnArgs = ['/C', spawnBinary, ...spawnArgs];
-      spawnBinary = process.env.COMSPEC || 'cmd.exe';
+      spawnBinary = process.env.ComSpec || process.env.COMSPEC || 'cmd.exe';
     }
 
     return new Promise((resolve, reject) => {
       const proc = spawn(spawnBinary, spawnArgs, {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: spawnEnv,
-        cwd: this.agentHome,
-        timeout: 300000, // 5 minutes
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env,
+        cwd: this.workingDir,
+        timeout: 300000,
       });
 
-      let stdout = '';
+      let lineBuffer = '';
       let stderr = '';
+      const assistantMessageIds = new Set();
+      const assistantParts = {};
+      let lastStatus = '';
 
-      if (proc.stdout) proc.stdout.on('data', (d) => { stdout += d; });
-      if (proc.stderr) proc.stderr.on('data', (d) => { stderr += d; });
+      const processLine = (rawLine) => {
+        const raw = rawLine.trim();
+        if (!raw) return;
 
-      // Send the prompt via stdin
-      if (proc.stdin) {
-        proc.stdin.write(fullPrompt, 'utf-8');
-        proc.stdin.end();
+        let event;
+        try {
+          event = JSON.parse(raw);
+        } catch {
+          return;
+        }
+
+        const sessionId = this._extractSessionId(event);
+        if (sessionId) {
+          this._channelSessions[channelName] = sessionId;
+          this._saveSessions();
+        }
+
+        const eventType = event.type || '';
+        const properties = event.properties || {};
+
+        if (eventType === 'message.updated') {
+          const info = properties.info || {};
+          if (info.role === 'assistant' && info.id) assistantMessageIds.add(info.id);
+          return;
+        }
+
+        if (eventType === 'message.part.updated') {
+          const part = properties.part || {};
+          const partType = part.type;
+          const messageId = part.messageID;
+
+          if (partType === 'tool') {
+            const statusText = this._toolStatusText(part);
+            if (statusText && statusText !== lastStatus) {
+              lastStatus = statusText;
+              void this.sendStatus(channelName, statusText);
+            }
+            return;
+          }
+
+          if (partType === 'patch') {
+            const files = part.files || [];
+            if (files.length > 0) {
+              const summary = files.slice(0, 5).map((name) => `\`${name}\``).join(', ');
+              void this.sendStatus(channelName, `Editing: ${summary}`);
+            }
+            return;
+          }
+
+          if (partType === 'text' && (assistantMessageIds.has(messageId) || assistantMessageIds.size === 0)) {
+            let text = properties.delta || part.text || '';
+            if (!text && part.id && assistantParts[part.id]) {
+              text = assistantParts[part.id];
+            }
+            if (text) {
+              if (properties.delta && part.id && assistantParts[part.id]) {
+                assistantParts[part.id] += String(text);
+              } else if (part.id) {
+                assistantParts[part.id] = String(text);
+              }
+            }
+            return;
+          }
+        }
+
+        if (eventType === 'command.executed') {
+          const name = properties.name || 'command';
+          const argumentsText = String(properties.arguments || '').trim();
+          void this.sendStatus(channelName, `Running: \`${`${name} ${argumentsText}`.trim()}\``);
+          return;
+        }
+
+        if (eventType === 'file.edited') {
+          const fileName = properties.file || '';
+          if (fileName) void this.sendStatus(channelName, `Edited: \`${fileName}\``);
+          return;
+        }
+
+        if (eventType === 'session.compacted') {
+          void this.sendStatus(channelName, 'Compacting conversation...');
+          return;
+        }
+
+        if (eventType === 'session.error') {
+          const error = firstText(properties.error).trim();
+          if (error) void this.sendError(channelName, error.slice(0, 1200));
+        }
+      };
+
+      if (proc.stdout) {
+        proc.stdout.on('data', (chunk) => {
+          lineBuffer += chunk.toString('utf-8');
+          const lines = lineBuffer.split(/\r?\n/);
+          lineBuffer = lines.pop() || '';
+          for (const line of lines) processLine(line);
+        });
       }
 
-      proc.on('error', (err) => reject(err));
-      proc.on('exit', (code) => {
-        stdout = stdout.trim();
-        stderr = stderr.trim();
+      if (proc.stderr) {
+        proc.stderr.on('data', (chunk) => {
+          stderr += chunk.toString('utf-8');
+        });
+      }
 
+      proc.on('error', reject);
+      proc.on('close', (code) => {
+        if (lineBuffer.trim()) processLine(lineBuffer);
+        const stderrText = stderr.trim();
         if (code !== 0) {
-          this._log(`opencode exited with code ${code}: ${stderr.slice(0, 300)}`);
+          reject(new Error(stderrText || 'opencode exited with an error'));
+          return;
         }
 
-        if (stdout) {
-          this._persistSessionId(msgChannel, stdout);
-          resolve(OpenCodeAdapter._extractTextFromJson(stdout));
-        } else {
-          if (stderr) {
-            this._log(`opencode stderr: ${stderr.slice(0, 300)}`);
-          }
-          resolve('');
-        }
+        const response = Object.values(assistantParts)
+          .map((text) => text.trim())
+          .filter(Boolean)
+          .join('\n')
+          .trim() || stderrText;
+        resolve(response);
       });
     });
+  }
+
+  async _handleMessage(msg) {
+    let content = (msg.content || '').trim();
+    const attachments = msg.attachments || [];
+    const attText = formatAttachmentsForPrompt(attachments);
+    if (attText) content = content ? content + attText : attText.trim();
+    if (!content) return;
+
+    const env = this.agentEnv || process.env;
+    const msgChannel = msg.sessionId || this.channelName;
+    if (!(env.LLM_API_KEY || env.OPENAI_API_KEY || env.ANTHROPIC_API_KEY)) {
+      await this.sendError(
+        msgChannel,
+        'OpenCode is not configured. Set LLM_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY and restart the agent.'
+      );
+      return;
+    }
+
+    const sender = msg.senderName || msg.senderType || 'user';
+    this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
+    await this._autoTitleChannel(msgChannel, content);
+    await this.sendStatus(msgChannel, 'thinking...');
+
+    try {
+      const responseText = await this._runOpencode(content, msgChannel);
+      await this.sendResponse(msgChannel, responseText || 'No response generated. Please try again.');
+    } catch (e) {
+      this._log(`Error handling message: ${e.message}`);
+      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+    }
   }
 }
 
