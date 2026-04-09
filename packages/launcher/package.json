@@ -7,7 +7,9 @@
     "start": "electron .",
     "dev": "electron . --remote-debugging-port=9222 --remote-allow-origins=*",
     "build:win": "electron-builder --win --publish never",
-    "build:mac": "electron-builder --mac --publish never",
+    "build:mac": "electron-builder --mac --x64 --arm64 --publish never",
+    "build:mac:x64": "electron-builder --mac --x64 --publish never",
+    "build:mac:arm64": "electron-builder --mac --arm64 --publish never",
     "build:linux": "electron-builder --linux --publish never",
     "build:all": "electron-builder --win --mac --linux --publish never",
     "dist": "electron-builder --publish always"

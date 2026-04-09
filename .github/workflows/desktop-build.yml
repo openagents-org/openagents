@@ -12,7 +12,17 @@ permissions:
 
 jobs:
   build-macos:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13
+            arch: x64
+            build_script: build:mac:x64
+          - os: macos-latest
+            arch: arm64
+            build_script: build:mac:arm64
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: packages/launcher
@@ -62,7 +72,13 @@ jobs:
           echo "${{ secrets.APPLE_API_KEY }}" | base64 --decode > "$API_KEY_PATH"
           export APPLE_API_KEY="$API_KEY_PATH"
 
-          npm run build:mac
+          npm run ${{ matrix.build_script }}
+
+      - name: Verify macOS artifacts
+        run: |
+          ls -la dist
+          ls dist/*-mac-${{ matrix.arch }}.dmg >/dev/null
+          ls dist/*-mac-${{ matrix.arch }}.zip >/dev/null
 
       - name: Clean up keychain
         if: always()
@@ -72,10 +88,10 @@ jobs:
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: launcher-macos
+          name: launcher-macos-${{ matrix.arch }}
           path: |
-            packages/launcher/dist/*.dmg
-            packages/launcher/dist/*.zip
+            packages/launcher/dist/*-mac-${{ matrix.arch }}.dmg
+            packages/launcher/dist/*-mac-${{ matrix.arch }}.zip
           if-no-files-found: warn
 
   build-windows:
