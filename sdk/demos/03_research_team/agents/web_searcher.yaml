@@ -57,6 +57,36 @@ config:
         required:
           - query
 
+    - name: "search_exa"
+      description: "AI-powered web search using Exa. Supports neural/fast/deep search types, content extraction (highlights/text/summary), and filtering by domain, category, text, and date. Requires EXA_API_KEY."
+      implementation: "tools.exa_search.search_exa"
+      input_schema:
+        type: object
+        properties:
+          query:
+            type: string
+            description: "The search query"
+          num_results:
+            type: integer
+            description: "Number of results (default 5, max 100)"
+          search_type:
+            type: string
+            description: "Search type: 'auto', 'neural', 'fast', 'instant', 'deep-lite', 'deep', or 'deep-reasoning'"
+          content_mode:
+            type: string
+            description: "Content mode: 'highlights', 'text', 'summary', or 'none'"
+          category:
+            type: string
+            description: "Category filter: 'company', 'research paper', 'news', 'personal site', 'financial report', 'people'"
+          include_domains:
+            type: string
+            description: "Comma-separated domains to include (e.g. 'arxiv.org,github.com')"
+          exclude_domains:
+            type: string
+            description: "Comma-separated domains to exclude"
+        required:
+          - query
+
   instruction: |
     You are the WEB SEARCHER. When you get a task, search and report results.
 

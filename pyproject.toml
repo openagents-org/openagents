@@ -63,6 +63,11 @@ sdk = [
     "structlog>=23.0.0",
 ]
 
+# Exa AI-powered search tool
+exa = [
+    "exa-py>=2.0.0",
+]
+
 # P2P networking (optional, for future libp2p integration)
 p2p = [
     "libp2p>=0.2.0",       # P2P networking library
@@ -119,7 +124,7 @@ docs = [
 
 # All optional dependencies
 all = [
-    "openagents[sdk,p2p,webrtc,langchain,autogen,dev,docs]",
+    "openagents[sdk,exa,p2p,webrtc,langchain,autogen,dev,docs]",
 ]
 
 [project.urls]
