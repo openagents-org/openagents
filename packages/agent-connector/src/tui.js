@@ -85,54 +85,11 @@ function loadAgentRows(connector) {
         workspace = agent.network;
       }
     }
-    // Check if agent type needs configuration (API key etc.)
     let notReadyMsg = '';
+    let health = null;
     try {
-      const agentType = agent.type || 'openclaw';
-      const entry = connector.registry.getEntry(agentType);
-      if (entry && entry.check_ready) {
-        const cr = entry.check_ready;
-        let isReady = false;
-        // Check saved env
-        if (cr.saved_env_key) {
-          const saved = connector.env.load(agentType);
-          if (saved[cr.saved_env_key]) isReady = true;
-        }
-        // Check process env vars
-        if (!isReady && cr.env_vars) {
-          for (const v of cr.env_vars) {
-            if (process.env[v]) { isReady = true; break; }
-          }
-        }
-        // Check creds file/directory (for claude)
-        if (!isReady && cr.creds_file) {
-          const credsPath = cr.creds_file.replace('~', process.env.HOME || process.env.USERPROFILE || '');
-          try {
-            if (fs.existsSync(credsPath)) {
-              const stat = fs.statSync(credsPath);
-              if (stat.isDirectory()) {
-                // Directory (e.g. ~/.claude/sessions) — check if it has files
-                isReady = fs.readdirSync(credsPath).length > 0;
-              } else {
-                const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
-                if (cr.creds_key) isReady = !!creds[cr.creds_key];
-                else isReady = true;
-              }
-            }
-          } catch {}
-        }
-        // Also check OAuth credentials (Claude Code stores tokens in .credentials.json)
-        if (!isReady) {
-          try {
-            const oauthFile = path.join(process.env.HOME || '', '.claude', '.credentials.json');
-            if (fs.existsSync(oauthFile)) {
-              const creds = JSON.parse(fs.readFileSync(oauthFile, 'utf-8'));
-              if (creds.claudeAiOauth && creds.claudeAiOauth.accessToken) isReady = true;
-            }
-          } catch {}
-        }
-        if (!isReady) notReadyMsg = cr.not_ready_message || 'Not configured';
-      }
+      health = connector.healthCheck(agent.type || 'openclaw');
+      if (health && !health.ready) notReadyMsg = health.message || 'Not configured';
     } catch {}
 
     return {
@@ -144,9 +101,22 @@ function loadAgentRows(connector) {
       network: agent.network || '',
       lastError: info.last_error || '',
       notReadyMsg,
+      health,
       configured: true,
     };
   });
+}
+
+function describeHealth(health) {
+  if (!health) return '';
+  if (!health.ready) return health.message || 'Not configured';
+  const parts = ['Ready'];
+  if (health.auth_mode === 'api_key') parts.push('API key');
+  else if (health.auth_mode === 'cli_login') parts.push('CLI login');
+  if (health.execution_mode && health.execution_mode !== 'unavailable') {
+    parts.push(health.execution_mode);
+  }
+  return parts.join(' | ');
 }
 
 function loadCatalog(connector) {
@@ -372,6 +342,7 @@ function createTUI() {
         // Detail row: working dir + config warning
         const details = [];
         details.push(r.path || process.env.HOME || '~');
+        if (r.health) details.push(`{cyan-fg}${describeHealth(r.health)}{/cyan-fg}`);
         if (r.notReadyMsg) details.push(`{yellow-fg}⚠ ${r.notReadyMsg}{/yellow-fg}`);
         items.push(`  {gray-fg}  ${details.join('  |  ')}{/gray-fg}`);
       }

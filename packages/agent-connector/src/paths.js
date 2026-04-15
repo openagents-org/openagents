@@ -139,8 +139,17 @@ function _addWindowsPaths(dirs) {
   // System32 (cmd.exe, powershell, etc) — Electron may not have it
   _push(dirs, path.join(sysRoot, 'System32'));
 
-  // npm global bin
+  // npm global bin (default location)
   if (appData) _push(dirs, path.join(appData, 'npm'));
+
+  // npm global bin (custom prefix — e.g. user configured npm prefix to D:\node\node_global)
+  try {
+    const npmPrefix = execSync('npm config get prefix', {
+      encoding: 'utf-8', timeout: 5000, windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    if (npmPrefix) _push(dirs, npmPrefix);
+  } catch {}
 
   // Portable Node.js installed by OpenAgents Launcher
   _push(dirs, path.join(HOME, '.openagents', 'nodejs'));

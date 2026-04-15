@@ -136,16 +136,27 @@
       {
         "name": "OPENAI_API_KEY",
         "description": "OpenAI API key",
-        "required": true,
+        "required": false,
         "password": true
+      },
+      {
+        "name": "OPENAI_BASE_URL",
+        "description": "OpenAI-compatible base URL",
+        "required": false
       }
     ],
     "check_ready": {
-      "env_vars": [
-        "OPENAI_API_KEY"
+      "env_all": [
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL"
       ],
-      "saved_env_key": "OPENAI_API_KEY",
-      "not_ready_message": "No API key \u2014 press e to configure"
+      "saved_env_all": [
+        "OPENAI_API_KEY",
+        "OPENAI_BASE_URL"
+      ],
+      "status_command": "codex login status",
+      "login_command": "codex login",
+      "not_ready_message": "Not configured. Set OPENAI_API_KEY + OPENAI_BASE_URL, or run: codex login"
     },
     "resolve_env": {
       "rules": [

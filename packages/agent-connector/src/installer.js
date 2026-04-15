@@ -5,6 +5,10 @@ const os = require('os');
 const path = require('path');
 const { execSync, exec } = require('child_process');
 const { whichBinary, getEnhancedEnv, getRuntimePrefix } = require('./paths');
+const { EnvManager } = require('./env');
+
+const STATUS_CACHE_TTL_MS = 10000;
+const statusCache = new Map();
 
 /**
  * Manages installation and uninstallation of agent runtimes.
@@ -19,6 +23,7 @@ class Installer {
     this.configDir = configDir;
     this.markersFile = path.join(configDir, 'installed_agents.json');
     this.markersDir = path.join(configDir, 'installed');
+    this.env = new EnvManager(configDir);
   }
 
   /**
@@ -131,7 +136,17 @@ class Installer {
    */
   healthCheck(agentType) {
     const binary = this._whichBinary(agentType);
-    if (!binary) return { installed: false, binary: null, version: null };
+    if (!binary) {
+      return {
+        installed: false,
+        binary: null,
+        version: null,
+        ready: false,
+        auth_mode: null,
+        execution_mode: 'unavailable',
+        message: 'Not installed',
+      };
+    }
 
     const entry = this.registry.getEntry(agentType);
     const checkCmd = entry && entry.install ? entry.install.check_command : null;
@@ -150,51 +165,152 @@ class Installer {
       version = match ? match[1] : raw.split('\n')[0];
     } catch {}
 
-    // Check login/ready status if check_ready is defined
-    let ready = true;
+    const readiness = this._evaluateReadiness(agentType, entry, binary);
+    return { installed: true, binary, version, ...readiness };
+  }
+
+  _evaluateReadiness(agentType, entry, binary) {
     const checkReady = entry?.check_ready;
-    if (checkReady) {
-      ready = false;
-      // Check env vars
-      if (checkReady.env_vars) {
-        for (const v of checkReady.env_vars) {
-          if (process.env[v]) { ready = true; break; }
+    if (!checkReady) {
+      return {
+        ready: true,
+        auth_mode: null,
+        execution_mode: 'unavailable',
+        message: 'Ready',
+      };
+    }
+
+    const savedEnv = this.env.getEffective(agentType, this.registry);
+    const directEnv = this._hasAllValues(process.env, checkReady.env_all);
+    const directSaved = this._hasAllValues(savedEnv, checkReady.saved_env_all || checkReady.env_all);
+    const directReady = directEnv || directSaved;
+    const envAnyReady = this._hasAnyValue(process.env, checkReady.env_vars);
+    const savedAnyReady = !!(checkReady.saved_env_key && savedEnv[checkReady.saved_env_key]);
+    const credsReady = this._checkCredsReady(checkReady);
+
+    let cliReady = false;
+    if (checkReady.status_command && binary) {
+      cliReady = this._checkStatusCommand(checkReady.status_command);
+    }
+
+    if (directReady) {
+      return {
+        ready: true,
+        auth_mode: 'api_key',
+        execution_mode: 'direct',
+        message: 'Ready',
+      };
+    }
+
+    if (cliReady) {
+      return {
+        ready: true,
+        auth_mode: 'cli_login',
+        execution_mode: 'subprocess',
+        message: 'Ready',
+      };
+    }
+
+    if (envAnyReady || savedAnyReady) {
+      // Legacy single-key path (e.g. agents that only advertise env_vars / saved_env_key).
+      // An API key being present means the agent can be launched with it in the environment,
+      // so treat this as a direct-launch configuration.
+      return {
+        ready: true,
+        auth_mode: 'api_key',
+        execution_mode: 'direct',
+        message: 'Ready',
+      };
+    }
+
+    if (credsReady) {
+      return {
+        ready: true,
+        auth_mode: 'cli_login',
+        execution_mode: 'subprocess',
+        message: 'Ready',
+      };
+    }
+
+    return {
+      ready: false,
+      auth_mode: null,
+      execution_mode: 'unavailable',
+      message: checkReady.not_ready_message || 'Not configured',
+    };
+  }
+
+  _hasAllValues(source, keys) {
+    if (!keys || keys.length === 0) return false;
+    return keys.every((key) => !!(source && source[key]));
+  }
+
+  _hasAnyValue(source, keys) {
+    if (!keys || keys.length === 0) return false;
+    return keys.some((key) => !!(source && source[key]));
+  }
+
+  _checkCredsReady(checkReady) {
+    if (checkReady.creds_file) {
+      try {
+        const credsPath = checkReady.creds_file.replace('~', os.homedir());
+        if (fs.existsSync(credsPath)) {
+          const stat = fs.statSync(credsPath);
+          if (stat.isDirectory()) return fs.readdirSync(credsPath).length > 0;
+          const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
+          if (checkReady.creds_key) return !!creds[checkReady.creds_key];
+          return true;
         }
-      }
-      // Check credentials file or directory
-      if (!ready && checkReady.creds_file) {
-        try {
-          const credsPath = checkReady.creds_file.replace('~', os.homedir());
-          if (fs.existsSync(credsPath)) {
-            const stat = fs.statSync(credsPath);
-            if (stat.isDirectory()) {
-              // Directory exists — check if it has files (e.g. session files)
-              ready = fs.readdirSync(credsPath).length > 0;
-            } else {
-              // File — parse JSON and check key
-              const creds = JSON.parse(fs.readFileSync(credsPath, 'utf-8'));
-              if (checkReady.creds_key) {
-                ready = !!creds[checkReady.creds_key];
-              } else {
-                ready = true;
-              }
-            }
-          }
-        } catch {}
-      }
-      // Also check OAuth credentials (Claude Code stores tokens in .credentials.json)
-      if (!ready) {
-        try {
-          const oauthFile = path.join(os.homedir(), '.claude', '.credentials.json');
-          if (fs.existsSync(oauthFile)) {
-            const creds = JSON.parse(fs.readFileSync(oauthFile, 'utf-8'));
-            if (creds.claudeAiOauth?.accessToken) ready = true;
-          }
-        } catch {}
+      } catch {}
+    }
+
+    if (checkReady.keychain_service && process.platform === 'darwin') {
+      if (this._checkMacKeychain(checkReady.keychain_service, checkReady.creds_key)) {
+        return true;
       }
     }
 
-    return { installed: true, binary, version, ready };
+    return false;
+  }
+
+  /**
+   * Check a macOS Keychain generic-password entry. If creds_key is provided the
+   * stored value is parsed as JSON and required to contain that key; otherwise any
+   * non-empty value counts as ready. Returns false on non-macOS or on any error.
+   */
+  _checkMacKeychain(service, credsKey) {
+    try {
+      const stdout = execSync(
+        `security find-generic-password -s ${JSON.stringify(service)} -w`,
+        { stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000, encoding: 'utf-8' },
+      ).trim();
+      if (!stdout) return false;
+      if (!credsKey) return true;
+      const creds = JSON.parse(stdout);
+      return !!creds[credsKey];
+    } catch {
+      return false;
+    }
+  }
+
+  _checkStatusCommand(command) {
+    const cached = statusCache.get(command);
+    if (cached && (Date.now() - cached.ts) < STATUS_CACHE_TTL_MS) {
+      return cached.ok;
+    }
+
+    let ok = false;
+    try {
+      execSync(command, {
+        stdio: 'ignore',
+        timeout: 5000,
+        env: getEnhancedEnv(),
+      });
+      ok = true;
+    } catch {}
+
+    statusCache.set(command, { ok, ts: Date.now() });
+    return ok;
   }
 
   /**

@@ -32,8 +32,27 @@ const mockRegistry = {
         },
       };
     }
+    if (name === 'codex') {
+      return {
+        name: 'codex',
+        install: {
+          binary: 'codex',
+          macos: 'npm install -g @openai/codex',
+          linux: 'npm install -g @openai/codex',
+          windows: 'npm install -g @openai/codex',
+        },
+        check_ready: {
+          env_all: ['OPENAI_API_KEY', 'OPENAI_BASE_URL'],
+          saved_env_all: ['OPENAI_API_KEY', 'OPENAI_BASE_URL'],
+          status_command: 'codex login status',
+          login_command: 'codex login',
+          not_ready_message: 'Not configured. Set OPENAI_API_KEY + OPENAI_BASE_URL, or run: codex login',
+        },
+      };
+    }
     return null;
   },
+  getResolveRules: () => [],
 };
 
 beforeEach(() => {
@@ -41,6 +60,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_BASE_URL;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -83,7 +104,7 @@ describe('Installer', () => {
     const inst = new Installer(mockRegistry, tmpDir);
     assert.equal(
       inst._deriveUninstallCommand('npm install -g testpkg@latest'),
-      'npm uninstall -g testpkg'
+      `npm uninstall --prefix "${path.join(os.homedir(), '.openagents', 'nodejs')}" testpkg`
     );
   });
 
@@ -125,5 +146,66 @@ describe('Installer', () => {
     });
     assert.ok(typeof cmd === 'string');
     assert.ok(cmd.length > 0);
+  });
+
+  it('healthCheck does not treat OPENAI_API_KEY alone as codex ready', () => {
+    process.env.OPENAI_API_KEY = 'sk-test';
+    const inst = new Installer(mockRegistry, tmpDir);
+    inst._whichBinary = () => 'codex';
+    inst._checkStatusCommand = () => false;
+
+    const health = inst.healthCheck('codex');
+    assert.equal(health.ready, false);
+    assert.equal(health.execution_mode, 'unavailable');
+  });
+
+  it('healthCheck marks codex direct mode ready when key and base URL are set', () => {
+    process.env.OPENAI_API_KEY = 'sk-test';
+    process.env.OPENAI_BASE_URL = 'https://api.example.com/v1';
+    const inst = new Installer(mockRegistry, tmpDir);
+    inst._whichBinary = () => 'codex';
+    inst._checkStatusCommand = () => false;
+
+    const health = inst.healthCheck('codex');
+    assert.equal(health.ready, true);
+    assert.equal(health.auth_mode, 'api_key');
+    assert.equal(health.execution_mode, 'direct');
+  });
+
+  it('healthCheck marks codex subprocess mode ready when login status succeeds', () => {
+    const inst = new Installer(mockRegistry, tmpDir);
+    inst._whichBinary = () => 'codex';
+    inst._checkStatusCommand = () => true;
+
+    const health = inst.healthCheck('codex');
+    assert.equal(health.ready, true);
+    assert.equal(health.auth_mode, 'cli_login');
+    assert.equal(health.execution_mode, 'subprocess');
+  });
+
+  it('healthCheck prefers direct mode when env and CLI login are both available', () => {
+    process.env.OPENAI_API_KEY = 'sk-test';
+    process.env.OPENAI_BASE_URL = 'https://api.example.com/v1';
+    const inst = new Installer(mockRegistry, tmpDir);
+    inst._whichBinary = () => 'codex';
+    inst._checkStatusCommand = () => true;
+
+    const health = inst.healthCheck('codex');
+    assert.equal(health.ready, true);
+    assert.equal(health.auth_mode, 'api_key');
+    assert.equal(health.execution_mode, 'direct');
+  });
+
+  it('healthCheck reports codex not configured when env and CLI login both fail', () => {
+    const inst = new Installer(mockRegistry, tmpDir);
+    inst._whichBinary = () => 'codex';
+    inst._checkStatusCommand = () => false;
+
+    const health = inst.healthCheck('codex');
+    assert.equal(health.ready, false);
+    assert.equal(
+      health.message,
+      'Not configured. Set OPENAI_API_KEY + OPENAI_BASE_URL, or run: codex login'
+    );
   });
 });

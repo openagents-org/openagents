@@ -37,6 +37,15 @@ describe('Registry', () => {
     assert.ok(entry.env_config);
   });
 
+  it('codex entry exposes direct and CLI readiness fields', () => {
+    const reg = new Registry(tmpDir);
+    const entry = reg.getEntry('codex');
+    assert.ok(entry);
+    assert.ok(entry.env_config.find((f) => f.name === 'OPENAI_BASE_URL'));
+    assert.equal(entry.check_ready.login_command, 'codex login');
+    assert.equal(entry.check_ready.status_command, 'codex login status');
+  });
+
   it('getEntry returns null for unknown', () => {
     const reg = new Registry(tmpDir);
     assert.equal(reg.getEntry('nonexistent'), null);

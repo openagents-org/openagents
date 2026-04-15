@@ -140,7 +140,18 @@ class CodexAdapter extends BaseAdapter {
     const nearNode = path.join(nodeBinDir, `codex${ext}`);
     if (fs.existsSync(nearNode)) return nearNode;
 
-    // Tier 3: Common install locations
+    // Tier 3: npm global prefix (handles custom npm prefix like D:\node\node_global)
+    try {
+      const npmPrefix = execSync('npm config get prefix', {
+        encoding: 'utf-8', timeout: 5000, windowsHide: true,
+      }).trim();
+      if (npmPrefix) {
+        const prefixCandidate = path.join(npmPrefix, `codex${ext}`);
+        if (fs.existsSync(prefixCandidate)) return prefixCandidate;
+      }
+    } catch {}
+
+    // Tier 4: Common install locations
     const candidates = IS_WINDOWS ? [
       path.join(process.env.APPDATA || '', 'npm', 'codex.cmd'),
     ] : [
@@ -265,12 +276,10 @@ class CodexAdapter extends BaseAdapter {
         cmd.push('-C', this.workingDir);
       }
 
-      cmd.push(fullPrompt);
-
       this._log(`Spawning: codex exec ${threadId && attempt === 0 ? `resume ${threadId} ` : ''}--json --full-auto -m ${this._directModel || 'default'}`);
 
       try {
-        const result = await this._spawnCodex(cmd, env, msgChannel);
+        const result = await this._spawnCodex(cmd, env, msgChannel, fullPrompt);
 
         if (result.responseText) {
           await this.sendResponse(msgChannel, result.responseText);
@@ -293,14 +302,15 @@ class CodexAdapter extends BaseAdapter {
     }
   }
 
-  async _spawnCodex(cmd, env, msgChannel) {
+  async _spawnCodex(cmd, env, msgChannel, prompt) {
     return new Promise((resolve, reject) => {
       const proc = spawn(cmd[0], cmd.slice(1), {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['pipe', 'pipe', 'pipe'],
         env,
         cwd: this.workingDir,
         detached: !IS_WINDOWS,
         windowsHide: true,
+        shell: IS_WINDOWS,
       });
       this._channelProcesses[msgChannel] = proc;
 
@@ -312,6 +322,11 @@ class CodexAdapter extends BaseAdapter {
 
       if (proc.stderr) {
         proc.stderr.on('data', (chunk) => { stderrBuf += chunk.toString('utf-8'); });
+      }
+
+      if (proc.stdin) {
+        proc.stdin.write(prompt || '', 'utf-8');
+        proc.stdin.end();
       }
 
       const processLine = async (line) => {

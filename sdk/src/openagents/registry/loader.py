@@ -300,6 +300,20 @@ def _make_plugin_from_yaml(data: dict):
                     win_exts = {e.lower() for e in os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD").split(";")}
                     if ext in win_exts:
                         return bare
+                # Fallback: check npm global prefix (custom prefix e.g. D:\node\node_global)
+                try:
+                    import subprocess as _sp
+                    npm_prefix = _sp.check_output(
+                        ["npm", "config", "get", "prefix"],
+                        text=True, timeout=5,
+                    ).strip()
+                    if npm_prefix:
+                        for _ext in (".cmd", ".exe", ""):
+                            _candidate = str(Path(npm_prefix) / (binary + _ext))
+                            if Path(_candidate).is_file():
+                                return _candidate
+                except Exception:
+                    pass
                 return None
             found = shutil.which(binary)
             if found:

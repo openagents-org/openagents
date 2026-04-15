@@ -98,6 +98,18 @@ function agentIcon(type, size = 24) {
   return `<img class="agent-icon" src="${src}" width="${size}" height="${size}" alt="${esc(type)}" onerror="this.onerror=null; this.src='${bundledSrc}'; this.onerror=function(){this.src='${defaultSrc}'};">`;
 }
 
+function formatHealthLabel(health) {
+  if (!health) return 'Not configured';
+  if (!health.ready) return health.message || 'Not configured';
+  const parts = ['Ready'];
+  if (health.auth_mode === 'api_key') parts.push('API key');
+  else if (health.auth_mode === 'cli_login') parts.push('CLI login');
+  if (health.execution_mode && health.execution_mode !== 'unavailable') {
+    parts.push(health.execution_mode);
+  }
+  return parts.join(' · ');
+}
+
 // ---- Dashboard ----
 
 async function refreshDashboard() {
@@ -115,21 +127,20 @@ async function refreshDashboard() {
     } else {
       cardsEl.innerHTML = agents.map((a) => {
         const isRunning = a.state === 'online' || a.state === 'running' || a.state === 'idle';
-        const hasApiKey = !!(a.env && (a.env.LLM_API_KEY || a.env.OPENAI_API_KEY || a.env.ANTHROPIC_API_KEY));
-        const loginBasedTypes = ['claude', 'copilot', 'gemini', 'amp'];
-        const isLoginBased = loginBasedTypes.includes(a.type);
+        const health = a.health || {};
         const isConnected = !!a.network;
         const isUnsupported = isUnsupportedAgent(a);
         const wsLabel = a.network
           ? (a.networkName && a.networkName !== a.network ? `${a.network} (${a.networkName})` : a.network)
           : '';
+        const configLabel = formatHealthLabel(health);
 
         // Status indicators
         const configStatus = isUnsupported
           ? '<span class="badge badge-danger-sm">Launcher unsupported</span>'
-          : ((hasApiKey || isLoginBased)
-            ? '<span class="badge badge-success-sm">LLM configured</span>'
-            : '<span class="badge badge-warning-sm">LLM not configured</span>');
+          : (health.ready
+            ? `<span class="badge badge-success-sm">${esc(configLabel)}</span>`
+            : `<span class="badge badge-warning-sm">${esc(configLabel)}</span>`);
         const connectStatus = isConnected
           ? `<span class="badge badge-success-sm">Connected: ${esc(wsLabel)}</span>`
           : '<span class="badge badge-muted-sm">Not connected</span>';
@@ -698,14 +709,12 @@ async function refreshAgentList() {
       const isRunning = a.state === 'online' || a.state === 'running' || a.state === 'idle';
       const slug = a.network || '';
       const wsDisplay = slug ? (a.networkName && a.networkName !== slug ? `${slug} (${a.networkName})` : slug) : '';
-      const hasKey = a.env?.LLM_API_KEY || a.env?.OPENAI_API_KEY || a.env?.ANTHROPIC_API_KEY;
+      const health = a.health || {};
       const unsupported = isUnsupportedAgent(a);
-      // Login-based agents (like Claude) don't need API keys in env — they use OAuth
-      const loginBasedTypes = ['claude', 'copilot', 'gemini', 'amp'];
-      const isLoginBased = loginBasedTypes.includes(a.type);
       const envDisplay = [];
       if (a.env?.LLM_BASE_URL || a.env?.OPENAI_BASE_URL) envDisplay.push(`API: ${a.env.LLM_BASE_URL || a.env.OPENAI_BASE_URL}`);
       if (a.env?.LLM_MODEL || a.env?.OPENCLAW_MODEL) envDisplay.push(`Model: ${a.env.LLM_MODEL || a.env.OPENCLAW_MODEL}`);
+      const readyLabel = formatHealthLabel(health);
 
       return `
         <div class="agent-list-item">
@@ -717,7 +726,7 @@ async function refreshAgentList() {
               </div>
               <span class="agent-type-label">${esc(a.type)}</span>
               <span class="agent-config-hint">
-                ${unsupported ? '<span class="text-danger">Launcher unsupported</span>' : hasKey ? '&#128273; API key set' : isLoginBased ? '&#128273; Configured (login)' : '<span class="text-warning">&#9888; No API key</span>'}
+                ${unsupported ? '<span class="text-danger">Launcher unsupported</span>' : health.ready ? `&#128273; ${esc(readyLabel)}` : `<span class="text-warning">&#9888; ${esc(readyLabel)}</span>`}
                 ${envDisplay.length ? ' &middot; ' + envDisplay.map(esc).join(' &middot; ') : ''}
               </span>
               ${a.lastError ? `<span class="agent-error">${esc(a.lastError)}</span>` : ''}
@@ -775,19 +784,31 @@ async function refreshCatalog() {
 
   try {
     const catalog = await window.api.getCatalog();
+    const healthByName = {};
+    await Promise.all(catalog.map(async (c) => {
+      try {
+        healthByName[c.name] = await window.api.healthCheck(c.name);
+      } catch {
+        healthByName[c.name] = null;
+      }
+    }));
 
     if (!catalog || catalog.length === 0) {
       container.innerHTML = '<p class="hint">No agent runtimes available. Install the SDK first.</p>';
       return;
     }
 
-    const rows = catalog.map((c) => `
+    const rows = catalog.map((c) => {
+      const health = healthByName[c.name] || {};
+      const readiness = formatHealthLabel(health);
+      return `
       <div class="catalog-row ${c.installed ? 'installed' : ''}" data-name="${esc(c.name)}">
         <div class="catalog-info">
           ${agentIcon(c.name, 28)}
           <div class="catalog-text">
             <span class="catalog-name">${esc(c.label || c.name)}</span>
             <span class="catalog-desc">${esc(c.description || '')}</span>
+            <span class="catalog-desc">${esc(readiness)}</span>
             <span class="support-icons">
               <span class="support-icon ${c.support && c.support.install ? 'on' : 'off'}" title="Install supported">&#x2B07;</span>
               <span class="support-icon ${c.support && c.support.workspace ? 'on' : 'off'}" title="Workspace supported">&#x1F310;</span>
@@ -809,7 +830,8 @@ async function refreshCatalog() {
           ${c.installed && c.managed !== false ? `<button class="btn btn-sm btn-danger" data-action="uninstall-catalog" data-name="${esc(c.name)}">Uninstall</button>` : ''}
         </div>
       </div>
-    `).join('');
+    `;
+    }).join('');
 
     container.innerHTML = `<div class="catalog-list">${rows}</div>`;
     // Apply any existing search filter
@@ -1365,13 +1387,21 @@ document.addEventListener('click', (e) => {
 // ---- D23: Agent login flow ----
 
 async function agentLogin(agentType) {
-  const loginCommands = {
-    claude: 'claude login',
-    openclaw: 'openclaw login',
-    codex: 'codex login',
-    copilot: 'github-copilot login',
-  };
-  const cmd = loginCommands[agentType];
+  let cmd = null;
+  try {
+    const catalog = await window.api.getCatalog();
+    const entry = catalog.find((c) => c.name === agentType);
+    cmd = entry?.check_ready?.login_command || null;
+  } catch {}
+  if (!cmd) {
+    const loginCommands = {
+      claude: 'claude login',
+      openclaw: 'openclaw login',
+      codex: 'codex login',
+      copilot: 'github-copilot login',
+    };
+    cmd = loginCommands[agentType];
+  }
   if (!cmd) {
     showToast(`No login command for ${agentType}. Configure API key instead.`, 'info');
     openConfigureScreen(agentType);

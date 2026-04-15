@@ -25,6 +25,7 @@ import logging
 import os
 import platform
 import shutil
+import time
 from typing import Optional
 
 import aiohttp
@@ -61,6 +62,10 @@ class CodexAdapter(BaseAdapter):
         self._direct_base_url = os.environ.get("OPENAI_BASE_URL", "").rstrip("/")
         self._direct_model = os.environ.get("CODEX_MODEL", "") or os.environ.get("OPENCLAW_MODEL", "")
         self._direct_mode = bool(self._direct_api_key and self._direct_base_url)
+
+        # Cached `codex login status` result (avoid spawning a subprocess per message)
+        self._login_status_ok: Optional[bool] = None
+        self._login_status_ts: float = 0.0
 
         if self._direct_mode:
             logger.info(
@@ -207,6 +212,21 @@ class CodexAdapter(BaseAdapter):
             codex_bin = shutil.which("codex.cmd") or shutil.which("codex.exe") or shutil.which("codex")
         else:
             codex_bin = shutil.which("codex")
+        # Fallback: check npm global prefix (handles custom prefix like D:\node\node_global)
+        if not codex_bin:
+            try:
+                import subprocess as _sp
+                npm_prefix = _sp.check_output(
+                    ["npm", "config", "get", "prefix"],
+                    text=True, timeout=5,
+                ).strip()
+                if npm_prefix:
+                    ext = ".cmd" if platform.system() == "Windows" else ""
+                    candidate = os.path.join(npm_prefix, f"codex{ext}")
+                    if os.path.isfile(candidate):
+                        codex_bin = candidate
+            except Exception:
+                pass
         if not codex_bin:
             raise FileNotFoundError(
                 "codex CLI not found. Install with: "
@@ -231,6 +251,42 @@ class CodexAdapter(BaseAdapter):
         cmd.append(full_prompt)
         return cmd
 
+    async def _check_codex_login(self, ttl_seconds: float = 60.0) -> bool:
+        """Return True if `codex login status` succeeds. Cached for TTL to avoid
+        spawning a subprocess on every message. Non-blocking (asyncio subprocess)."""
+        now = time.monotonic()
+        if self._login_status_ok is not None and (now - self._login_status_ts) < ttl_seconds:
+            return self._login_status_ok
+
+        if platform.system() == "Windows":
+            codex_bin = shutil.which("codex.cmd") or shutil.which("codex.exe") or shutil.which("codex")
+        else:
+            codex_bin = shutil.which("codex")
+
+        ok = False
+        if codex_bin:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    codex_bin, "login", "status",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                try:
+                    rc = await asyncio.wait_for(proc.wait(), timeout=10)
+                    ok = (rc == 0)
+                except asyncio.TimeoutError:
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
+                    ok = False
+            except Exception:
+                ok = False
+
+        self._login_status_ok = ok
+        self._login_status_ts = now
+        return ok
+
     async def _run_codex_subprocess(self, content: str, msg_channel: str) -> str:
         """Run a Codex CLI subprocess and collect the response."""
         try:
@@ -238,6 +294,14 @@ class CodexAdapter(BaseAdapter):
         except FileNotFoundError as e:
             await self._send_error(msg_channel, str(e))
             return ""
+
+        if not self._direct_mode:
+            if not await self._check_codex_login():
+                await self._send_error(
+                    msg_channel,
+                    "Codex CLI is not logged in. Run `codex login`, or configure OPENAI_API_KEY + OPENAI_BASE_URL.",
+                )
+                return ""
 
         # On Windows, .cmd files need cmd.exe to interpret them
         if platform.system() == "Windows" and cmd[0].lower().endswith(".cmd"):

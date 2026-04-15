@@ -83,12 +83,25 @@ class AgentManager {
     if (!this._connector) return [];
     const agents = this._connector.listAgents();
     const status = this.getAllStatus();
+    const healthByType = new Map();
+
+    for (const agent of agents) {
+      const type = agent.type || 'openclaw';
+      if (!healthByType.has(type)) {
+        try {
+          healthByType.set(type, this._connector.healthCheck(type));
+        } catch {
+          healthByType.set(type, null);
+        }
+      }
+    }
 
     return agents.map((a) => ({
       ...a,
       state: status[a.name]?.state || 'stopped',
       restarts: status[a.name]?.restarts || 0,
       lastError: status[a.name]?.last_error || null,
+      health: healthByType.get(a.type || 'openclaw'),
     }));
   }
 
@@ -373,6 +386,16 @@ class AgentManager {
     extraDirs.push(path.join(portableNodeDir, 'node_modules', '.bin'));
     if (process.platform === 'win32') {
       extraDirs.push(path.join(process.env.APPDATA || '', 'npm'));
+      // Include custom npm global prefix (e.g. D:\node\node_global)
+      try {
+        const { execSync } = require('child_process');
+        const npmPrefix = execSync('npm config get prefix', {
+          encoding: 'utf-8', timeout: 5000, windowsHide: true,
+        }).trim();
+        if (npmPrefix && !extraDirs.includes(npmPrefix)) {
+          extraDirs.push(npmPrefix);
+        }
+      } catch {}
     }
     const enhancedPath = [...extraDirs, process.env.PATH || ''].join(path.delimiter);
 
