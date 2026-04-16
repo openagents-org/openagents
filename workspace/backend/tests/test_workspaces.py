@@ -106,16 +106,82 @@ class TestDeleteWorkspace:
 
     def test_delete_workspace(self, client, workspace):
         """Soft-delete sets status to 'deleted'."""
-        resp = client.delete(f"/v1/workspaces/{workspace['id']}")
+        resp = client.delete(
+            f"/v1/workspaces/{workspace['id']}",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
         assert resp.status_code == 200
         assert resp.json()["data"]["status"] == "deleted"
 
     def test_deleted_workspace_hidden_from_list(self, client, workspace):
         """Deleted workspace doesn't appear in list."""
-        client.delete(f"/v1/workspaces/{workspace['id']}")
+        client.delete(
+            f"/v1/workspaces/{workspace['id']}",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
         resp = client.get("/v1/workspaces")
         ids = [w["workspaceId"] for w in resp.json()["data"]]
         assert workspace["id"] not in ids
+
+    # ------------------------------------------------------------------
+    # Auth enforcement (CVE-1)
+    # ------------------------------------------------------------------
+
+    def test_delete_no_credentials_returns_401(self, client, workspace):
+        """Unauthenticated DELETE is rejected — workspace must not be deleted."""
+        resp = client.delete(f"/v1/workspaces/{workspace['id']}")
+        assert resp.status_code == 401
+
+        # Workspace must still exist
+        get = client.get(
+            f"/v1/workspaces/{workspace['id']}",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        assert get.status_code == 200
+
+    def test_delete_wrong_token_returns_401(self, client, workspace):
+        """Wrong token is rejected — workspace must not be deleted."""
+        resp = client.delete(
+            f"/v1/workspaces/{workspace['id']}",
+            headers={"X-Workspace-Token": "not-the-right-token"},
+        )
+        assert resp.status_code == 401
+
+    def test_delete_by_slug_with_valid_token(self, client, workspace):
+        """Deletion by slug also works with a valid token."""
+        resp = client.delete(
+            f"/v1/workspaces/{workspace['slug']}",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data"]["status"] == "deleted"
+
+    def test_delete_nonexistent_workspace_returns_404(self, client):
+        """Deleting a nonexistent workspace returns 404 regardless of token."""
+        resp = client.delete(
+            "/v1/workspaces/00000000-0000-0000-0000-000000000000",
+            headers={"X-Workspace-Token": "any-token"},
+        )
+        assert resp.status_code == 404
+
+    def test_deleted_workspace_is_no_longer_accessible(self, client, workspace):
+        """After deletion the workspace returns 404 on GET."""
+        client.delete(
+            f"/v1/workspaces/{workspace['id']}",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        resp = client.get(
+            f"/v1/workspaces/{workspace['id']}",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        assert resp.status_code == 404
+
+    def test_delete_already_deleted_workspace_returns_404(self, client, workspace):
+        """A second DELETE on an already-deleted workspace returns 404."""
+        headers = {"X-Workspace-Token": workspace["token"]}
+        client.delete(f"/v1/workspaces/{workspace['id']}", headers=headers)
+        resp = client.delete(f"/v1/workspaces/{workspace['id']}", headers=headers)
+        assert resp.status_code == 404
 
 
 class TestListWorkspaces:

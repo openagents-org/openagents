@@ -681,8 +681,11 @@ class TestTokenResolveEdgeCases:
 
     def test_resolve_deleted_workspace_token(self, client, workspace):
         """Token for a deleted workspace returns 404."""
-        # Delete the workspace
-        client.delete(f"/v1/workspaces/{workspace['id']}")
+        # Delete the workspace (auth required)
+        client.delete(
+            f"/v1/workspaces/{workspace['id']}",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
 
         # Token should no longer resolve
         resp = client.post("/v1/token/resolve", json={"token": workspace["token"]})

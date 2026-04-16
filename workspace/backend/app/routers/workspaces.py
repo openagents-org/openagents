@@ -271,7 +271,7 @@ async def get_workspace(
         select(Workspace).where(_workspace_filter(workspace_id))
     ).scalar_one_or_none()
 
-    if not workspace:
+    if not workspace or workspace.status == "deleted":
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
 
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
@@ -589,14 +589,19 @@ async def update_channel(
 async def delete_workspace(
     workspace_id: str,
     db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
 ):
-    """Soft-delete a workspace (set status to 'deleted')."""
+    """Soft-delete a workspace (set status to 'deleted'). Requires workspace token or Firebase owner auth."""
     workspace = db.execute(
         select(Workspace).where(_workspace_filter(workspace_id))
     ).scalar_one_or_none()
 
-    if not workspace:
+    if not workspace or workspace.status == "deleted":
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
 
     workspace.status = "deleted"
     db.commit()

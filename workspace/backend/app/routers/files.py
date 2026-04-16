@@ -102,9 +102,12 @@ async def upload_file(
     file_id = str(uuid.uuid4())
     store = get_file_store()
     loop = asyncio.get_event_loop()
-    storage_key = await loop.run_in_executor(
-        None, store.save, str(workspace.id), file_id, filename, data,
-    )
+    try:
+        storage_key = await loop.run_in_executor(
+            None, store.save, str(workspace.id), file_id, filename, data,
+        )
+    except ValueError as exc:
+        return json_response(ResponseCode.BAD_REQUEST, str(exc))
 
     # Insert DB record
     record = FileRecord(
@@ -176,9 +179,12 @@ async def upload_file_base64(
     file_id = str(uuid.uuid4())
     store = get_file_store()
     loop = asyncio.get_event_loop()
-    storage_key = await loop.run_in_executor(
-        None, store.save, str(workspace.id), file_id, body.filename, data,
-    )
+    try:
+        storage_key = await loop.run_in_executor(
+            None, store.save, str(workspace.id), file_id, body.filename, data,
+        )
+    except ValueError as exc:
+        return json_response(ResponseCode.BAD_REQUEST, str(exc))
 
     record = FileRecord(
         id=file_id,

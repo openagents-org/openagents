@@ -39,8 +39,24 @@ class LocalFileStore:
         self.base_dir.mkdir(parents=True, exist_ok=True)
 
     def save(self, workspace_id: str, file_id: str, filename: str, data: bytes) -> str:
-        key = f"{workspace_id}/{file_id}/{filename}"
+        # Reject filenames containing any directory component.
+        # Path(x).name strips dirs, so if it differs from the input the caller
+        # passed a path (e.g. "../../etc/passwd", "/etc/passwd", "sub/file.txt").
+        safe_filename = Path(filename).name
+        if safe_filename != filename:
+            raise ValueError(f"Filename must not contain directory components: {filename!r}")
+        if not safe_filename or safe_filename in (".", ".."):
+            raise ValueError(f"Invalid filename: {filename!r}")
+
+        key = f"{workspace_id}/{file_id}/{safe_filename}"
         path = self.base_dir / key
+
+        # Belt-and-suspenders: verify the resolved path stays inside base_dir.
+        try:
+            path.resolve().relative_to(self.base_dir.resolve())
+        except ValueError:
+            raise ValueError(f"Path traversal detected for filename: {filename!r}")
+
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         return key
