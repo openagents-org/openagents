@@ -7,7 +7,6 @@ regardless of what filename an agent supplies.
 """
 
 import pytest
-from pathlib import Path
 
 from app.storage import LocalFileStore
 
