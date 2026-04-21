@@ -1,4 +1,4 @@
-const { execSync } = require("child_process");
+const { execFileSync } = require("child_process");
 const path = require("path");
 
 // Custom sign function for electron-builder using Azure Trusted Signing.
@@ -29,6 +29,31 @@ exports.default = async function azureSign(configuration) {
     return;
   }
 
+  let parsedEndpoint;
+  try {
+    parsedEndpoint = new URL(endpoint);
+  } catch (_err) {
+    throw new Error("Invalid AZURE_ENDPOINT format.");
+  }
+
+  if (parsedEndpoint.protocol !== "https:") {
+    throw new Error("AZURE_ENDPOINT must use https.");
+  }
+
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$/.test(account)) {
+    throw new Error("Invalid AZURE_CODE_SIGNING_ACCOUNT format.");
+  }
+
+  if (!/^[a-zA-Z0-9._-]+$/.test(certProfile)) {
+    throw new Error("Invalid AZURE_CERT_PROFILE format.");
+  }
+
+  if (typeof filePath !== "string" || filePath.includes("\0")) {
+    throw new Error("Invalid file path for signing.");
+  }
+
+  const signTarget = path.resolve(filePath);
+
   console.log(`Signing: ${path.basename(filePath)}`);
 
   const args = [
@@ -38,11 +63,11 @@ exports.default = async function azureSign(configuration) {
     "-c", certProfile,
     "-r", "http://timestamp.acs.microsoft.com",
     "-d", "sha256",
-    filePath,
+    signTarget,
   ];
 
   try {
-    execSync(`sign code ${args.join(" ")}`, {
+    execFileSync("sign", ["code", ...args], {
       stdio: "inherit",
       timeout: 120000,
     });
