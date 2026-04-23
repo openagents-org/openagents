@@ -1255,7 +1255,7 @@ async function refreshSettingsWorkspaces() {
       epBtn.addEventListener('click', async () => {
         const val = epInput.value.trim();
         await window.api.setSetting('workspaceEndpoint', val || null);
-        showToast('Endpoint saved. Restart Launcher to apply.', 'success');
+        showToast('Endpoint saved. It will take effect immediately.', 'success');
       });
     }
   }
