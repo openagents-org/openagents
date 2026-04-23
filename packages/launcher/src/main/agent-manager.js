@@ -37,7 +37,10 @@ class AgentManager {
     this._store = store;
     if (!core) core = loadCore();
     if (core) {
-      this._connector = new core.AgentConnector({ configDir: CONFIG_DIR });
+      this._connector = new core.AgentConnector({ 
+        configDir: CONFIG_DIR,
+        workspaceEndpoint: process.env.OPENAGENTS_WORKSPACE_ENDPOINT
+      });
     } else {
       // Core not available yet — will be initialized after install
       this._connector = null;
@@ -58,7 +61,10 @@ class AgentManager {
     for (const k of cacheKeys) delete require.cache[k];
     core = loadCore();
     if (core) {
-      this._connector = new core.AgentConnector({ configDir: CONFIG_DIR });
+      this._connector = new core.AgentConnector({ 
+        configDir: CONFIG_DIR,
+        workspaceEndpoint: process.env.OPENAGENTS_WORKSPACE_ENDPOINT
+      });
     }
     return !!core;
   }
