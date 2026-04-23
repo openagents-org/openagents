@@ -1242,6 +1242,24 @@ startLogAutoRefresh();
 
 async function refreshSettingsWorkspaces() {
   const el = document.getElementById('settings-workspaces');
+  
+  // Initialize endpoint setting input
+  const epInput = document.getElementById('setting-workspace-endpoint');
+  const epBtn = document.getElementById('btn-save-workspace-endpoint');
+  if (epInput && !epInput._initialized) {
+    epInput._initialized = true;
+    window.api.getSetting('workspaceEndpoint').then(val => {
+      if (val) epInput.value = val;
+    });
+    if (epBtn) {
+      epBtn.addEventListener('click', async () => {
+        const val = epInput.value.trim();
+        await window.api.setSetting('workspaceEndpoint', val || null);
+        showToast('Endpoint saved. Restart Launcher to apply.', 'success');
+      });
+    }
+  }
+
   if (!el) return;
   try {
     const workspaces = await window.api.listWorkspaces();

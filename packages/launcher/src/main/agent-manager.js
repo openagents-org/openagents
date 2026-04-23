@@ -37,9 +37,10 @@ class AgentManager {
     this._store = store;
     if (!core) core = loadCore();
     if (core) {
+      const endpoint = this._store.get('workspaceEndpoint') || process.env.OPENAGENTS_WORKSPACE_ENDPOINT;
       this._connector = new core.AgentConnector({ 
         configDir: CONFIG_DIR,
-        workspaceEndpoint: process.env.OPENAGENTS_WORKSPACE_ENDPOINT
+        workspaceEndpoint: endpoint
       });
     } else {
       // Core not available yet — will be initialized after install
@@ -61,9 +62,10 @@ class AgentManager {
     for (const k of cacheKeys) delete require.cache[k];
     core = loadCore();
     if (core) {
+      const endpoint = this._store.get('workspaceEndpoint') || process.env.OPENAGENTS_WORKSPACE_ENDPOINT;
       this._connector = new core.AgentConnector({ 
         configDir: CONFIG_DIR,
-        workspaceEndpoint: process.env.OPENAGENTS_WORKSPACE_ENDPOINT
+        workspaceEndpoint: endpoint
       });
     }
     return !!core;

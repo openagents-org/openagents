@@ -133,6 +133,15 @@
         </div>
         <div class="card">
           <h3>Workspaces</h3>
+          <div class="form-group" style="margin-bottom: 12px;">
+            <label>Default Workspace Endpoint (for creating new workspaces)</label>
+            <div style="display:flex; gap:8px;">
+              <input type="text" id="setting-workspace-endpoint" class="input" placeholder="https://workspace-endpoint.openagents.org" style="flex: 1;">
+              <button class="btn btn-primary" id="btn-save-workspace-endpoint">Save</button>
+            </div>
+            <p class="hint">Change this to http://localhost:8000 for local development.</p>
+          </div>
+          <h4 style="margin-bottom: 8px;">Connected Workspaces</h4>
           <div id="settings-workspaces" class="hint">Loading...</div>
         </div>
         <div class="card">
