@@ -39,3 +39,11 @@ reset-db:
 # Lint
 lint:
 	cd backend && python -m ruff check app/
+
+# Start backend locally (without Docker)
+dev-local-backend:
+	cd backend && DATABASE_URL="postgresql://postgres:postgres@localhost:5432/openagents_workspace" AUTH_MODE=workspace_token PYTHONPATH=. uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Start frontend locally (without Docker)
+dev-local-frontend:
+	cd frontend && NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
