@@ -33,14 +33,9 @@ def upgrade() -> None:
     )
     op.create_index("idx_browser_contexts_workspace_status", "browser_contexts", ["workspace_id", "status"])
 
-    # Add context_id FK to browser_tabs
-    op.add_column(
-        "browser_tabs",
-        sa.Column("context_id", sa.Text(), sa.ForeignKey("browser_contexts.id", ondelete="SET NULL"), nullable=True),
-    )
+    pass
 
 
 def downgrade() -> None:
-    op.drop_column("browser_tabs", "context_id")
     op.drop_index("idx_browser_contexts_workspace_status", "browser_contexts")
     op.drop_table("browser_contexts")
