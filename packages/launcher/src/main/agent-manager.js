@@ -16,6 +16,14 @@ const GLOBAL_CORE = path.join(CONFIG_DIR, 'nodejs', 'node_modules', '@openagents
 
 // Load core library from global install (not bundled asar)
 function loadCore() {
+  const LOCAL_CORE = path.resolve(__dirname, '../../../agent-connector');
+  const isDev = !process.versions.electron || process.defaultApp || process.argv.includes('--dev');
+  // In development, prefer local source over global install
+  if (fs.existsSync(path.join(LOCAL_CORE, 'package.json'))) {
+    try { return require(LOCAL_CORE); } catch (e) {
+      console.error('Failed to load local core:', e);
+    }
+  }
   if (fs.existsSync(path.join(GLOBAL_CORE, 'package.json'))) {
     try { return require(GLOBAL_CORE); } catch {}
   }
@@ -48,7 +56,7 @@ class AgentManager {
   /** Reload core library after install/update */
   reloadCore() {
     // Clear require cache for global path
-    const cacheKeys = Object.keys(require.cache).filter(k => k.includes('agent-launcher'));
+    const cacheKeys = Object.keys(require.cache).filter(k => k.includes('agent-launcher') || k.includes('agent-connector'));
     for (const k of cacheKeys) delete require.cache[k];
     core = loadCore();
     if (core) {
@@ -252,6 +260,12 @@ class AgentManager {
     this._connector.disconnectWorkspace(agentName);
     this.signalReload();
     return { success: true };
+  }
+
+  async removeWorkspace(slug) {
+    const result = await this._connector.removeWorkspace(slug);
+    this.signalReload();
+    return result;
   }
 
   // ------------------------------------------------------------------

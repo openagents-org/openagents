@@ -542,6 +542,7 @@ function setupIPC() {
   // Workspace connection
   ipcMain.handle('workspace:connect', (_e, agentName, slug) => agentManager.connectWorkspace(agentName, slug));
   ipcMain.handle('workspace:disconnect', (_e, agentName) => agentManager.disconnectWorkspace(agentName));
+  ipcMain.handle('workspace:remove', (_e, slug) => agentManager.removeWorkspace(slug));
   ipcMain.handle('workspace:list', () => agentManager.getNetworks());
   ipcMain.handle('workspace:create', (_e, name) => agentManager.createWorkspace(name));
 

@@ -143,6 +143,22 @@ class AgentConnector {
     return { success: true };
   }
 
+  async removeWorkspace(slug) {
+    const networks = this.config.getNetworks();
+    const network = networks.find(n => n.slug === slug || n.id === slug);
+    if (network && network.id) {
+      // Use the network's specific endpoint (e.g., localhost vs official)
+      const endpoint = network.endpoint || (this.workspace && this.workspace.endpoint);
+      const { WorkspaceClient } = require('./workspace-client');
+      const tempClient = new WorkspaceClient(endpoint);
+      // Try to remove from backend first
+      await tempClient.deleteWorkspace(network.id, network.token || '');
+    }
+    // Remove from local config (which also disconnects any agents)
+    this.config.removeNetwork(slug);
+    return { success: true };
+  }
+
   // -- Daemon lifecycle --
 
   /**

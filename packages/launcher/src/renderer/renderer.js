@@ -1250,6 +1250,7 @@ async function refreshSettingsWorkspaces() {
       return `<li class="workspace-url-item">
         <span class="workspace-url-name">${esc(name)}</span>
         <span class="workspace-url-link" data-action="open-external" data-url="${esc(url)}${w.token ? '?token=' + encodeURIComponent(w.token) : ''}">${esc(url)}</span>
+        <button class="btn btn-sm btn-danger" style="margin-left: 8px;" data-action="remove-workspace" data-slug="${esc(slug)}">Remove</button>
       </li>`;
     }).join('')}</ul>`;
   } catch {
@@ -1370,6 +1371,7 @@ document.addEventListener('click', (e) => {
     case 'show-join-token': showJoinWithToken(name); break;
     case 'do-create-workspace': doCreateWorkspace(name); break;
     case 'do-join-token': doJoinWithToken(name); break;
+    case 'remove-workspace': removeWorkspace(slug); break;
     case 'do-add-agent': doAddAgent(); break;
     case 'save-config': saveConfig(type); break;
     case 'test-llm': testLLMConfig(type); break;
@@ -1435,7 +1437,24 @@ async function toggleDaemon() {
   }
 }
 
+// ---- Workspace Deletion ----
+
+async function removeWorkspace(slug) {
+  if (!confirm(`This will remove the workspace locally and attempt to soft-delete it on the server.\nConnected agents will be disconnected.\n\nAre you sure you want to proceed?`)) return;
+  try {
+    showToast(`Removing workspace...`, 'info');
+    await window.api.removeWorkspace(slug);
+    showToast(`Workspace removed`, 'success');
+    refreshSettingsWorkspaces();
+    refreshAgentList();
+    refreshDashboard();
+  } catch (err) {
+    showToast(`Error: ${err.message}`, 'error');
+  }
+}
+
 // ---- Initial load ----
 
 refreshDashboard();
 renderActivity();
+

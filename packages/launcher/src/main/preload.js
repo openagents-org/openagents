@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('api', {
   // Workspace
   connectWorkspace: (agentName, slug) => ipcRenderer.invoke('workspace:connect', agentName, slug),
   disconnectWorkspace: (agentName) => ipcRenderer.invoke('workspace:disconnect', agentName),
+  removeWorkspace: (slug) => ipcRenderer.invoke('workspace:remove', slug),
   listWorkspaces: () => ipcRenderer.invoke('workspace:list'),
   createWorkspace: (name) => ipcRenderer.invoke('workspace:create', name),
 

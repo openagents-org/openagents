@@ -73,6 +73,18 @@ class WorkspaceClient {
   }
 
   /**
+   * Delete a workspace via DELETE /v1/workspaces/{workspaceId}.
+   */
+  async deleteWorkspace(workspaceId, token) {
+    try {
+      await this._delete(`/v1/workspaces/${workspaceId}`, this._wsHeaders(token));
+    } catch (e) {
+      // Best-effort remote deletion.
+      console.warn(`Failed to remotely delete workspace ${workspaceId}: ${e.message}`);
+    }
+  }
+
+  /**
    * Join a workspace via POST /v1/join.
    */
   async joinNetwork(agentName, token, { network, agentType, serverHost, workingDir } = {}) {
