@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 export interface WorkspaceHistoryEntry {
   workspaceId: string;
   workspaceToken: string;
+  endpoint?: string;
   name: string;
   lastUsed: number;
 }
@@ -13,6 +14,7 @@ export interface WorkspaceSettings {
   workspaceId: string;
   workspaceToken: string;
   workspaceName?: string;
+  workspaceEndpoint?: string;
   workspaceHistory: WorkspaceHistoryEntry[];
 }
 

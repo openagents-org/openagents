@@ -7,6 +7,7 @@ const SETTINGS_FILE = 'settings.json';
 const DEFAULTS = {
   workspaceId: '',
   workspaceToken: '',
+  workspaceEndpoint: '',
   workspaceHistory: [],
 };
 
@@ -44,6 +45,7 @@ function saveSettings(settings) {
     const entry = {
       workspaceId: settings.workspaceId,
       workspaceToken: settings.workspaceToken,
+      endpoint: settings.workspaceEndpoint || undefined,
       name: settings.workspaceName || settings.workspaceId,
       lastUsed: Date.now(),
     };

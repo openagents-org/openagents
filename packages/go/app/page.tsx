@@ -16,20 +16,31 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 
 /**
  * Parse a workspace URL like:
- *   https://workspace.openagents.org/0048fff6?token=abc123
- *   /0048fff6?token=abc123
- *   0048fff6
+ *   https://workspace.openagents.org/0048fff6?token=abc123          → canonical, endpoint=undefined
+ *   https://agents-api.example.com/0048fff6?token=abc123            → self-hosted, endpoint=https://agents-api.example.com
+ *   /0048fff6?token=abc123                                          → endpoint=undefined
+ *   0048fff6                                                        → endpoint=undefined
+ *
+ * The canonical OpenAgents frontend host (workspace.openagents.org) is treated
+ * as endpoint=undefined so the API client falls back to its built-in default
+ * (workspace-endpoint.openagents.org). Any other origin is used as the API
+ * endpoint, which is how self-hosted workspaces opt in.
  */
-function parseWorkspaceUrl(input: string): { workspaceId: string; workspaceToken: string } | null {
+const CANONICAL_FRONTEND = 'https://workspace.openagents.org';
+
+function parseWorkspaceUrl(input: string): { workspaceId: string; workspaceToken: string; endpoint?: string } | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
 
   try {
-    const url = new URL(trimmed, 'https://workspace.openagents.org');
+    const url = new URL(trimmed, CANONICAL_FRONTEND);
     const segments = url.pathname.split('/').filter(Boolean);
     const workspaceId = segments[segments.length - 1];
     const workspaceToken = url.searchParams.get('token') || '';
-    if (workspaceId) return { workspaceId, workspaceToken };
+    if (workspaceId) {
+      const endpoint = url.origin && url.origin !== CANONICAL_FRONTEND ? url.origin : undefined;
+      return { workspaceId, workspaceToken, endpoint };
+    }
   } catch {
     // Not a URL — treat as bare workspace ID
   }
@@ -41,20 +52,23 @@ function parseWorkspaceUrl(input: string): { workspaceId: string; workspaceToken
   return null;
 }
 
-function navigateToWorkspace(workspaceId: string, workspaceToken: string) {
-  window.location.href = `/${workspaceId}?token=${workspaceToken}`;
+function navigateToWorkspace(workspaceId: string, workspaceToken: string, endpoint?: string) {
+  const params = new URLSearchParams();
+  params.set('token', workspaceToken);
+  if (endpoint) params.set('endpoint', endpoint);
+  window.location.href = `/${workspaceId}?${params.toString()}`;
 }
 
 // ---------------------------------------------------------------------------
 // Workspace View — renders when URL path has a workspace ID
 // ---------------------------------------------------------------------------
 
-function WorkspaceView({ workspaceId, token }: { workspaceId: string; token: string }) {
+function WorkspaceView({ workspaceId, token, endpoint }: { workspaceId: string; token: string; endpoint?: string }) {
   const { user, idToken, loading: authLoading, isOpenAgentsDomain, signIn } = useOpenAgentsAuth();
 
   if (token) {
     return (
-      <WorkspaceProvider workspaceId={workspaceId} token={token} bearerToken={idToken || undefined}>
+      <WorkspaceProvider workspaceId={workspaceId} token={token} bearerToken={idToken || undefined} endpoint={endpoint}>
         <LayoutProvider>
           <Wrapper />
         </LayoutProvider>
@@ -73,7 +87,7 @@ function WorkspaceView({ workspaceId, token }: { workspaceId: string; token: str
 
     if (user && idToken) {
       return (
-        <WorkspaceProvider workspaceId={workspaceId} token="" bearerToken={idToken}>
+        <WorkspaceProvider workspaceId={workspaceId} token="" bearerToken={idToken} endpoint={endpoint}>
           <LayoutProvider>
             <Wrapper />
           </LayoutProvider>
@@ -118,7 +132,7 @@ function SelectorView() {
   const [error, setError] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [history, setHistory] = useState<WorkspaceHistoryEntry[]>([]);
-  const [currentWorkspace, setCurrentWorkspace] = useState<{ id: string; token: string } | null>(null);
+  const [currentWorkspace, setCurrentWorkspace] = useState<{ id: string; token: string; endpoint?: string } | null>(null);
 
   useEffect(() => {
     async function init() {
@@ -128,14 +142,14 @@ function SelectorView() {
 
         if (isSwitching) {
           if (settings.workspaceId && settings.workspaceToken) {
-            setCurrentWorkspace({ id: settings.workspaceId, token: settings.workspaceToken });
+            setCurrentWorkspace({ id: settings.workspaceId, token: settings.workspaceToken, endpoint: settings.workspaceEndpoint });
           }
           setLoading(false);
           return;
         }
 
         if (settings.workspaceId && settings.workspaceToken) {
-          navigateToWorkspace(settings.workspaceId, settings.workspaceToken);
+          navigateToWorkspace(settings.workspaceId, settings.workspaceToken, settings.workspaceEndpoint);
           return;
         }
       }
@@ -154,11 +168,11 @@ function SelectorView() {
     init();
   }, [router, isSwitching]);
 
-  const connectToWorkspace = async (workspaceId: string, workspaceToken: string) => {
+  const connectToWorkspace = async (workspaceId: string, workspaceToken: string, endpoint?: string) => {
     if (window.electronAPI) {
-      await window.electronAPI.settings.save({ workspaceId, workspaceToken });
+      await window.electronAPI.settings.save({ workspaceId, workspaceToken, workspaceEndpoint: endpoint });
     }
-    navigateToWorkspace(workspaceId, workspaceToken);
+    navigateToWorkspace(workspaceId, workspaceToken, endpoint);
   };
 
   const handleConnect = async (e: React.FormEvent) => {
@@ -175,12 +189,12 @@ function SelectorView() {
       return;
     }
 
-    await connectToWorkspace(parsed.workspaceId, parsed.workspaceToken);
+    await connectToWorkspace(parsed.workspaceId, parsed.workspaceToken, parsed.endpoint);
   };
 
   const handleCancel = () => {
     if (currentWorkspace) {
-      navigateToWorkspace(currentWorkspace.id, currentWorkspace.token);
+      navigateToWorkspace(currentWorkspace.id, currentWorkspace.token, currentWorkspace.endpoint);
     }
   };
 
@@ -216,13 +230,14 @@ function SelectorView() {
                   const displayName = entry.name && entry.name !== entry.workspaceId
                     ? entry.name
                     : entry.workspaceId.slice(0, 8);
-                  const fullUrl = `https://workspace.openagents.org/${entry.workspaceId}?token=${entry.workspaceToken}`;
+                  const baseUrl = entry.endpoint || CANONICAL_FRONTEND;
+                  const fullUrl = `${baseUrl}/${entry.workspaceId}?token=${entry.workspaceToken}`;
 
                   return (
                     <Tooltip key={entry.workspaceId}>
                       <TooltipTrigger asChild>
                         <button
-                          onClick={() => connectToWorkspace(entry.workspaceId, entry.workspaceToken)}
+                          onClick={() => connectToWorkspace(entry.workspaceId, entry.workspaceToken, entry.endpoint)}
                           className="flex items-center gap-2 px-3 py-1.5 rounded-lg border bg-card hover:bg-accent hover:border-primary/30 transition-colors text-sm cursor-pointer"
                         >
                           <Clock className="size-3 text-muted-foreground shrink-0" />
@@ -275,7 +290,7 @@ function SelectorView() {
                           type="button"
                           onClick={() => {
                             setDropdownOpen(false);
-                            connectToWorkspace(entry.workspaceId, entry.workspaceToken);
+                            connectToWorkspace(entry.workspaceId, entry.workspaceToken, entry.endpoint);
                           }}
                           className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-accent transition-colors text-left cursor-pointer"
                         >
@@ -322,12 +337,13 @@ function SelectorView() {
 // ---------------------------------------------------------------------------
 
 function AppRouter() {
-  const [route, setRoute] = useState<{ type: 'loading' } | { type: 'selector' } | { type: 'workspace'; workspaceId: string; token: string }>({ type: 'loading' });
+  const [route, setRoute] = useState<{ type: 'loading' } | { type: 'selector' } | { type: 'workspace'; workspaceId: string; token: string; endpoint?: string }>({ type: 'loading' });
 
   useEffect(() => {
     const path = window.location.pathname.replace(/\/+$/, '');
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || '';
+    const endpoint = params.get('endpoint') || undefined;
 
     // Root path or switch mode → selector
     if (!path || path === '/' || path === '') {
@@ -338,7 +354,7 @@ function AppRouter() {
     // Any other path → treat as workspace ID
     const workspaceId = path.split('/').filter(Boolean)[0];
     if (workspaceId) {
-      setRoute({ type: 'workspace', workspaceId, token });
+      setRoute({ type: 'workspace', workspaceId, token, endpoint });
     } else {
       setRoute({ type: 'selector' });
     }
@@ -354,7 +370,7 @@ function AppRouter() {
   }
 
   if (route.type === 'workspace') {
-    return <WorkspaceView workspaceId={route.workspaceId} token={route.token} />;
+    return <WorkspaceView workspaceId={route.workspaceId} token={route.token} endpoint={route.endpoint} />;
   }
 
   return <SelectorView />;

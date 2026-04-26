@@ -76,11 +76,13 @@ export function WorkspaceProvider({
   workspaceId,
   token,
   bearerToken,
+  endpoint,
   children,
 }: {
   workspaceId: string;
   token: string;
   bearerToken?: string;
+  endpoint?: string;
   children: React.ReactNode;
 }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -206,8 +208,8 @@ export function WorkspaceProvider({
 
   // Configure API client on mount
   useEffect(() => {
-    workspaceApi.configure(workspaceId, token, bearerToken || undefined);
-  }, [workspaceId, token, bearerToken]);
+    workspaceApi.configure(workspaceId, token, bearerToken || undefined, endpoint);
+  }, [workspaceId, token, bearerToken, endpoint]);
 
   const refreshWorkspace = useCallback(async () => {
     try {

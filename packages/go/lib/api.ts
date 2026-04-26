@@ -18,7 +18,7 @@ import type {
 } from './types';
 import { eventToMessage } from './types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+const DEFAULT_API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
 
 /** Map snake_case file response from backend to camelCase WorkspaceFile. */
 function mapFileResponse(raw: Record<string, unknown>): WorkspaceFile {
@@ -38,11 +38,13 @@ class WorkspaceApi {
   private token: string = '';
   private bearerToken: string = '';
   private workspaceId: string = '';
+  private endpoint: string = DEFAULT_API_URL;
 
-  configure(workspaceId: string, token: string, bearerToken?: string) {
+  configure(workspaceId: string, token: string, bearerToken?: string, endpoint?: string) {
     this.workspaceId = workspaceId;
     this.token = token;
     if (bearerToken !== undefined) this.bearerToken = bearerToken;
+    this.endpoint = endpoint || DEFAULT_API_URL;
   }
 
   setBearerToken(bearerToken: string) {
@@ -58,7 +60,7 @@ class WorkspaceApi {
       authHeaders['Authorization'] = `Bearer ${this.bearerToken}`;
     }
 
-    const url = `${API_URL}${path}`;
+    const url = `${this.endpoint}${path}`;
     const res = await fetch(url, {
       ...options,
       cache: 'no-store',
@@ -264,7 +266,7 @@ class WorkspaceApi {
     if (this.token) authHeaders['X-Workspace-Token'] = this.token;
     if (this.bearerToken) authHeaders['Authorization'] = `Bearer ${this.bearerToken}`;
 
-    const url = `${API_URL}/v1/files`;
+    const url = `${this.endpoint}/v1/files`;
     const res = await fetch(url, {
       method: 'POST',
       headers: authHeaders,
@@ -296,7 +298,7 @@ class WorkspaceApi {
     const params = new URLSearchParams();
     if (this.token) params.set('token', this.token);
     const qs = params.toString();
-    return `${API_URL}/v1/files/${fileId}${qs ? `?${qs}` : ''}`;
+    return `${this.endpoint}/v1/files/${fileId}${qs ? `?${qs}` : ''}`;
   }
 
   /** Delete a file. */
@@ -377,7 +379,7 @@ class WorkspaceApi {
 
   /** Get screenshot URL for a browser tab. */
   getBrowserScreenshotUrl(tabId: string): string {
-    return `${API_URL}/v1/browser/tabs/${tabId}/screenshot`;
+    return `${this.endpoint}/v1/browser/tabs/${tabId}/screenshot`;
   }
 
   /** Remove persistent state from a browser tab (revert to temporal). */
