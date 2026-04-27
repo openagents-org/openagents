@@ -118,7 +118,7 @@ class AgentManager {
       throw new Error(`Agent type '${type}' is not supported in Launcher yet. Supported: ${supportedTypes.join(', ')}`);
     }
 
-    this._connector.addAgent({ name, type, role: 'worker' });
+    this._connector.addAgent({ name, type, role: 'worker', path: agentConfig.path });
 
     // Save env vars for the agent type
     if (agentConfig.env && Object.keys(agentConfig.env).length > 0) {
