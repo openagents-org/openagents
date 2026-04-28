@@ -1,0 +1,75 @@
+name: Agent E2E Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      agent_type:
+        description: "Agent type to test"
+        required: false
+        default: hermes
+  push:
+    branches: [develop]
+    paths:
+      - "packages/agent-connector/**"
+      - "workspace/**"
+      - "tests/e2e/**"
+      - ".github/workflows/agent-e2e-smoke.yml"
+  pull_request:
+    branches: [develop]
+    paths:
+      - "packages/agent-connector/**"
+      - "workspace/**"
+      - "tests/e2e/**"
+      - ".github/workflows/agent-e2e-smoke.yml"
+
+env:
+  AGENT_TYPE: ${{ inputs.agent_type || 'hermes' }}
+  LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+  LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+  LLM_MODEL: ${{ secrets.LLM_MODEL }}
+  E2E_WS_TOKEN: ${{ secrets.E2E_WS_TOKEN }}
+  E2E_WS_SLUG: ${{ secrets.E2E_WS_SLUG }}
+  WORKSPACE_API_BASE_URL: https://workspace-endpoint.openagents.org
+
+jobs:
+  agent-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install project dependencies
+        run: |
+          cd packages/agent-connector
+          npm ci || npm install
+
+      - name: Link agn CLI
+        run: |
+          cd packages/agent-connector
+          npm link
+
+      - name: Pre-install Hermes (non-interactive)
+        if: env.AGENT_TYPE == 'hermes'
+        run: |
+          if command -v hermes &>/dev/null; then
+            echo "Hermes already installed: $(which hermes)"
+          else
+            echo "Installing Hermes via install script (skip-setup)..."
+            curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash -s -- --skip-setup
+            hermes --version || echo "WARNING: hermes not found after install"
+          fi
+
+      - name: Run agent E2E smoke test
+        run: node tests/e2e/agent-smoke.js
+
+      - name: Upload E2E logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs-${{ env.AGENT_TYPE }}-${{ github.run_id }}
+          path: .e2e-logs/
+          retention-days: 14
