@@ -48,6 +48,7 @@ class BaseAdapter {
     this._titledSessions = new Set();
     this._mode = 'execute';
     this._lastControlId = null;
+    this._controlWake = null;
     // Per-channel task tracking for parallel execution
     this._channelBusy = new Set();
     this._channelQueues = {};
@@ -81,7 +82,7 @@ class BaseAdapter {
     await this._skipExistingEvents();
 
     const heartbeatInterval = setInterval(() => this._heartbeat(), 30000);
-    const controlInterval = setInterval(() => this._pollControl(), 2000);
+    const controlPoller = this._controlPollerLoop();
 
     try {
       // Send initial heartbeat
@@ -92,8 +93,9 @@ class BaseAdapter {
       await this._pollLoop();
     } finally {
       this._running = false;
+      this._wakeControlPoller();
       clearInterval(heartbeatInterval);
-      clearInterval(controlInterval);
+      try { await controlPoller; } catch {}
       try {
         await this.client.disconnect(this.workspaceId, this.agentName, this.token);
       } catch {}
@@ -170,6 +172,40 @@ class BaseAdapter {
    * Handle adapter-specific control actions. Override in subclasses.
    */
   async _onControlAction(_action, _payload) {}
+
+  _hasActiveWork() {
+    return this._channelBusy.size > 0;
+  }
+
+  _controlPollDelayMs() {
+    return this._hasActiveWork() ? 250 : 2000;
+  }
+
+  _wakeControlPoller() {
+    if (this._controlWake) {
+      this._controlWake();
+      this._controlWake = null;
+    }
+  }
+
+  async _sleepUntilControlPollDue(delayMs) {
+    await new Promise((resolve) => {
+      const timeout = setTimeout(resolve, delayMs);
+      this._controlWake = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+    });
+    this._controlWake = null;
+  }
+
+  async _controlPollerLoop() {
+    while (this._running) {
+      await this._pollControl();
+      if (!this._running) break;
+      await this._sleepUntilControlPollDue(this._controlPollDelayMs());
+    }
+  }
 
   // ------------------------------------------------------------------
   // Poll loop
@@ -254,6 +290,7 @@ class BaseAdapter {
 
     // Run channel worker (don't await — parallel execution)
     this._channelWorker(channel, msg);
+    this._wakeControlPoller();
   }
 
   async _channelWorker(channel, msg) {

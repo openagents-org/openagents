@@ -24,6 +24,7 @@ interface WorkspaceContextValue {
   error: string | null;
   lastMessageBySession: Record<string, LastMessageInfo>;
   activeSessionIds: Set<string>;
+  stoppingSessionIds: Set<string>;
   completedSessionIds: Set<string>;
   monitorMode: boolean;
   acknowledgeCompletion: (sessionId: string) => void;
@@ -104,6 +105,9 @@ export function WorkspaceProvider({
   const [error, setError] = useState<string | null>(null);
   const [lastMessageBySession, setLastMessageBySession] = useState<Record<string, LastMessageInfo>>({});
   const [activeSessionIds, setActiveSessionIds] = useState<Set<string>>(new Set());
+  const [stoppingSessionIds, setStoppingSessionIds] = useState<Set<string>>(new Set());
+  const stoppingSessionIdsRef = useRef(stoppingSessionIds);
+  stoppingSessionIdsRef.current = stoppingSessionIds;
   const [completedSessionIds, setCompletedSessionIds] = useState<Set<string>>(new Set());
   const [agentModes, setAgentModes] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
@@ -158,6 +162,14 @@ export function WorkspaceProvider({
   }, []);
 
   const updateLastMessage = useCallback((sessionId: string, senderName: string, content: string, isStatus?: boolean) => {
+    if (!isStatus || /stopped|stopping failed/i.test(content)) {
+      setStoppingSessionIds((prev) => {
+        if (!prev.has(sessionId)) return prev;
+        const next = new Set(prev);
+        next.delete(sessionId);
+        return next;
+      });
+    }
     setLastMessageBySession((prev) => {
       if (!content && !prev[sessionId]) return prev;
       const existing = prev[sessionId];
@@ -175,7 +187,7 @@ export function WorkspaceProvider({
   const setSessionActive = useCallback((sessionId: string, active: boolean) => {
     setActiveSessionIds((prev) => {
       const next = new Set(prev);
-      if (active) next.add(sessionId);
+      if (active && !stoppingSessionIdsRef.current.has(sessionId)) next.add(sessionId);
       else next.delete(sessionId);
       return next;
     });
@@ -202,10 +214,40 @@ export function WorkspaceProvider({
   }, [agentModes]);
 
   const stopAllAgents = useCallback(async () => {
-    await Promise.allSettled(
+    const sessionIds = Array.from(activeSessionIds);
+    if (sessionIds.length === 0) return;
+
+    setStoppingSessionIds((prev) => {
+      const next = new Set(prev);
+      sessionIds.forEach((sid) => next.add(sid));
+      return next;
+    });
+    setActiveSessionIds((prev) => {
+      const next = new Set(prev);
+      sessionIds.forEach((sid) => next.delete(sid));
+      return next;
+    });
+    setLastMessageBySession((prev) => {
+      const next = { ...prev };
+      sessionIds.forEach((sid) => {
+        next[sid] = { senderName: 'system', content: 'Stopping...', isStatus: true };
+      });
+      return next;
+    });
+
+    const sendStop = () => Promise.allSettled(
       agents.map((a) => workspaceApi.sendAgentControl(a.agentName, 'stop'))
     );
-  }, [agents]);
+    await sendStop();
+
+    window.setTimeout(() => {
+      setStoppingSessionIds((prevStopping) => {
+        const stillStopping = sessionIds.filter((sid) => prevStopping.has(sid));
+        if (stillStopping.length > 0) void sendStop();
+        return prevStopping;
+      });
+    }, 3000);
+  }, [activeSessionIds, agents]);
 
   // Configure API client on mount
   useEffect(() => {
@@ -335,9 +377,28 @@ export function WorkspaceProvider({
             const newInactive = new Set<string>();
             for (const [sid, info] of Object.entries(batch)) {
               const wasStatus = prev[sid]?.isStatus;
+              const isStopping = stoppingSessionIds.has(sid);
               if (info.isStatus) {
-                newActive.add(sid);
+                if (isStopping) {
+                  if (/stopped|stopping failed/i.test(info.content)) {
+                    setStoppingSessionIds((s) => {
+                      if (!s.has(sid)) return s;
+                      const next = new Set(s);
+                      next.delete(sid);
+                      return next;
+                    });
+                    newInactive.add(sid);
+                  }
+                } else {
+                  newActive.add(sid);
+                }
               } else {
+                setStoppingSessionIds((s) => {
+                  if (!s.has(sid)) return s;
+                  const next = new Set(s);
+                  next.delete(sid);
+                  return next;
+                });
                 // Latest event is a real message — session is not working.
                 // Always clear active so the shimmer doesn't stick when the
                 // status→chat transition happens between polls or while
@@ -374,7 +435,7 @@ export function WorkspaceProvider({
     } catch {
       // Non-critical — keep existing state
     }
-  }, [workspaceId]);
+  }, [workspaceId, stoppingSessionIds]);
 
   // Alias for backward compat
   const refreshAgents = refreshDiscovery;
@@ -738,6 +799,7 @@ export function WorkspaceProvider({
         error,
         lastMessageBySession,
         activeSessionIds,
+        stoppingSessionIds,
         completedSessionIds,
         monitorMode,
         acknowledgeCompletion,

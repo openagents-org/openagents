@@ -46,6 +46,13 @@ function groupKey(group: MessageGroup): string {
     : `steps-${group.messages[0].messageId}`;
 }
 
+function isTerminalStatus(msg: WorkspaceMessage) {
+  return (
+    msg.messageType === 'status' &&
+    /stopped|stopping failed/i.test(msg.content)
+  );
+}
+
 // ── Component ──
 
 interface ChatMessagesProps {
@@ -140,8 +147,10 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
   // Group into chat messages and intermediate step clusters
   const groups = useMemo(() => groupMessages(filteredMessages), [filteredMessages]);
 
+  const hasTerminalStatus = realMessages.some(isTerminalStatus);
+
   // Loading indicator counts as a virtual row when present
-  const hasLoading = loadingMessages.length > 0;
+  const hasLoading = loadingMessages.length > 0 && !hasTerminalStatus;
   const totalCount = groups.length + (hasLoading ? 1 : 0);
 
   // ── Virtualizer ──

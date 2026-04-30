@@ -48,6 +48,7 @@ class ClaudeAdapter(BaseAdapter):
         self._channel_sessions: dict[str, str] = {}  # channel_name → Claude CLI session_id
         self._current_process: Optional[asyncio.subprocess.Process] = None
         self._channel_processes: dict[str, asyncio.subprocess.Process] = {}  # channel → subprocess
+        self._stopping_channels: set[str] = set()
         self._attached_file_ids: set[str] = set()  # files already attached to responses
         self._sessions_file = (
             Path.home() / ".openagents" / "sessions"
@@ -83,6 +84,36 @@ class ClaudeAdapter(BaseAdapter):
         """Kill a single Claude subprocess and its children."""
         if proc and proc.returncode is None:
             try:
+                if platform.system() == "Windows":
+                    try:
+                        proc.send_signal(signal.SIGINT)
+                    except Exception:
+                        try:
+                            proc.terminate()
+                        except Exception:
+                            pass
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=1.5)
+                        return
+                    except asyncio.TimeoutError:
+                        pass
+
+                    try:
+                        killer = await asyncio.create_subprocess_exec(
+                            "taskkill", "/F", "/T", "/PID", str(proc.pid),
+                            stdout=asyncio.subprocess.DEVNULL,
+                            stderr=asyncio.subprocess.DEVNULL,
+                        )
+                        await asyncio.wait_for(killer.wait(), timeout=5)
+                    except Exception:
+                        proc.kill()
+                    try:
+                        await asyncio.wait_for(proc.wait(), timeout=1.5)
+                    except asyncio.TimeoutError:
+                        proc.kill()
+                        await proc.wait()
+                    return
+
                 # Try to kill the entire process group (catches child
                 # processes like Playwright MCP servers that may hold
                 # stdout open after the main process exits).
@@ -94,7 +125,7 @@ class ClaudeAdapter(BaseAdapter):
                 except (ProcessLookupError, PermissionError, OSError, AttributeError):
                     proc.terminate()
                 try:
-                    await asyncio.wait_for(proc.wait(), timeout=5)
+                    await asyncio.wait_for(proc.wait(), timeout=1.5)
                 except asyncio.TimeoutError:
                     try:
                         os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
@@ -111,6 +142,7 @@ class ClaudeAdapter(BaseAdapter):
             return
         logger.info(f"Stopping {len(procs)} running process(es)...")
         for channel, proc in procs:
+            self._stopping_channels.add(channel)
             await self._stop_process(proc)
             self._channel_processes.pop(channel, None)
             self._channel_queues.pop(channel, None)
@@ -441,6 +473,7 @@ class ClaudeAdapter(BaseAdapter):
             )
             self._current_process = process
             self._channel_processes[msg_channel] = process
+            self._stopping_channels.discard(msg_channel)
 
             # last_response_text holds the text from the most recent
             # assistant turn.  Earlier turns are intermediate reasoning
@@ -586,6 +619,10 @@ class ClaudeAdapter(BaseAdapter):
             await process.wait()
             self._current_process = None
             self._channel_processes.pop(msg_channel, None)
+            stopped_by_user = msg_channel in self._stopping_channels
+            if stopped_by_user:
+                self._stopping_channels.discard(msg_channel)
+                return
 
             if process.returncode != 0:
                 stderr = await process.stderr.read()

@@ -82,7 +82,7 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { agents, currentSessionId, sessions, updateLastMessage, setSessionActive, agentModes, updateAgentMode, toggleAgentMode, stopAllAgents, activeSessionIds, renameSession, addParticipant, removeParticipant } = useWorkspace();
+  const { agents, currentSessionId, sessions, updateLastMessage, setSessionActive, agentModes, updateAgentMode, toggleAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant } = useWorkspace();
   const { isMobile, openMobileList, splitBrowser, showBrowserPreview, setShowBrowserPreview } = useLayout();
 
   // Continuously refresh message caches for top recent sessions in the background.
@@ -255,7 +255,12 @@ export function ChatView() {
     if (!currentSessionId) return;
     const lastMsg = displayMessages[displayMessages.length - 1];
     if (lastMsg) {
-      const isWorking = lastMsg.messageType === 'status' || lastMsg.messageType === 'thinking' || lastMsg.messageType === 'loading';
+      const isTerminalStatus = /stopped|stopping failed/i.test(lastMsg.content);
+      const isWorking = !isTerminalStatus && (
+        lastMsg.messageType === 'status' ||
+        lastMsg.messageType === 'thinking' ||
+        lastMsg.messageType === 'loading'
+      );
       updateLastMessage(currentSessionId, lastMsg.senderName, lastMsg.content, isWorking);
     } else {
       updateLastMessage(currentSessionId, '', '');
@@ -276,7 +281,12 @@ export function ChatView() {
       return;
     }
     const lastMsg = displayMessages[displayMessages.length - 1];
-    const isAgentWorking = lastMsg.senderType === 'agent' && (lastMsg.messageType === 'status' || lastMsg.messageType === 'thinking' || lastMsg.messageType === 'loading');
+    const isTerminalStatus = /stopped|stopping failed/i.test(lastMsg.content);
+    const isAgentWorking = lastMsg.senderType === 'agent' && !isTerminalStatus && (
+      lastMsg.messageType === 'status' ||
+      lastMsg.messageType === 'thinking' ||
+      lastMsg.messageType === 'loading'
+    );
     setSessionActive(currentSessionId, isAgentWorking);
   }, [currentSessionId, displayMessages, setSessionActive]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -535,13 +545,14 @@ export function ChatView() {
           })()}
 
           {/* Stop button — visible when agents are working */}
-          {currentSessionId && activeSessionIds.has(currentSessionId) && (
+          {currentSessionId && (activeSessionIds.has(currentSessionId) || stoppingSessionIds.has(currentSessionId)) && (
             <button
               onClick={stopAllAgents}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors shrink-0"
+              disabled={stoppingSessionIds.has(currentSessionId)}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors shrink-0 disabled:opacity-60 disabled:pointer-events-none"
             >
               <Square className="size-3 fill-current" />
-              Stop
+              {stoppingSessionIds.has(currentSessionId) ? 'Stopping...' : 'Stop'}
             </button>
           )}
 

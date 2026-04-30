@@ -249,6 +249,13 @@ function ActivityIndicator() {
   );
 }
 
+function isTerminalStatus(step: WorkspaceMessage) {
+  return (
+    step.messageType === 'status' &&
+    /stopped|stopping failed/i.test(step.content)
+  );
+}
+
 // ── Intermediate Steps Group ──
 
 interface IntermediateStepsProps {
@@ -260,6 +267,7 @@ interface IntermediateStepsProps {
 export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents, isActive = false }: IntermediateStepsProps) {
   const agentNames = agents?.map((a) => a.agentName) ?? [];
   if (steps.length === 0) return null;
+  const hasTerminalStatus = steps.some(isTerminalStatus);
 
   // Group consecutive steps by sender
   const hasMultipleAgents = (agents?.length ?? 0) > 1;
@@ -298,7 +306,7 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
             ))}
           </div>
         ))}
-        {isActive && <ActivityIndicator />}
+        {isActive && !hasTerminalStatus && <ActivityIndicator />}
       </div>
     </div>
   );

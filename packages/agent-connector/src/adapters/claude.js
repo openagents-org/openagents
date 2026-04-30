@@ -33,6 +33,7 @@ class ClaudeAdapter extends BaseAdapter {
     this.disabledModules = opts.disabledModules || new Set();
     this._channelSessions = {}; // channel → Claude CLI session_id
     this._channelProcesses = {}; // channel → child process
+    this._stoppingChannels = new Set();
     this._sessionsFile = path.join(
       os.homedir(), '.openagents', 'sessions',
       `${this.workspaceId}_${this.agentName}.json`
@@ -72,19 +73,41 @@ class ClaudeAdapter extends BaseAdapter {
     if (!proc || proc.exitCode !== null) return;
     try {
       if (IS_WINDOWS) {
-        try { execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 }); } catch {}
+        // Give Claude Code a Ctrl+C-like interrupt first so it can cancel
+        // shell/background tasks it manages before the forceful process-tree
+        // cleanup below. Going straight to /F can leave detached tool work
+        // alive even though the Claude CLI process itself is gone.
+        try { proc.kill('SIGINT'); } catch {}
+        const exited = await new Promise((resolve) => {
+          if (proc.exitCode !== null) {
+            resolve(true);
+            return;
+          }
+          const timeout = setTimeout(() => resolve(false), 1500);
+          proc.once('exit', () => { clearTimeout(timeout); resolve(true); });
+        });
+        if (!exited) {
+          try { execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 }); } catch {}
+        }
       } else {
         try { process.kill(-proc.pid, 'SIGTERM'); } catch {
           proc.kill('SIGTERM');
         }
         await new Promise((resolve) => {
+          let done = false;
+          const finish = () => {
+            if (done) return;
+            done = true;
+            resolve();
+          };
           const timeout = setTimeout(() => {
             try { process.kill(-proc.pid, 'SIGKILL'); } catch {
               proc.kill('SIGKILL');
             }
-            resolve();
-          }, 5000);
-          proc.on('exit', () => { clearTimeout(timeout); resolve(); });
+            const reapTimeout = setTimeout(finish, 1000);
+            proc.once('exit', () => { clearTimeout(reapTimeout); finish(); });
+          }, 1500);
+          proc.once('exit', () => { clearTimeout(timeout); finish(); });
         });
       }
     } catch {}
@@ -95,6 +118,7 @@ class ClaudeAdapter extends BaseAdapter {
     if (!entries.length) return;
     this._log(`Stopping ${entries.length} running process(es)...`);
     for (const [channel, proc] of entries) {
+      this._stoppingChannels.add(channel);
       await this._stopProcess(proc);
       delete this._channelProcesses[channel];
       delete this._channelQueues[channel];
@@ -356,6 +380,7 @@ class ClaudeAdapter extends BaseAdapter {
     if (!content) return;
 
     const msgChannel = msg.sessionId || this.channelName;
+    this._stoppingChannels.delete(msgChannel);
     const sender = msg.senderName || msg.senderType || 'user';
     this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
 
@@ -548,6 +573,12 @@ class ClaudeAdapter extends BaseAdapter {
           }
 
           delete this._channelProcesses[msgChannel];
+          const stoppedByUser = this._stoppingChannels.has(msgChannel);
+          if (stoppedByUser) {
+            this._stoppingChannels.delete(msgChannel);
+            resolve(false);
+            return;
+          }
 
           if (code !== 0) {
             this._log(`CLI exited with code ${code}`);

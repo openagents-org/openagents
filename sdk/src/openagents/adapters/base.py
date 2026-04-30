@@ -48,6 +48,7 @@ class BaseAdapter(ABC):
         self._titled_sessions: set = set()
         self._mode: str = "execute"
         self._last_control_id: Optional[str] = None
+        self._control_wake_event = asyncio.Event()
         # Per-channel task tracking for parallel execution
         self._channel_tasks: dict[str, asyncio.Task] = {}
         self._channel_queues: dict[str, list[dict]] = {}
@@ -155,7 +156,15 @@ class BaseAdapter(ABC):
         """Persistent background loop for control events."""
         while self._running:
             await self._poll_control()
-            await asyncio.sleep(2)
+            delay = 0.25 if self._has_active_work() else 2
+            try:
+                await asyncio.wait_for(self._control_wake_event.wait(), timeout=delay)
+            except asyncio.TimeoutError:
+                pass
+            self._control_wake_event.clear()
+
+    def _has_active_work(self) -> bool:
+        return any(task is not None and not task.done() for task in self._channel_tasks.values())
 
     # ------------------------------------------------------------------
     # Poll loop
@@ -242,6 +251,7 @@ class BaseAdapter(ABC):
 
         task = asyncio.create_task(self._channel_worker(channel, msg))
         self._channel_tasks[channel] = task
+        self._control_wake_event.set()
 
     async def _channel_worker(self, channel: str, msg: dict):
         """Process a message and then drain the channel's queue."""
