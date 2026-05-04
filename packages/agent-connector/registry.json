@@ -271,6 +271,8 @@
       "open-source",
       "cli"
     ],
+    "builtin": true,
+    "support": { "install": true, "workspace": true, "collaboration": true },
     "install": {
       "binary": "gemini",
       "requires": [
@@ -279,7 +281,26 @@
       "macos": "npm install -g @google/gemini-cli",
       "linux": "npm install -g @google/gemini-cli",
       "windows": "npm install -g @google/gemini-cli"
-    }
+    },
+    "adapter": {
+      "module": "openagents.adapters.gemini",
+      "class": "GeminiAdapter"
+    },
+    "launch": {
+      "args": [
+        "-p",
+        "Your agent name is '{agent_name}'.",
+        "-y",
+        "-o",
+        "stream-json"
+      ]
+    },
+    "check_ready": {
+      "not_ready_message": "Not logged in. Run: gemini",
+      "login_command": "gemini",
+      "alt_check": "gemini --version"
+    },
+    "env_config": []
   },
   {
     "name": "goose",

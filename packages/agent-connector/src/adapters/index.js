@@ -12,6 +12,7 @@ const OpenCodeAdapter = require('./opencode');
 const NanoClawAdapter = require('./nanoclaw');
 const CursorAdapter = require('./cursor');
 const HermesAdapter = require('./hermes');
+const GeminiAdapter = require('./gemini');
 
 const ADAPTER_MAP = {
   openclaw: OpenClawAdapter,
@@ -21,6 +22,7 @@ const ADAPTER_MAP = {
   nanoclaw: NanoClawAdapter,
   cursor: CursorAdapter,
   hermes: HermesAdapter,
+  gemini: GeminiAdapter,
 };
 
 /**
@@ -46,6 +48,7 @@ module.exports = {
   NanoClawAdapter,
   CursorAdapter,
   HermesAdapter,
+  GeminiAdapter,
   createAdapter,
   ADAPTER_MAP,
 };

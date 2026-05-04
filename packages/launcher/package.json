@@ -5,7 +5,10 @@
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --remote-debugging-port=9222 --remote-allow-origins=*",
+    "start:headless": "electron . --headless",
+    "dev": "electron . --remote-debugging-port=9223 --remote-allow-origins=*",
+    "dev:nogpu": "electron . --remote-debugging-port=9223 --remote-allow-origins=* --disable-gpu",
+    "dev:headless": "electron . --remote-debugging-port=9223 --remote-allow-origins=* --headless",
     "build:win": "electron-builder --win --publish never",
     "build:mac": "electron-builder --mac --x64 --arm64 --publish never",
     "build:mac:x64": "electron-builder --mac --x64 --publish never",

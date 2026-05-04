@@ -75,7 +75,7 @@ class BaseAdapter {
       this._sessionId = (joinResult && joinResult.session_id) || null;
       this._log(`Joined workspace ${this.workspaceId}${this._sessionId ? ` (session ${this._sessionId.slice(0, 8)})` : ''}`);
     } catch (e) {
-      this._log(`Warning: join failed: ${e.message}`);
+      this._log(`Warning: join failed: ${e.message} \nStack: ${e.stack}`);
     }
 
     await this._skipExistingEvents();
@@ -193,7 +193,7 @@ class BaseAdapter {
           this._log(`Poll #${pollCount}: ${messages.length} messages, cursor=${rawCursor || 'none'}`);
         }
       } catch (e) {
-        this._log(`Poll #${pollCount} failed: ${e.message}`);
+        this._log(`Poll #${pollCount} failed: ${e.message} \nStack: ${e.stack}`);
         await this._sleep(5000);
         continue;
       }
@@ -226,8 +226,8 @@ class BaseAdapter {
         idleCount++;
       }
 
-      // Adaptive polling: 2s active, up to 15s idle
-      const delay = incoming.length > 0 ? 2000 : Math.min(2000 + idleCount * 1000, 15000);
+      // Aggressive polling for snappier experience: 1s active, up to 3s idle
+      const delay = incoming.length > 0 ? 1000 : Math.min(1000 + idleCount * 500, 3000);
       await this._sleep(delay);
     }
   }

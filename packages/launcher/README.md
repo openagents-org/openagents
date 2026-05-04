@@ -45,4 +45,4 @@ src/
     styles.css      - Dark theme styles
 ```
 
-The app wraps the existing `openagents` CLI — it calls `python -m openagents <command>` under the hood. No new backend logic is duplicated.
+The app wraps the @openagents-org/agent-launcher library — it runs a Node.js daemon and manages agents via native adapters. No Python required.

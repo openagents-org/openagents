@@ -3,6 +3,12 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execSync } = require('child_process');
+
+const isHeadless = process.argv.includes('--headless');
+if (process.argv.includes('--disable-gpu') || isHeadless) {
+  app.disableHardwareAcceleration();
+}
+
 // AgentManager is loaded lazily after core library is ensured
 
 // ── Core library resolution ──
@@ -339,6 +345,9 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 
   mainWindow.once('ready-to-show', () => {
+    if (process.platform === 'darwin' && app.dock) {
+      app.dock.show();
+    }
     mainWindow.show();
   });
 
@@ -552,7 +561,12 @@ function setupIPC() {
 
   // Settings
   ipcMain.handle('settings:get', (_e, key) => store.get(key));
-  ipcMain.handle('settings:set', (_e, key, value) => store.set(key, value));
+  ipcMain.handle('settings:set', (_e, key, value) => {
+    store.set(key, value);
+    if (key === 'workspaceEndpoint' && agentManager) {
+      agentManager.reloadCore();
+    }
+  });
 
   // Health check
   ipcMain.handle('agents:health-check', (_e, type) => agentManager.healthCheck(type));
@@ -696,22 +710,30 @@ app.whenReady().then(async () => {
   const coreExists = fs.existsSync(path.join(GLOBAL_MODULES, CORE_PKG, 'package.json'));
 
   // Always show splash — used for Node.js download, core install, AND core updates
-  let splash = new BrowserWindow({
-    width: 420, height: 260, frame: false, resizable: false, center: true,
-    alwaysOnTop: true, transparent: false, skipTaskbar: true,
-    webPreferences: { nodeIntegration: false, contextIsolation: true },
-  });
-  const splashHtml = `data:text/html,
-    <html><body style="margin:0;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:%23f5f5f7;color:%23333;">
-      <div style="font-size:28px;font-weight:700;margin-bottom:8px;">OpenAgents Launcher</div>
-      <div id="msg" style="font-size:14px;color:%23888;margin-bottom:20px;">${!nodeExists ? 'Preparing first launch...' : 'Starting...'}</div>
-      <div style="width:240px;height:6px;background:%23e0e0e0;border-radius:3px;overflow:hidden;">
-        <div id="bar" style="width:10%25;height:100%25;background:%236C63FF;border-radius:3px;transition:width 0.5s;"></div>
-        </div>
-        <div id="detail" style="font-size:11px;color:%23aaa;margin-top:8px;"></div>
-      </body></html>`;
-  splash.loadURL(splashHtml);
-  splash.show();
+  let splash = null;
+
+  if (isHeadless && process.platform === 'darwin' && app.dock) {
+    app.dock.hide();
+  }
+
+  if (!isHeadless) {
+    splash = new BrowserWindow({
+      width: 420, height: 260, frame: false, resizable: false, center: true,
+      alwaysOnTop: true, transparent: false, skipTaskbar: true,
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+    const splashHtml = `data:text/html,
+      <html><body style="margin:0;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:%23f5f5f7;color:%23333;">
+        <div style="font-size:28px;font-weight:700;margin-bottom:8px;">OpenAgents Launcher</div>
+        <div id="msg" style="font-size:14px;color:%23888;margin-bottom:20px;">${!nodeExists ? 'Preparing first launch...' : 'Starting...'}</div>
+        <div style="width:240px;height:6px;background:%23e0e0e0;border-radius:3px;overflow:hidden;">
+          <div id="bar" style="width:10%25;height:100%25;background:%236C63FF;border-radius:3px;transition:width 0.5s;"></div>
+          </div>
+          <div id="detail" style="font-size:11px;color:%23aaa;margin-top:8px;"></div>
+        </body></html>`;
+    splash.loadURL(splashHtml);
+    splash.show();
+  }
 
   const updateSplash = (msg, pct, detail) => {
     if (splash && !splash.isDestroyed()) {
@@ -825,7 +847,9 @@ app.whenReady().then(async () => {
   setInterval(() => updateTrayMenu(), 5000);
 
   setupIPC();
-  createWindow();
+  if (!isHeadless) {
+    createWindow();
+  }
 
   // Check for core library updates periodically (every 4 hours)
   // On startup, the auto-update already ran in ensureCoreLibrary.
@@ -841,7 +865,9 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  createWindow();
+  if (!isHeadless) {
+    createWindow();
+  }
 });
 
 app.on('before-quit', () => {
