@@ -27,8 +27,24 @@ function isMarkdownFile(contentType: string, filename: string): boolean {
   return contentType === 'text/markdown' || /\.mdx?$/i.test(filename);
 }
 
+function isPdfFile(contentType: string, filename: string): boolean {
+  const type = contentType.split(';')[0].trim().toLowerCase();
+  return type === 'application/pdf' || /\.pdf$/i.test(filename);
+}
+
+function isCsvFile(contentType: string, filename: string): boolean {
+  const type = contentType.split(';')[0].trim().toLowerCase();
+  return (
+    type === 'text/csv' ||
+    type === 'application/csv' ||
+    type === 'application/vnd.ms-excel' ||
+    /\.csv$/i.test(filename)
+  );
+}
+
 function isTextFile(contentType: string, filename: string): boolean {
   if (isHtmlFile(contentType, filename)) return false; // HTML is handled separately
+  if (isCsvFile(contentType, filename)) return false; // CSV is handled separately
   return (
     contentType.startsWith('text/') ||
     contentType === 'application/json' ||
@@ -37,6 +53,53 @@ function isTextFile(contentType: string, filename: string): boolean {
     contentType === 'application/yaml' ||
     /\.(md|txt|csv|json|js|ts|tsx|jsx|py|rs|go|java|rb|c|cpp|h|sh|yaml|yml|toml|cfg|ini|log)$/i.test(filename)
   );
+}
+
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+    } else if (char === ',') {
+      row.push(field);
+      field = '';
+    } else if (char === '\n' || char === '\r') {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = '';
+      if (char === '\r' && text[i + 1] === '\n') i++;
+    } else {
+      field += char;
+    }
+  }
+
+  if (field !== '' || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  return rows;
 }
 
 export function FilePreview() {
@@ -67,9 +130,11 @@ export function FilePreview() {
     const fn = file.filename || '';
     const isHtml = isHtmlFile(ct, fn);
     const isImage = isImageFile(ct);
+    const isPdf = isPdfFile(ct, fn);
+    const isCsv = isCsvFile(ct, fn);
     const isText = isTextFile(ct, fn);
 
-    // HTML and images use the direct URL — no fetch needed
+    // HTML uses the direct URL - no fetch needed
     if (isHtml) {
       setContent(null);
       const url = workspaceApi.getFileUrl(file.id);
@@ -79,7 +144,7 @@ export function FilePreview() {
       return;
     }
 
-    if (!isText && !isImage) {
+    if (!isText && !isImage && !isCsv && !isPdf) {
       setContent(null);
       setBlobUrl(null);
       return;
@@ -98,11 +163,12 @@ export function FilePreview() {
         if (cancelled) return;
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-        if (isImage) {
+        if (isImage || isPdf) {
           const blob = await res.blob();
           if (!cancelled) {
             if (blobUrl) URL.revokeObjectURL(blobUrl);
-            setBlobUrl(URL.createObjectURL(blob));
+            const previewBlob = isPdf ? new Blob([blob], { type: 'application/pdf' }) : blob;
+            setBlobUrl(URL.createObjectURL(previewBlob));
             setContent(null);
           }
         } else {
@@ -201,6 +267,12 @@ export function FilePreview() {
             className="w-full h-full border-0"
             sandbox="allow-scripts allow-same-origin"
           />
+        ) : isPdfFile(file.contentType || '', file.filename) && blobUrl ? (
+          <iframe
+            src={blobUrl}
+            title={file.filename}
+            className="w-full h-full border-0"
+          />
         ) : blobUrl && isImageFile(file.contentType || '') ? (
           <div className="flex items-center justify-center p-4 h-full">
             <img
@@ -213,6 +285,8 @@ export function FilePreview() {
           <div className="p-5 max-w-3xl mx-auto text-sm">
             <MarkdownContent content={content} agentNames={[]} />
           </div>
+        ) : content !== null && isCsvFile(file.contentType || '', file.filename) ? (
+          <CsvTable rows={parseCsv(content)} />
         ) : content !== null ? (
           <pre className="p-4 text-xs font-mono whitespace-pre-wrap break-words text-foreground">
             {content}
@@ -229,6 +303,47 @@ export function FilePreview() {
             </button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function CsvTable({ rows }: { rows: string[][] }) {
+  const visibleRows = rows.slice(0, 1000);
+  const header = visibleRows[0] || [];
+  const bodyRows = visibleRows.slice(1);
+  const truncated = rows.length > visibleRows.length;
+
+  return (
+    <div className="p-4 text-xs">
+      {truncated && (
+        <p className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+          Showing first 1000 rows of {rows.length}. Download the file to view the rest.
+        </p>
+      )}
+      <div className="overflow-x-auto rounded border">
+        <table className="min-w-full border-collapse">
+          <thead className="bg-muted">
+            <tr>
+              {header.map((cell, index) => (
+                <th key={index} className="border-b border-r px-3 py-2 text-left font-semibold last:border-r-0">
+                  {cell}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {bodyRows.map((row, rowIndex) => (
+              <tr key={rowIndex} className="odd:bg-background even:bg-muted/30">
+                {row.map((cell, cellIndex) => (
+                  <td key={cellIndex} className="border-b border-r px-3 py-2 align-top last:border-r-0">
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

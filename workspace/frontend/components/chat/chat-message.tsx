@@ -20,10 +20,18 @@ interface Attachment {
 }
 
 function isPreviewable(contentType: string, filename: string): boolean {
-  if (contentType?.startsWith('image/')) return true;
-  if (contentType === 'text/html' || /\.html?$/i.test(filename)) return true;
-  if (contentType === 'text/markdown' || /\.mdx?$/i.test(filename)) return true;
-  if (contentType?.startsWith('text/') || /\.(json|js|ts|tsx|jsx|py|rs|go|java|rb|sh|yaml|yml)$/i.test(filename)) return true;
+  const type = contentType?.split(';')[0].trim().toLowerCase() || '';
+  if (type.startsWith('image/')) return true;
+  if (type === 'application/pdf' || /\.pdf$/i.test(filename)) return true;
+  if (type === 'text/html' || /\.html?$/i.test(filename)) return true;
+  if (type === 'text/markdown' || /\.mdx?$/i.test(filename)) return true;
+  if (
+    type === 'text/csv' ||
+    type === 'application/csv' ||
+    type === 'application/vnd.ms-excel' ||
+    /\.csv$/i.test(filename)
+  ) return true;
+  if (type.startsWith('text/') || /\.(json|js|ts|tsx|jsx|py|rs|go|java|rb|sh|yaml|yml)$/i.test(filename)) return true;
   return false;
 }
 
