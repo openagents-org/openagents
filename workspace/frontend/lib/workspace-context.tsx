@@ -3,7 +3,58 @@
 import React, { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { workspaceApi } from './api';
 import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
-import type { BrowserPersistentContext, BrowserTab, DMConversation, RoutineItem, TodoItem, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceSession } from './types';
+import { useOpenAgentsAuth } from './openagents-auth-context';
+import type { BrowserPersistentContext, BrowserTab, DMConversation, OnlineUser, RoutineItem, TodoItem, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+
+const WORKSPACE_USER_ID_KEY = 'workspace_user_id';
+const WORKSPACE_USER_NAME_KEY = 'workspace_user_name';
+
+function createWorkspaceUserId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `user-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function useWorkspaceIdentity(): WorkspaceIdentity {
+  const { user } = useOpenAgentsAuth();
+  const [localIdentity, setLocalIdentity] = useState<WorkspaceIdentity>({
+    id: '',
+    name: '',
+    isAuthenticated: false,
+  });
+
+  useEffect(() => {
+    if (user) return;
+    try {
+      let id = localStorage.getItem(WORKSPACE_USER_ID_KEY);
+      if (!id) {
+        id = createWorkspaceUserId();
+        localStorage.setItem(WORKSPACE_USER_ID_KEY, id);
+      }
+
+      let name = localStorage.getItem(WORKSPACE_USER_NAME_KEY)?.trim() || '';
+      while (!name) {
+        name = window.prompt('请输入你的名称')?.trim() || '';
+        if (!name) break;
+      }
+      if (name) localStorage.setItem(WORKSPACE_USER_NAME_KEY, name);
+      setLocalIdentity({ id, name, isAuthenticated: false });
+    } catch {
+      setLocalIdentity({ id: createWorkspaceUserId(), name: '', isAuthenticated: false });
+    }
+  }, [user]);
+
+  if (user) {
+    const name = (user.displayName || user.email || '').trim();
+    return {
+      id: user.email || name,
+      name,
+      isAuthenticated: true,
+    };
+  }
+  return localIdentity;
+}
 
 interface LastMessageInfo {
   content: string;
@@ -15,6 +66,8 @@ interface WorkspaceContextValue {
   workspace: Workspace | null;
   token: string;
   agents: WorkspaceAgent[];
+  currentUser: WorkspaceIdentity;
+  onlineUsers: OnlineUser[];
   sessions: WorkspaceSession[];
   files: WorkspaceFile[];
   selectedFileId: string | null;
@@ -94,6 +147,10 @@ export function WorkspaceProvider({
 }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [agents, setAgents] = useState<WorkspaceAgent[]>([]);
+  const currentUser = useWorkspaceIdentity();
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
+  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [sessions, setSessions] = useState<WorkspaceSession[]>([]);
   const [currentSessionId, _setCurrentSessionId] = useState<string | null>(null);
   // Set by setCurrentSessionId({ skipFocus: true }) and consumed by ChatView's
@@ -178,6 +235,33 @@ export function WorkspaceProvider({
     _setNotificationSound(enabled);
     try { localStorage.setItem('oa_notification_sound', String(enabled)); } catch {}
   }, []);
+
+  const pruneOnlineUsers = useCallback((users: OnlineUser[]) => {
+    const cutoff = Date.now() - 45_000;
+    return users.filter((u) => {
+      if (u.id === currentUserRef.current.id) return true;
+      if (!u.lastSeen) return true;
+      return new Date(u.lastSeen).getTime() >= cutoff;
+    });
+  }, []);
+
+  const upsertOnlineUser = useCallback((user: { id: string; name: string; lastSeen?: string }) => {
+    if (!user.id || !user.name.trim()) return;
+    setOnlineUsers((prev) => {
+      const map = new Map(prev.map((u) => [u.id, u]));
+      map.set(user.id, {
+        id: user.id,
+        name: user.name,
+        status: 'online',
+        lastSeen: user.lastSeen || new Date().toISOString(),
+      });
+      return pruneOnlineUsers(Array.from(map.values())).sort((a, b) => {
+        if (a.id === currentUserRef.current.id) return -1;
+        if (b.id === currentUserRef.current.id) return 1;
+        return a.name.localeCompare(b.name);
+      });
+    });
+  }, [pruneOnlineUsers]);
 
   const updateLastMessage = useCallback((sessionId: string, senderName: string, content: string, isStatus?: boolean) => {
     if (!isStatus || /stopped|stopping failed/i.test(content)) {
@@ -284,6 +368,91 @@ export function WorkspaceProvider({
     workspaceApi.configure(workspaceId, token, bearerToken || undefined);
   }, [workspaceId, token, bearerToken]);
 
+  // Human presence is maintained from workspace.user.* events. The event log is
+  // the shared source for now; a backend presence projection would be a natural
+  // follow-up if this needs stronger disconnect semantics.
+  useEffect(() => {
+    if (!currentUser.id || !currentUser.name.trim()) return;
+
+    let cancelled = false;
+    const presencePayload = () => ({
+      user_id: currentUser.id,
+      user_name: currentUser.name,
+      sender_id: currentUser.id,
+      sender_name: currentUser.name,
+      sender_type: 'human',
+    });
+    const sendPresence = (type: 'workspace.user.joined' | 'workspace.user.left' | 'workspace.user.heartbeat') =>
+      workspaceApi.sendEvent({
+        type,
+        source: `human:${currentUser.id}`,
+        target: 'core',
+        payload: presencePayload(),
+        visibility: 'network',
+      }).catch(() => {});
+
+    const applyPresenceEvents = async () => {
+      try {
+        const result = await workspaceApi.pollEvents({
+          type: 'workspace.user',
+          sort: 'desc',
+          limit: 200,
+        });
+        if (cancelled) return;
+        setOnlineUsers((prev) => {
+          const map = new Map(prev.map((u) => [u.id, u]));
+          for (const event of [...result.events].reverse()) {
+            const payload = (event.payload || {}) as Record<string, string>;
+            const userId = payload.user_id || payload.sender_id;
+            if (!userId) continue;
+            if (event.type === 'workspace.user.left') {
+              map.delete(userId);
+              continue;
+            }
+            const existing = map.get(userId);
+            const userName = payload.user_name || payload.sender_name || existing?.name || 'User';
+            map.set(userId, {
+              id: userId,
+              name: userName,
+              status: 'online',
+              lastSeen: new Date(event.timestamp).toISOString(),
+            });
+          }
+          return pruneOnlineUsers(Array.from(map.values())).sort((a, b) => {
+            if (a.id === currentUser.id) return -1;
+            if (b.id === currentUser.id) return 1;
+            return a.name.localeCompare(b.name);
+          });
+        });
+      } catch {
+        setOnlineUsers((prev) => pruneOnlineUsers(prev));
+      }
+    };
+
+    upsertOnlineUser({ id: currentUser.id, name: currentUser.name });
+    void sendPresence('workspace.user.joined');
+    void applyPresenceEvents();
+
+    const heartbeat = window.setInterval(() => {
+      void sendPresence('workspace.user.heartbeat');
+      void applyPresenceEvents();
+    }, 15_000);
+
+    const handlePageHide = () => {
+      void sendPresence('workspace.user.left');
+    };
+    window.addEventListener('pagehide', handlePageHide);
+    window.addEventListener('beforeunload', handlePageHide);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(heartbeat);
+      window.removeEventListener('pagehide', handlePageHide);
+      window.removeEventListener('beforeunload', handlePageHide);
+      void sendPresence('workspace.user.left');
+    };
+  }, [currentUser.id, currentUser.name, pruneOnlineUsers, upsertOnlineUser]);
+
   const refreshWorkspace = useCallback(async () => {
     try {
       const ws = await workspaceApi.getWorkspace();
@@ -378,7 +547,7 @@ export function WorkspaceProvider({
               // If agent is actively working, show the status; otherwise show last chat
               const pick = isAgentWorking ? latest : (lastChat || latest);
               const payload = pick.payload as Record<string, string>;
-              const sender = pick.source.replace(/^(openagents:|human:)/, '');
+              const sender = payload?.sender_name || pick.source.replace(/^(openagents:|human:)/, '');
               const content = payload?.content || '';
               const msgType = payload?.message_type || 'chat';
               const isStatus = msgType === 'status' || msgType === 'thinking';
@@ -637,7 +806,7 @@ export function WorkspaceProvider({
             const batch: Record<string, LastMessageInfo> = {};
             for (const [channelName, event] of Object.entries(bulk.channels)) {
               const payload = event.payload as Record<string, string>;
-              const sender = event.source.replace(/^(openagents:|human:)/, '');
+              const sender = payload?.sender_name || event.source.replace(/^(openagents:|human:)/, '');
               const content = payload?.content || '';
               const msgType = payload?.message_type || 'chat';
               const isStatus = msgType === 'status' || msgType === 'thinking';
@@ -843,6 +1012,8 @@ export function WorkspaceProvider({
         workspace,
         token,
         agents,
+        currentUser,
+        onlineUsers,
         sessions,
         files,
         selectedFileId,

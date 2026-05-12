@@ -38,6 +38,7 @@ export interface WorkspaceSession {
 export interface WorkspaceMessage {
   messageId: string;
   sessionId: string;
+  senderId?: string | null;
   senderType: string;
   senderName: string;
   content: string;
@@ -53,6 +54,19 @@ export interface WorkspaceCollaborator {
   role: 'editor' | 'viewer';
   addedBy: string | null;
   addedAt: string | null;
+}
+
+export interface WorkspaceIdentity {
+  id: string;
+  name: string;
+  isAuthenticated?: boolean;
+}
+
+export interface OnlineUser {
+  id: string;
+  name: string;
+  status: 'online';
+  lastSeen?: string;
 }
 
 export interface WorkspaceInvitation {
@@ -264,12 +278,13 @@ export interface DMConversation {
 /** Convert an ONM event to a WorkspaceMessage for the chat UI. */
 export function eventToMessage(event: ONMEvent): WorkspaceMessage {
   const isHuman = event.source.startsWith('human:');
-  const senderName = event.source.replace(/^(openagents:|human:)/, '');
   const payload = (event.payload || {}) as Record<string, unknown>;
+  const senderName = (payload.sender_name as string) || event.source.replace(/^(openagents:|human:)/, '');
 
   return {
     messageId: event.id,
     sessionId: event.target.replace(/^channel\//, ''),
+    senderId: (payload.sender_id as string) || null,
     senderType: isHuman ? 'human' : 'agent',
     senderName,
     content: (payload.content as string) || '',
