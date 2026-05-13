@@ -115,6 +115,7 @@ agn up                                    # start the daemon
 | **Hermes Agent** | ✅ Supported | Nous Hermes CLI with tools, profiles, and memory |
 | **Cursor** | ✅ Supported | AI code editor |
 | **OpenCode** | ✅ Supported | Open-source terminal agent |
+| **Kimi** | ✅ Supported | Moonshot AI OpenAI-compatible agent |
 | Aider, Goose, Gemini CLI, Copilot, Amp | 🔜 Coming soon | |
 
 ---

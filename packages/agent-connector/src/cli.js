@@ -159,6 +159,12 @@ async function cmdRemove(connector, _flags, positional) {
 async function cmdStart(connector, _flags, positional) {
   const name = positional[0];
   if (!name) { print('Usage: agn start <name>'); return; }
+  const pid = connector.getDaemonPid();
+  if (!pid) {
+    connector.startDaemon();
+    print(`Daemon starting; it will launch configured agents including '${name}'`);
+    return;
+  }
   connector.sendDaemonCommand(`restart:${name}`);
   print(`Sent start command for '${name}'`);
 }
