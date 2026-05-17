@@ -199,13 +199,16 @@ class WorkspaceApi {
     senderName = 'user',
     mentions?: string[],
     attachments?: { fileId: string; filename: string; contentType: string; url: string }[],
+    senderId?: string,
   ): Promise<ONMEvent> {
     return this.sendEvent({
       type: 'workspace.message.posted',
-      source: `human:${senderName}`,
+      source: `human:${senderId || senderName}`,
       target: `channel/${channelName}`,
       payload: {
         content,
+        sender_id: senderId || undefined,
+        sender_name: senderName,
         sender_type: 'human',
         ...(mentions && mentions.length > 0 ? { mentions } : {}),
         ...(attachments && attachments.length > 0 ? { attachments } : {}),

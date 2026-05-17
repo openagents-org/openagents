@@ -55,7 +55,7 @@ class EventRecord(Base):
     type = Column(Text, nullable=False)                      # e.g. "workspace.message.posted"
     source = Column(Text, nullable=False)                    # e.g. "openagents:claude-agent"
     target = Column(Text, nullable=False)                    # e.g. "channel/session-abc"
-    payload = Column(JSONB)
+    payload = Column(JSONB)                                   # optional sender fields live here
     metadata_ = Column("metadata", JSONB, default={})        # underscore to avoid Python keyword
     timestamp = Column(BigInteger, nullable=False)           # unix ms
     visibility = Column(Text, default="channel")

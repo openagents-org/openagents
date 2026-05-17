@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Plus, MessageSquare, FileText, Globe, PlusSquare,
   Settings, Copy, Check, ListTodo, CalendarClock,
-  LogIn, LogOut, Shield, Moon, Sun, KeyRound, Share2, X, Crown,
+  LogIn, LogOut, Shield, Moon, Sun, KeyRound, Share2, X, Crown, Users,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -70,7 +70,7 @@ function NavButton({
 
 export function SidebarContent() {
   const { isSidebarOpen, sidebarToggle, viewMode, setViewMode, setSelectedAgentName } = useLayout();
-  const { agents, sessions, files, browserTabs, createSession, workspace, token, refreshWorkspace } = useWorkspace();
+  const { agents, currentUser, onlineUsers, sessions, files, browserTabs, createSession, workspace, token, refreshWorkspace } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -259,6 +259,31 @@ export function SidebarContent() {
                   </button>
                 );
               })}
+            </div>
+
+            {/* Online users */}
+            <p className="text-xs font-normal text-muted-foreground px-2 py-1.5 mb-0.5 mt-6 flex items-center gap-1.5">
+              <Users className="size-3" />
+              Online users ({onlineUsers.length})
+            </p>
+            <div className="space-y-0.5">
+              {onlineUsers.map((user) => (
+                <div
+                  key={user.id}
+                  className="w-full flex items-center gap-2 px-2 h-8 rounded-lg"
+                >
+                  <div className="size-5 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-[9px] font-bold text-zinc-700 dark:text-zinc-200 shrink-0 relative">
+                    {(user.name || 'U').slice(0, 1).toUpperCase()}
+                    <span className="absolute -end-0.5 -bottom-0.5 size-2 rounded-full border-[1.5px] border-background bg-green-500" />
+                  </div>
+                  <span className="text-[13px] font-normal text-foreground truncate text-left">
+                    {user.id === currentUser.id ? `${user.name} (you)` : user.name}
+                  </span>
+                </div>
+              ))}
+              {onlineUsers.length === 0 && (
+                <p className="text-[12px] text-muted-foreground px-2 py-1">No users online</p>
+              )}
             </div>
 
             {/* Collaboration */}

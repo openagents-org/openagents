@@ -345,7 +345,13 @@ class AgentManager {
 
   async startAgent(name) {
     // Ensure daemon is running (long-lived background process)
-    await this._ensureDaemon();
+    const daemonResult = await this._ensureDaemon();
+    if (daemonResult && daemonResult.success === false) {
+      throw new Error(daemonResult.message || 'Failed to start daemon');
+    }
+    if (!this._connector.getDaemonPid()) {
+      throw new Error('Daemon is not running. Check the Launcher runtime setup and try again.');
+    }
     // Send start command — daemon will launch the agent's adapter
     this._connector.sendDaemonCommand(`start:${name}`);
     return { success: true, message: `Start command sent for ${name}` };
@@ -389,7 +395,9 @@ class AgentManager {
     // Check both unified path (symlink) and legacy platform-specific path
     const nodeBin = path.join(portableNodeDir, 'node' + (process.platform === 'win32' ? '.exe' : ''));
     const nodeBinLegacy = path.join(portableNodeDir, 'bin', 'node');
-    if (!fs.existsSync(nodeBin) && !fs.existsSync(nodeBinLegacy)) return;
+    if (!fs.existsSync(nodeBin) && !fs.existsSync(nodeBinLegacy)) {
+      return { success: false, message: 'Node.js runtime not found. Restart Launcher or reinstall the runtime from Settings.' };
+    }
 
     return this._startDaemon();
   }

@@ -292,7 +292,27 @@ class Daemon {
    * Read daemon PID, returning null if not running.
    */
   static readDaemonPid(configDir) {
-    return Daemon._readPid(path.join(configDir, 'daemon.pid'));
+    const pidFile = path.join(configDir, 'daemon.pid');
+    const statusFile = path.join(configDir, 'daemon.status.json');
+    const pid = Daemon._readPid(pidFile);
+    if (!pid) return null;
+
+    // Windows can reuse old PIDs quickly; process.kill(pid, 0) may report
+    // an unrelated process as alive. The daemon rewrites status every 5s, so
+    // an old status file is the reliable signal that the PID file is stale.
+    const now = Date.now();
+    const pidAgeMs = Daemon._fileAgeMs(pidFile, now);
+    const statusAgeMs = Daemon._fileAgeMs(statusFile, now);
+    const justStarted = pidAgeMs !== null && pidAgeMs < 15000;
+    const hasFreshStatus = statusAgeMs !== null && statusAgeMs < 20000;
+
+    if (justStarted || hasFreshStatus) {
+      return pid;
+    }
+
+    try { fs.unlinkSync(pidFile); } catch {}
+    try { fs.unlinkSync(statusFile); } catch {}
+    return null;
   }
 
   // ---------------------------------------------------------------------------
@@ -820,6 +840,15 @@ class Daemon {
       // EPERM = process exists but cross-session on Windows
       if (e.code === 'EPERM') return true;
       return false;
+    }
+  }
+
+  static _fileAgeMs(file, now = Date.now()) {
+    try {
+      if (!fs.existsSync(file)) return null;
+      return now - fs.statSync(file).mtimeMs;
+    } catch {
+      return null;
     }
   }
 }

@@ -41,6 +41,9 @@ class SendEventRequest(BaseModel):
     metadata: Optional[dict] = None
     visibility: Optional[str] = "channel"
     network: Optional[str] = None   # workspace ID or slug
+    sender_id: Optional[str] = None
+    sender_name: Optional[str] = None
+    sender_type: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -79,12 +82,21 @@ async def send_event(
     if not workspace:
         return json_response(ResponseCode.NOT_FOUND, "Network not found")
 
+    payload = body.payload or {}
+    if body.type.startswith("workspace.message") and body.source.startswith("human:"):
+        if body.sender_id and "sender_id" not in payload:
+            payload["sender_id"] = body.sender_id
+        if body.sender_name and "sender_name" not in payload:
+            payload["sender_name"] = body.sender_name
+        if body.sender_type and "sender_type" not in payload:
+            payload["sender_type"] = body.sender_type
+
     # Build ONM Event
     event = Event(
         type=body.type,
         source=body.source,
         target=body.target,
-        payload=body.payload,
+        payload=payload,
         metadata=body.metadata or {},
         visibility=body.visibility or "channel",
         network=str(workspace.id),
@@ -140,6 +152,7 @@ async def send_event(
         "type": result.type,
         "source": result.source,
         "target": result.target,
+        "payload": result.payload,
         "timestamp": result.timestamp,
         "metadata": result.metadata,
     })

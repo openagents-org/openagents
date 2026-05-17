@@ -432,16 +432,21 @@ async function toggleAgent(name, currentState) {
       await window.api.startAgent(name);
       showToast(`Starting ${name}...`, 'info');
       // Poll until running (up to 30s — daemon needs time to connect)
+      let reportedRunning = false;
       for (let i = 0; i < 10; i++) {
         await new Promise(r => setTimeout(r, 3000));
         const status = await window.api.agentStatus();
         const agent = status[name];
         if (agent && (agent.state === 'running' || agent.state === 'online')) {
           showToast(`${name} is now running`, 'success');
+          reportedRunning = true;
           break;
         }
         scheduleRefreshDashboard();
         scheduleRefreshAgentList();
+      }
+      if (!reportedRunning) {
+        showToast(`${name} did not report as running yet. Check Logs for details.`, 'warning');
       }
     }
   } catch (err) {
