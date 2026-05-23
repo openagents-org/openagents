@@ -90,8 +90,8 @@ class OpenCodeAdapter extends BaseAdapter {
    * Write workspace skill to OpenCode's skill directory for auto-discovery.
    */
   _ensureWorkspaceSkill(channelName) {
-    const skillDir = path.join(this.agentHome, '.opencode', 'skills');
-    const skillFile = path.join(skillDir, 'openagents-workspace.md');
+    const skillDir = path.join(this.agentHome, '.opencode', 'skills', 'openagents-workspace');
+    const skillFile = path.join(skillDir, 'SKILL.md');
     try {
       const content = buildOpenCodeSkillMd({
         endpoint: this.endpoint,

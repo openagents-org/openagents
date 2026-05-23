@@ -151,7 +151,7 @@ class OpenClawAdapter extends BaseAdapter {
       return;
     }
 
-    const skillName = `openagents-workspace-${this.agentName}`;
+    const skillName = 'openagents-workspace';
     const skillDir = path.join(wsDir, 'skills', skillName);
     fs.mkdirSync(skillDir, { recursive: true });
 

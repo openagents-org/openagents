@@ -520,11 +520,11 @@ class ClaudeAdapter extends BaseAdapter {
       cmd.push('--allowedTools', 'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep');
     }
 
-    // Write SKILL.md to .claude/skills/ in the working directory
+    // Write SKILL.md to .claude/skills/openagents-workspace/ in the working directory
     const workDir = this.workingDir || process.cwd();
-    const skillDir = path.join(workDir, '.claude', 'skills');
+    const skillDir = path.join(workDir, '.claude', 'skills', 'openagents-workspace');
     fs.mkdirSync(skillDir, { recursive: true });
-    const skillFile = path.join(skillDir, 'openagents-workspace.md');
+    const skillFile = path.join(skillDir, 'SKILL.md');
 
     const skillContent = buildClaudeSkillMd({
       endpoint: this.endpoint,
