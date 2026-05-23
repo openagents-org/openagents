@@ -16,6 +16,7 @@ def _create_payload(workspace, **overrides):
     base = {
         "name": "Test routine",
         "message": "ping",
+        "context": "routine background",
         "network": workspace["id"],
         "channel": workspace["channel"]["name"],
         "source": "openagents:agent-alpha",
@@ -43,6 +44,35 @@ class TestComputeNextFires:
 
 
 class TestCreateRoutine:
+    def test_create_routine_emits_bootstrap_for_routine_channel(self, client, workspace):
+        resp = client.post(
+            "/v1/routines",
+            json=_create_payload(workspace, interval_minutes=15),
+            headers=_headers(workspace),
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()["data"]
+
+        events_resp = client.get(
+            "/v1/events",
+            params={
+                "network": workspace["id"],
+                "type": "workspace.agent.bootstrap",
+                "limit": 20,
+            },
+            headers=_headers(workspace),
+        )
+        assert events_resp.status_code == 200, events_resp.text
+        events = events_resp.json()["data"]["events"]
+        bootstraps = [
+            e for e in events
+            if e["type"] == "workspace.agent.bootstrap"
+            and e["target"] == "openagents:agent-alpha"
+            and e["payload"]["channel"] == data["channel_name"]
+        ]
+        assert bootstraps
+        assert bootstraps[0]["payload"]["reason"] == "routine_create"
+
     def test_create_daily_mode(self, client, workspace):
         resp = client.post(
             "/v1/routines",
@@ -68,7 +98,7 @@ class TestCreateRoutine:
         assert data["schedule_minute"] is None
 
     def test_routes_into_per_agent_channel(self, client, workspace):
-        """Routine should land in routines:<agent>, regardless of caller's channel."""
+        """Routine should land in a dedicated routine:<id> channel, regardless of caller's channel."""
         resp = client.post(
             "/v1/routines",
             json=_create_payload(
@@ -81,7 +111,8 @@ class TestCreateRoutine:
         )
         assert resp.status_code == 200, resp.text
         data = resp.json()["data"]
-        assert data["channel_name"] == "routines:agent-alpha"
+        assert data["channel_name"].startswith("routine:")
+        assert data["channel_name"].endswith(data["id"])
         assert data["created_by"] == "agent-alpha"  # bare, no prefix
 
     def test_bare_source_also_normalized(self, client, workspace):
@@ -97,11 +128,12 @@ class TestCreateRoutine:
         )
         assert resp.status_code == 200, resp.text
         data = resp.json()["data"]
-        assert data["channel_name"] == "routines:agent-alpha"
+        assert data["channel_name"].startswith("routine:")
+        assert data["channel_name"].endswith(data["id"])
         assert data["created_by"] == "agent-alpha"
 
-    def test_routine_channel_reused_across_routines(self, client, workspace):
-        """Two routines for the same agent share one channel."""
+    def test_routine_channel_is_dedicated_per_routine(self, client, workspace):
+        """Two routines for the same agent get separate routine channels."""
         for i in range(2):
             client.post(
                 "/v1/routines",
@@ -114,7 +146,10 @@ class TestCreateRoutine:
         )
         routines = resp.json()["data"]["routines"]
         assert len(routines) == 2
-        assert {r["channel_name"] for r in routines} == {"routines:agent-alpha"}
+        channels = {r["channel_name"] for r in routines}
+        assert len(channels) == 2
+        assert all(ch.startswith("routine:") for ch in channels)
+        assert channels == {f"routine:{r['id']}" for r in routines}
 
     def test_reject_both_modes(self, client, workspace):
         resp = client.post(

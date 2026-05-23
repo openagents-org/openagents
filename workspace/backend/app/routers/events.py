@@ -168,7 +168,7 @@ async def poll_events(
     search: Optional[str] = Query(None, description="Search message content (case-insensitive)"),
     member: Optional[str] = Query(None, description="Filter to channels where this agent is a member"),
     sort: Optional[str] = Query(None, description="Sort order: 'asc' (default) or 'desc'"),
-    limit: int = Query(50, ge=1, le=200, description="Max events to return"),
+    limit: int = Query(50, ge=1, le=500, description="Max events to return"),
     db: Session = Depends(get_db),
     x_workspace_token: Optional[str] = Header(None),
     authorization: Optional[str] = Header(None),

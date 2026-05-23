@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import config
 from app.database import get_db
+from app.mods.workspace_mod import _emit_agent_bootstrap_event
 from app.models import (
     Channel,
     ChannelMember,
@@ -221,6 +222,15 @@ async def create_workspace(
             agent_name=body.agent_name,
         )
         db.add(participant)
+
+        _emit_agent_bootstrap_event(
+            db,
+            workspace.id,
+            channel.name,
+            body.agent_name,
+            timestamp=int(now.timestamp() * 1000),
+            reason="workspace_create",
+        )
 
     db.commit()
     db.refresh(workspace)
