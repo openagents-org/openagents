@@ -16,7 +16,7 @@ const { execSync, spawn } = require('child_process');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
-const { buildCursorSkillMd } = require('./workspace-prompt');
+const { buildAgentBootstrapPrompt, buildCursorSkillMd } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -253,9 +253,9 @@ class CursorAdapter extends BaseAdapter {
 
   _writeSkillFile(channelName) {
     const workDir = this.workingDir || process.cwd();
-    const skillDir = path.join(workDir, '.cursor', 'skills');
+    const skillDir = path.join(workDir, '.cursor', 'skills', 'openagents-workspace');
     fs.mkdirSync(skillDir, { recursive: true });
-    const skillFile = path.join(skillDir, 'openagents-workspace.md');
+    const skillFile = path.join(skillDir, 'SKILL.md');
 
     const skillContent = buildCursorSkillMd({
       endpoint: this.endpoint,
@@ -267,6 +267,16 @@ class CursorAdapter extends BaseAdapter {
     });
     fs.writeFileSync(skillFile, skillContent, 'utf-8');
     this._log(`Wrote workspace skill to ${skillFile}`);
+  }
+
+  _buildBootstrapPrompt(channelName) {
+    return buildAgentBootstrapPrompt({
+      agentName: this.agentName,
+      agentType: this.agentType || 'cursor',
+      workspaceId: this.workspaceId,
+      channelName,
+      mode: this._mode,
+    });
   }
 
   // ── Command building ──
@@ -297,6 +307,103 @@ class CursorAdapter extends BaseAdapter {
     }
 
     return cmd;
+  }
+
+  _buildCursorBootstrapCmd(channelName) {
+    const agentBin = this._findCursorBinary();
+    if (!agentBin) {
+      throw new Error('Cursor CLI not found. Install with: curl https://cursor.com/install -fsSL | bash');
+    }
+
+    const cmd = [agentBin, '-p', this._buildBootstrapPrompt(channelName), '--output-format', 'stream-json', '--trust', '--force'];
+
+    const model = (this.agentEnv || process.env).CURSOR_MODEL;
+    if (model) cmd.push('--model', model);
+    if (this.workingDir) cmd.push('--workspace', this.workingDir);
+
+    const sessionId = this._channelSessions[channelName];
+    if (sessionId) cmd.push('--resume', sessionId);
+
+    return cmd;
+  }
+
+  _buildCursorEnv(channelName) {
+    return { ...(this.agentEnv || process.env), ...this._runtimeEnv(channelName) };
+  }
+
+  _spawnCursorProcess(cmd, channelName, env) {
+    const resolved = this._resolveToNodeCmd(cmd[0]);
+    if (resolved) {
+      cmd = [resolved[0], resolved[1], ...cmd.slice(1)];
+    } else if (IS_WINDOWS && cmd[0].toLowerCase().endsWith('.cmd')) {
+      cmd = ['cmd.exe', '/c', ...cmd];
+    }
+
+    const proc = spawn(cmd[0], cmd.slice(1), {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env,
+      cwd: this.workingDir,
+      detached: !IS_WINDOWS,
+      windowsHide: true,
+    });
+    this._channelProcesses[channelName] = proc;
+    return proc;
+  }
+
+  async _bootstrapChannel(channelName) {
+    if (this._channelSessions[channelName]) return;
+    this._log(`Bootstrapping Cursor session for ${channelName}`);
+
+    try {
+      this._writeSkillFile(channelName);
+    } catch (e) {
+      this._log(`Warning: could not write skill file: ${e.message}`);
+    }
+
+    const cmd = this._buildCursorBootstrapCmd(channelName);
+    const proc = this._spawnCursorProcess(cmd, channelName, this._buildCursorEnv(channelName));
+
+    let stderrBuf = '';
+    let lineBuffer = '';
+    if (proc.stderr) {
+      proc.stderr.on('data', (chunk) => { stderrBuf += chunk.toString('utf-8'); });
+    }
+
+    await new Promise((resolve, reject) => {
+      const processLine = (line) => {
+        line = line.trim();
+        if (!line) return;
+        let event;
+        try { event = JSON.parse(line); } catch { return; }
+        if ((event.type === 'result' || event.type === 'system') && event.session_id) {
+          this._channelSessions[channelName] = event.session_id;
+          this._saveSessions();
+        }
+      };
+
+      proc.stdout.on('data', (chunk) => {
+        lineBuffer += chunk.toString('utf-8');
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop();
+        for (const line of lines) processLine(line);
+      });
+
+      proc.on('exit', (code) => {
+        delete this._channelProcesses[channelName];
+        for (const line of lineBuffer.split('\n')) processLine(line);
+        if (code !== 0) {
+          const detail = stderrBuf.trim() ? `: ${stderrBuf.trim().slice(0, 500)}` : '';
+          reject(new Error(`Cursor bootstrap failed with code ${code}${detail}`));
+          return;
+        }
+        resolve();
+      });
+
+      proc.on('error', (err) => {
+        delete this._channelProcesses[channelName];
+        reject(err);
+      });
+    });
   }
 
   // ── Message handling ──
@@ -352,41 +459,17 @@ class CursorAdapter extends BaseAdapter {
 
     let cmd;
     let _shouldRetry = false;
-    let effectiveContent = content;
 
     for (let attempt = 0; attempt < 2; attempt++) {
-      if (attempt > 0) {
-        try {
-          const recap = await this._buildChannelRecap(msgChannel, content);
-          if (recap) effectiveContent = `${recap}\n\n---\n\n${content}`;
-        } catch {}
-      }
-
       try {
-        cmd = this._buildCursorCmd(effectiveContent, msgChannel, { skipResume: attempt > 0 });
+        cmd = this._buildCursorCmd(content, msgChannel, { skipResume: attempt > 0 });
       } catch (e) {
         await this.sendError(msgChannel, e.message);
         return;
       }
 
     try {
-      const resolved = this._resolveToNodeCmd(cmd[0]);
-      if (resolved) {
-        cmd = [resolved[0], resolved[1], ...cmd.slice(1)];
-      } else if (IS_WINDOWS && cmd[0].toLowerCase().endsWith('.cmd')) {
-        cmd = ['cmd.exe', '/c', ...cmd];
-      }
-
-      const cleanEnv = { ...(this.agentEnv || process.env) };
-
-      const proc = spawn(cmd[0], cmd.slice(1), {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: cleanEnv,
-        cwd: this.workingDir,
-        detached: !IS_WINDOWS,
-        windowsHide: true,
-      });
-      this._channelProcesses[msgChannel] = proc;
+      const proc = this._spawnCursorProcess(cmd, msgChannel, this._buildCursorEnv(msgChannel));
 
       const lastResponseText = [];
       let hasToolUseSinceLastText = false;

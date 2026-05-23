@@ -53,6 +53,7 @@ class BaseAdapter {
     // Per-channel task tracking for parallel execution
     this._channelBusy = new Set();
     this._channelQueues = {};
+    this._bootstrappedChannels = new Set();
     // Cached workspace.browser_enabled. Populated lazily on first read so we
     // don't pay an HTTP roundtrip per message — adapters that toggle the
     // workspace flag must reconnect/restart to pick up the change (matches
@@ -66,6 +67,17 @@ class BaseAdapter {
     this._log = (msg) => {
       const ts = new Date().toISOString();
       console.log(`${ts} INFO adapter [${this.agentName}]: ${msg}`);
+    };
+  }
+
+  _runtimeEnv(channelName = this.channelName) {
+    return {
+      OPENAGENTS_WORKSPACE_ID: this.workspaceId,
+      OPENAGENTS_CHANNEL_NAME: channelName || this.channelName || 'general',
+      OPENAGENTS_AGENT_NAME: this.agentName,
+      OPENAGENTS_AGENT_TYPE: this.agentType || 'agent',
+      OPENAGENTS_ENDPOINT: this.endpoint,
+      OA_WORKSPACE_TOKEN: this.token,
     };
   }
 
@@ -405,6 +417,10 @@ class BaseAdapter {
       for (const msg of messages) {
         const msgId = msg.id || msg.messageId;
         if (msgId && this._processedIds.has(msgId)) continue;
+        if (msg.eventType === 'workspace.agent.bootstrap') {
+          incoming.push(msg);
+          continue;
+        }
         if (msg.messageType === 'status') continue;
         // Handle queue cancellation signals from frontend
         if (msg.messageType === 'queue_cancel') {
@@ -419,10 +435,16 @@ class BaseAdapter {
 
       if (incoming.length > 0) {
         idleCount = 0;
-        for (const msg of incoming) {
+        const bootstraps = incoming.filter((msg) => msg.eventType === 'workspace.agent.bootstrap');
+        const regularMessages = incoming.filter((msg) => msg.eventType !== 'workspace.agent.bootstrap');
+        for (const msg of [...bootstraps, ...regularMessages]) {
           const msgId = msg.id || msg.messageId;
           if (msgId) this._processedIds.add(msgId);
-          await this._dispatchMessage(msg);
+          if (msg.eventType === 'workspace.agent.bootstrap') {
+            await this._dispatchBootstrap(msg);
+          } else {
+            await this._dispatchMessage(msg);
+          }
         }
         // Cap dedup set
         if (this._processedIds.size > 2000) {
@@ -510,6 +532,20 @@ class BaseAdapter {
     this._wakeControlPoller();
   }
 
+  async _dispatchBootstrap(msg) {
+    const channel = msg.sessionId || this.channelName || 'general';
+    const item = { ...msg, _bootstrap: true };
+
+    if (this._channelBusy.has(channel)) {
+      if (!this._channelQueues[channel]) this._channelQueues[channel] = [];
+      this._channelQueues[channel].push(item);
+      return;
+    }
+
+    this._channelWorker(channel, item);
+    this._wakeControlPoller();
+  }
+
   _cancelQueuedMessage(channel, queueId) {
     const queue = this._channelQueues[channel];
     if (!queue) return false;
@@ -523,7 +559,7 @@ class BaseAdapter {
   async _channelWorker(channel, msg) {
     this._channelBusy.add(channel);
     try {
-      await this._handleMessage(msg);
+      await this._processChannelItem(channel, msg);
     } catch (e) {
       this._log(`Error in channel worker for ${channel}: ${e.message}`);
       try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
@@ -538,13 +574,32 @@ class BaseAdapter {
         try { await this.sendStatus(channel, 'processing queued message', { queue_id: nextMsg._queueId, queue_status: 'processed' }); } catch {}
       }
       try {
-        await this._handleMessage(nextMsg);
+        await this._processChannelItem(channel, nextMsg);
       } catch (e) {
         this._log(`Error processing queued message in ${channel}: ${e.message}`);
         try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
       }
     }
     this._channelBusy.delete(channel);
+  }
+
+  async _processChannelItem(channel, item) {
+    if (item && item._bootstrap) {
+      if (!this._bootstrappedChannels.has(channel)) {
+        await this._bootstrapChannel(channel, item);
+        this._bootstrappedChannels.add(channel);
+      }
+      return;
+    }
+    if (!this._bootstrappedChannels.has(channel)) {
+      await this._bootstrapChannel(channel, { lazy: true });
+      this._bootstrappedChannels.add(channel);
+    }
+    await this._handleMessage(item);
+  }
+
+  async _bootstrapChannel(channel, _event) {
+    throw new Error(`${this.constructor.name} must implement _bootstrapChannel for ${channel}`);
   }
 
   // ------------------------------------------------------------------

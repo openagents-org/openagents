@@ -192,6 +192,12 @@ class OpenCodeAdapter extends BaseAdapter {
     }
   }
 
+  async _bootstrapChannel(channelName) {
+    const context = this._buildSystemContext(channelName);
+    const responseText = await this._runOpencode(context, channelName, { discardResponse: true });
+    if (responseText) this._log(`OpenCode bootstrap produced discarded output for ${channelName}`);
+  }
+
   // ------------------------------------------------------------------
   // JSON output parsing
   // ------------------------------------------------------------------
@@ -300,7 +306,7 @@ class OpenCodeAdapter extends BaseAdapter {
   // Subprocess execution
   // ------------------------------------------------------------------
 
-  _runOpencode(content, msgChannel) {
+  _runOpencode(content, msgChannel, { discardResponse = false } = {}) {
     const binary = this._opencodeBinary || this._findOpencodeBinary();
     if (binary) this._opencodeBinary = binary;
     if (!binary) {
@@ -312,19 +318,16 @@ class OpenCodeAdapter extends BaseAdapter {
     const cmd = [binary, 'run', '--format', 'json', '--dir', this.agentHome];
 
     const sessionId = this._channelSessions[msgChannel];
-    let fullPrompt;
+    let fullPrompt = content;
     if (sessionId) {
-      fullPrompt = content;
       cmd.push('--session', sessionId);
     } else {
       this._ensureWorkspaceSkill(msgChannel);
-      const context = this._buildSystemContext(msgChannel);
-      fullPrompt = `${context}\n\n---\n\n${content}`;
     }
 
     this._log(`CLI: ${binary} ${cmd.slice(1, 5).join(' ')} ...`);
 
-    const spawnEnv = { ...(this.agentEnv || process.env) };
+    const spawnEnv = { ...(this.agentEnv || process.env), ...this._runtimeEnv(msgChannel) };
 
     let spawnBinary = cmd[0];
     let spawnArgs = cmd.slice(1);
@@ -364,7 +367,7 @@ class OpenCodeAdapter extends BaseAdapter {
 
         if (stdout) {
           this._persistSessionId(msgChannel, stdout);
-          resolve(OpenCodeAdapter._extractTextFromJson(stdout));
+          resolve(discardResponse ? '' : OpenCodeAdapter._extractTextFromJson(stdout));
         } else {
           if (stderr) {
             this._log(`opencode stderr: ${stderr.slice(0, 300)}`);

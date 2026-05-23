@@ -15,6 +15,7 @@ Expects context.extra to contain:
 
 import logging
 import re
+import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -24,6 +25,7 @@ from openagents.core.onm_events import Event, WorkspaceEventTypes
 from openagents.core.onm_mods import EventRejected, PipelineContext, TransformMod
 
 logger = logging.getLogger(__name__)
+WORKSPACE_AGENT_BOOTSTRAP = "workspace.agent.bootstrap"
 
 # Lazy-initialized LLM client for the router
 _llm_client = None
@@ -47,6 +49,22 @@ class WorkspaceMod(TransformMod):
 # ---------------------------------------------------------------------------
 # Per-type handlers
 # ---------------------------------------------------------------------------
+
+def _emit_agent_bootstrap_event(db, workspace_id: str, channel_name: str, agent_name: str, *, timestamp: int, reason: str) -> None:
+    """Persist a one-time bootstrap event for an agent before user work is routed."""
+    from app.models import EventRecord
+
+    db.add(EventRecord(
+        id=str(uuid.uuid4()),
+        network_id=str(workspace_id),
+        type=WORKSPACE_AGENT_BOOTSTRAP,
+        source="system:workspace",
+        target=f"openagents:{agent_name}",
+        payload={"channel": channel_name, "reason": reason},
+        metadata_={"target_agents": [agent_name], "channel": channel_name},
+        timestamp=max(0, int(timestamp) - 1),
+        visibility="system",
+    ))
 
 async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Event]:
     """network.agent.join → upsert WorkspaceMember, set online, rotate session."""
@@ -301,6 +319,14 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
     participants = payload.get("participants", [])
     for agent_name in participants:
         db.add(ChannelMember(channel_id=channel.id, agent_name=agent_name))
+        _emit_agent_bootstrap_event(
+            db,
+            workspace.id,
+            channel.name,
+            agent_name,
+            timestamp=event.timestamp,
+            reason="channel_create",
+        )
 
     db.flush()
 
@@ -383,6 +409,14 @@ async def _handle_channel_join(event: Event, ctx: PipelineContext) -> Optional[E
 
     if not existing:
         db.add(ChannelMember(channel_id=channel.id, agent_name=agent_name))
+        _emit_agent_bootstrap_event(
+            db,
+            workspace.id,
+            channel.name,
+            agent_name,
+            timestamp=event.timestamp,
+            reason="channel_join",
+        )
         # Auto-promote first agent to channel master if none set
         if not channel.master_agent:
             channel.master_agent = agent_name
@@ -898,6 +932,14 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
                 continue
             if agent_name not in existing:
                 db.add(ChannelMember(channel_id=channel.id, agent_name=agent_name))
+                _emit_agent_bootstrap_event(
+                    db,
+                    workspace.id,
+                    channel.name,
+                    agent_name,
+                    timestamp=event.timestamp,
+                    reason="message_routing",
+                )
                 existing.add(agent_name)
         db.flush()
 

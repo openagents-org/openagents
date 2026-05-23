@@ -34,6 +34,38 @@ class TestChannelJoinAuth:
         )
         assert resp.status_code == 200, resp.text
 
+    def test_join_emits_agent_bootstrap_event(self, client, workspace):
+        channel = workspace["channel"]["name"]
+        resp = _post_event(
+            client, workspace,
+            etype="network.channel.join",
+            source="human:user",
+            channel=channel,
+            agent_name="agent-bootstrap",
+        )
+        assert resp.status_code == 200, resp.text
+
+        events_resp = client.get(
+            "/v1/events",
+            params={
+                "network": workspace["id"],
+                "type": "workspace.agent.bootstrap",
+                "limit": 20,
+            },
+            headers=_headers(workspace),
+        )
+        assert events_resp.status_code == 200, events_resp.text
+        events = events_resp.json()["data"]["events"]
+        bootstraps = [
+            e for e in events
+            if e["type"] == "workspace.agent.bootstrap"
+            and e["target"] == "openagents:agent-bootstrap"
+        ]
+        assert bootstraps
+        bootstrap = bootstraps[0]
+        assert bootstrap["payload"]["channel"] == channel
+        assert bootstrap["metadata"]["target_agents"] == ["agent-bootstrap"]
+
     def test_unrelated_agent_cannot_invite(self, client, workspace):
         """Random openagents source can't add an agent to a channel they don't own."""
         channel = workspace["channel"]["name"]

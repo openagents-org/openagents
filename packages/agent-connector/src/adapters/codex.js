@@ -239,20 +239,38 @@ class CodexAdapter extends BaseAdapter {
     }
   }
 
+  _buildCodexEnv(channelName) {
+    const env = { ...(this.agentEnv || process.env), ...this._runtimeEnv(channelName) };
+    if (this._directModel) env.CODEX_MODEL = this._directModel;
+    if (this._directApiKey) env.OPENAI_API_KEY = this._directApiKey;
+    if (this._directBaseUrl) env.OPENAI_BASE_URL = this._directBaseUrl;
+    return env;
+  }
+
+  async _bootstrapChannel(channelName) {
+    const context = this._buildSystemContext(channelName);
+    if (this._useCliMode) {
+      const cmd = [this._codexBin, 'exec', '--json', '--dangerously-bypass-approvals-and-sandbox', '--skip-git-repo-check'];
+      if (this._directModel) cmd.push('-m', this._directModel);
+      if (this.workingDir) cmd.push('-C', this.workingDir);
+      const result = await this._spawnCodex(cmd, this._buildCodexEnv(channelName), channelName, context, { discardResponse: true });
+      if (result.exitCode !== 0) {
+        throw new Error(`Codex bootstrap failed with code ${result.exitCode}`);
+      }
+      return;
+    }
+
+    if (this._directMode && !this._conversationHistory.some((m) => m.role === 'system')) {
+      this._conversationHistory.push({ role: 'system', content: context });
+    }
+  }
+
   // ------------------------------------------------------------------
   // CLI subprocess mode (primary)
   // ------------------------------------------------------------------
 
   async _handleViaSubprocess(content, msgChannel) {
-    const env = { ...(this.agentEnv || process.env) };
-
-    // Set model via env if configured
-    if (this._directModel) env.CODEX_MODEL = this._directModel;
-    if (this._directApiKey) env.OPENAI_API_KEY = this._directApiKey;
-    if (this._directBaseUrl) env.OPENAI_BASE_URL = this._directBaseUrl;
-
-    const context = this._buildSystemContext(msgChannel);
-    const fullPrompt = `${context}\n\n---\n\nUser message:\n${content}`;
+    const env = this._buildCodexEnv(msgChannel);
 
     // Run up to 2 attempts: first with resume, then fresh if stale
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -279,7 +297,7 @@ class CodexAdapter extends BaseAdapter {
       this._log(`Spawning: codex exec ${threadId && attempt === 0 ? `resume ${threadId} ` : ''}--json --full-auto -m ${this._directModel || 'default'}`);
 
       try {
-        const result = await this._spawnCodex(cmd, env, msgChannel, fullPrompt);
+        const result = await this._spawnCodex(cmd, env, msgChannel, content);
 
         if (result.responseText) {
           await this.sendResponse(msgChannel, result.responseText);
@@ -302,7 +320,7 @@ class CodexAdapter extends BaseAdapter {
     }
   }
 
-  async _spawnCodex(cmd, env, msgChannel, prompt) {
+  async _spawnCodex(cmd, env, msgChannel, prompt, { discardResponse = false } = {}) {
     return new Promise((resolve, reject) => {
       const proc = spawn(cmd[0], cmd.slice(1), {
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -406,7 +424,7 @@ class CodexAdapter extends BaseAdapter {
         }
 
         resolve({
-          responseText: responseTexts.join('\n').trim(),
+          responseText: discardResponse ? '' : responseTexts.join('\n').trim(),
           exitCode: code,
           stderr: stderrBuf,
         });
@@ -443,9 +461,7 @@ class CodexAdapter extends BaseAdapter {
   }
 
   async _callCompletionApi(userMessage, channel) {
-    const systemPrompt = this._buildSystemContext(channel);
-    const messages = [{ role: 'system', content: systemPrompt }];
-    messages.push(...this._conversationHistory);
+    const messages = [...this._conversationHistory];
     messages.push({ role: 'user', content: userMessage });
 
     const url = `${this._directBaseUrl}/chat/completions`;

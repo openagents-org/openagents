@@ -136,6 +136,29 @@ class GeminiAdapter extends BaseAdapter {
     return null;
   }
 
+  _buildGeminiEnv(channelName) {
+    return { ...(this.agentEnv || process.env), ...this._runtimeEnv(channelName) };
+  }
+
+  _spawnGeminiProcess(cmd, channelName, env) {
+    const resolved = this._resolveToNodeCmd(cmd[0]);
+    if (resolved) {
+      cmd = [resolved[0], resolved[1], ...cmd.slice(1)];
+    } else if (IS_WINDOWS && cmd[0].toLowerCase().endsWith('.cmd')) {
+      cmd = ['cmd.exe', '/c', ...cmd];
+    }
+
+    const proc = spawn(cmd[0], cmd.slice(1), {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env,
+      cwd: this.workingDir,
+      detached: !IS_WINDOWS,
+      windowsHide: true,
+    });
+    this._channelProcesses[channelName] = proc;
+    return proc;
+  }
+
   _findGeminiBinary() {
     const home = os.homedir();
     const ext = IS_WINDOWS ? '.cmd' : '';
@@ -183,17 +206,7 @@ class GeminiAdapter extends BaseAdapter {
       throw new Error('gemini CLI not found. Install with: npm install -g @google/gemini-cli');
     }
 
-    const systemPrompt = '\n' + buildClaudeSystemPrompt({
-      agentName: this.agentName,
-      workspaceId: this.workspaceId,
-      channelName,
-      mode: this._mode,
-    });
-    
-    // For gemini, we combine system prompt with the user message since it doesn't have an append-system-prompt flag
-    const fullPrompt = `${systemPrompt}\n\n---\n\nUser message:\n${prompt}`;
-
-    const cmd = [geminiBin, '-p', fullPrompt, '-y', '-o', 'stream-json'];
+    const cmd = [geminiBin, '-p', prompt, '-y', '-o', 'stream-json'];
 
     const sessionId = this._channelSessions[channelName];
     if (sessionId && !skipResume) {
@@ -201,6 +214,59 @@ class GeminiAdapter extends BaseAdapter {
     }
 
     return { cmd };
+  }
+
+  _buildGeminiBootstrapCmd(channelName) {
+    const prompt = buildClaudeSystemPrompt({
+      agentName: this.agentName,
+      workspaceId: this.workspaceId,
+      channelName,
+      mode: this._mode,
+    });
+    return this._buildGeminiCmd(prompt, channelName);
+  }
+
+  async _bootstrapChannel(channelName) {
+    if (this._channelSessions[channelName]) return;
+    this._log(`Bootstrapping Gemini session for ${channelName}`);
+    const { cmd } = this._buildGeminiBootstrapCmd(channelName);
+    const env = this._buildGeminiEnv(channelName);
+    await new Promise((resolve, reject) => {
+      const proc = this._spawnGeminiProcess(cmd, channelName, env);
+      let stderrBuf = '';
+      let lineBuffer = '';
+      if (proc.stderr) proc.stderr.on('data', (chunk) => { stderrBuf += chunk.toString('utf-8'); });
+      const processLine = (line) => {
+        line = line.trim();
+        if (!line) return;
+        let event;
+        try { event = JSON.parse(line); } catch { return; }
+        if ((event.type === 'init' || event.type === 'result') && event.session_id) {
+          this._channelSessions[channelName] = event.session_id;
+          this._saveSessions();
+        }
+      };
+      proc.stdout.on('data', (chunk) => {
+        lineBuffer += chunk.toString('utf-8');
+        const lines = lineBuffer.split('\n');
+        lineBuffer = lines.pop();
+        for (const line of lines) processLine(line);
+      });
+      proc.on('exit', (code) => {
+        delete this._channelProcesses[channelName];
+        for (const line of lineBuffer.split('\n')) processLine(line);
+        if (code !== 0) {
+          const detail = stderrBuf.trim() ? `: ${stderrBuf.trim().slice(0, 500)}` : '';
+          reject(new Error(`Gemini bootstrap failed with code ${code}${detail}`));
+          return;
+        }
+        resolve();
+      });
+      proc.on('error', (err) => {
+        delete this._channelProcesses[channelName];
+        reject(err);
+      });
+    });
   }
 
   async _handleMessage(msg) {
@@ -244,7 +310,7 @@ class GeminiAdapter extends BaseAdapter {
     await this.sendStatus(msgChannel, 'thinking...');
 
     let cmd;
-    const cleanEnv = { ...(this.agentEnv || process.env) };
+    const cleanEnv = this._buildGeminiEnv(msgChannel);
 
     let _shouldRetry = false;
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -257,21 +323,7 @@ class GeminiAdapter extends BaseAdapter {
       }
 
       try {
-        const resolved = this._resolveToNodeCmd(cmd[0]);
-        if (resolved) {
-          cmd = [resolved[0], resolved[1], ...cmd.slice(1)];
-        } else if (IS_WINDOWS && cmd[0].toLowerCase().endsWith('.cmd')) {
-          cmd = ['cmd.exe', '/c', ...cmd];
-        }
-
-        const proc = spawn(cmd[0], cmd.slice(1), {
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: cleanEnv,
-          cwd: this.workingDir,
-          detached: !IS_WINDOWS,
-          windowsHide: true,
-        });
-        this._channelProcesses[msgChannel] = proc;
+        const proc = this._spawnGeminiProcess(cmd, msgChannel, cleanEnv);
 
         const lastResponseText = [];
         let hasToolUseSinceLastText = false;

@@ -103,4 +103,22 @@ describe('WorkspaceClient', () => {
         assert.equal(capturedBody.session_id, 'sess-abc');
       });
   });
+
+  it('maps bootstrap events to their payload channel', () => {
+    const client = new WorkspaceClient();
+    const msg = client._eventToMessage({
+      id: 'evt-bootstrap',
+      type: 'workspace.agent.bootstrap',
+      source: 'system:workspace',
+      target: 'openagents:agent-alpha',
+      payload: { channel: 'thread-abc', reason: 'channel_join' },
+      metadata: { target_agents: ['agent-alpha'] },
+      timestamp: 1700000000000,
+    });
+
+    assert.equal(msg.eventType, 'workspace.agent.bootstrap');
+    assert.equal(msg.sessionId, 'thread-abc');
+    assert.equal(msg.senderType, 'system');
+    assert.deepEqual(msg.metadata.target_agents, ['agent-alpha']);
+  });
 });
