@@ -108,8 +108,27 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("agent_name"),
     )
 
+    # Browser tabs
+    op.create_table(
+        "browser_tabs",
+        sa.Column("id", sa.Text(), primary_key=True),
+        sa.Column("workspace_id", postgresql.UUID(as_uuid=False), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("url", sa.Text(), nullable=False, server_default="about:blank"),
+        sa.Column("title", sa.Text()),
+        sa.Column("status", sa.Text(), nullable=False, server_default="active"),
+        sa.Column("created_by", sa.Text(), nullable=False),
+        sa.Column("shared_with", postgresql.JSONB(), server_default="[]"),
+        sa.Column("session_id", sa.Text()),
+        sa.Column("live_url", sa.Text()),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("NOW()")),
+        sa.Column("last_active_at", sa.DateTime(timezone=True), server_default=sa.text("NOW()")),
+    )
+    op.create_index("idx_browser_tabs_workspace_status", "browser_tabs", ["workspace_id", "status"])
+
 
 def downgrade() -> None:
+    op.drop_index("idx_browser_tabs_workspace_status", "browser_tabs")
+    op.drop_table("browser_tabs")
     op.drop_table("agents")
     op.drop_table("invitations")
     op.drop_table("channel_members")
