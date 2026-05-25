@@ -73,6 +73,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
   const [httpProxy, setHttpProxy] = useState("")
   const [httpsProxy, setHttpsProxy] = useState("")
   const [noProxy, setNoProxy] = useState("")
+  const [workspaceEndpoint, setWorkspaceEndpoint] = useState("")
   const [language, setLanguage] = useState("en")
   const [paths, setPaths] = useState<{
     userData: string
@@ -117,6 +118,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
       setHttpProxy((all.httpProxy as string) || "")
       setHttpsProxy((all.httpsProxy as string) || "")
       setNoProxy((all.noProxy as string) || "")
+      setWorkspaceEndpoint((all.workspaceEndpoint as string) || "")
       setLanguage((all.language as string) || "en")
     } catch {}
   }, [])
@@ -474,6 +476,20 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
             <SettingsCard title="Network">
               <Row
                 stacked
+                label="Workspace backend URL"
+                desc="Optional self-hosted Workspace server. Leave blank to use OpenAgents hosted Workspace."
+              >
+                <Input
+                  value={workspaceEndpoint}
+                  onChange={(e) => setWorkspaceEndpoint(e.target.value)}
+                  onBlur={() => void set("workspaceEndpoint", workspaceEndpoint)}
+                  placeholder="https://workspace-endpoint.openagents.org or http://localhost:8000"
+                  className="w-full"
+                />
+              </Row>
+              <Separator />
+              <Row
+                stacked
                 label="HTTP proxy"
                 desc="Used by agents and the launcher for outbound HTTP"
               >
@@ -629,15 +645,15 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
                 OpenAgents Launcher {launcherVersion}
               </p>
               <p className="text-[13px] m-0">
-                <a
-                  href="#"
-                  onClick={(e) => {
-                    e.preventDefault()
+                <button
+                  type="button"
+                  className="bg-transparent border-0 p-0 text-(--accent) underline cursor-pointer"
+                  onClick={() => {
                     window.api.openExternal("https://docs.openagents.com")
                   }}
                 >
                   Documentation
-                </a>
+                </button>
               </p>
             </SettingsCard>
           )}

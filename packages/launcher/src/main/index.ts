@@ -900,6 +900,66 @@ function broadcastInstallProgress(payload: {
   }
 }
 
+function installStepLabel(phase: InstallPhase, verb: InstallVerb): string {
+  if (phase === "downloading") return "downloading"
+  if (phase === "verifying") return "verifying the installation"
+  if (phase === "installing") {
+    if (verb === "uninstall") return "removing files"
+    if (verb === "rollback") return "rolling back"
+    if (verb === "update") return "installing the update"
+    return "running the installer"
+  }
+  if (phase === "preparing" || phase === "idle") return "preparing the installer"
+  return "finishing the installation"
+}
+
+function userFacingInstallError(
+  err: unknown,
+  phase: InstallPhase,
+  verb: InstallVerb,
+): string {
+  const raw = err instanceof Error ? err.message : String(err || "")
+  const text = raw.toLowerCase()
+  const step = installStepLabel(phase, verb)
+
+  let reason = "The installer stopped before it could finish."
+  let hint = "Open the log for details, then try again."
+
+  if (
+    text.includes("not recognized as an internal or external command") ||
+    text.includes("not recognized") ||
+    text.includes("enoent") ||
+    text.includes("command not found")
+  ) {
+    reason = "A required command could not be started."
+    hint = "Check that the required tool is installed and available, then try again."
+  } else if (
+    text.includes("short read") ||
+    text.includes("ssl") ||
+    text.includes("handshake") ||
+    text.includes("network") ||
+    text.includes("timeout") ||
+    text.includes("econnreset") ||
+    text.includes("unable to get local issuer certificate")
+  ) {
+    reason = "The download connection failed."
+    hint = "Check your network, proxy, or VPN, then retry the install."
+  } else if (
+    text.includes("permission") ||
+    text.includes("access is denied") ||
+    text.includes("access denied") ||
+    text.includes("executionpolicy")
+  ) {
+    reason = "The installer did not have permission to complete."
+    hint = "Check system permissions and retry."
+  } else if (text.includes("not found") || text.includes("not installed")) {
+    reason = "The installed command could not be found."
+    hint = "Open the log to see which command was missing."
+  }
+
+  return `Failed while ${step}. ${reason} ${hint}`
+}
+
 function classifyInstallChunk(
   chunk: string,
   verb: InstallVerb,
@@ -964,13 +1024,15 @@ async function runInstallWithPhases<T>(
     broadcastInstallProgress({ agent, verb, phase: "done", detail: "Complete" })
     return result
   } catch (e: unknown) {
+    const friendlyError = userFacingInstallError(e, currentPhase, verb)
     broadcastInstallProgress({
       agent,
       verb,
       phase: "error",
-      error: (e as Error).message,
+      detail: friendlyError,
+      error: friendlyError,
     })
-    throw e
+    throw new Error(friendlyError)
   }
 }
 
@@ -1215,22 +1277,26 @@ function setupIPC(): void {
     const verb = agentManager?.getInstalledVersion(agentType)
       ? "update"
       : "install"
-    const result = await runInstallWithPhases(agentType, verb, (cb) =>
-      requireManager().installAgentTypeStreaming(agentType, cb),
-    )
-    // installAgentTypeStreaming clears the updates cache. Re-fetch now so
-    // the next `checkAgentUpdates()` call (from the post-job refresh) gets
-    // fresh data instead of an empty cache — otherwise a just-updated agent
-    // could keep showing "Update available" because the renderer overrides
-    // its store with the empty list before the hourly background refresh.
-    // Await the refresh before returning so the renderer's follow-up
-    // useEffect → checkAgentUpdates() call (no `force`) sees the freshly
-    // populated cache instead of the empty value clearCatalogCache() just
-    // wrote. Without the await, the rollback / install / uninstall returns,
-    // the detail page re-fetches, gets `[]`, and the "Update to v…" button
-    // disappears even when one is genuinely available.
-    await refreshAgentUpdates().catch(() => {})
-    return result
+    try {
+      const result = await runInstallWithPhases(agentType, verb, (cb) =>
+        requireManager().installAgentTypeStreaming(agentType, cb),
+      )
+      // installAgentTypeStreaming clears the updates cache. Re-fetch now so
+      // the next `checkAgentUpdates()` call (from the post-job refresh) gets
+      // fresh data instead of an empty cache — otherwise a just-updated agent
+      // could keep showing "Update available" because the renderer overrides
+      // its store with the empty list before the hourly background refresh.
+      // Await the refresh before returning so the renderer's follow-up
+      // useEffect → checkAgentUpdates() call (no `force`) sees the freshly
+      // populated cache instead of the empty value clearCatalogCache() just
+      // wrote. Without the await, the rollback / install / uninstall returns,
+      // the detail page re-fetches, gets `[]`, and the "Update to v…" button
+      // disappears even when one is genuinely available.
+      await refreshAgentUpdates().catch(() => {})
+      return result
+    } catch (e: unknown) {
+      return { success: false, error: (e as Error).message }
+    }
   })
   ipcMain.handle("agents:uninstall-type", (_e, agentType) => {
     ensureBundledRuntimeFirstOnPath()
@@ -1238,17 +1304,21 @@ function setupIPC(): void {
   })
   ipcMain.handle("agents:uninstall-type-streaming", async (_e, agentType) => {
     ensureBundledRuntimeFirstOnPath()
-    const result = await runInstallWithPhases(agentType, "uninstall", (cb) =>
-      requireManager().uninstallAgentTypeStreaming(agentType, cb),
-    )
-    // Await the refresh before returning so the renderer's follow-up
-    // useEffect → checkAgentUpdates() call (no `force`) sees the freshly
-    // populated cache instead of the empty value clearCatalogCache() just
-    // wrote. Without the await, the rollback / install / uninstall returns,
-    // the detail page re-fetches, gets `[]`, and the "Update to v…" button
-    // disappears even when one is genuinely available.
-    await refreshAgentUpdates().catch(() => {})
-    return result
+    try {
+      const result = await runInstallWithPhases(agentType, "uninstall", (cb) =>
+        requireManager().uninstallAgentTypeStreaming(agentType, cb),
+      )
+      // Await the refresh before returning so the renderer's follow-up
+      // useEffect → checkAgentUpdates() call (no `force`) sees the freshly
+      // populated cache instead of the empty value clearCatalogCache() just
+      // wrote. Without the await, the rollback / install / uninstall returns,
+      // the detail page re-fetches, gets `[]`, and the "Update to v…" button
+      // disappears even when one is genuinely available.
+      await refreshAgentUpdates().catch(() => {})
+      return result
+    } catch (e: unknown) {
+      return { success: false, error: (e as Error).message }
+    }
   })
 
   ipcMain.handle("agents:installed-list", () =>
@@ -1275,28 +1345,36 @@ function setupIPC(): void {
       const verb = agentManager.getInstalledVersion(agentType)
         ? "update"
         : "install"
-      const result = await runInstallWithPhases(agentType, verb, (cb) =>
-        agentManager!.installAgentTypeAtVersionStreaming(agentType, target, cb),
-      )
-      await refreshAgentUpdates().catch(() => {})
-      return result
+      try {
+        const result = await runInstallWithPhases(agentType, verb, (cb) =>
+          agentManager!.installAgentTypeAtVersionStreaming(agentType, target, cb),
+        )
+        await refreshAgentUpdates().catch(() => {})
+        return result
+      } catch (e: unknown) {
+        return { success: false, error: (e as Error).message }
+      }
     },
   )
 
   ipcMain.handle("agents:rollback", async (_e, agentType) => {
     if (!agentManager) return { success: false, error: "Launcher initializing" }
     ensureBundledRuntimeFirstOnPath()
-    const result = await runInstallWithPhases(agentType, "rollback", (cb) =>
-      agentManager!.rollbackAgentType(agentType, cb),
-    )
-    // Await the refresh before returning so the renderer's follow-up
-    // useEffect → checkAgentUpdates() call (no `force`) sees the freshly
-    // populated cache instead of the empty value clearCatalogCache() just
-    // wrote. Without the await, the rollback / install / uninstall returns,
-    // the detail page re-fetches, gets `[]`, and the "Update to v…" button
-    // disappears even when one is genuinely available.
-    await refreshAgentUpdates().catch(() => {})
-    return result
+    try {
+      const result = await runInstallWithPhases(agentType, "rollback", (cb) =>
+        agentManager!.rollbackAgentType(agentType, cb),
+      )
+      // Await the refresh before returning so the renderer's follow-up
+      // useEffect → checkAgentUpdates() call (no `force`) sees the freshly
+      // populated cache instead of the empty value clearCatalogCache() just
+      // wrote. Without the await, the rollback / install / uninstall returns,
+      // the detail page re-fetches, gets `[]`, and the "Update to v…" button
+      // disappears even when one is genuinely available.
+      await refreshAgentUpdates().catch(() => {})
+      return result
+    } catch (e: unknown) {
+      return { success: false, error: (e as Error).message }
+    }
   })
   ipcMain.handle("agents:changelog", async (_e, agentType) => {
     if (!agentManager) return { versions: [], error: "Launcher initializing" }
@@ -1331,6 +1409,9 @@ function setupIPC(): void {
   )
   ipcMain.handle("agents:save-env", (_e, agentType, env) =>
     requireManager().saveAgentEnv(agentType, env),
+  )
+  ipcMain.handle("agents:delete-env", (_e, agentType) =>
+    requireManager().deleteAgentEnv(agentType),
   )
   ipcMain.handle("agents:get-instance-env", (_e, agentName) =>
     requireManager().getAgentInstanceEnv(agentName),
@@ -1415,7 +1496,12 @@ function setupIPC(): void {
   )
 
   ipcMain.handle("settings:get", (_e, key) => store.get(key))
-  ipcMain.handle("settings:set", (_e, key, value) => store.set(key, value))
+  ipcMain.handle("settings:set", (_e, key, value) => {
+    store.set(key, value)
+    if (key === "workspaceEndpoint" && agentManager) {
+      agentManager.reloadCore()
+    }
+  })
 
   // ── Connections ──
   ipcMain.handle("connections:list", () => connectionsStore.list())

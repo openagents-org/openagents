@@ -2,10 +2,22 @@
 
 import { use, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { WorkspaceProvider } from '@/lib/workspace-context';
+import { WorkspaceProvider, useWorkspace } from '@/lib/workspace-context';
 import { LayoutProvider } from '@/components/layout/layout-context';
 import { Wrapper } from '@/components/layout/wrapper';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
+import { IdentityDialog } from '@/components/identity/identity-dialog';
+
+function IdentityGate({ children }: { children: React.ReactNode }) {
+  const { currentUser, setUserName } = useWorkspace();
+
+  return (
+    <>
+      <IdentityDialog open={!currentUser.name.trim()} onSubmit={setUserName} />
+      {children}
+    </>
+  );
+}
 
 function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   const searchParams = useSearchParams();
@@ -16,9 +28,11 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   if (token) {
     return (
       <WorkspaceProvider workspaceId={workspaceId} token={token} bearerToken={idToken || undefined}>
-        <LayoutProvider>
-          <Wrapper />
-        </LayoutProvider>
+        <IdentityGate>
+          <LayoutProvider>
+            <Wrapper />
+          </LayoutProvider>
+        </IdentityGate>
       </WorkspaceProvider>
     );
   }
@@ -37,9 +51,11 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
       // User is logged in — try to access workspace via bearer token
       return (
         <WorkspaceProvider workspaceId={workspaceId} token="" bearerToken={idToken}>
-          <LayoutProvider>
-            <Wrapper />
-          </LayoutProvider>
+          <IdentityGate>
+            <LayoutProvider>
+              <Wrapper />
+            </LayoutProvider>
+          </IdentityGate>
         </WorkspaceProvider>
       );
     }

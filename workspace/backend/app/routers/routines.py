@@ -34,7 +34,7 @@ router = APIRouter(prefix="/v1", tags=["Routines"])
 class CreateRoutineRequest(BaseModel):
     name: str
     message: str
-    context: str
+    context: Optional[str] = None
     # Daily mode (hour + minute, optional days). interval_minutes is the other mode.
     hour: Optional[int] = None
     minute: Optional[int] = None
@@ -148,6 +148,73 @@ def _compute_next_fires_at(
     return today + timedelta(days=1)
 
 
+def _describe_schedule(
+    hour: Optional[int],
+    minute: Optional[int],
+    days: Optional[List[int]],
+    interval_minutes: Optional[int] = None,
+) -> str:
+    """Human-readable schedule description for the LLM prompt."""
+    if interval_minutes is not None:
+        if interval_minutes >= 60:
+            h = interval_minutes // 60
+            m = interval_minutes % 60
+            return f"Every {h}h{f' {m}m' if m else ''}"
+        return f"Every {interval_minutes} minutes"
+    time_str = f"{hour:02d}:{minute:02d} UTC"
+    if days is None:
+        return f"Every day at {time_str}"
+    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    day_labels = [day_names[d] for d in sorted(days) if 0 <= d <= 6]
+    return f"{', '.join(day_labels)} at {time_str}"
+
+
+def _generate_routine_context_sync(name: str, message: str, schedule_desc: str) -> str:
+    """Call the LLM to expand a brief task description into comprehensive routine context."""
+    from app.mods.workspace_mod import _get_llm_client, _get_router_api_key, _get_router_model
+
+    fallback = f"Routine: {name}\n\nTask: {message}\nSchedule: {schedule_desc}"
+
+    if not _get_router_api_key():
+        logger.warning("No LLM API key for routine context generation, using fallback")
+        return fallback
+
+    prompt = (
+        "You are helping set up a recurring automated task for an AI agent in a workspace. "
+        "Based on the task description below, write comprehensive instructions that the agent "
+        "will receive each time this routine fires. The instructions should be clear, specific, "
+        "and actionable.\n\n"
+        f"Task name: {name}\n"
+        f"Task description: {message}\n"
+        f"Schedule: {schedule_desc}\n\n"
+        "Write the routine context (2-4 paragraphs). Be specific about what the agent should do, "
+        "what to check, and what format to use for any output. "
+        "Do not include any preamble — just the context instructions."
+    )
+
+    try:
+        client, provider = _get_llm_client()
+        model = _get_router_model()
+
+        if provider == "openai":
+            resp = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1024,
+            )
+            return resp.choices[0].message.content.strip()
+        else:
+            resp = client.messages.create(
+                model=model,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return resp.content[0].text.strip()
+    except Exception as exc:
+        logger.warning("LLM context generation failed (%s), using fallback", exc)
+        return fallback
+
+
 def _serialize_routine(r: RoutineRecord) -> dict:
     return {
         "id": r.id,
@@ -247,6 +314,14 @@ async def create_routine(
         return json_response(
             ResponseCode.FORBIDDEN,
             f"source '{body.source}' is not a member of this workspace",
+        )
+
+    # Auto-generate context via LLM if not provided (UI-created routines)
+    if not body.context:
+        import asyncio
+        schedule_desc = _describe_schedule(body.hour, body.minute, body.days, body.interval_minutes)
+        body.context = await asyncio.to_thread(
+            _generate_routine_context_sync, body.name, body.message, schedule_desc,
         )
 
     import uuid as _uuid_mod

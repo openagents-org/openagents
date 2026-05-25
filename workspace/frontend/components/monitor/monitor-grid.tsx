@@ -34,8 +34,6 @@ export function MonitorGrid() {
     return [...sessions]
       .filter((s) => s.status === 'active')
       .sort((a, b) => {
-        if (a.starred && !b.starred) return -1;
-        if (!a.starred && b.starred) return 1;
         const aTime = a.lastEventAt || (a.createdAt ? new Date(a.createdAt).getTime() : 0);
         const bTime = b.lastEventAt || (b.createdAt ? new Date(b.createdAt).getTime() : 0);
         return bTime - aTime;

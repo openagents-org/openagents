@@ -10,39 +10,58 @@ import Foundation
 ///   "title": "...",
 ///   "live_url": "https://...",   // populated while the session is live
 ///   "session_id": "...",         // Browser Fabric session id
-///   "agent_name": "...",         // who opened it (often nil)
+///   "created_by": "...",         // who opened it
 ///   "created_at": "...",
-///   "updated_at": "..."
+///   "last_active_at": "..."
 /// }
 /// ```
 ///
-/// v1 of the Go viewer only needs `liveUrl` to render the embedded viewer —
-/// the rest is for header chrome and ordering. Multi-tab management is
-/// deliberately out of scope; the store picks the most-recent live tab.
+/// The Go viewer needs `liveUrl` to render the embedded viewer; the rest is
+/// for ordering when multiple sessions are visible.
 struct BrowserTab: Identifiable, Decodable, Sendable, Equatable {
     let id: String
     let url: String?
     let title: String?
+    let status: String?
     let liveUrl: String?
     let sessionId: String?
-    let agentName: String?
+    let createdBy: String?
+    let sharedWith: [String]
     let createdAt: String?
+    let lastActiveAt: String?
     let updatedAt: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case url
         case title
+        case status
         case liveUrl = "live_url"
         case sessionId = "session_id"
-        case agentName = "agent_name"
+        case createdBy = "created_by"
+        case sharedWith = "shared_with"
         case createdAt = "created_at"
+        case lastActiveAt = "last_active_at"
         case updatedAt = "updated_at"
     }
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        liveUrl = try container.decodeIfPresent(String.self, forKey: .liveUrl)
+        sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
+        createdBy = try container.decodeIfPresent(String.self, forKey: .createdBy)
+        sharedWith = try container.decodeIfPresent([String].self, forKey: .sharedWith) ?? []
+        createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
+        lastActiveAt = try container.decodeIfPresent(String.self, forKey: .lastActiveAt)
+        updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
+    }
+
     /// True when the backend has handed us a live URL we can embed. Multiple
-    /// historical tabs may exist; the panel only renders ones for which
-    /// `isLive` is true.
+    /// historical tabs may exist; the panel renders every live tab.
     var isLive: Bool {
         guard let liveUrl, !liveUrl.isEmpty else { return false }
         return true
@@ -52,6 +71,7 @@ struct BrowserTab: Identifiable, Decodable, Sendable, Equatable {
     /// `createdAt`. `Date.distantPast` for rows the backend left without
     /// either field so they sort to the bottom.
     var sortKey: Date {
+        if let lastActiveAt, let d = Self.parseISO8601(lastActiveAt) { return d }
         if let updatedAt, let d = Self.parseISO8601(updatedAt) { return d }
         if let createdAt, let d = Self.parseISO8601(createdAt) { return d }
         return .distantPast

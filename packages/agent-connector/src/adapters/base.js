@@ -393,7 +393,7 @@ class BaseAdapter {
 
     while (this._running) {
       pollCount++;
-      let messages, rawCursor;
+      let messages, rawCursor, composingActive = false;
       try {
         const result = await this.client.pollPending(
           this.workspaceId, this.agentName, this.token,
@@ -401,8 +401,9 @@ class BaseAdapter {
         );
         messages = result.messages;
         rawCursor = result.cursor;
+        composingActive = !!result.composing;
         if (pollCount <= 3 || pollCount % 20 === 0) {
-          this._log(`Poll #${pollCount}: ${messages.length} messages, cursor=${rawCursor || 'none'}`);
+          this._log(`Poll #${pollCount}: ${messages.length} messages, cursor=${rawCursor || 'none'}${composingActive ? ' composing' : ''}`);
         }
       } catch (e) {
         this._log(`Poll #${pollCount} failed: ${e.message} \nStack: ${e.stack}`);
@@ -493,6 +494,9 @@ class BaseAdapter {
       let delay;
       if (incoming.length > 0) {
         delay = 2000;
+      } else if (composingActive) {
+        delay = 2000;
+        idleCount = Math.min(idleCount, WARM_POLLS);
       } else if (idleCount <= WARM_POLLS) {
         delay = WARM_INTERVAL;
       } else {

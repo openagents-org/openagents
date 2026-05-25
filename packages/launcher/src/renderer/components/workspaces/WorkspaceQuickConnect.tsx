@@ -57,31 +57,39 @@ export function WorkspaceQuickConnect({
     }
   }, [open])
 
-  const parseInput = (raw: string): { slug?: string; token?: string } => {
+  const parseInput = (
+    raw: string,
+  ): { url?: string; slug?: string; token?: string; customUrl?: boolean } => {
     const v = raw.trim()
     if (!v) return {}
     try {
       const u = new URL(v)
       const slug = u.pathname.replace(/^\//, "").split("/")[0] || undefined
       const token = u.searchParams.get("token") || undefined
-      if (slug || token) return { slug, token }
+      return {
+        url: v,
+        slug,
+        token,
+        customUrl: u.hostname.toLowerCase() !== "workspace.openagents.org",
+      }
     } catch {}
     return { token: v }
   }
 
   const handlePasteConnect = async (): Promise<void> => {
-    const { slug, token } = parseInput(pasted)
-    if (!slug && !token) {
+    const parsed = parseInput(pasted)
+    const { slug, token } = parsed
+    if (!parsed.url && !slug && !token) {
       showToast("Paste a workspace URL or token", "warning")
       return
     }
     setBusy(true)
     try {
-      const ws = await window.api.registerWorkspaceFromToken({
-        url: pasted.trim() || undefined,
-        token,
-        slug,
-      })
+      const ws = await window.api.registerWorkspaceFromToken(
+        parsed.customUrl
+          ? { url: parsed.url }
+          : { url: parsed.url, token, slug },
+      )
       const label = ws.name || ws.slug || slug || "workspace"
       showToast(
         `Registered ${label}. Open Agents tab to connect an agent.`,
@@ -157,11 +165,11 @@ export function WorkspaceQuickConnect({
             <Input
               value={pasted}
               onChange={(e) => setPasted(e.target.value)}
-              placeholder="https://workspace.openagents.org/my-team?token=…"
+              placeholder="https://workspace.openagents.org/my-team?token=… or http://localhost:8000/my-team?token=…"
               autoFocus
             />
             <div className="text-[11px] text-(--text-tertiary) mt-1.5">
-              Token and slug are extracted automatically.
+              Hosted URLs use remote token resolution. Custom URLs use the URL origin, first path segment, and token query parameter.
             </div>
           </div>
         </div>
@@ -211,7 +219,7 @@ export function WorkspaceQuickConnect({
               "Copy the workspace URL and paste it in the “Paste URL / token” tab.",
             ].map((step, i) => (
               <li
-                key={i}
+                key={step}
                 className="flex items-start gap-2.5 text-[11px] text-(--text-secondary) leading-relaxed"
               >
                 <span className="shrink-0 w-4.5 h-4.5 rounded-full bg-(--bg-input) text-(--text-primary) text-[10px] font-semibold flex items-center justify-center">

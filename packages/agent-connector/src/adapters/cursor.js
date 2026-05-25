@@ -171,40 +171,59 @@ class CursorAdapter extends BaseAdapter {
   _findCursorBinary() {
     const home = os.homedir();
     const ext = IS_WINDOWS ? '.cmd' : '';
+    const names = ['cursor-agent', 'agent'];
 
     // Tier 0: Isolated runtime prefix
-    const runtimeCandidate = path.join(home, '.openagents', 'runtimes', 'cursor', 'node_modules', '.bin', `agent${ext}`);
-    if (fs.existsSync(runtimeCandidate)) return runtimeCandidate;
+    for (const name of names) {
+      const runtimeCandidate = path.join(home, '.openagents', 'runtimes', 'cursor', 'node_modules', '.bin', `${name}${ext}`);
+      if (fs.existsSync(runtimeCandidate)) return runtimeCandidate;
+    }
 
     // Tier 0b: Legacy portable install
-    const portableCandidate = path.join(home, '.openagents', 'nodejs', 'node_modules', '.bin', `agent${ext}`);
-    if (fs.existsSync(portableCandidate)) return portableCandidate;
+    for (const name of names) {
+      const portableCandidate = path.join(home, '.openagents', 'nodejs', 'node_modules', '.bin', `${name}${ext}`);
+      if (fs.existsSync(portableCandidate)) return portableCandidate;
+    }
 
     // Tier 1: PATH search
     try {
       if (IS_WINDOWS) {
-        const r = execSync('where agent.cmd 2>nul || where agent.exe 2>nul || where agent 2>nul', {
+        const r = execSync('where cursor-agent.cmd 2>nul || where cursor-agent.exe 2>nul || where cursor-agent 2>nul || where agent.cmd 2>nul || where agent.exe 2>nul || where agent 2>nul', {
           encoding: 'utf-8', timeout: 5000,
         });
         return r.split(/\r?\n/)[0].trim();
       } else {
-        return execSync('which agent', { encoding: 'utf-8', timeout: 5000 }).trim();
+        return execSync('which cursor-agent || which agent', { encoding: 'utf-8', timeout: 5000 }).trim();
       }
     } catch {}
 
     // Tier 2: Next to current Node.js interpreter (npm global)
     const nodeBinDir = path.dirname(process.execPath);
-    const nearNode = path.join(nodeBinDir, `agent${ext}`);
-    if (fs.existsSync(nearNode)) return nearNode;
+    for (const name of names) {
+      const nearNode = path.join(nodeBinDir, `${name}${ext}`);
+      if (fs.existsSync(nearNode)) return nearNode;
+    }
 
     // Tier 3: Common install locations
     const candidates = IS_WINDOWS ? [
+      path.join(home, '.cursor', 'bin', 'cursor-agent.cmd'),
+      path.join(home, '.cursor', 'bin', 'cursor-agent.exe'),
+      path.join(home, '.cursor', 'bin', 'cursor-agent'),
+      path.join(home, '.cursor', 'bin', 'agent.cmd'),
+      path.join(home, '.cursor', 'bin', 'agent.exe'),
+      path.join(home, '.cursor', 'bin', 'agent'),
+      path.join(process.env.APPDATA || '', 'npm', 'cursor-agent.cmd'),
       path.join(process.env.APPDATA || '', 'npm', 'agent.cmd'),
     ] : [
+      path.join(home, '.local', 'bin', 'cursor-agent'),
       path.join(home, '.local', 'bin', 'agent'),
+      path.join(home, '.npm-global', 'bin', 'cursor-agent'),
       path.join(home, '.npm-global', 'bin', 'agent'),
+      path.join(home, '.cursor', 'bin', 'cursor-agent'),
       path.join(home, '.cursor', 'bin', 'agent'),
+      '/opt/homebrew/bin/cursor-agent',
       '/opt/homebrew/bin/agent',
+      '/usr/local/bin/cursor-agent',
       '/usr/local/bin/agent',
     ];
     for (const c of candidates) {

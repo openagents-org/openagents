@@ -179,6 +179,9 @@ function _addWindowsPaths(dirs) {
   // Portable Node.js installed by OpenAgents Launcher
   _push(dirs, path.join(HOME, '.openagents', 'nodejs'));
 
+  // Cursor CLI native installer
+  _push(dirs, path.join(HOME, '.cursor', 'bin'));
+
   // Node.js install
   _push(dirs, path.join(programFiles, 'nodejs'));
 

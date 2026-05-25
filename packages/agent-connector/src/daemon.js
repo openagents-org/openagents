@@ -58,11 +58,19 @@ class Daemon {
     // Write PID file
     this._writePid();
 
-    // Periodic status + command check
+    // Periodic status (heavy: JSON serialize + write) every 5s.
     this._statusInterval = setInterval(() => {
       this._writeStatus();
-      this._processCommands();
     }, 5000);
+
+    // Command file poll (cheap: existsSync on a tiny file) every 200ms so
+    // start/stop/restart from the launcher feels responsive. With a 5s
+    // combined interval, users saw up to 5s before the daemon even noticed
+    // a Stop click — this was especially painful on Windows where there's
+    // no SIGHUP shortcut and Stop landed near the end of a tick.
+    this._cmdInterval = setInterval(() => {
+      this._processCommands();
+    }, 200);
 
     // Watch config file for hot-reload
     this._watchConfig();

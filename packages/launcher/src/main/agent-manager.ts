@@ -28,6 +28,26 @@ const LAUNCHER_SESSIONS_DIR = path.join(CONFIG_DIR, "launcher-sessions")
 const DEFAULT_CHAT_CHANNEL = "main"
 const CHAT_POLL_INTERVAL_MS = 2500
 
+interface LauncherSettingsStore {
+  get(key?: string): unknown
+}
+
+function normalizeWorkspaceEndpoint(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined
+  const raw = value.trim()
+  if (!raw) return undefined
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined
+    if (url.hostname === "workspace.openagents.org") {
+      return url.origin.replace("workspace.openagents.org", "workspace-endpoint.openagents.org")
+    }
+    return url.origin
+  } catch {
+    return undefined
+  }
+}
+
 export interface InstalledAgentRecord {
   name: string
   version: string | null
@@ -258,9 +278,10 @@ function extractToolCalls(msg: ChatMessage): ChatToolCall[] | undefined {
 export function extractMentions(text: string): string[] {
   const out: string[] = []
   const re = /(^|\s)@([a-zA-Z0-9_-]+)/g
-  let m
-  while ((m = re.exec(text)) !== null) {
-    if (!out.includes(m[2])) out.push(m[2])
+  let match = re.exec(text)
+  while (match !== null) {
+    if (!out.includes(match[2])) out.push(match[2])
+    match = re.exec(text)
   }
   return out
 }
@@ -374,7 +395,7 @@ function resolveWorkingNode(
 let core: Record<string, unknown> | null = loadCore()
 
 export class AgentManager extends EventEmitter {
-  private _store: unknown
+  private _store: LauncherSettingsStore
   private _healthByType = new Map<string, unknown>()
   private _healthRefreshInFlight = new Set<string>()
   private _lastHealthRefreshAt = 0
@@ -409,16 +430,30 @@ export class AgentManager extends EventEmitter {
   private _chatPolls = new Map<string, ChatPollingState>()
   _connector: Record<string, unknown> | null = null
 
-  constructor(store: unknown) {
+  constructor(store: LauncherSettingsStore) {
     super()
     this._store = store
     if (!core) core = loadCore()
     if (core) {
-      const AgentConnector = (core as Record<string, unknown>)
-        .AgentConnector as new (opts: unknown) => Record<string, unknown>
-      this._connector = new AgentConnector({ configDir: CONFIG_DIR })
+      this._connector = this.createConnector()
     }
     ensureDir(LAUNCHER_SESSIONS_DIR)
+  }
+
+  private createConnector(): Record<string, unknown> {
+    const AgentConnector = (core as Record<string, unknown>)
+      .AgentConnector as new (opts: unknown) => Record<string, unknown>
+    const workspaceEndpoint = normalizeWorkspaceEndpoint(
+      this._store.get("workspaceEndpoint"),
+    )
+    return new AgentConnector({
+      configDir: CONFIG_DIR,
+      ...(workspaceEndpoint ? { workspaceEndpoint } : {}),
+    })
+  }
+
+  private configuredWorkspaceEndpoint(): string | undefined {
+    return normalizeWorkspaceEndpoint(this._store.get("workspaceEndpoint"))
   }
 
   getSupportedAgentTypes(): string[] {
@@ -451,9 +486,7 @@ export class AgentManager extends EventEmitter {
     for (const k of cacheKeys) delete require.cache[k]
     core = loadCore()
     if (core) {
-      const AgentConnector = (core as Record<string, unknown>)
-        .AgentConnector as new (opts: unknown) => Record<string, unknown>
-      this._connector = new AgentConnector({ configDir: CONFIG_DIR })
+      this._connector = this.createConnector()
     }
     this.clearCatalogCache()
     this._agentsCache = { value: [], at: 0 }
@@ -708,7 +741,7 @@ export class AgentManager extends EventEmitter {
           (b.env_config as unknown[] | undefined)?.length
         )
           e.env_config = b.env_config
-        if (!e.install && b.install) e.install = b.install
+        if (b.install) e.install = { ...b.install }
         if (!e.launch && b.launch) e.launch = b.launch
       }
     }
@@ -735,6 +768,13 @@ export class AgentManager extends EventEmitter {
       name: string,
     ) => unknown
     return getInstanceEnv.call(this._connector, agentName)
+  }
+
+  deleteAgentEnv(agentType: string): unknown {
+    const deleteEnv = this._connector!.deleteAgentEnv as (
+      type: string,
+    ) => unknown
+    return deleteEnv.call(this._connector, agentType)
   }
 
   saveAgentEnv(agentType: string, env: Record<string, string>): unknown {
@@ -806,6 +846,25 @@ export class AgentManager extends EventEmitter {
     })
   }
 
+  private parseCustomWorkspaceUrl(
+    urlStr: string,
+  ): { endpoint?: string; slug?: string; token?: string } | null {
+    try {
+      const u = new URL(urlStr.trim())
+      if (u.protocol !== "http:" && u.protocol !== "https:") return null
+      const host = u.hostname.toLowerCase()
+      if (host === "workspace.openagents.org") {
+        return null
+      }
+      const endpoint = u.origin
+      const slug = u.pathname.replace(/^\//, "").split("/")[0] || undefined
+      const token = u.searchParams.get("token") || undefined
+      return { endpoint, slug, token }
+    } catch {
+      return null
+    }
+  }
+
   async registerWorkspaceFromToken(input: {
     url?: string
     token?: string
@@ -820,6 +879,38 @@ export class AgentManager extends EventEmitter {
     const tokenOrSlug = (input.token || input.slug || input.url || "").trim()
     if (!tokenOrSlug) throw new Error("Missing workspace URL or token")
 
+    const customParsed = input.url ? this.parseCustomWorkspaceUrl(input.url) : null
+    if (customParsed) {
+      const slug = input.slug || customParsed.slug
+      const token = input.token || customParsed.token
+      if (!slug)
+        throw new Error(
+          "Custom workspace URL must include slug (first path segment) or provide slug explicitly",
+        )
+      if (!token)
+        throw new Error(
+          "Custom workspace URL must include token query parameter or provide token explicitly",
+        )
+
+      const config = this._connector!.config as Record<string, unknown>
+      const addNetwork = config.addNetwork as (opts: unknown) => unknown
+      addNetwork.call(config, {
+        id: slug,
+        slug,
+        name: slug,
+        endpoint: customParsed.endpoint,
+        token,
+      })
+      this.signalReload()
+      return {
+        id: slug,
+        slug,
+        name: slug,
+        endpoint: customParsed.endpoint,
+        token,
+      }
+    }
+
     const resolveToken = this._connector!.resolveToken as (
       token: string,
     ) => Promise<{
@@ -831,6 +922,7 @@ export class AgentManager extends EventEmitter {
     const info = await resolveToken.call(this._connector, tokenOrSlug)
     const slug = info.slug || info.workspace_id || input.slug
     if (!slug) throw new Error("Could not resolve workspace from input")
+    const endpoint = info.endpoint || this.configuredWorkspaceEndpoint()
 
     const config = this._connector!.config as Record<string, unknown>
     const addNetwork = config.addNetwork as (opts: unknown) => unknown
@@ -838,7 +930,7 @@ export class AgentManager extends EventEmitter {
       id: info.workspace_id,
       slug,
       name: info.name || slug,
-      endpoint: info.endpoint,
+      endpoint,
       token: input.token || tokenOrSlug,
     })
     this.signalReload()
@@ -846,7 +938,7 @@ export class AgentManager extends EventEmitter {
       id: info.workspace_id,
       slug,
       name: info.name || slug,
-      endpoint: info.endpoint,
+      endpoint,
       token: input.token || tokenOrSlug,
     }
   }
@@ -867,6 +959,7 @@ export class AgentManager extends EventEmitter {
       const info = await resolveToken.call(this._connector, tokenOrSlug)
       const slug = info.slug || info.workspace_id
       const wsName = info.name || slug
+      const endpoint = info.endpoint || this.configuredWorkspaceEndpoint()
 
       const addNetwork = (this._connector!.config as Record<string, unknown>)
         .addNetwork as (opts: unknown) => void
@@ -874,7 +967,7 @@ export class AgentManager extends EventEmitter {
         id: info.workspace_id,
         slug,
         name: wsName,
-        endpoint: info.endpoint,
+        endpoint,
         token: tokenOrSlug,
       })
 
@@ -883,7 +976,13 @@ export class AgentManager extends EventEmitter {
         slug: string,
       ) => void
       connectWorkspace.call(this._connector, agentName, slug as string)
-    } catch {
+    } catch (err) {
+      const networks = this.getNetworks() as Array<{ id?: string; slug?: string }>
+      const existing = networks.some(
+        (network) => network.slug === tokenOrSlug || network.id === tokenOrSlug,
+      )
+      if (!existing) throw err
+
       const connectWorkspace = this._connector!.connectWorkspace as (
         name: string,
         slug: string,
@@ -1025,7 +1124,7 @@ export class AgentManager extends EventEmitter {
     const install = entry.install as Record<string, unknown> | undefined
     if (!install) return null
     if (install.npm_package) return install.npm_package as string
-    const cmd = (install[Installer.platformKey()] || install.command) as
+    const cmd = (install[Installer.platformKey()] || install.command || install.npm) as
       | string
       | undefined
     if (!cmd) return install.binary as string | null
@@ -1349,6 +1448,9 @@ export class AgentManager extends EventEmitter {
       )
     const sendCmd = this._connector!.sendDaemonCommand as (cmd: string) => void
     sendCmd.call(this._connector, `start:${name}`)
+    // Bust the 1s status cache so the next poll from the renderer sees the
+    // daemon's freshly written 'starting' state instead of stale 'stopped'.
+    this._statusCache = { value: {}, at: 0 }
     return { success: true, message: `Start command sent for ${name}` }
   }
 
@@ -1357,6 +1459,7 @@ export class AgentManager extends EventEmitter {
     if (!pid) return { success: true, message: "Daemon not running" }
     const sendCmd = this._connector!.sendDaemonCommand as (cmd: string) => void
     sendCmd.call(this._connector, `stop:${name}`)
+    this._statusCache = { value: {}, at: 0 }
     return { success: true, message: `Stop command sent for ${name}` }
   }
 

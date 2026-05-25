@@ -112,9 +112,8 @@ actor WorkspaceAPI {
 
     // MARK: - Browser Fabric tabs
 
-    /// List the workspace's current browser tabs. v1 of the Go app treats the
-    /// workspace as having at most one "live" browser at a time — the caller
-    /// picks the most-recent tab with a `liveUrl`.
+    /// List the workspace's current browser tabs. The Browser panel renders
+    /// all live sessions so users can scroll between agent-controlled tabs.
     func listBrowserTabs() async throws -> [BrowserTab] {
         struct Response: Decodable, Sendable { let tabs: [BrowserTab] }
         let request = try makeRequest(

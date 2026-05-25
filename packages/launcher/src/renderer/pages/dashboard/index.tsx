@@ -207,8 +207,9 @@ export default function Dashboard({
       if (isRunning) {
         await window.api.stopAgent(agent.name)
         showToast(`Stopping ${agent.name}...`, "info")
-        for (let i = 0; i < 5; i++) {
-          await new Promise((r) => setTimeout(r, 3000))
+        const stopWaits = [400, 800, 1500, 2500, 3000, 3000]
+        for (const w of stopWaits) {
+          await new Promise((r) => setTimeout(r, w))
           const status = await window.api.agentStatus()
           const a = status[agent.name]
           if (!a || a.state === "stopped") {
@@ -220,8 +221,11 @@ export default function Dashboard({
       } else {
         await window.api.startAgent(agent.name)
         showToast(`Starting ${agent.name}...`, "info")
-        for (let i = 0; i < 10; i++) {
-          await new Promise((r) => setTimeout(r, 3000))
+        const startWaits = [
+          500, 1000, 1500, 2500, 3000, 3000, 3000, 3000, 3000, 3000,
+        ]
+        for (const w of startWaits) {
+          await new Promise((r) => setTimeout(r, w))
           const status = await window.api.agentStatus()
           const a = status[agent.name]
           if (a && ["running", "online"].includes(a.state)) {

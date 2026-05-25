@@ -41,20 +41,17 @@ open OpenAgentsGo.xcodeproj                             # work in Xcode
 xcodebuild -scheme OpenAgentsGo_macOS -destination 'platform=macOS' build
 ```
 
-Build a local DMG (ad-hoc signed):
+Build a release DMG (Developer ID signed, notarized, and stapled):
 
 ```sh
-xcodebuild -project OpenAgentsGo.xcodeproj -scheme OpenAgentsGo_macOS \
-  -configuration Release -derivedDataPath build/dd \
-  CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build
-
-STAGING=$(mktemp -d)
-cp -R "build/dd/Build/Products/Release/OpenAgents Go.app" "$STAGING/"
-ln -s /Applications "$STAGING/Applications"
-mkdir -p dist
-hdiutil create -fs HFS+ -srcfolder "$STAGING" -volname "OpenAgents Go 0.2.1" \
-  -format UDZO -ov "dist/OpenAgents Go-0.2.1-arm64.dmg"
+cd packages/go
+TEAM_ID=YOUR_TEAM_ID NOTARY_PROFILE=openagents-notary ./scripts/build-signed-dmg.sh
 ```
+
+The release script intentionally refuses to produce an ad-hoc DMG. To avoid
+macOS Gatekeeper warnings, the build machine needs a `Developer ID Application`
+certificate and either a `notarytool` keychain profile (`NOTARY_PROFILE`) or
+`APPLE_ID` + `APPLE_APP_PASSWORD` credentials.
 
 ## Architecture
 

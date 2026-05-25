@@ -104,6 +104,26 @@ describe('Registry', () => {
     assert.ok(catalog.find(e => e.name === 'fake-agent'));
   });
 
+  it('bundled install data overrides stale cached install data', () => {
+    const staleCursor = [{
+      name: 'cursor',
+      label: 'Cursor',
+      install: {
+        binary: 'agent',
+        npm: 'npm install -g @cursor/cli',
+      },
+    }];
+    fs.writeFileSync(path.join(tmpDir, 'agent_catalog.json'), JSON.stringify(staleCursor), 'utf-8');
+
+    const reg = new Registry(tmpDir);
+    const cursor = reg.getEntry('cursor');
+
+    assert.equal(cursor.install.binary, 'cursor-agent');
+    assert.deepEqual(cursor.install.binary_aliases, ['agent']);
+    assert.equal(cursor.install.npm, undefined);
+    assert.match(cursor.install.windows, /WindowsPowerShell\\v1\.0\\powershell\.exe/);
+  });
+
   it('ignores expired cache', () => {
     const reg = new Registry(tmpDir);
     const fakeEntry = [{ name: 'old-agent' }];

@@ -209,14 +209,16 @@
     "order": 4,
     "builtin": true,
     "install": {
-      "binary": "agent",
-      "verify": "agent --version 2>/dev/null | head -1",
-      "verify_win": "agent --version 2>nul",
+      "binary": "cursor-agent",
+      "binary_aliases": [
+        "agent"
+      ],
+      "verify": "cursor-agent --version 2>/dev/null | head -1",
+      "verify_win": "cursor-agent --version 2>nul",
       "requires": [],
       "macos": "curl https://cursor.com/install -fsSL | bash",
       "linux": "curl https://cursor.com/install -fsSL | bash",
-      "windows": "irm 'https://cursor.com/install?win32=true' | iex",
-      "npm": "npm install -g @cursor/cli"
+      "windows": "\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -UseBasicParsing 'https://cursor.com/install?win32=true' | Invoke-Expression\""
     },
     "adapter": {
       "module": "openagents.adapters.cursor",

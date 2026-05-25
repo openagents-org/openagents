@@ -12,6 +12,7 @@ import { TopBar } from "../../components/TopBar"
 import type { Agent, CatalogEntry, EnvField, HealthCheck } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
 import { cn } from "../../lib/utils"
+import { workspaceWebBaseUrl } from "../../lib/workspace-urls"
 
 function formatHealthLabel(health: HealthCheck | null): string {
   if (!health) return "Not configured"
@@ -104,8 +105,12 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
       if (isRunning) {
         await window.api.stopAgent(agent.name)
         showToast(`Stopping ${agent.name}...`, "info")
-        for (let i = 0; i < 5; i++) {
-          await new Promise((r) => setTimeout(r, 3000))
+        // Fast initial polls — the daemon now processes stop commands within
+        // ~200ms, so checking quickly catches the state flip without making
+        // the user stare at a "Stopping…" toast for 3+ seconds.
+        const stopWaits = [400, 800, 1500, 2500, 3000, 3000]
+        for (const w of stopWaits) {
+          await new Promise((r) => setTimeout(r, w))
           const status = await window.api.agentStatus()
           if (!status[agent.name] || status[agent.name].state === "stopped") {
             showToast(`${agent.name} stopped`, "success")
@@ -116,8 +121,11 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
       } else {
         await window.api.startAgent(agent.name)
         showToast(`Starting ${agent.name}...`, "info")
-        for (let i = 0; i < 10; i++) {
-          await new Promise((r) => setTimeout(r, 3000))
+        const startWaits = [
+          500, 1000, 1500, 2500, 3000, 3000, 3000, 3000, 3000, 3000,
+        ]
+        for (const w of startWaits) {
+          await new Promise((r) => setTimeout(r, w))
           const status = await window.api.agentStatus()
           const s = status[agent.name]
           if (s && ["running", "online"].includes(s.state)) {
@@ -164,7 +172,7 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
         (w) => w.slug === agent.network || w.id === agent.network,
       )
       const slug = (ws && ws.slug) || agent.network
-      let url = `https://workspace.openagents.org/${slug}`
+      let url = `${workspaceWebBaseUrl(ws?.endpoint)}/${slug}`
       if (ws && ws.token) url += `?token=${encodeURIComponent(ws.token)}`
       window.api.openExternal(url)
     } catch (err: unknown) {
@@ -482,8 +490,9 @@ function NewAgentDialog({
         ) : (
           <>
             <div className="form-group">
-              <label>Agent type</label>
+              <label htmlFor="agent-type">Agent type</label>
               <select
+                id="agent-type"
                 value={selectedType}
                 onChange={(e) => setSelectedType(e.target.value)}
               >
@@ -495,8 +504,9 @@ function NewAgentDialog({
               </select>
             </div>
             <div className="form-group">
-              <label>Agent name</label>
+              <label htmlFor="agent-name">Agent name</label>
               <input
+                id="agent-name"
                 type="text"
                 value={agentName}
                 onChange={(e) => setAgentName(e.target.value)}
@@ -504,8 +514,9 @@ function NewAgentDialog({
               />
             </div>
             <div className="form-group">
-              <label>Working directory (optional)</label>
+              <label htmlFor="agent-working-directory">Working directory (optional)</label>
               <input
+                id="agent-working-directory"
                 type="text"
                 value={agentPath}
                 onChange={(e) => setAgentPath(e.target.value)}
@@ -681,12 +692,13 @@ function ConfigureDialog({
             <div>
               {fields.map((f) => (
                 <div key={f.name} className="form-group">
-                  <label>
+                  <label htmlFor={`agent-config-${f.name}`}>
                     {f.description}
                     {f.required && <span className="required"> *</span>}
                   </label>
                   {f.password ? (
                     <PasswordInput
+                      id={`agent-config-${f.name}`}
                       value={values[f.name] || ""}
                       onChange={(e) =>
                         setValues((prev) => ({
@@ -698,6 +710,7 @@ function ConfigureDialog({
                     />
                   ) : (
                     <input
+                      id={`agent-config-${f.name}`}
                       type="text"
                       value={values[f.name] || ""}
                       onChange={(e) =>
@@ -770,6 +783,14 @@ function ConnectWorkspaceDialog({
   const [newWsName, setNewWsName] = useState("")
   const [token, setToken] = useState("")
 
+  const parseWorkspaceUrl = (raw: string): URL | null => {
+    try {
+      return new URL(raw.trim())
+    } catch {
+      return null
+    }
+  }
+
   useEffect(() => {
     if (!open) return
     setView("list")
@@ -819,12 +840,20 @@ function ConnectWorkspaceDialog({
   const doJoinToken = async (): Promise<void> => {
     const t = token.trim()
     if (!t) {
-      showToast("Token is required", "warning")
+      showToast("Workspace URL or token is required", "warning")
       return
     }
     try {
       showToast("Joining workspace...", "info")
-      await window.api.connectWorkspace(agentName, t)
+      const parsedUrl = parseWorkspaceUrl(t)
+      if (parsedUrl && parsedUrl.hostname !== "workspace.openagents.org") {
+        const ws = await window.api.registerWorkspaceFromToken({ url: t })
+        const workspaceKey = ws.slug || ws.id
+        if (!workspaceKey) throw new Error("Could not register workspace URL")
+        await window.api.connectWorkspace(agentName, workspaceKey)
+      } else {
+        await window.api.connectWorkspace(agentName, t)
+      }
       window.api.signalReload()
       showToast("Joined workspace", "success")
       onConnected()
@@ -842,12 +871,7 @@ function ConnectWorkspaceDialog({
             <div className="flex flex-col gap-1 mb-3.5">
               {workspaces.map((ws) => {
                 const display = ws.name || ws.slug || ws.id
-                const url =
-                  ws.endpoint &&
-                  (ws.endpoint.includes("localhost") ||
-                    ws.endpoint.includes("127.0.0.1"))
-                    ? `${ws.endpoint}/${ws.slug || ws.id}`
-                    : `workspace.openagents.org/${ws.slug || ws.id}`
+                const url = `${workspaceWebBaseUrl(ws.endpoint)}/${ws.slug || ws.id}`
                 return (
                   <button
                     key={ws.id}
@@ -871,7 +895,7 @@ function ConnectWorkspaceDialog({
                 className="text-left px-4 py-[11px] text-[13px] w-full rounded-sm bg-[var(--bg-card)] border border-[color:var(--border)] cursor-pointer transition-all duration-150 hover:bg-[var(--accent-bg)] hover:border-[color:var(--accent-border)]"
                 onClick={() => setView("token")}
               >
-                Join with Token
+                Join with URL or Token
               </button>
             </div>
             <Button onClick={onClose} className="w-full">
@@ -882,13 +906,13 @@ function ConnectWorkspaceDialog({
         {view === "create" && (
           <>
             <div className="form-group">
-              <label>Workspace name</label>
+              <label htmlFor="new-workspace-name">Workspace name</label>
               <input
+                id="new-workspace-name"
                 type="text"
                 value={newWsName}
                 onChange={(e) => setNewWsName(e.target.value)}
                 placeholder="my-workspace"
-                autoFocus
               />
             </div>
             <div className="form-actions">
@@ -902,13 +926,13 @@ function ConnectWorkspaceDialog({
         {view === "token" && (
           <>
             <div className="form-group">
-              <label>Paste workspace token</label>
+              <label htmlFor="workspace-url-or-token">Paste workspace URL or token</label>
               <input
+                id="workspace-url-or-token"
                 type="text"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
-                placeholder="Paste token here..."
-                autoFocus
+                placeholder="https://workspace.openagents.org/team?token=… or http://localhost:8000/team?token=…"
               />
             </div>
             <div className="form-actions">

@@ -11,6 +11,7 @@ import {
 } from "./WorkspaceRecentActivity"
 import { platformLabel } from "../connections/platforms"
 import type { Agent, Workspace } from "../../types"
+import { workspaceDisplayHost } from "../../lib/workspace-urls"
 
 export interface WorkspaceCardData {
   ws: Workspace
@@ -72,7 +73,7 @@ export function WorkspaceCard({
             <WorkspaceHealth state={health} />
           </div>
           <div className="text-[11px] text-(--text-tertiary) truncate">
-            workspace.openagents.org/{slug}
+            {workspaceDisplayHost(ws.endpoint)}/{slug}
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">

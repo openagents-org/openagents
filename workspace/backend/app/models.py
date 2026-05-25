@@ -141,6 +141,10 @@ class Channel(Base):
     workspace = relationship("Workspace", back_populates="channels")
     participants = relationship("ChannelMember", back_populates="channel", cascade="all, delete-orphan", lazy="selectin")
 
+    __table_args__ = (
+        Index("uq_channels_ws_name", "workspace_id", "name", unique=True),
+    )
+
 
 class ChannelMember(Base):
     """Per-channel participant (per-thread membership)."""

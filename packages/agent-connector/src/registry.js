@@ -85,7 +85,7 @@ class Registry {
 
   /**
    * Merge bundled env_config/resolve_env/install into catalog entries.
-   * Remote/cached entries may lack these fields.
+   * Remote/cached entries may lack these fields or carry stale install data.
    */
   _mergeBundled(catalog) {
     const bundled = this._loadBundled();
@@ -94,7 +94,7 @@ class Registry {
       if (b) {
         if ((!entry.env_config || entry.env_config.length === 0) && b.env_config && b.env_config.length > 0) entry.env_config = b.env_config;
         if (!entry.resolve_env && b.resolve_env) entry.resolve_env = b.resolve_env;
-        if (!entry.install && b.install) entry.install = b.install;
+        if (b.install) entry.install = { ...b.install };
         if (!entry.check_ready && b.check_ready) entry.check_ready = b.check_ready;
         if (!entry.launch && b.launch) entry.launch = b.launch;
         // Always take featured/order/support from bundled (source of truth for ordering)
@@ -136,11 +136,11 @@ class Registry {
     const catalog = this.getCatalogSync();
     const entry = catalog.find((e) => e.name === agentType) || null;
     if (!entry) return null;
-    // Merge missing fields from bundled registry
+    // Merge bundled registry fields into cached/remote entries.
     const bundled = this._loadBundled();
     const b = bundled.find((e) => e.name === agentType);
     if (b) {
-      if (!entry.install && b.install) entry.install = b.install;
+      if (b.install) entry.install = { ...b.install };
       if (!entry.check_ready && b.check_ready) entry.check_ready = b.check_ready;
       if (!entry.launch && b.launch) entry.launch = b.launch;
       if ((!entry.env_config || !entry.env_config.length) && b.env_config?.length) entry.env_config = b.env_config;

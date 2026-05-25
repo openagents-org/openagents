@@ -62,6 +62,10 @@ class HeartbeatRequest(BaseModel):
     network: str
     session_id: Optional[str] = None  # issued by /v1/join; mismatch → session_revoked
 
+class ComposingRequest(BaseModel):
+    network: str
+    channel: str
+
 class TokenResolveRequest(BaseModel):
     token: str
 
@@ -293,6 +297,30 @@ async def heartbeat(
         )
 
     return success_response({"agent_name": body.agent_name, "status": "online"})
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/composing
+# ---------------------------------------------------------------------------
+
+@router.post("/composing")
+async def composing_signal(
+    body: ComposingRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Record that a user is actively typing in a channel."""
+    workspace = _resolve_workspace(db, body.network)
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+
+    from app.composing import set_composing
+    set_composing(str(workspace.id), body.channel)
+    return success_response({"status": "ok"})
 
 
 # ---------------------------------------------------------------------------

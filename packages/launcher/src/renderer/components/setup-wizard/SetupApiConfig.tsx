@@ -1,7 +1,9 @@
-import React from "react"
+import React, { useState } from "react"
+import { AlertCircle, ChevronDown, ChevronRight } from "lucide-react"
 import { Input } from "../ui/Input"
 import { PasswordInput } from "../ui/PasswordInput"
 import { Button } from "../ui/Button"
+import { translateTestError } from "../../lib/test-error"
 import type { EnvField } from "../../types"
 
 interface SetupApiConfigProps {
@@ -65,11 +67,7 @@ export function SetupApiConfig({
           </div>
         )
       })}
-      {errorMessage && (
-        <p className="test-error text-xs mt-1 mb-3">
-          {errorMessage}
-        </p>
-      )}
+      {errorMessage && <TestErrorCard message={errorMessage} />}
       <div className="form-actions">
         <Button variant="primary" onClick={onSubmit} disabled={testing}>
           {testing ? "Testing…" : "Save & test connection"}
@@ -77,5 +75,60 @@ export function SetupApiConfig({
         <Button onClick={onSkip}>Skip</Button>
       </div>
     </>
+  )
+}
+
+function TestErrorCard({ message }: { message: string }): React.JSX.Element {
+  const { title, hint, raw } = translateTestError(message)
+  const [showDetails, setShowDetails] = useState(false)
+  // Only offer the "Show details" toggle when the raw error contains
+  // information beyond what's already in the title — no point expanding to
+  // see the same text twice.
+  const hasExtraDetails =
+    !!raw && raw.trim() !== title.trim() && raw.trim() !== hint?.trim()
+
+  return (
+    <div
+      role="alert"
+      className="mt-1 mb-3 rounded-(--radius-sm) border border-(--danger)/30 bg-(--danger-bg) px-3 py-2.5"
+    >
+      <div className="flex items-start gap-2">
+        <AlertCircle
+          className="w-4 h-4 mt-0.5 shrink-0 text-(--danger-text)"
+          strokeWidth={2}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-semibold text-(--danger-text)">
+            {title}
+          </div>
+          {hint && (
+            <div className="text-[12px] mt-1 text-(--text-secondary) leading-snug">
+              {hint}
+            </div>
+          )}
+          {hasExtraDetails && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowDetails((v) => !v)}
+                className="mt-1.5 inline-flex items-center gap-0.5 text-[11px] text-(--text-tertiary) hover:text-(--text-secondary) transition-colors cursor-pointer bg-transparent border-0 p-0"
+              >
+                {showDetails ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronRight className="w-3 h-3" />
+                )}
+                {showDetails ? "Hide details" : "Show details"}
+              </button>
+              {showDetails && (
+                <pre className="mt-1.5 text-[11px] font-mono text-(--text-tertiary) whitespace-pre-wrap break-all max-h-32 overflow-auto bg-(--bg-input)/50 rounded-[4px] px-2 py-1.5 m-0">
+                  {raw}
+                </pre>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }

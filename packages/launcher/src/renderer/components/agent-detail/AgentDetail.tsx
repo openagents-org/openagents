@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react"
 import { Button } from "../ui/Button"
+import { Checkbox } from "../ui/Checkbox"
 import { Modal, ModalTitle } from "../ui/Modal"
 import AgentIcon from "../AgentIcon"
 import { useInstallStore } from "../../store/install"
+import { useAgentsStore } from "../../store/agents"
 import type {
+  Agent,
   AgentUpdateInfo,
   CatalogEntry,
   EnvField,
@@ -23,6 +26,7 @@ import { InstallConfirmModal } from "./InstallConfirmModal"
 import { ChannelSelector } from "./ChannelSelector"
 import { StagedProgress } from "../install-progress/StagedProgress"
 import { useAgentChannel, channelToDistTag } from "../../hooks/useAgentChannel"
+import { installErrorMessage, throwIfInstallFailed } from "../../utils/installErrors"
 
 interface AgentDetailProps {
   entry: CatalogEntry
@@ -58,11 +62,28 @@ export default function AgentDetail({
   const [installed, setInstalled] = useState<InstalledAgentRecord | null>(null)
   const [update, setUpdate] = useState<AgentUpdateInfo | null>(null)
   const [health, setHealth] = useState<HealthCheck | null>(null)
-  const [changelog, setChangelog] = useState<ChangelogState>({ versions: [], loading: true })
+  const [changelog, setChangelog] = useState<ChangelogState>({
+    versions: [],
+    loading: true,
+  })
+  // Setup wizard is a first-run affordance — once the user has created at
+  // least one agent of this type, env editing lives inline on this page and
+  // adding more instances lives on the Agents page, so the wizard button
+  // becomes redundant and misleadingly named. Read from the shared agents
+  // store so other tabs' polling (Agents/Dashboard) and the wizard's own
+  // post-create refresh both flip this reactively — without it, AgentDetail
+  // was using a stale snapshot taken on mount and never re-checking.
+  const hasInstance = useAgentsStore((s) =>
+    s.agents.some((a) => a.type === entry.name),
+  )
+  const setStoreAgents = useAgentsStore((s) => s.setAgents)
   const [confirmingUninstall, setConfirmingUninstall] = useState(false)
+  const [wipeEnvOnUninstall, setWipeEnvOnUninstall] = useState(false)
   // Two-step confirmation before install / update kicks off — matches
   // launcher-legacy's installCatalogItem() flow.
-  const [confirmingInstall, setConfirmingInstall] = useState<"install" | "update" | null>(null)
+  const [confirmingInstall, setConfirmingInstall] = useState<
+    "install" | "update" | null
+  >(null)
   const { channel, setChannel } = useAgentChannel(entry.name)
   const job = useInstallStore((s) => s.jobs[entry.name])
   const jobPhase = job?.phase
@@ -71,25 +92,35 @@ export default function AgentDetail({
     let cancelled = false
     ;(async () => {
       try {
-        const [fields, savedEnv, list, updates, change, healthInfo] = await Promise.all([
-          window.api.getEnvFields(entry.name).catch(() => [] as EnvField[]),
-          window.api.getAgentEnv(entry.name).catch(() => ({}) as Record<string, string>),
-          window.api.getInstalledAgents().catch(() => []),
-          window.api.checkAgentUpdates().catch(() => []),
-          window.api.getAgentChangelog(entry.name).catch(() => ({
-            versions: [] as Array<{ version: string; date?: string }>,
-            homepage: undefined as string | undefined,
-            latest: null as string | null,
-            error: undefined as string | undefined,
-          })),
-          entry.installed ? window.api.healthCheck(entry.name).catch(() => null) : Promise.resolve(null),
-        ])
+        const [fields, savedEnv, list, updates, change, healthInfo, agents] =
+          await Promise.all([
+            window.api.getEnvFields(entry.name).catch(() => [] as EnvField[]),
+            window.api
+              .getAgentEnv(entry.name)
+              .catch(() => ({}) as Record<string, string>),
+            window.api.getInstalledAgents().catch(() => []),
+            window.api.checkAgentUpdates().catch(() => []),
+            window.api.getAgentChangelog(entry.name).catch(() => ({
+              versions: [] as Array<{ version: string; date?: string }>,
+              homepage: undefined as string | undefined,
+              latest: null as string | null,
+              error: undefined as string | undefined,
+            })),
+            entry.installed
+              ? window.api.healthCheck(entry.name).catch(() => null)
+              : Promise.resolve(null),
+            window.api.listAgents().catch(() => [] as Agent[]),
+          ])
         if (cancelled) return
         setEnvFields(fields || [])
         setEnvValues({ ...(savedEnv || {}) })
         setInstalled(list.find((i) => i.name === entry.name) || null)
         setUpdate(updates.find((u) => u.name === entry.name) || null)
         setHealth(healthInfo)
+        // Bootstrap the agents store from this fetch so a first-visit to the
+        // Install tab (before Agents/Dashboard has populated it) still has
+        // accurate data for the hasInstance selector.
+        setStoreAgents(agents)
         setChangelog({
           versions: change.versions || [],
           homepage: change.homepage,
@@ -101,7 +132,9 @@ export default function AgentDetail({
         if (!cancelled) setChangelog((s) => ({ ...s, loading: false }))
       }
     })()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [entry.name, entry.installed, jobPhase])
 
   // Reset scroll on agent change so a deep dive doesn't inherit scroll state.
@@ -114,50 +147,71 @@ export default function AgentDetail({
   // between phases.
   const [progressSticky, setProgressSticky] = useState(false)
   const isBusy = !!job && job.phase !== "done" && job.phase !== "error"
-  useEffect(() => { setProgressSticky(false) }, [entry.name])
-  useEffect(() => { if (isBusy) setProgressSticky(true) }, [isBusy])
-  const showProgress = !!job && job.verb !== "uninstall" && (isBusy || progressSticky)
+  useEffect(() => {
+    setProgressSticky(false)
+  }, [entry.name])
+  useEffect(() => {
+    if (isBusy) setProgressSticky(true)
+  }, [isBusy])
+  const showProgress =
+    !!job && job.verb !== "uninstall" && (isBusy || progressSticky)
 
   const currentVersion = installed?.version || health?.version || null
   const latestVersion = update?.latest || changelog.latest || null
   const installedAtLabel = installed?.installedAt
     ? new Date(installed.installedAt).toLocaleString()
-    : entry.installed && !installed ? "External install" : null
+    : entry.installed && !installed
+      ? "External install"
+      : null
 
-  const startInstall = useCallback(async (verb: "install" | "update") => {
-    useInstallStore.getState().startJob({ agent: entry.name, verb })
-    try {
-      // Stage.md §2.5 — when the user picked a non-stable channel, route
-      // the install through the version-tag IPC so npm pulls from that
-      // dist-tag (`@beta`, `@nightly`). Stable goes through the regular
-      // pipeline which already follows `@latest`.
-      const tag = channelToDistTag(channel)
-      if (tag) {
-        await window.api.installAgentTypeAtVersionStreaming(entry.name, tag)
-      } else {
-        await window.api.installAgentTypeStreaming(entry.name)
+  const startInstall = useCallback(
+    async (verb: "install" | "update") => {
+      useInstallStore.getState().startJob({ agent: entry.name, verb })
+      try {
+        // Stage.md §2.5 — when the user picked a non-stable channel, route
+        // the install through the version-tag IPC so npm pulls from that
+        // dist-tag (`@beta`, `@nightly`). Stable goes through the regular
+        // pipeline which already follows `@latest`.
+        const tag = channelToDistTag(channel)
+        if (tag) {
+          await window.api.installAgentTypeAtVersionStreaming(entry.name, tag)
+        } else {
+          await window.api.installAgentTypeStreaming(entry.name)
+        }
+        showToast(
+          `${entry.label || entry.name} ${verb === "update" ? "updated" : "installed"}${tag ? ` (${tag})` : ""}`,
+          "success",
+        )
+        onAfterInstall(entry)
+      } catch (e: unknown) {
+        showToast(`${verb} failed: ${(e as Error).message}`, "error")
       }
-      showToast(
-        `${entry.label || entry.name} ${verb === "update" ? "updated" : "installed"}${tag ? ` (${tag})` : ""}`,
-        "success",
-      )
-      onAfterInstall(entry)
-    } catch (e: unknown) {
-      showToast(`${verb} failed: ${(e as Error).message}`, "error")
-    }
-  }, [entry, channel, onAfterInstall, showToast])
+    },
+    [entry, channel, onAfterInstall, showToast],
+  )
 
   const startUninstall = useCallback(async () => {
     setConfirmingUninstall(false)
-    useInstallStore.getState().startJob({ agent: entry.name, verb: "uninstall" })
+    const wipeEnv = wipeEnvOnUninstall
+    setWipeEnvOnUninstall(false)
+    useInstallStore
+      .getState()
+      .startJob({ agent: entry.name, verb: "uninstall" })
     try {
       await window.api.uninstallAgentTypeStreaming(entry.name)
+      if (wipeEnv) {
+        try {
+          await window.api.deleteAgentEnv(entry.name)
+        } catch {
+          /* non-fatal — uninstall already succeeded */
+        }
+      }
       showToast(`${entry.label || entry.name} uninstalled`, "success")
       onAfterInstall(entry)
     } catch (e: unknown) {
-      showToast(`Uninstall failed: ${(e as Error).message}`, "error")
+      showToast(`Uninstall failed: ${installErrorMessage(e)}`, "error")
     }
-  }, [entry, onAfterInstall, showToast])
+  }, [entry, onAfterInstall, showToast, wipeEnvOnUninstall])
 
   const startRollback = useCallback(async () => {
     if (!installed?.history?.length && !installed?.previousVersion) {
@@ -174,7 +228,7 @@ export default function AgentDetail({
         showToast(r.error || "Rollback failed", "error")
       }
     } catch (e: unknown) {
-      showToast(`Rollback failed: ${(e as Error).message}`, "error")
+      showToast(`Rollback failed: ${installErrorMessage(e)}`, "error")
     }
   }, [entry, installed, onAfterInstall, showToast])
 
@@ -191,7 +245,9 @@ export default function AgentDetail({
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <Button size="sm" variant="ghost" onClick={onBack}>← Back</Button>
+        <Button size="sm" variant="ghost" onClick={onBack}>
+          ← Back
+        </Button>
       </div>
 
       {/* Single column. Action buttons live next to the header (top-right)
@@ -222,7 +278,11 @@ export default function AgentDetail({
               onUpdate={() => setConfirmingInstall("update")}
               onUninstall={() => setConfirmingUninstall(true)}
               onRollback={startRollback}
-              onOpenWizard={onOpenWizard ? () => onOpenWizard(entry) : undefined}
+              onOpenWizard={
+                onOpenWizard && !hasInstance
+                  ? () => onOpenWizard(entry)
+                  : undefined
+              }
             />
             <ChannelSelector value={channel} onChange={setChannel} />
           </div>
@@ -232,7 +292,12 @@ export default function AgentDetail({
           <StagedProgress
             job={job}
             onCopyLog={copyLog}
-            onRetry={job.phase === "error" ? () => startInstall(job.verb === "update" ? "update" : "install") : undefined}
+            onRetry={
+              job.phase === "error"
+                ? () =>
+                    startInstall(job.verb === "update" ? "update" : "install")
+                : undefined
+            }
           />
         )}
 
@@ -289,22 +354,50 @@ export default function AgentDetail({
 
       <Modal
         open={confirmingUninstall}
-        onClose={() => setConfirmingUninstall(false)}
+        onClose={() => {
+          setConfirmingUninstall(false)
+          setWipeEnvOnUninstall(false)
+        }}
       >
         <div className="flex flex-col items-center py-2">
           <AgentIcon type={entry.name} size={40} />
           <ModalTitle className="mt-3 text-center">
             Uninstall {entry.label || entry.name}?
           </ModalTitle>
-          <p className="hint mt-3 mb-5 text-center">
+          <p className="hint mt-3 mb-4 text-center">
             This will remove <strong>{entry.label || entry.name}</strong> from
             your system. Configured agents of this type may stop working.
           </p>
+          <button
+            type="button"
+            onClick={() => setWipeEnvOnUninstall((v) => !v)}
+            className="flex items-start gap-2.5 w-full mb-5 px-3 py-2.5 rounded-(--radius-sm) border border-(--border) bg-(--bg-input)/40 hover:border-(--border-hover) hover:bg-(--bg-input)/70 transition-colors text-left cursor-pointer"
+          >
+            <Checkbox
+              checked={wipeEnvOnUninstall}
+              onCheckedChange={setWipeEnvOnUninstall}
+              className="mt-0.5"
+            />
+            <span className="text-[12px] leading-snug text-(--text-secondary)">
+              Also remove saved environment variables{" "}
+              <span className="text-(--text-tertiary)">
+                (API keys, model selection — kept by default and reappear in
+                the setup wizard on reinstall)
+              </span>
+            </span>
+          </button>
           <div className="form-actions justify-center mt-0">
             <Button variant="destructive" onClick={startUninstall}>
               Uninstall
             </Button>
-            <Button onClick={() => setConfirmingUninstall(false)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                setConfirmingUninstall(false)
+                setWipeEnvOnUninstall(false)
+              }}
+            >
+              Cancel
+            </Button>
           </div>
         </div>
       </Modal>

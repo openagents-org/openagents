@@ -18,7 +18,7 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    MARKETING_VERSION: "0.3.0"
+    MARKETING_VERSION: "0.3.1"
     CURRENT_PROJECT_VERSION: "1"
     PRODUCT_NAME: "OpenAgents Go"
     ENABLE_HARDENED_RUNTIME: YES
@@ -94,6 +94,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.openagents.go
         PRODUCT_NAME: "OpenAgents Go"
+        "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": OpenAgents/OpenAgents-macOS.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": OpenAgents/OpenAgents.entitlements
+        "CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]": OpenAgents/OpenAgents.entitlements
         GENERATE_INFOPLIST_FILE: NO
         ENABLE_PREVIEWS: YES
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -106,6 +109,7 @@ targets:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
         Release:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
+          "CODE_SIGN_INJECT_BASE_ENTITLEMENTS[sdk=macosx*]": NO
     entitlements:
       path: OpenAgents/OpenAgents.entitlements
       properties:

@@ -147,6 +147,7 @@ async def send_event(
         "type": result.type,
         "source": result.source,
         "target": result.target,
+        "payload": result.payload,
         "timestamp": result.timestamp,
         "metadata": result.metadata,
     })
@@ -341,7 +342,12 @@ async def poll_events(
     has_more = len(rows) > limit
     events = rows[:limit]
 
-    response = success_response({
+    composing = False
+    if not search and not conversation:
+        from app.composing import has_any_composing
+        composing = has_any_composing(str(workspace.id))
+
+    response_data = {
         "events": [
             {
                 "id": e.id,
@@ -358,7 +364,11 @@ async def poll_events(
         "has_more": has_more,
         "oldest_id": (events[-1].id if sort == "desc" else events[0].id) if events else None,
         "newest_id": (events[0].id if sort == "desc" else events[-1].id) if events else None,
-    })
+    }
+    if composing:
+        response_data["composing"] = True
+
+    response = success_response(response_data)
 
     # Populate cache for subsequent polls within the TTL window.
     # success_response returns a dict; Redis stores the serialized JSON.

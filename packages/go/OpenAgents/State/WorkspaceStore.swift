@@ -42,10 +42,9 @@ final class WorkspaceStore {
     var isLoading: Bool = true
     var lastError: String?
 
-    /// Browser Fabric tabs currently known for this workspace. v1 of the
-    /// viewer treats the workspace as having at most one "live" browser —
-    /// `liveBrowserTab` picks the most-recent one with a `liveUrl`. Refreshed
-    /// in the existing discovery poll cycle.
+    /// Browser Fabric tabs currently known for this workspace. Refreshed in
+    /// the existing discovery poll cycle and rendered together in the Browser
+    /// panel so users can inspect every active agent-controlled session.
     var browserTabs: [BrowserTab] = []
 
     /// Increments whenever a live browser session first appears (transition
@@ -121,20 +120,29 @@ final class WorkspaceStore {
 
     var onlineAgents: [Agent] { agents.filter(\.isOnline) }
 
-    /// The single tab the Browser panel should render. Picks the most-recent
-    /// tab with a `liveUrl`; nil when nothing is live. v1 is single-tab by
-    /// product decision — multi-tab list UI is out of scope.
-    var liveBrowserTab: BrowserTab? {
+    /// Browser tabs sorted with the most recently active first. The Browser
+    /// panel validates each tab as it appears, so rows without an initial
+    /// `liveUrl` can still reconnect and render.
+    var browserSessionTabs: [BrowserTab] {
         browserTabs
-            .filter(\.isLive)
             .sorted(by: { $0.sortKey > $1.sortKey })
-            .first
     }
 
-    /// True when the workspace has the toggle on AND there's a live session
+    /// Live tabs sorted with the most recently active first.
+    var liveBrowserTabs: [BrowserTab] {
+        browserSessionTabs.filter(\.isLive)
+    }
+
+    /// Backward-compatible convenience for places that only need to know
+    /// whether there is at least one live browser session.
+    var liveBrowserTab: BrowserTab? {
+        liveBrowserTabs.first
+    }
+
+    /// True when the workspace has the toggle on AND there are sessions
     /// to show. Drives whether the Browser tab is visible in the right panel.
     var browserPanelAvailable: Bool {
-        (workspace?.browserEnabled ?? false) && liveBrowserTab != nil
+        (workspace?.browserEnabled ?? false) && !browserSessionTabs.isEmpty
     }
 
     /// True when any session's most recent message is a pending status (agent working) — drives

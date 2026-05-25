@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('api', {
   getEnvFields: (type: string) => ipcRenderer.invoke('agents:env-fields', type),
   getAgentEnv: (type: string) => ipcRenderer.invoke('agents:get-env', type),
   saveAgentEnv: (type: string, env: unknown) => ipcRenderer.invoke('agents:save-env', type, env),
+  deleteAgentEnv: (type: string) => ipcRenderer.invoke('agents:delete-env', type),
   getAgentInstanceEnv: (name: string) => ipcRenderer.invoke('agents:get-instance-env', name),
   saveAgentInstanceEnv: (name: string, env: unknown) => ipcRenderer.invoke('agents:save-instance-env', name, env),
   testLLM: (env: unknown) => ipcRenderer.invoke('agents:test-llm', env),

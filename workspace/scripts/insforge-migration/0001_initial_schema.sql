@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS channels (
     resume_from         text,
     status              text        DEFAULT 'active',
     starred             boolean     NOT NULL DEFAULT false,
+    last_event_at       bigint,
     created_at          timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_channels_ws_name ON channels (workspace_id, name);
@@ -117,6 +118,7 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_network_type      ON events (network_id, type);
 CREATE INDEX IF NOT EXISTS idx_events_network_target    ON events (network_id, target);
 CREATE INDEX IF NOT EXISTS idx_events_network_timestamp ON events (network_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_events_network_type_target_ts ON events (network_id, type, target, timestamp);
 
 -- ===========================================================================
 -- Files (metadata; blobs in S3 keyed by storage_key)
@@ -192,6 +194,82 @@ CREATE INDEX IF NOT EXISTS idx_browser_usage_opened_by ON browser_usage (opened_
 CREATE INDEX IF NOT EXISTS idx_browser_usage_started   ON browser_usage (started_at);
 
 -- ===========================================================================
+-- Push notification device tokens
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS device_tokens (
+    id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    workspace_id  uuid        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    fcm_token     text        NOT NULL,
+    device_type   text        NOT NULL,
+    bundle_id     text,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    last_seen_at  timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT uq_device_token_workspace_fcm UNIQUE (workspace_id, fcm_token)
+);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_workspace ON device_tokens (workspace_id);
+
+-- ===========================================================================
+-- To-dos (agent planning state)
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS todos (
+    id            text        PRIMARY KEY,
+    workspace_id  uuid        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    channel_name  text        NOT NULL,
+    thread_id     text,
+    created_by    text        NOT NULL,
+    assignee      text        NOT NULL,
+    content       text        NOT NULL,
+    status        text        NOT NULL DEFAULT 'pending',
+    position      integer     NOT NULL DEFAULT 0,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    updated_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_todos_workspace_channel    ON todos (workspace_id, channel_name);
+CREATE INDEX IF NOT EXISTS idx_todos_workspace_created_by ON todos (workspace_id, created_by);
+
+-- ===========================================================================
+-- Timers (one-shot scheduled messages)
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS timers (
+    id             text        PRIMARY KEY,
+    workspace_id   uuid        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    channel_name   text        NOT NULL,
+    thread_id      text,
+    created_by     text        NOT NULL,
+    message        text        NOT NULL,
+    delay_seconds  integer     NOT NULL,
+    fires_at       timestamptz NOT NULL,
+    status         text        NOT NULL DEFAULT 'active',
+    created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_timers_fires_at_status   ON timers (fires_at, status);
+CREATE INDEX IF NOT EXISTS idx_timers_workspace_channel ON timers (workspace_id, channel_name);
+
+-- ===========================================================================
+-- Routines (recurring scheduled tasks)
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS routines (
+    id                         text        PRIMARY KEY,
+    workspace_id               uuid        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    channel_name               text        NOT NULL,
+    thread_id                  text,
+    created_by                 text        NOT NULL,
+    name                       text        NOT NULL,
+    message                    text        NOT NULL,
+    schedule_hour              integer,
+    schedule_minute            integer,
+    schedule_days              jsonb,
+    schedule_interval_minutes  integer,
+    timezone                   text        DEFAULT 'UTC',
+    next_fires_at              timestamptz NOT NULL,
+    last_fired_at              timestamptz,
+    status                     text        NOT NULL DEFAULT 'active',
+    created_at                 timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_routines_workspace_channel ON routines (workspace_id, channel_name);
+CREATE INDEX IF NOT EXISTS idx_routines_next_fires_status ON routines (next_fires_at, status);
+
+-- ===========================================================================
 -- Standalone agents (only used in IDENTITY_MODE=standalone, kept for compat)
 -- ===========================================================================
 CREATE TABLE IF NOT EXISTS agents (
@@ -203,7 +281,7 @@ CREATE TABLE IF NOT EXISTS agents (
 
 -- ===========================================================================
 -- Alembic stamp — schema is at head; backend's `alembic upgrade head` no-ops.
--- Update '007' to match the latest revision in
+-- Update '015' to match the latest revision in
 -- workspace/backend/alembic/versions/ when the source schema changes.
 -- ===========================================================================
 CREATE TABLE IF NOT EXISTS alembic_version (
@@ -211,4 +289,4 @@ CREATE TABLE IF NOT EXISTS alembic_version (
     CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
 );
 INSERT INTO alembic_version (version_num)
-SELECT '007' WHERE NOT EXISTS (SELECT 1 FROM alembic_version);
+SELECT '015' WHERE NOT EXISTS (SELECT 1 FROM alembic_version);

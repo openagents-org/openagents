@@ -19,6 +19,14 @@ interface Attachment {
   url: string;
 }
 
+function humanColor(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return `hsl(${hash % 360} 55% 82%)`;
+}
+
 function isPreviewable(contentType: string, filename: string): boolean {
   if (contentType?.startsWith('image/')) return true;
   if (contentType === 'text/html' || /\.html?$/i.test(filename)) return true;
@@ -108,7 +116,8 @@ interface ChatMessageProps {
 }
 
 export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: ChatMessageProps) {
-  const isHuman = message.senderType === 'human';
+  const { currentUser } = useWorkspace();
+  const isHuman = message.senderType === 'human' || message.senderType === 'user';
   const isSystem = message.messageType === 'status';
   const [copied, setCopied] = useState(false);
 
@@ -149,15 +158,24 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
 
   // ── Human message — Slack style ──
   if (isHuman) {
+    const isCurrentUser = !!message.senderId && message.senderId === currentUser.id;
+    const displayName = isCurrentUser
+      ? 'You'
+      : (message.senderName && message.senderName !== 'user' ? message.senderName : 'User');
+    const seed = message.senderId || message.senderName || 'human';
+
     return (
       <div className="py-1.5">
         <div className="flex items-start gap-2">
-          <div className="size-9 rounded-lg shrink-0 flex items-center justify-center bg-zinc-200 dark:bg-zinc-700 mt-0.5">
-            <User className="size-4 text-zinc-500 dark:text-zinc-400" />
+          <div
+            className="size-9 rounded-lg shrink-0 flex items-center justify-center mt-0.5"
+            style={{ backgroundColor: humanColor(seed) }}
+          >
+            <User className="size-4 text-zinc-700" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline gap-2">
-              <span className="text-[15px] font-bold text-foreground">You</span>
+              <span className="text-[15px] font-bold text-foreground">{displayName}</span>
               {timestamp && (
                 <span className="text-xs text-muted-foreground">{timestamp}</span>
               )}

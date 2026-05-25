@@ -914,6 +914,27 @@ class ClaudeAdapter extends BaseAdapter {
             }
           }
 
+          // In plan mode, read the plan file and include it in the response
+          if (this._mode === 'plan') {
+            try {
+              const planDir = path.join(this.workingDir || process.cwd(), '.claude', 'plans');
+              if (fs.existsSync(planDir)) {
+                const planFiles = fs.readdirSync(planDir)
+                  .filter((f) => f.endsWith('.md'))
+                  .map((f) => ({ name: f, mtime: fs.statSync(path.join(planDir, f)).mtimeMs }))
+                  .sort((a, b) => b.mtime - a.mtime);
+                if (planFiles.length > 0) {
+                  const planContent = fs.readFileSync(path.join(planDir, planFiles[0].name), 'utf-8').trim();
+                  if (planContent) {
+                    lastResponseText.push('\n\n---\n\n**Plan:**\n\n' + planContent);
+                  }
+                }
+              }
+            } catch (e) {
+              this._log(`Failed to read plan file: ${e.message}`);
+            }
+          }
+
           if (lastResponseText.length > 0) {
             const fullResponse = lastResponseText.join('\n').trim();
             // "Prompt is too long" means the resumed session's context

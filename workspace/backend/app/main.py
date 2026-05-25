@@ -91,6 +91,25 @@ async def _timer_loop():
                 if expired:
                     logger.info("Expired %d stale todo(s)", len(expired))
 
+                # ── Auto-archive stale threads (no activity for 30 days) ──
+                from app.models import Channel
+                stale_thread_cutoff = int((now - timedelta(days=30)).timestamp() * 1000)
+                archived = db.execute(
+                    update(Channel)
+                    .where(
+                        Channel.status == "active",
+                        Channel.starred == False,  # noqa: E712
+                        Channel.last_event_at != None,  # noqa: E711
+                        Channel.last_event_at < stale_thread_cutoff,
+                        ~Channel.name.startswith("routine:"),
+                        ~Channel.name.startswith("routines:"),
+                    )
+                    .values(status="archived")
+                    .returning(Channel.id)
+                ).fetchall()
+                if archived:
+                    logger.info("Auto-archived %d stale thread(s)", len(archived))
+
                 # ── Fire due routines ──
                 due_routines = db.execute(
                     select(RoutineRecord).where(

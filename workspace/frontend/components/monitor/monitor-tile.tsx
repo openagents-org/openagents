@@ -11,6 +11,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  Star,
   Terminal,
   User,
   Wrench,
@@ -150,6 +151,7 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
             </div>
           ))}
         </div>
+        {session.starred && <Star className="size-3 text-amber-400 fill-amber-400 shrink-0" />}
         <span className="text-xs font-medium text-foreground truncate flex-1 min-w-0">
           {session.title || 'Untitled'}
         </span>

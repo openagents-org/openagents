@@ -433,8 +433,15 @@ class Installer {
       if (proc.stdout) proc.stdout.setEncoding('utf-8');
       if (proc.stderr) proc.stderr.setEncoding('utf-8');
 
-      if (proc.stdout) proc.stdout.on('data', (d) => { if (onData) onData(d); });
-      if (proc.stderr) proc.stderr.on('data', (d) => { if (onData) onData(d); });
+      let outputTail = '';
+      const captureOutput = (d) => {
+        const text = String(d);
+        outputTail = (outputTail + text).slice(-4000);
+        if (onData) onData(text);
+      };
+
+      if (proc.stdout) proc.stdout.on('data', captureOutput);
+      if (proc.stderr) proc.stderr.on('data', captureOutput);
 
       proc.on('error', (err) => reject(err));
       proc.on('close', (code) => {
@@ -454,7 +461,10 @@ class Installer {
             this._cleanStaleShims(agentType);
             this._cleanStubBinary(agentType);
           } catch {}
-          const msg = `Install failed with exit code ${code}`;
+          const tail = outputTail.trim();
+          const msg = tail
+            ? `Install failed with exit code ${code}\nCommand: ${cmd}\n\n${tail}`
+            : `Install failed with exit code ${code}\nCommand: ${cmd}`;
           if (onData) onData(`\n${msg}\n`);
           reject(new Error(msg));
         }
@@ -606,7 +616,7 @@ class Installer {
    */
   _getInstallCommand(installCfg) {
     const plat = Installer.platform();
-    return installCfg[plat] || installCfg.command || null;
+    return installCfg[plat] || installCfg.command || installCfg.npm || null;
   }
 
   /**
@@ -648,7 +658,14 @@ class Installer {
   _whichBinary(agentType) {
     const entry = this.registry.getEntry(agentType);
     const binary = entry && entry.install ? entry.install.binary : agentType;
-    return whichBinary(binary);
+    const aliases = entry && entry.install && Array.isArray(entry.install.binary_aliases)
+      ? entry.install.binary_aliases
+      : [];
+    for (const candidate of [binary, ...aliases]) {
+      const found = whichBinary(candidate);
+      if (found) return found;
+    }
+    return null;
   }
 
   // -- Markers --

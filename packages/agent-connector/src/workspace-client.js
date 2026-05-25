@@ -347,7 +347,8 @@ class WorkspaceClient {
       }
     }
 
-    return { messages, cursor };
+    const composing = !!(result && result.composing);
+    return { messages, cursor, composing };
   }
 
   /**

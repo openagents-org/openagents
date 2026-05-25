@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
-import { CalendarClock, RefreshCw, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { CalendarClock, RefreshCw, Trash2, Plus } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { CreateRoutineDialog } from './create-routine-dialog';
 import type { RoutineItem } from '@/lib/types';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -54,7 +55,8 @@ function timeUntil(dateStr: string): string {
 }
 
 export function RoutinesView() {
-  const { routines, refreshRoutines, sessions, agents } = useWorkspace();
+  const { routines, refreshRoutines, createRoutine, sessions, agents } = useWorkspace();
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   useEffect(() => {
     refreshRoutines();
@@ -87,12 +89,21 @@ export function RoutinesView() {
             </span>
           )}
         </div>
-        <button
-          onClick={refreshRoutines}
-          className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
-        >
-          <RefreshCw className="size-3.5" />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => setShowCreateDialog(true)}
+            className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
+            title="Create routine"
+          >
+            <Plus className="size-3.5" />
+          </button>
+          <button
+            onClick={refreshRoutines}
+            className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
+          >
+            <RefreshCw className="size-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -161,6 +172,13 @@ export function RoutinesView() {
           </div>
         )}
       </div>
+
+      <CreateRoutineDialog
+        open={showCreateDialog}
+        onOpenChange={setShowCreateDialog}
+        agents={agents}
+        onCreateRoutine={createRoutine}
+      />
     </div>
   );
 }

@@ -65,7 +65,7 @@ struct ContentSidebar: View {
     }
 
     /// Falls back to .content if the controller wants .browser but the
-    /// browser panel isn't currently available (toggle off / no live tab).
+    /// browser panel isn't currently available (toggle off / no live tabs).
     private var effectiveTab: ContentSidebarTab {
         if controller.selectedTab == .browser, !store.browserPanelAvailable {
             return .content
@@ -461,4 +461,3 @@ private struct FileCard: View {
         return f.localizedString(for: date, relativeTo: Date())
     }
 }
-

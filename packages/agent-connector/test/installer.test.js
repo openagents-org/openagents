@@ -50,6 +50,18 @@ const mockRegistry = {
         },
       };
     }
+    if (name === 'cursor') {
+      return {
+        name: 'cursor',
+        install: {
+          binary: 'cursor-agent',
+          binary_aliases: ['agent'],
+          macos: 'curl https://cursor.com/install -fsSL | bash',
+          linux: 'curl https://cursor.com/install -fsSL | bash',
+          windows: "\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -UseBasicParsing 'https://cursor.com/install?win32=true' | Invoke-Expression\"",
+        },
+      };
+    }
     if (name === 'kimi') {
       return {
         name: 'kimi',
@@ -209,6 +221,17 @@ describe('Installer', () => {
     });
     assert.ok(typeof cmd === 'string');
     assert.ok(cmd.length > 0);
+  });
+
+  it('_getInstallCommand uses platform installer before npm fallback', () => {
+    const inst = new Installer(mockRegistry, tmpDir);
+    const cmd = inst._getInstallCommand(mockRegistry.getEntry('cursor').install);
+
+    if (process.platform === 'win32') {
+      assert.equal(cmd, "\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -UseBasicParsing 'https://cursor.com/install?win32=true' | Invoke-Expression\"");
+    } else {
+      assert.equal(cmd, 'curl https://cursor.com/install -fsSL | bash');
+    }
   });
 
   it('healthCheck does not treat OPENAI_API_KEY alone as codex ready', () => {

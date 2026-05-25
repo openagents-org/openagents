@@ -98,6 +98,7 @@ class WorkspaceUpdateRequest(BaseModel):
     # migration — but exposed as a typed field so clients don't have to
     # round-trip the whole settings dict to flip one bool.
     browser_enabled: Optional[bool] = None
+    browserfabric_api_key: Optional[str] = None
 
 class CollaboratorAddRequest(BaseModel):
     email: str
@@ -107,6 +108,14 @@ class CollaboratorAddRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _mask_bf_key(key: str | None) -> str | None:
+    if not key:
+        return None
+    if len(key) > 12:
+        return key[:8] + "..." + key[-4:]
+    return key[:4] + "..."
+
 
 def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
     agents = []
@@ -140,6 +149,7 @@ def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
         # Surface browser_enabled at the top level for clients that don't
         # want to dig into the settings dict. Mirrors what's inside settings.
         "browserEnabled": bool(settings.get("browser_enabled", False)),
+        "browserfabricApiKey": _mask_bf_key(settings.get("browserfabric_api_key")),
         "status": ws.status,
         "createdAt": ws.created_at.isoformat() if ws.created_at else None,
         "lastActivityAt": ws.last_activity_at.isoformat() if ws.last_activity_at else None,
@@ -332,11 +342,15 @@ async def update_workspace(
     if body.settings is not None:
         workspace.settings = body.settings
     if body.browser_enabled is not None:
-        # Merge into settings rather than overwriting other keys. Must
-        # reassign the dict — SQLAlchemy JSONB mutation tracking won't
-        # pick up an in-place dict update.
         current = dict(workspace.settings or {})
         current["browser_enabled"] = body.browser_enabled
+        workspace.settings = current
+    if body.browserfabric_api_key is not None:
+        current = dict(workspace.settings or {})
+        if body.browserfabric_api_key == "":
+            current.pop("browserfabric_api_key", None)
+        else:
+            current["browserfabric_api_key"] = body.browserfabric_api_key
         workspace.settings = current
     if body.status is not None:
         workspace.status = body.status

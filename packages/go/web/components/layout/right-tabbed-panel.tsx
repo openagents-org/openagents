@@ -2,10 +2,10 @@
 
 /**
  * Tabbed right-side panel sitting next to the chat detail. Mirrors the
- * Swift `ContentSidebar` `[Content | Browser]` header tabs (0.3.0).
+ * Swift `ContentSidebar` `[Content | Browser]` header tabs.
  *
  *   - Content tab: workspace files (FileList + FilePreview)
- *   - Browser tab: live Browser Fabric session (BrowserView). Hidden
+ *   - Browser tab: live Browser Fabric sessions (BrowserView). Hidden
  *     unless `workspace.browserEnabled === true` — mirrors
  *     `WorkspaceStore.browserPanelAvailable` on Swift.
  *

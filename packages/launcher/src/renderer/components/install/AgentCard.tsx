@@ -126,7 +126,7 @@ export function AgentCard({
           </>
         ) : (
           <Button size="sm" variant="primary" onClick={(e) => { e.stopPropagation(); onInstall() }}>
-            Install
+            Reinstall
           </Button>
         )}
       </div>

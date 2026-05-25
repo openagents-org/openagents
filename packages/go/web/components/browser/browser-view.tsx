@@ -1,53 +1,78 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { Globe, RefreshCw, ChevronLeft, Maximize2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Globe, Maximize2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-
-// Middle-truncate a long URL the way Swift's `.truncationMode(.middle)`
-// does — preserve the beginning (scheme + host) and the end (last path
-// segment + query) so users can still tell at a glance where they are.
-function middleTruncate(s: string, maxLen: number): string {
-  if (s.length <= maxLen) return s;
-  const keep = Math.max(8, Math.floor((maxLen - 1) / 2));
-  return s.slice(0, keep) + '…' + s.slice(-keep);
-}
 import { useWorkspace } from '@/lib/workspace-context';
-import { useLayout } from '@/components/layout/layout-context';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import type { BrowserTab } from '@/lib/types';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+
+function tabSortTime(tab: BrowserTab): number {
+  const raw = tab.lastActiveAt || tab.createdAt;
+  if (!raw) return 0;
+  const t = new Date(raw).getTime();
+  return Number.isFinite(t) ? t : 0;
+}
 
 export function BrowserView() {
-  const {
-    browserTabs, selectedBrowserTabId, setSelectedBrowserTabId,
-    reconnectBrowserTab,
-    refreshBrowserTabs,
-  } = useWorkspace();
-  const { isMobile, openMobileList } = useLayout();
+  const { browserTabs, refreshBrowserTabs } = useWorkspace();
+
+  const sortedTabs = useMemo(
+    () => [...browserTabs].sort((a, b) => tabSortTime(b) - tabSortTime(a)),
+    [browserTabs],
+  );
+
+  if (sortedTabs.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <div className="text-center space-y-2">
+          <Globe className="size-12 mx-auto opacity-20" />
+          <p className="text-sm font-medium">No browser sessions</p>
+          <p className="text-xs">Ask an agent to browse, then sessions appear here</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full min-h-0 overflow-y-auto overflow-x-hidden bg-zinc-50 dark:bg-zinc-900 p-2.5 space-y-2.5">
+      {sortedTabs.map((tab) => (
+        <BrowserSessionCard
+          key={tab.id}
+          tab={tab}
+          refreshBrowserTabs={refreshBrowserTabs}
+        />
+      ))}
+    </div>
+  );
+}
+
+function BrowserSessionCard({
+  tab,
+  refreshBrowserTabs,
+}: {
+  tab: BrowserTab;
+  refreshBrowserTabs: () => Promise<void>;
+}) {
+  const { reconnectBrowserTab } = useWorkspace();
   const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [sessionDead, setSessionDead] = useState(false);
-  const [navigating, setNavigating] = useState(false);
-  // True app-front modal — covers everything (parity with Swift's
-  // FullscreenBrowserSheet).
-  const [presentMode, setPresentMode] = useState(false);
+  const [fullscreenOpen, setFullscreenOpen] = useState(false);
   const prevBlobRef = useRef<string | null>(null);
   const failCountRef = useRef(0);
 
-  const tab = browserTabs.find((t) => t.id === selectedBrowserTabId);
-
-  // Validate live session on mount / tab switch. The backend checks if the
-  // BF session is still alive and auto-reconnects if dead, returning fresh
-  // tab data (including a new live_url).
   useEffect(() => {
-    if (!selectedBrowserTabId || !tab?.liveUrl) return;
+    if (!tab.liveUrl) return;
     let cancelled = false;
 
     const validate = async () => {
       setReconnecting(true);
       try {
-        await workspaceApi.validateBrowserTab(selectedBrowserTabId);
+        await workspaceApi.validateBrowserTab(tab.id);
         if (!cancelled) await refreshBrowserTabs();
       } catch {
         if (!cancelled) setSessionDead(true);
@@ -58,11 +83,10 @@ export function BrowserView() {
 
     validate();
     return () => { cancelled = true; };
-  }, [selectedBrowserTabId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tab.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll screenshot every 2 seconds (only when no live URL)
   useEffect(() => {
-    if (!selectedBrowserTabId || !tab || tab.liveUrl) {
+    if (tab.liveUrl) {
       setScreenshotUrl(null);
       return;
     }
@@ -73,7 +97,7 @@ export function BrowserView() {
 
     const fetchScreenshot = async () => {
       try {
-        const url = workspaceApi.getBrowserScreenshotUrl(selectedBrowserTabId);
+        const url = workspaceApi.getBrowserScreenshotUrl(tab.id);
         const headers: Record<string, string> = {};
         const token = (workspaceApi as unknown as { token: string }).token;
         if (token) headers['X-Workspace-Token'] = token;
@@ -124,13 +148,14 @@ export function BrowserView() {
         prevBlobRef.current = null;
       }
     };
-  }, [selectedBrowserTabId, tab]);
+  }, [tab.id, tab.liveUrl]);
 
   const handleReconnect = async () => {
-    if (!tab || reconnecting) return;
+    if (reconnecting) return;
     setReconnecting(true);
     try {
       await reconnectBrowserTab(tab.id);
+      await refreshBrowserTabs();
       setSessionDead(false);
       failCountRef.current = 0;
       setLoading(true);
@@ -142,90 +167,21 @@ export function BrowserView() {
     }
   };
 
-  // No tab selected
-  if (!tab) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        <div className="text-center space-y-2">
-          <Globe className="size-12 mx-auto opacity-20" />
-          <p className="text-sm font-medium">Select a browser tab</p>
-          <p className="text-xs">Choose a tab from the list or open a new one</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col h-full">
-      {/* Header — strict Swift BrowserPanel mirror: Globe + (Title +
-          URL middle-truncated OR "opened by <agent>") + Reload +
-          Fullscreen. Swift commits 2e8a4791 + 00fa44a1. No extras. */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-input shrink-0">
-        {isMobile && (
-          <button
-            onClick={openMobileList}
-            className="size-7 flex items-center justify-center rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0"
-            aria-label="Back"
-          >
-            <ChevronLeft className="size-4" />
-          </button>
-        )}
-        <Globe
-          className={cn(
-            'size-3.5 shrink-0 text-muted-foreground',
-            navigating && 'text-amber-500 animate-pulse',
-          )}
-        />
-        <div className="flex-1 min-w-0 leading-tight">
-          <p
-            className="text-[12px] font-semibold truncate"
-            title={tab.title || 'Browser'}
-          >
-            {tab.title || 'Browser'}
-          </p>
-          {tab.url ? (
-            <p
-              className="text-[10px] text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis"
-              title={tab.url}
-            >
-              {middleTruncate(tab.url, 56)}
-            </p>
-          ) : tab.createdBy ? (
-            <p className="text-[10px] text-muted-foreground truncate">
-              opened by {tab.createdBy.replace(/^(openagents:|human:)/, '')}
-            </p>
-          ) : null}
-        </div>
-
+    <section className="relative bg-background border border-input rounded-lg overflow-hidden shadow-xs">
+      {tab.liveUrl && !reconnecting && (
         <button
-          onClick={handleReconnect}
-          disabled={reconnecting}
-          className="size-[22px] flex items-center justify-center rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0 disabled:opacity-50"
-          title="Reload session"
-          aria-label="Reload browser session"
+          type="button"
+          onClick={() => setFullscreenOpen(true)}
+          className="absolute right-3 top-3 z-10 size-9 flex items-center justify-center rounded-full bg-black/60 text-white shadow-sm hover:bg-black/75 transition-colors"
+          title="Open browser fullscreen"
+          aria-label="Open browser fullscreen"
         >
-          <RefreshCw className={cn('size-3.5', reconnecting && 'animate-spin')} />
+          <Maximize2 className="size-4" />
         </button>
+      )}
 
-        {/* Fullscreen take-over — matches Swift's
-            `arrow.up.left.and.arrow.down.right`. No rotation. */}
-        <button
-          onClick={() => setPresentMode(true)}
-          disabled={!tab.liveUrl}
-          className="size-[22px] flex items-center justify-center rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0 disabled:opacity-30"
-          title="Fullscreen"
-          aria-label="Open browser in fullscreen"
-        >
-          <Maximize2 className="size-3.5" />
-        </button>
-      </div>
-
-      {/* Browser view area — overflow-hidden on the X axis so a wide
-          iframe (Browser Fabric's live viewer can size its inner UI
-          past the panel width) doesn't push the workspace into a
-          horizontal scroll. Vertical scroll stays available for the
-          screenshot fallback. */}
-      <div className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto bg-zinc-50 dark:bg-zinc-900 flex items-start justify-center">
+      <div className="h-[42vh] min-h-[300px] max-h-[420px] min-w-0 overflow-x-hidden overflow-y-auto bg-zinc-50 dark:bg-zinc-900 flex items-start justify-center">
         {tab.liveUrl && !reconnecting ? (
           <iframe
             src={tab.liveUrl}
@@ -244,8 +200,8 @@ export function BrowserView() {
                 disabled={reconnecting}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
               >
-                <RefreshCw className={cn("size-3.5", reconnecting && "animate-spin")} />
-                {reconnecting ? 'Reconnecting…' : 'Reconnect'}
+                <RefreshCw className={cn('size-3.5', reconnecting && 'animate-spin')} />
+                {reconnecting ? 'Reconnecting...' : 'Reconnect'}
               </button>
             </div>
           </div>
@@ -268,50 +224,19 @@ export function BrowserView() {
         )}
       </div>
 
-      {/* Fullscreen modal — covers everything including chat. Esc to dismiss. */}
-      {presentMode && tab.liveUrl && (
-        <FullscreenBrowserModal
-          title={tab.title || 'Browser'}
-          url={tab.url}
-          liveUrl={tab.liveUrl}
-          onClose={() => setPresentMode(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-function FullscreenBrowserModal({ title, url, liveUrl, onClose }: { title: string; url?: string; liveUrl: string; onClose: () => void }) {
-  // Esc dismisses — mirrors Swift `.keyboardShortcut(.cancelAction)` on
-  // the close button.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  return (
-    <div className="fixed inset-0 z-[100] bg-background flex flex-col">
-      <div className="flex items-center gap-2 px-4 py-2 border-b shrink-0">
-        <Globe className="size-4 text-blue-500" />
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <p className="text-sm font-semibold truncate">{title}</p>
-          {url && <p className="text-xs text-muted-foreground truncate font-mono">{url}</p>}
-        </div>
-        <button
-          onClick={onClose}
-          className="size-8 flex items-center justify-center rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground hover:text-foreground transition-colors shrink-0"
-          title="Close (Esc)"
-          aria-label="Close fullscreen"
-        >
-          <X className="size-4" />
-        </button>
-      </div>
-      <iframe
-        src={liveUrl}
-        className="flex-1 w-full border-0"
-        allow="clipboard-read; clipboard-write"
-        title={`Live browser: ${url || liveUrl}`}
-      />
-    </div>
+      <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
+        <DialogContent variant="fullscreen" className="flex flex-col p-0 gap-0" showCloseButton>
+          <DialogTitle className="sr-only">{tab.title || tab.url || 'Browser session'}</DialogTitle>
+          {tab.liveUrl && (
+            <iframe
+              src={tab.liveUrl}
+              className="w-full h-full border-0 bg-black"
+              allow="clipboard-read; clipboard-write"
+              title={`Live browser fullscreen: ${tab.url}`}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+    </section>
   );
 }

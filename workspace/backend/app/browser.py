@@ -21,6 +21,7 @@ MAX_BROWSER_TABS = int(os.environ.get("MAX_BROWSER_TABS", "20"))
 
 BROWSERFABRIC_API_KEY = os.environ.get("BROWSERFABRIC_API_KEY", "")
 BROWSERFABRIC_URL = os.environ.get("BROWSERFABRIC_URL", "https://api.browserfabric.com")
+BROWSERFABRIC_PROVISION_SECRET = os.environ.get("BROWSERFABRIC_PROVISION_SECRET", "")
 
 
 class BrowserManager:
@@ -36,6 +37,7 @@ class BrowserManager:
         self._global_lock = asyncio.Lock()
         self._sessions: dict = {}        # tab_id -> Browser Fabric session id
         self._live_urls: dict = {}       # tab_id -> Browser Fabric share URL
+        self._tab_keys: dict = {}        # tab_id -> per-workspace BF API key
 
     @classmethod
     def get(cls) -> "BrowserManager":
@@ -47,12 +49,22 @@ class BrowserManager:
     def is_cloud(self) -> bool:
         return bool(BROWSERFABRIC_API_KEY)
 
+    def is_cloud_for(self, api_key: str = None) -> bool:
+        return bool(api_key or BROWSERFABRIC_API_KEY)
+
     # ------------------------------------------------------------------
     # Browser Fabric REST helpers
     # ------------------------------------------------------------------
 
-    async def _bf_call(self, tool_name: str, arguments: dict = None, session_id: str = None) -> dict:
+    def _key_for_tab(self, tab_id: str = None) -> str:
+        """Return the BF API key for a given tab, or the global default."""
+        if tab_id and tab_id in self._tab_keys:
+            return self._tab_keys[tab_id]
+        return BROWSERFABRIC_API_KEY
+
+    async def _bf_call(self, tool_name: str, arguments: dict = None, session_id: str = None, api_key: str = None, tab_id: str = None) -> dict:
         """Call a Browser Fabric tool via REST API."""
+        key = api_key or (self._key_for_tab(tab_id) if tab_id else BROWSERFABRIC_API_KEY)
         payload: dict = {"tool_name": tool_name}
         if arguments:
             payload["arguments"] = arguments
@@ -62,13 +74,31 @@ class BrowserManager:
             resp = await client.post(
                 f"{BROWSERFABRIC_URL}/api/v1/services/browseruse/call",
                 json=payload,
-                headers={"Authorization": f"Bearer {BROWSERFABRIC_API_KEY}"},
+                headers={"Authorization": f"Bearer {key}"},
             )
             resp.raise_for_status()
             data = resp.json()
             if not data.get("success"):
                 raise RuntimeError(f"Browser Fabric error: {data.get('error', 'unknown')}")
             return data
+
+    @staticmethod
+    async def provision_workspace_key(workspace_id: str) -> Optional[str]:
+        """Auto-provision a free-tier BF API key for a workspace."""
+        if not BROWSERFABRIC_PROVISION_SECRET:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"{BROWSERFABRIC_URL}/api/v1/auth/provision-workspace",
+                    json={"workspace_id": workspace_id, "secret": BROWSERFABRIC_PROVISION_SECRET},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return data.get("api_key")
+        except Exception as e:
+            logger.warning("Failed to provision BF key for workspace %s: %s", workspace_id, e)
+            return None
 
     # ------------------------------------------------------------------
     # Playwright init (local mode only)
@@ -109,8 +139,10 @@ class BrowserManager:
             logger.info("Pruned dead BF session for tab %s", tab_id)
         return len(dead)
 
-    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None) -> dict:
+    async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None) -> dict:
         """Create a new browser tab. Returns {url, title}."""
+        if api_key:
+            self._tab_keys[tab_id] = api_key
         async with self._global_lock:
             active_count = len(self._sessions) if self.is_cloud else len(self._pages)
             if active_count >= MAX_BROWSER_TABS:
@@ -126,7 +158,7 @@ class BrowserManager:
                 args["context_id"] = bb_context_id
                 args["persist"] = True
 
-            result = await self._bf_call("create_session", args)
+            result = await self._bf_call("create_session", args, tab_id=tab_id)
             session_data = result["result"]
             session_id = session_data["session_id"]
             self._sessions[tab_id] = session_id
@@ -135,7 +167,7 @@ class BrowserManager:
 
             if url and url != "about:blank":
                 try:
-                    await self._bf_call("navigate", {"url": url, "wait_until": "domcontentloaded"}, session_id)
+                    await self._bf_call("navigate", {"url": url, "wait_until": "domcontentloaded"}, session_id, tab_id=tab_id)
                 except Exception:
                     pass
 
@@ -284,9 +316,10 @@ class BrowserManager:
         if self.is_cloud:
             session_id = self._sessions.pop(tab_id, None) or session_id_hint
             self._live_urls.pop(tab_id, None)
+            tab_key = self._tab_keys.pop(tab_id, None)
             if session_id:
                 try:
-                    await self._bf_call("close_session", {}, session_id)
+                    await self._bf_call("close_session", {}, session_id, api_key=tab_key)
                 except Exception as e:
                     logger.warning("Failed to close BF session %s: %s", session_id, e)
         else:

@@ -126,6 +126,17 @@ class AgentConnector {
     return { success: true };
   }
 
+  /**
+   * Delete the entire type-level env file (~/.openagents/env/<type>.env).
+   * Used by the launcher's "wipe saved credentials" path on uninstall so
+   * sensitive values (API keys) don't survive a reinstall as surprise
+   * pre-filled defaults in the setup wizard.
+   */
+  deleteAgentEnv(agentType) {
+    this.env.delete(agentType);
+    return { success: true };
+  }
+
   saveAgentInstanceEnv(agentName, env) {
     const agent = this.config.getAgent(agentName);
     if (!agent) throw new Error(`Agent '${agentName}' not found`);

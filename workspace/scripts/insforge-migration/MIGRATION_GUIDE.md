@@ -94,7 +94,7 @@ cd <repo root>
 npx -y @insforge/cli link        # if not already linked
 npx -y @insforge/cli current     # confirm project + region
 npx -y @insforge/cli db import workspace/scripts/insforge-migration/0001_initial_schema.sql
-npx -y @insforge/cli db tables   # expect 13 tables (12 OpenAgents + alembic_version)
+npx -y @insforge/cli db tables   # expect 17 tables (16 OpenAgents + alembic_version)
 ```
 
 The schema mirrors `workspace/backend/app/models.py` 1:1 (same names, types,
@@ -105,7 +105,7 @@ code changes.
 > `entrypoint.sh` runs `alembic upgrade head` on every container start, which
 > tries to re-CREATE existing tables and the container exits 1.
 > `0001_initial_schema.sql` already includes a final `INSERT INTO
-> alembic_version VALUES ('007')`. **Update '007' if the source repo's
+> alembic_version VALUES ('014')`. **Update '014' if the source repo's
 > alembic head changes.**  Find current head with:
 > `ls workspace/backend/alembic/versions/ | tail -1`.
 

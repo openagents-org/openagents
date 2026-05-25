@@ -199,14 +199,17 @@ class WorkspaceApi {
     senderName = 'user',
     mentions?: string[],
     attachments?: { fileId: string; filename: string; contentType: string; url: string }[],
+    senderId?: string,
   ): Promise<ONMEvent> {
     return this.sendEvent({
       type: 'workspace.message.posted',
-      source: `human:${senderName}`,
+      source: `human:${senderId || senderName}`,
       target: `channel/${channelName}`,
       payload: {
         content,
         sender_type: 'human',
+        ...(senderId ? { sender_id: senderId } : {}),
+        sender_name: senderName,
         ...(mentions && mentions.length > 0 ? { mentions } : {}),
         ...(attachments && attachments.length > 0 ? { attachments } : {}),
       },
@@ -230,6 +233,21 @@ class WorkspaceApi {
       messages: result.events.map(eventToMessage),
       hasMore: result.has_more,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Composing signal — notify backend that a user is typing
+  // ---------------------------------------------------------------------------
+
+  async sendComposing(channelName: string): Promise<void> {
+    try {
+      await this.request<unknown>('/v1/composing', {
+        method: 'POST',
+        body: JSON.stringify({ network: this.workspaceId, channel: channelName }),
+      });
+    } catch {
+      // Fire-and-forget
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -703,6 +721,41 @@ class WorkspaceApi {
         channelName: (r.channel_name || '') as string,
         createdAt: (r.created_at || null) as string | null,
       })),
+    };
+  }
+
+  async createRoutine(params: {
+    name: string;
+    message: string;
+    source: string;
+    hour?: number;
+    minute?: number;
+    days?: number[];
+    interval_minutes?: number;
+  }): Promise<import('./types').RoutineItem> {
+    const raw = await this.request<Record<string, unknown>>('/v1/routines', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...params,
+        network: this.workspaceId,
+      }),
+    });
+    return {
+      id: raw.id as string,
+      name: raw.name as string,
+      message: raw.message as string,
+      context: (raw.context || null) as string | null,
+      scheduleHour: (raw.schedule_hour || 0) as number,
+      scheduleMinute: (raw.schedule_minute || 0) as number,
+      scheduleDays: (raw.schedule_days || null) as number[] | null,
+      scheduleIntervalMinutes: (raw.schedule_interval_minutes || null) as number | null,
+      timezone: (raw.timezone || 'UTC') as string,
+      nextFiresAt: (raw.next_fires_at || '') as string,
+      lastFiredAt: (raw.last_fired_at || null) as string | null,
+      status: (raw.status || 'active') as string,
+      createdBy: (raw.created_by || '') as string,
+      channelName: (raw.channel_name || '') as string,
+      createdAt: (raw.created_at || null) as string | null,
     };
   }
 

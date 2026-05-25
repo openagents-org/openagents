@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.browser import BrowserManager
+from app.browser import BROWSERFABRIC_API_KEY, BrowserManager
 from app.database import get_db
 from app.models import BrowserContext, BrowserTab, BrowserUsage, Workspace
 from app.response import ResponseCode, json_response, success_response
@@ -41,6 +41,40 @@ from openagents.core.onm_events import Event
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/browser", tags=["Browser"])
+
+
+# ---------------------------------------------------------------------------
+# Per-workspace BF API key resolution
+# ---------------------------------------------------------------------------
+
+async def _resolve_bf_key(workspace: Workspace, db: Session) -> Optional[str]:
+    """Resolve the BF API key for a workspace.
+
+    Priority:
+      1. Custom key stored in workspace settings (user-provided)
+      2. Auto-provisioned key stored in workspace settings
+      3. Global BROWSERFABRIC_API_KEY env var (fallback)
+      4. Auto-provision a new key from BF and store it
+    """
+    settings = workspace.settings or {}
+    stored_key = settings.get("browserfabric_api_key")
+    if stored_key:
+        return stored_key
+
+    if BROWSERFABRIC_API_KEY:
+        return BROWSERFABRIC_API_KEY
+
+    # Auto-provision from BF server
+    new_key = await BrowserManager.provision_workspace_key(str(workspace.id))
+    if new_key:
+        current = dict(workspace.settings or {})
+        current["browserfabric_api_key"] = new_key
+        workspace.settings = current
+        db.commit()
+        logger.info("Auto-provisioned BF API key for workspace %s", workspace.id)
+        return new_key
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +170,7 @@ def _touch(tab: BrowserTab):
     tab.last_active_at = datetime.now(timezone.utc)
 
 
-async def _ensure_connected(tab: BrowserTab, db: Session = None) -> None:
+async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Workspace = None) -> None:
     """Ensure the browser tab has a live Playwright page.
 
     Handles three cases:
@@ -205,7 +239,8 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None) -> None:
         if ctx:
             bb_context_id = ctx.bb_context_id
 
-    result = await manager.open_tab(tab.id, tab.url or "about:blank", bb_context_id=bb_context_id)
+    bf_key = await _resolve_bf_key(workspace, db) if workspace and db else None
+    result = await manager.open_tab(tab.id, tab.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
 
     # Update the tab record with the new session info
     tab.session_id = manager.get_session_id(tab.id)
@@ -263,8 +298,9 @@ async def open_tab(
     tab_id = str(uuid.uuid4())
     manager = BrowserManager.get()
 
+    bf_key = await _resolve_bf_key(workspace, db)
     try:
-        result = await manager.open_tab(tab_id, body.url or "about:blank", bb_context_id=bb_context_id)
+        result = await manager.open_tab(tab_id, body.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
     except RuntimeError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e))
     except Exception as e:
@@ -388,7 +424,7 @@ async def get_tab(
 
     if validate:
         try:
-            await _ensure_connected(tab, db)
+            await _ensure_connected(tab, db, workspace)
             db.commit()
         except Exception as e:
             logger.warning("Tab %s validation/reconnect failed: %s", tab_id, e)
@@ -418,7 +454,7 @@ async def navigate_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db)
+    await _ensure_connected(tab, db, workspace)
     manager = BrowserManager.get()
     try:
         result = await manager.navigate(tab_id, body.url)
@@ -484,8 +520,9 @@ async def reconnect_tab(
             bb_context_id = ctx.bb_context_id
 
     # Create a new session
+    bf_key = await _resolve_bf_key(workspace, db)
     try:
-        result = await manager.open_tab(tab_id, tab.url or "about:blank", bb_context_id=bb_context_id)
+        result = await manager.open_tab(tab_id, tab.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
     except Exception as e:
         logger.error("Reconnect failed: %s", e)
         return json_response(ResponseCode.INTERNAL_ERROR, "Failed to reconnect browser tab")
@@ -523,7 +560,7 @@ async def click_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db)
+    await _ensure_connected(tab, db, workspace)
     manager = BrowserManager.get()
     try:
         result = await manager.click(tab_id, body.selector)
@@ -563,7 +600,7 @@ async def type_in_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db)
+    await _ensure_connected(tab, db, workspace)
     manager = BrowserManager.get()
     try:
         await manager.type_text(tab_id, body.selector, body.text, append=body.append)
@@ -601,7 +638,7 @@ async def press_key_in_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db)
+    await _ensure_connected(tab, db, workspace)
     manager = BrowserManager.get()
     try:
         await manager.press_key(tab_id, body.key)
@@ -639,7 +676,7 @@ async def evaluate_in_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db)
+    await _ensure_connected(tab, db, workspace)
     manager = BrowserManager.get()
     try:
         result = await manager.evaluate(tab_id, body.expression)
@@ -676,7 +713,7 @@ async def get_screenshot(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db)
+    await _ensure_connected(tab, db, workspace)
     manager = BrowserManager.get()
     try:
         data = await manager.screenshot(tab_id)
@@ -728,7 +765,7 @@ async def get_snapshot(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db)
+    await _ensure_connected(tab, db, workspace)
     manager = BrowserManager.get()
     try:
         tree = await manager.snapshot(tab_id)
@@ -828,7 +865,7 @@ async def persist_tab(
     bb_context_id = None
     if manager.is_cloud:
         try:
-            await _ensure_connected(tab, db)
+            await _ensure_connected(tab, db, workspace)
             bb_context_id = await manager.create_bb_context(session_id=tab.session_id)
         except Exception as e:
             logger.error("Failed to create persistent context: %s", e)

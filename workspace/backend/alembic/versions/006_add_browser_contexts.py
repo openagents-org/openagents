@@ -2,15 +2,16 @@
 """Add browser_contexts table and context_id FK on browser_tabs.
 
 Revision ID: 006
-Revises: 005
+Revises: 005_browser_tables
 Create Date: 2026-03-15
 """
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 revision = "006"
-down_revision = "005"
+down_revision = "005_browser_tables"
 branch_labels = None
 depends_on = None
 
@@ -20,13 +21,13 @@ def upgrade() -> None:
     op.create_table(
         "browser_contexts",
         sa.Column("id", sa.Text(), primary_key=True, server_default=sa.text("gen_random_uuid()")),
-        sa.Column("workspace_id", sa.dialects.postgresql.UUID(as_uuid=False), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("workspace_id", postgresql.UUID(as_uuid=False), sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False),
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column("bb_context_id", sa.Text(), nullable=True),
         sa.Column("domain", sa.Text(), nullable=True),
         sa.Column("status", sa.Text(), server_default="active", nullable=False),
         sa.Column("created_by", sa.Text(), nullable=False),
-        sa.Column("shared_with", sa.JSON(), server_default="[]"),
+        sa.Column("shared_with", postgresql.JSONB(), server_default="[]"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("NOW()")),
         sa.Column("last_used_at", sa.DateTime(timezone=True), server_default=sa.text("NOW()")),
         sa.UniqueConstraint("workspace_id", "name", name="uq_browser_context_workspace_name"),

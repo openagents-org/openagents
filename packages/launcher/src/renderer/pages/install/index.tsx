@@ -13,14 +13,17 @@ import { AgentRow } from "../../components/install/AgentRow"
 import AgentIcon from "../../components/AgentIcon"
 import { useMarketplacePrefs } from "../../hooks/useMarketplacePrefs"
 import { hasPendingUpdate, useInstallStore } from "../../store/install"
+import { useAgentsStore } from "../../store/agents"
 import { useUiStore } from "../../store/ui"
 import type { CatalogEntry, InstalledAgentRecord } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
 import { Button } from "../../components/ui/Button"
+import { Checkbox } from "../../components/ui/Checkbox"
 import { Modal, ModalTitle } from "../../components/ui/Modal"
 import { InstallConfirmModal } from "../../components/agent-detail/InstallConfirmModal"
 import { TopBar } from "../../components/TopBar"
 import { FeaturedBanner } from "../../components/install/FeaturedBanner"
+import { installErrorMessage, throwIfInstallFailed } from "../../utils/installErrors"
 
 interface InstallProps {
   showToast: (msg: string, type?: ToastType) => void
@@ -68,6 +71,20 @@ export default function Install({
   const updates = useInstallStore((s) => s.updates)
   const installedList = useInstallStore((s) => s.installed)
   const jobs = useInstallStore((s) => s.jobs)
+  const setStoreAgents = useAgentsStore((s) => s.setAgents)
+
+  // The wizard's last step is `addAgent`, so closing the wizard is the moment
+  // the agents store may have just gained an entry. Refresh so the
+  // hasInstance selector in AgentDetail flips immediately instead of waiting
+  // for the next 5s poll from another tab.
+  const refreshAgentsStore = useCallback(async () => {
+    try {
+      const list = await window.api.listAgents()
+      setStoreAgents(list)
+    } catch {
+      /* non-fatal */
+    }
+  }, [setStoreAgents])
 
   const installFocusAgent = useUiStore((s) => s.installFocusAgent)
   const setInstallFocusAgent = useUiStore((s) => s.setInstallFocusAgent)
@@ -102,6 +119,10 @@ export default function Install({
       setCatalog(cat)
       setInstalled(inst)
       setLoading(false)
+      // Keep the shared agents store warm so AgentDetail.hasInstance is
+      // correct on first navigation even if the user landed here before
+      // visiting Agents/Dashboard.
+      refreshAgentsStore()
       window.api
         .checkAgentUpdates()
         .then((u) => setUpdates(u))
@@ -111,7 +132,7 @@ export default function Install({
     } catch {
       setLoading(false)
     }
-  }, [setInstalled, setUpdates])
+  }, [setInstalled, setUpdates, refreshAgentsStore])
 
   useEffect(() => {
     loadAll()
@@ -135,14 +156,15 @@ export default function Install({
       const wasInstalled = installedList.some((r) => r.name === entry.name)
       useInstallStore.getState().startJob({ agent: entry.name, verb })
       try {
-        await window.api.installAgentTypeStreaming(entry.name)
+        const result = await window.api.installAgentTypeStreaming(entry.name)
+        throwIfInstallFailed(result)
         showToast(
           `${entry.label || entry.name} ${verb === "update" ? "updated" : "installed"}`,
           "success",
         )
         if (!wasInstalled && verb === "install") setWizardEntry(entry)
       } catch (e: unknown) {
-        showToast(`${verb} failed: ${(e as Error).message}`, "error")
+        showToast(`${verb} failed: ${installErrorMessage(e)}`, "error")
       }
     },
     [showToast, installedList],
@@ -161,22 +183,32 @@ export default function Install({
     setConfirmUninstall(entry)
   }, [])
 
-  const performUninstall = useCallback(async () => {
-    const entry = confirmUninstall
-    if (!entry) return
-    setConfirmUninstall(null)
-    useInstallStore
-      .getState()
-      .startJob({ agent: entry.name, verb: "uninstall" })
-    try {
-      await window.api.uninstallAgentTypeStreaming(entry.name)
-      showToast(`${entry.label || entry.name} uninstalled`, "success")
-    } catch (e: unknown) {
-      showToast(`Uninstall failed: ${(e as Error).message}`, "error")
-    } finally {
-      await loadAll()
-    }
-  }, [confirmUninstall, showToast, loadAll])
+  const performUninstall = useCallback(
+    async (wipeEnv: boolean) => {
+      const entry = confirmUninstall
+      if (!entry) return
+      setConfirmUninstall(null)
+      useInstallStore
+        .getState()
+        .startJob({ agent: entry.name, verb: "uninstall" })
+      try {
+        await window.api.uninstallAgentTypeStreaming(entry.name)
+        if (wipeEnv) {
+          try {
+            await window.api.deleteAgentEnv(entry.name)
+          } catch {
+            /* non-fatal — uninstall already succeeded */
+          }
+        }
+        showToast(`${entry.label || entry.name} uninstalled`, "success")
+      } catch (e: unknown) {
+        showToast(`Uninstall failed: ${(e as Error).message}`, "error")
+      } finally {
+        await loadAll()
+      }
+    },
+    [confirmUninstall, showToast, loadAll],
+  )
 
   const filteredSorted = useMemo(() => {
     const cat =
@@ -269,7 +301,10 @@ export default function Install({
         <SetupWizard
           entry={wizardEntry}
           open={!!wizardEntry}
-          onClose={() => setWizardEntry(null)}
+          onClose={() => {
+            setWizardEntry(null)
+            refreshAgentsStore()
+          }}
           showToast={showToast}
         />
       </section>
@@ -414,9 +449,10 @@ function UninstallConfirmModal({
   onCancel,
 }: {
   entry: CatalogEntry
-  onConfirm: () => void
+  onConfirm: (wipeEnv: boolean) => void
   onCancel: () => void
 }): React.JSX.Element {
+  const [wipeEnv, setWipeEnv] = useState(false)
   return (
     <Modal open onClose={onCancel}>
       <div className="flex flex-col items-center py-2">
@@ -424,12 +460,30 @@ function UninstallConfirmModal({
         <ModalTitle className="mt-3 text-center">
           Uninstall {entry.label || entry.name}?
         </ModalTitle>
-        <p className="hint mt-3 mb-5 text-center">
+        <p className="hint mt-3 mb-4 text-center">
           This will remove <strong>{entry.label || entry.name}</strong> from
           your system. Configured agents of this type may stop working.
         </p>
+        <button
+          type="button"
+          onClick={() => setWipeEnv((v) => !v)}
+          className="flex items-start gap-2.5 w-full mb-5 px-3 py-2.5 rounded-(--radius-sm) border border-(--border) bg-(--bg-input)/40 hover:border-(--border-hover) hover:bg-(--bg-input)/70 transition-colors text-left cursor-pointer"
+        >
+          <Checkbox
+            checked={wipeEnv}
+            onCheckedChange={setWipeEnv}
+            className="mt-0.5"
+          />
+          <span className="text-[12px] leading-snug text-(--text-secondary)">
+            Also remove saved environment variables{" "}
+            <span className="text-(--text-tertiary)">
+              (API keys, model selection — kept by default and reappear in the
+              setup wizard on reinstall)
+            </span>
+          </span>
+        </button>
         <div className="form-actions justify-center mt-0">
-          <Button variant="destructive" onClick={onConfirm}>
+          <Button variant="destructive" onClick={() => onConfirm(wipeEnv)}>
             Uninstall
           </Button>
           <Button onClick={onCancel}>Cancel</Button>

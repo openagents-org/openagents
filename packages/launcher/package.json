@@ -1,8 +1,19 @@
 {
   "name": "openagents-launcher",
   "version": "0.7.2",
-  "description": "OpenAgents Launcher",
+  "description": "OpenAgents Launcher — install, configure, and manage your AI agents",
   "main": "out/main/index.js",
+  "homepage": "https://github.com/openagents-org/openagents",
+  "author": {
+    "name": "OpenAgents",
+    "email": "team@openagents.org"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openagents-org/openagents.git",
+    "directory": "packages/launcher"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

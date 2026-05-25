@@ -9,7 +9,7 @@ import { EmptyState } from './empty-state';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useMessagePolling } from '@/hooks/use-polling';
 import { workspaceApi } from '@/lib/api';
-import { MessageSquare, ChevronLeft, PanelRight } from 'lucide-react';
+import { MessageSquare, ChevronLeft, Globe, PanelRight } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
@@ -78,7 +78,16 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 
 export function ChatView() {
   const { agents, currentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, consumeSkipFocus } = useWorkspace();
-  const { isMobile, openMobileList, rightPanelOpen, setRightPanelOpen } = useLayout();
+  const {
+    isMobile,
+    openMobileList,
+    rightPanelOpen,
+    setRightPanelOpen,
+    splitBrowser,
+    setSplitBrowser,
+    showBrowserPreview,
+    setShowBrowserPreview,
+  } = useLayout();
   const [membersOpen, setMembersOpen] = useState(false);
 
   // Continuously refresh message caches for top recent sessions in the background.
@@ -366,9 +375,8 @@ export function ChatView() {
           (navigationTitle + navigationSubtitle). Web doesn't have a
           window title bar, so we render the same shape inline. The
           right side has just two affordances per Swift's ChatView
-          toolbar: AvatarStack → MembersSheet, and content-sidebar
-          toggle. Everything else (Stop, mode toggle, all-steps,
-          browser-preview) was UI we layered on top — gone now. */}
+          toolbar: AvatarStack → MembersSheet, browser-preview toggle, and
+          content-sidebar toggle. */}
       <div className="flex items-center justify-between px-3 lg:px-4 py-2 border-b shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           {isMobile && (
@@ -413,6 +421,11 @@ export function ChatView() {
           isMobile={isMobile}
           rightPanelOpen={rightPanelOpen}
           onTogglePanel={() => setRightPanelOpen(!rightPanelOpen)}
+          browserPreviewOpen={splitBrowser && showBrowserPreview}
+          onToggleBrowserPreview={() => {
+            if (!splitBrowser) setSplitBrowser(true);
+            setShowBrowserPreview(!(splitBrowser && showBrowserPreview));
+          }}
           onOpenMembers={() => setMembersOpen(true)}
         />
       </div>
@@ -519,6 +532,8 @@ function ChatHeaderTrailingButtons({
   isMobile,
   rightPanelOpen,
   onTogglePanel,
+  browserPreviewOpen,
+  onToggleBrowserPreview,
   onOpenMembers,
 }: {
   sessionId: string | null;
@@ -526,6 +541,8 @@ function ChatHeaderTrailingButtons({
   isMobile: boolean;
   rightPanelOpen: boolean;
   onTogglePanel: () => void;
+  browserPreviewOpen: boolean;
+  onToggleBrowserPreview: () => void;
   onOpenMembers: () => void;
 }) {
   const shown = sessionAgents.slice(0, 3);
@@ -554,19 +571,34 @@ function ChatHeaderTrailingButtons({
         </button>
       )}
       {!isMobile && (
-        <button
-          onClick={onTogglePanel}
-          className={cn(
-            'size-7 flex items-center justify-center rounded-md transition-colors',
-            rightPanelOpen
-              ? 'bg-primary/10 text-primary hover:bg-primary/15'
-              : 'text-muted-foreground hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800',
-          )}
-          title={rightPanelOpen ? 'Hide content panel' : 'Show content panel'}
-          aria-label="Toggle content panel"
-        >
-          <PanelRight className="size-3.5" />
-        </button>
+        <>
+          <button
+            onClick={onToggleBrowserPreview}
+            className={cn(
+              'size-7 flex items-center justify-center rounded-md transition-colors',
+              browserPreviewOpen
+                ? 'bg-primary/10 text-primary hover:bg-primary/15'
+                : 'text-muted-foreground hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800',
+            )}
+            title={browserPreviewOpen ? 'Hide browser preview' : 'Show browser preview'}
+            aria-label="Toggle browser preview"
+          >
+            <Globe className="size-3.5" />
+          </button>
+          <button
+            onClick={onTogglePanel}
+            className={cn(
+              'size-7 flex items-center justify-center rounded-md transition-colors',
+              rightPanelOpen
+                ? 'bg-primary/10 text-primary hover:bg-primary/15'
+                : 'text-muted-foreground hover:text-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800',
+            )}
+            title={rightPanelOpen ? 'Hide content panel' : 'Show content panel'}
+            aria-label="Toggle content panel"
+          >
+            <PanelRight className="size-3.5" />
+          </button>
+        </>
       )}
     </div>
   );

@@ -16,6 +16,7 @@ import { useWorkspacePrefs } from "../../store/workspace-prefs"
 import { useUiStore } from "../../store/ui"
 import type { Agent, ChatSessionMeta, Workspace } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
+import { workspaceWebBaseUrl } from "../../lib/workspace-urls"
 
 interface Props {
   showToast: (msg: string, type?: ToastType) => void
@@ -217,7 +218,8 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const handleCopyUrl = async (ws: Workspace): Promise<void> => {
     markUsed(ws.id)
     const slug = ws.slug || ws.id
-    const url = `https://workspace.openagents.org/${slug}`
+    const baseUrl = workspaceWebBaseUrl(ws.endpoint)
+    const url = `${baseUrl}/${slug}`
     const full = ws.token ? `${url}?token=${encodeURIComponent(ws.token)}` : url
     try {
       await navigator.clipboard.writeText(full)
@@ -232,7 +234,8 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
   const handleOpenBrowser = (ws: Workspace): void => {
     markUsed(ws.id)
     const slug = ws.slug || ws.id
-    let url = `https://workspace.openagents.org/${slug}`
+    const baseUrl = workspaceWebBaseUrl(ws.endpoint)
+    let url = `${baseUrl}/${slug}`
     if (ws.token) url += `?token=${encodeURIComponent(ws.token)}`
     window.api.openExternal(url)
   }
