@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.mods.workspace_mod import _emit_agent_bootstrap_event
+from app.mods.workspace_mod import emit_agent_bootstrap_event
 from app.models import Channel, ChannelMember, RoutineRecord, Workspace, WorkspaceMember
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _resolve_workspace, _verify_workspace_access
@@ -100,7 +100,7 @@ def _get_or_create_routine_channel(
     db.add(channel)
     db.flush()
     db.add(ChannelMember(channel_id=channel.id, agent_name=agent))
-    _emit_agent_bootstrap_event(
+    emit_agent_bootstrap_event(
         db,
         workspace.id,
         channel.name,

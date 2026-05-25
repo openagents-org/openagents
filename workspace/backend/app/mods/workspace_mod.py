@@ -21,6 +21,7 @@ from typing import List, Optional
 
 from sqlalchemy import select
 
+from app.models import EventRecord
 from openagents.core.onm_events import Event, WorkspaceEventTypes
 from openagents.core.onm_mods import EventRejected, PipelineContext, TransformMod
 
@@ -50,10 +51,8 @@ class WorkspaceMod(TransformMod):
 # Per-type handlers
 # ---------------------------------------------------------------------------
 
-def _emit_agent_bootstrap_event(db, workspace_id: str, channel_name: str, agent_name: str, *, timestamp: int, reason: str) -> None:
+def emit_agent_bootstrap_event(db, workspace_id: str, channel_name: str, agent_name: str, *, timestamp: int, reason: str) -> None:
     """Persist a one-time bootstrap event for an agent before user work is routed."""
-    from app.models import EventRecord
-
     db.add(EventRecord(
         id=str(uuid.uuid4()),
         network_id=str(workspace_id),
@@ -319,7 +318,7 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
     participants = payload.get("participants", [])
     for agent_name in participants:
         db.add(ChannelMember(channel_id=channel.id, agent_name=agent_name))
-        _emit_agent_bootstrap_event(
+        emit_agent_bootstrap_event(
             db,
             workspace.id,
             channel.name,
@@ -409,7 +408,7 @@ async def _handle_channel_join(event: Event, ctx: PipelineContext) -> Optional[E
 
     if not existing:
         db.add(ChannelMember(channel_id=channel.id, agent_name=agent_name))
-        _emit_agent_bootstrap_event(
+        emit_agent_bootstrap_event(
             db,
             workspace.id,
             channel.name,
@@ -629,7 +628,6 @@ async def _route_with_llm(channel, new_event: Event, db, workspace) -> List[str]
     Falls back to empty list on any error.
     """
     from app.config import config
-    from app.models import EventRecord
 
     if not _get_router_api_key():
         logger.warning("LLM router: no API key set (ROUTER_LLM_API_KEY or ANTHROPIC_API_KEY), defaulting to stop")
@@ -932,7 +930,7 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
                 continue
             if agent_name not in existing:
                 db.add(ChannelMember(channel_id=channel.id, agent_name=agent_name))
-                _emit_agent_bootstrap_event(
+                emit_agent_bootstrap_event(
                     db,
                     workspace.id,
                     channel.name,
