@@ -147,6 +147,7 @@ async def send_event(
         "type": result.type,
         "source": result.source,
         "target": result.target,
+        "payload": result.payload,
         "timestamp": result.timestamp,
         "metadata": result.metadata,
     })

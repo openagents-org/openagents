@@ -85,7 +85,7 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { agents, currentSessionId, sessions, updateLastMessage, setSessionActive, agentModes, updateAgentMode, toggleAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, consumeSkipFocus, createRoutine } = useWorkspace();
+  const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, agentModes, updateAgentMode, toggleAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, consumeSkipFocus, createRoutine } = useWorkspace();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
   const {
     isMobile,
@@ -317,6 +317,7 @@ export function ChatView() {
   const handleSend = useCallback(
     async (content: string, mentions: string[] = [], files: PendingFile[] = []) => {
       if (!currentSessionId) return;
+      if (!currentUser.id || !currentUser.name.trim()) return;
 
       // Create optimistic messages for instant feedback
       const timestamp = Date.now();
@@ -324,8 +325,9 @@ export function ChatView() {
       const userOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-user-${timestamp}`,
         sessionId: currentSessionId,
-        senderName: 'You',
-        senderType: 'user',
+        senderId: currentUser.id,
+        senderName: currentUser.name,
+        senderType: 'human',
         content: userContent,
         messageType: 'chat',
         mentions: [],
@@ -368,9 +370,10 @@ export function ChatView() {
         await workspaceApi.sendMessage(
           currentSessionId,
           content || (attachments ? attachments.map((a) => a.filename).join(', ') : ''),
-          'user',
+          currentUser.name,
           mentions.length > 0 ? mentions : undefined,
           attachments,
+          currentUser.id,
         );
         forceRefresh();
       } catch {
@@ -379,7 +382,7 @@ export function ChatView() {
         setOptimisticMessages([]);
       }
     },
-    [currentSessionId, forceRefresh, agents]
+    [currentSessionId, currentUser.id, currentUser.name, forceRefresh, agents]
   );
 
   const hasStatusMessages = displayMessages.some((m) => m.messageType === 'status' || m.messageType === 'thinking');
@@ -686,6 +689,7 @@ export function ChatView() {
                 onFocusChange={(focused) => focused ? notifyFocus() : notifyBlur()}
                 focusKey={focusKey}
                 onCreateRoutine={() => setShowCreateRoutine(true)}
+                disabled={!currentUser.name.trim()}
               />
             </div>
           </div>

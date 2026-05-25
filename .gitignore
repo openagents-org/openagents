@@ -18,6 +18,8 @@ eggs/
 lib/
 !packages/launcher/src/renderer/lib/
 !packages/launcher/src/renderer/lib/**
+!workspace/frontend/lib/
+!workspace/frontend/lib/**
 lib64/
 parts/
 sdist/
