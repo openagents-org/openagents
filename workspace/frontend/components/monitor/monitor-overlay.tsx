@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { ChatMessages } from '@/components/chat/chat-messages';
 import { ChatInput, type PendingFile } from '@/components/chat/chat-input';
+import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useMessagePolling } from '@/hooks/use-polling';
 import { workspaceApi } from '@/lib/api';
@@ -24,7 +25,8 @@ interface MonitorOverlayProps {
 }
 
 export function MonitorOverlay({ sessionId, session, initialMessages, open, onOpenChange }: MonitorOverlayProps) {
-  const { agents, activeSessionIds, stoppingSessionIds, stopAllAgents, renameSession } = useWorkspace();
+  const { agents, currentUser, activeSessionIds, stoppingSessionIds, stopAllAgents, renameSession, createRoutine } = useWorkspace();
+  const [showCreateRoutine, setShowCreateRoutine] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -107,14 +109,17 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
 
   const handleSend = useCallback(
     async (content: string, mentions: string[] = [], files: PendingFile[] = []) => {
+      if (!currentUser.id || !currentUser.name.trim()) return;
+
       // Optimistic messages
       const timestamp = Date.now();
       const userContent = content || (files.length > 0 ? files.map((f) => f.file.name).join(', ') : '');
       const userOptimisticMsg: WorkspaceMessage = {
         messageId: `optimistic-user-${timestamp}`,
         sessionId,
-        senderName: 'You',
-        senderType: 'user',
+        senderId: currentUser.id,
+        senderName: currentUser.name,
+        senderType: 'human',
         content: userContent,
         messageType: 'chat',
         mentions: [],
@@ -156,16 +161,17 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
         await workspaceApi.sendMessage(
           sessionId,
           content || (attachments ? attachments.map((a) => a.filename).join(', ') : ''),
-          'user',
+          currentUser.name,
           mentions.length > 0 ? mentions : undefined,
           attachments,
+          currentUser.id,
         );
         forceRefresh();
       } catch {
         setOptimisticMessages([]);
       }
     },
-    [sessionId, forceRefresh, agents]
+    [sessionId, currentUser.id, currentUser.name, forceRefresh, agents]
   );
 
   return (
@@ -237,11 +243,18 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
           {/* Input */}
           <div className="px-4 py-3 border-t">
             <div className="max-w-3xl mx-auto w-full">
-              <ChatInput onSend={handleSend} agents={agents} focusKey={focusKey} />
+              <ChatInput onSend={handleSend} agents={agents} disabled={!currentUser.name.trim()} focusKey={focusKey} onCreateRoutine={() => setShowCreateRoutine(true)} />
             </div>
           </div>
         </div>
       </DialogContent>
+
+      <CreateRoutineDialog
+        open={showCreateRoutine}
+        onOpenChange={setShowCreateRoutine}
+        agents={agents}
+        onCreateRoutine={createRoutine}
+      />
     </Dialog>
   );
 }
