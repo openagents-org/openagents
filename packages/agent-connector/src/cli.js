@@ -502,6 +502,89 @@ async function cmdToolMode(connector, _flags, positional) {
   }
 }
 
+async function cmdSkills(connector, _flags, positional) {
+  const { SKILL_CATALOG, getSkillDefaults } = require('./skill-catalog');
+  const toggleable = SKILL_CATALOG.filter(s => s.toggleable);
+  const first = positional[0];
+  const second = positional[1];
+  const third = positional[2];
+
+  // agn skills → list skills for all agents
+  if (!first) {
+    const agents = connector.config.getAgents();
+    if (agents.length === 0) { print('No agents configured'); return; }
+    for (const a of agents) {
+      const defaults = getSkillDefaults();
+      const skills = a.skills || {};
+      const parts = toggleable.map(s => {
+        const enabled = skills[s.id] !== undefined ? skills[s.id] : defaults[s.id];
+        return `${enabled ? '+' : '-'}${s.id}`;
+      });
+      print(`  ${a.name}: ${parts.join(' ')}`);
+    }
+    print('\nUsage: agn skills <agent> [enable|disable <skill>]');
+    print('Available skills: ' + toggleable.map(s => s.id).join(', '));
+    return;
+  }
+
+  // agn skills catalog → show full catalog
+  if (first === 'catalog') {
+    print('Skill Hub — Available Skills:\n');
+    for (const s of SKILL_CATALOG) {
+      const tag = s.toggleable ? (s.defaultEnabled ? '[on]' : '[off]') : '[always]';
+      print(`  ${s.id.padEnd(16)} ${tag.padEnd(10)} ${s.name}`);
+      print(`  ${''.padEnd(16)} ${''.padEnd(10)} ${s.description}`);
+      print('');
+    }
+    return;
+  }
+
+  const agent = connector.config.getAgent(first);
+  if (!agent) { print(`Agent '${first}' not found`); process.exitCode = 1; return; }
+
+  // agn skills <agent> → show agent's skills
+  if (!second) {
+    const defaults = getSkillDefaults();
+    const skills = agent.skills || {};
+    print(`Skills for ${first}:\n`);
+    for (const s of toggleable) {
+      const enabled = skills[s.id] !== undefined ? skills[s.id] : defaults[s.id];
+      const marker = enabled ? '  ✓' : '  ✗';
+      print(`${marker} ${s.id.padEnd(14)} ${s.name} — ${s.description}`);
+    }
+    print('\nUsage: agn skills <agent> enable|disable <skill>');
+    return;
+  }
+
+  // agn skills <agent> enable|disable <skill>
+  if (second !== 'enable' && second !== 'disable') {
+    print(`Unknown action: ${second}. Use 'enable' or 'disable'.`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!third) {
+    print(`Usage: agn skills ${first} ${second} <skill>`);
+    print('Available skills: ' + toggleable.map(s => s.id).join(', '));
+    process.exitCode = 1;
+    return;
+  }
+
+  const skillDef = toggleable.find(s => s.id === third);
+  if (!skillDef) {
+    print(`Unknown skill: ${third}`);
+    print('Available skills: ' + toggleable.map(s => s.id).join(', '));
+    process.exitCode = 1;
+    return;
+  }
+
+  const current = agent.skills || {};
+  const updated = { ...current, [third]: second === 'enable' };
+  connector.config.updateAgent(first, { skills: updated });
+  try { connector.sendDaemonCommand('reload'); } catch {}
+  const verb = second === 'enable' ? 'Enabled' : 'Disabled';
+  print(`${verb} '${skillDef.name}' for ${first}`);
+}
+
 async function cmdTestLLM(connector, _flags, positional) {
   const type = positional[0];
   if (!type) { print('Usage: agn test-llm <type>'); return; }
@@ -566,6 +649,7 @@ Commands:
   connect <agent> <token>     Connect agent to workspace
   disconnect <agent>          Disconnect agent from workspace
   env <type> [--set K=V]      View/set env vars for agent type
+  skills [agent] [action]     Manage agent skills (enable/disable)
   tool-mode [agent] [mode]    View/set tool mode (mcp or skills)
   autostart [--disable]       Enable/disable auto-start on login
   test-llm <type>             Test LLM connection
@@ -652,6 +736,7 @@ async function main() {
     autostart: () => cmdAutostart(connector, flags),
     workspace: () => cmdWorkspace(connector, flags, positional),
     env: () => cmdEnv(connector, flags, positional),
+    skills: () => cmdSkills(connector, flags, positional),
     'tool-mode': () => cmdToolMode(connector, flags, positional),
     'test-llm': () => cmdTestLLM(connector, flags, positional),
     update: () => cmdUpdate(),

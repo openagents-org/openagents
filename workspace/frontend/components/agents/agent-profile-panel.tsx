@@ -5,6 +5,7 @@ import { X, Copy, Check, Plus, Globe, Folder, Monitor, UserRoundCog } from 'luci
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { AgentSkillsSection } from '@/components/agents/agent-skills-section';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -177,6 +178,9 @@ export function AgentProfilePanel() {
               ))}
             </div>
           </div>
+
+          {/* Skills */}
+          <AgentSkillsSection agent={agent} />
         </div>
 
         {/* Footer actions */}

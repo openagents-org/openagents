@@ -16,7 +16,7 @@ PATCH  /v1/workspaces/{id}/members/{name}  Update agent description/role
 import logging
 import secrets
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query
@@ -485,6 +485,7 @@ async def remove_member(
 class MemberUpdateRequest(BaseModel):
     description: Optional[str] = None
     role: Optional[str] = None
+    enabled_skills: Optional[Dict[str, bool]] = None
 
 
 @router.patch("/{workspace_id}/members/{agent_name}")
@@ -521,6 +522,11 @@ async def update_member(
         member.description = body.description
     if body.role is not None:
         member.role = body.role
+    if body.enabled_skills is not None:
+        from app.skill_catalog import get_skill_defaults
+        defaults = get_skill_defaults()
+        valid = {k: v for k, v in body.enabled_skills.items() if k in defaults}
+        member.enabled_skills = valid or None
 
     db.commit()
 
@@ -528,6 +534,7 @@ async def update_member(
         "agentName": member.agent_name,
         "description": member.description,
         "role": member.role,
+        "enabledSkills": member.enabled_skills,
     })
 
 
@@ -764,3 +771,14 @@ async def remove_collaborator(
     db.delete(collab)
     db.commit()
     return success_response({"email": email_lower, "removed": True})
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/workspaces/skill-catalog  (static — no auth required)
+# ---------------------------------------------------------------------------
+
+@router.get("/skill-catalog")
+async def skill_catalog():
+    """Return the full skill catalog (public, static data)."""
+    from app.skill_catalog import get_catalog
+    return success_response(get_catalog())

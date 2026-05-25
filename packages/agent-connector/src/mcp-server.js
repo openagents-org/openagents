@@ -235,111 +235,125 @@ function buildToolDefs(disabledModules) {
     );
   }
 
-  // -- Todos & Timers (always enabled) --
-  tools.push(
-    {
-      name: 'workspace_put_todos',
-      description: 'Update your to-do list. Replaces the entire list each time (send full list with current statuses). Channel is auto-resolved.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          todos: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                content: { type: 'string', description: 'Task description' },
-                status: { type: 'string', enum: ['pending', 'in_progress', 'completed'], description: 'Task status' },
-                assignee: { type: 'string', description: 'Agent name to assign to (defaults to self)' },
+  // -- Todos --
+  if (!disabledModules.has('todos')) {
+    tools.push(
+      {
+        name: 'workspace_put_todos',
+        description: 'Update your to-do list. Replaces the entire list each time (send full list with current statuses). Channel is auto-resolved.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            todos: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  content: { type: 'string', description: 'Task description' },
+                  status: { type: 'string', enum: ['pending', 'in_progress', 'completed'], description: 'Task status' },
+                  assignee: { type: 'string', description: 'Agent name to assign to (defaults to self)' },
+                },
+                required: ['content', 'status'],
               },
-              required: ['content', 'status'],
+              description: 'Full to-do list with current statuses',
             },
-            description: 'Full to-do list with current statuses',
+          },
+          required: ['todos'],
+        },
+      },
+      {
+        name: 'workspace_get_todos',
+        description: 'Get to-do items for the current channel. Use all=true to see all agents\' todos.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            agent: { type: 'string', description: 'Filter by agent name' },
+            all: { type: 'boolean', description: 'Get all agents\' todos (default: own only)' },
           },
         },
-        required: ['todos'],
       },
-    },
-    {
-      name: 'workspace_get_todos',
-      description: 'Get to-do items for the current channel. Use all=true to see all agents\' todos.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          agent: { type: 'string', description: 'Filter by agent name' },
-          all: { type: 'boolean', description: 'Get all agents\' todos (default: own only)' },
-        },
-      },
-    },
-    {
-      name: 'workspace_create_timer',
-      description: 'Set a timer that posts a message to the channel after the specified delay.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          delay: { type: 'integer', description: 'Seconds until the timer fires (1-86400)' },
-          message: { type: 'string', description: 'Message to post when the timer fires' },
-        },
-        required: ['delay', 'message'],
-      },
-    },
-    {
-      name: 'workspace_list_timers',
-      description: 'List active timers in the current channel.',
-      inputSchema: { type: 'object', properties: {} },
-    },
-    {
-      name: 'workspace_cancel_timer',
-      description: 'Cancel an active timer by its ID.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          timer_id: { type: 'string', description: 'Timer ID to cancel' },
-        },
-        required: ['timer_id'],
-      },
-    },
-    {
-      name: 'workspace_create_routine',
-      description: 'Create a recurring scheduled routine. Each routine gets its own dedicated thread with full context. Two schedule modes: daily (hour+minute, optional days) or interval (every N minutes).',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          name: { type: 'string', description: 'Human-readable label for the routine (e.g. "Daily PR Review")' },
-          message: { type: 'string', description: 'Short trigger message posted each time the routine fires' },
-          context: { type: 'string', description: 'Comprehensive context for the routine: what it should do, background info, goals, relevant details from the current conversation. This is posted at the start of the routine\'s dedicated thread so you have full background every time it fires. Be thorough — this is your only memory of why this routine exists.' },
-          hour: { type: 'integer', description: 'Daily mode: hour in UTC (0-23). Omit if using interval_minutes.' },
-          minute: { type: 'integer', description: 'Daily mode: minute (0-59). Omit if using interval_minutes.' },
-          days: {
-            type: 'array',
-            items: { type: 'integer' },
-            description: 'Daily mode: days of week to fire (0=Mon, 6=Sun). Omit for every day. Not allowed in interval mode.',
+    );
+  }
+
+  // -- Timers --
+  if (!disabledModules.has('timers')) {
+    tools.push(
+      {
+        name: 'workspace_create_timer',
+        description: 'Set a timer that posts a message to the channel after the specified delay.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            delay: { type: 'integer', description: 'Seconds until the timer fires (1-86400)' },
+            message: { type: 'string', description: 'Message to post when the timer fires' },
           },
-          interval_minutes: {
-            type: 'integer',
-            description: 'Interval mode: fire every N minutes (1-1440). Mutually exclusive with hour/minute.',
+          required: ['delay', 'message'],
+        },
+      },
+      {
+        name: 'workspace_list_timers',
+        description: 'List active timers in the current channel.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'workspace_cancel_timer',
+        description: 'Cancel an active timer by its ID.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            timer_id: { type: 'string', description: 'Timer ID to cancel' },
           },
+          required: ['timer_id'],
         },
-        required: ['name', 'message', 'context'],
       },
-    },
-    {
-      name: 'workspace_list_routines',
-      description: 'List active routines in the current channel.',
-      inputSchema: { type: 'object', properties: {} },
-    },
-    {
-      name: 'workspace_cancel_routine',
-      description: 'Cancel a recurring routine by its ID.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          routine_id: { type: 'string', description: 'Routine ID to cancel' },
+    );
+  }
+
+  // -- Routines --
+  if (!disabledModules.has('routines')) {
+    tools.push(
+      {
+        name: 'workspace_create_routine',
+        description: 'Create a recurring scheduled routine. Each routine gets its own dedicated thread with full context. Two schedule modes: daily (hour+minute, optional days) or interval (every N minutes).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: 'Human-readable label for the routine (e.g. "Daily PR Review")' },
+            message: { type: 'string', description: 'Short trigger message posted each time the routine fires' },
+            context: { type: 'string', description: 'Comprehensive context for the routine: what it should do, background info, goals, relevant details from the current conversation. This is posted at the start of the routine\'s dedicated thread so you have full background every time it fires. Be thorough — this is your only memory of why this routine exists.' },
+            hour: { type: 'integer', description: 'Daily mode: hour in UTC (0-23). Omit if using interval_minutes.' },
+            minute: { type: 'integer', description: 'Daily mode: minute (0-59). Omit if using interval_minutes.' },
+            days: {
+              type: 'array',
+              items: { type: 'integer' },
+              description: 'Daily mode: days of week to fire (0=Mon, 6=Sun). Omit for every day. Not allowed in interval mode.',
+            },
+            interval_minutes: {
+              type: 'integer',
+              description: 'Interval mode: fire every N minutes (1-1440). Mutually exclusive with hour/minute.',
+            },
+          },
+          required: ['name', 'message', 'context'],
         },
-        required: ['routine_id'],
       },
-    },
-  );
+      {
+        name: 'workspace_list_routines',
+        description: 'List active routines in the current channel.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'workspace_cancel_routine',
+        description: 'Cancel a recurring routine by its ID.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            routine_id: { type: 'string', description: 'Routine ID to cancel' },
+          },
+          required: ['routine_id'],
+        },
+      },
+    );
+  }
 
   return tools;
 }

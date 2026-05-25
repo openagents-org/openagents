@@ -433,6 +433,7 @@ class WorkspaceClient {
       agentName: (a.address || '').replace('openagents:', ''),
       role: a.role || 'member',
       status: a.status || 'offline',
+      enabledSkills: a.enabled_skills || null,
     }));
   }
 

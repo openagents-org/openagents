@@ -101,11 +101,15 @@ class WorkspaceApi {
     });
   }
 
-  async updateMember(agentName: string, updates: { description?: string; role?: string }): Promise<unknown> {
+  async updateMember(agentName: string, updates: { description?: string; role?: string; enabled_skills?: Record<string, boolean> }): Promise<unknown> {
     return this.request(`/v1/workspaces/${this.workspaceId}/members/${agentName}`, {
       method: 'PATCH',
       body: JSON.stringify(updates),
     });
+  }
+
+  async getSkillCatalog(): Promise<import('./types').SkillCatalogEntry[]> {
+    return this.request<import('./types').SkillCatalogEntry[]>('/v1/workspaces/skill-catalog');
   }
 
   async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean }): Promise<unknown> {
@@ -464,6 +468,7 @@ class WorkspaceApi {
       serverHost: a.server_host || null,
       workingDir: a.working_dir || null,
       description: a.description || null,
+      enabledSkills: a.enabled_skills || null,
       status: a.status,
       lastHeartbeatAt: null,
       joinedAt: null,

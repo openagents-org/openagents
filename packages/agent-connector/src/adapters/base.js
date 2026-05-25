@@ -90,6 +90,19 @@ class BaseAdapter {
       this._log(`Warning: join failed: ${e.message} \nStack: ${e.stack}`);
     }
 
+    // Sync workspace-managed skills into disabledModules
+    try {
+      const agents = await this.client.getAgents(this.workspaceId, this.token);
+      const self = agents.find((a) => a.agentName === this.agentName);
+      if (self && self.enabledSkills) {
+        const { skillsToDisabledModules } = require('../skill-catalog');
+        this.disabledModules = skillsToDisabledModules(self.enabledSkills);
+        this._log(`Synced skills from workspace: disabled=[${[...this.disabledModules].join(',')}]`);
+      }
+    } catch (e) {
+      this._log(`Warning: skill sync failed (non-fatal): ${e.message}`);
+    }
+
     // Fast-path operations (control-event cursor + heartbeat + control poll)
     // run BEFORE the message-cursor advance. Even though _skipExistingEvents
     // is fast on a healthy backend, we don't want slash commands gated on

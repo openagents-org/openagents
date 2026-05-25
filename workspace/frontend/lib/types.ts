@@ -17,9 +17,21 @@ export interface WorkspaceAgent {
   serverHost: string | null;
   workingDir: string | null;
   description: string | null;
+  enabledSkills: Record<string, boolean> | null;
   status: string;
   lastHeartbeatAt: string | null;
   joinedAt: string | null;
+}
+
+export interface SkillCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  module_key: string | null;
+  default_enabled: boolean;
+  toggleable: boolean;
 }
 
 export interface WorkspaceSession {
@@ -206,6 +218,7 @@ export interface NetworkAgent {
   server_host: string | null;
   working_dir: string | null;
   description: string | null;
+  enabled_skills: Record<string, boolean> | null;
   last_heartbeat_at: string | null;
   joined_at: string | null;
 }
@@ -311,6 +324,7 @@ export function networkAgentToWorkspaceAgent(agent: NetworkAgent): WorkspaceAgen
     serverHost: agent.server_host || null,
     workingDir: agent.working_dir || null,
     description: agent.description || null,
+    enabledSkills: agent.enabled_skills || null,
     status: agent.status,
     lastHeartbeatAt: agent.last_heartbeat_at || null,
     joinedAt: agent.joined_at || null,

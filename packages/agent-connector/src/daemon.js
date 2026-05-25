@@ -437,6 +437,7 @@ class Daemon {
 
   async _adapterLoop(name, agentCfg, info, network) {
     const { createAdapter } = require('./adapters');
+    const { skillsToDisabledModules } = require('./skill-catalog');
     const agentType = agentCfg.type || 'openclaw';
     const endpoint = network.endpoint || 'https://workspace-endpoint.openagents.org';
 
@@ -450,7 +451,7 @@ class Daemon {
         endpoint,
         agentType,
         openclawAgentId: agentCfg.openclaw_agent_id || 'main',
-        disabledModules: new Set(),
+        disabledModules: skillsToDisabledModules(agentCfg.skills),
         agentEnv: this._buildAgentEnv(agentCfg),
         workingDir: agentCfg.path || undefined,
         toolMode: agentCfg.tool_mode || 'skills',

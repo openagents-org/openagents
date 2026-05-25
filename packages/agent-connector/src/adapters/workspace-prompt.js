@@ -292,7 +292,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
   }
 
   // To-Dos (planning)
-  if (!isPlan) {
+  if (!isPlan && !disabled.has('todos')) {
     sections.push(
       '\n### To-Do List (Planning)\n\n' +
       'Create or update your to-do list to track progress. The entire list ' +
@@ -315,7 +315,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
   }
 
   // Timers
-  if (!isPlan) {
+  if (!isPlan && !disabled.has('timers')) {
     sections.push(
       '\n### Timers\n\n' +
       'Set a timer that will send you a message after a delay, waking you up ' +
@@ -336,7 +336,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
   }
 
   // Routines (recurring scheduled tasks)
-  if (!isPlan) {
+  if (!isPlan && !disabled.has('routines')) {
     sections.push(
       '\n### Routines (Recurring Tasks)\n\n' +
       'Create a recurring routine that fires on a schedule. Each routine gets ' +
