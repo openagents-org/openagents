@@ -4,6 +4,12 @@ const nextConfig = {
   async redirects() {
     return [
       {
+        source: '/',
+        has: [{ type: 'host', value: 'workspace.openagents.org' }],
+        destination: 'https://openagents.org/workspace',
+        permanent: true,
+      },
+      {
         source: '/install.sh',
         destination: 'https://raw.githubusercontent.com/openagents-org/openagents/develop/scripts/install.sh',
         permanent: false,
