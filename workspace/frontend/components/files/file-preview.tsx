@@ -272,6 +272,7 @@ export function FilePreview() {
             src={blobUrl}
             title={file.filename}
             className="w-full h-full border-0"
+            sandbox="allow-same-origin"
           />
         ) : blobUrl && isImageFile(file.contentType || '') ? (
           <div className="flex items-center justify-center p-4 h-full">
