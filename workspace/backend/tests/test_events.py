@@ -320,6 +320,15 @@ class TestPollEvents:
         assert len(data2["events"]) == 1
         assert data2["has_more"] is False
 
+    def test_poll_accepts_connector_default_limit(self, client, workspace):
+        """Agent connector polls with limit=500 by default."""
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"],
+            "type": "workspace.",
+            "limit": 500,
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+
     def test_poll_invalid_network(self, client):
         """Polling nonexistent network returns 404."""
         resp = client.get("/v1/events", params={"network": "nonexistent"})

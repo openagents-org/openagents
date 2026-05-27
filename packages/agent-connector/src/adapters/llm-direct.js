@@ -81,6 +81,12 @@ class LlmDirectAdapter extends BaseAdapter {
     });
   }
 
+  async _bootstrapChannel(channelName) {
+    if (!this._conversationHistory.some((m) => m.role === 'system')) {
+      this._conversationHistory.push({ role: 'system', content: this._buildSystemPrompt(channelName) });
+    }
+  }
+
   async _handleMessage(msg) {
     let content = (msg.content || '').trim();
     const attachments = msg.attachments || [];
@@ -127,10 +133,7 @@ class LlmDirectAdapter extends BaseAdapter {
    * Call OpenAI-compatible chat completions API with SSE streaming.
    */
   _callCompletionApi(userMessage, channel) {
-    const systemPrompt = this._buildSystemPrompt(channel);
-
-    const messages = [{ role: 'system', content: systemPrompt }];
-    messages.push(...this._conversationHistory);
+    const messages = [...this._conversationHistory];
     messages.push({ role: 'user', content: userMessage });
 
     const url = `${this._baseUrl}/chat/completions`;

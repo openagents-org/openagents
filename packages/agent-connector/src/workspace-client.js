@@ -274,7 +274,7 @@ class WorkspaceClient {
   async pollPending(workspaceId, agentName, token, { after, limit = 500 } = {}) {
     const params = new URLSearchParams({
       network: workspaceId,
-      type: 'workspace.message.posted',
+      type: 'workspace.',
       limit: String(limit),
     });
     if (after) params.set('after', after);
@@ -303,10 +303,24 @@ class WorkspaceClient {
     //                         non-empty and matches no real agent.
     const messages = [];
     for (const e of events) {
+      const eventType = e.type || '';
       const source = e.source || '';
+      const target = e.target || '';
       const meta = e.metadata || {};
       const targetAgents = meta.target_agents;
       const hasTargetList = Array.isArray(targetAgents);
+
+      if (eventType === 'workspace.agent.bootstrap') {
+        if (
+          target === `openagents:${agentName}` ||
+          (hasTargetList && targetAgents.includes(agentName))
+        ) {
+          messages.push(this._eventToMessage(e));
+        }
+        continue;
+      }
+
+      if (eventType !== 'workspace.message.posted') continue;
 
       // Skip own messages
       if (source === `openagents:${agentName}`) continue;
@@ -736,15 +750,20 @@ class WorkspaceClient {
   _eventToMessage(event) {
     const source = event.source || '';
     const isHuman = source.startsWith('human:');
+    const isSystem = source.startsWith('system:');
     const senderName = source.replace('openagents:', '').replace('human:', '');
     const payload = event.payload || {};
     const target = event.target || '';
     const ts = event.timestamp;
+    const eventType = event.type || '';
 
     const msg = {
       messageId: event.id || '',
-      sessionId: target.startsWith('channel/') ? target.replace('channel/', '') : target,
-      senderType: isHuman ? 'human' : 'agent',
+      eventType,
+      sessionId: eventType === 'workspace.agent.bootstrap'
+        ? (payload.channel || payload.channel_name || '')
+        : (target.startsWith('channel/') ? target.replace('channel/', '') : target),
+      senderType: isSystem ? 'system' : (isHuman ? 'human' : 'agent'),
       senderName,
       content: (payload.content || event.content || ''),
       mentions: payload.mentions || [],

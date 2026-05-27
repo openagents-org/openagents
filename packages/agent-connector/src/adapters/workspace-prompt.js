@@ -75,6 +75,25 @@ function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'exe
   );
 }
 
+function buildAgentBootstrapPrompt({ agentName, agentType = 'agent', workspaceId, channelName, mode = 'execute' }) {
+  return (
+    '## OpenAgents Workspace Runtime Context\n\n' +
+    'This bootstrap initializes a new agent session in an OpenAgents workspace thread. ' +
+    'Treat it as authoritative runtime context for this session.\n\n' +
+    `- Agent name: ${agentName}\n` +
+    `- Agent type: ${agentType || 'agent'}\n` +
+    `- Workspace ID: ${workspaceId}\n` +
+    `- Thread/channel: ${channelName || 'general'}\n` +
+    `- Mode: ${mode}\n\n` +
+    'Your text responses are automatically posted to the OpenAgents workspace chat. ' +
+    'Use the OpenAgents workspace tools or skill for shared history, files, browser, todos, timers, routines, and agent discovery. ' +
+    'If context compaction makes you uncertain, recover current state with workspace tools such as `workspace_get_history` and `workspace_get_agents`.\n' +
+    buildCollaborationPrompt() +
+    buildModePrompt(mode) +
+    buildGuardrails()
+  );
+}
+
 /**
  * Build the multi-agent collaboration instructions.
  */
@@ -575,12 +594,16 @@ function buildOpenclawSystemPrompt({ agentName, workspaceId, channelName, endpoi
  */
 function buildOpenclawSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules, browserEnabled = false }) {
   const body = buildApiSkillsPrompt({
-    endpoint, workspaceId, token, agentName, channelName, disabledModules, mode: 'execute',
+    endpoint,
+    workspaceId: '$OPENAGENTS_WORKSPACE_ID',
+    token: '$OA_WORKSPACE_TOKEN',
+    agentName: '$OPENAGENTS_AGENT_NAME',
+    channelName: '$OPENAGENTS_CHANNEL_NAME',
+    disabledModules,
+    mode: 'execute',
   });
 
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute');
   const directive = buildBrowserDirective(browserEnabled);
-  const collab = buildCollaborationPrompt();
 
   const frontmatter = (
     '---\n' +
@@ -596,7 +619,7 @@ function buildOpenclawSkillMd({ endpoint, workspaceId, token, agentName, channel
     '---\n\n'
   );
 
-  return frontmatter + identity + directive + '\n' + collab + '\n' + body + '\n' + buildGuardrails();
+  return frontmatter + directive + '\n' + body + '\n' + buildGuardrails();
 }
 
 /**
@@ -616,8 +639,11 @@ function buildOpenCodeSystemPrompt({ agentName, workspaceId, channelName, endpoi
  */
 function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules }) {
   const api = buildApiSkillsPrompt({
-    endpoint, workspaceId, token, agentName,
-    channelName: channelName || 'general',
+    endpoint,
+    workspaceId: '$OPENAGENTS_WORKSPACE_ID',
+    token: '$OA_WORKSPACE_TOKEN',
+    agentName: '$OPENAGENTS_AGENT_NAME',
+    channelName: '$OPENAGENTS_CHANNEL_NAME',
     disabledModules,
     mode: 'execute',
   });
@@ -628,11 +654,7 @@ function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, channel
     'description: OpenAgents Workspace API — shared files, browser, and agent collaboration\n' +
     '---\n\n';
 
-  const identity =
-    `You are agent '${agentName}' connected to OpenAgents workspace ${workspaceId}.\n` +
-    'Use these APIs via bash + curl to interact with the workspace.\n\n';
-
-  return frontmatter + identity + api + '\n' + buildGuardrails();
+  return frontmatter + api + '\n' + buildGuardrails();
 }
 
 /**
@@ -644,15 +666,16 @@ function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, channel
  */
 function buildClaudeSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules, browserEnabled = false }) {
   const api = buildApiSkillsPrompt({
-    endpoint, workspaceId, token, agentName,
-    channelName: channelName || 'general',
+    endpoint,
+    workspaceId: '$OPENAGENTS_WORKSPACE_ID',
+    token: '$OA_WORKSPACE_TOKEN',
+    agentName: '$OPENAGENTS_AGENT_NAME',
+    channelName: '$OPENAGENTS_CHANNEL_NAME',
     disabledModules,
     mode: 'execute',
   });
 
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute');
   const directive = buildBrowserDirective(browserEnabled);
-  const collab = buildCollaborationPrompt();
 
   const frontmatter =
     '---\n' +
@@ -664,26 +687,27 @@ function buildClaudeSkillMd({ endpoint, workspaceId, token, agentName, channelNa
     '  or collaborating with other agents via @mentions.\n' +
     '---\n\n';
 
-  return frontmatter + identity + directive + '\n' + collab + '\n' + api + '\n' + buildGuardrails();
+  return frontmatter + directive + '\n' + api + '\n' + buildGuardrails();
 }
 
 /**
  * Build a SKILL.md file for Cursor CLI's skill auto-discovery.
  *
- * Written to .cursor/skills/openagents-workspace.md before each CLI spawn.
+ * Written to .cursor/skills/openagents-workspace/SKILL.md before each CLI spawn.
  * Cursor discovers skills from the .cursor/skills/ directory automatically.
  */
 function buildCursorSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules, browserEnabled = false }) {
   const api = buildApiSkillsPrompt({
-    endpoint, workspaceId, token, agentName,
-    channelName: channelName || 'general',
+    endpoint,
+    workspaceId: '$OPENAGENTS_WORKSPACE_ID',
+    token: '$OA_WORKSPACE_TOKEN',
+    agentName: '$OPENAGENTS_AGENT_NAME',
+    channelName: '$OPENAGENTS_CHANNEL_NAME',
     disabledModules,
     mode: 'execute',
   });
 
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute');
   const directive = buildBrowserDirective(browserEnabled);
-  const collab = buildCollaborationPrompt();
 
   const frontmatter =
     '---\n' +
@@ -695,10 +719,11 @@ function buildCursorSkillMd({ endpoint, workspaceId, token, agentName, channelNa
     '  or collaborating with other agents via @mentions.\n' +
     '---\n\n';
 
-  return frontmatter + identity + directive + '\n' + collab + '\n' + api + '\n' + buildGuardrails();
+  return frontmatter + directive + '\n' + api + '\n' + buildGuardrails();
 }
 
 module.exports = {
+  buildAgentBootstrapPrompt,
   buildWorkspaceIdentity,
   buildBrowserDirective,
   buildCollaborationPrompt,

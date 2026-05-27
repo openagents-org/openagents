@@ -254,7 +254,7 @@ class HermesAdapter extends BaseAdapter {
     const args = this._buildHermesCmd(prompt, resumeId);
     this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId})`);
 
-    const env = { ...(this.agentEnv || process.env) };
+    const env = { ...(this.agentEnv || process.env), ...this._runtimeEnv(channelName) };
     const proc = spawn(this._hermesBin, args, {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -325,6 +325,11 @@ class HermesAdapter extends BaseAdapter {
     }
   }
 
+  async _bootstrapChannel(channelName) {
+    const context = await this._buildContextPrefix(channelName);
+    await this._runHermes(context, channelName);
+  }
+
   // ------------------------------------------------------------------
   // Message handler
   // ------------------------------------------------------------------
@@ -341,9 +346,7 @@ class HermesAdapter extends BaseAdapter {
     await this.sendStatus(msgChannel, 'thinking...');
 
     try {
-      const context = await this._buildContextPrefix(msgChannel);
-      const prompt = context ? `${context}\n\n---\n\nUser message:\n${content}` : content;
-      const responseText = await this._runHermes(prompt, msgChannel);
+      const responseText = await this._runHermes(content, msgChannel);
 
       if (responseText) {
         await this.sendResponse(msgChannel, responseText);

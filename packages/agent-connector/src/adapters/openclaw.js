@@ -151,7 +151,7 @@ class OpenClawAdapter extends BaseAdapter {
       return;
     }
 
-    const skillName = `openagents-workspace-${this.agentName}`;
+    const skillName = 'openagents-workspace';
     const skillDir = path.join(wsDir, 'skills', skillName);
     fs.mkdirSync(skillDir, { recursive: true });
 
@@ -211,11 +211,24 @@ class OpenClawAdapter extends BaseAdapter {
     }
   }
 
+  async _bootstrapChannel(channelName) {
+    const context = buildOpenclawSystemPrompt({
+      agentName: this.agentName,
+      workspaceId: this.workspaceId,
+      channelName,
+      endpoint: this.endpoint,
+      token: this.token,
+      mode: this._mode,
+      disabledModules: this.disabledModules,
+    });
+    await this._runCliAgent(context, channelName, { discardResponse: true });
+  }
+
   // ------------------------------------------------------------------
   // CLI mode (openclaw agent --local)
   // ------------------------------------------------------------------
 
-  _runCliAgent(userMessage, channel) {
+  _runCliAgent(userMessage, channel, { discardResponse = false } = {}) {
     return new Promise((resolve, reject) => {
       // Re-check binary if not found at construction time (installed after daemon started)
       if (!this._openclawBinary) {
@@ -244,7 +257,7 @@ class OpenClawAdapter extends BaseAdapter {
 
       this._log(`CLI: ${binary} ${args.slice(0, 5).join(' ')} ...`);
 
-      const spawnEnv = { ...(this.agentEnv || process.env) };
+      const spawnEnv = { ...(this.agentEnv || process.env), ...this._runtimeEnv(channel) };
       if (IS_WINDOWS) {
         const nodeBinDir = path.dirname(process.execPath);
         const npmBin = path.join(process.env.APPDATA || '', 'npm');
@@ -394,7 +407,11 @@ class OpenClawAdapter extends BaseAdapter {
           reject(new Error(`CLI exited ${code}: ${allOutput.slice(-300)}`));
           return;
         }
-        this._parseCliOutput(allOutput, resolve);
+        if (discardResponse) {
+          resolve('');
+        } else {
+          this._parseCliOutput(allOutput, resolve);
+        }
       });
     });
   }
