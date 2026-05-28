@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Plus, MessageSquare, FileText, Globe, PlusSquare, Sparkles, BookOpen,
   Settings, Copy, Check, ListTodo, CalendarClock, Inbox,
-  LogIn, LogOut, Shield, Moon, Sun, KeyRound, X, Crown, Users,
+  LogIn, LogOut, Shield, Moon, Sun, KeyRound, X, Crown, Users, FolderOpen,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -29,9 +29,13 @@ import { workspaceApi } from '@/lib/api';
 import { Switch } from '@/components/ui/switch';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { toast } from 'sonner';
-import type { WorkspaceCollaborator } from '@/lib/types';
+import type { Project, WorkspaceCollaborator } from '@/lib/types';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { NewThreadDialog } from '@/components/threads/new-thread-dialog';
+import { ProjectList } from '@/components/projects/project-list';
+import { StarredChannels } from '@/components/channels/starred-channels';
+import { IndependentChannels } from '@/components/channels/independent-channels';
+import { CreateProjectDialog } from '@/components/projects/create-project-dialog';
 
 // ── Navigation button helper ──
 
@@ -54,8 +58,8 @@ function NavButton({
       className={cn(
         'w-full flex items-center gap-2 px-2 h-8 rounded-lg text-[13px] transition-colors',
         active
-          ? 'bg-zinc-100 dark:bg-zinc-800 text-primary font-medium'
-          : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-foreground font-normal hover:text-primary'
+          ? 'bg-accent text-primary font-medium'
+          : 'hover:bg-accent text-foreground font-normal hover:text-primary'
       )}
     >
       <span className={active ? 'opacity-100' : 'opacity-60'}>{icon}</span>
@@ -79,8 +83,24 @@ export function SidebarContent() {
   const [claiming, setClaiming] = useState(false);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
 
   useEffect(() => { setMounted(true); }, []);
+
+  // Fetch projects
+  const fetchProjects = useCallback(async () => {
+    try {
+      const data = await workspaceApi.listProjects('active');
+      setProjects(data || []);
+    } catch (e) {
+      // Projects API not available yet — ignore silently
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
 
   const isDark = mounted && theme === 'dark';
   const toggleTheme = () => setTheme(isDark ? 'light' : 'dark');
@@ -150,7 +170,7 @@ export function SidebarContent() {
               <TooltipTrigger asChild>
                 <button
                   onClick={() => setSelectedAgentName(agent.agentName)}
-                  className="cursor-pointer hover:ring-2 hover:ring-zinc-300 dark:hover:ring-zinc-600 transition-shadow rounded-full"
+                  className="cursor-pointer hover:ring-2 hover:ring-border transition-shadow rounded-full"
                 >
                   <AgentAvatar name={agent.agentName} size={28} status={agent.status} showStatus />
                 </button>
@@ -164,7 +184,7 @@ export function SidebarContent() {
           {isOpenAgentsDomain && !user && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <button onClick={signIn} className="w-full flex items-center justify-center py-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                <button onClick={signIn} className="w-full flex items-center justify-center py-1.5 rounded-lg hover:bg-accent">
                   <LogIn className="size-4 text-muted-foreground" />
                 </button>
               </TooltipTrigger>
@@ -174,7 +194,7 @@ export function SidebarContent() {
           {isOpenAgentsDomain && user && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <button onClick={sidebarToggle} className="w-full flex items-center justify-center py-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800">
+                <button onClick={sidebarToggle} className="w-full flex items-center justify-center py-1.5 rounded-lg hover:bg-accent">
                   <div className="size-6 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-[10px] font-bold">
                     {user.email[0].toUpperCase()}
                   </div>
@@ -185,7 +205,7 @@ export function SidebarContent() {
           )}
           <Tooltip>
             <TooltipTrigger asChild>
-              <button onClick={toggleTheme} className="w-full flex items-center justify-center py-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800">
+              <button onClick={toggleTheme} className="w-full flex items-center justify-center py-1.5 rounded-lg hover:bg-accent">
                 {isDark ? <Sun className="size-4 text-muted-foreground" /> : <Moon className="size-4 text-muted-foreground" />}
               </button>
             </TooltipTrigger>
@@ -193,7 +213,7 @@ export function SidebarContent() {
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
-              <button onClick={sidebarToggle} className="w-full flex items-center justify-center py-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800">
+              <button onClick={sidebarToggle} className="w-full flex items-center justify-center py-1.5 rounded-lg hover:bg-accent">
                 <Settings className="size-4 text-muted-foreground" />
               </button>
             </TooltipTrigger>
@@ -230,7 +250,7 @@ export function SidebarContent() {
                 <button
                   key={agent.agentName}
                   onClick={() => setSelectedAgentName(agent.agentName)}
-                  className="w-full flex items-center gap-2 px-2 h-8 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer group transition-colors"
+                  className="w-full flex items-center gap-2 px-2 h-8 rounded-lg hover:bg-accent cursor-pointer group transition-colors"
                 >
                   <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
                   <span className="text-[13px] font-normal text-foreground group-hover:text-primary truncate text-left">
@@ -276,6 +296,66 @@ export function SidebarContent() {
               <NavButton active={viewMode === 'tasks'} icon={<ListTodo className="size-[15px]" />} label="Tasks" count={todos.filter((t) => t.status === 'pending' || t.status === 'in_progress').length} onClick={() => setViewMode('tasks')} />
               <NavButton active={viewMode === 'inbox'} icon={<Inbox className="size-[15px]" />} label="Inbox" count={unreadNotificationCount > 0 ? unreadNotificationCount : undefined} onClick={() => setViewMode('inbox')} />
               <NavButton active={viewMode === 'skills'} icon={<Sparkles className="size-[15px]" />} label="Skill Hub" onClick={() => setViewMode('skills')} />
+            </div>
+
+            {/* ── Projects & Channels ── */}
+            <div className="mt-6">
+              {/* Starred Channels */}
+              <StarredChannels
+                channels={sessions}
+                currentSessionId={null}
+                onSelectChannel={(sessionId) => {
+                  setViewMode('threads');
+                }}
+              />
+
+              {/* Projects */}
+              {projects.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs font-normal text-muted-foreground px-2 py-1.5 mb-0.5 flex items-center gap-1.5">
+                    <FolderOpen className="size-3" />
+                    Projects ({projects.length})
+                  </p>
+                  <ProjectList
+                    projects={projects}
+                    currentSessionId={null}
+                    onSelectChannel={(sessionId) => {
+                      setViewMode('threads');
+                    }}
+                    onCreateProject={() => setCreateProjectOpen(true)}
+                    onCreateChannel={(projectId) => {
+                      // TODO: Open create-channel dialog scoped to project
+                      handleNewThread();
+                    }}
+                    onContextBotClick={(projectId) => {
+                      // TODO: Open context panel for project
+                      toast.info('Project context panel coming soon');
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Independent Channels (not in any project) */}
+              <div className="mt-2">
+                <IndependentChannels
+                  channels={sessions.filter((s) => !s.sessionId.startsWith('routine:'))}
+                  currentSessionId={null}
+                  onSelectChannel={(sessionId) => {
+                    setViewMode('threads');
+                  }}
+                />
+              </div>
+
+              {/* Create Project (shown when no projects exist) */}
+              {projects.length === 0 && (
+                <button
+                  onClick={() => setCreateProjectOpen(true)}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 mt-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs"
+                >
+                  <Plus className="size-3.5" />
+                  <span>Create Project</span>
+                </button>
+              )}
             </div>
 
           </div>
@@ -369,6 +449,21 @@ export function SidebarContent() {
         onCreateThread={({ master, participants, resumeFrom }) => {
           createSession({ master, participants, resumeFrom });
           setViewMode('threads');
+        }}
+      />
+
+      {/* Create Project Dialog */}
+      <CreateProjectDialog
+        open={createProjectOpen}
+        onOpenChange={setCreateProjectOpen}
+        onCreateProject={async ({ name, description }) => {
+          try {
+            await workspaceApi.createProject({ name, description });
+            toast.success(`Project "${name}" created`);
+            fetchProjects();
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'Failed to create project');
+          }
         }}
       />
     </>
