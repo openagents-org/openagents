@@ -89,6 +89,7 @@ class Workspace(Base):
 
     members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
     channels = relationship("Channel", back_populates="workspace", cascade="all, delete-orphan")
+    projects = relationship("Project", back_populates="workspace", cascade="all, delete-orphan")
     invitations = relationship("Invitation", back_populates="workspace", cascade="all, delete-orphan")
     collaborators = relationship("WorkspaceCollaborator", back_populates="workspace", cascade="all, delete-orphan", lazy="selectin")
 
@@ -139,11 +140,23 @@ class Channel(Base):
     last_event_at = Column(BigInteger, nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 
+    # --- Project system extensions ---
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
+    section_id = Column(UUID(as_uuid=False), ForeignKey("channel_sections.id", ondelete="SET NULL"), nullable=True)
+    position = Column(Integer, default=0, server_default=text("0"))
+    channel_type = Column(Text, default="general")    # general | task | discussion | standup
+    agent_roles = Column(JSONB, nullable=True)         # {"design": "figma-agent", "frontend": "react-agent"}
+
     workspace = relationship("Workspace", back_populates="channels")
+    project = relationship("Project", back_populates="channels")
+    section = relationship("ChannelSection", back_populates="channels")
     participants = relationship("ChannelMember", back_populates="channel", cascade="all, delete-orphan", lazy="selectin")
+    human_members = relationship("ChannelHumanMember", back_populates="channel", cascade="all, delete-orphan", lazy="selectin")
 
     __table_args__ = (
         Index("uq_channels_ws_name", "workspace_id", "name", unique=True),
+        Index("idx_channels_project", "project_id"),
+        Index("idx_channels_section", "section_id"),
     )
 
 
@@ -519,6 +532,113 @@ class ShareSnapshot(Base):
     __table_args__ = (
         Index("idx_share_snapshots_workspace", "workspace_id"),
         Index("idx_share_snapshots_token", "share_token"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Project system (multi-person collaboration with context management)
+# ---------------------------------------------------------------------------
+
+class Project(Base):
+    """A project = organizational unit grouping channels with shared context."""
+    __tablename__ = "projects"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(Text, default="active")              # active | archived | completed
+    context_bot_name = Column(Text, nullable=True)       # OpenClaw bot identifier
+    settings = Column(JSONB, default={})                  # goals, metadata, etc.
+    created_by = Column(Text, nullable=True)             # email or user_id
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    workspace = relationship("Workspace", back_populates="projects")
+    channels = relationship("Channel", back_populates="project")
+    members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan", lazy="selectin")
+    contexts = relationship("ProjectContext", back_populates="project", cascade="all, delete-orphan")
+    sections = relationship("ChannelSection", back_populates="project", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("idx_projects_workspace_status", "workspace_id", "status"),
+        UniqueConstraint("workspace_id", "name", name="uq_project_workspace_name"),
+    )
+
+
+class ProjectMember(Base):
+    """Human membership in a project."""
+    __tablename__ = "project_members"
+
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    user_email = Column(Text, nullable=False)            # human identifier (normalized lowercase)
+    role = Column(Text, default="editor")                # owner | editor | viewer
+    joined_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    project = relationship("Project", back_populates="members")
+
+    __table_args__ = (
+        PrimaryKeyConstraint("project_id", "user_email"),
+        Index("idx_project_members_email", "user_email"),
+    )
+
+
+class ProjectContext(Base):
+    """A project context entry managed by the context bot (OpenClaw)."""
+    __tablename__ = "project_contexts"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    key = Column(Text, nullable=False)                    # e.g. "prd", "design-spec", "architecture"
+    content = Column(Text, nullable=False)                # markdown content
+    content_type = Column(Text, default="markdown")       # markdown | json | reference
+    source_channel_id = Column(UUID(as_uuid=False), nullable=True)  # originating channel
+    updated_by = Column(Text, nullable=True)             # last updater
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    project = relationship("Project", back_populates="contexts")
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "key", name="uq_project_context_key"),
+        Index("idx_project_contexts_project", "project_id"),
+    )
+
+
+class ChannelSection(Base):
+    """User-defined channel grouping within a project."""
+    __tablename__ = "channel_sections"
+
+    id = Column(UUID(as_uuid=False), primary_key=True, default=_uuid, server_default=text("gen_random_uuid()"))
+    project_id = Column(UUID(as_uuid=False), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)                  # e.g. "设计", "开发", "测试"
+    position = Column(Integer, default=0, server_default=text("0"))
+    collapsed = Column(Boolean, default=False, server_default=text("FALSE"))
+    created_by = Column(Text, nullable=True)
+
+    project = relationship("Project", back_populates="sections")
+    channels = relationship("Channel", back_populates="section")
+
+    __table_args__ = (
+        Index("idx_channel_sections_project", "project_id"),
+    )
+
+
+class ChannelHumanMember(Base):
+    """Human member of a channel (separate from agent ChannelMember)."""
+    __tablename__ = "channel_human_members"
+
+    channel_id = Column(UUID(as_uuid=False), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False)
+    user_email = Column(Text, nullable=False)            # human identifier
+    role = Column(Text, default="member")                # admin | member | viewer
+    last_read_event_id = Column(Text, nullable=True)     # for unread badge calculation
+    joined_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    channel = relationship("Channel", back_populates="human_members")
+
+    __table_args__ = (
+        PrimaryKeyConstraint("channel_id", "user_email"),
+        Index("idx_channel_human_members_email", "user_email"),
     )
 
 

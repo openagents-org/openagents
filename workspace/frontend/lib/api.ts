@@ -3,8 +3,11 @@ import type {
   ApiResponse,
   BrowserPersistentContext,
   BrowserTab,
+  ChannelHumanMember,
+  ChannelSection,
   CloudAgentConfig,
   CloudAgentProvider,
+  ContextQueryResult,
   DMConversation,
   EventPollResponse,
   KnowledgeEntry,
@@ -13,6 +16,9 @@ import type {
   NetworkProfile,
   NotificationItem,
   ONMEvent,
+  Project,
+  ProjectContextEntry,
+  ProjectMember,
   ShareSummary,
   TimerItem,
   TodoItem,
@@ -1050,6 +1056,137 @@ class WorkspaceApi {
         channel,
         source,
       }),
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Projects
+  // ---------------------------------------------------------------------------
+
+  async listProjects(status?: string): Promise<any[]> {
+    const params = status ? `?status=${status}` : '';
+    return this.request<any[]>(`/v1/workspaces/${this.workspaceId}/projects${params}`);
+  }
+
+  async createProject(opts: { name: string; description?: string; contextBotName?: string }): Promise<any> {
+    return this.request<any>(`/v1/workspaces/${this.workspaceId}/projects`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: opts.name,
+        description: opts.description || null,
+        context_bot_name: opts.contextBotName || 'project-context-bot',
+      }),
+    });
+  }
+
+  async getProject(projectId: string): Promise<any> {
+    return this.request<any>(`/v1/workspaces/${this.workspaceId}/projects/${projectId}`);
+  }
+
+  async updateProject(projectId: string, updates: { name?: string; description?: string; status?: string }): Promise<any> {
+    return this.request<any>(`/v1/workspaces/${this.workspaceId}/projects/${projectId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async addProjectMember(projectId: string, email: string, role: string = 'editor'): Promise<any> {
+    return this.request<any>(`/v1/workspaces/${this.workspaceId}/projects/${projectId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ user_email: email, role }),
+    });
+  }
+
+  async removeProjectMember(projectId: string, email: string): Promise<any> {
+    return this.request<any>(`/v1/workspaces/${this.workspaceId}/projects/${projectId}/members/${email}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Project Context
+  // ---------------------------------------------------------------------------
+
+  async listProjectContext(projectId: string): Promise<any[]> {
+    return this.request<any[]>(`/v1/projects/${projectId}/context`);
+  }
+
+  async getProjectContext(projectId: string, key: string): Promise<any> {
+    return this.request<any>(`/v1/projects/${projectId}/context/${key}`);
+  }
+
+  async upsertProjectContext(projectId: string, key: string, content: string, opts?: { contentType?: string; updatedBy?: string }): Promise<any> {
+    return this.request<any>(`/v1/projects/${projectId}/context/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        content,
+        content_type: opts?.contentType || 'markdown',
+        updated_by: opts?.updatedBy || null,
+      }),
+    });
+  }
+
+  async queryProjectContext(projectId: string, question: string, includeKeys?: string[]): Promise<any> {
+    return this.request<any>(`/v1/projects/${projectId}/context/query`, {
+      method: 'POST',
+      body: JSON.stringify({ question, include_keys: includeKeys || null }),
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Channel Human Members
+  // ---------------------------------------------------------------------------
+
+  async addChannelHumanMember(channelId: string, email: string, role: string = 'member'): Promise<any> {
+    return this.request<any>(`/v1/channels/${channelId}/members/humans`, {
+      method: 'POST',
+      body: JSON.stringify({ user_email: email, role }),
+    });
+  }
+
+  async removeChannelHumanMember(channelId: string, email: string): Promise<any> {
+    return this.request<any>(`/v1/channels/${channelId}/members/humans/${email}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getChannelMembers(channelId: string): Promise<any> {
+    return this.request<any>(`/v1/channels/${channelId}/members`);
+  }
+
+  async updateReadPosition(channelId: string, email: string, lastReadEventId: string): Promise<any> {
+    return this.request<any>(`/v1/channels/${channelId}/members/humans/${email}/read`, {
+      method: 'PATCH',
+      body: JSON.stringify({ last_read_event_id: lastReadEventId }),
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Channel Sections
+  // ---------------------------------------------------------------------------
+
+  async createSection(projectId: string, name: string, position: number = 0): Promise<any> {
+    return this.request<any>(`/v1/projects/${projectId}/sections`, {
+      method: 'POST',
+      body: JSON.stringify({ name, position }),
+    });
+  }
+
+  async listSections(projectId: string): Promise<any[]> {
+    return this.request<any[]>(`/v1/projects/${projectId}/sections`);
+  }
+
+  async updateSection(projectId: string, sectionId: string, updates: { name?: string; position?: number; collapsed?: boolean }): Promise<any> {
+    return this.request<any>(`/v1/projects/${projectId}/sections/${sectionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async moveChannelToSection(channelId: string, sectionId: string | null, position?: number): Promise<any> {
+    return this.request<any>(`/v1/channels/${channelId}/section`, {
+      method: 'PATCH',
+      body: JSON.stringify({ section_id: sectionId, position }),
     });
   }
 }

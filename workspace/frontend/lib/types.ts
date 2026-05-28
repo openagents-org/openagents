@@ -344,6 +344,64 @@ export interface NetworkProfile {
 }
 
 // ---------------------------------------------------------------------------
+// Projects & Context (multi-person collaboration)
+// ---------------------------------------------------------------------------
+
+export interface Project {
+  projectId: string;
+  workspaceId: string;
+  name: string;
+  description: string | null;
+  status: 'active' | 'archived' | 'completed';
+  contextBotName: string;
+  settings: Record<string, unknown>;
+  channels: WorkspaceSession[];
+  members: ProjectMember[];
+  sections: ChannelSection[];
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface ProjectMember {
+  email: string;
+  role: 'owner' | 'editor' | 'viewer';
+  joinedAt: string | null;
+}
+
+export interface ChannelSection {
+  sectionId: string;
+  projectId: string;
+  name: string;
+  position: number;
+  collapsed: boolean;
+  channelCount: number;
+}
+
+export interface ProjectContextEntry {
+  id: string;
+  key: string;
+  content: string;
+  contentType: 'markdown' | 'json' | 'reference';
+  sourceChannelId: string | null;
+  updatedBy: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface ChannelHumanMember {
+  email: string;
+  role: 'admin' | 'member' | 'viewer';
+  lastReadEventId: string | null;
+  joinedAt: string | null;
+}
+
+export interface ContextQueryResult {
+  answer: string;
+  source: 'openclaw' | 'local_fallback';
+  contextKeysUsed: string[];
+}
+
+// ---------------------------------------------------------------------------
 // API response wrappers
 // ---------------------------------------------------------------------------
 
