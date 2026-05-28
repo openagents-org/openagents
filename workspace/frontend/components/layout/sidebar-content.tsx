@@ -75,7 +75,7 @@ function NavButton({
 
 export function SidebarContent() {
   const { isSidebarOpen, sidebarToggle, viewMode, setViewMode, setSelectedAgentName } = useLayout();
-  const { agents, sessions, files, browserTabs, createSession, workspace, token, refreshWorkspace, todos, routines, knowledge, currentUser, onlineUsers, unreadNotificationCount } = useWorkspace();
+  const { agents, sessions, files, browserTabs, createSession, workspace, token, refreshWorkspace, todos, routines, knowledge, currentUser, onlineUsers, unreadNotificationCount, currentSessionId, setCurrentSessionId } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
@@ -240,30 +240,108 @@ export function SidebarContent() {
             </button>
           </div>
 
-          {/* Agents */}
           <div className="px-2.5">
-            <p className="text-xs font-normal text-muted-foreground px-2 py-1.5 mb-0.5">
-              Agents ({onlineCount}/{recentAgents.length})
-            </p>
-            <div className="space-y-0.5 max-h-48 overflow-y-auto">
-              {recentAgents.map((agent) => (
-                <button
-                  key={agent.agentName}
-                  onClick={() => setSelectedAgentName(agent.agentName)}
-                  className="w-full flex items-center gap-2 px-2 h-8 rounded-lg hover:bg-accent cursor-pointer group transition-colors"
-                >
-                  <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                  <span className="text-[13px] font-normal text-foreground group-hover:text-primary truncate text-left">
-                    {agent.agentName}
-                  </span>
-                </button>
-              ))}
+            {/* ════════════════════════════════════════════════════════
+               CHANNELS — Slack-style, always visible at the top
+               ════════════════════════════════════════════════════════ */}
+
+            {/* Starred Channels */}
+            <StarredChannels
+              channels={sessions}
+              currentSessionId={currentSessionId}
+              onSelectChannel={(sessionId) => {
+                setCurrentSessionId(sessionId);
+                setViewMode('threads');
+              }}
+            />
+
+            {/* Projects with their channels */}
+            {projects.length > 0 && (
+              <div className="mt-1">
+                <ProjectList
+                  projects={projects}
+                  currentSessionId={currentSessionId}
+                  onSelectChannel={(sessionId) => {
+                    setCurrentSessionId(sessionId);
+                    setViewMode('threads');
+                  }}
+                  onCreateProject={() => setCreateProjectOpen(true)}
+                  onCreateChannel={(projectId) => {
+                    handleNewThread();
+                  }}
+                  onContextBotClick={(projectId) => {
+                    toast.info('Project context panel coming soon');
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Independent Channels (not in any project) */}
+            <IndependentChannels
+              channels={sessions.filter((s) => !s.sessionId.startsWith('routine:'))}
+              currentSessionId={currentSessionId}
+              onSelectChannel={(sessionId) => {
+                setCurrentSessionId(sessionId);
+                setViewMode('threads');
+              }}
+            />
+
+            {/* Create Project button */}
+            {projects.length === 0 && (
+              <button
+                onClick={() => setCreateProjectOpen(true)}
+                className="w-full flex items-center gap-2 px-2 py-1.5 mt-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs"
+              >
+                <FolderOpen className="size-3.5" />
+                <span>Create Project</span>
+              </button>
+            )}
+
+            {/* ════════════════════════════════════════════════════════
+               TOOLS — Secondary navigation
+               ════════════════════════════════════════════════════════ */}
+            <div className="mt-6 pt-4 border-t border-border">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-2 mb-1.5">
+                Tools
+              </p>
+              <div className="space-y-0.5">
+                <NavButton active={viewMode === 'files'} icon={<FileText className="size-[15px]" />} label="Files" count={files.length} onClick={() => setViewMode('files')} />
+                <NavButton active={viewMode === 'browser'} icon={<Globe className="size-[15px]" />} label="Browser" count={browserTabs.length} onClick={() => setViewMode('browser')} />
+                <NavButton active={viewMode === 'knowledge'} icon={<BookOpen className="size-[15px]" />} label="Knowledge" count={knowledge.length} onClick={() => setViewMode('knowledge')} />
+                <NavButton active={viewMode === 'tasks'} icon={<ListTodo className="size-[15px]" />} label="Tasks" count={todos.filter((t) => t.status === 'pending' || t.status === 'in_progress').length} onClick={() => setViewMode('tasks')} />
+                <NavButton active={viewMode === 'routines'} icon={<CalendarClock className="size-[15px]" />} label="Routines" count={routines.filter((r) => r.status === 'active').length} onClick={() => setViewMode('routines')} />
+                <NavButton active={viewMode === 'inbox'} icon={<Inbox className="size-[15px]" />} label="Inbox" count={unreadNotificationCount > 0 ? unreadNotificationCount : undefined} onClick={() => setViewMode('inbox')} />
+                <NavButton active={viewMode === 'skills'} icon={<Sparkles className="size-[15px]" />} label="Skill Hub" onClick={() => setViewMode('skills')} />
+              </div>
             </div>
+
+            {/* Agents (collapsed when empty) */}
+            {recentAgents.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-border">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-2 mb-1.5">
+                  Agents ({onlineCount}/{recentAgents.length})
+                </p>
+                <div className="space-y-0.5 max-h-36 overflow-y-auto">
+                  {recentAgents.map((agent) => (
+                    <button
+                      key={agent.agentName}
+                      onClick={() => setSelectedAgentName(agent.agentName)}
+                      className="w-full flex items-center gap-2 px-2 h-7 rounded-lg hover:bg-accent cursor-pointer group transition-colors"
+                    >
+                      <AgentAvatar name={agent.agentName} size={18} status={agent.status} showStatus />
+                      <span className="text-[12px] font-normal text-foreground group-hover:text-primary truncate text-left">
+                        {agent.agentName}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Online Users */}
             {onlineUsers.length > 0 && (
-              <>
-                <p className="text-xs font-normal text-muted-foreground px-2 py-1.5 mb-0.5 mt-6">
+              <div className="mt-4 pt-4 border-t border-border">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider px-2 mb-1.5">
                   <Users className="size-3 inline-block mr-1 -mt-0.5" />
                   Online ({onlineUsers.length})
                 </p>
@@ -271,7 +349,7 @@ export function SidebarContent() {
                   {onlineUsers.map((u) => (
                     <div
                       key={u.id}
-                      className="flex items-center gap-2 px-2 h-8 rounded-lg text-[13px]"
+                      className="flex items-center gap-2 px-2 h-7 rounded-lg text-[12px]"
                     >
                       <div className="size-2 rounded-full bg-emerald-500 shrink-0" />
                       <span className="truncate text-foreground">
@@ -280,84 +358,8 @@ export function SidebarContent() {
                     </div>
                   ))}
                 </div>
-              </>
-            )}
-
-            {/* Collaboration */}
-            <p className="text-xs font-normal text-muted-foreground px-2 py-1.5 mb-0.5 mt-6">
-              Collaboration
-            </p>
-            <div className="space-y-0.5">
-              <NavButton active={viewMode === 'threads'} icon={<MessageSquare className="size-[15px]" />} label="Threads" count={sessions.filter((s) => !s.sessionId.startsWith('routine:')).length} onClick={() => setViewMode('threads')} />
-              <NavButton active={viewMode === 'files'} icon={<FileText className="size-[15px]" />} label="Files" count={files.length} onClick={() => setViewMode('files')} />
-              <NavButton active={viewMode === 'browser'} icon={<Globe className="size-[15px]" />} label="Browser" count={browserTabs.length} onClick={() => setViewMode('browser')} />
-              <NavButton active={viewMode === 'routines'} icon={<CalendarClock className="size-[15px]" />} label="Routines" count={routines.filter((r) => r.status === 'active').length} onClick={() => setViewMode('routines')} />
-              <NavButton active={viewMode === 'knowledge'} icon={<BookOpen className="size-[15px]" />} label="Knowledge" count={knowledge.length} onClick={() => setViewMode('knowledge')} />
-              <NavButton active={viewMode === 'tasks'} icon={<ListTodo className="size-[15px]" />} label="Tasks" count={todos.filter((t) => t.status === 'pending' || t.status === 'in_progress').length} onClick={() => setViewMode('tasks')} />
-              <NavButton active={viewMode === 'inbox'} icon={<Inbox className="size-[15px]" />} label="Inbox" count={unreadNotificationCount > 0 ? unreadNotificationCount : undefined} onClick={() => setViewMode('inbox')} />
-              <NavButton active={viewMode === 'skills'} icon={<Sparkles className="size-[15px]" />} label="Skill Hub" onClick={() => setViewMode('skills')} />
-            </div>
-
-            {/* ── Projects & Channels ── */}
-            <div className="mt-6">
-              {/* Starred Channels */}
-              <StarredChannels
-                channels={sessions}
-                currentSessionId={null}
-                onSelectChannel={(sessionId) => {
-                  setViewMode('threads');
-                }}
-              />
-
-              {/* Projects */}
-              {projects.length > 0 && (
-                <div className="mt-2">
-                  <p className="text-xs font-normal text-muted-foreground px-2 py-1.5 mb-0.5 flex items-center gap-1.5">
-                    <FolderOpen className="size-3" />
-                    Projects ({projects.length})
-                  </p>
-                  <ProjectList
-                    projects={projects}
-                    currentSessionId={null}
-                    onSelectChannel={(sessionId) => {
-                      setViewMode('threads');
-                    }}
-                    onCreateProject={() => setCreateProjectOpen(true)}
-                    onCreateChannel={(projectId) => {
-                      // TODO: Open create-channel dialog scoped to project
-                      handleNewThread();
-                    }}
-                    onContextBotClick={(projectId) => {
-                      // TODO: Open context panel for project
-                      toast.info('Project context panel coming soon');
-                    }}
-                  />
-                </div>
-              )}
-
-              {/* Independent Channels (not in any project) */}
-              <div className="mt-2">
-                <IndependentChannels
-                  channels={sessions.filter((s) => !s.sessionId.startsWith('routine:'))}
-                  currentSessionId={null}
-                  onSelectChannel={(sessionId) => {
-                    setViewMode('threads');
-                  }}
-                />
               </div>
-
-              {/* Create Project (shown when no projects exist) */}
-              {projects.length === 0 && (
-                <button
-                  onClick={() => setCreateProjectOpen(true)}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 mt-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors text-xs"
-                >
-                  <Plus className="size-3.5" />
-                  <span>Create Project</span>
-                </button>
-              )}
-            </div>
-
+            )}
           </div>
         </ScrollArea>
 
