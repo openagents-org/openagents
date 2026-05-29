@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { SendHorizontal, Paperclip, X, FileIcon, ImageIcon, Plus, CalendarClock } from 'lucide-react';
+import { SendHorizontal, Paperclip, X, FileIcon, ImageIcon, Plus, CalendarClock, ListTodo, BookOpen, Eye } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,8 +11,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { WorkspaceAgent, KnowledgeEntry } from '@/lib/types';
+import { createTask } from '@/lib/api-tasks';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
-import { BookOpen } from 'lucide-react';
+import { BookOpen as BookOpenMention } from 'lucide-react';
 
 export interface PendingFile {
   file: File;
@@ -20,7 +21,7 @@ export interface PendingFile {
 }
 
 interface ChatInputProps {
-  onSend: (content: string, mentions: string[], files: PendingFile[]) => void;
+  onSend: (content: string, mentions: string[], files: PendingFile[], metadata?: Record<string, unknown>) => void;
   disabled?: boolean;
   className?: string;
   agents?: WorkspaceAgent[];
@@ -31,13 +32,14 @@ interface ChatInputProps {
   /** Auto-focus the textarea when mounted or when this key changes. */
   focusKey?: number;
   onCreateRoutine?: () => void;
+  workspaceId?: string;
 }
 
 function isImageFile(file: File): boolean {
   return file.type.startsWith('image/');
 }
 
-export function ChatInput({ onSend, disabled, className, agents = [], knowledge = [], draft, onDraftChange, onFocusChange, focusKey, onCreateRoutine }: ChatInputProps) {
+export function ChatInput({ onSend, disabled, className, agents = [], knowledge = [], draft, onDraftChange, onFocusChange, focusKey, onCreateRoutine, workspaceId }: ChatInputProps) {
   const [message, setMessage] = React.useState(draft ?? '');
   const [showMentions, setShowMentions] = React.useState(false);
   const [mentionFilter, setMentionFilter] = React.useState('');
@@ -48,6 +50,22 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const dragCountRef = React.useRef(0);
+
+  // Slash command state
+  const [slashMenuOpen, setSlashMenuOpen] = React.useState(false);
+  const [slashMenuIndex, setSlashMenuIndex] = React.useState(0);
+  const [slashCommand, setSlashCommand] = React.useState<string | null>(null);
+  // Inline task form state
+  const [taskFormTitle, setTaskFormTitle] = React.useState('');
+  const [taskFormPriority, setTaskFormPriority] = React.useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
+  const [taskFormAssignee, setTaskFormAssignee] = React.useState('');
+
+  const SLASH_COMMANDS = [
+    { command: '/task', label: '创建任务', icon: ListTodo },
+    { command: '/knowledge', label: '添加知识', icon: BookOpen },
+    { command: '/routine', label: '创建定时任务', icon: CalendarClock },
+    { command: '/review', label: '请求 Review', icon: Eye },
+  ];
 
   // Sync message state when draft prop changes (thread switch)
   React.useEffect(() => {
@@ -130,10 +148,49 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
     onDraftChange?.('');
     setPendingFiles([]);
     setShowMentions(false);
+    setSlashCommand(null);
+    setSlashMenuOpen(false);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
       textareaRef.current.blur();
     }
+  };
+
+  const handleTaskFormSubmit = async () => {
+    if (!taskFormTitle.trim()) return;
+    const task = await createTask({
+      workspaceId: workspaceId || 'ws-1',
+      title: taskFormTitle.trim(),
+      priority: taskFormPriority,
+      assignee: taskFormAssignee.trim() || null,
+      taskType: 'human',
+      assigneeType: taskFormAssignee.trim() ? 'human' : 'human',
+    });
+    const metadata = {
+      actionType: 'task_created',
+      task: {
+        id: task.id,
+        title: task.title,
+        priority: task.priority,
+        status: task.status,
+        assignee: task.assignee,
+      },
+    };
+    onSend(`/task ${taskFormTitle.trim()}`, [], [], metadata);
+    setMessage('');
+    onDraftChange?.('');
+    setSlashCommand(null);
+    setTaskFormTitle('');
+    setTaskFormPriority('medium');
+    setTaskFormAssignee('');
+  };
+
+  const handleSlashCancel = () => {
+    setSlashCommand(null);
+    setSlashMenuOpen(false);
+    setMessage('');
+    onDraftChange?.('');
+    textareaRef.current?.focus();
   };
 
   const insertMention = (mentionText: string) => {
@@ -171,6 +228,39 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Ignore Enter during IME composition (Chinese, Japanese, Korean input)
     if (e.nativeEvent.isComposing || e.key === 'Process') return;
+
+    // Slash command menu navigation
+    if (slashMenuOpen && SLASH_COMMANDS.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashMenuIndex((prev) => (prev + 1) % SLASH_COMMANDS.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashMenuIndex((prev) => (prev - 1 + SLASH_COMMANDS.length) % SLASH_COMMANDS.length);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const selected = SLASH_COMMANDS[slashMenuIndex];
+        setSlashCommand(selected.command);
+        setMessage(selected.command + ' ');
+        onDraftChange?.(selected.command + ' ');
+        setSlashMenuOpen(false);
+        if (selected.command === '/task') {
+          // Will show inline form
+          setTaskFormTitle('');
+          setTaskFormPriority('medium');
+          setTaskFormAssignee('');
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        setSlashMenuOpen(false);
+        return;
+      }
+    }
 
     if (showMentions && mentionItems.length > 0) {
       if (e.key === 'ArrowDown') {
@@ -226,6 +316,19 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
       setShowMentions(true);
     } else {
       setShowMentions(false);
+    }
+
+    // Detect slash command trigger (only at start of input)
+    if (value.startsWith('/') && !slashCommand) {
+      const slashMatch = value.match(/^\/(\w*)$/);
+      if (slashMatch) {
+        setSlashMenuOpen(true);
+        setSlashMenuIndex(0);
+      } else {
+        setSlashMenuOpen(false);
+      }
+    } else if (!value.startsWith('/')) {
+      setSlashMenuOpen(false);
     }
   };
 
@@ -356,7 +459,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
                     }}
                   >
                     <div className="size-6 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-                      <BookOpen className="size-3.5 text-amber-600 dark:text-amber-400" />
+                      <BookOpenMention className="size-3.5 text-amber-600 dark:text-amber-400" />
                     </div>
                     <span className="font-medium truncate">{entry.title}</span>
                     <span className="text-[10px] text-muted-foreground ml-auto font-mono shrink-0">@knowledge:{entry.slug}</span>
@@ -368,8 +471,44 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
         </div>
       )}
 
+      {/* Slash command menu */}
+      {slashMenuOpen && (
+        <div className="absolute bottom-full mb-2 left-0 bg-popover border rounded-lg shadow-lg z-50 overflow-hidden w-56">
+          <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-b border-border">
+            命令
+          </div>
+          {SLASH_COMMANDS.map((cmd, idx) => {
+            const Icon = cmd.icon;
+            return (
+              <button
+                key={cmd.command}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-accent transition-colors',
+                  idx === slashMenuIndex && 'bg-accent'
+                )}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  setSlashCommand(cmd.command);
+                  setMessage(cmd.command + ' ');
+                  onDraftChange?.(cmd.command + ' ');
+                  setSlashMenuOpen(false);
+                  if (cmd.command === '/task') {
+                    setTaskFormTitle('');
+                    setTaskFormPriority('medium');
+                    setTaskFormAssignee('');
+                  }
+                }}
+              >
+                <Icon className="size-4 text-muted-foreground" />
+                <span className="font-mono text-xs text-muted-foreground">{cmd.command}</span>
+                <span className="text-xs ml-auto text-muted-foreground">{cmd.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       <div className={cn(
-        'relative flex flex-col gap-2 bg-background transition-all rounded-2xl border shadow-lg p-4',
         isDragging && 'border-primary border-dashed bg-primary/5',
         isFocused && !isDragging && 'ring-2 ring-primary/30 border-primary/40'
       )}>
@@ -410,6 +549,73 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
                 </button>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Inline task form (shown when /task command is selected) */}
+        {slashCommand === '/task' && (
+          <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400">
+              <ListTodo className="size-3.5" />
+              <span>创建任务</span>
+              <button
+                onClick={handleSlashCancel}
+                className="ml-auto text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+            <input
+              type="text"
+              placeholder="任务标题（必填）"
+              value={taskFormTitle}
+              onChange={(e) => setTaskFormTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleTaskFormSubmit();
+                }
+                if (e.key === 'Escape') {
+                  handleSlashCancel();
+                }
+              }}
+              autoFocus
+              className="w-full text-sm bg-background border rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary/50"
+            />
+            <div className="flex items-center gap-2">
+              <select
+                value={taskFormPriority}
+                onChange={(e) => setTaskFormPriority(e.target.value as typeof taskFormPriority)}
+                className="text-xs bg-background border rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary/50"
+              >
+                <option value="low">低优先级</option>
+                <option value="medium">中优先级</option>
+                <option value="high">高优先级</option>
+                <option value="urgent">紧急</option>
+              </select>
+              <input
+                type="text"
+                placeholder="分配给（可选）"
+                value={taskFormAssignee}
+                onChange={(e) => setTaskFormAssignee(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleTaskFormSubmit();
+                  }
+                }}
+                className="flex-1 text-xs bg-background border rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary/50"
+              />
+              <Button
+                variant="primary"
+                size="sm"
+                className="h-7 text-xs px-3"
+                onClick={handleTaskFormSubmit}
+                disabled={!taskFormTitle.trim()}
+              >
+                创建
+              </Button>
+            </div>
           </div>
         )}
 

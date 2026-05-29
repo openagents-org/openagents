@@ -13,7 +13,9 @@ import {
   ChevronRight,
   User,
   Bot,
+  Eye,
 } from 'lucide-react';
+import { TaskReviewPanel } from './task-review-panel';
 
 // ---------------------------------------------------------------------------
 // Status icon
@@ -84,10 +86,12 @@ function ConfidenceBar({ confidence }: { confidence: number }) {
 interface TaskCardProps {
   task: Task;
   onStatusChange?: (id: string, status: Task['status']) => void;
+  onTaskUpdate?: (task: Task) => void;
 }
 
-export function TaskCard({ task, onStatusChange }: TaskCardProps) {
+export function TaskCard({ task, onStatusChange, onTaskUpdate }: TaskCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [showReview, setShowReview] = useState(false);
 
   const handleStatusToggle = useCallback(() => {
     if (!onStatusChange) return;
@@ -197,7 +201,33 @@ export function TaskCard({ task, onStatusChange }: TaskCardProps) {
                 </p>
               </div>
             )}
+          {/* Review button for completed agent tasks */}
+          {task.taskType === 'agent' && task.status === 'completed' && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowReview((prev) => !prev);
+              }}
+              className={cn(
+                'inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-md transition-colors',
+                showReview
+                  ? 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+              )}
+            >
+              <Eye className="size-3.5" />
+              <span>Review</span>
+            </button>
+          )}
         </div>
+      )}
+
+      {/* Review panel (slides out below card) */}
+      {showReview && expanded && (
+        <TaskReviewPanel
+          task={task}
+          onTaskUpdate={onTaskUpdate}
+        />
       )}
     </div>
   );

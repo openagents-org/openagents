@@ -14,8 +14,9 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/lib/auth-context';
+import { getStoredAuth } from '@/lib/auth';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { listMyWorkspaces, createWorkspace, type WorkspaceSummary } from '@/lib/dashboard-api';
+import { listMyWorkspaces, createWorkspace, createWorkspaceLocal, type WorkspaceSummary } from '@/lib/dashboard-api';
 import { timeAgo } from '@/lib/helpers';
 import { capture } from '@/lib/analytics';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
@@ -358,7 +359,10 @@ function CreateWorkspaceForm({
     setError('');
     setLoading(true);
     try {
-      const ws = await createWorkspace(agentName.trim(), name.trim() || undefined);
+      const { accessToken } = getStoredAuth();
+      const ws = accessToken
+        ? await createWorkspace(agentName.trim(), name.trim() || undefined)
+        : await createWorkspaceLocal(agentName.trim(), name.trim() || undefined);
       capture('workspace_created', { agent_name: agentName.trim() });
       onCreated();
       router.push(`/${ws.slug}?token=${ws.token}`);

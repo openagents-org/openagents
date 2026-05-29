@@ -80,3 +80,36 @@ export async function createWorkspace(
     body: JSON.stringify({ agent_name: agentName, name: name || undefined }),
   });
 }
+
+/**
+ * Creates a workspace without Firebase auth — for local/workspace_token mode.
+ * Calls the backend POST /v1/workspaces endpoint directly.
+ */
+export async function createWorkspaceLocal(
+  agentName?: string,
+  name?: string,
+): Promise<{
+  workspaceId: string;
+  slug: string;
+  name: string;
+  token: string;
+  url: string;
+}> {
+  const res = await fetch(`${API_URL}/v1/workspaces`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      agent_name: agentName || 'default',
+      name: name || undefined,
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(body?.message || body?.detail || `API error (${res.status})`);
+  }
+
+  const json = await res.json();
+  // Backend may return data directly or nested under .data
+  return json.data || json;
+}

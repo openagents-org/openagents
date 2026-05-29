@@ -179,7 +179,7 @@ export function SkillDetailPanel({ skill, onClose }: SkillDetailPanelProps) {
           </button>
           {online ? (
             <a
-              href={`https://lightmake.site/skills/${skill.slug}`}
+              href={`https://skillhub.cn/skills/${skill.slug}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"

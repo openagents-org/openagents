@@ -8,6 +8,7 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { MarkdownContent } from './markdown-content';
+import { ActionCardRenderer } from './action-cards';
 import { workspaceApi } from '@/lib/api';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -183,6 +184,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
             <div className="text-sm leading-relaxed mt-0.5">
               <MarkdownContent content={message.content} agentNames={agentNames} />
               <Attachments items={attachments} />
+              <ActionCardRenderer metadata={message.metadata} />
             </div>
           </div>
         </div>
@@ -217,6 +219,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
           <div className="text-sm leading-relaxed mt-0.5">
             <MarkdownContent content={message.content} agentNames={agentNames} />
             <Attachments items={attachments} />
+            <ActionCardRenderer metadata={message.metadata} />
 
             {/* Copy button */}
             <div className="flex items-center gap-1 mt-1">

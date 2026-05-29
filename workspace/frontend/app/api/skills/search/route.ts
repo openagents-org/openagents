@@ -30,7 +30,24 @@ export async function GET(request: NextRequest) {
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
+    // API returns {"results":[...]} with snake_case fields — normalize to camelCase
+    const rawItems = data?.results || data?.items || data?.skills || [];
+    const items = rawItems.map((item: Record<string, unknown>) => ({
+      slug: item.slug || '',
+      name: item.displayName || item.name || '',
+      description: item.description || '',
+      descriptionZh: item.description_zh || '',
+      category: item.category || '',
+      ownerName: item.owner_name || item.ownerName || '',
+      downloads: item.downloads || 0,
+      stars: item.stars || 0,
+      installs: item.installs || 0,
+      score: item.score || 0,
+      tags: item.tags || item.labels || [],
+      iconUrl: item.icon_url || item.iconUrl || null,
+      version: item.version || '',
+    }));
+    return NextResponse.json({ items });
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to search skills', details: String(error) },

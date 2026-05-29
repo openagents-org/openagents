@@ -21,7 +21,9 @@ export async function GET() {
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
+    // API returns {"code":0,"data":{"skills":[...],"total":N}} — unwrap to {"skills":[...]}
+    const skills = data?.data?.skills || data?.skills || [];
+    return NextResponse.json({ skills });
   } catch (error) {
     return NextResponse.json(
       { error: 'Failed to fetch top skills', details: String(error) },
