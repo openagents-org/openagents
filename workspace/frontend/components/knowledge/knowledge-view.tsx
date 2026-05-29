@@ -1,73 +1,158 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { BookOpen, Plus, RefreshCw, Pencil, Trash2, ArrowLeft } from 'lucide-react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { BookOpen, Plus, RefreshCw, Pencil, Trash2, ArrowLeft, Search } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
-import { workspaceApi } from '@/lib/api';
-import { KnowledgeEditor } from './knowledge-editor';
 import { MarkdownContent } from '@/components/chat/markdown-content';
-import type { KnowledgeEntry } from '@/lib/types';
 import { useLayout } from '@/components/layout/layout-context';
+import { KnowledgeTree } from './knowledge-tree';
+import { CreateKnowledgeDialog } from './create-knowledge-dialog';
+import { KnowledgeEditor } from './knowledge-editor';
+import {
+  fetchKnowledgeTree,
+  createKnowledgeEntry,
+  deleteKnowledgeEntry,
+  getKnowledgeContent,
+  type KnowledgeNode,
+} from '@/lib/api-knowledge';
 
-function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return '';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+/** Flatten tree to get all folder nodes for the parent selector */
+function flattenFolders(nodes: KnowledgeNode[]): KnowledgeNode[] {
+  const result: KnowledgeNode[] = [];
+  function walk(list: KnowledgeNode[]) {
+    for (const node of list) {
+      if (node.isFolder) {
+        result.push(node);
+      }
+      if (node.children) walk(node.children);
+    }
+  }
+  walk(nodes);
+  return result;
+}
+
+/** Flatten tree to search all nodes */
+function flattenAll(nodes: KnowledgeNode[]): KnowledgeNode[] {
+  const result: KnowledgeNode[] = [];
+  function walk(list: KnowledgeNode[]) {
+    for (const node of list) {
+      result.push(node);
+      if (node.children) walk(node.children);
+    }
+  }
+  walk(nodes);
+  return result;
 }
 
 export function KnowledgeView() {
-  const { knowledge, refreshKnowledge, deleteKnowledge, agents } = useWorkspace();
+  const { agents } = useWorkspace();
   const { isMobile } = useLayout();
   const agentNames = agents.map((a) => a.agentName);
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Tree data
+  const [tree, setTree] = useState<KnowledgeNode[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Selection
+  const [selectedNode, setSelectedNode] = useState<KnowledgeNode | null>(null);
   const [selectedContent, setSelectedContent] = useState<string>('');
   const [loadingContent, setLoadingContent] = useState(false);
+
+  // Search
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Dialogs
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createDefaults, setCreateDefaults] = useState<{
+    parentId: string | null;
+    knowledgeType: 'global' | 'project';
+    projectId: string | null;
+  }>({ parentId: null, knowledgeType: 'global', projectId: null });
+
+  // Legacy editor (for editing existing entries)
   const [editorOpen, setEditorOpen] = useState(false);
-  const [editingEntry, setEditingEntry] = useState<(KnowledgeEntry & { content: string }) | null>(null);
+  const [editingEntry, setEditingEntry] = useState<{ id: string; title: string; slug: string; description: string | null; content: string; contentSize: number | null; createdBy: string; updatedBy: string | null; status: string; createdAt: string | null; updatedAt: string | null } & { content: string } | null>(null);
+
+  // Mobile pane state
   const [mobileDetail, setMobileDetail] = useState(false);
 
-  useEffect(() => { refreshKnowledge(); }, [refreshKnowledge]);
-
-  const selectedEntry = knowledge.find((k) => k.id === selectedId) || null;
-
-  const handleSelect = useCallback(async (entry: KnowledgeEntry) => {
-    setSelectedId(entry.id);
-    setLoadingContent(true);
-    setMobileDetail(true);
+  // Load tree
+  const loadTree = useCallback(async () => {
+    setLoading(true);
     try {
-      const full = await workspaceApi.getKnowledgeEntry(entry.id);
-      setSelectedContent(full.content);
+      const data = await fetchKnowledgeTree('default');
+      setTree(data);
     } catch {
-      setSelectedContent('Failed to load content.');
+      setTree([]);
     } finally {
-      setLoadingContent(false);
+      setLoading(false);
     }
   }, []);
 
-  const handleEdit = useCallback(async (entry: KnowledgeEntry) => {
-    try {
-      const full = await workspaceApi.getKnowledgeEntry(entry.id);
-      setEditingEntry({ ...full });
-      setEditorOpen(true);
-    } catch {
-      // ignore
-    }
-  }, []);
+  useEffect(() => { loadTree(); }, [loadTree]);
 
-  const handleDelete = useCallback(async (entry: KnowledgeEntry) => {
-    await deleteKnowledge(entry.id);
-    if (selectedId === entry.id) {
-      setSelectedId(null);
+  // Select a node
+  const handleSelect = useCallback(async (node: KnowledgeNode) => {
+    setSelectedNode(node);
+    setMobileDetail(true);
+    if (!node.isFolder) {
+      setLoadingContent(true);
+      try {
+        const content = await getKnowledgeContent(node.id);
+        setSelectedContent(content);
+      } catch {
+        setSelectedContent('Failed to load content.');
+      } finally {
+        setLoadingContent(false);
+      }
+    } else {
       setSelectedContent('');
     }
-  }, [deleteKnowledge, selectedId]);
+  }, []);
+
+  // Create child entry from tree "+" button
+  const handleCreateChild = useCallback((parentId: string | null, knowledgeType: 'global' | 'project', projectId?: string | null) => {
+    setCreateDefaults({
+      parentId,
+      knowledgeType,
+      projectId: projectId || null,
+    });
+    setCreateDialogOpen(true);
+  }, []);
+
+  // Save new entry
+  const handleSaveNew = useCallback(async (entry: Partial<KnowledgeNode> & { workspaceId?: string }) => {
+    await createKnowledgeEntry({ ...entry, workspaceId: 'default' });
+    await loadTree();
+  }, [loadTree]);
+
+  // Delete entry
+  const handleDelete = useCallback(async () => {
+    if (!selectedNode) return;
+    await deleteKnowledgeEntry(selectedNode.id);
+    setSelectedNode(null);
+    setSelectedContent('');
+    await loadTree();
+  }, [selectedNode, loadTree]);
+
+  // Edit entry (opens legacy editor in edit mode)
+  const handleEdit = useCallback(() => {
+    if (!selectedNode) return;
+    setEditingEntry({
+      id: selectedNode.id,
+      title: selectedNode.title,
+      slug: selectedNode.slug,
+      description: null,
+      content: selectedContent,
+      contentSize: selectedContent.length,
+      createdBy: selectedNode.createdBy || '',
+      updatedBy: null,
+      status: 'active',
+      createdAt: null,
+      updatedAt: selectedNode.updatedAt,
+    });
+    setEditorOpen(true);
+  }, [selectedNode, selectedContent]);
 
   const handleEditorClose = useCallback(() => {
     setEditorOpen(false);
@@ -77,37 +162,51 @@ export function KnowledgeView() {
   const handleEditorSaved = useCallback(async () => {
     setEditorOpen(false);
     setEditingEntry(null);
-    await refreshKnowledge();
-    if (selectedId) {
+    await loadTree();
+    if (selectedNode) {
       try {
-        const full = await workspaceApi.getKnowledgeEntry(selectedId);
-        setSelectedContent(full.content);
+        const content = await getKnowledgeContent(selectedNode.id);
+        setSelectedContent(content);
       } catch { /* ignore */ }
     }
-  }, [refreshKnowledge, selectedId]);
+  }, [loadTree, selectedNode]);
 
-  // List component
-  const EntryList = (
+  // Filtered tree for search
+  const filteredTree = useMemo(() => {
+    if (!searchQuery.trim()) return tree;
+    const q = searchQuery.toLowerCase();
+    const allNodes = flattenAll(tree);
+    return allNodes.filter(
+      (n) => n.title.toLowerCase().includes(q) || n.slug.toLowerCase().includes(q)
+    );
+  }, [tree, searchQuery]);
+
+  // All folders for parent selector
+  const allFolders = useMemo(() => flattenFolders(tree), [tree]);
+
+  // ----- LEFT PANEL: Tree + Search -----
+  const LeftPanel = (
     <div className="h-full flex flex-col">
+      {/* Header */}
       <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <BookOpen className="size-4 text-amber-500" />
           <h2 className="text-sm font-semibold">Knowledge</h2>
-          {knowledge.length > 0 && (
-            <span className="text-xs text-muted-foreground">{knowledge.length}</span>
-          )}
         </div>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => { setEditingEntry(null); setEditorOpen(true); }}
-            className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
+            onClick={() => {
+              setCreateDefaults({ parentId: null, knowledgeType: 'global', projectId: null });
+              setCreateDialogOpen(true);
+            }}
+            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
             title="New entry"
           >
             <Plus className="size-3.5" />
           </button>
           <button
-            onClick={refreshKnowledge}
-            className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
+            onClick={loadTree}
+            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
             title="Refresh"
           >
             <RefreshCw className="size-3.5" />
@@ -115,133 +214,169 @@ export function KnowledgeView() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
-        {knowledge.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-            <BookOpen className="size-8 opacity-30" />
-            <p className="text-sm">No knowledge entries yet</p>
-            <p className="text-xs opacity-60">Create shared knowledge for your agents</p>
-            <button
-              onClick={() => { setEditingEntry(null); setEditorOpen(true); }}
-              className="mt-2 text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-            >
-              Create First Entry
-            </button>
-          </div>
-        ) : (
-          <div className="divide-y divide-border">
-            {knowledge.map((entry) => (
-              <button
-                key={entry.id}
-                onClick={() => handleSelect(entry)}
-                className={`w-full text-left px-4 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors group ${
-                  selectedId === entry.id ? 'bg-zinc-50 dark:bg-zinc-800/50' : ''
-                }`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">{entry.title}</p>
-                    {entry.description && (
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{entry.description}</p>
-                    )}
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] text-muted-foreground/60 font-mono">@knowledge:{entry.slug}</span>
-                      <span className="text-[10px] text-muted-foreground/60">{timeAgo(entry.updatedAt || entry.createdAt)}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleEdit(entry); }}
-                      className="p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-muted-foreground"
-                      title="Edit"
-                    >
-                      <Pencil className="size-3" />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(entry); }}
-                      className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-500"
-                      title="Delete"
-                    >
-                      <Trash2 className="size-3" />
-                    </button>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
+      {/* Search */}
+      <div className="shrink-0 px-3 py-2 border-b border-border">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search knowledge..."
+            className="w-full pl-8 pr-3 py-1.5 rounded-md border border-input bg-background text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+        </div>
       </div>
 
-      <KnowledgeEditor
-        open={editorOpen}
-        entry={editingEntry}
-        onClose={handleEditorClose}
-        onSaved={handleEditorSaved}
-      />
+      {/* Tree or search results */}
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+            Loading...
+          </div>
+        ) : searchQuery.trim() ? (
+          // Search results (flat list)
+          <div className="py-2">
+            {filteredTree.length === 0 ? (
+              <p className="px-4 py-2 text-xs text-muted-foreground">No results found</p>
+            ) : (
+              filteredTree.map((node) => (
+                <button
+                  key={node.id}
+                  onClick={() => handleSelect(node)}
+                  className={`w-full text-left px-4 py-2 text-sm hover:bg-muted transition-colors ${
+                    selectedNode?.id === node.id ? 'bg-primary/10 text-primary font-medium' : 'text-foreground'
+                  }`}
+                >
+                  <span className="truncate block">{node.title}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {node.knowledgeType === 'global' ? '🌐 Global' : '📁 Project'} · {node.slug}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        ) : (
+          // Full tree view
+          <KnowledgeTree
+            tree={tree}
+            selectedId={selectedNode?.id || null}
+            onSelect={handleSelect}
+            onCreateChild={handleCreateChild}
+          />
+        )}
+      </div>
     </div>
   );
 
-  // Detail component
-  const EntryDetail = selectedEntry ? (
+  // ----- RIGHT PANEL: Content Viewer -----
+  const RightPanel = selectedNode && !selectedNode.isFolder ? (
     <div className="h-full flex flex-col">
+      {/* Header */}
       <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           {isMobile && (
-            <button onClick={() => setMobileDetail(false)} className="p-1 -ml-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800">
+            <button
+              onClick={() => setMobileDetail(false)}
+              className="p-1 -ml-1 rounded hover:bg-muted"
+            >
               <ArrowLeft className="size-4" />
             </button>
           )}
-          <h2 className="text-sm font-semibold truncate">{selectedEntry.title}</h2>
-          <span className="text-[10px] text-muted-foreground font-mono shrink-0">@knowledge:{selectedEntry.slug}</span>
+          <h2 className="text-sm font-semibold truncate">{selectedNode.title}</h2>
+          <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+            {selectedNode.knowledgeType === 'global' ? '🌐' : '📁'} {selectedNode.slug}
+          </span>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button
-            onClick={() => handleEdit(selectedEntry)}
-            className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
+            onClick={handleEdit}
+            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
             title="Edit"
           >
             <Pencil className="size-3.5" />
           </button>
+          <button
+            onClick={handleDelete}
+            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
+            title="Delete"
+          >
+            <Trash2 className="size-3.5" />
+          </button>
         </div>
       </div>
+
+      {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {loadingContent ? (
-          <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">Loading...</div>
+          <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+            Loading...
+          </div>
         ) : (
           <div className="prose prose-sm dark:prose-invert max-w-none">
             <MarkdownContent content={selectedContent} agentNames={agentNames} />
           </div>
         )}
       </div>
+    </div>
+  ) : (
+    <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
+      <BookOpen className="size-8 opacity-30" />
+      <p className="text-sm">Select an entry to view</p>
+      <p className="text-xs opacity-60">Choose from the knowledge tree on the left</p>
+    </div>
+  );
 
+  // Mobile: single pane switching
+  if (isMobile) {
+    return (
+      <>
+        {mobileDetail && selectedNode ? RightPanel : LeftPanel}
+        <CreateKnowledgeDialog
+          open={createDialogOpen}
+          onClose={() => setCreateDialogOpen(false)}
+          onSave={handleSaveNew}
+          defaultParentId={createDefaults.parentId}
+          defaultKnowledgeType={createDefaults.knowledgeType}
+          defaultProjectId={createDefaults.projectId}
+          folders={allFolders}
+        />
+        <KnowledgeEditor
+          open={editorOpen}
+          entry={editingEntry}
+          onClose={handleEditorClose}
+          onSaved={handleEditorSaved}
+        />
+      </>
+    );
+  }
+
+  // Desktop: split view
+  return (
+    <>
+      <div className="h-full flex">
+        <div className="w-[300px] xl:w-[360px] shrink-0 border-r border-border overflow-hidden">
+          {LeftPanel}
+        </div>
+        <div className="flex-1 min-w-0 overflow-hidden">
+          {RightPanel}
+        </div>
+      </div>
+      <CreateKnowledgeDialog
+        open={createDialogOpen}
+        onClose={() => setCreateDialogOpen(false)}
+        onSave={handleSaveNew}
+        defaultParentId={createDefaults.parentId}
+        defaultKnowledgeType={createDefaults.knowledgeType}
+        defaultProjectId={createDefaults.projectId}
+        folders={allFolders}
+      />
       <KnowledgeEditor
         open={editorOpen}
         entry={editingEntry}
         onClose={handleEditorClose}
         onSaved={handleEditorSaved}
       />
-    </div>
-  ) : (
-    <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
-      <BookOpen className="size-8 opacity-30" />
-      <p className="text-sm">Select an entry to view</p>
-    </div>
-  );
-
-  // Mobile: single pane switching
-  if (isMobile) {
-    return mobileDetail && selectedEntry ? EntryDetail : EntryList;
-  }
-
-  // Desktop: split view
-  return (
-    <div className="h-full flex">
-      <div className="w-[300px] xl:w-[360px] shrink-0 border-r border-border overflow-hidden">
-        {EntryList}
-      </div>
-      <div className="flex-1 min-w-0 overflow-hidden">
-        {EntryDetail}
-      </div>
-    </div>
+    </>
   );
 }

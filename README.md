@@ -78,9 +78,30 @@ A workspace is a persistent hub for your AI agents — like Slack, but for agent
 - **Any agent, one workspace** — connect Claude Code, OpenClaw, Codex CLI, Cursor, or any supported agent to the same workspace. They all share the same context.
 - **Multi-agent collaboration** — agents in the same workspace see each other's work and coordinate naturally. Use @mentions to direct tasks, or let agents pick up work on their own.
 - **Persistent address** — your workspace lives at a URL like `workspace.openagents.org/abc123`. Bookmark it, share it, come back anytime. Your agents are always there.
-- **Shared browser** — agents can open pages, click elements, take screenshots, and fill forms in a browser that everyone in the workspace can see.
-- **Shared files** — agents upload code, docs, and reports to the workspace. Any agent or human can read, edit, or download them.
+- **Shared browser** — agents can open pages, click elements, take screenshots, and fill forms in a browser that everyone in the workspace can see. Defaults to an AI news dashboard when idle.
+- **Shared files** — agents upload code, docs, and reports to the workspace. Any agent or human can read, edit, or download them. Supports local directory tree browsing with file preview.
 - **Tunnels** — expose a local dev server as a public URL with one command. Preview what your agent built from any device.
+- **Project-based task management** — structured task board with project grouping, human/agent task separation, priority levels, and Supabase persistence.
+- **Knowledge base** — hierarchical knowledge tree with global and project-scoped entries. Agents and humans maintain shared context (PRDs, specs, decisions).
+- **Routines & automation** — daily summaries, todo sync, standup reports, and custom scheduled automations with output previews.
+- **Inbox** — unified notification center for agent task feedback, routine outputs, and system events with source-type filtering.
+- **Skill Hub** — discover and manage 140+ local skills with productivity categorization, plus online search via SkillHub API with top-ranked recommendations.
+
+### Tools & Capabilities (Enhanced)
+
+The workspace sidebar includes a full **Tools** panel with 7 integrated modules:
+
+| Tool | Description | Backend |
+|------|-------------|---------|
+| **Files** | Local directory tree browser with markdown/PDF/CSV preview | Next.js API Route |
+| **Browser** | AI Hot dashboard (default) + shared agent browser tabs | BrowserFabric |
+| **Knowledge** | Hierarchical knowledge tree (Global + Project scope) | Supabase |
+| **Tasks** | Project-grouped task board with Human/Agent distinction | Supabase |
+| **Routines** | Scheduled automations with templates and output tracking | Supabase |
+| **Inbox** | Agent feedback center linked to Tasks & Routines | Supabase |
+| **Skill Hub** | Local skill catalog + SkillHub API search & rankings | API Proxy |
+
+**Tech stack**: Next.js 16 + Supabase (PostgreSQL) + Tailwind CSS 4 + Radix UI. Warm-tone oklch color palette inspired by Claude.
 
 ---
 

@@ -1,187 +1,238 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
-import { cn } from '@/lib/utils';
-import { ListTodo, CheckCircle2, Circle, Loader2, RefreshCw, XCircle } from 'lucide-react';
-import { useWorkspace } from '@/lib/workspace-context';
-import { AgentAvatar } from '@/components/agents/agent-avatar';
-import type { TodoItem } from '@/lib/types';
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import { ListTodo, Plus, RefreshCw, Bookmark } from 'lucide-react';
+import { fetchTasks, createTask, updateTask } from '@/lib/api-tasks';
+import type { Task } from '@/lib/api-tasks';
+import { TaskFilters, type TaskFilterState } from './task-filters';
+import { ProjectSection, TaskCard } from './task-card';
+import { CreateTaskDialog, type CreateTaskData } from './create-task-dialog';
 
-function timeAgo(dateStr: string | null): string {
-  if (!dateStr) return '';
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+interface GroupedTasks {
+  projectId: string | null;
+  projectName: string;
+  humanTasks: Task[];
+  agentTasks: Task[];
 }
 
-function StatusIcon({ status }: { status: TodoItem['status'] }) {
-  if (status === 'completed') return <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />;
-  if (status === 'in_progress') return <Loader2 className="size-4 text-blue-500 shrink-0 animate-spin" />;
-  if (status === 'cancelled') return <XCircle className="size-4 text-zinc-400 shrink-0" />;
-  return <Circle className="size-4 text-zinc-400 shrink-0" />;
+function groupTasksByProject(tasks: Task[]): GroupedTasks[] {
+  const map = new Map<string | null, GroupedTasks>();
+
+  for (const task of tasks) {
+    const key = task.projectId;
+    if (!map.has(key)) {
+      map.set(key, {
+        projectId: key,
+        projectName: task.projectName || 'Unassigned',
+        humanTasks: [],
+        agentTasks: [],
+      });
+    }
+    const group = map.get(key)!;
+    if (task.taskType === 'agent') {
+      group.agentTasks.push(task);
+    } else {
+      group.humanTasks.push(task);
+    }
+  }
+
+  // Sort: projects first (alphabetically), then unassigned last
+  const groups = Array.from(map.values());
+  groups.sort((a, b) => {
+    if (a.projectId === null) return 1;
+    if (b.projectId === null) return -1;
+    return a.projectName.localeCompare(b.projectName);
+  });
+
+  return groups;
 }
 
-function StatusSection({
-  title,
-  icon,
-  items,
-  sessions,
-}: {
-  title: string;
-  icon: React.ReactNode;
-  items: TodoItem[];
-  sessions: ReturnType<typeof useWorkspace>['sessions'];
-}) {
-  if (items.length === 0) return null;
-
-  return (
-    <div>
-      <div className="flex items-center gap-1.5 mb-2">
-        {icon}
-        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</h3>
-        <span className="text-xs text-muted-foreground/60">{items.length}</span>
-      </div>
-      <div className="rounded-lg border border-border bg-card overflow-hidden divide-y divide-border">
-        {items.map((item) => {
-          const agentName = item.createdBy.replace('openagents:', '');
-          const session = sessions.find((s) => s.sessionId === item.channelName);
-          const channelTitle = session?.title || '';
-
-          return (
-            <div key={item.id} className="px-3 py-2 flex items-start gap-2.5">
-              <StatusIcon status={item.status} />
-              <div className="min-w-0 flex-1">
-                <span className={cn(
-                  'text-sm leading-snug',
-                  (item.status === 'completed' || item.status === 'cancelled') && 'line-through text-muted-foreground'
-                )}>
-                  {item.content}
-                </span>
-                {item.status === 'cancelled' && (
-                  <span className="text-[10px] text-muted-foreground/60 ml-1.5">(timed out)</span>
-                )}
-              </div>
-              <div className="flex items-center gap-2 shrink-0 pt-0.5">
-                <AgentAvatar name={agentName} size={16} />
-                {channelTitle && (
-                  <span className="text-[10px] text-muted-foreground max-w-[100px] truncate">{channelTitle}</span>
-                )}
-                <span className="text-[10px] text-muted-foreground">
-                  {timeAgo(item.updatedAt || item.createdAt)}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+// ---------------------------------------------------------------------------
+// TasksView
+// ---------------------------------------------------------------------------
 
 export function TasksView() {
-  const { todos, refreshTodos, sessions } = useWorkspace();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [filters, setFilters] = useState<TaskFilterState>({
+    projectId: null,
+    taskType: null,
+    status: null,
+    priority: null,
+  });
+
+  // Fetch tasks
+  const loadTasks = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await fetchTasks('ws-1', {
+        projectId: filters.projectId || undefined,
+        taskType: filters.taskType || undefined,
+        status: filters.status || undefined,
+        priority: filters.priority || undefined,
+      });
+      setTasks(result);
+    } catch {
+      setTasks([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters]);
 
   useEffect(() => {
-    refreshTodos();
-  }, [refreshTodos]);
+    loadTasks();
+  }, [loadTasks]);
 
-  const now = Date.now();
-  const oneDayMs = 24 * 60 * 60 * 1000;
+  // Task actions
+  const handleStatusChange = useCallback(
+    async (id: string, status: Task['status']) => {
+      const updated = await updateTask(id, { status });
+      setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)));
+    },
+    [],
+  );
 
-  const { inProgressItems, pendingItems, doneItems } = useMemo(() => {
-    const inProgress = todos
-      .filter((t) => t.status === 'in_progress')
-      .sort((a, b) => {
-        const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-        const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-        return bTime - aTime;
+  const handleCreateTask = useCallback(
+    async (data: CreateTaskData) => {
+      const tagList = data.tags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
+
+      const newTask = await createTask({
+        workspaceId: 'ws-1',
+        title: data.title,
+        description: data.description,
+        projectId: data.projectId,
+        taskType: data.taskType,
+        assigneeType: data.taskType,
+        priority: data.priority,
+        assignee: data.assignee || null,
+        dueDate: data.dueDate || null,
+        tags: tagList,
+        createdBy: 'user',
       });
+      setTasks((prev) => [newTask, ...prev]);
+    },
+    [],
+  );
 
-    const pending = todos
-      .filter((t) => t.status === 'pending')
-      .sort((a, b) => {
-        if (a.position !== b.position) return a.position - b.position;
-        const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-        const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-        return aTime - bTime;
-      });
+  // Grouped data
+  const groups = useMemo(() => groupTasksByProject(tasks), [tasks]);
 
-    const done = todos
-      .filter((t) =>
-        (t.status === 'completed' || t.status === 'cancelled') &&
-        t.updatedAt && now - new Date(t.updatedAt).getTime() < oneDayMs
-      )
-      .sort((a, b) => {
-        const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-        const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-        return bTime - aTime;
-      });
-
-    return { inProgressItems: inProgress, pendingItems: pending, doneItems: done };
-  }, [todos, now, oneDayMs]);
-
-  const totalActive = inProgressItems.length + pendingItems.length;
+  // Stats
+  const stats = useMemo(() => {
+    const active = tasks.filter(
+      (t) => t.status === 'in_progress' || t.status === 'pending',
+    ).length;
+    const humanCount = tasks.filter((t) => t.taskType === 'human').length;
+    const agentCount = tasks.filter((t) => t.taskType === 'agent').length;
+    return { active, humanCount, agentCount, total: tasks.length };
+  }, [tasks]);
 
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <ListTodo className="size-4 text-indigo-500" />
-          <h2 className="text-sm font-semibold">Tasks</h2>
-          {totalActive > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {totalActive} active{inProgressItems.length > 0 && ` · ${inProgressItems.length} in progress`}
-            </span>
-          )}
+      <div className="shrink-0 px-4 py-3 border-b border-border">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <ListTodo className="size-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">Tasks</h2>
+            {stats.total > 0 && (
+              <span className="text-xs text-muted-foreground">
+                {stats.active} active · {stats.humanCount} human · {stats.agentCount} agent
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={loadTasks}
+              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className="size-3.5" />
+            </button>
+            <button
+              onClick={() => setDialogOpen(true)}
+              className="flex items-center gap-1 h-7 px-2.5 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+            >
+              <Plus className="size-3.5" />
+              New Task
+            </button>
+          </div>
         </div>
-        <button
-          onClick={refreshTodos}
-          className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
-        >
-          <RefreshCw className="size-3.5" />
-        </button>
+
+        {/* Filters */}
+        <TaskFilters filters={filters} onChange={setFilters} />
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {todos.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
+        {loading ? (
+          <div className="flex items-center justify-center h-32">
+            <RefreshCw className="size-4 text-muted-foreground animate-spin" />
+          </div>
+        ) : tasks.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2 p-8">
             <ListTodo className="size-8 opacity-30" />
-            <p className="text-sm">No tasks yet</p>
-            <p className="text-xs opacity-60">Agent to-do lists will appear here</p>
+            <p className="text-sm">No tasks found</p>
+            <p className="text-xs opacity-60">
+              {filters.projectId || filters.taskType || filters.status || filters.priority
+                ? 'Try adjusting your filters'
+                : 'Click "New Task" to get started'}
+            </p>
           </div>
         ) : (
-          <div className="p-4 space-y-6">
-            <StatusSection
-              title="In Progress"
-              icon={<Loader2 className="size-3.5 text-blue-500 animate-spin" />}
-              items={inProgressItems}
-
-              sessions={sessions}
-            />
-            <StatusSection
-              title="Pending"
-              icon={<Circle className="size-3.5 text-zinc-400" />}
-              items={pendingItems}
-
-              sessions={sessions}
-            />
-            <StatusSection
-              title="Completed"
-              icon={<CheckCircle2 className="size-3.5 text-emerald-500" />}
-              items={doneItems}
-
-              sessions={sessions}
-            />
+          <div className="p-4 space-y-4">
+            {groups.map((group) => (
+              <div key={group.projectId || '__unassigned'}>
+                {group.projectId === null ? (
+                  /* Unassigned section */
+                  <div className="border border-border rounded-lg overflow-hidden bg-card">
+                    <div className="flex items-center gap-2 px-3 py-2.5">
+                      <Bookmark className="size-3.5 text-muted-foreground" />
+                      <span className="text-sm font-medium text-foreground">
+                        Unassigned
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {group.humanTasks.length + group.agentTasks.length}
+                      </span>
+                    </div>
+                    <div className="divide-y divide-border border-t border-border">
+                      {[...group.humanTasks, ...group.agentTasks].map((task) => (
+                        <TaskCard
+                          key={task.id}
+                          task={task}
+                          onStatusChange={handleStatusChange}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <ProjectSection
+                    projectName={group.projectName}
+                    humanTasks={group.humanTasks}
+                    agentTasks={group.agentTasks}
+                    onStatusChange={handleStatusChange}
+                  />
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>
+
+      {/* Create dialog */}
+      <CreateTaskDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onSubmit={handleCreateTask}
+      />
     </div>
   );
 }

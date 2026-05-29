@@ -8,6 +8,7 @@
     "start": "next start -p 3000"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.106.2",
     "@tanstack/react-virtual": "^3.13.23",
     "boring-avatars": "^2.0.4",
     "class-variance-authority": "^0.7.1",
