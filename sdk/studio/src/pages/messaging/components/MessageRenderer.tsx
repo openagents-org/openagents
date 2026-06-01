@@ -100,6 +100,9 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
   const [submittingActionKey, setSubmittingActionKey] = useState<string | null>(
     null
   )
+  const [completedActionsByMessageId, setCompletedActionsByMessageId] = useState<
+    Record<string, string>
+  >({})
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Remove auto-scroll logic from MessageRenderer - MessagingView handles this
@@ -250,6 +253,10 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
       setSubmittingActionKey(actionKey)
       try {
         await onMessageAction(message, action, {})
+        setCompletedActionsByMessageId((current) => ({
+          ...current,
+          [message.id]: action.id,
+        }))
       } finally {
         setSubmittingActionKey(null)
       }
@@ -287,6 +294,10 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         pendingAction.action,
         actionInputValues
       )
+      setCompletedActionsByMessageId((current) => ({
+        ...current,
+        [pendingAction.message.id]: pendingAction.action.id,
+      }))
       setPendingAction(null)
       setActionInputValues({})
       setActionInputError(null)
@@ -405,6 +416,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
               type="button"
               variant="outline"
               size="sm"
+              disabled={Boolean(submittingActionKey)}
               onClick={() => {
                 setPendingAction(null)
                 setActionInputValues({})
@@ -413,7 +425,12 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
             >
               Cancel
             </Button>
-            <Button type="button" size="sm" onClick={submitPendingAction}>
+            <Button
+              type="button"
+              size="sm"
+              disabled={Boolean(submittingActionKey)}
+              onClick={submitPendingAction}
+            >
               {submittingActionKey ===
               `${pendingAction.message.id}:${pendingAction.action.id}`
                 ? "Submitting..."
@@ -468,9 +485,14 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
   }
 
   const renderMessageActions = (message: UnifiedMessage, actions?: MessageAction[]) => {
-    const renderableActions = actions?.filter(
-      (action) => (action.type === "link" && action.href) || onMessageAction
-    )
+    const completedActionId = completedActionsByMessageId[message.id]
+    const renderableActions = actions
+      ?.filter(
+        (action) => (action.type === "link" && action.href) || onMessageAction
+      )
+      .filter(
+        (action) => !completedActionId || action.id === completedActionId
+      )
     if (!renderableActions || renderableActions.length === 0) return null
     return (
       <div className="mt-3 flex flex-wrap gap-2">
@@ -479,13 +501,22 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
           const isPrimary = action.style === "primary"
           const actionKey = `${message.id}:${action.id}`
           const isSubmitting = submittingActionKey === actionKey
+          const isCompleted = completedActionId === action.id
           return (
             <Button
               key={action.id}
               type="button"
-              variant={isDanger ? "destructive" : isPrimary ? "primary" : "outline"}
+              variant={
+                isCompleted
+                  ? "outline"
+                  : isDanger
+                    ? "destructive"
+                    : isPrimary
+                      ? "primary"
+                      : "outline"
+              }
               size="sm"
-              disabled={Boolean(submittingActionKey)}
+              disabled={Boolean(submittingActionKey) || isCompleted}
               onClick={() => handleMessageAction(message, action)}
             >
               {isSubmitting ? "Submitting..." : action.label}
