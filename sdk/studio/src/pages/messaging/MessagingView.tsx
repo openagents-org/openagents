@@ -593,14 +593,24 @@ const ThreadMessagingViewEventBased: React.FC = () => {
 
         if (!response?.success) {
           toast.error(response?.message || "Failed to submit action response.")
+          throw new Error(response?.message || "Failed to submit action response.")
         }
+        toast.success(`Submitted: ${action.label}`)
+        await loadChannelMessages(currentChannel)
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Failed to submit action response."
         toast.error(message)
+        throw error
       }
     },
-    [agentName, connectionStatus.agentId, connector, currentChannel]
+    [
+      agentName,
+      connectionStatus.agentId,
+      connector,
+      currentChannel,
+      loadChannelMessages,
+    ]
   )
 
   // Handle reply and quote actions

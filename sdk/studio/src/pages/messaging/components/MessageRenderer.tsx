@@ -59,7 +59,7 @@ interface MessageRendererProps {
     message: UnifiedMessage,
     action: MessageAction,
     values: Record<string, any>
-  ) => void
+  ) => void | Promise<void>
   // Network connection details for attachment downloads
   networkHost?: string
   networkPort?: number
@@ -97,6 +97,9 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
     {}
   )
   const [actionInputError, setActionInputError] = useState<string | null>(null)
+  const [submittingActionKey, setSubmittingActionKey] = useState<string | null>(
+    null
+  )
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Remove auto-scroll logic from MessageRenderer - MessagingView handles this
@@ -221,7 +224,10 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
     setCollapsedThreads(newCollapsed)
   }
 
-  const handleMessageAction = (message: UnifiedMessage, action: MessageAction) => {
+  const handleMessageAction = async (
+    message: UnifiedMessage,
+    action: MessageAction
+  ) => {
     if (action.type === "link" && action.href) {
       window.open(action.href, "_blank", "noopener,noreferrer")
       return
@@ -240,7 +246,13 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
       return
     }
     if (onMessageAction) {
-      onMessageAction(message, action, {})
+      const actionKey = `${message.id}:${action.id}`
+      setSubmittingActionKey(actionKey)
+      try {
+        await onMessageAction(message, action, {})
+      } finally {
+        setSubmittingActionKey(null)
+      }
     }
   }
 
@@ -252,7 +264,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
     setActionInputError(null)
   }
 
-  const submitPendingAction = () => {
+  const submitPendingAction = async () => {
     if (!pendingAction || !onMessageAction) return
 
     for (const requirement of pendingAction.action.requires || []) {
@@ -267,14 +279,20 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
       }
     }
 
-    onMessageAction(
-      pendingAction.message,
-      pendingAction.action,
-      actionInputValues
-    )
-    setPendingAction(null)
-    setActionInputValues({})
-    setActionInputError(null)
+    const actionKey = `${pendingAction.message.id}:${pendingAction.action.id}`
+    setSubmittingActionKey(actionKey)
+    try {
+      await onMessageAction(
+        pendingAction.message,
+        pendingAction.action,
+        actionInputValues
+      )
+      setPendingAction(null)
+      setActionInputValues({})
+      setActionInputError(null)
+    } finally {
+      setSubmittingActionKey(null)
+    }
   }
 
   const renderActionRequirementInput = (
@@ -396,7 +414,10 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
               Cancel
             </Button>
             <Button type="button" size="sm" onClick={submitPendingAction}>
-              Submit
+              {submittingActionKey ===
+              `${pendingAction.message.id}:${pendingAction.action.id}`
+                ? "Submitting..."
+                : "Submit"}
             </Button>
           </div>
         </div>
@@ -456,15 +477,18 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         {renderableActions.map((action) => {
           const isDanger = action.style === "danger"
           const isPrimary = action.style === "primary"
+          const actionKey = `${message.id}:${action.id}`
+          const isSubmitting = submittingActionKey === actionKey
           return (
             <Button
               key={action.id}
               type="button"
               variant={isDanger ? "destructive" : isPrimary ? "primary" : "outline"}
               size="sm"
+              disabled={Boolean(submittingActionKey)}
               onClick={() => handleMessageAction(message, action)}
             >
-              {action.label}
+              {isSubmitting ? "Submitting..." : action.label}
             </Button>
           )
         })}
@@ -582,6 +606,20 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
                 />
               )}
             {renderMessageEmbeds(messageProps.embeds)}
+            {renderMessageActions(
+              {
+                id: messageProps.id,
+                senderId: messageProps.senderId,
+                timestamp: messageProps.timestamp,
+                content: messageProps.content,
+                embeds: messageProps.embeds,
+                actions: messageProps.actions,
+                replyToId: messageProps.replyToId,
+                reactions: messageProps.reactions,
+                attachments: messageProps.attachments,
+              } as UnifiedMessage,
+              messageProps.actions
+            )}
           </div>
 
           {/* Reaction display */}
