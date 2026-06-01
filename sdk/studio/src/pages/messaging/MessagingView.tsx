@@ -570,28 +570,34 @@ const ThreadMessagingViewEventBased: React.FC = () => {
         ...values,
       }).map(([key, value]) => `${key}: ${String(value)}`)
 
-      const response = await connector.sendEvent({
-        event_name: EventNames.THREAD_CHANNEL_MESSAGE_POST,
-        source_id: connectionStatus.agentId || agentName,
-        destination_id: `channel:${currentChannel}`,
-        payload: {
-          channel: currentChannel,
-          content: {
-            text: [
-              `Action response: ${action.label}`,
-              `source_message_id: ${message.id}`,
-              `action_id: ${action.id}`,
-              ...detailLines,
-            ].join("\n"),
-            schema: "openagents.message.v1",
-            action_response: actionResponse,
+      try {
+        const response = await connector.sendEvent({
+          event_name: EventNames.THREAD_CHANNEL_MESSAGE_POST,
+          source_id: connectionStatus.agentId || agentName,
+          destination_id: `channel:${currentChannel}`,
+          payload: {
+            channel: currentChannel,
+            content: {
+              text: [
+                `Action response: ${action.label}`,
+                `source_message_id: ${message.id}`,
+                `action_id: ${action.id}`,
+                ...detailLines,
+              ].join("\n"),
+              schema: "openagents.message.v1",
+              action_response: actionResponse,
+            },
+            message_type: "channel_message",
           },
-          message_type: "channel_message",
-        },
-      })
+        })
 
-      if (!response?.success) {
-        toast.error(response?.message || "Failed to submit action response.")
+        if (!response?.success) {
+          toast.error(response?.message || "Failed to submit action response.")
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to submit action response."
+        toast.error(message)
       }
     },
     [agentName, connectionStatus.agentId, connector, currentChannel]

@@ -217,7 +217,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
     const values: Record<string, any> = {}
     for (const requirement of action.requires || []) {
       if (requirement.type === "boolean") {
-        values[requirement.name] = true
+        values[requirement.name] = window.confirm(requirement.label || requirement.name)
         continue
       }
       const label = requirement.label || requirement.name
@@ -239,7 +239,9 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
     if (values === null) {
       return
     }
-    onMessageAction?.(message, action, values)
+    if (onMessageAction) {
+      onMessageAction(message, action, values)
+    }
   }
 
   const renderMessageEmbeds = (embeds?: MessageEmbed[]) => {
@@ -285,10 +287,13 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
   }
 
   const renderMessageActions = (message: UnifiedMessage, actions?: MessageAction[]) => {
-    if (!actions || actions.length === 0 || !onMessageAction) return null
+    const renderableActions = actions?.filter(
+      (action) => (action.type === "link" && action.href) || onMessageAction
+    )
+    if (!renderableActions || renderableActions.length === 0) return null
     return (
       <div className="mt-3 flex flex-wrap gap-2">
-        {actions.map((action) => {
+        {renderableActions.map((action) => {
           const isDanger = action.style === "danger"
           const isPrimary = action.style === "primary"
           return (

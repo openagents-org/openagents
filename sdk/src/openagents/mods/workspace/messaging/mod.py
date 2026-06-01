@@ -2258,15 +2258,17 @@ class ThreadMessagingNetworkMod(BaseMod):
             return ""
 
     def _extract_content_from_event(self, event: Event) -> Dict[str, Any]:
-        """Extract full content (text and files) from an Event object's payload.
+        """Extract message content from an Event object's payload.
 
-        This handles the nested content structure: payload.content
+        This preserves all fields in the nested payload.content mapping, such
+        as text, files, schema, embeds, actions, and custom extension fields,
+        while ensuring the returned dict always has a text key.
 
         Args:
             event: The Event object to extract content from
 
         Returns:
-            Dict with text and optionally files
+            Dict containing all payload.content fields plus a guaranteed text field
         """
         if not event or not event.payload:
             return {"text": ""}

@@ -4,6 +4,8 @@
  */
 
 // Unified message type - for internal frontend use
+type ExtensibleString<T extends string> = T | (string & {});
+
 export interface MessageEmbed {
   id?: string;
   type: string;
@@ -19,7 +21,7 @@ export interface MessageEmbed {
 
 export interface MessageActionInput {
   name: string;
-  type: 'text' | 'textarea' | 'number' | 'boolean' | 'select' | string;
+  type: ExtensibleString<'text' | 'textarea' | 'number' | 'boolean' | 'select'>;
   label?: string;
   required?: boolean;
   options?: Array<{
@@ -30,9 +32,9 @@ export interface MessageActionInput {
 
 export interface MessageAction {
   id: string;
-  type: 'submit' | 'link' | string;
+  type: ExtensibleString<'submit' | 'link'>;
   label: string;
-  style?: 'primary' | 'secondary' | 'danger' | string;
+  style?: ExtensibleString<'primary' | 'secondary' | 'danger'>;
   href?: string;
   value?: Record<string, any>;
   requires?: MessageActionInput[];
@@ -135,10 +137,15 @@ export class MessageAdapter {
    * Convert RawThreadMessage to UnifiedMessage
    */
   static fromRawThreadMessage(raw: RawThreadMessage): UnifiedMessage {
+    const isDirectMessage = raw?.payload?.message_type === 'direct_message';
+    const rawContent = isDirectMessage ? raw.payload?.content : raw.content;
+    const contentObject =
+      rawContent && typeof rawContent === 'object' ? rawContent as Record<string, any> : undefined;
+
     // Extract files from content.files
     const attachments: UnifiedMessage['attachments'] =
-      raw.content && typeof raw.content === 'object' && raw.content.files
-        ? raw.content.files.map((f: any) => ({
+      contentObject?.files
+        ? contentObject.files.map((f: any) => ({
             fileId: f.file_id,
             filename: f.filename,
             size: f.size,
@@ -147,36 +154,31 @@ export class MessageAdapter {
           }))
         : undefined;
 
-    const isDirectMessage = raw?.payload?.message_type === 'direct_message';
-
     // Handle different content formats
     let content = '';
-    if (raw.content) {
-      if (typeof raw.content === 'string') {
+    if (rawContent) {
+      if (typeof rawContent === 'string') {
         // content is a string
-        content = raw.content;
-      } else if (typeof raw.content === 'object' && raw.content.text !== undefined) {
+        content = rawContent;
+      } else if (typeof rawContent === 'object' && rawContent.text !== undefined) {
         // content is an object with text field (even if text is empty string it's valid)
-        content = raw.content.text;
-      } else if (typeof raw.content === 'object') {
+        content = rawContent.text;
+      } else if (typeof rawContent === 'object') {
         // content is an object but without text field, try other fields or convert
-        console.warn('MessageAdapter: Content object missing text field:', raw.content);
-        content = raw.content.message || raw.content.value || String(raw.content);
+        console.warn('MessageAdapter: Content object missing text field:', rawContent);
+        content = rawContent.message || rawContent.value || String(rawContent);
       } else {
         // Other cases, try to convert to string
-        console.warn('MessageAdapter: Unexpected content format:', raw.content);
-        content = String(raw.content);
+        console.warn('MessageAdapter: Unexpected content format:', rawContent);
+        content = String(rawContent);
       }
     }
-
-    const contentObject =
-      raw.content && typeof raw.content === 'object' ? raw.content as Record<string, any> : undefined;
 
     return {
       id: (isDirectMessage ? raw.event_id : raw.message_id) || '',
       senderId: (isDirectMessage ? raw.source_id : raw.sender_id) || '',
       timestamp: raw.timestamp, // 10 digits vs 13 digits,
-      content: isDirectMessage ? raw.payload.content.text : content,
+      content,
       schema: contentObject?.schema,
       embeds: Array.isArray(contentObject?.embeds) ? contentObject.embeds : undefined,
       actions: Array.isArray(contentObject?.actions) ? contentObject.actions : undefined,
