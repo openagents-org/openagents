@@ -76,6 +76,9 @@ export interface ThreadMessage {
   timestamp: string;
   content: {
     text: string;
+    schema?: string;
+    embeds?: Array<Record<string, any>>;
+    actions?: Array<Record<string, any>>;
     files?: Array<{
       file_id: string;
       filename: string;

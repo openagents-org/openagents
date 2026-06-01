@@ -22,6 +22,8 @@ import {
   extractProjectIdFromChannel,
 } from "@/utils/projectUtils"
 import ProjectChatRoom from "./components/ProjectChatRoom"
+import { EventNames } from "@/types/events"
+import { MessageAction, UnifiedMessage } from "@/types/message"
 
 const ThreadMessagingViewEventBased: React.FC = () => {
   const { t } = useTranslation("messaging")
@@ -544,6 +546,57 @@ const ThreadMessagingViewEventBased: React.FC = () => {
     ]
   )
 
+  const handleMessageAction = useCallback(
+    async (
+      message: UnifiedMessage,
+      action: MessageAction,
+      values: Record<string, any>
+    ) => {
+      if (!currentChannel || !connector) {
+        toast.error("Action responses are only available in channels.")
+        return
+      }
+
+      const actionResponse = {
+        source_message_id: message.id,
+        source_message_sender: message.senderId,
+        action_id: action.id,
+        action_label: action.label,
+        value: action.value || {},
+        inputs: values,
+      }
+      const detailLines = Object.entries({
+        ...(action.value || {}),
+        ...values,
+      }).map(([key, value]) => `${key}: ${String(value)}`)
+
+      const response = await connector.sendEvent({
+        event_name: EventNames.THREAD_CHANNEL_MESSAGE_POST,
+        source_id: connectionStatus.agentId || agentName,
+        destination_id: `channel:${currentChannel}`,
+        payload: {
+          channel: currentChannel,
+          content: {
+            text: [
+              `Action response: ${action.label}`,
+              `source_message_id: ${message.id}`,
+              `action_id: ${action.id}`,
+              ...detailLines,
+            ].join("\n"),
+            schema: "openagents.message.v1",
+            action_response: actionResponse,
+          },
+          message_type: "channel_message",
+        },
+      })
+
+      if (!response?.success) {
+        toast.error(response?.message || "Failed to submit action response.")
+      }
+    },
+    [agentName, connectionStatus.agentId, connector, currentChannel]
+  )
+
   // Handle reply and quote actions
   const startReply = useCallback(
     (messageId: string, text: string, author: string) => {
@@ -894,6 +947,7 @@ const ThreadMessagingViewEventBased: React.FC = () => {
                   isDMChat={!!currentDirectMessage}
                   disableReactions={isProjectChannelActive}
                   disableQuotes={isProjectChannelActive}
+                  onMessageAction={handleMessageAction}
                   networkHost={connector?.getHost()}
                   networkPort={connector?.getPort()}
                   agentSecret={connector?.getSecret()}

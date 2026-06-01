@@ -2274,12 +2274,8 @@ class ThreadMessagingNetworkMod(BaseMod):
         # Handle nested content structure (payload.content)
         if "content" in event.payload and isinstance(event.payload["content"], dict):
             content = event.payload["content"]
-            result = {"text": content.get("text", "")}
-
-            # Include files if present
-            if "files" in content and content["files"]:
-                result["files"] = content["files"]
-
+            result = dict(content)
+            result["text"] = result.get("text", "")
             return result
         else:
             return {"text": ""}

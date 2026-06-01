@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useRef } from "react"
-import { UnifiedMessage } from "@/types/message"
+import { MessageAction, MessageEmbed, UnifiedMessage } from "@/types/message"
 import { ThreadMessage } from "@/types/events"
 import {
   formatRelativeTimestamp,
@@ -55,6 +55,11 @@ interface MessageRendererProps {
   disableReactions?: boolean
   // Whether to disable quote features (for project channel)
   disableQuotes?: boolean
+  onMessageAction?: (
+    message: UnifiedMessage,
+    action: MessageAction,
+    values: Record<string, any>
+  ) => void
   // Network connection details for attachment downloads
   networkHost?: string
   networkPort?: number
@@ -72,6 +77,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
   isDMChat = false,
   disableReactions = false,
   disableQuotes = false,
+  onMessageAction,
   networkHost,
   networkPort,
   agentSecret,
@@ -106,6 +112,8 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         senderId: threadMsg.sender_id,
         timestamp: threadMsg.timestamp,
         content: threadMsg.content?.text || "",
+        embeds: threadMsg.content?.embeds || [],
+        actions: threadMsg.content?.actions || [],
         replyToId: threadMsg.reply_to_id,
         reactions: threadMsg.reactions,
         attachments,
@@ -118,6 +126,8 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         senderId: unifiedMsg.senderId,
         timestamp: unifiedMsg.timestamp,
         content: unifiedMsg.content,
+        embeds: unifiedMsg.embeds || [],
+        actions: unifiedMsg.actions || [],
         replyToId: unifiedMsg.replyToId,
         reactions: unifiedMsg.reactions,
         attachments: unifiedMsg.attachments,
@@ -201,6 +211,99 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
       newCollapsed.add(messageId)
     }
     setCollapsedThreads(newCollapsed)
+  }
+
+  const collectActionValues = (action: MessageAction): Record<string, any> | null => {
+    const values: Record<string, any> = {}
+    for (const requirement of action.requires || []) {
+      if (requirement.type === "boolean") {
+        values[requirement.name] = true
+        continue
+      }
+      const label = requirement.label || requirement.name
+      const value = window.prompt(label)
+      if (requirement.required && (!value || !value.trim())) {
+        return null
+      }
+      values[requirement.name] = value || ""
+    }
+    return values
+  }
+
+  const handleMessageAction = (message: UnifiedMessage, action: MessageAction) => {
+    if (action.type === "link" && action.href) {
+      window.open(action.href, "_blank", "noopener,noreferrer")
+      return
+    }
+    const values = collectActionValues(action)
+    if (values === null) {
+      return
+    }
+    onMessageAction?.(message, action, values)
+  }
+
+  const renderMessageEmbeds = (embeds?: MessageEmbed[]) => {
+    if (!embeds || embeds.length === 0) return null
+    return (
+      <div className="mt-3 space-y-2">
+        {embeds.map((embed, index) => (
+          <div
+            key={embed.id || `${embed.type}-${index}`}
+            className="rounded-lg border border-slate-200 bg-white/70 p-3 text-sm dark:border-slate-700 dark:bg-slate-900/50"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-medium text-slate-900 dark:text-slate-100">
+                {embed.title || embed.type}
+              </div>
+              <div className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                {embed.type}
+              </div>
+            </div>
+            {embed.body && (
+              <div className="mt-2 text-slate-700 dark:text-slate-300">
+                <MarkdownContent content={embed.body} />
+              </div>
+            )}
+            {embed.fields && embed.fields.length > 0 && (
+              <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+                {embed.fields.map((field, fieldIndex) => (
+                  <div key={`${field.label}-${fieldIndex}`}>
+                    <dt className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {field.label}
+                    </dt>
+                    <dd className="text-sm text-slate-800 dark:text-slate-200">
+                      {field.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const renderMessageActions = (message: UnifiedMessage, actions?: MessageAction[]) => {
+    if (!actions || actions.length === 0 || !onMessageAction) return null
+    return (
+      <div className="mt-3 flex flex-wrap gap-2">
+        {actions.map((action) => {
+          const isDanger = action.style === "danger"
+          const isPrimary = action.style === "primary"
+          return (
+            <Button
+              key={action.id}
+              variant={isDanger ? "destructive" : isPrimary ? "primary" : "outline"}
+              size="sm"
+              onClick={() => handleMessageAction(message, action)}
+            >
+              {action.label}
+            </Button>
+          )
+        })}
+      </div>
+    )
   }
 
   // For compatibility with old ThreadMessage format, need to build thread structure
@@ -312,6 +415,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
                   agentSecret={agentSecret}
                 />
               )}
+            {renderMessageEmbeds(messageProps.embeds)}
           </div>
 
           {/* Reaction display */}
@@ -510,6 +614,8 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
                 agentSecret={agentSecret}
               />
             )}
+            {renderMessageEmbeds(message.embeds)}
+            {renderMessageActions(message, message.actions)}
           </div>
 
           {/* Reaction display */}

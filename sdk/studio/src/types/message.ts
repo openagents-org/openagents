@@ -4,12 +4,51 @@
  */
 
 // Unified message type - for internal frontend use
+export interface MessageEmbed {
+  id?: string;
+  type: string;
+  title?: string;
+  body?: string;
+  fields?: Array<{
+    label: string;
+    value: string;
+  }>;
+  data?: Record<string, any>;
+  [key: string]: any;
+}
+
+export interface MessageActionInput {
+  name: string;
+  type: 'text' | 'textarea' | 'number' | 'boolean' | 'select' | string;
+  label?: string;
+  required?: boolean;
+  options?: Array<{
+    label: string;
+    value: string;
+  }>;
+}
+
+export interface MessageAction {
+  id: string;
+  type: 'submit' | 'link' | string;
+  label: string;
+  style?: 'primary' | 'secondary' | 'danger' | string;
+  href?: string;
+  value?: Record<string, any>;
+  requires?: MessageActionInput[];
+  [key: string]: any;
+}
+
 export interface UnifiedMessage {
   // Basic information
   id: string;
   senderId: string;
   timestamp: string;
   content: string;
+  schema?: string;
+  embeds?: MessageEmbed[];
+  actions?: MessageAction[];
+  rawContent?: Record<string, any>;
 
   // Message type
   type: 'direct_message' | 'channel_message' | 'reply_message';
@@ -59,6 +98,9 @@ export interface RawThreadMessage {
   timestamp: string;
   content: {
     text: string;
+    schema?: string;
+    embeds?: MessageEmbed[];
+    actions?: MessageAction[];
     files?: Array<{
       file_id: string;
       filename: string;
@@ -127,11 +169,18 @@ export class MessageAdapter {
       }
     }
 
+    const contentObject =
+      raw.content && typeof raw.content === 'object' ? raw.content as Record<string, any> : undefined;
+
     return {
       id: (isDirectMessage ? raw.event_id : raw.message_id) || '',
       senderId: (isDirectMessage ? raw.source_id : raw.sender_id) || '',
       timestamp: raw.timestamp, // 10 digits vs 13 digits,
       content: isDirectMessage ? raw.payload.content.text : content,
+      schema: contentObject?.schema,
+      embeds: Array.isArray(contentObject?.embeds) ? contentObject.embeds : undefined,
+      actions: Array.isArray(contentObject?.actions) ? contentObject.actions : undefined,
+      rawContent: contentObject,
       type: isDirectMessage ? raw.payload.message_type : raw.message_type,
       channel: isDirectMessage ? '' : raw.channel,
       targetUserId: isDirectMessage ? raw.payload.target_agent_id : raw.target_agent_id,

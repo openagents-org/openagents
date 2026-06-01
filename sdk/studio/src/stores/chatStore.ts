@@ -2264,6 +2264,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
 
         if (messageData.channel && messageData.content) {
+          const contentObject =
+            typeof messageData.content === "object" ? messageData.content : undefined;
           // Construct unified message format
           const unifiedMessage: UnifiedMessage = {
             id:
@@ -2277,6 +2279,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 : messageData.content.text || "",
             type: messageData.message_type,
             channel: messageData.channel,
+            schema: contentObject?.schema,
+            embeds: Array.isArray(contentObject?.embeds)
+              ? contentObject.embeds
+              : undefined,
+            actions: Array.isArray(contentObject?.actions)
+              ? contentObject.actions
+              : undefined,
+            rawContent: contentObject,
             replyToId: messageData.reply_to_id || event.reply_to_id,
             threadLevel: messageData.thread_level || 1,
             reactions: messageData.reactions,
@@ -2367,6 +2377,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const projectId = messageData.project_id;
         const senderId = messageData.sender_id;
         const content = messageData.content;
+        const contentObject =
+          typeof content === "object" ? content : undefined;
         
         if (projectId && content) {
           // Find the project channel
@@ -2392,6 +2404,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
               content: messageText,
               type: "channel_message",
               channel: projectChannel,
+              schema: contentObject?.schema,
+              embeds: Array.isArray(contentObject?.embeds)
+                ? contentObject.embeds
+                : undefined,
+              actions: Array.isArray(contentObject?.actions)
+                ? contentObject.actions
+                : undefined,
+              rawContent: contentObject,
               replyToId: messageData.reply_to_id,
             };
             
@@ -2425,6 +2445,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         });
 
         if (messageData.channel && messageData.content) {
+          const contentObject =
+            typeof messageData.content === "object" ? messageData.content : undefined;
           // Construct unified message format
           // Fix: use correct sender ID - event.source_id or event.sender_id is the actual reply author
           // messageData.original_sender refers to the original author of the replied message, not the reply sender
@@ -2440,6 +2462,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 : messageData.content.text || "",
             type: messageData.message_type,
             channel: messageData.channel,
+            schema: contentObject?.schema,
+            embeds: Array.isArray(contentObject?.embeds)
+              ? contentObject.embeds
+              : undefined,
+            actions: Array.isArray(contentObject?.actions)
+              ? contentObject.actions
+              : undefined,
+            rawContent: contentObject,
             replyToId: messageData.reply_to_id,
             threadLevel: messageData.thread_level || 1,
             reactions: messageData.reactions,
@@ -2581,6 +2611,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         // Construct unified message format if content exists
         if (content || messageData.content) {
+          const contentObject =
+            typeof messageData.content === "object" ? messageData.content : undefined;
           // Format timestamp: convert Unix timestamp to ISO string if needed
           let timestampStr = "";
           if (event.timestamp) {
@@ -2605,6 +2637,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
             timestamp: timestampStr,
             content: content,
             type: messageData.message_type || "direct_message",
+            schema: contentObject?.schema,
+            embeds: Array.isArray(contentObject?.embeds)
+              ? contentObject.embeds
+              : undefined,
+            actions: Array.isArray(contentObject?.actions)
+              ? contentObject.actions
+              : undefined,
+            rawContent: contentObject,
             targetUserId: messageData.target_agent_id,
             reactions: messageData.reactions,
           };
