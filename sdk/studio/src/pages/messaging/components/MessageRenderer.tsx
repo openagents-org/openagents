@@ -89,6 +89,14 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(
     new Set()
   )
+  const [pendingAction, setPendingAction] = useState<{
+    message: UnifiedMessage
+    action: MessageAction
+  } | null>(null)
+  const [actionInputValues, setActionInputValues] = useState<Record<string, any>>(
+    {}
+  )
+  const [actionInputError, setActionInputError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Remove auto-scroll logic from MessageRenderer - MessagingView handles this
@@ -213,35 +221,187 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
     setCollapsedThreads(newCollapsed)
   }
 
-  const collectActionValues = (action: MessageAction): Record<string, any> | null => {
-    const values: Record<string, any> = {}
-    for (const requirement of action.requires || []) {
-      if (requirement.type === "boolean") {
-        values[requirement.name] = window.confirm(requirement.label || requirement.name)
-        continue
-      }
-      const label = requirement.label || requirement.name
-      const value = window.prompt(label)
-      if (requirement.required && (!value || !value.trim())) {
-        return null
-      }
-      values[requirement.name] = value || ""
-    }
-    return values
-  }
-
   const handleMessageAction = (message: UnifiedMessage, action: MessageAction) => {
     if (action.type === "link" && action.href) {
       window.open(action.href, "_blank", "noopener,noreferrer")
       return
     }
-    const values = collectActionValues(action)
-    if (values === null) {
+    if (action.requires && action.requires.length > 0) {
+      const initialValues = action.requires.reduce<Record<string, any>>(
+        (values, requirement) => {
+          values[requirement.name] = requirement.type === "boolean" ? false : ""
+          return values
+        },
+        {}
+      )
+      setActionInputValues(initialValues)
+      setActionInputError(null)
+      setPendingAction({ message, action })
       return
     }
     if (onMessageAction) {
-      onMessageAction(message, action, values)
+      onMessageAction(message, action, {})
     }
+  }
+
+  const updateActionInputValue = (name: string, value: any) => {
+    setActionInputValues((current) => ({
+      ...current,
+      [name]: value,
+    }))
+    setActionInputError(null)
+  }
+
+  const submitPendingAction = () => {
+    if (!pendingAction || !onMessageAction) return
+
+    for (const requirement of pendingAction.action.requires || []) {
+      const value = actionInputValues[requirement.name]
+      const isEmpty =
+        value === undefined ||
+        value === null ||
+        (typeof value === "string" && value.trim() === "")
+      if (requirement.required && isEmpty) {
+        setActionInputError(`${requirement.label || requirement.name} is required.`)
+        return
+      }
+    }
+
+    onMessageAction(
+      pendingAction.message,
+      pendingAction.action,
+      actionInputValues
+    )
+    setPendingAction(null)
+    setActionInputValues({})
+    setActionInputError(null)
+  }
+
+  const renderActionRequirementInput = (
+    requirement: NonNullable<MessageAction["requires"]>[number]
+  ) => {
+    const value = actionInputValues[requirement.name]
+    const label = requirement.label || requirement.name
+    const id = `message-action-${pendingAction?.action.id}-${requirement.name}`
+
+    if (requirement.type === "textarea") {
+      return (
+        <textarea
+          id={id}
+          value={value || ""}
+          onChange={(event) =>
+            updateActionInputValue(requirement.name, event.target.value)
+          }
+          className="min-h-24 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+        />
+      )
+    }
+
+    if (requirement.type === "boolean") {
+      return (
+        <input
+          id={id}
+          type="checkbox"
+          checked={Boolean(value)}
+          onChange={(event) =>
+            updateActionInputValue(requirement.name, event.target.checked)
+          }
+          className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+        />
+      )
+    }
+
+    if (requirement.type === "select") {
+      return (
+        <select
+          id={id}
+          value={value || ""}
+          onChange={(event) =>
+            updateActionInputValue(requirement.name, event.target.value)
+          }
+          className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+        >
+          <option value="">Select {label}</option>
+          {(requirement.options || []).map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      )
+    }
+
+    return (
+      <input
+        id={id}
+        type={requirement.type === "number" ? "number" : "text"}
+        value={value || ""}
+        onChange={(event) =>
+          updateActionInputValue(
+            requirement.name,
+            requirement.type === "number"
+              ? event.target.valueAsNumber
+              : event.target.value
+          )
+        }
+        className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+      />
+    )
+  }
+
+  const renderActionInputDialog = () => {
+    if (!pendingAction) return null
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+          <div className="text-base font-semibold text-slate-900 dark:text-slate-100">
+            {pendingAction.action.label}
+          </div>
+          <div className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+            Provide the required details before submitting this action.
+          </div>
+          <div className="mt-4 space-y-3">
+            {(pendingAction.action.requires || []).map((requirement) => (
+              <div key={requirement.name} className="space-y-1.5">
+                <label
+                  htmlFor={`message-action-${pendingAction.action.id}-${requirement.name}`}
+                  className="block text-sm font-medium text-slate-700 dark:text-slate-300"
+                >
+                  {requirement.label || requirement.name}
+                  {requirement.required && (
+                    <span className="ml-1 text-red-500">*</span>
+                  )}
+                </label>
+                {renderActionRequirementInput(requirement)}
+              </div>
+            ))}
+          </div>
+          {actionInputError && (
+            <div className="mt-3 text-sm text-red-600 dark:text-red-400">
+              {actionInputError}
+            </div>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setPendingAction(null)
+                setActionInputValues({})
+                setActionInputError(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="button" size="sm" onClick={submitPendingAction}>
+              Submit
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   const renderMessageEmbeds = (embeds?: MessageEmbed[]) => {
@@ -299,6 +459,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
           return (
             <Button
               key={action.id}
+              type="button"
               variant={isDanger ? "destructive" : isPrimary ? "primary" : "outline"}
               size="sm"
               onClick={() => handleMessageAction(message, action)}
@@ -810,6 +971,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
         {rootMessageIds.map((messageId, index) =>
           renderThreadMessage(messageId, structure, 0, index)
         )}
+        {renderActionInputDialog()}
         <div ref={messagesEndRef} />
       </div>
     )
@@ -825,6 +987,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
           {unifiedMessages.map((message, index) =>
             renderUnifiedMessage(message, 0, undefined, index)
           )}
+          {renderActionInputDialog()}
           <div ref={messagesEndRef} />
         </div>
       )
@@ -838,6 +1001,7 @@ const MessageRenderer: React.FC<MessageRendererProps> = ({
           {messageTree.map((node, index) =>
             renderUnifiedMessage(node.message, 0, node.children, index)
           )}
+          {renderActionInputDialog()}
           <div ref={messagesEndRef} />
         </div>
       )
