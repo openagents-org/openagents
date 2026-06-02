@@ -3139,7 +3139,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     // If already has selection, skip default selection
-    if (state.currentChannel || state.currentDirectMessage) {
+    if (
+      state.currentChannel ||
+      state.currentDirectMessage ||
+      state.currentAgentConversation
+    ) {
       console.log(
         "ChatStore: Already has selection, skipping default initialization"
       );
