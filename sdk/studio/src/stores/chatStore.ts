@@ -27,6 +27,21 @@ const structuredMessageFields = (content: any) => {
   };
 };
 
+const activeAgentConversationKeyForTarget = (
+  currentAgentConversation: string | null,
+  currentAgentId: string | undefined,
+  targetAgentId: string | undefined
+): string | null => {
+  if (!currentAgentConversation || !currentAgentId || !targetAgentId) {
+    return null;
+  }
+  const [agentA, agentB] = currentAgentConversation.split(",", 2);
+  const matchesCurrentConversation =
+    (agentA === currentAgentId && agentB === targetAgentId) ||
+    (agentA === targetAgentId && agentB === currentAgentId);
+  return matchesCurrentConversation ? currentAgentConversation : null;
+};
+
 // Message sending status
 export type MessageStatus = "sending" | "sent" | "failed";
 
@@ -166,7 +181,8 @@ interface ChatState {
   ) => string;
   addOptimisticDirectMessage: (
     targetAgentId: string,
-    content: string
+    content: string,
+    storeKey?: string
   ) => string;
   replaceOptimisticMessage: (
     tempId: string,
@@ -906,10 +922,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       `ChatStore: Sending direct message to ${targetAgentId}: "${content}"`
     );
 
+    const currentAgentId = connection.getAgentId?.();
+    const storeKey =
+      activeAgentConversationKeyForTarget(
+        get().currentAgentConversation,
+        currentAgentId,
+        targetAgentId
+      ) || targetAgentId;
+
     // 1. Immediately add optimistic update message
     const tempId = get().addOptimisticDirectMessage(
       targetAgentId,
-      content.trim()
+      content.trim(),
+      storeKey
     );
 
     try {
@@ -1810,7 +1835,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   // Optimistic update - add direct message
-  addOptimisticDirectMessage: (targetAgentId: string, content: string) => {
+  addOptimisticDirectMessage: (
+    targetAgentId: string,
+    content: string,
+    storeKey?: string
+  ) => {
     const connection = get().getConnection();
     const tempId = get().generateTempMessageId();
 
@@ -1826,7 +1855,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       tempId: tempId,
     };
 
-    get().addMessageToDirect(targetAgentId, optimisticMessage);
+    get().addMessageToDirect(storeKey || targetAgentId, optimisticMessage);
     return tempId;
   },
 
@@ -2674,11 +2703,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
           // Determine the target agent for the conversation
           const connection = get().getConnection();
-          const currentAgentId = connection.getAgentId();
+          const currentAgentId = connection.getAgentId?.();
+          const senderId = event.source_id || messageData.sender_id;
           const targetAgentId =
-            messageData.sender_id === currentAgentId
+            senderId === currentAgentId
               ? messageData.target_agent_id
-              : messageData.sender_id;
+              : senderId;
 
           if (targetAgentId) {
             // // Check if it's own direct message
@@ -2715,7 +2745,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
             //   }
             // }
 
-            get().addMessageToDirect(targetAgentId, unifiedMessage);
+            const storeKey =
+              activeAgentConversationKeyForTarget(
+                get().currentAgentConversation,
+                currentAgentId,
+                targetAgentId
+              ) || targetAgentId;
+
+            get().addMessageToDirect(storeKey, unifiedMessage);
           }
         }
       }
