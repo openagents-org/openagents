@@ -891,7 +891,9 @@ const ThreadMessagingViewEventBased: React.FC = () => {
               if (filteredMessages.length === 0) {
                 return (
                   <div className="text-center text-gray-500 dark:text-gray-400 py-8">
-                    {currentChannel
+                    {currentAgentConversation
+                      ? `No messages in ${currentAgentConversation.replace(",", " ↔ ")} yet.`
+                      : currentChannel
                       ? t("empty.noMessagesChannel", {
                           channel: currentChannel,
                         })

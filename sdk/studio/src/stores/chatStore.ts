@@ -347,17 +347,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
       currentDirectMessage: null,
     });
     // Load the conversation messages using existing DM retrieval
-    // We set source_id to agentA and target to agentB — the handler matches bidirectionally
+    // The retrieval source must be the authenticated Studio identity when
+    // it is one of the conversation participants.
     const connection = get().getConnection();
     if (connection && agentA && agentB) {
+      const currentAgentId = connection.getAgentId?.();
+      let sourceAgentId = agentA;
+      let targetAgentId = agentB;
+
+      if (currentAgentId === agentB) {
+        sourceAgentId = agentB;
+        targetAgentId = agentA;
+      } else if (currentAgentId && currentAgentId !== agentA) {
+        set({
+          messagesLoading: false,
+          messagesError: `Cannot read this agent conversation unless connected as ${agentA} or ${agentB}`,
+        });
+        return;
+      }
+
       set({ messagesLoading: true, messagesError: null });
       connection
         .sendEvent({
           event_name: EventNames.THREAD_DIRECT_MESSAGES_RETRIEVE,
-          source_id: agentA,
+          source_id: sourceAgentId,
           destination_id: "mod:openagents.mods.workspace.messaging",
           payload: {
-            target_agent_id: agentB,
+            target_agent_id: targetAgentId,
             limit: 200,
             offset: 0,
             include_threads: true,
@@ -366,19 +382,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
         })
         .then((response: any) => {
           if (response.success && response.data?.messages) {
-            const messages = response.data.messages.map((msg: any) =>
-              MessageAdapter.fromRaw(msg)
-            );
+            const rawMessages: RawThreadMessage[] = response.data.messages;
+            const unifiedMessages =
+              MessageAdapter.fromRawThreadMessages(rawMessages);
+
+            const validMessages = unifiedMessages.filter((msg) => {
+              if (!msg.content || msg.content.trim() === "") {
+                console.warn(
+                  `ChatStore: Filtering out empty agent DM ${msg.id} from ${msg.senderId}`
+                );
+                return false;
+              }
+              return true;
+            });
+
+            const messages: OptimisticMessage[] = validMessages.map((msg) => ({
+              ...msg,
+              isOptimistic: false,
+              status: "sent" as MessageStatus,
+            }));
+
             // Store in directMessages under the conversation key
             const currentMessages = new Map(get().directMessages);
             currentMessages.set(conversationKey, messages);
             set({ directMessages: currentMessages, messagesLoading: false });
           } else {
-            set({ messagesLoading: false });
+            set({
+              messagesLoading: false,
+              messagesError:
+                response.message || "Failed to load agent conversation",
+            });
           }
         })
         .catch(() => {
-          set({ messagesLoading: false });
+          set({
+            messagesLoading: false,
+            messagesError: "Failed to load agent conversation",
+          });
         });
     }
   },
