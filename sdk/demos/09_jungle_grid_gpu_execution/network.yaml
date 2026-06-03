@@ -1,0 +1,89 @@
+network:
+  name: JungleGridGPUExecution
+  mode: centralized
+  node_id: jungle-grid-gpu-execution-1
+  initialized: true
+  transports:
+    - type: http
+      config:
+        port: 8700
+        serve_studio: true
+        serve_mcp: true
+    - type: grpc
+      config:
+        port: 8600
+  manifest_transport: http
+  recommended_transport: grpc
+  encryption_enabled: false
+  default_agent_group: guest
+  requires_password: false
+  agent_groups:
+    executors:
+      description: Agents allowed to execute Jungle Grid project workflows
+      metadata:
+        permissions:
+          - execute_external_compute
+        agents:
+          - jungle-grid-executor
+  mods:
+    - name: openagents.mods.workspace.default
+      enabled: true
+      config:
+        custom_events_enabled: true
+    - name: openagents.mods.workspace.project
+      enabled: true
+      config:
+        max_concurrent_projects: 5
+        project_templates:
+          jungle_grid_execution:
+            name: Jungle Grid GPU Execution
+            description: Estimate, approve, execute, and monitor an AI workload on Jungle Grid
+            expose_as_tool: true
+            tool_name: run_jungle_grid_workload
+            tool_description: Start a Jungle Grid workload project. The task must be a JSON object with name, workload_type, and image; use environment_from_env for workload environment values.
+            tool_mode: async
+            agent_groups:
+              - executors
+            context: |
+              This project delegates a long-running AI or GPU workload to Jungle Grid.
+              The executor estimates cost first and will not submit a job until a human
+              replies with the exact approval command shown in the project. Do not put
+              credentials in the goal; use environment_from_env to reference variables
+              available only in the executor process.
+  created_by_version: 0.9.3
+
+network_profile:
+  discoverable: true
+  name: Jungle Grid GPU Execution
+  description: A demo of human-approved asynchronous AI and GPU workload delegation through Jungle Grid.
+  tags:
+    - demo
+    - jungle-grid
+    - gpu
+    - execution
+    - project
+  categories:
+    - demo
+    - workflow
+  country: Worldwide
+  required_openagents_version: 0.9.3
+  capacity: 10
+  authentication:
+    type: none
+  host: 0.0.0.0
+  port: 8700
+
+log_level: INFO
+data_dir: ./data/jungle-grid-gpu-execution
+runtime_limit: null
+shutdown_timeout: 30
+
+external_access:
+  default_agent_group: guest
+  auth_token: null
+  auth_token_env: null
+  instruction: null
+  exposed_tools:
+    - start_run_jungle_grid_workload
+    - get_result_run_jungle_grid_workload
+  excluded_tools: []
