@@ -62,6 +62,7 @@ export function ConnectAgentView() {
   const { setViewMode } = useLayout();
   const { workspace, token, refreshWorkspace } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
+  const { isCopied: isTokenCopied, copyToClipboard: copyTokenToClipboard } = useCopyToClipboard();
 
   const [activeTab, setActiveTab] = useState<'local' | 'cloud'>('local');
   const [loading, setLoading] = useState(true);
@@ -69,7 +70,6 @@ export function ConnectAgentView() {
   // Local agents
   const [catalog, setCatalog] = useState<AgentCatalogEntry[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
-  const [tokenCopied, setTokenCopied] = useState(false);
 
   // Cloud agents
   const [cloudProviders, setCloudProviders] = useState<CloudAgentProvider[]>([]);
@@ -147,12 +147,6 @@ export function ConnectAgentView() {
       setCfgName(model.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
     }
   }, [cfgModel, selectedProviderInfo]);
-
-  const handleCopyToken = () => {
-    navigator.clipboard.writeText(token);
-    setTokenCopied(true);
-    setTimeout(() => setTokenCopied(false), 2000);
-  };
 
   const maskedToken = token.length > 16
     ? `${token.slice(0, 8)}${'•'.repeat(8)}${token.slice(-4)}`
@@ -264,8 +258,8 @@ export function ConnectAgentView() {
             onSelectAgent={setSelectedAgent}
             token={token}
             maskedToken={maskedToken}
-            tokenCopied={tokenCopied}
-            onCopyToken={handleCopyToken}
+            isTokenCopied={isTokenCopied}
+            onCopyToken={() => copyTokenToClipboard(token)}
             isCopied={isCopied}
             copyToClipboard={copyToClipboard}
           />
@@ -311,7 +305,7 @@ function LocalAgentsTab({
   onSelectAgent,
   token,
   maskedToken,
-  tokenCopied,
+  isTokenCopied,
   onCopyToken,
   isCopied,
   copyToClipboard,
@@ -322,7 +316,7 @@ function LocalAgentsTab({
   onSelectAgent: (name: string | null) => void;
   token: string;
   maskedToken: string;
-  tokenCopied: boolean;
+  isTokenCopied: boolean;
   onCopyToken: () => void;
   isCopied: boolean;
   copyToClipboard: (text: string) => void;
@@ -509,10 +503,10 @@ function LocalAgentsTab({
                 </span>
                 <span className={cn(
                   'flex items-center gap-1 text-[10px] font-medium shrink-0 transition-colors',
-                  tokenCopied ? 'text-emerald-600' : 'text-muted-foreground group-hover:text-foreground',
+                  isTokenCopied ? 'text-emerald-600' : 'text-muted-foreground group-hover:text-foreground',
                 )}>
-                  {tokenCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
-                  {tokenCopied ? 'Copied' : 'Copy'}
+                  {isTokenCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                  {isTokenCopied ? 'Copied' : 'Copy'}
                 </span>
               </button>
             </div>
