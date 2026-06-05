@@ -115,6 +115,13 @@
   }
 }
 
+/** Onboarding animation - browser loading bar **/
+@keyframes loadbar {
+  0% { width: 0; }
+  60% { width: 80%; }
+  100% { width: 100%; }
+}
+
 /** Thread completion glow **/
 @keyframes glow {
   0%, 100% { box-shadow: 0 0 4px 0 rgba(251, 191, 36, 0.3); }
