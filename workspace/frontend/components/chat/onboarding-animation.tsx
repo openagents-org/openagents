@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AgentIcon } from '@/components/icons/agent-icons';
 import { cn } from '@/lib/utils';
 import { RotateCcw } from 'lucide-react';
@@ -178,10 +178,10 @@ function SceneConnect({ agentCount }: { agentCount: number }) {
               }}
             >
               <div
-                className="size-20 sm:size-24 flex items-center justify-center rounded-full"
+                className="size-20 sm:size-24 flex items-center justify-center"
                 style={{ animation: visible ? `onb-drift-${i} ${15 + i * 3}s ease-in-out infinite` : 'none' }}
               >
-                <AgentIcon name={agent.name} size={96} />
+                <AgentIcon name={agent.name} size={80} />
               </div>
               <span className="text-sm font-medium text-zinc-700 tracking-tight">{agent.label}</span>
             </div>
@@ -219,18 +219,15 @@ function SceneCollaborate() {
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, []);
 
-  // Agents in a horizontal line, messages flow between them
   return (
     <div className="flex flex-col items-center justify-center gap-12 px-8">
-      {/* Visual: agents with flowing message bubbles */}
+      {/* Agents in a horizontal line with flowing energy between them */}
       <div className="relative flex items-center gap-16 sm:gap-24">
         {AGENTS.map((agent, i) => (
           <div
             key={agent.name}
-            className="flex flex-col items-center gap-2 relative"
-            style={{
-              animation: `onb-drift-${i} ${14 + i * 2}s ease-in-out infinite`,
-            }}
+            className="flex flex-col items-center gap-2"
+            style={{ animation: `onb-drift-${i} ${14 + i * 2}s ease-in-out infinite` }}
           >
             <div className="size-16 sm:size-20 flex items-center justify-center">
               <AgentIcon name={agent.name} size={80} />
@@ -239,55 +236,37 @@ function SceneCollaborate() {
           </div>
         ))}
 
-        {/* Flowing message shapes between agents */}
-        <svg className="absolute inset-0 pointer-events-none overflow-visible" style={{ left: -20, right: -20, top: '25%', width: 'calc(100% + 40px)', height: '50%' }}>
-          {/* Message bubble shapes traveling between agents */}
-          {[
-            { from: 0, to: 1, delay: 0.3, color: AGENTS[0].color },
-            { from: 1, to: 2, delay: 0.9, color: AGENTS[1].color },
-            { from: 2, to: 0, delay: 1.5, color: AGENTS[2].color },
-          ].map((msg, i) => (
-            <g key={i} style={{ opacity: step >= i + 1 ? 1 : 0, transition: 'opacity 0.6s ease' }}>
-              <rect
-                x="0" y="0" width="24" height="14" rx="7"
-                fill={msg.color}
-                opacity="0.2"
-              >
-                <animateMotion
-                  dur="2.5s"
-                  repeatCount="indefinite"
-                  begin={`${msg.delay}s`}
-                  path={`M ${msg.from * 33}%,50% L ${msg.to * 33}%,50%`}
-                />
-              </rect>
-            </g>
-          ))}
+        {/* Connecting lines between agents */}
+        <svg className="absolute inset-0 pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none" style={{ overflow: 'visible' }}>
+          {step >= 1 && (
+            <>
+              <line x1="18%" y1="38%" x2="50%" y2="38%" stroke={AGENTS[0].color} strokeWidth="1" strokeOpacity="0.15" pathLength="1" strokeDasharray="1" style={{ animation: 'onb-draw 1s ease both' }} />
+              <line x1="50%" y1="38%" x2="82%" y2="38%" stroke={AGENTS[1].color} strokeWidth="1" strokeOpacity="0.15" pathLength="1" strokeDasharray="1" style={{ animation: 'onb-draw 1s ease 0.3s both' }} />
+            </>
+          )}
         </svg>
 
-        {/* Simpler approach: animated dots flowing on curved paths */}
-        {step >= 1 && (
-          <div className="absolute inset-0 pointer-events-none">
-            {[0, 1, 2].map((i) => {
-              const colors = [AGENTS[0].color, AGENTS[1].color, AGENTS[2].color];
-              return (
-                <div
-                  key={i}
-                  className="absolute rounded-full"
-                  style={{
-                    width: 6,
-                    height: 6,
-                    backgroundColor: colors[i],
-                    opacity: step >= i + 1 ? 0.4 : 0,
-                    top: '40%',
-                    left: `${20 + i * 25}%`,
-                    animation: step >= i + 1 ? `onb-float 2s ease-in-out ${i * 0.4}s infinite` : 'none',
-                    transition: 'opacity 0.5s ease',
-                  }}
-                />
-              );
-            })}
-          </div>
-        )}
+        {/* Floating energy dots between agents */}
+        {[0, 1, 2, 3, 4].map((i) => {
+          const colors = [AGENTS[0].color, AGENTS[1].color, AGENTS[2].color, AGENTS[0].color, AGENTS[1].color];
+          return (
+            <div
+              key={i}
+              className="absolute rounded-full pointer-events-none"
+              style={{
+                width: 5,
+                height: 5,
+                backgroundColor: colors[i],
+                opacity: step >= 1 ? 0.3 : 0,
+                top: `${35 + (i % 3) * 8}%`,
+                left: `${15 + i * 16}%`,
+                animation: step >= 1 ? `onb-float ${1.8 + i * 0.3}s ease-in-out ${i * 0.25}s infinite` : 'none',
+                transition: 'opacity 0.6s ease',
+                transitionDelay: `${i * 0.1}s`,
+              }}
+            />
+          );
+        })}
       </div>
 
       {/* Text */}
