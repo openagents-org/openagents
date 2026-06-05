@@ -66,11 +66,7 @@ export function EmptyState() {
   }
 
   if (showAnimation) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full p-6 sm:p-8">
-        <OnboardingAnimation onComplete={handleAnimationComplete} />
-      </div>
-    );
+    return <OnboardingAnimation onComplete={handleAnimationComplete} />;
   }
 
   return (
