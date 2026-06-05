@@ -1,83 +1,109 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AgentIcon } from '@/components/icons/agent-icons';
 import { cn } from '@/lib/utils';
 import {
   FileText, FileCode, Image, Palette, Globe, CalendarClock,
-  CheckCircle2, Clock, MessageSquare, FolderOpen,
+  CheckCircle2, Clock, MessageSquare, FolderOpen, Zap,
 } from 'lucide-react';
 
 const AGENTS = [
-  { name: 'claude', label: 'Claude' },
-  { name: 'cursor', label: 'Cursor' },
-  { name: 'gemini', label: 'Gemini' },
+  { name: 'claude', label: 'Claude', role: 'Code' },
+  { name: 'cursor', label: 'Cursor', role: 'Design' },
+  { name: 'gemini', label: 'Gemini', role: 'Optimize' },
 ] as const;
 
-const TOTAL_DURATION = 15500;
+const SCENE_TIMINGS = [200, 3400, 6600, 10000, 13200];
+const TOTAL_DURATION = 16000;
+const FADE_MS = 400;
 
 export function OnboardingAnimation({ onComplete }: { onComplete: () => void }) {
   const [scene, setScene] = useState(-1);
+  const [fading, setFading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const sceneRef = useRef(-1);
 
   useEffect(() => {
-    const timers = [
-      setTimeout(() => setScene(0), 200),
-      setTimeout(() => setScene(1), 3200),
-      setTimeout(() => setScene(2), 6400),
-      setTimeout(() => setScene(3), 9800),
-      setTimeout(() => setScene(4), 13000),
-    ];
+    const timers = SCENE_TIMINGS.map((t, i) => {
+      if (i === 0) return setTimeout(() => { sceneRef.current = 0; setScene(0); }, t);
+      return setTimeout(() => {
+        setFading(true);
+        setTimeout(() => {
+          sceneRef.current = i;
+          setScene(i);
+          setFading(false);
+        }, FADE_MS);
+      }, t);
+    });
     const interval = setInterval(() => {
-      setProgress((p) => Math.min(p + 100 / (TOTAL_DURATION / 100), 100));
-    }, 100);
-    const done = setTimeout(onComplete, TOTAL_DURATION + 500);
+      setProgress((p) => Math.min(p + 100 / (TOTAL_DURATION / 80), 100));
+    }, 80);
+    const done = setTimeout(onComplete, TOTAL_DURATION + 600);
     return () => { timers.forEach(clearTimeout); clearInterval(interval); clearTimeout(done); };
   }, [onComplete]);
 
   const handleSkip = useCallback(() => {
     setDismissed(true);
-    setTimeout(onComplete, 300);
+    setTimeout(onComplete, 350);
   }, [onComplete]);
 
   return (
     <div className={cn(
-      'fixed inset-0 z-[100] flex flex-col bg-white transition-all duration-500 overflow-hidden',
-      dismissed && 'opacity-0 scale-95',
+      'fixed inset-0 z-[100] flex flex-col bg-white transition-all duration-400 overflow-hidden',
+      dismissed && 'opacity-0 scale-[0.97]',
     )}>
-      {/* Scene container */}
-      <div className="flex-1 flex items-center justify-center">
-        {scene === 0 && <SceneAgentsJoin />}
-        {scene === 1 && <SceneChat />}
-        {scene === 2 && <SceneFiles />}
-        {scene === 3 && <SceneBrowserRoutines />}
-        {scene === 4 && <SceneReveal />}
+      {/* Subtle dot grid */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.03]"
+        style={{
+          backgroundImage: 'radial-gradient(circle, #000 0.5px, transparent 0.5px)',
+          backgroundSize: '24px 24px',
+        }}
+      />
+
+      {/* Scene container with crossfade */}
+      <div className="relative flex-1 flex items-center justify-center overflow-hidden">
+        <div className={cn(
+          'w-full h-full transition-all',
+          fading ? 'opacity-0 scale-[0.98]' : 'opacity-100 scale-100',
+        )} style={{ transitionDuration: `${FADE_MS}ms` }}>
+          {scene === 0 && <SceneAgentsJoin />}
+          {scene === 1 && <SceneChat />}
+          {scene === 2 && <SceneFiles />}
+          {scene === 3 && <SceneBrowserRoutines />}
+          {scene === 4 && <SceneReveal />}
+        </div>
       </div>
 
       {/* Bottom bar */}
-      <div className="shrink-0 px-8 pb-8 pt-2">
-        <div className="max-w-2xl mx-auto flex items-center gap-4">
-          <div className="flex gap-1.5">
+      <div className="relative shrink-0 px-8 pb-8 pt-3">
+        <div className="max-w-xl mx-auto flex items-center gap-5">
+          <div className="flex gap-2">
             {[0, 1, 2, 3, 4].map((i) => (
-              <div
+              <button
                 key={i}
                 className={cn(
-                  'h-1.5 rounded-full transition-all duration-500',
-                  scene === i ? 'w-8 bg-zinc-900' : scene > i ? 'w-2 bg-zinc-400' : 'w-2 bg-zinc-200',
+                  'h-1.5 rounded-full transition-all duration-600',
+                  scene === i
+                    ? 'w-10 bg-zinc-800'
+                    : scene > i
+                      ? 'w-3 bg-zinc-300'
+                      : 'w-3 bg-zinc-200',
                 )}
               />
             ))}
           </div>
-          <div className="flex-1 h-1 bg-zinc-100 rounded-full overflow-hidden">
+          <div className="flex-1 h-[3px] bg-zinc-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-zinc-300 rounded-full transition-all duration-100 ease-linear"
-              style={{ width: `${progress}%` }}
+              className="h-full bg-gradient-to-r from-zinc-300 to-zinc-400 rounded-full transition-all ease-linear"
+              style={{ width: `${progress}%`, transitionDuration: '80ms' }}
             />
           </div>
           <button
             onClick={handleSkip}
-            className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors font-medium"
+            className="text-[13px] text-zinc-400 hover:text-zinc-600 transition-colors font-medium px-3 py-1 rounded-lg hover:bg-zinc-50"
           >
             Skip
           </button>
@@ -87,87 +113,106 @@ export function OnboardingAnimation({ onComplete }: { onComplete: () => void }) 
   );
 }
 
-/* ─── Scene 1: Agents connect ─── */
+/* ═══════════════════════════════════════════════
+   Scene 1 — Agents connect to the workspace
+   ═══════════════════════════════════════════════ */
 
 function SceneAgentsJoin() {
   const [connected, setConnected] = useState<number[]>([]);
 
   useEffect(() => {
     const timers = AGENTS.map((_, i) =>
-      setTimeout(() => setConnected((prev) => [...prev, i]), 600 + i * 750),
+      setTimeout(() => setConnected((prev) => [...prev, i]), 500 + i * 800),
     );
     return () => timers.forEach(clearTimeout);
   }, []);
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center px-8 animate-in fade-in duration-700">
-      <SceneCaption text="Connect your favorite agents" sub="Bring Claude, Cursor, Gemini — or any agent you already use" />
+    <div className="w-full h-full flex flex-col items-center justify-center px-6 sm:px-12">
+      <FadeUpGroup>
+        <SceneCaption
+          text="Connect your favorite agents"
+          sub="Bring the tools you already use into one workspace"
+        />
+      </FadeUpGroup>
 
-      <div className="mt-12 w-full max-w-xl">
-        <div className="rounded-2xl border border-zinc-200 bg-white shadow-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-zinc-100 flex items-center gap-3">
-            <div className="size-8 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
-              <span className="text-white text-xs font-bold">W</span>
+      <FadeUpGroup delay={200}>
+        <div className="mt-10 sm:mt-14 w-full max-w-lg">
+          <div className="rounded-2xl border border-zinc-100 bg-white shadow-[0_8px_40px_-12px_rgba(0,0,0,0.08)] overflow-hidden">
+            <div className="px-6 py-4 border-b border-zinc-100 flex items-center gap-3">
+              <div className="size-9 rounded-xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center shadow-md shadow-blue-500/20">
+                <Zap className="size-4 text-white" />
+              </div>
+              <div>
+                <div className="text-[15px] font-semibold text-zinc-900">My Workspace</div>
+                <div className="text-[11px] text-zinc-400">Ready for agents</div>
+              </div>
             </div>
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">My Workspace</div>
-              <div className="text-[11px] text-zinc-400">3 agent slots</div>
-            </div>
-          </div>
 
-          <div className="p-5 space-y-2">
-            {AGENTS.map((agent, i) => {
-              const isConnected = connected.includes(i);
-              return (
-                <div
-                  key={agent.name}
-                  className={cn(
-                    'flex items-center gap-4 px-5 py-4 rounded-xl transition-all duration-500',
-                    isConnected
-                      ? 'bg-emerald-50 border border-emerald-200'
-                      : 'border border-dashed border-zinc-200 bg-zinc-50/50',
-                  )}
-                >
-                  {isConnected ? (
-                    <>
-                      <div className="relative animate-in zoom-in-50 duration-400">
-                        <div className="size-12 flex items-center justify-center">
-                          <AgentIcon name={agent.name} size={48} />
+            <div className="p-4 space-y-2">
+              {AGENTS.map((agent, i) => {
+                const isConnected = connected.includes(i);
+                return (
+                  <div
+                    key={agent.name}
+                    className={cn(
+                      'relative flex items-center gap-4 px-5 py-4 rounded-xl transition-all duration-500 overflow-hidden',
+                      isConnected
+                        ? 'bg-gradient-to-r from-emerald-50 to-teal-50/50 border border-emerald-200/60'
+                        : 'border border-dashed border-zinc-200',
+                    )}
+                  >
+                    {/* Connection flash */}
+                    {isConnected && (
+                      <div className="absolute inset-0 bg-emerald-400/10 animate-[ping_0.6s_ease-out_1] rounded-xl pointer-events-none" />
+                    )}
+                    {isConnected ? (
+                      <>
+                        <div className="relative animate-in zoom-in-50 duration-300">
+                          <div className="size-12 flex items-center justify-center rounded-xl shadow-sm">
+                            <AgentIcon name={agent.name} size={48} />
+                          </div>
+                          <span className="absolute -bottom-0.5 -right-0.5 size-4 rounded-full bg-emerald-500 border-[3px] border-white animate-in zoom-in duration-200">
+                            <CheckCircle2 className="size-2.5 text-white absolute top-[2px] left-[2px]" />
+                          </span>
                         </div>
-                        <span className="absolute -bottom-0.5 -right-0.5 size-4 rounded-full bg-emerald-500 border-[3px] border-white animate-in zoom-in duration-300" />
-                      </div>
-                      <div className="flex-1 animate-in slide-in-from-left-3 fade-in duration-400">
-                        <div className="text-base font-semibold text-zinc-900">{agent.label}</div>
-                        <div className="text-xs text-emerald-600 font-medium mt-0.5">Connected and ready</div>
-                      </div>
-                      <CheckCircle2 className="size-5 text-emerald-500 animate-in zoom-in duration-300" />
-                    </>
-                  ) : (
-                    <>
-                      <div className="size-12 rounded-xl bg-zinc-100 flex items-center justify-center">
-                        <div className="size-5 rounded-full border-2 border-dashed border-zinc-300" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="text-sm text-zinc-400">Waiting for agent...</div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            })}
+                        <div className="flex-1 min-w-0 animate-in slide-in-from-left-3 fade-in duration-400">
+                          <div className="text-[15px] font-semibold text-zinc-900">{agent.label}</div>
+                          <div className="text-xs text-emerald-600 font-medium mt-0.5">Online</div>
+                        </div>
+                        <div className="text-[11px] text-zinc-400 font-medium px-2 py-0.5 rounded-md bg-zinc-100 animate-in fade-in duration-500">
+                          {agent.role}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="size-12 rounded-xl bg-zinc-50 border border-zinc-100 flex items-center justify-center">
+                          <div className="size-5 rounded-full border-2 border-dashed border-zinc-200 animate-spin" style={{ animationDuration: '8s' }} />
+                        </div>
+                        <div className="flex-1">
+                          <div className="text-sm text-zinc-300">Waiting for agent...</div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      </FadeUpGroup>
     </div>
   );
 }
 
-/* ─── Scene 2: Multi-agent chat ─── */
+/* ═══════════════════════════════════════════════
+   Scene 2 — Multi-agent chat
+   ═══════════════════════════════════════════════ */
 
 const CHAT_MESSAGES = [
-  { role: 'user' as const, text: 'Build me a landing page for my startup', delay: 300 },
-  { role: 'agent' as const, agent: 'claude', text: "On it. I'll scaffold the Next.js app, set up the routing, and write the API layer.", delay: 1000 },
-  { role: 'agent' as const, agent: 'cursor', text: "I'll handle the visual design — hero section, typography, color palette, and responsive layout.", delay: 2000 },
+  { role: 'user' as const, text: 'Build me a landing page for my startup', delay: 200 },
+  { role: 'agent' as const, agent: 'claude', text: "I'll scaffold the Next.js app, set up routing, and write the API layer.", delay: 900 },
+  { role: 'agent' as const, agent: 'cursor', text: "I'll design the hero section, pick the color palette, and make it responsive.", delay: 1800 },
 ];
 
 function SceneChat() {
@@ -181,75 +226,88 @@ function SceneChat() {
   }, []);
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center px-8 animate-in fade-in duration-700">
-      <SceneCaption text="They collaborate in real time" sub="Agents talk, delegate tasks, and build together" />
+    <div className="w-full h-full flex flex-col items-center justify-center px-6 sm:px-12">
+      <FadeUpGroup>
+        <SceneCaption text="They collaborate in real time" sub="Agents talk to you and to each other — in one shared thread" />
+      </FadeUpGroup>
 
-      <div className="mt-12 w-full max-w-2xl">
-        <div className="rounded-2xl border border-zinc-200 bg-white shadow-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-zinc-100 flex items-center gap-3">
-            <div className="flex -space-x-2">
-              {AGENTS.slice(0, 2).map((a) => (
-                <div key={a.name} className="size-8 rounded-full ring-2 ring-white flex items-center justify-center overflow-hidden">
-                  <AgentIcon name={a.name} size={32} />
-                </div>
-              ))}
-            </div>
-            <div className="ml-1">
-              <div className="text-sm font-semibold text-zinc-900">Landing Page Project</div>
-              <div className="text-[11px] text-zinc-400">2 agents active</div>
-            </div>
-            <span className="ml-auto text-[10px] px-2 py-1 rounded-full bg-blue-50 text-blue-600 font-medium">
-              <MessageSquare className="size-3 inline mr-1" />Group
-            </span>
-          </div>
-
-          <div className="p-6 space-y-5 min-h-[280px]">
-            {CHAT_MESSAGES.map((msg, i) => {
-              if (!visible.includes(i)) return null;
-              const isUser = msg.role === 'user';
-              return (
-                <div
-                  key={i}
-                  className={cn(
-                    'flex gap-3 animate-in fade-in duration-400',
-                    isUser ? 'slide-in-from-right-4' : 'slide-in-from-left-4',
-                  )}
-                >
-                  {!isUser && msg.agent && (
-                    <div className="size-10 rounded-full shrink-0 flex items-center justify-center mt-1">
-                      <AgentIcon name={msg.agent} size={40} />
-                    </div>
-                  )}
-                  <div className={cn(
-                    'rounded-2xl px-5 py-3.5',
-                    isUser
-                      ? 'ml-auto bg-blue-600 text-white max-w-[75%]'
-                      : 'bg-zinc-100 max-w-[80%]',
-                  )}>
-                    {!isUser && msg.agent && (
-                      <div className="text-[11px] font-semibold text-zinc-400 mb-1 capitalize">{msg.agent}</div>
-                    )}
-                    <TypewriterText text={msg.text} className={cn('text-[15px] leading-relaxed', isUser ? 'text-white' : 'text-zinc-700')} />
+      <FadeUpGroup delay={200}>
+        <div className="mt-10 sm:mt-14 w-full max-w-2xl">
+          <div className="rounded-2xl border border-zinc-100 bg-white shadow-[0_8px_40px_-12px_rgba(0,0,0,0.08)] overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-zinc-100 flex items-center gap-3">
+              <div className="flex -space-x-2">
+                {AGENTS.slice(0, 2).map((a) => (
+                  <div key={a.name} className="size-8 rounded-full ring-2 ring-white flex items-center justify-center overflow-hidden shadow-sm">
+                    <AgentIcon name={a.name} size={32} />
                   </div>
-                </div>
-              );
-            })}
+                ))}
+              </div>
+              <div className="ml-1">
+                <div className="text-[15px] font-semibold text-zinc-900">Landing Page Project</div>
+                <div className="text-[11px] text-zinc-400">2 agents active</div>
+              </div>
+              <span className="ml-auto text-[10px] px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 font-semibold flex items-center gap-1">
+                <MessageSquare className="size-3" />Group
+              </span>
+            </div>
+
+            {/* Messages */}
+            <div className="px-6 py-6 space-y-4 min-h-[240px]">
+              {CHAT_MESSAGES.map((msg, i) => {
+                if (!visible.includes(i)) return null;
+                const isUser = msg.role === 'user';
+                return (
+                  <div
+                    key={i}
+                    className={cn(
+                      'flex gap-3 animate-in fade-in duration-400',
+                      isUser ? 'slide-in-from-bottom-3' : 'slide-in-from-bottom-3',
+                    )}
+                  >
+                    {!isUser && msg.agent && (
+                      <div className="size-9 rounded-full shrink-0 flex items-center justify-center mt-0.5 shadow-sm">
+                        <AgentIcon name={msg.agent} size={36} />
+                      </div>
+                    )}
+                    <div className={cn(
+                      'rounded-2xl px-5 py-3',
+                      isUser
+                        ? 'ml-auto bg-gradient-to-r from-blue-600 to-blue-500 text-white max-w-[75%] shadow-md shadow-blue-500/15'
+                        : 'bg-zinc-50 border border-zinc-100 max-w-[80%]',
+                    )}>
+                      {!isUser && msg.agent && (
+                        <div className="text-[11px] font-semibold text-zinc-400 mb-1 capitalize">{msg.agent}</div>
+                      )}
+                      <TypewriterText text={msg.text} speed={14} className={cn('text-[15px] leading-relaxed', isUser ? 'text-white' : 'text-zinc-700')} />
+                    </div>
+                    {isUser && (
+                      <div className="size-9 rounded-full shrink-0 bg-gradient-to-br from-zinc-700 to-zinc-800 flex items-center justify-center mt-0.5 shadow-sm">
+                        <span className="text-white text-xs font-bold">Y</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      </FadeUpGroup>
     </div>
   );
 }
 
-/* ─── Scene 3: Shared file system ─── */
+/* ═══════════════════════════════════════════════
+   Scene 3 — Shared file system
+   ═══════════════════════════════════════════════ */
 
 const FILES = [
-  { name: 'index.tsx', icon: FileCode, color: 'text-blue-500', agent: 'claude', size: '2.4 KB', delay: 300 },
-  { name: 'hero.tsx', icon: FileCode, color: 'text-violet-500', agent: 'cursor', size: '5.1 KB', delay: 650 },
-  { name: 'api/routes.ts', icon: FileText, color: 'text-emerald-500', agent: 'claude', size: '1.8 KB', delay: 1000 },
-  { name: 'globals.css', icon: Palette, color: 'text-pink-500', agent: 'cursor', size: '3.2 KB', delay: 1350 },
-  { name: 'logo.svg', icon: Image, color: 'text-amber-500', agent: 'cursor', size: '890 B', delay: 1700 },
-  { name: 'seo-config.json', icon: FileText, color: 'text-cyan-500', agent: 'gemini', size: '1.1 KB', delay: 2050 },
+  { name: 'index.tsx', icon: FileCode, color: 'text-blue-500', bg: 'bg-blue-50', agent: 'claude', size: '2.4 KB', delay: 200 },
+  { name: 'hero.tsx', icon: FileCode, color: 'text-violet-500', bg: 'bg-violet-50', agent: 'cursor', size: '5.1 KB', delay: 500 },
+  { name: 'api/routes.ts', icon: FileText, color: 'text-emerald-500', bg: 'bg-emerald-50', agent: 'claude', size: '1.8 KB', delay: 800 },
+  { name: 'globals.css', icon: Palette, color: 'text-pink-500', bg: 'bg-pink-50', agent: 'cursor', size: '3.2 KB', delay: 1100 },
+  { name: 'logo.svg', icon: Image, color: 'text-amber-500', bg: 'bg-amber-50', agent: 'cursor', size: '890 B', delay: 1400 },
+  { name: 'seo-config.json', icon: FileText, color: 'text-cyan-500', bg: 'bg-cyan-50', agent: 'gemini', size: '1.1 KB', delay: 1700 },
 ];
 
 function SceneFiles() {
@@ -263,53 +321,64 @@ function SceneFiles() {
   }, []);
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center px-8 animate-in fade-in duration-700">
-      <SceneCaption text="Shared files across all agents" sub="Every agent can read, write, and build on each other's work" />
+    <div className="w-full h-full flex flex-col items-center justify-center px-6 sm:px-12">
+      <FadeUpGroup>
+        <SceneCaption text="Shared files across all agents" sub="Every agent can read, write, and build on each other's work" />
+      </FadeUpGroup>
 
-      <div className="mt-12 w-full max-w-2xl">
-        <div className="rounded-2xl border border-zinc-200 bg-white shadow-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-zinc-100 flex items-center gap-3">
-            <FolderOpen className="size-5 text-zinc-400" />
-            <div className="text-sm font-semibold text-zinc-900">Project Files</div>
-            <span className="ml-auto text-xs text-zinc-400">{visible.length} files</span>
-          </div>
+      <FadeUpGroup delay={200}>
+        <div className="mt-10 sm:mt-14 w-full max-w-2xl">
+          <div className="rounded-2xl border border-zinc-100 bg-white shadow-[0_8px_40px_-12px_rgba(0,0,0,0.08)] overflow-hidden">
+            <div className="px-6 py-4 border-b border-zinc-100 flex items-center gap-3">
+              <div className="size-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                <FolderOpen className="size-4 text-amber-500" />
+              </div>
+              <div className="text-[15px] font-semibold text-zinc-900">Project Files</div>
+              <span className="ml-auto text-xs text-zinc-400 font-medium">{visible.length} files</span>
+            </div>
 
-          <div className="p-4 space-y-1.5 min-h-[340px]">
-            {FILES.map((file, i) => {
-              if (!visible.includes(i)) return null;
-              const Icon = file.icon;
-              return (
-                <div
-                  key={file.name}
-                  className="flex items-center gap-4 px-5 py-3.5 rounded-xl bg-zinc-50 border border-zinc-100 animate-in slide-in-from-bottom-3 fade-in duration-300"
-                >
-                  <Icon className={cn('size-6 shrink-0', file.color)} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-zinc-900 truncate">{file.name}</div>
-                    <div className="text-[11px] text-zinc-400 mt-0.5">{file.size}</div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <div className="size-5 rounded-full flex items-center justify-center overflow-hidden">
-                      <AgentIcon name={file.agent} size={20} />
+            <div className="p-3 space-y-1 min-h-[340px]">
+              {FILES.map((file, i) => {
+                if (!visible.includes(i)) return null;
+                const Icon = file.icon;
+                return (
+                  <div
+                    key={file.name}
+                    className="flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-zinc-50 transition-colors animate-in slide-in-from-left-4 fade-in duration-300"
+                    style={{ animationDelay: '0ms' }}
+                  >
+                    <div className={cn('size-9 rounded-lg flex items-center justify-center shrink-0', file.bg)}>
+                      <Icon className={cn('size-4', file.color)} />
                     </div>
-                    <span className="text-[11px] text-zinc-400 capitalize">{file.agent}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-zinc-900 truncate">{file.name}</div>
+                      <div className="text-[11px] text-zinc-400 mt-0.5">{file.size}</div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 px-2 py-1 rounded-lg bg-zinc-50 border border-zinc-100">
+                      <div className="size-4 rounded-full flex items-center justify-center overflow-hidden">
+                        <AgentIcon name={file.agent} size={16} />
+                      </div>
+                      <span className="text-[11px] text-zinc-500 font-medium capitalize">{file.agent}</span>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      </FadeUpGroup>
     </div>
   );
 }
 
-/* ─── Scene 4: Browser & Routines ─── */
+/* ═══════════════════════════════════════════════
+   Scene 4 — Browser & Routines
+   ═══════════════════════════════════════════════ */
 
 const ROUTINES = [
-  { name: 'Run test suite', schedule: 'Daily at 9:00 AM', agent: 'claude', delay: 500 },
-  { name: 'Analyze SEO performance', schedule: 'Weekly on Monday', agent: 'gemini', delay: 1100 },
-  { name: 'Deploy to staging', schedule: 'On every push', agent: 'claude', delay: 1700 },
+  { name: 'Run test suite', schedule: 'Daily at 9:00 AM', agent: 'claude', icon: '🧪', delay: 400 },
+  { name: 'Analyze SEO', schedule: 'Weekly on Monday', agent: 'gemini', icon: '📊', delay: 1000 },
+  { name: 'Deploy staging', schedule: 'On every push', agent: 'claude', icon: '🚀', delay: 1600 },
 ];
 
 function SceneBrowserRoutines() {
@@ -325,167 +394,207 @@ function SceneBrowserRoutines() {
   }, []);
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center px-8 animate-in fade-in duration-700">
-      <SceneCaption text="Shared browser, automated routines" sub="Agents browse the web and run tasks on a schedule" />
+    <div className="w-full h-full flex flex-col items-center justify-center px-6 sm:px-12">
+      <FadeUpGroup>
+        <SceneCaption text="Shared browser, automated routines" sub="Agents browse the web together and run tasks on a schedule" />
+      </FadeUpGroup>
 
-      <div className="mt-12 w-full max-w-4xl flex gap-4">
-        {/* Browser */}
-        <div className="flex-[1.4] rounded-2xl border border-zinc-200 bg-white shadow-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2.5 bg-zinc-50">
-            <div className="flex gap-1.5">
-              <span className="size-3 rounded-full bg-red-400" />
-              <span className="size-3 rounded-full bg-yellow-400" />
-              <span className="size-3 rounded-full bg-green-400" />
-            </div>
-            <div className="flex-1 mx-4">
-              <div className="bg-white rounded-lg px-3 py-1.5 text-xs text-zinc-400 text-center font-mono flex items-center justify-center gap-2 border border-zinc-100">
-                <Globe className={cn('size-3 transition-colors duration-500', browserLoaded ? 'text-blue-500' : 'text-zinc-300')} />
-                mysite.com
+      <FadeUpGroup delay={200}>
+        <div className="mt-10 sm:mt-14 w-full max-w-4xl flex gap-5">
+          {/* Browser */}
+          <div className="flex-[1.4] rounded-2xl border border-zinc-100 bg-white shadow-[0_8px_40px_-12px_rgba(0,0,0,0.08)] overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-zinc-100 flex items-center gap-3 bg-zinc-50/80">
+              <div className="flex gap-1.5">
+                <span className="size-3 rounded-full bg-zinc-200 hover:bg-red-400 transition-colors" />
+                <span className="size-3 rounded-full bg-zinc-200 hover:bg-yellow-400 transition-colors" />
+                <span className="size-3 rounded-full bg-zinc-200 hover:bg-green-400 transition-colors" />
               </div>
-            </div>
-          </div>
-
-          <div className={cn(
-            'h-[300px] p-4 transition-all duration-700',
-            browserLoaded ? 'opacity-100' : 'opacity-0',
-          )}>
-            <div className="h-full rounded-xl bg-gradient-to-br from-violet-50 to-blue-50 border border-violet-100 p-5 flex flex-col">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="w-14 h-4 rounded bg-gradient-to-r from-violet-500 to-purple-600">
-                  <span className="text-[8px] text-white font-bold flex items-center justify-center h-full">LOGO</span>
-                </div>
-                <div className="flex-1" />
-                {['Home', 'About', 'Blog', 'Contact'].map((n) => (
-                  <span key={n} className="text-[10px] text-zinc-400 font-medium">{n}</span>
-                ))}
-              </div>
-              <div className="flex-1 flex flex-col items-center justify-center text-center gap-2">
-                <div className="text-xl font-bold text-zinc-800">Build Something Amazing</div>
-                <div className="text-xs text-zinc-400 max-w-[220px]">Your next project starts here. Fast, modern, beautiful.</div>
-                <div className="flex gap-2 mt-3">
-                  <div className="px-4 py-2 rounded-lg bg-violet-600 text-[10px] text-white font-medium">Get Started</div>
-                  <div className="px-4 py-2 rounded-lg border border-violet-300 text-[10px] text-violet-600 font-medium">Learn More</div>
+              <div className="flex-1 mx-6">
+                <div className="bg-white rounded-lg px-4 py-1.5 text-xs text-zinc-400 text-center font-mono flex items-center justify-center gap-2 border border-zinc-100 shadow-sm">
+                  <Globe className={cn('size-3.5 transition-colors duration-500', browserLoaded ? 'text-blue-500' : 'text-zinc-300')} />
+                  mysite.com
                 </div>
               </div>
-              <div className="flex gap-2 mt-4">
-                {['Features', 'Pricing', 'Docs'].map((t, i) => (
-                  <div key={t} className="flex-1 rounded-lg bg-white/70 border border-zinc-200/50 p-2.5">
-                    <div className={cn(
-                      'h-8 rounded mb-2',
-                      ['bg-amber-100', 'bg-blue-100', 'bg-emerald-100'][i],
-                    )} />
-                    <div className="text-[9px] font-semibold text-zinc-500">{t}</div>
-                  </div>
-                ))}
-              </div>
             </div>
-          </div>
-        </div>
 
-        {/* Routines */}
-        <div className="flex-[0.6] rounded-2xl border border-zinc-200 bg-white shadow-xl overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2.5 bg-zinc-50">
-            <CalendarClock className="size-4 text-violet-500" />
-            <span className="text-sm font-semibold text-zinc-900">Routines</span>
-          </div>
-          <div className="p-4 space-y-3 min-h-[300px]">
-            {ROUTINES.map((routine, i) => {
-              if (!visibleRoutines.includes(i)) return null;
-              return (
-                <div
-                  key={routine.name}
-                  className="flex items-start gap-3 p-4 rounded-xl bg-zinc-50 border border-zinc-100 animate-in slide-in-from-right-4 fade-in duration-400"
-                >
-                  <div className="size-8 rounded-full shrink-0 flex items-center justify-center mt-0.5">
-                    <AgentIcon name={routine.agent} size={32} />
+            <div className={cn(
+              'h-[320px] p-5 transition-all duration-700',
+              browserLoaded ? 'opacity-100' : 'opacity-0',
+            )}>
+              <div className="h-full rounded-xl bg-gradient-to-br from-violet-50 via-white to-blue-50 border border-zinc-100 p-6 flex flex-col shadow-inner">
+                {/* Nav */}
+                <div className="flex items-center gap-4 mb-6">
+                  <div className="w-16 h-5 rounded-md bg-gradient-to-r from-violet-600 to-purple-600 flex items-center justify-center">
+                    <span className="text-[8px] text-white font-extrabold tracking-wider">LOGO</span>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-zinc-900">{routine.name}</div>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <Clock className="size-3 text-zinc-400" />
-                      <span className="text-[11px] text-zinc-400">{routine.schedule}</span>
+                  <div className="flex-1" />
+                  {['Home', 'About', 'Blog', 'Contact'].map((n) => (
+                    <span key={n} className="text-[11px] text-zinc-400 font-medium hover:text-zinc-600">{n}</span>
+                  ))}
+                </div>
+                {/* Hero */}
+                <div className="flex-1 flex flex-col items-center justify-center text-center gap-3">
+                  <div className="text-xl font-bold text-zinc-800">Build Something Amazing</div>
+                  <div className="text-xs text-zinc-400 max-w-[240px] leading-relaxed">Your next project starts here. Fast, modern, and beautiful.</div>
+                  <div className="flex gap-3 mt-3">
+                    <div className="px-4 py-2 rounded-lg bg-violet-600 text-[11px] text-white font-semibold shadow-md shadow-violet-500/20">Get Started</div>
+                    <div className="px-4 py-2 rounded-lg border border-violet-200 text-[11px] text-violet-600 font-semibold">Learn More</div>
+                  </div>
+                </div>
+                {/* Cards */}
+                <div className="flex gap-3 mt-4">
+                  {['Features', 'Pricing', 'Docs'].map((t, i) => (
+                    <div key={t} className="flex-1 rounded-lg bg-white border border-zinc-100 p-3 shadow-sm">
+                      <div className={cn(
+                        'h-8 rounded-md mb-2',
+                        ['bg-gradient-to-br from-amber-50 to-amber-100', 'bg-gradient-to-br from-blue-50 to-blue-100', 'bg-gradient-to-br from-emerald-50 to-emerald-100'][i],
+                      )} />
+                      <div className="text-[10px] font-semibold text-zinc-600">{t}</div>
+                      <div className="text-[8px] text-zinc-400 mt-0.5">Learn more</div>
                     </div>
-                  </div>
-                  <CheckCircle2 className="size-4 text-emerald-500 shrink-0 mt-1" />
+                  ))}
                 </div>
-              );
-            })}
+              </div>
+            </div>
+          </div>
+
+          {/* Routines */}
+          <div className="flex-[0.6] rounded-2xl border border-zinc-100 bg-white shadow-[0_8px_40px_-12px_rgba(0,0,0,0.08)] overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2.5 bg-zinc-50/80">
+              <div className="size-7 rounded-lg bg-violet-50 flex items-center justify-center">
+                <CalendarClock className="size-3.5 text-violet-500" />
+              </div>
+              <span className="text-[15px] font-semibold text-zinc-900">Routines</span>
+            </div>
+            <div className="p-4 space-y-3 min-h-[320px]">
+              {ROUTINES.map((routine, i) => {
+                if (!visibleRoutines.includes(i)) return null;
+                return (
+                  <div
+                    key={routine.name}
+                    className="flex items-start gap-3 p-4 rounded-xl bg-zinc-50/80 border border-zinc-100 animate-in slide-in-from-right-4 fade-in duration-400"
+                  >
+                    <div className="size-9 rounded-xl bg-white border border-zinc-100 shrink-0 flex items-center justify-center mt-0.5 shadow-sm">
+                      <AgentIcon name={routine.agent} size={28} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm">{routine.icon}</span>
+                        <div className="text-sm font-semibold text-zinc-900">{routine.name}</div>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-1.5">
+                        <Clock className="size-3 text-zinc-300" />
+                        <span className="text-[11px] text-zinc-400">{routine.schedule}</span>
+                      </div>
+                    </div>
+                    <CheckCircle2 className="size-4 text-emerald-500 shrink-0 mt-1" />
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
-      </div>
+      </FadeUpGroup>
     </div>
   );
 }
 
-/* ─── Scene 5: Reveal ─── */
+/* ═══════════════════════════════════════════════
+   Scene 5 — Reveal
+   ═══════════════════════════════════════════════ */
 
 function SceneReveal() {
   const [step, setStep] = useState(0);
 
   useEffect(() => {
-    const t1 = setTimeout(() => setStep(1), 400);
-    const t2 = setTimeout(() => setStep(2), 1000);
+    const t1 = setTimeout(() => setStep(1), 300);
+    const t2 = setTimeout(() => setStep(2), 900);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   }, []);
 
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center px-8 animate-in fade-in duration-700">
-      <div className="flex items-center gap-12">
+    <div className="w-full h-full flex flex-col items-center justify-center px-8">
+      {/* Agent icons */}
+      <div className="flex items-end gap-8 sm:gap-14">
         {AGENTS.map((agent, i) => (
           <div
             key={agent.name}
             className={cn(
-              'flex flex-col items-center gap-3 transition-all duration-600',
-              step >= 0 ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-6 scale-90',
+              'flex flex-col items-center gap-3 transition-all duration-700',
+              step >= 0 ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-8 scale-90',
             )}
-            style={{ transitionDelay: `${i * 150}ms` }}
+            style={{ transitionDelay: `${i * 120}ms` }}
           >
-            <div className="size-20 sm:size-24 flex items-center justify-center">
-              <AgentIcon name={agent.name} size={96} />
+            <div className="size-20 sm:size-[88px] flex items-center justify-center rounded-2xl bg-zinc-50 border border-zinc-100 shadow-lg p-2">
+              <AgentIcon name={agent.name} size={72} />
             </div>
-            <span className="text-sm font-medium text-zinc-500">{agent.label}</span>
+            <div className="text-center">
+              <div className="text-sm font-semibold text-zinc-800">{agent.label}</div>
+              <div className="text-[11px] text-zinc-400">{agent.role}</div>
+            </div>
           </div>
         ))}
       </div>
 
+      {/* Connecting dots */}
       <div className={cn(
-        'mt-10 w-48 h-px transition-all duration-1000',
-        step >= 1 ? 'bg-gradient-to-r from-transparent via-zinc-300 to-transparent opacity-100' : 'opacity-0',
-      )} />
+        'mt-10 flex items-center gap-1 transition-all duration-1000',
+        step >= 1 ? 'opacity-100' : 'opacity-0',
+      )}>
+        {Array.from({ length: 20 }).map((_, i) => (
+          <div key={i} className="size-1 rounded-full bg-zinc-200" style={{ opacity: Math.sin((i / 19) * Math.PI) }} />
+        ))}
+      </div>
 
+      {/* Tagline */}
       <div className={cn(
         'mt-10 text-center transition-all duration-700',
-        step >= 1 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4',
+        step >= 1 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5',
       )}>
-        <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900">Your agents. One workspace.</h2>
+        <h2 className="text-4xl sm:text-5xl font-bold tracking-tight text-zinc-900">
+          Your agents. One workspace.
+        </h2>
       </div>
 
       <div className={cn(
-        'mt-4 text-center transition-all duration-700',
+        'mt-5 text-center transition-all duration-700',
         step >= 2 ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3',
       )}>
-        <p className="text-base text-zinc-400">Connect your first agent to get started.</p>
+        <p className="text-lg text-zinc-400">Connect your first agent to get started.</p>
       </div>
     </div>
   );
 }
 
-/* ─── Shared ─── */
+/* ═══════════════════════════════════════════════
+   Shared components
+   ═══════════════════════════════════════════════ */
 
 function SceneCaption({ text, sub }: { text: string; sub: string }) {
   return (
-    <div className="text-center">
-      <h3 className="text-2xl sm:text-3xl font-bold tracking-tight text-zinc-900 animate-in fade-in slide-in-from-bottom-3 duration-500">
+    <div className="text-center max-w-lg mx-auto">
+      <h3 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900">
         {text}
       </h3>
-      <p className="mt-2 text-sm sm:text-base text-zinc-400 animate-in fade-in slide-in-from-bottom-2 duration-500" style={{ animationDelay: '150ms', animationFillMode: 'both' }}>
+      <p className="mt-3 text-base sm:text-lg text-zinc-400 leading-relaxed">
         {sub}
       </p>
     </div>
   );
 }
 
-function TypewriterText({ text, className }: { text: string; className?: string }) {
+function FadeUpGroup({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
+  return (
+    <div
+      className="animate-in fade-in slide-in-from-bottom-4 duration-700"
+      style={{ animationDelay: `${delay}ms`, animationFillMode: 'both' }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function TypewriterText({ text, speed = 16, className }: { text: string; speed?: number; className?: string }) {
   const [count, setCount] = useState(0);
 
   useEffect(() => {
@@ -494,14 +603,14 @@ function TypewriterText({ text, className }: { text: string; className?: string 
         if (c >= text.length) { clearInterval(interval); return c; }
         return c + 1;
       });
-    }, 16);
+    }, speed);
     return () => clearInterval(interval);
-  }, [text]);
+  }, [text, speed]);
 
   return (
     <span className={className}>
       {text.slice(0, count)}
-      {count < text.length && <span className="inline-block w-0.5 h-4 bg-current opacity-60 animate-pulse ml-px align-middle" />}
+      {count < text.length && <span className="inline-block w-[2px] h-[1.1em] bg-current opacity-50 animate-pulse ml-0.5 align-middle rounded-full" />}
     </span>
   );
 }
