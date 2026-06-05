@@ -154,7 +154,7 @@ function SceneConnect({ agentCount }: { agentCount: number }) {
                   cx={pos.x} cy={pos.y} r="4"
                   fill={AGENTS[i].color}
                   opacity="0.3"
-                  style={{ animation: 'onb-pulse 2s ease-in-out infinite', animationDelay: `${i * 0.3}s` }}
+                  style={{ animationName: 'onb-pulse', animationDuration: '2s', animationTimingFunction: 'ease-in-out', animationIterationCount: 'infinite', animationDelay: `${i * 0.3}s` }}
                 />
               ))}
             </>
@@ -443,7 +443,10 @@ function SceneAutomate() {
                 opacity: active ? 1 : 0,
                 transition: 'opacity 0.8s ease',
                 transitionDelay: `${i * 0.15}s`,
-                animation: active ? `onb-orbit ${8 + i * 0.5}s linear infinite` : 'none',
+                animationName: active ? 'onb-orbit' : 'none',
+                animationDuration: `${8 + i * 0.5}s`,
+                animationTimingFunction: 'linear',
+                animationIterationCount: 'infinite',
                 animationDelay: `${(i / 3) * -(8 + i * 0.5)}s`,
               }}
             >
@@ -456,7 +459,11 @@ function SceneAutomate() {
                 <div
                   className="size-14 sm:size-16 flex items-center justify-center"
                   style={{
-                    animation: active ? `onb-orbit ${8 + i * 0.5}s linear infinite reverse` : 'none',
+                    animationName: active ? 'onb-orbit' : 'none',
+                    animationDuration: `${8 + i * 0.5}s`,
+                    animationTimingFunction: 'linear',
+                    animationIterationCount: 'infinite',
+                    animationDirection: 'reverse',
                     animationDelay: `${(i / 3) * -(8 + i * 0.5)}s`,
                   }}
                 >
