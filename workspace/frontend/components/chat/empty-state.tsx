@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Rocket, Copy, Check, ChevronRight, Key, Cloud, ExternalLink, Loader2 } from 'lucide-react';
+import { OnboardingAnimation } from './onboarding-animation';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
@@ -20,6 +21,11 @@ export function EmptyState() {
   const [loading, setLoading] = useState(true);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [tokenCopied, setTokenCopied] = useState(false);
+  const [showAnimation, setShowAnimation] = useState(true);
+
+  const handleAnimationComplete = useCallback(() => {
+    setShowAnimation(false);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,11 +65,19 @@ export function EmptyState() {
     );
   }
 
+  if (showAnimation) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full p-6 sm:p-8">
+        <OnboardingAnimation onComplete={handleAnimationComplete} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col items-center h-full overflow-y-auto p-6 sm:p-8">
       <div className="w-full max-w-2xl space-y-6 py-8">
         {/* Header */}
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-2 animate-in fade-in slide-in-from-bottom-3 duration-500">
           <h2 className="text-2xl font-bold tracking-tight">Connect your first agent</h2>
           <p className="text-sm text-muted-foreground max-w-md mx-auto">
             Pick an agent you already have installed, or choose one to set up.
