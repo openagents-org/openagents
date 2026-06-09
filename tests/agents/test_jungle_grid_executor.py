@@ -4,12 +4,18 @@ import asyncio
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import yaml
 
+from openagents.core.network import AgentNetwork
 from openagents.models.event import Event
 from openagents.models.event_context import EventContext
+from openagents.models.network_config import AgentGroupConfig, NetworkConfig
+from openagents.models.transport import TransportType
+from openagents.mods.workspace.project.mod import DefaultProjectNetworkMod
 
 MODULE_PATH = (
     Path(__file__).parent.parent.parent
@@ -19,6 +25,7 @@ MODULE_PATH = (
     / "agents"
     / "jungle_grid_executor.py"
 )
+NETWORK_CONFIG_PATH = MODULE_PATH.parent.parent / "network.yaml"
 SPEC = importlib.util.spec_from_file_location("jungle_grid_executor", MODULE_PATH)
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
@@ -28,6 +35,7 @@ JungleGridClient = MODULE.JungleGridClient
 JungleGridError = MODULE.JungleGridError
 JungleGridExecutorAgent = MODULE.JungleGridExecutorAgent
 ProjectExecution = MODULE.ProjectExecution
+EXECUTORS_GROUP_PASSWORD_HASH = MODULE.EXECUTORS_GROUP_PASSWORD_HASH
 build_estimate_payload = MODULE.build_estimate_payload
 build_submit_payload = MODULE.build_submit_payload
 estimate_can_submit = MODULE.estimate_can_submit
@@ -51,6 +59,7 @@ def workload():
         "name": "batch-demo",
         "workload_type": "batch",
         "image": "python:3.11-slim",
+        "model_size_gb": 1,
         "command": "python",
         "args": ["-c", "print(42)"],
         "optimize_for": "cost",
@@ -63,6 +72,7 @@ class FakeJungleGridClient:
         self.estimate_job = AsyncMock(return_value={"available": True, "estimated_cost_usd": {"min": 0.1, "max": 0.2}})
         self.submit_job = AsyncMock(return_value={"job_id": "job_123", "status": "queued"})
         self.get_job = AsyncMock(return_value={"job_id": "job_123", "status": "completed"})
+        self.get_job_runtime = AsyncMock(return_value={"exit_code": 0, "stdout_tail": "done"})
         self.get_job_logs = AsyncMock(return_value={"items": [{"message": "done"}]})
         self.cancel_job = AsyncMock(return_value={"job_id": "job_123", "status": "cancelled", "cancelled": True})
         self.list_artifacts = AsyncMock(
@@ -84,6 +94,88 @@ def agent_with_mocks(fake=None):
     agent.project_adapter.complete_project = AsyncMock(return_value={"success": True})
     agent.project_adapter.stop_project = AsyncMock(return_value={"success": True})
     return agent
+
+
+@pytest.mark.asyncio
+async def test_executor_group_membership_delivers_project_start_and_returns_estimate():
+    network_yaml = yaml.safe_load(NETWORK_CONFIG_PATH.read_text())
+    executor_group = network_yaml["network"]["agent_groups"]["executors"]
+    assert executor_group["password_hash"] == EXECUTORS_GROUP_PASSWORD_HASH
+    assert "agents" not in executor_group.get("metadata", {})
+
+    config = NetworkConfig(
+        name="JungleGridGroupTest",
+        default_agent_group="guest",
+        requires_password=False,
+        agent_groups={"executors": AgentGroupConfig(**executor_group)},
+    )
+    network = AgentNetwork.create_from_config(config)
+    registration = await network.register_agent(
+        agent_id="jungle-grid-executor",
+        transport_type=TransportType.HTTP,
+        metadata={"name": "Jungle Grid Executor"},
+        certificate=None,
+        password_hash=EXECUTORS_GROUP_PASSWORD_HASH,
+    )
+    assert registration.success
+    assert network.topology.agent_group_membership["jungle-grid-executor"] == "executors"
+
+    project_mod = DefaultProjectNetworkMod()
+    project_mod.update_config(
+        {
+            "project_templates": {
+                "jungle_grid_execution": {
+                    "name": "Jungle Grid GPU Execution",
+                    "agent_groups": ["executors"],
+                }
+            }
+        }
+    )
+    project_mod.initialize()
+    project_mod.bind_network(network)
+    assert project_mod._get_agents_in_group("executors") == ["jungle-grid-executor"]
+
+    fake = FakeJungleGridClient()
+    executor = agent_with_mocks(fake)
+    delivered = []
+
+    async def deliver(event):
+        delivered.append(event)
+        if event.destination_id == "jungle-grid-executor":
+            await executor.handle_project_started(
+                EventContext(
+                    incoming_event=event,
+                    event_threads={},
+                    incoming_thread_id="project-start",
+                )
+            )
+        return SimpleNamespace(success=True)
+
+    project_mod.send_event = AsyncMock(side_effect=deliver)
+    response = await project_mod.process_system_message(
+        Event(
+            event_name="project.start",
+            source_id="human:project-owner",
+            payload={
+                "template_id": "jungle_grid_execution",
+                "goal": json.dumps(workload()),
+                "name": "Jungle Grid test",
+            },
+        )
+    )
+
+    assert response.success
+    assert "jungle-grid-executor" in response.data["authorized_agents"]
+    assert any(
+        event.event_name == "project.notification.started"
+        and event.destination_id == "jungle-grid-executor"
+        and event.payload["initiator_agent_id"] == "human:project-owner"
+        for event in delivered
+    )
+    fake.estimate_job.assert_awaited_once_with(build_estimate_payload(workload()))
+    estimate_message = executor.project_adapter.send_project_message.await_args.kwargs["content"]["text"]
+    assert "Jungle Grid estimate ready" in estimate_message
+    assert "APPROVE" in estimate_message
 
 
 @pytest.mark.asyncio
@@ -250,12 +342,16 @@ async def test_logs_and_artifacts_are_stored_in_project_artifact():
 
     await agent._finalize(execution, {"job_id": "job_123", "status": "completed"})
 
+    fake.get_job_runtime.assert_awaited_once_with("job_123")
     fake.get_job_logs.assert_awaited_once_with("job_123")
     fake.list_artifacts.assert_awaited_once_with("job_123")
     fake.get_artifact.assert_awaited_once_with("job_123", "artifact_1")
     artifact_call = agent.project_adapter.set_project_artifact.await_args
     assert artifact_call.kwargs["key"] == "jungle_grid_result"
     assert "output.json" in artifact_call.kwargs["value"]
+    assert "stdout_tail" in artifact_call.kwargs["value"]
+    assert "https://example.test/file" not in artifact_call.kwargs["value"]
+    assert "[REDACTED]" in artifact_call.kwargs["value"]
 
 
 @pytest.mark.asyncio
@@ -342,6 +438,20 @@ async def test_missing_api_key_is_reported_without_network_call(monkeypatch):
 def test_invalid_workload_is_rejected():
     with pytest.raises(ValueError, match="Missing required workload fields"):
         parse_workload_goal('{"workload_type": "batch"}')
+
+
+def test_workload_requires_positive_model_size():
+    with pytest.raises(ValueError, match="model_size_gb"):
+        parse_workload_goal(json.dumps({**workload(), "model_size_gb": 0}))
+
+
+def test_estimate_payload_matches_current_draft_job_fields():
+    requested = {
+        **workload(),
+        "constraints": {"max_price_per_hour": 2.5, "preferred_gpu_family": "l4"},
+    }
+
+    assert build_estimate_payload(requested) == requested
 
 
 def test_workload_rejects_literal_credentials_and_secret_like_metadata():
@@ -472,11 +582,41 @@ async def test_network_timeout_is_sanitized(monkeypatch):
 @pytest.mark.asyncio
 async def test_api_error_is_sanitized(monkeypatch):
     monkeypatch.setenv("JUNGLE_GRID_API_KEY", "test-api-key")
-    body = json.dumps({"error": {"code": "FORBIDDEN", "message": "Bearer test-api-key is not allowed"}})
+    body = json.dumps(
+        {
+            "error": {
+                "code": "provider_jg_private_backend",
+                "message": "Bearer test-api-key is not allowed",
+            }
+        }
+    )
     monkeypatch.setattr(MODULE.aiohttp, "ClientSession", lambda **kwargs: FakeSession(FakeResponse(403, body)))
     client = JungleGridClient()
 
     with pytest.raises(JungleGridError) as exc_info:
         await client.get_job("job_123")
-    assert exc_info.value.code == "FORBIDDEN"
+    assert "jg_private_backend" not in exc_info.value.code
+    assert "[REDACTED]" in exc_info.value.code
     assert "test-api-key" not in str(exc_info.value)
+
+
+def test_client_uses_documented_rest_api_environment(monkeypatch):
+    monkeypatch.setenv("JUNGLE_GRID_API", "https://orchestrator.example.test/")
+    monkeypatch.setenv("JUNGLE_GRID_API_KEY", "test-api-key")
+
+    client = JungleGridClient()
+
+    assert client.api_base == "https://orchestrator.example.test"
+
+
+@pytest.mark.asyncio
+async def test_client_uses_documented_runtime_and_log_routes(monkeypatch):
+    monkeypatch.setenv("JUNGLE_GRID_API_KEY", "test-api-key")
+    client = JungleGridClient()
+    client._request = AsyncMock(return_value={})
+
+    await client.get_job_runtime("job_123")
+    await client.get_job_logs("job_123")
+
+    assert client._request.await_args_list[0].args == ("GET", "/v1/jobs/job_123/runtime")
+    assert client._request.await_args_list[1].args == ("GET", "/v1/jobs/job_123/logs?tail=100")

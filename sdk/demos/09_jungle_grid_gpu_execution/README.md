@@ -1,8 +1,9 @@
 # Jungle Grid GPU Execution Demo
 
 This demo shows an OpenAgents execution agent delegating long-running AI and GPU
-workloads to [Jungle Grid](https://junglegrid.dev), an execution layer that
-places and runs AI workloads without requiring agents to manage GPU servers.
+workloads to [Jungle Grid](https://junglegrid.dev), an agentic AI workload
+execution and GPU orchestration layer that classifies intent, resolves capacity,
+and places workloads without requiring agents to manage GPU servers.
 
 The workflow fits OpenAgents because the workload is asynchronous and
 collaborative: an agent estimates the job, a human approves spending in the
@@ -30,7 +31,7 @@ approval, immediately before submission.
 
 - `JUNGLE_GRID_API_KEY` is required. The agent reads this server-side API key and
   sends it only as a Bearer token to Jungle Grid.
-- `JUNGLEGRID_API_BASE` optionally overrides the default API base,
+- `JUNGLE_GRID_API` optionally overrides the default REST API base,
   `https://api.junglegrid.dev`.
 - Any workload-specific variables referenced by `environment_from_env` must also
   be exported in the executor process. Their values are never placed in the
@@ -54,6 +55,10 @@ export JUNGLE_GRID_API_KEY="jg_..."
 
 ## Run The Demo
 
+The current demo assumes exactly one executor. Run one
+`jungle-grid-executor` process so a project is estimated and submitted at most
+once.
+
 Start the OpenAgents network from this demo directory. The network enables the
 project mod and exposes the `Jungle Grid GPU Execution` project template:
 
@@ -70,6 +75,13 @@ cd sdk/demos/09_jungle_grid_gpu_execution
 python agents/jungle_grid_executor.py
 ```
 
+The script connects with the password hash configured for the `executors`
+group. OpenAgents records that connection in
+`network.topology.agent_group_membership`, which is the runtime source used by
+the project mod. The optional `metadata.agents` list in an agent-group
+configuration does not assign runtime membership and is intentionally not used
+by this demo.
+
 Open Studio at `http://localhost:8700/studio`, create a project with the
 `Jungle Grid GPU Execution` template, and use a JSON object as the project goal.
 For example:
@@ -79,14 +91,18 @@ For example:
   "name": "openagents-batch-demo",
   "workload_type": "batch",
   "image": "python:3.11-slim",
+  "model_size_gb": 1,
   "command": "python",
   "args": ["-c", "print('hello from Jungle Grid')"],
   "optimize_for": "cost"
 }
 ```
 
-The agent validates the request and calls Jungle Grid's estimate endpoint. It
-posts the structured estimate and stores it as project artifact
+The agent validates the request and calls the read-only
+`POST /v1/jobs/estimate` endpoint. Current estimates include workload
+classification, routing and capacity signals, hourly and total cost ranges,
+queue-wait ranges, estimated start windows, warnings, and screening details.
+The executor posts that structured estimate and stores it as project artifact
 `jungle_grid_estimate`. No compute has been submitted at this point.
 
 For a workload that needs a credential or other environment value, export it in
@@ -101,6 +117,7 @@ export MODEL_TOKEN="..."
   "name": "openagents-inference-demo",
   "workload_type": "inference",
   "image": "example/model-server:latest",
+  "model_size_gb": 7,
   "environment_from_env": {
     "MODEL_TOKEN": "MODEL_TOKEN"
   },
@@ -120,10 +137,16 @@ the agent. Estimates that explicitly report `available: false` or
 APPROVE <estimate-id>
 ```
 
-After approval, the agent submits the workload, posts status changes such as
-submitted, queued, assigned/provisioning, running, completed, failed, rejected,
-or cancelled, and stores the final job details, logs, artifact list, and
-temporary download metadata in project artifact `jungle_grid_result`.
+After approval, the agent submits with `POST /v1/jobs`, polls
+`GET /v1/jobs/{job_id}`, and posts public lifecycle changes: pending, queued,
+assigned, running, completed, failed, rejected, or cancelled. On a terminal
+state it retrieves the runtime surface, the latest 100 stored log entries, and
+the managed artifact list. Regular files written by managed workloads under
+`/workspace/artifacts` are eligible for automatic upload.
+
+Artifact download requests mint temporary signed URLs. The executor requests
+download metadata but redacts the URL before storing `jungle_grid_result`; do
+not log or share signed URLs.
 
 To cancel a submitted job, reply with the exact job ID:
 
@@ -141,6 +164,19 @@ Invalid workload JSON, missing required fields, missing API keys, timeouts,
 invalid Jungle Grid responses, and API errors are posted to the project in
 sanitized form. Failed, rejected, or cancelled jobs stop the OpenAgents project.
 Completed jobs complete the project.
+
+The API key needs `jobs:estimate`, `jobs:submit`, `jobs:read`, and `logs:read`
+capabilities for the complete flow.
+
+## Jungle Grid Interfaces
+
+This demo calls the REST API directly so OpenAgents can enforce project-based
+human approval. Jungle Grid also provides the `jungle` CLI, whose `submit`
+command estimates and asks for confirmation before queuing, and a hosted MCP
+endpoint at `https://mcp.junglegrid.dev/mcp`. Hosted MCP uses OAuth; local stdio
+MCP uses `JUNGLE_GRID_API_KEY`. The current MCP tools are `estimate_job`,
+`submit_job`, `list_jobs`, `get_job`, `get_job_logs`, `cancel_job`,
+`list_artifacts`, and `get_artifact`.
 
 ## Tests
 

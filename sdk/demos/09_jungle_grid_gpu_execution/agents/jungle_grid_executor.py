@@ -20,26 +20,32 @@ from openagents.mods.workspace.project import DefaultProjectAgentAdapter
 logger = logging.getLogger(__name__)
 
 DEFAULT_API_BASE = "https://api.junglegrid.dev"
+EXECUTORS_GROUP_PASSWORD_HASH = "8fba13dab71d6fdd8a9b9db1f06e81315dfbfd69167b6097f724604db3c91cdf"
 TERMINAL_STATUSES = {"completed", "failed", "rejected", "cancelled"}
-VALID_WORKLOAD_TYPES = {"inference", "training", "fine-tuning", "batch"}
+VALID_WORKLOAD_TYPES = {"inference", "training", "batch"}
 VALID_OPTIMIZE_FOR = {"balanced", "cost", "speed"}
 SUBMIT_FIELDS = {
     "name",
     "workload_type",
     "image",
+    "model_size_gb",
     "command",
     "args",
     "environment_from_env",
     "optimize_for",
+    "constraints",
     "template",
     "metadata",
 }
 ESTIMATE_FIELDS = {
+    "name",
     "workload_type",
     "image",
+    "model_size_gb",
     "command",
     "args",
     "optimize_for",
+    "constraints",
     "template",
 }
 SENSITIVE_PATTERN = re.compile(r"(?i)(bearer\s+)[^\s,;]+|jg_[A-Za-z0-9_-]+")
@@ -116,8 +122,14 @@ def _error_detail(data: Any, status: int) -> tuple[str, str]:
     if isinstance(data, dict):
         nested = data.get("error")
         if isinstance(nested, dict):
-            return str(nested.get("code") or "API_ERROR"), str(nested.get("message") or f"HTTP {status}")
-        return str(data.get("code") or "API_ERROR"), str(data.get("message") or f"HTTP {status}")
+            return (
+                redact_sensitive(nested.get("code") or "API_ERROR"),
+                redact_sensitive(nested.get("message") or f"HTTP {status}"),
+            )
+        return (
+            redact_sensitive(data.get("code") or "API_ERROR"),
+            redact_sensitive(data.get("message") or f"HTTP {status}"),
+        )
     return "API_ERROR", f"HTTP {status}"
 
 
@@ -129,7 +141,7 @@ class JungleGridClient:
         api_base: Optional[str] = None,
         timeout_seconds: float = 30.0,
     ):
-        raw_api_base = api_base if api_base is not None else os.getenv("JUNGLEGRID_API_BASE", DEFAULT_API_BASE)
+        raw_api_base = api_base if api_base is not None else os.getenv("JUNGLE_GRID_API", DEFAULT_API_BASE)
         self.api_key = os.getenv("JUNGLE_GRID_API_KEY", "").strip()
         self.api_base = raw_api_base.rstrip("/")
         self.timeout_seconds = timeout_seconds
@@ -159,7 +171,11 @@ class JungleGridClient:
                         ) from exc
                     if response.status < 200 or response.status >= 300:
                         code, message = _error_detail(data, response.status)
-                        raise JungleGridError(code, redact_sensitive(message, api_key), response.status)
+                        raise JungleGridError(
+                            redact_sensitive(code, api_key),
+                            redact_sensitive(message, api_key),
+                            response.status,
+                        )
         except asyncio.TimeoutError as exc:
             raise JungleGridError("NETWORK_TIMEOUT", "Jungle Grid request timed out.") from exc
         except aiohttp.ClientError as exc:
@@ -179,8 +195,11 @@ class JungleGridClient:
     async def get_job(self, job_id: str) -> Dict[str, Any]:
         return await self._request("GET", f"/v1/jobs/{quote(job_id, safe='')}")
 
+    async def get_job_runtime(self, job_id: str) -> Dict[str, Any]:
+        return await self._request("GET", f"/v1/jobs/{quote(job_id, safe='')}/runtime")
+
     async def get_job_logs(self, job_id: str) -> Dict[str, Any]:
-        return await self._request("GET", f"/v1/jobs/{quote(job_id, safe='')}/logs")
+        return await self._request("GET", f"/v1/jobs/{quote(job_id, safe='')}/logs?tail=100")
 
     async def cancel_job(self, job_id: str, reason: str) -> Dict[str, Any]:
         return await self._request("POST", f"/v1/jobs/{quote(job_id, safe='')}/cancel", {"reason": reason})
@@ -217,6 +236,9 @@ def parse_workload_goal(goal: str) -> Dict[str, Any]:
     missing = sorted(key for key in required if not isinstance(workload.get(key), str) or not workload[key].strip())
     if missing:
         raise ValueError(f"Missing required workload fields: {', '.join(missing)}.")
+    model_size_gb = workload.get("model_size_gb")
+    if not isinstance(model_size_gb, (int, float)) or isinstance(model_size_gb, bool) or model_size_gb <= 0:
+        raise ValueError("model_size_gb must be a positive number.")
     if workload["workload_type"] not in VALID_WORKLOAD_TYPES:
         raise ValueError(f"workload_type must be one of: {', '.join(sorted(VALID_WORKLOAD_TYPES))}.")
     if "optimize_for" in workload and workload["optimize_for"] not in VALID_OPTIMIZE_FOR:
@@ -514,9 +536,14 @@ class JungleGridExecutorAgent(WorkerAgent):
 
     async def _finalize(self, execution: ProjectExecution, job: Dict[str, Any]):
         assert execution.job_id
+        runtime: Dict[str, Any] = {}
         logs: Dict[str, Any] = {}
         artifacts: Dict[str, Any] = {}
         downloads = []
+        try:
+            runtime = await self.jungle_grid.get_job_runtime(execution.job_id)
+        except JungleGridError as exc:
+            runtime = {"error": redact_sensitive(exc, self.jungle_grid.api_key)}
         try:
             logs = await self.jungle_grid.get_job_logs(execution.job_id)
         except JungleGridError as exc:
@@ -528,12 +555,15 @@ class JungleGridExecutorAgent(WorkerAgent):
                     continue
                 artifact_id = str(artifact.get("artifact_id") or artifact.get("id") or "").strip()
                 if artifact_id:
-                    downloads.append(await self.jungle_grid.get_artifact(execution.job_id, artifact_id))
+                    download = await self.jungle_grid.get_artifact(execution.job_id, artifact_id)
+                    if "url" in download:
+                        download = {**download, "url": "[REDACTED]"}
+                    downloads.append(download)
         except JungleGridError as exc:
             artifacts = {"error": redact_sensitive(exc, self.jungle_grid.api_key)}
 
         result = self._sanitize_for_project(
-            {"job": job, "logs": logs, "artifacts": artifacts, "downloads": downloads},
+            {"job": job, "runtime": runtime, "logs": logs, "artifacts": artifacts, "downloads": downloads},
             execution,
         )
         await self._set_artifact(execution.project_id, "jungle_grid_result", result)
@@ -560,7 +590,11 @@ async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     agent = JungleGridExecutorAgent()
     try:
-        await agent.async_start(network_host="localhost", network_port=8700)
+        await agent.async_start(
+            network_host="localhost",
+            network_port=8700,
+            password_hash=EXECUTORS_GROUP_PASSWORD_HASH,
+        )
         while True:
             await asyncio.sleep(3600)
     finally:
