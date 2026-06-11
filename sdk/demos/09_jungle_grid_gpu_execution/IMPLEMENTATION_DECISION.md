@@ -2,64 +2,97 @@
 
 ## Selected Extension Point
 
-This contribution is a runnable demo network with a Python `WorkerAgent`. The agent
-uses OpenAgents' project mod for the long-running workflow, project messages for
-estimate and lifecycle updates, and project artifacts for logs and Jungle Grid
-artifact metadata.
+This contribution remains a runnable demo network with a deterministic Python
+`WorkerAgent`. It uses OpenAgents projects for assignment and lifecycle,
+project messages for human approval and meaningful status changes, and project
+artifacts for durable execution state and sanitized results.
 
-Jungle Grid is an external agentic AI workload execution and GPU orchestration
-layer, not an OpenAgents transport, launcher agent type, or network mod. A demo
-keeps the integration provider-specific while showing a reusable OpenAgents
-pattern: an agent delegates asynchronous compute, waits for human approval
-before billable work, and returns results to a shared project.
+Jungle Grid is an external workload execution service, not an OpenAgents
+transport, launcher, credential type, or network mod. Keeping it as a demo makes
+the approval boundary and asynchronous project behavior explicit and testable.
+The agent calls REST directly because an MCP tool call would otherwise hide the
+project-state transition around billable submission.
 
-## Rejected Alternatives
+## Jungle Grid Contract
 
-- **Launcher agent type:** Jungle Grid executes workloads; it is not an interactive
-  coding-agent runtime managed by the launcher.
-- **Core provider integration:** No OpenAgents core abstraction requires a
-  provider-specific compute backend.
-- **Jungle Grid mod:** The integration does not add network-wide event semantics or
-  shared infrastructure. Existing project events already cover the workflow.
-- **Hosted MCP entry:** Jungle Grid's hosted Streamable HTTP endpoint uses OAuth,
-  while local stdio uses an API key. The direct REST integration keeps approval
-  and project state inside OpenAgents without requiring an MCP auth change.
-- **Local stdio MCP dependency:** The Jungle Grid stdio MCP package is supported,
-  but a direct Python API client is easier to validate, test, and constrain around
-  mandatory human approval. It also avoids requiring Node.js for a Python demo.
+The implementation was aligned against `Jungle-Grid/mcp-server` and the current
+orchestrator API implementation, not only the README:
 
-## Jungle Grid Contract Used
-
-The demo uses the documented public execution API:
-
-- `POST /v1/jobs/estimate`
-- `POST /v1/jobs`
-- `GET /v1/jobs/{job_id}`
+- `POST /v1/mcp/jobs/estimate`
+- `POST /v1/mcp/jobs`
+- `GET /v1/mcp/jobs/{job_id}`
+- `GET /v1/jobs/{job_id}/events`
+- `GET /v1/mcp/jobs/{job_id}/logs`
 - `GET /v1/jobs/{job_id}/runtime`
-- `GET /v1/jobs/{job_id}/logs`
-- `POST /v1/jobs/{job_id}/cancel`
-- `GET /v1/jobs/{job_id}/artifacts`
-- `POST /v1/jobs/{job_id}/artifacts/{artifact_id}/download`
+- `POST /v1/mcp/jobs/{job_id}/cancel`
+- `GET /v1/mcp/jobs/{job_id}/artifacts`
+- `POST /v1/mcp/jobs/{job_id}/artifacts/{artifact_id}/download`
 
-Authentication is a scoped server-side API key in `JUNGLE_GRID_API_KEY`; the
-REST base can be overridden with `JUNGLE_GRID_API`. The
-documented lifecycle includes `pending`, `queued`, `assigned`, `running`,
-`completed`, `failed`, `rejected`, and `cancelled`.
+The official API-base override is `JUNGLEGRID_API_BASE`.
+`JUNGLE_GRID_API_URL` and the older demo variable `JUNGLE_GRID_API` remain
+compatibility fallbacks. Trailing slashes are removed.
 
-The current REST request shape includes `model_size_gb`. Estimate responses
-describe classification, routing, capacity, rates, cost ranges, queue waits,
-start windows, warnings, and screening without starting compute. Managed
-workloads can publish regular files from `/workspace/artifacts`; temporary
-signed artifact download URLs are treated as secrets and are not stored in the
-OpenAgents project.
+The public workload types are `inference`, `training`, `fine_tuning`, and
+`batch`; `fine_tuning` is sent to REST as `fine-tuning`. The preferred command
+shape is an array. Legacy string `command` plus string-array `args` is combined
+in order before estimation and submission.
 
-Workload environment values are not accepted in project goals. A goal may use
-`environment_from_env` to reference variables available only in the executor
-process; those values are resolved after human approval and are excluded from
-the estimate request and project-visible output.
+## Uploaded Files
 
-## Contribution Workflow
+The demo accepts previously uploaded Jungle Grid `input_id` values through
+`input_files` and `script_files`. This is the minimum safe file workflow:
 
-OpenAgents' contributing guide asks contributors to create an issue for feature
-suggestions before submitting a pull request. This demo should be proposed in an
-issue and held for maintainer direction before a PR is opened.
+- IDs are validated locally and then verified by Jungle Grid during estimate or
+  submission.
+- No goal field can name an executor host path.
+- Upload URLs, completion tokens, and storage credentials never enter project
+  state.
+
+Uploading OpenAgents artifacts would require a separate authorization and
+byte-transfer design. It is intentionally outside this demo rather than
+allowing a project goal to read arbitrary local files.
+
+## Durable Idempotency
+
+`jungle_grid_execution_state` records the estimate ID, submission state,
+recorded job ID, cancellation state, status fingerprint, event IDs, and log
+cursor. The agent writes `submitting` before the non-idempotent submission call
+and writes the returned job ID immediately afterward.
+
+After restart:
+
+- a recorded job resumes monitoring;
+- a terminal project is not resubmitted;
+- a `submitting` state without a recorded job is not retried automatically,
+  because the current submission contract does not expose a verified
+  idempotency key;
+- duplicate approvals and cancellations are serialized by a per-project lock.
+
+This favors avoiding a duplicate billable job over guessing after an ambiguous
+network failure.
+
+## Security Decisions
+
+- Estimation cannot submit compute.
+- Submission requires exact `APPROVE <estimate-id>` from a `human:` identity.
+- Cancellation requires exact `CANCEL <job-id>` from a `human:` identity.
+- API and workload secrets are resolved from environment variables only.
+- Callback auth uses `callback.auth_token_from_env`; literal callback secrets
+  are not accepted.
+- Metadata with secret-like keys, Bearer tokens, API-key patterns, and signed
+  URLs are rejected or redacted.
+- Artifact download URLs are not requested during finalization. The client
+  method exists to match the API, but project state stores metadata only.
+- Automated tests mock all external calls.
+
+The committed `executors.password_hash` is a demo-only group credential. Its
+purpose is to establish actual runtime topology membership so project
+notifications reach the executor. It must be replaced for a shared deployment.
+
+## Deliberately Unsupported Goal Fields
+
+The current public MCP submission contract does not expose arbitrary
+host-file paths, CPU or memory sizing, provider pinning, or user-controlled
+retry policy. The demo does not invent those fields. It supports the verified
+GPU, region, priority, timeout, callback, routing, upload-reference, template,
+metadata, and expected-artifact fields accepted by the current API.
