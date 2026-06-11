@@ -19,6 +19,7 @@
 
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
 const { generateSessionTitle, SESSION_DEFAULT_RE } = require('./utils');
+const { defaultAgentWorkdir } = require('../paths');
 
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
 
@@ -82,7 +83,7 @@ class BaseAdapter {
         network: this.workspaceId,
         agentType: this.agentType || 'agent',
         serverHost: require('os').hostname(),
-        workingDir: this.workingDir || process.cwd(),
+        workingDir: this.workingDir || defaultAgentWorkdir(this.agentName),
       });
       this._sessionId = (joinResult && joinResult.session_id) || null;
       this._log(`Joined workspace ${this.workspaceId}${this._sessionId ? ` (session ${this._sessionId.slice(0, 8)})` : ''}`);
@@ -92,7 +93,10 @@ class BaseAdapter {
 
     // Sync workspace-managed skills into disabledModules
     try {
-      const agents = await this.client.getAgents(this.workspaceId, this.token);
+      const agents = await Promise.race([
+        this.client.getAgents(this.workspaceId, this.token),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('skill sync timed out (10s)')), 10000)),
+      ]);
       const self = agents.find((a) => a.agentName === this.agentName);
       if (self && self.enabledSkills) {
         const { skillsToDisabledModules } = require('../skill-catalog');
@@ -253,7 +257,7 @@ class BaseAdapter {
       this._log('skill.install: missing skill metadata in payload — ignoring');
       return;
     }
-    this._log(`skill.install: starting install of "${skillId}" (type=${this.agentType}, dir=${this.workingDir || process.cwd()})`);
+    this._log(`skill.install: starting install of "${skillId}" (type=${this.agentType}, dir=${this.workingDir || defaultAgentWorkdir(this.agentName)})`);
 
     // Best-effort "installing" ping so the UI flips immediately even if the
     // initial DB write from the request hasn't propagated to this client.

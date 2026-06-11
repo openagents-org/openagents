@@ -140,9 +140,14 @@ function runUpdate(opts = {}) {
   const spawn = opts.spawn || spawnSync;
   const npmBin = opts.npmBin || findNpmBin({ platform });
   const prefix = opts.prefix !== undefined ? opts.prefix : detectInstallPrefix();
-  const args = ['install', '--no-save', `${PKG_NAME}@latest`];
+  // Use a GLOBAL install (-g). A LOCAL install (`npm install <pkg> --prefix
+  // <dir>`) treats <dir> as a project root and prunes every node_modules entry
+  // not reachable from its package.json. When the prefix is the portable node
+  // dir, that deletes node's own bundled npm/corepack (and other agent runtimes),
+  // breaking every subsequent `agn` command. A global install only adds/updates
+  // the named package into <prefix>/node_modules and never prunes its siblings.
+  const args = ['install', '-g', `${PKG_NAME}@latest`];
   if (prefix) args.push('--prefix', prefix);
-  else args.push('-g');
 
   // On Windows, npm.cmd is a batch file and must be invoked through cmd.exe.
   // Passing the args via cmd.exe with shell:false lets Node quote paths that

@@ -117,6 +117,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── Sessions ──
   sessionList: (workspaceId?: string) => ipcRenderer.invoke('session:list', workspaceId),
+  sessionCreate: (workspaceId: string) => ipcRenderer.invoke('session:create', workspaceId),
   sessionLoad: (workspaceId: string, channelName: string) =>
     ipcRenderer.invoke('session:load', workspaceId, channelName),
   sessionDelete: (workspaceId: string, channelName: string) =>

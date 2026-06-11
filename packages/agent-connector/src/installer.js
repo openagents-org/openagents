@@ -132,7 +132,12 @@ class Installer {
       : null;
     if (verifyCmd) {
       try {
-        require('child_process').execSync(verifyCmd, { stdio: 'ignore', timeout: 5000 });
+        // Use the enhanced PATH so a freshly-installed CLI living in a dir the
+        // installer added (e.g. %LOCALAPPDATA%\cursor-agent) is found — otherwise
+        // `cursor-agent --version` exits "not recognized" and verify wrongly fails.
+        require('child_process').execSync(verifyCmd, {
+          stdio: 'ignore', timeout: 5000, env: getEnhancedEnv(), windowsHide: true,
+        });
         return true;
       } catch { return false; }
     }

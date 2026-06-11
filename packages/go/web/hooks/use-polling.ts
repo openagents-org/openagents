@@ -202,30 +202,72 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
     }
   }, [sessionId, hasOlder, loadingOlder, dmPair]);
 
-  // Initial load + polling loop
+  // Initial load + SSE with polling fallback
   useEffect(() => {
     if (!sessionId || !enabled) return;
 
-    // Load history if not seeded from cache
     if (!historyLoadedRef.current) {
       loadHistory();
     }
 
-    const getDelay = () => {
-      const idle = Date.now() - lastActivityRef.current;
-      return idle > 60_000 ? 15_000 : 2_000;
+    // Try SSE first for instant updates, fall back to polling
+    const isDM = sessionId.startsWith('dm:');
+    let eventSource: EventSource | null = null;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let usingSSE = false;
+
+    const startPolling = () => {
+      const getDelay = () => {
+        const idle = Date.now() - lastActivityRef.current;
+        return idle > 60_000 ? 15_000 : 2_000;
+      };
+      const schedule = () => {
+        timeout = setTimeout(async () => {
+          await poll();
+          schedule();
+        }, getDelay());
+      };
+      schedule();
     };
 
-    let timeout: ReturnType<typeof setTimeout>;
-    const schedule = () => {
-      timeout = setTimeout(async () => {
-        await poll();
-        schedule();
-      }, getDelay());
-    };
-    schedule();
+    if (!isDM) {
+      try {
+        const sseUrl = workspaceApi.getSSEUrl(sessionId);
+        eventSource = new EventSource(sseUrl);
+        usingSSE = true;
 
-    return () => clearTimeout(timeout);
+        eventSource.onmessage = (ev) => {
+          if (sessionId !== currentSessionRef.current) return;
+          try {
+            const event = JSON.parse(ev.data);
+            const msg = eventToMessage(event);
+            newestIdRef.current = msg.messageId;
+            setMessages((prev) => {
+              if (prev.some((m) => m.messageId === msg.messageId)) return prev;
+              return [...prev, msg];
+            });
+          } catch {
+            // malformed event
+          }
+        };
+
+        eventSource.onerror = () => {
+          eventSource?.close();
+          eventSource = null;
+          usingSSE = false;
+          startPolling();
+        };
+      } catch {
+        startPolling();
+      }
+    } else {
+      startPolling();
+    }
+
+    return () => {
+      if (eventSource) eventSource.close();
+      if (timeout) clearTimeout(timeout);
+    };
   }, [sessionId, enabled, poll, loadHistory]);
 
   // If seeded with cache, do a background refresh to catch any new messages

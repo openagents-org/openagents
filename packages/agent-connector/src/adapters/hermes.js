@@ -21,8 +21,12 @@ const { execSync, spawn } = require('child_process');
 
 const BaseAdapter = require('./base');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
+const { whichBinary, getEnhancedEnv } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
+const HERMES_INSTALL_HINT = IS_WINDOWS
+  ? 'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1 | iex"'
+  : 'curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash';
 const SESSION_ID_RE = /session_id:\s*(\S+)/;
 const MAX_HISTORY_ENTRIES = 12;
 
@@ -55,7 +59,7 @@ class HermesAdapter extends BaseAdapter {
     if (this._hermesBin) {
       this._log(`Using Hermes binary: ${this._hermesBin} (profile=${this.hermesProfile})`);
     } else {
-      this._log('Warning: hermes CLI not found. Install: curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash');
+      this._log(`Warning: hermes CLI not found. Install: ${HERMES_INSTALL_HINT}`);
     }
   }
 
@@ -65,22 +69,48 @@ class HermesAdapter extends BaseAdapter {
 
   _findHermesBinary() {
     const home = os.homedir();
+    // Reset each call. When set, this._hermesBin is a path INSIDE WSL and must
+    // be invoked as `wsl -e <path> …` rather than spawned natively.
+    this._hermesViaWsl = false;
 
-    // Tier 1: PATH
+    // Tier 1: PATH (enriched env so we see the dirs the launcher adds; a fresh
+    // install updates the user PATH, which the running daemon won't pick up).
+    // windowsHide stops a console window from flashing.
     try {
+      const env = getEnhancedEnv();
       if (IS_WINDOWS) {
-        // Native Windows unsupported upstream — we try anyway for WSL cases
-        const r = execSync('where hermes 2>nul', { encoding: 'utf-8', timeout: 5000 });
+        // Native Windows is supported (install.ps1). The installer adds
+        // venv\Scripts to the user PATH; a running daemon won't see that update,
+        // hence the enriched env + the explicit candidates in Tier 2.
+        const r = execSync('where hermes.exe 2>nul || where hermes.cmd 2>nul || where hermes 2>nul', {
+          encoding: 'utf-8', timeout: 5000, windowsHide: true, env,
+        });
         const found = r.split(/\r?\n/)[0].trim();
         if (found) return found;
       } else {
-        const found = execSync('which hermes', { encoding: 'utf-8', timeout: 5000 }).trim();
+        const found = execSync('which hermes', { encoding: 'utf-8', timeout: 5000, windowsHide: true, env }).trim();
         if (found) return found;
       }
     } catch {}
 
-    // Tier 2: Common install locations (hermes installer uses ~/.local/bin)
-    const candidates = IS_WINDOWS ? [] : [
+    // Tier 2: Common install locations. The native Windows installer
+    // (install.ps1) provisions a portable venv and drops hermes.exe under
+    // %LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts (with the uv shim in
+    // %LOCALAPPDATA%\hermes\bin). The Unix installer uses ~/.local/bin.
+    const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+    const candidates = IS_WINDOWS ? [
+      path.join(localAppData, 'hermes', 'hermes-agent', 'venv', 'Scripts', 'hermes.exe'),
+      path.join(localAppData, 'hermes', 'hermes-agent', 'venv', 'Scripts', 'hermes.cmd'),
+      path.join(localAppData, 'hermes', 'bin', 'hermes.exe'),
+      path.join(localAppData, 'hermes', 'bin', 'hermes.cmd'),
+      path.join(home, '.hermes', 'bin', 'hermes.exe'),
+      path.join(home, '.hermes', 'bin', 'hermes.cmd'),
+      path.join(home, '.hermes', 'bin', 'hermes'),
+      path.join(home, '.local', 'bin', 'hermes.exe'),
+      path.join(home, '.local', 'bin', 'hermes.cmd'),
+      path.join(home, '.local', 'bin', 'hermes'),
+    ] : [
+      path.join(home, '.hermes', 'bin', 'hermes'),
       path.join(home, '.local', 'bin', 'hermes'),
       '/opt/homebrew/bin/hermes',
       '/usr/local/bin/hermes',
@@ -89,6 +119,40 @@ class HermesAdapter extends BaseAdapter {
       if (fs.existsSync(c)) return c;
     }
 
+    // Tier 3: Deep scan of every known bin dir.
+    const viaWhich = whichBinary('hermes');
+    if (viaWhich) return viaWhich;
+
+    // Tier 4 (Windows only): fall back to a WSL install if one exists. Native
+    // Windows (Tiers 1-3) is preferred, but a user who set hermes up inside
+    // WSL2 still works — resolve its absolute in-WSL path; _runHermes then
+    // invokes it as `wsl -e <path> …`.
+    if (IS_WINDOWS) {
+      const wslPath = this._resolveWslHermes();
+      if (wslPath) {
+        this._hermesViaWsl = true;
+        return wslPath;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Resolve hermes's absolute path inside the default WSL distro, or null.
+   * Uses a login shell (`bash -lc`) so the installer's PATH additions
+   * (~/.local/bin) are visible. Returns an absolute Linux path like
+   * /home/<user>/.local/bin/hermes.
+   */
+  _resolveWslHermes() {
+    if (!IS_WINDOWS) return null;
+    try {
+      const out = execSync('wsl.exe -e bash -lc "command -v hermes"', {
+        encoding: 'utf-8', timeout: 8000, windowsHide: true,
+      }).trim();
+      const p = out.split(/\r?\n/).map((s) => s.trim()).find(Boolean);
+      if (p && p.startsWith('/')) return p;
+    } catch {}
     return null;
   }
 
@@ -231,7 +295,7 @@ class HermesAdapter extends BaseAdapter {
 
   _buildHermesCmd(prompt, resumeSessionId) {
     if (!this._hermesBin) {
-      throw new Error('hermes CLI not found. Install with: curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash');
+      throw new Error(`hermes CLI not found. Install with: ${HERMES_INSTALL_HINT}`);
     }
     const args = [];
     if (this.hermesProfile && this.hermesProfile !== 'default') {
@@ -255,10 +319,25 @@ class HermesAdapter extends BaseAdapter {
     this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId})`);
 
     const env = { ...(this.agentEnv || process.env) };
-    const proc = spawn(this._hermesBin, args, {
+
+    // On Windows hermes lives inside WSL: invoke `wsl -e <wsl-hermes-path> …`.
+    // `-e` runs the binary directly (no shell), so every arg — including the
+    // multi-line prompt in `-q` — passes through verbatim with no quoting hazard.
+    // hermes then uses its own config (~/.hermes inside WSL) for model/keys.
+    let spawnBin = this._hermesBin;
+    let spawnArgs = args;
+    if (this._hermesViaWsl) {
+      spawnBin = 'wsl.exe';
+      spawnArgs = ['-e', this._hermesBin, ...args];
+    }
+
+    const proc = spawn(spawnBin, spawnArgs, {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: !IS_WINDOWS,
+      // No process group on Windows / WSL (can't signal a group); windowsHide
+      // keeps the wsl.exe console from flashing up.
+      detached: !IS_WINDOWS && !this._hermesViaWsl,
+      windowsHide: true,
     });
     this._channelProcesses[channelName] = proc;
 

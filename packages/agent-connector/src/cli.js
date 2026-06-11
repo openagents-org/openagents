@@ -41,6 +41,9 @@ function parseArgs(argv) {
 function getConnector(flags) {
   const opts = {};
   if (flags.config) opts.configDir = flags.config;
+  if (flags.endpoint || process.env.OPENAGENTS_ENDPOINT) {
+    opts.workspaceEndpoint = flags.endpoint || process.env.OPENAGENTS_ENDPOINT;
+  }
   return new AgentConnector(opts);
 }
 
@@ -358,6 +361,8 @@ async function cmdConnect(connector, flags, positional) {
     if (pid) {
       connector.sendDaemonCommand(`restart:${name}`);
       print('Daemon notified');
+    } else {
+      print('Daemon is not running. Run `agn up` to bring this agent online.');
     }
   } catch (e) {
     print(`Error: ${e.message}`);

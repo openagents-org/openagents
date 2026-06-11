@@ -62,7 +62,7 @@ private struct BrowserSessionCard: View {
                     } label: {
                         Image(systemName: "arrow.up.left.and.arrow.down.right")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(BrandColors.inkMuted)
                             .frame(width: 28, height: 28)
                             .background(.regularMaterial, in: Circle())
                     }
@@ -107,7 +107,7 @@ private struct BrowserSessionCard: View {
                     .foregroundStyle(.orange)
                 Text(err)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
                     .multilineTextAlignment(.center)
                 Button("Retry") { Task { await reload(tabId: tab.id) } }
                     .buttonStyle(.bordered)
@@ -119,7 +119,7 @@ private struct BrowserSessionCard: View {
                 ProgressView()
                 Text("Connecting to browser session...")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -157,7 +157,7 @@ private struct BrowserFullscreenSheet: View {
             HStack(spacing: 8) {
                 Image(systemName: "globe")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
@@ -168,7 +168,7 @@ private struct BrowserFullscreenSheet: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BrandColors.inkMuted)
                         .padding(6)
                         .contentShape(Rectangle())
                 }

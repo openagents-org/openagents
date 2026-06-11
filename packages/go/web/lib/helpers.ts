@@ -62,6 +62,27 @@ export function isRecentAgent(agent: { status: string; lastHeartbeatAt: string |
   return elapsed < STALE_AGENT_THRESHOLD;
 }
 
+/**
+ * Tri-state agent presence used to pick empty-state / picker copy.
+ *   'none'    → no agent has joined this workspace → show "connect an agent"
+ *   'offline' → agents are members but none are online → show "agents offline"
+ *   'online'  → at least one agent is online → normal flow
+ *
+ * "Connected" means workspace membership — the agent is in `/v1/discover`'s
+ * agent list — independent of online status. A member whose heartbeat has
+ * gone stale is still connected; it just isn't online. Only an *empty*
+ * membership list should surface the "connect an agent" onboarding, so the
+ * gate is membership existence (`agents.length`), deliberately broader than
+ * `isRecentAgent`'s 1-hour window (a long-idle member is still connected).
+ */
+export function agentPresence(
+  agents: { status: string }[],
+): 'none' | 'offline' | 'online' {
+  if (agents.length === 0) return 'none';
+  if (agents.some((a) => a.status === 'online')) return 'online';
+  return 'offline';
+}
+
 // ── Multi-agent visual differentiation ──
 
 const AGENT_COLORS = [

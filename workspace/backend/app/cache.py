@@ -77,6 +77,17 @@ def set_bytes(key: str, value: bytes, ttl_seconds: float) -> None:
         logger.debug("Redis SET failed for %s: %s", key, e)
 
 
+def delete_key(key: str) -> None:
+    """Delete a cache key. Silent on failure."""
+    c = _lazy_client()
+    if c is None:
+        return
+    try:
+        c.delete(key)
+    except Exception as e:
+        logger.debug("Redis DELETE failed for %s: %s", key, e)
+
+
 def json_read_through(
     key: str,
     ttl_seconds: float,

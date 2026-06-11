@@ -286,6 +286,45 @@ class TestDiscover:
         resp = client.get("/v1/discover", params={"network": "nonexistent"})
         assert resp.status_code == 404
 
+    def test_discover_keeps_stale_members_as_offline(self, client, workspace, db):
+        """A member whose heartbeat went stale stays in the agent list, marked
+        offline — it is still connected to the workspace, just not online.
+
+        The mobile clients (OpenAgents Go / go/web) rely on this: they decide
+        whether to show the "connect an agent" onboarding from membership
+        (is the agent in this list?), not from online status. Dropping the
+        member here would make the UI wrongly prompt to connect a new agent.
+        """
+        from datetime import datetime, timedelta, timezone
+        from app.config import config
+        from app.models import WorkspaceMember
+
+        client.post("/v1/join", json={
+            "agent_name": "agent-beta",
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+
+        # Age the heartbeat past the timeout so discover downgrades it.
+        member = db.query(WorkspaceMember).filter_by(
+            workspace_id=workspace["id"], agent_name="agent-beta",
+        ).one()
+        member.last_heartbeat = datetime.now(timezone.utc) - timedelta(
+            seconds=config.AGENT_TIMEOUT_SECONDS + 60,
+        )
+        db.commit()
+
+        resp = client.get("/v1/discover", params={"network": workspace["id"]},
+                          headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        agents = resp.json()["data"]["agents"]
+        names = [a["address"] for a in agents]
+        # Still a member (connected), so the UI must not treat the workspace
+        # as agent-less and push the connect-agent flow.
+        assert "openagents:agent-beta" in names
+        beta = next(a for a in agents if a["address"] == "openagents:agent-beta")
+        assert beta["status"] == "offline"
+
 
 class TestNetworkManifest:
     """GET /.well-known/openagents.json — ONM network manifest."""

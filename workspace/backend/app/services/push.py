@@ -33,20 +33,43 @@ from app.services.apns_client import APNsAlert, send_push
 
 logger = logging.getLogger(__name__)
 
-# Mirrors the Swift client's isTerminalStatus regex plus the natural-English
-# verbs an adapter might emit when a run completes successfully or fails.
-# Match is case-insensitive substring; keep the list short so it stays
-# debuggable.
+# Mirrors the Swift client's isTerminalStatus (WorkspaceStore.swift) —
+# session-control terminal phrases only. Case-insensitive substring match.
+#
+# An earlier version of this list also included the natural-English verbs
+# "completed" / "done" / "failed" / "error" so an adapter's free-form
+# "Task completed" status would push. In practice agents post tool-call
+# messages as message_type=status with content like `Bash › for f in ...; do
+# ...; done | head` — the bash `done` keyword tripped the substring filter
+# and every for-loop fired a push. The 4 verbs were dropped; if we ever
+# need a real "agent completed" signal, prefer a structured field over
+# substring matching.
 _TERMINAL_STATUS_PATTERNS = (
     "stopped",
     "stopping failed",
     "session restarted",
     "restart failed",
-    "completed",
-    "done",
-    "failed",
-    "error",
 )
+
+# Belt-and-suspenders against the narrow patterns above incidentally
+# matching inside tool-call args. Status messages whose content starts
+# with one of these shapes are intermediate process output — never push.
+#   • `<ToolName> › <args>` — current adapter format (Bash, Edit, Read,
+#     mcp__X__Y, ToolSearch, TodoWrite, WebFetch, Skill, …)
+#   • `**Using tool:**` / `**Running:**` / `**Editing:**` / `**Thinking:**`
+#     — legacy adapter markdown markers (see StepParser.swift)
+#   • placeholder / process strings the runtime emits between steps
+_TOOL_CALL_MARKER_RE = re.compile(
+    r"^(?:[A-Za-z_][\w\-]*\s*›|\*\*(?:Using tool|Running|Editing|Thinking):\*\*"
+    r"|thinking\.{3}?$|Compacting conversation|processing queued message"
+    r"|message queued)",
+    re.IGNORECASE,
+)
+
+
+def _is_intermediate_step(content: str) -> bool:
+    return bool(_TOOL_CALL_MARKER_RE.match(content.lstrip()))
+
 
 _MENTION_RE = re.compile(r"@([\w][\w\-_]{0,63})")
 
@@ -105,6 +128,14 @@ def _should_push(
     content = _content_of(event)
     source_kind = _source_kind(event)
 
+    # Intermediate process output (thinking, tool calls, Compacting …) is
+    # never push-worthy — not even when it incidentally contains "@name"
+    # (e.g. `grep "@bary" file.md` inside a Bash › status, or an agent's
+    # thinking text "I should ask @bary about this"). Short-circuit before
+    # any other classification.
+    if msg_type == "thinking" or _is_intermediate_step(content):
+        return False, "", None
+
     # Mentions take priority — applies to both chat and status, agent or
     # human. Agent-name match → broadcast within the workspace as before.
     # Human-name match → scope to that human's device tokens.
@@ -126,7 +157,12 @@ def _should_push(
 
     if msg_type in ("status", "thinking"):
         # Per-decision: only push on TERMINAL state transitions so we don't
-        # flood on every "thinking" heartbeat.
+        # flood on every "thinking" heartbeat. Tool-call / process status
+        # messages (Bash › …, Compacting …, thinking…) short-circuit
+        # before the substring check so a literal "stopped" inside bash
+        # args can't trip a push.
+        if _is_intermediate_step(content):
+            return False, "", None
         if _is_terminal_status(content):
             return True, "status", None
         return False, "", None

@@ -30,6 +30,7 @@ export function AgentCard({
   onInstall,
   onUninstall,
 }: AgentCardProps): React.JSX.Element {
+  const isComingSoon = !!entry.comingSoon
   const isInstalled = entry.installed
   const isManaged = entry.managed !== false
   const isBusy = !!job && job.phase !== "done" && job.phase !== "error"
@@ -42,15 +43,18 @@ export function AgentCard({
 
   return (
     <div
-      onClick={onOpen}
+      onClick={isComingSoon ? undefined : onOpen}
       role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === "Enter") onOpen() }}
+      tabIndex={isComingSoon ? -1 : 0}
+      aria-disabled={isComingSoon}
+      onKeyDown={(e) => { if (!isComingSoon && e.key === "Enter") onOpen() }}
       className={cn(
         "group flex flex-col gap-2.5 min-h-[170px] px-4.5 py-4",
         "bg-(--bg-card) border border-(--border) rounded-(--radius) shadow-sm",
-        "cursor-pointer transition-all duration-200",
-        "hover:shadow-md hover:border-(--border-hover) hover:-translate-y-px",
+        "transition-all duration-200",
+        isComingSoon
+          ? "opacity-60 cursor-default"
+          : "cursor-pointer hover:shadow-md hover:border-(--border-hover) hover:-translate-y-px",
       )}
     >
       <div className="flex items-center gap-2.5">
@@ -90,7 +94,9 @@ export function AgentCard({
 
       <div className="flex items-center justify-between mt-auto text-[11px]">
         <div className="flex items-center gap-1.5">
-          {isInstalled ? (
+          {isComingSoon ? (
+            <Badge variant="default">Coming soon</Badge>
+          ) : isInstalled ? (
             isManaged
               ? <Badge variant="success">Installed</Badge>
               : <Badge variant="info" title="Installed outside OpenAgents (system/global)">Global</Badge>
@@ -109,7 +115,9 @@ export function AgentCard({
         className="flex gap-1.5 border-t border-(--border) pt-2.5 mt-0.5 [&>button]:flex-1 [&>button]:min-w-0"
         onClick={(e) => e.stopPropagation()}
       >
-        {isBusy ? (
+        {isComingSoon ? (
+          <Button size="sm" disabled>Coming soon</Button>
+        ) : isBusy ? (
           <Button size="sm" disabled>{verbLabel}</Button>
         ) : !isInstalled ? (
           <Button size="sm" variant="primary" onClick={(e) => { e.stopPropagation(); onInstall() }}>

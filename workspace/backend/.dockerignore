@@ -9,6 +9,14 @@ tests/
 .pytest_cache
 .mypy_cache
 
+# Local virtualenv and dev databases — never ship to the remote builder / image
+.venv
+*.db
+local.db
+test_workspace.db
+*.sqlite
+*.sqlite3
+
 # APNs auth keys
 secrets/
 *.p8

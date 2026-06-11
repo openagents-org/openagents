@@ -85,7 +85,7 @@ struct ContentSidebar: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
                     .frame(width: 24, height: 24)
             }
             .buttonStyle(.plain)
@@ -109,12 +109,12 @@ struct ContentSidebar: View {
                 Text(label)
                     .font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+            .foregroundStyle(selected ? BrandColors.primary : Color.secondary)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(selected ? Color.accentColor.opacity(0.12) : .clear),
+                    .fill(selected ? BrandColors.primary.opacity(0.12) : .clear),
             )
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
@@ -151,7 +151,7 @@ struct ContentSidebar: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Refresh files")
@@ -164,7 +164,7 @@ struct ContentSidebar: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close content sidebar")
@@ -189,7 +189,7 @@ struct ContentSidebar: View {
                     Text("Files")
                         .font(.system(size: 13))
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrandColors.inkMuted)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Back to file list")
@@ -202,7 +202,7 @@ struct ContentSidebar: View {
                 ZStack {
                     Image(systemName: "arrow.down.circle")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BrandColors.inkMuted)
                         .opacity(isDownloading ? 0 : 1)
                     if isDownloading {
                         ProgressView()
@@ -222,7 +222,7 @@ struct ContentSidebar: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close content sidebar")
@@ -292,7 +292,7 @@ struct ContentSidebar: View {
             ProgressView()
             Text("Loading files…")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrandColors.inkMuted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -303,7 +303,7 @@ struct ContentSidebar: View {
                 .foregroundStyle(.orange)
             Text(message)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrandColors.inkMuted)
                 .multilineTextAlignment(.center)
             Button("Retry") {
                 Task { await refresh() }
@@ -318,10 +318,10 @@ struct ContentSidebar: View {
         VStack(spacing: 10) {
             Image(systemName: "folder")
                 .font(.system(size: 28))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(BrandColors.inkFaint)
             Text("No files yet")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrandColors.inkMuted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -363,11 +363,11 @@ struct ContentSidebar: View {
     }
 
     private var sidebarBackground: Color {
-        #if os(macOS)
-        Color(.windowBackgroundColor)
-        #else
-        Color(.systemBackground)
-        #endif
+        // BrandColors.bg gives the warm graphite surface in dark mode and the
+        // off-white cream in light mode, instead of the cooler system grey.
+        // On macOS 26 / iOS 26, system controls inside the sidebar still
+        // pick up Liquid Glass automatically — this just sets the canvas.
+        BrandColors.bg
     }
 
     // MARK: - Loading
@@ -411,13 +411,13 @@ private struct FileCard: View {
                     if file.size > 0 {
                         Text(byteString(file.size))
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(BrandColors.inkMuted)
                     }
                 }
                 if let date = file.createdAtDate {
                     Text(relativeTime(from: date))
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(BrandColors.inkFaint)
                 }
             }
             Spacer(minLength: 0)

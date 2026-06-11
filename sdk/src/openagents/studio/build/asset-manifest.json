@@ -1,0 +1,35 @@
+{
+  "files": {
+    "main.css": "/static/css/main.ada81e76.css",
+    "main.js": "/static/js/main.cc91b12a.js",
+    "static/js/623.fbc55d8c.chunk.js": "/static/js/623.fbc55d8c.chunk.js",
+    "monaco.css": "/static/css/monaco.6b5e2fd0.chunk.css",
+    "monaco.js": "/static/js/monaco.dec8bced.chunk.js",
+    "yjs.js": "/static/js/yjs.89782ed7.chunk.js",
+    "vendors.css": "/static/css/vendors.06cbbdd0.css",
+    "vendors.js": "/static/js/vendors.266224ae.js",
+    "static/media/info.png": "/static/media/info.755e61c99d40849b5a67.png",
+    "static/media/wiki.png": "/static/media/wiki.a03d7cf808aa3777efd9.png",
+    "static/media/open-agents-logo.png": "/static/media/open-agents-logo.4da489289b77ef395eeb.png",
+    "static/media/project.png": "/static/media/project.59b5e91cbe87326c0ad4.png",
+    "static/media/chatroom.png": "/static/media/chatroom.200b2386918bc5147289.png",
+    "static/media/custom.png": "/static/media/custom.58fdb6611bf39850d260.png",
+    "static/media/openagents-logo-trans-white.png": "/static/media/openagents-logo-trans-white.a6c057257062292b9333.png",
+    "static/media/openagents_logo_color_280.png": "/static/media/openagents_logo_color_280.bfa1aca09d2320f79c3c.png",
+    "index.html": "/index.html",
+    "main.ada81e76.css.map": "/static/css/main.ada81e76.css.map",
+    "main.cc91b12a.js.map": "/static/js/main.cc91b12a.js.map",
+    "623.fbc55d8c.chunk.js.map": "/static/js/623.fbc55d8c.chunk.js.map",
+    "monaco.6b5e2fd0.chunk.css.map": "/static/css/monaco.6b5e2fd0.chunk.css.map",
+    "monaco.dec8bced.chunk.js.map": "/static/js/monaco.dec8bced.chunk.js.map",
+    "yjs.89782ed7.chunk.js.map": "/static/js/yjs.89782ed7.chunk.js.map",
+    "vendors.06cbbdd0.css.map": "/static/css/vendors.06cbbdd0.css.map",
+    "vendors.266224ae.js.map": "/static/js/vendors.266224ae.js.map"
+  },
+  "entrypoints": [
+    "static/css/vendors.06cbbdd0.css",
+    "static/js/vendors.266224ae.js",
+    "static/css/main.ada81e76.css",
+    "static/js/main.cc91b12a.js"
+  ]
+}

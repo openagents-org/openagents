@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenAgents Launcher — Claude Code Detail</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">OA</div>
+      <span class="sidebar-title">OpenAgents</span>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Overview</div>
+      <a class="nav-item" href="01-dashboard.html"><span class="icon">&#9632;</span> Dashboard</a>
+      <a class="nav-item" href="05-chat.html"><span class="icon">&#9993;</span> Chat <span class="nav-badge">3</span></a>
+      <div class="nav-section">Manage</div>
+      <a class="nav-item active" href="02-marketplace.html"><span class="icon">&#9733;</span> Marketplace</a>
+      <a class="nav-item" href="#"><span class="icon">&#9881;</span> My Agents</a>
+      <a class="nav-item" href="04-workspaces.html"><span class="icon">&#8801;</span> Workspaces</a>
+      <div class="nav-section">System</div>
+      <a class="nav-item" href="#"><span class="icon">&#128196;</span> Logs</a>
+      <a class="nav-item" href="#"><span class="icon">&#9881;</span> Settings</a>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>
+      <span class="sidebar-footer-text">Daemon running &middot; v0.7.1</span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <a href="02-marketplace.html" style="color: var(--text-secondary); text-decoration: none; font-size: 13px;">&larr; Marketplace</a>
+      <span class="topbar-spacer"></span>
+      <div class="topbar-search">&#128269; Search... <kbd>&#8984;K</kbd></div>
+    </div>
+
+    <div class="content">
+      <div class="detail-layout">
+        <!-- Left: Main Content -->
+        <div>
+          <!-- Hero -->
+          <div class="detail-hero">
+            <div class="detail-hero-icon agent-icon claude" style="width:72px;height:72px;font-size:32px;border-radius:16px;">&#9672;</div>
+            <div>
+              <div class="detail-hero-title">Claude Code</div>
+              <div class="detail-hero-subtitle">Anthropic's official AI coding agent with deep codebase understanding</div>
+              <div class="detail-hero-badges">
+                <span class="badge badge-success">Installed</span>
+                <span class="badge badge-accent">Workspace Ready</span>
+                <span class="badge badge-accent">Collaboration</span>
+                <span class="badge badge-neutral">v1.0.23</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Description -->
+          <div class="detail-section">
+            <div class="detail-section-title">About</div>
+            <div class="card" style="padding: 20px;">
+              <p style="font-size: 13.5px; line-height: 1.7; color: var(--text-secondary); margin-bottom: 12px;">
+                Claude Code is Anthropic's official CLI-based AI coding agent. It provides deep understanding of your entire codebase, can perform multi-file edits, run terminal commands, and integrate with your development workflow through the Model Context Protocol (MCP).
+              </p>
+              <p style="font-size: 13.5px; line-height: 1.7; color: var(--text-secondary);">
+                With OpenAgents workspace integration, Claude Code can collaborate with other agents, share files, access browser automation, and participate in multi-agent workflows.
+              </p>
+            </div>
+          </div>
+
+          <!-- Features -->
+          <div class="detail-section">
+            <div class="detail-section-title">Capabilities</div>
+            <div class="grid-2">
+              <div class="card" style="padding: 16px;">
+                <div style="font-size: 20px; margin-bottom: 8px;">&#128187;</div>
+                <div style="font-size: 13px; font-weight: 600; margin-bottom: 4px;">Multi-File Editing</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">Edit multiple files across your codebase with full context awareness</div>
+              </div>
+              <div class="card" style="padding: 16px;">
+                <div style="font-size: 20px; margin-bottom: 8px;">&#9881;</div>
+                <div style="font-size: 13px; font-weight: 600; margin-bottom: 4px;">Terminal Commands</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">Run shell commands, tests, and builds directly from the agent</div>
+              </div>
+              <div class="card" style="padding: 16px;">
+                <div style="font-size: 20px; margin-bottom: 8px;">&#128279;</div>
+                <div style="font-size: 13px; font-weight: 600; margin-bottom: 4px;">MCP Integration</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">Connect to external tools and services via Model Context Protocol</div>
+              </div>
+              <div class="card" style="padding: 16px;">
+                <div style="font-size: 20px; margin-bottom: 8px;">&#128101;</div>
+                <div style="font-size: 13px; font-weight: 600; margin-bottom: 4px;">Multi-Agent Collaboration</div>
+                <div style="font-size: 12px; color: var(--text-secondary);">Work alongside other agents in shared workspaces</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Configuration -->
+          <div class="detail-section">
+            <div class="detail-section-title">Configuration</div>
+            <div class="card" style="padding: 20px;">
+              <div class="form-group">
+                <label class="form-label">Anthropic API Key</label>
+                <input class="form-input mono" type="password" value="sk-ant-...****" placeholder="sk-ant-api03-...">
+                <div class="form-hint">Required for API access. Get your key at console.anthropic.com</div>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Model</label>
+                <input class="form-input" type="text" value="claude-sonnet-4-20250514" placeholder="claude-sonnet-4-20250514">
+                <div class="form-hint">Default model for new conversations</div>
+              </div>
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">Max Tokens</label>
+                <input class="form-input" type="text" value="16384" placeholder="16384">
+              </div>
+              <div style="display: flex; gap: 8px; margin-top: 20px;">
+                <button class="btn btn-primary">Save Configuration</button>
+                <button class="btn btn-secondary">Test Connection</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Getting Started -->
+          <div class="detail-section">
+            <div class="detail-section-title">Getting Started</div>
+            <div class="card" style="padding: 20px;">
+              <div style="display: flex; gap: 16px; margin-bottom: 14px;">
+                <div style="width: 28px; height: 28px; background: var(--accent-light); color: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0;">1</div>
+                <div>
+                  <div style="font-size: 13px; font-weight: 600; margin-bottom: 2px;">Configure API Key</div>
+                  <div style="font-size: 12px; color: var(--text-secondary);">Add your Anthropic API key in the configuration section above</div>
+                </div>
+              </div>
+              <div style="display: flex; gap: 16px; margin-bottom: 14px;">
+                <div style="width: 28px; height: 28px; background: var(--accent-light); color: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0;">2</div>
+                <div>
+                  <div style="font-size: 13px; font-weight: 600; margin-bottom: 2px;">Create an Agent Instance</div>
+                  <div style="font-size: 12px; color: var(--text-secondary);">Click "Create Agent" to set up a named instance with a working directory</div>
+                </div>
+              </div>
+              <div style="display: flex; gap: 16px;">
+                <div style="width: 28px; height: 28px; background: var(--accent-light); color: var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0;">3</div>
+                <div>
+                  <div style="font-size: 13px; font-weight: 600; margin-bottom: 2px;">Connect to Workspace</div>
+                  <div style="font-size: 12px; color: var(--text-secondary);">Join or create a workspace to start collaborating with your agent</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Sidebar -->
+        <div>
+          <!-- Actions -->
+          <div class="detail-sidebar-card">
+            <button class="btn btn-primary" style="width: 100%; justify-content: center; margin-bottom: 8px;">Create New Agent</button>
+            <button class="btn btn-secondary" style="width: 100%; justify-content: center; margin-bottom: 8px;">Update to v1.0.24</button>
+            <button class="btn btn-danger" style="width: 100%; justify-content: center;">Uninstall</button>
+          </div>
+
+          <!-- Info -->
+          <div class="detail-sidebar-card">
+            <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px;">Details</div>
+            <div class="detail-meta-row">
+              <span class="detail-meta-label">Publisher</span>
+              <span class="detail-meta-value">Anthropic</span>
+            </div>
+            <div class="detail-meta-row">
+              <span class="detail-meta-label">Version</span>
+              <span class="detail-meta-value">1.0.23</span>
+            </div>
+            <div class="detail-meta-row">
+              <span class="detail-meta-label">Latest</span>
+              <span class="detail-meta-value" style="color: var(--info)">1.0.24</span>
+            </div>
+            <div class="detail-meta-row">
+              <span class="detail-meta-label">Runtime</span>
+              <span class="detail-meta-value">Node.js</span>
+            </div>
+            <div class="detail-meta-row">
+              <span class="detail-meta-label">License</span>
+              <span class="detail-meta-value">Proprietary</span>
+            </div>
+            <div class="detail-meta-row">
+              <span class="detail-meta-label">Homepage</span>
+              <span class="detail-meta-value"><a href="#" style="color: var(--accent); text-decoration: none;">claude.ai/code</a></span>
+            </div>
+          </div>
+
+          <!-- Active Instances -->
+          <div class="detail-sidebar-card">
+            <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px;">Your Instances (2)</div>
+            <div style="display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border-light);">
+              <span class="status-dot"></span>
+              <div style="flex:1">
+                <div style="font-size: 12px; font-weight: 500;">claude-main</div>
+                <div style="font-size: 11px; color: var(--text-tertiary);">dev-workspace</div>
+              </div>
+              <span class="badge badge-success" style="font-size: 10px;">Running</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; padding: 8px 0;">
+              <span class="status-dot offline"></span>
+              <div style="flex:1">
+                <div style="font-size: 12px; font-weight: 500;">claude-review</div>
+                <div style="font-size: 11px; color: var(--text-tertiary);">Not connected</div>
+              </div>
+              <span class="badge badge-neutral" style="font-size: 10px;">Stopped</span>
+            </div>
+          </div>
+
+          <!-- Requirements -->
+          <div class="detail-sidebar-card">
+            <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px;">Requirements</div>
+            <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.8;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color: var(--success);">&#10003;</span> Node.js 18+
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color: var(--success);">&#10003;</span> Git
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color: var(--success);">&#10003;</span> Anthropic API Key
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

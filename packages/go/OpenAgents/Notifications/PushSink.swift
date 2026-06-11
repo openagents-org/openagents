@@ -10,6 +10,12 @@ import UIKit
 @MainActor
 @Observable
 final class PushSink {
+    /// Single source of truth — matches `MacNotifier.shared` and
+    /// `WorkspaceHistory.shared`. AuthStore reaches in via this to
+    /// re-register the cached APNs token on sign-in/out without an
+    /// injection plumbing dance.
+    static let shared = PushSink()
+
     /// Set by the chat view as it appears so the sink can decide whether
     /// to suppress a banner that's redundant with what the user is already
     /// looking at.
@@ -62,11 +68,29 @@ final class PushSink {
         let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
         logInfo("push", "APNs token received (\(hex.prefix(12))…)")
         lastAPNsToken = hex
+        registerCachedTokenWithAllWorkspaces(reason: "apns-token")
+    }
+
+    /// Called by `AuthStore` immediately after sign-in / sign-out so the
+    /// backend's `device_tokens.user_email` row reflects the current user
+    /// without waiting for the next APNs token redelivery (which can be
+    /// hours away). Without this, a device that registered before sign-in
+    /// has `user_email = NULL` and mention pushes never resolve to it.
+    func reregisterAfterAuthChange() {
+        guard lastAPNsToken != nil else {
+            logInfo("push", "auth changed but no cached APNs token yet — will register when token arrives")
+            return
+        }
+        registerCachedTokenWithAllWorkspaces(reason: "auth-change")
+    }
+
+    private func registerCachedTokenWithAllWorkspaces(reason: String) {
+        guard let hex = lastAPNsToken else { return }
         let bundleId = Bundle.main.bundleIdentifier ?? "org.openagents.workspace"
         let userEmail = lastUserEmail
         let entries = WorkspaceHistory.shared.entries()
         guard !entries.isEmpty else {
-            logInfo("push", "APNs token ready but no workspaces in history yet — will register on next connect")
+            logInfo("push", "\(reason): no workspaces in history yet — will register on next connect")
             return
         }
         Task.detached {
@@ -83,11 +107,11 @@ final class PushSink {
                         bundleId: bundleId,
                         userEmail: userEmail,
                     )
-                    logInfo("push", "registered device with workspace \(entry.workspaceId) at \(entry.resolvedAPIURL.host ?? "?")")
+                    logInfo("push", "registered (\(reason)) workspace \(entry.workspaceId) email=\(userEmail ?? "<nil>")")
                 } catch {
                     // Older backends won't have /v1/devices/register and will 404 —
                     // that's expected during rollout; log and move on.
-                    logInfo("push", "device register failed for \(entry.workspaceId): \(error.localizedDescription)")
+                    logInfo("push", "device register (\(reason)) failed for \(entry.workspaceId): \(error.localizedDescription)")
                 }
             }
         }

@@ -24,7 +24,7 @@ struct OpenAgentsApp: App {
 
     #if os(iOS)
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var pushSink = PushSink()
+    private let pushSink = PushSink.shared
     #endif
     @StateObject private var authStore = AuthStore()
     @State private var router = AppRouter()

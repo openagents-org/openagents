@@ -11,6 +11,9 @@ packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
     from: 11.0.0
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: 7.0.0
   SwiftUIJSONRender:
     url: https://github.com/bipa-app/swiftui-json-render
     exactVersion: "0.2.1"
@@ -18,7 +21,7 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    MARKETING_VERSION: "0.3.1"
+    MARKETING_VERSION: "0.6.0"
     CURRENT_PROJECT_VERSION: "1"
     PRODUCT_NAME: "OpenAgents Go"
     ENABLE_HARDENED_RUNTIME: YES
@@ -34,12 +37,15 @@ targets:
     sources:
       - path: OpenAgents
     dependencies:
+      # AuthStore.swift unconditionally imports FirebaseCore and GoogleSignIn
+      # at top-level (no `#if os(iOS)` guard), so both platforms must link
+      # them. If we ever gate the imports per-platform we can re-narrow.
       - package: Firebase
         product: FirebaseCore
-        platforms: [iOS]
-      - package: Firebase
-        product: FirebaseMessaging
-        platforms: [iOS]
+      - package: GoogleSignIn
+        product: GoogleSignIn
+      - package: GoogleSignIn
+        product: GoogleSignInSwift
       - package: SwiftUIJSONRender
         product: SwiftUIJSONRender
     info:
@@ -52,6 +58,11 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.productivity
         NSHumanReadableCopyright: "Copyright © 2026 OpenAgents"
+        # Google Sign-In OAuth callback. The scheme value must match
+        # REVERSED_CLIENT_ID in GoogleService-Info.plist.
+        CFBundleURLTypes:
+          - CFBundleURLSchemes:
+              - com.googleusercontent.apps.796726902048-5g72t1en8hchvl88oq5j1d5pake48u7g
         # Skips the App Store Connect "App Encryption Documentation" prompt on
         # every upload. The app only uses Apple-provided standard encryption
         # (HTTPS via URLSession + Keychain), which is exempt from US export
@@ -92,7 +103,12 @@ targets:
         UILaunchScreen: {}
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.openagents.go
+        # MUST match `APNS_BUNDLE_ID` on the backend (workspace/backend/app/
+        # config.py defaults to "org.openagents.workspace") AND the fallback
+        # in PushSink.swift. APNs routes by topic == bundle id; any drift
+        # silently drops every notification. xcodegen regen will overwrite
+        # this from project.yml — don't hand-edit the .pbxproj.
+        PRODUCT_BUNDLE_IDENTIFIER: org.openagents.workspace
         PRODUCT_NAME: "OpenAgents Go"
         "CODE_SIGN_ENTITLEMENTS[sdk=macosx*]": OpenAgents/OpenAgents-macOS.entitlements
         "CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]": OpenAgents/OpenAgents.entitlements
@@ -116,4 +132,8 @@ targets:
         com.apple.security.app-sandbox: true
         com.apple.security.network.client: true
         com.apple.security.files.user-selected.read-only: true
-        aps-environment: development
+        # Production APNs — pushes hit api.push.apple.com, not the sandbox.
+        # Dev builds and TestFlight both use this; the only path that needs
+        # `development` would be a fresh in-Xcode debug install routing to
+        # api.development.push.apple.com (rarely useful for this app).
+        aps-environment: production

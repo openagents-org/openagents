@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { getExtraBinDirs, getEnhancedPATH, getEnhancedEnv, whichBinary, clearBinaryLookupCache, IS_WINDOWS } = require('../src/paths');
+const { getExtraBinDirs, getEnhancedPATH, getEnhancedEnv, whichBinary, clearBinaryLookupCache, defaultAgentWorkdir, IS_WINDOWS } = require('../src/paths');
 
 describe('Paths', () => {
   it('getExtraBinDirs returns array', () => {
@@ -145,5 +145,25 @@ describe('Paths', () => {
       try { fs.rmdirSync(tmp); } catch {}
       clearBinaryLookupCache();
     }
+  });
+
+  describe('defaultAgentWorkdir', () => {
+    it('roots under ~/.openagents/workspaces, never process.cwd()', () => {
+      const dir = defaultAgentWorkdir('claude-0609');
+      const expected = path.join(os.homedir(), '.openagents', 'workspaces', 'claude-0609');
+      assert.equal(dir, expected);
+      // The whole point: a packaged Windows daemon's cwd is C:\WINDOWS\system32,
+      // so the fallback must NOT be derived from cwd.
+      assert.ok(!dir.startsWith(process.cwd()) || process.cwd() === os.homedir(),
+        'workdir must not be rooted at process.cwd()');
+      assert.ok(fs.existsSync(dir), 'directory should be created');
+    });
+
+    it('sanitizes unsafe agent names and defaults when empty', () => {
+      const dir = defaultAgentWorkdir('a/b\\c:..');
+      assert.equal(path.basename(dir), 'a_b_c_..');
+      assert.equal(path.basename(defaultAgentWorkdir('')), 'default');
+      assert.equal(path.basename(defaultAgentWorkdir(undefined)), 'default');
+    });
   });
 });

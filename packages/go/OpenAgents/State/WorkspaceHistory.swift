@@ -31,10 +31,15 @@ struct WorkspaceHistoryEntry: Codable, Identifiable, Sendable, Equatable {
     }
 
     /// Resolve the API URL for this entry, falling back to (1) derived from app URL,
-    /// (2) the canonical default.
+    /// (2) the canonical default. Any caremojo.app app URL hard-overrides to the
+    /// centralized agents-api.caremojo.app, even when a per-entry apiURL was set.
     var resolvedAPIURL: URL {
+        let appURL = resolvedAppURL
+        if WorkspaceURLs.isCaremojoHost(appURL.host) {
+            return WorkspaceURLs.caremojoAPIURL
+        }
         if let raw = apiURL, let url = URL(string: raw) { return url }
-        return WorkspaceURLs.deriveAPIURL(fromApp: resolvedAppURL)
+        return WorkspaceURLs.deriveAPIURL(fromApp: appURL)
     }
 }
 
@@ -43,12 +48,24 @@ struct WorkspaceHistoryEntry: Codable, Identifiable, Sendable, Equatable {
 enum WorkspaceURLs {
     static let defaultAppURL = URL(string: "https://workspace.openagents.org")!
     static let defaultAPIURL = URL(string: "https://workspace-endpoint.openagents.org")!
+    /// Caremojo's deployment uses one centralized API host for every workspace
+    /// subdomain — agents.caremojo.app, caremojo.app, etc. all route here.
+    static let caremojoAPIURL = URL(string: "https://agents-api.caremojo.app")!
+
+    static func isCaremojoHost(_ host: String?) -> Bool {
+        guard let host else { return false }
+        return host == "caremojo.app" || host.hasSuffix(".caremojo.app")
+    }
 
     /// Map an app URL to its corresponding API URL when the host follows the canonical
     /// `workspace.<…>` → `workspace-endpoint.<…>` pattern. Otherwise assume the API
     /// shares the app's host (typical of self-hosted setups).
     static func deriveAPIURL(fromApp appURL: URL) -> URL {
         guard let host = appURL.host else { return defaultAPIURL }
+        // Caremojo deployment is centralized regardless of subdomain.
+        if isCaremojoHost(host) {
+            return caremojoAPIURL
+        }
         if host.hasPrefix("workspace.") {
             let rest = host.dropFirst("workspace.".count)
             var components = URLComponents()

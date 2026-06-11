@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenAgents Launcher — Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">OA</div>
+      <span class="sidebar-title">OpenAgents</span>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Overview</div>
+      <a class="nav-item active" href="01-dashboard.html">
+        <span class="icon">&#9632;</span> Dashboard
+      </a>
+      <a class="nav-item" href="05-chat.html">
+        <span class="icon">&#9993;</span> Chat
+        <span class="nav-badge">3</span>
+      </a>
+
+      <div class="nav-section">Manage</div>
+      <a class="nav-item" href="02-marketplace.html">
+        <span class="icon">&#9733;</span> Marketplace
+      </a>
+      <a class="nav-item" href="#">
+        <span class="icon">&#9881;</span> My Agents
+      </a>
+      <a class="nav-item" href="04-workspaces.html">
+        <span class="icon">&#8801;</span> Workspaces
+      </a>
+
+      <div class="nav-section">System</div>
+      <a class="nav-item" href="#">
+        <span class="icon">&#128196;</span> Logs
+      </a>
+      <a class="nav-item" href="#">
+        <span class="icon">&#9881;</span> Settings
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>
+      <span class="sidebar-footer-text">Daemon running &middot; v0.7.1</span>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <span class="topbar-title">Dashboard</span>
+      <span class="topbar-spacer"></span>
+      <div class="topbar-search">&#128269; Search agents, workspaces... <kbd>&#8984;K</kbd></div>
+    </div>
+
+    <div class="content">
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-label">Running Agents</div>
+          <div class="stat-value">4</div>
+          <div class="stat-change">&#9650; 2 since yesterday</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Messages Today</div>
+          <div class="stat-value">127</div>
+          <div class="stat-change">&#9650; 34% vs avg</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Active Workspaces</div>
+          <div class="stat-value">3</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Installed Agents</div>
+          <div class="stat-value">6</div>
+          <div class="stat-change" style="color: var(--info)">2 updates available</div>
+        </div>
+      </div>
+
+      <!-- Active Agents -->
+      <div class="section-header">
+        <span class="section-title">Active Agents</span>
+        <div class="flex gap-8">
+          <button class="btn btn-sm btn-secondary">Stop All</button>
+          <a class="section-action" href="#">View all &rarr;</a>
+        </div>
+      </div>
+      <div class="agent-grid">
+        <!-- Claude -->
+        <div class="card agent-card">
+          <div class="agent-card-header">
+            <div class="agent-icon claude">&#9672;</div>
+            <div>
+              <div class="agent-name">claude-main</div>
+              <div class="agent-type">Claude Code</div>
+            </div>
+            <span class="badge badge-success" style="margin-left:auto">Running</span>
+          </div>
+          <div class="agent-status-row">
+            <span class="status-dot"></span>
+            <span>Connected to <strong>dev-workspace</strong></span>
+          </div>
+          <div class="agent-workspace">Last active 2 min ago &middot; 43 messages today</div>
+          <div class="agent-actions">
+            <button class="btn btn-sm btn-secondary">Stop</button>
+            <button class="btn btn-sm btn-primary">Open Chat</button>
+          </div>
+        </div>
+
+        <!-- OpenClaw -->
+        <div class="card agent-card">
+          <div class="agent-card-header">
+            <div class="agent-icon openclaw">&#9670;</div>
+            <div>
+              <div class="agent-name">claw-review</div>
+              <div class="agent-type">OpenClaw</div>
+            </div>
+            <span class="badge badge-success" style="margin-left:auto">Running</span>
+          </div>
+          <div class="agent-status-row">
+            <span class="status-dot"></span>
+            <span>Connected to <strong>review-workspace</strong></span>
+          </div>
+          <div class="agent-workspace">Last active 5 min ago &middot; 28 messages today</div>
+          <div class="agent-actions">
+            <button class="btn btn-sm btn-secondary">Stop</button>
+            <button class="btn btn-sm btn-primary">Open Chat</button>
+          </div>
+        </div>
+
+        <!-- Codex -->
+        <div class="card agent-card">
+          <div class="agent-card-header">
+            <div class="agent-icon codex">&#9679;</div>
+            <div>
+              <div class="agent-name">codex-backend</div>
+              <div class="agent-type">Codex</div>
+            </div>
+            <span class="badge badge-success" style="margin-left:auto">Running</span>
+          </div>
+          <div class="agent-status-row">
+            <span class="status-dot"></span>
+            <span>Connected to <strong>dev-workspace</strong></span>
+          </div>
+          <div class="agent-workspace">Last active just now &middot; 56 messages today</div>
+          <div class="agent-actions">
+            <button class="btn btn-sm btn-secondary">Stop</button>
+            <button class="btn btn-sm btn-primary">Open Chat</button>
+          </div>
+        </div>
+
+        <!-- Gemini - idle -->
+        <div class="card agent-card">
+          <div class="agent-card-header">
+            <div class="agent-icon gemini">&#10022;</div>
+            <div>
+              <div class="agent-name">gemini-docs</div>
+              <div class="agent-type">Gemini CLI</div>
+            </div>
+            <span class="badge badge-warning" style="margin-left:auto">Idle</span>
+          </div>
+          <div class="agent-status-row">
+            <span class="status-dot warning"></span>
+            <span>No workspace connected</span>
+          </div>
+          <div class="agent-workspace">Last active 2 hours ago</div>
+          <div class="agent-actions">
+            <button class="btn btn-sm btn-secondary">Stop</button>
+            <button class="btn btn-sm btn-secondary">Connect</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent Activity -->
+      <div class="grid-2">
+        <div>
+          <div class="section-header">
+            <span class="section-title">Recent Activity</span>
+          </div>
+          <div class="card" style="padding: 16px 20px;">
+            <div class="activity-feed">
+              <div class="activity-item">
+                <div class="activity-dot" style="background: var(--success)"></div>
+                <div>
+                  <div><strong>claude-main</strong> completed task: refactor auth middleware</div>
+                  <div class="activity-time">2 minutes ago</div>
+                </div>
+              </div>
+              <div class="activity-item">
+                <div class="activity-dot" style="background: var(--info)"></div>
+                <div>
+                  <div><strong>codex-backend</strong> is working on: add pagination to /api/users</div>
+                  <div class="activity-time">8 minutes ago</div>
+                </div>
+              </div>
+              <div class="activity-item">
+                <div class="activity-dot" style="background: var(--accent)"></div>
+                <div>
+                  <div><strong>claw-review</strong> reviewed PR #142 &mdash; 3 comments</div>
+                  <div class="activity-time">15 minutes ago</div>
+                </div>
+              </div>
+              <div class="activity-item">
+                <div class="activity-dot" style="background: var(--warning)"></div>
+                <div>
+                  <div><strong>gemini-docs</strong> stopped &mdash; no workspace assigned</div>
+                  <div class="activity-time">2 hours ago</div>
+                </div>
+              </div>
+              <div class="activity-item">
+                <div class="activity-dot" style="background: var(--success)"></div>
+                <div>
+                  <div><strong>Aider</strong> runtime updated to v0.82.1</div>
+                  <div class="activity-time">3 hours ago</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-header">
+            <span class="section-title">Quick Actions</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div class="card" style="padding: 14px 20px; cursor: pointer; display: flex; align-items: center; gap: 12px;">
+              <span style="font-size: 18px;">&#43;</span>
+              <div>
+                <div style="font-size: 13px; font-weight: 500;">Create New Agent</div>
+                <div style="font-size: 11px; color: var(--text-secondary);">Set up a new agent instance</div>
+              </div>
+            </div>
+            <div class="card" style="padding: 14px 20px; cursor: pointer; display: flex; align-items: center; gap: 12px;">
+              <span style="font-size: 18px;">&#8599;</span>
+              <div>
+                <div style="font-size: 13px; font-weight: 500;">Join Workspace</div>
+                <div style="font-size: 11px; color: var(--text-secondary);">Connect agents to a workspace</div>
+              </div>
+            </div>
+            <div class="card" style="padding: 14px 20px; cursor: pointer; display: flex; align-items: center; gap: 12px;">
+              <span style="font-size: 18px;">&#9733;</span>
+              <div>
+                <div style="font-size: 13px; font-weight: 500;">Browse Marketplace</div>
+                <div style="font-size: 11px; color: var(--text-secondary);">Discover and install new agents</div>
+              </div>
+            </div>
+            <div class="card" style="padding: 14px 20px; cursor: pointer; display: flex; align-items: center; gap: 12px;">
+              <span style="font-size: 18px;">&#128274;</span>
+              <div>
+                <div style="font-size: 13px; font-weight: 500;">Manage Credentials</div>
+                <div style="font-size: 11px; color: var(--text-secondary);">API keys and platform tokens</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

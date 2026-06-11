@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenAgents Launcher — Chat</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">OA</div>
+      <span class="sidebar-title">OpenAgents</span>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Overview</div>
+      <a class="nav-item" href="01-dashboard.html"><span class="icon">&#9632;</span> Dashboard</a>
+      <a class="nav-item active" href="05-chat.html"><span class="icon">&#9993;</span> Chat <span class="nav-badge">3</span></a>
+      <div class="nav-section">Manage</div>
+      <a class="nav-item" href="02-marketplace.html"><span class="icon">&#9733;</span> Marketplace</a>
+      <a class="nav-item" href="#"><span class="icon">&#9881;</span> My Agents</a>
+      <a class="nav-item" href="04-workspaces.html"><span class="icon">&#8801;</span> Workspaces</a>
+      <div class="nav-section">System</div>
+      <a class="nav-item" href="#"><span class="icon">&#128196;</span> Logs</a>
+      <a class="nav-item" href="#"><span class="icon">&#9881;</span> Settings</a>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>
+      <span class="sidebar-footer-text">Daemon running &middot; v0.7.1</span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="chat-layout">
+      <!-- Chat Session Sidebar -->
+      <div class="chat-sidebar">
+        <div class="chat-sidebar-header">
+          <span class="chat-sidebar-title">Conversations</span>
+          <button class="btn-icon" title="New conversation">+</button>
+        </div>
+        <div style="padding: 8px 8px 0;">
+          <input class="form-input" type="text" placeholder="Search conversations..." style="font-size: 12px; padding: 7px 10px;">
+        </div>
+        <div class="chat-session-list">
+          <div class="chat-session active">
+            <div class="chat-session-name">dev-workspace</div>
+            <div class="chat-session-preview">claude-main: I've refactored the auth middleware...</div>
+            <div class="chat-session-time">2 min ago</div>
+          </div>
+          <div class="chat-session">
+            <div class="chat-session-name">review-workspace</div>
+            <div class="chat-session-preview">claw-review: PR #142 has 3 issues that need...</div>
+            <div class="chat-session-time">15 min ago</div>
+          </div>
+          <div class="chat-session">
+            <div class="chat-session-name">testing-workspace</div>
+            <div class="chat-session-preview">No messages yet</div>
+            <div class="chat-session-time">2 hours ago</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat Main -->
+      <div class="chat-main">
+        <div class="chat-header">
+          <div style="flex:1">
+            <div style="font-size: 14px; font-weight: 600;">dev-workspace</div>
+            <div style="font-size: 11px; color: var(--text-tertiary);">2 agents connected</div>
+          </div>
+          <div class="chat-header-agents">
+            <div class="chat-header-agent">
+              <span class="status-dot" style="width:6px;height:6px;"></span>
+              claude-main
+            </div>
+            <div class="chat-header-agent">
+              <span class="status-dot" style="width:6px;height:6px;"></span>
+              codex-backend
+            </div>
+          </div>
+          <button class="btn-icon" title="Workspace settings">&#9881;</button>
+        </div>
+
+        <div class="chat-messages">
+          <!-- User message -->
+          <div class="chat-message user">
+            <div class="chat-avatar user">Y</div>
+            <div class="chat-bubble">
+              <div class="chat-bubble-sender">You</div>
+              @claude-main can you refactor the auth middleware in <code>src/middleware/auth.js</code> to use JWT instead of session tokens?
+            </div>
+          </div>
+
+          <!-- Agent response with tool calls -->
+          <div class="chat-message agent">
+            <div class="chat-avatar agent">C</div>
+            <div>
+              <div class="chat-bubble">
+                <div class="chat-bubble-sender">claude-main</div>
+                I'll refactor the auth middleware to use JWT. Let me first read the current implementation.
+              </div>
+
+              <!-- Tool call: Read file -->
+              <div class="tool-card">
+                <div class="tool-card-header">
+                  <span class="tool-card-icon">&#128196;</span>
+                  <span>Read File</span>
+                  <span style="color: var(--text-tertiary); font-size: 11px; margin-left: 4px;">src/middleware/auth.js</span>
+                  <span class="tool-card-badge"><span class="badge badge-success" style="font-size: 10px;">Done</span></span>
+                </div>
+              </div>
+
+              <!-- Tool call: Edit file -->
+              <div class="tool-card">
+                <div class="tool-card-header">
+                  <span class="tool-card-icon">&#9998;</span>
+                  <span>Edit File</span>
+                  <span style="color: var(--text-tertiary); font-size: 11px; margin-left: 4px;">src/middleware/auth.js</span>
+                  <span class="tool-card-badge"><span class="badge badge-success" style="font-size: 10px;">Done</span></span>
+                </div>
+                <div class="tool-card-body">
+                  <div style="color: var(--danger);">- const session = req.cookies.session_id;</div>
+                  <div style="color: var(--danger);">- const user = await SessionStore.get(session);</div>
+                  <div style="color: var(--success);">+ const token = req.headers.authorization?.split(' ')[1];</div>
+                  <div style="color: var(--success);">+ const payload = jwt.verify(token, process.env.JWT_SECRET);</div>
+                </div>
+              </div>
+
+              <!-- Tool call: Run tests -->
+              <div class="tool-card">
+                <div class="tool-card-header">
+                  <span class="tool-card-icon">&#9654;</span>
+                  <span>Terminal</span>
+                  <span style="color: var(--text-tertiary); font-size: 11px; margin-left: 4px;">npm test -- --grep auth</span>
+                  <span class="tool-card-badge"><span class="badge badge-success" style="font-size: 10px;">Passed</span></span>
+                </div>
+              </div>
+
+              <div class="chat-bubble" style="margin-top: 8px;">
+                Done! I've refactored the auth middleware to use JWT. Here's what changed:
+
+                <div class="chat-code-header">src/middleware/auth.js<span>JavaScript</span></div>
+                <div class="chat-code-block with-header">
+<span style="color: #c792ea;">import</span> <span style="color: #82aaff;">jwt</span> <span style="color: #c792ea;">from</span> <span style="color: #c3e88d;">'jsonwebtoken'</span>;
+
+<span style="color: #c792ea;">export function</span> <span style="color: #82aaff;">authenticate</span>(req, res, next) {
+  <span style="color: #c792ea;">const</span> token = req.headers.authorization?.<span style="color: #82aaff;">split</span>(<span style="color: #c3e88d;">' '</span>)[<span style="color: #f78c6c;">1</span>];
+  <span style="color: #c792ea;">const</span> payload = jwt.<span style="color: #82aaff;">verify</span>(token, process.env.JWT_SECRET);
+  req.user = payload;
+  <span style="color: #82aaff;">next</span>();
+}</div>
+
+                All 12 auth tests pass. The session store dependency has been removed.
+              </div>
+            </div>
+          </div>
+
+          <!-- User follow-up -->
+          <div class="chat-message user">
+            <div class="chat-avatar user">Y</div>
+            <div class="chat-bubble">
+              <div class="chat-bubble-sender">You</div>
+              @codex-backend now add pagination to the /api/users endpoint. Use cursor-based pagination.
+            </div>
+          </div>
+
+          <!-- Agent working indicator -->
+          <div class="chat-message agent">
+            <div class="chat-avatar agent" style="background: var(--info-light); color: var(--info);">Cx</div>
+            <div>
+              <div class="chat-bubble">
+                <div class="chat-bubble-sender">codex-backend</div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <div style="display: flex; gap: 4px;">
+                    <div style="width: 6px; height: 6px; background: var(--accent); border-radius: 50%; animation: pulse 1.5s ease-in-out infinite;"></div>
+                    <div style="width: 6px; height: 6px; background: var(--accent); border-radius: 50%; animation: pulse 1.5s ease-in-out 0.3s infinite;"></div>
+                    <div style="width: 6px; height: 6px; background: var(--accent); border-radius: 50%; animation: pulse 1.5s ease-in-out 0.6s infinite;"></div>
+                  </div>
+                  <span style="color: var(--text-tertiary); font-size: 12px;">Reading src/routes/users.js...</span>
+                </div>
+              </div>
+              <div class="tool-card">
+                <div class="tool-card-header">
+                  <span class="tool-card-icon">&#128196;</span>
+                  <span>Read File</span>
+                  <span style="color: var(--text-tertiary); font-size: 11px; margin-left: 4px;">src/routes/users.js</span>
+                  <span class="tool-card-badge"><span class="badge badge-warning" style="font-size: 10px;">Running</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Input -->
+        <div class="chat-input-area">
+          <div class="chat-input-wrapper">
+            <button class="btn-icon" style="background: transparent; width: 28px; height: 28px; font-size: 16px;">&#128206;</button>
+            <textarea class="chat-input" rows="1" placeholder="Message your agents... Use @agent-name to direct"></textarea>
+            <button class="chat-send-btn">&#8593;</button>
+          </div>
+          <div class="chat-input-hint">
+            @mention agents to direct messages &middot; Attach files with the clip icon &middot; Press Enter to send
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  @keyframes pulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+  }
+</style>
+</body>
+</html>

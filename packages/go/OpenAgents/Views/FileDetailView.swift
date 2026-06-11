@@ -60,7 +60,7 @@ struct FileDetailView: View {
                     if info.size > 0 {
                         Text(byteString(info.size))
                             .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(BrandColors.inkMuted)
                     }
                 }
             }
@@ -89,7 +89,7 @@ struct FileDetailView: View {
                     .foregroundStyle(.orange)
                 Text(loadInfoError)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
                     .multilineTextAlignment(.center)
                 Button("Retry") {
                     Task { await loadInfo() }
@@ -115,10 +115,10 @@ struct FileDetailView: View {
         VStack(spacing: 12) {
             Image(systemName: systemImage)
                 .font(.system(size: 36))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(BrandColors.inkFaint)
             Text(message)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrandColors.inkMuted)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -202,7 +202,7 @@ private struct TextFileContent: View {
                         .foregroundStyle(.orange)
                     Text(message)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BrandColors.inkMuted)
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -276,7 +276,7 @@ private struct PDFFileContent: View {
                         .foregroundStyle(.orange)
                     Text(message)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BrandColors.inkMuted)
                         .multilineTextAlignment(.center)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -373,7 +373,7 @@ private struct HTMLFileBody: View {
                 } label: {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BrandColors.inkMuted)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 3)
                         .contentShape(Rectangle())

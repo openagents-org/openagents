@@ -1496,6 +1496,9 @@ function setupIPC(): void {
   ipcMain.handle("session:list", (_e, workspaceId) =>
     requireManager().listChatSessions(workspaceId),
   )
+  ipcMain.handle("session:create", (_e, workspaceId) =>
+    requireManager().createChatSession(workspaceId),
+  )
   ipcMain.handle("session:load", (_e, workspaceId, channelName) =>
     requireManager().loadChatSession(workspaceId, channelName),
   )
@@ -1943,6 +1946,15 @@ function setupIPC(): void {
   ipcMain.handle("shell:open-external", (_e, url) => shell.openExternal(url))
   ipcMain.handle("shell:open-terminal", (_e, cmd) => {
     const { spawn } = require("child_process")
+    // Resolve hosted-login CLIs (Cursor/Hermes) to an ABSOLUTE binary path so
+    // the login terminal never depends on PATH. The Windows native installer
+    // drops cursor-agent under %LOCALAPPDATA%\cursor-agent and only edits the
+    // *registry* PATH — a freshly-spawned terminal inherits that stale, so a
+    // bare `cursor-agent login` dies with "'cursor-agent' is not recognized as
+    // an internal or external command". An absolute path sidesteps it entirely.
+    const resolvedCmd = agentManager
+      ? agentManager.resolveLoginCommand(cmd)
+      : cmd
     if (process.platform === "win32") {
       const { execSync: exec } = require("child_process")
       const home = process.env.USERPROFILE || os.homedir()
@@ -1956,17 +1968,62 @@ function setupIPC(): void {
             runtimeBins.push(path.join(rd, d.name, "node_modules", ".bin"))
         }
       } catch {}
+      // Mirror the dirs the core adds to its own enhanced PATH so child tools
+      // the CLI spawns (and the fallback when abs-path resolution misses) still
+      // resolve without a reboot. Kept as a PATH fallback only — the command
+      // itself is already an absolute path via resolveLoginCommand above.
+      const localAppData =
+        process.env.LOCALAPPDATA || path.join(home, "AppData", "Local")
+      const cliBins = [
+        // Cursor: native win32 installer → %LOCALAPPDATA%\cursor-agent (the
+        // executables are copied to the root, not the versions\ subdir). The
+        // curl|bash layout uses ~/.local\bin or ~/.cursor\bin.
+        path.join(localAppData, "cursor-agent"),
+        path.join(home, ".local", "bin"),
+        path.join(home, ".cursor", "bin"),
+        // Hermes: native (no-WSL) installer puts hermes.exe in the portable
+        // venv's Scripts dir and the uv shim in %LOCALAPPDATA%\hermes\bin.
+        path.join(localAppData, "hermes", "hermes-agent", "venv", "Scripts"),
+        path.join(localAppData, "hermes", "bin"),
+      ]
       const allBins = [
         ...runtimeBins,
         path.join(portableNode, "node_modules", ".bin"),
         portableNode,
         npmBin,
-      ].join(";")
-      const setPath = `set PATH=${allBins};%PATH%`
-      exec(`start "" cmd /K "${setPath} && ${cmd}"`, {
-        stdio: "ignore",
-        shell: true,
-      })
+        ...cliBins,
+      ]
+        .filter((d) => {
+          try {
+            return !!d && fs.existsSync(d)
+          } catch {
+            return false
+          }
+        })
+        .join(";")
+      // Write the PATH prefix + command into a temp .cmd and launch a window
+      // that runs it. Putting the (long) PATH *inside the file* — not on an
+      // inline `set PATH=<huge> && cmd` on the `start` command line — avoids the
+      // cmd.exe command-line/env overflow ("Not enough memory resources") that
+      // silently aborted the `set`, leaving cursor-agent unresolved. The temp
+      // path is quoted so a space in the user's home dir survives.
+      try {
+        const lines = [
+          "@echo off",
+          "chcp 65001 >nul",
+          `set "PATH=${allBins};%PATH%"`,
+          resolvedCmd,
+        ]
+        const tmpCmd = path.join(
+          os.tmpdir(),
+          `openagents-login-${Date.now()}.cmd`,
+        )
+        fs.writeFileSync(tmpCmd, lines.join("\r\n"), "utf-8")
+        exec(`start "OpenAgents Login" cmd /K "${tmpCmd}"`, {
+          stdio: "ignore",
+          shell: true,
+        })
+      } catch {}
     } else if (process.platform === "darwin") {
       const home = os.homedir()
       const portableNode = path.join(home, ".openagents", "nodejs")
@@ -1987,7 +2044,7 @@ function setupIPC(): void {
         "/usr/local/bin",
       ].join(":")
       const setPath = `export PATH=${allBins}:$PATH`
-      const fullCmd = `${setPath} && ${cmd}`.replace(/"/g, '\\"')
+      const fullCmd = `${setPath} && ${resolvedCmd}`.replace(/"/g, '\\"')
       spawn(
         "osascript",
         ["-e", `tell app "Terminal" to do script "${fullCmd}"`],
@@ -1997,7 +2054,7 @@ function setupIPC(): void {
       const terminals = ["x-terminal-emulator", "gnome-terminal", "xterm"]
       for (const term of terminals) {
         try {
-          spawn(term, ["-e", cmd], { detached: true, stdio: "ignore" })
+          spawn(term, ["-e", resolvedCmd], { detached: true, stdio: "ignore" })
           return
         } catch {}
       }

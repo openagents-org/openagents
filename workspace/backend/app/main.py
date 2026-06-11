@@ -335,6 +335,54 @@ class NoTransformCompressionHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(NoTransformCompressionHeadersMiddleware)
 
+
+class UserAgentLogMiddleware(BaseHTTPMiddleware):
+    """Log User-Agent on every POST so we can tell which client (iPhone
+    URLSession vs Mac vs Chrome) is calling each mutating endpoint.
+    GETs are excluded because /v1/events polling would drown the logs.
+    Temporary: paired with the validation logger to chase a missing
+    /v1/devices/register call from the iPhone.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.method == "POST":
+            logger.info(
+                "POST %s ua=%s status=%s",
+                request.url.path,
+                request.headers.get("user-agent", "<none>"),
+                response.status_code,
+            )
+        return response
+
+
+app.add_middleware(UserAgentLogMiddleware)
+
+
+# Log Pydantic validation failures with the offending body so we can
+# debug client/server schema drift from CloudWatch instead of guessing
+# from a bare 422. Triggered any time FastAPI rejects a request body
+# before the route handler sees it.
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse as _ValidationJSONResponse
+
+
+@app.exception_handler(RequestValidationError)
+async def _log_validation_errors(request: Request, exc: RequestValidationError):
+    try:
+        body = await request.body()
+        body_preview = body.decode("utf-8", errors="replace")[:1024]
+    except Exception:
+        body_preview = "<unreadable>"
+    logger.warning(
+        "validation 422 path=%s errors=%s body=%s",
+        request.url.path, exc.errors(), body_preview,
+    )
+    return _ValidationJSONResponse(
+        status_code=422, content={"detail": exc.errors()},
+    )
+
+
 # Routers
 app.include_router(browser.router)
 app.include_router(cloud_agents.router)

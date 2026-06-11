@@ -19,6 +19,7 @@ const { execSync, spawn } = require('child_process');
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd } = require('./workspace-prompt');
+const { defaultAgentWorkdir, whichBinary, getEnhancedEnv } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -72,6 +73,10 @@ class ClaudeAdapter extends BaseAdapter {
   async _onControlAction(action, payload) {
     if (action === 'stop') {
       const channel = (payload && typeof payload === 'object') ? payload.channel : null;
+      if (channel) {
+        const pp = this._persistentProcs[channel];
+        if (pp) pp.userStopped = true;
+      }
       if (channel && this._channelProcesses[channel]) {
         this._log(`Stopping process for channel=${channel}`);
         this._stoppingChannels.add(channel);
@@ -83,6 +88,7 @@ class ClaudeAdapter extends BaseAdapter {
           await this.sendResponse(channel, 'Execution stopped by user.');
         } catch {}
       } else {
+        for (const pp of Object.values(this._persistentProcs)) pp.userStopped = true;
         await this._stopAllProcesses('Execution stopped by user.');
       }
       return;
@@ -225,7 +231,7 @@ class ClaudeAdapter extends BaseAdapter {
    */
   async _buildChannelRecap(channelName, currentMessage) {
     const messages = await this.client.getRecentMessages(
-      this.workspaceId, channelName, this.token, 30
+      this.workspaceId, channelName, this.token, 60
     );
     if (!messages || messages.length === 0) return null;
 
@@ -235,20 +241,16 @@ class ClaudeAdapter extends BaseAdapter {
       if (mt === 'status' || mt === 'thinking' || mt === 'loading') continue;
       const text = (m.content || '').trim();
       if (!text) continue;
-      // Don't echo the user's current message back at them.
       if (text === currentMessage) continue;
       const who = m.senderType === 'human'
         ? (m.senderName || 'user')
         : (m.senderName || 'agent');
-      // Cap each line so a single huge paste doesn't blow up the prompt.
-      const truncated = text.length > 800 ? text.slice(0, 800) + '…' : text;
+      const truncated = text.length > 2000 ? text.slice(0, 2000) + '…' : text;
       lines.push(`[${who}] ${truncated}`);
     }
     if (lines.length === 0) return null;
 
-    // Keep only the tail; older context has diminishing value and we
-    // don't want to balloon the system prompt.
-    const tail = lines.slice(-15).join('\n');
+    const tail = lines.slice(-20).join('\n');
     return (
       'You previously worked in this channel but your prior session is no ' +
       'longer available, so here is the recent conversation for context:\n\n' +
@@ -304,6 +306,15 @@ class ClaudeAdapter extends BaseAdapter {
       if (jsMatch) {
         return [nodeBin, path.resolve(cmdDir, jsMatch[1])];
       }
+      // .cmd shims that forward to a native .exe (e.g. Claude Code's
+      // claude.cmd → @anthropic-ai/claude-code/bin/claude.exe). Resolve to the
+      // exe and spawn it directly. Wrapping such a .cmd in `cmd.exe /c` caps the
+      // command line at cmd.exe's 8191-char limit, which truncates the ~14KB
+      // --append-system-prompt and makes the agent hang ("command line too long").
+      const exeMatch = cmdContent.match(/%dp0%\\([^\s"*?]+\.exe)/i);
+      if (exeMatch) {
+        return [path.resolve(cmdDir, exeMatch[1])];
+      }
     } else {
       // Unix: symlink → resolve to actual .js file
       try {
@@ -332,15 +343,22 @@ class ClaudeAdapter extends BaseAdapter {
     const portableCandidate = path.join(portableBin, `claude${ext}`);
     if (fs.existsSync(portableCandidate)) return portableCandidate;
 
-    // Tier 1: PATH search
+    // Tier 1: PATH search. Use the ENRICHED env so the lookup sees the same
+    // node-version-manager / homebrew / npm-global dirs the launcher adds —
+    // a packaged Electron daemon's own PATH is minimal, which is why `which
+    // claude` came up empty and the agent reported "claude CLI not found".
+    // windowsHide stops a console window from flashing.
     try {
+      const env = getEnhancedEnv();
       if (IS_WINDOWS) {
         const r = execSync('where claude.cmd 2>nul || where claude.exe 2>nul || where claude 2>nul', {
-          encoding: 'utf-8', timeout: 5000,
+          encoding: 'utf-8', timeout: 5000, windowsHide: true, env,
         });
-        return r.split(/\r?\n/)[0].trim();
+        const hit = r.split(/\r?\n/)[0].trim();
+        if (hit) return hit;
       } else {
-        return execSync('which claude', { encoding: 'utf-8', timeout: 5000 }).trim();
+        const hit = execSync('which claude', { encoding: 'utf-8', timeout: 5000, windowsHide: true, env }).trim();
+        if (hit) return hit;
       }
     } catch {}
 
@@ -354,6 +372,7 @@ class ClaudeAdapter extends BaseAdapter {
       path.join(process.env.APPDATA || '', 'npm', 'claude.cmd'),
     ] : [
       path.join(home, '.local', 'bin', 'claude'),
+      path.join(home, '.claude', 'local', 'claude'),
       path.join(home, '.npm-global', 'bin', 'claude'),
       '/opt/homebrew/bin/claude',
       '/usr/local/bin/claude',
@@ -361,6 +380,13 @@ class ClaudeAdapter extends BaseAdapter {
     for (const c of candidates) {
       if (fs.existsSync(c)) return c;
     }
+
+    // Tier 4: Deep scan of every known bin dir (nvm/fnm/volta node-global,
+    // homebrew, cargo, pip, …). This is what catches a `claude` installed as a
+    // global npm package under a version-managed Node — the most common setup,
+    // and the one the fixed-PATH tiers above miss.
+    const viaWhich = whichBinary('claude');
+    if (viaWhich) return viaWhich;
 
     return null;
   }
@@ -427,8 +453,10 @@ class ClaudeAdapter extends BaseAdapter {
       cmd.push('--allowedTools', 'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep');
     }
 
-    // Write SKILL.md to .claude/skills/ in the working directory
-    const workDir = this.workingDir || process.cwd();
+    // Write SKILL.md to .claude/skills/ in the working directory. Never use
+    // process.cwd() as the fallback — on a packaged Windows daemon that is
+    // C:\WINDOWS\system32 and mkdir there throws EPERM.
+    const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
     const skillDir = path.join(workDir, '.claude', 'skills');
     fs.mkdirSync(skillDir, { recursive: true });
     const skillFile = path.join(skillDir, 'openagents-workspace.md');
@@ -546,7 +574,7 @@ class ClaudeAdapter extends BaseAdapter {
         const resolved = this._resolveToNodeCmd(oaBin);
         if (resolved) {
           mcpCommand = resolved[0];
-          mcpFinalArgs = [resolved[1], ...mcpArgs];
+          mcpFinalArgs = [...resolved.slice(1), ...mcpArgs];
         } else {
           mcpCommand = oaBin;
         }
@@ -671,7 +699,7 @@ class ClaudeAdapter extends BaseAdapter {
     const resolved = this._resolveToNodeCmd(filteredCmd[0]);
     let finalCmd = filteredCmd;
     if (resolved) {
-      finalCmd = [resolved[0], resolved[1], ...filteredCmd.slice(1)];
+      finalCmd = [...resolved, ...filteredCmd.slice(1)];
     } else if (IS_WINDOWS && filteredCmd[0].toLowerCase().endsWith('.cmd')) {
       finalCmd = ['cmd.exe', '/c', ...filteredCmd];
     }
@@ -692,6 +720,7 @@ class ClaudeAdapter extends BaseAdapter {
       messageResolve: null,
       msgChannel: channel,
       lastResponseText: [],
+      lastErrorText: '',
       hasToolUseSinceLastText: false,
       postedThinking: false,
       everPostedAnything: false,
@@ -700,6 +729,7 @@ class ClaudeAdapter extends BaseAdapter {
       lastStdoutTime: Date.now(),
       watchdogTimer: null,
       awaitingToolResult: false,
+      userStopped: false,
     };
 
     if (proc.stderr) {
@@ -765,7 +795,12 @@ class ClaudeAdapter extends BaseAdapter {
           this._saveSessions();
         }
         if (event.is_error) {
-          this._log(`Claude error: ${String(event.result || '').slice(0, 200)}`);
+          // Capture the error so _handleMessage can surface it to the user.
+          // Without this, an auth/API failure (e.g. 401 invalid token) is only
+          // logged and the user just sees "No response generated", hiding the
+          // real cause and making it nearly impossible to diagnose.
+          pp.lastErrorText = String(event.result || '').trim();
+          this._log(`Claude error: ${pp.lastErrorText.slice(0, 200)}`);
         }
         if (pp.messageResolve) {
           pp.messageResolve({ resultEvent: event });
@@ -829,6 +864,7 @@ class ClaudeAdapter extends BaseAdapter {
    */
   _sendToPersistentProc(pp, content) {
     pp.lastResponseText = [];
+    pp.lastErrorText = '';
     pp.hasToolUseSinceLastText = false;
     pp.postedThinking = false;
     pp.everPostedAnything = false;
@@ -858,6 +894,20 @@ class ClaudeAdapter extends BaseAdapter {
         resolve({ exited: true, error: e });
       }
     });
+  }
+
+  /**
+   * Turn a raw Claude `result` error into a user-facing message. Auth failures
+   * (401 / invalid token) are the most common real-world cause and are otherwise
+   * invisible — add a concrete hint about which env vars to check.
+   */
+  _formatClaudeError(text) {
+    const msg = String(text || '').trim() || 'Claude returned an error.';
+    if (/401|403|authenticate|invalid.*(token|key|api)|无效的?\s*(令牌|密钥|key)/i.test(msg)) {
+      return `Claude authentication failed: ${msg}\n\n` +
+        'Check this agent\'s API key and Base URL in the launcher — the key may be invalid or expired.';
+    }
+    return `Claude error: ${msg}`;
   }
 
   async _handleMessage(msg) {
@@ -915,6 +965,8 @@ class ClaudeAdapter extends BaseAdapter {
         const fullResponse = existingPP.lastResponseText.join('\n').trim();
         if (fullResponse) {
           try { await this.sendResponse(msgChannel, fullResponse); } catch {}
+        } else if (existingPP.lastErrorText) {
+          try { await this.sendError(msgChannel, this._formatClaudeError(existingPP.lastErrorText)); } catch {}
         }
         this._resetIdleTimer(msgChannel);
         if (!msg._todoNudge) {
@@ -930,6 +982,12 @@ class ClaudeAdapter extends BaseAdapter {
               });
             }
           } catch {}
+        }
+        return;
+      }
+      if (existingPP.userStopped) {
+        if (!existingPP.everPostedAnything) {
+          try { await this.sendResponse(msgChannel, 'Execution stopped by user.'); } catch {}
         }
         return;
       }
@@ -958,13 +1016,48 @@ class ClaudeAdapter extends BaseAdapter {
       }
     }
 
+    // Third-party Anthropic-compatible relays (the common reason a custom
+    // ANTHROPIC_BASE_URL is set) authenticate via `Authorization: Bearer`, which
+    // the Claude CLI only sends when ANTHROPIC_AUTH_TOKEN is set. With just
+    // ANTHROPIC_API_KEY the CLI sends `x-api-key`, which most relays ignore — the
+    // relay then rejects every request as 401 "invalid token / 无效的令牌". When a
+    // non-official base URL is configured and no auth token was provided, mirror
+    // the API key into ANTHROPIC_AUTH_TOKEN (it outranks the API key in Claude
+    // Code's auth precedence) so the CLI uses Bearer auth. The launcher normally
+    // sets this when saving env; this is the runtime backstop for envs saved by
+    // an older launcher or coming from any other source. The official
+    // api.anthropic.com endpoint keeps x-api-key, so it is left untouched.
+    const anthropicBase = (cleanEnv.ANTHROPIC_BASE_URL || '').trim();
+    const anthropicKey = (cleanEnv.ANTHROPIC_API_KEY || '').trim();
+    if (anthropicKey && anthropicBase && !(cleanEnv.ANTHROPIC_AUTH_TOKEN || '').trim()) {
+      let officialAnthropic = false;
+      try {
+        const host = new URL(anthropicBase).hostname.toLowerCase();
+        officialAnthropic = host === 'anthropic.com' || host.endsWith('.anthropic.com');
+      } catch { officialAnthropic = false; }
+      if (!officialAnthropic) {
+        cleanEnv.ANTHROPIC_AUTH_TOKEN = anthropicKey;
+      }
+    }
+
     // Spawn a persistent process and send the first message via stdin
     let effectiveContent = content;
+
+    // When starting without a session (no --resume), prepend channel
+    // history so the fresh CLI has conversation context.
+    if (!this._channelSessions[msgChannel]) {
+      try {
+        const recap = await this._buildChannelRecap(msgChannel, content);
+        if (recap) effectiveContent = `${recap}\n\n---\n\n${content}`;
+      } catch {}
+    }
+
     for (let attempt = 0; attempt < 2; attempt++) {
       if (mcpConfigFile) { try { fs.unlinkSync(mcpConfigFile); } catch {} mcpConfigFile = null; }
 
       if (attempt > 0) {
         this._killPersistentProc(msgChannel);
+        // Rebuild recap for retry without resume
         try {
           const recap = await this._buildChannelRecap(msgChannel, content);
           if (recap) effectiveContent = `${recap}\n\n---\n\n${content}`;
@@ -991,7 +1084,13 @@ class ClaudeAdapter extends BaseAdapter {
         const result = await this._sendToPersistentProc(pp, effectiveContent);
 
         if (result.exited) {
-          this._log(`Process exited during first message (attempt ${attempt + 1})`);
+          this._log(`Process exited during first message (attempt ${attempt + 1}), userStopped=${pp.userStopped}`);
+          if (pp.userStopped) {
+            if (!pp.everPostedAnything) {
+              try { await this.sendResponse(msgChannel, 'Execution stopped by user.'); } catch {}
+            }
+            break;
+          }
           if (attempt === 0 && this._channelSessions[msgChannel]) {
             this._log(`Stale session detected, retrying without resume`);
             delete this._channelSessions[msgChannel];
@@ -999,7 +1098,11 @@ class ClaudeAdapter extends BaseAdapter {
             continue;
           }
           if (!pp.everPostedAnything) {
-            try { await this.sendResponse(msgChannel, 'No response generated. Please try again.'); } catch {}
+            if (pp.lastErrorText) {
+              try { await this.sendError(msgChannel, this._formatClaudeError(pp.lastErrorText)); } catch {}
+            } else {
+              try { await this.sendResponse(msgChannel, 'No response generated. Please try again.'); } catch {}
+            }
           }
           break;
         }
@@ -1009,7 +1112,7 @@ class ClaudeAdapter extends BaseAdapter {
 
         if (this._mode === 'plan') {
           try {
-            const planDir = path.join(this.workingDir || process.cwd(), '.claude', 'plans');
+            const planDir = path.join(this.workingDir || defaultAgentWorkdir(this.agentName), '.claude', 'plans');
             if (fs.existsSync(planDir)) {
               const planFiles = fs.readdirSync(planDir)
                 .filter((f) => f.endsWith('.md'))
@@ -1034,6 +1137,10 @@ class ClaudeAdapter extends BaseAdapter {
 
         if (finalResponse) {
           try { await this.sendResponse(msgChannel, finalResponse); } catch {}
+        } else if (pp.lastErrorText) {
+          // Claude finished with an error and no assistant text (e.g. 401 invalid
+          // token). Surface it instead of silently dropping the turn.
+          try { await this.sendError(msgChannel, this._formatClaudeError(pp.lastErrorText)); } catch {}
         }
 
         this._resetIdleTimer(msgChannel);

@@ -2,14 +2,18 @@ import SwiftUI
 import SwiftUIJSONRender
 
 /// Theme applied to A2UI-rendered specs so they feel native inside Go's
-/// iMessage-style bubbles. Pulls from system tokens (system accent, primary/
-/// secondary text, default fonts) so the result tracks light/dark mode and
-/// the user's macOS accent-color preference automatically.
+/// iMessage-style bubbles. Pulls brand color from `BrandColors` so buttons
+/// and primary affordances inside agent-rendered UI match the app chrome
+/// (coral, not the system accent). Surface background stays as a fractional
+/// primary overlay so the rendered spec blends into whatever bubble it
+/// sits inside instead of asserting its own card surface.
 struct OpenAgentsGoTheme: JSONRenderTheme {
-    // Brand — track the system accent color so buttons match the user
-    // bubble tint and the app's general affordance color.
-    static var primaryColor: Color { .accentColor }
-    static var secondaryColor: Color { .secondary }
+    // Brand — coral accent matches send button, focus ring, active thread.
+    // `inkMuted` for secondary so non-essential glyphs match the rest of
+    // the app's de-emphasized text instead of the system `.secondary`
+    // (which is a touch cooler).
+    static var primaryColor: Color { BrandColors.primary }
+    static var secondaryColor: Color { BrandColors.inkMuted }
 
     // Surfaces — keep the inner card light so it blends with the bubble it
     // sits inside, rather than drawing a hard secondary background. The

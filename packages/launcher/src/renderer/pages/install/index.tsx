@@ -230,11 +230,11 @@ export default function Install({
 
     if (prefs.sort === "featured") {
       result.sort((a, b) => {
-        const af = a.featured ? 1 : 0
-        const bf = b.featured ? 1 : 0
-        if (af !== bf) return bf - af
-        const ao = typeof a.order === "number" ? a.order : 999
-        const bo = typeof b.order === "number" ? b.order : 999
+        const ac = a.comingSoon ? 1 : 0
+        const bc = b.comingSoon ? 1 : 0
+        if (ac !== bc) return ac - bc
+        const ao = typeof a.coreOrder === "number" ? a.coreOrder : 999
+        const bo = typeof b.coreOrder === "number" ? b.coreOrder : 999
         if (ao !== bo) return ao - bo
         return byName(a, b)
       })
@@ -257,6 +257,10 @@ export default function Install({
     } else if (prefs.sort === "name") {
       result.sort(byName)
     }
+
+    // Coming-soon agents always sink below the supported core set, whatever the
+    // chosen sort. Applied last; Array.sort is stable so in-group order holds.
+    result.sort((a, b) => (a.comingSoon ? 1 : 0) - (b.comingSoon ? 1 : 0))
 
     return result
   }, [catalog, search, prefs, installedList])

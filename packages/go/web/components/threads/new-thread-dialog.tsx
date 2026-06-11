@@ -9,25 +9,34 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { History, Check, Star } from 'lucide-react';
-import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
+import { History, Check, Star, User } from 'lucide-react';
+import type { WorkspaceAgent, WorkspaceCollaborator, WorkspaceSession } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { agentPresence } from '@/lib/helpers';
+import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 
 interface NewThreadDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   agents: WorkspaceAgent[];
+  humans?: WorkspaceCollaborator[];
   sessions?: WorkspaceSession[];
-  onCreateThread: (opts: { master: string; participants: string[]; resumeFrom?: string }) => void;
+  onCreateThread: (opts: { master: string; participants: string[]; humanParticipants: string[]; resumeFrom?: string }) => void;
 }
 
-export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreateThread }: NewThreadDialogProps) {
+export function NewThreadDialog({ open, onOpenChange, agents, humans, sessions, onCreateThread }: NewThreadDialogProps) {
+  const { user: googleUser } = useOpenAgentsAuth();
   // Only show online agents in the picker
   const onlineAgents = agents.filter((a) => a.status === 'online');
   const agentNames = onlineAgents.map((a) => a.agentName);
   const defaultMaster = onlineAgents.find((a) => a.role === 'master')?.agentName || onlineAgents[0]?.agentName || '';
+  // Exclude the signed-in user from the People picker — they're the
+  // implicit creator of the chat, so picking themselves is meaningless.
+  const selfEmail = googleUser?.email?.trim().toLowerCase();
+  const humanList = (humans || []).filter((h) => h.email.toLowerCase() !== selfEmail);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedHumans, setSelectedHumans] = useState<Set<string>>(new Set());
   const [master, setMaster] = useState('');
   const [resumeFrom, setResumeFrom] = useState<string>('');
 
@@ -35,10 +44,20 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
   useEffect(() => {
     if (open) {
       setSelected(new Set());
+      setSelectedHumans(new Set());
       setMaster('');
       setResumeFrom('');
     }
   }, [open]);
+
+  const toggleHuman = (email: string) => {
+    setSelectedHumans((prev) => {
+      const next = new Set(prev);
+      if (next.has(email)) next.delete(email);
+      else next.add(email);
+      return next;
+    });
+  };
 
   const toggleAgent = (name: string) => {
     setSelected((prev) => {
@@ -76,7 +95,8 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
 
   const handleCreate = () => {
     const participants = agentNames.filter((n) => selected.has(n));
-    onCreateThread({ master, participants, resumeFrom: resumeFrom || undefined });
+    const humanParticipants = Array.from(selectedHumans);
+    onCreateThread({ master, participants, humanParticipants, resumeFrom: resumeFrom || undefined });
     onOpenChange(false);
   };
 
@@ -105,7 +125,11 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
         {/* Agent list */}
         <div className="mt-3 space-y-1.5 max-h-64 overflow-y-auto">
           {onlineAgents.length === 0 && (
-            <p className="text-sm text-muted-foreground py-4 text-center">No agents are currently online.</p>
+            <p className="text-sm text-muted-foreground py-4 text-center">
+              {agentPresence(agents) === 'offline'
+                ? 'No agents are currently online.'
+                : 'Connect an agent to start chatting.'}
+            </p>
           )}
           {onlineAgents.map((agent) => {
             const isSelected = selected.has(agent.agentName);
@@ -168,6 +192,47 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
           </p>
         )}
 
+        {/* Humans — added to channel_human_members on the backend so they
+            get a push for every message in this chat, not just @mentions. */}
+        {humanList.length > 0 && (
+          <div className="mt-3">
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1.5 px-1">People</p>
+            <div className="space-y-1.5 max-h-40 overflow-y-auto">
+              {humanList.map((h) => {
+                const isSelected = selectedHumans.has(h.email);
+                return (
+                  <div
+                    key={h.email}
+                    className={cn(
+                      'flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all border',
+                      isSelected
+                        ? 'bg-zinc-50 dark:bg-zinc-800/80 border-zinc-200 dark:border-zinc-700'
+                        : 'border-transparent opacity-50 hover:opacity-75 hover:bg-zinc-50 dark:hover:bg-zinc-800/40'
+                    )}
+                    onClick={() => toggleHuman(h.email)}
+                  >
+                    <div className={cn(
+                      'size-4 rounded shrink-0 flex items-center justify-center border transition-colors',
+                      isSelected ? 'bg-blue-500 border-blue-500 text-white' : 'border-zinc-300 dark:border-zinc-600'
+                    )}>
+                      {isSelected && <Check className="size-3" strokeWidth={3} />}
+                    </div>
+                    <div className="size-6 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center shrink-0">
+                      <User className="size-3.5 text-zinc-600 dark:text-zinc-300" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium truncate block">{h.displayName || h.email}</span>
+                      {h.displayName && (
+                        <span className="text-[11px] text-muted-foreground truncate block">{h.email}</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Resume from past session — show when there are resumable sessions */}
         {hasClaudeAgent && resumableSessions.length > 0 && (
           <div className="mt-3">
@@ -194,7 +259,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button size="sm" onClick={handleCreate} disabled={selected.size === 0}>
+          <Button size="sm" onClick={handleCreate} disabled={selected.size === 0 && selectedHumans.size === 0}>
             {resumeFrom ? 'Resume Chat' : 'Start Chat'}
           </Button>
         </div>

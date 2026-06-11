@@ -27,6 +27,7 @@ export function SidebarHeader({ searchQuery, onSearchChange }: SidebarHeaderProp
     refreshAgents,
     refreshWorkspace,
     agents,
+    humans,
     sessions,
     createSession,
   } = useWorkspace();
@@ -161,9 +162,10 @@ export function SidebarHeader({ searchQuery, onSearchChange }: SidebarHeaderProp
         open={newThreadOpen}
         onOpenChange={setNewThreadOpen}
         agents={agents}
+        humans={humans}
         sessions={sessions}
-        onCreateThread={({ master, participants, resumeFrom }) =>
-          createSession({ master, participants, resumeFrom })
+        onCreateThread={({ master, participants, humanParticipants, resumeFrom }) =>
+          createSession({ master, participants, humanParticipants, resumeFrom })
         }
       />
     </>

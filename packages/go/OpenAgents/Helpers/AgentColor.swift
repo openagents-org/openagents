@@ -1,19 +1,15 @@
 import SwiftUI
 
-/// Deterministic color palette for agent avatars — index by stable hash so the same agent
-/// always gets the same color across renders.
+/// Deterministic per-agent accent color.
+///
+/// Pulls from `BrandColors.agentTints` — six jewel tones harmonized with the
+/// coral primary so the workspace never lights up with arbitrary system
+/// hues. Hash is djb2 over UTF-8 bytes (stable across processes, devices,
+/// and the future web port), so the same agent name always maps to the
+/// same tint everywhere it appears: avatar fill, mention chip, participant
+/// dot, channel header underline.
 enum AgentPalette {
-    static let colors: [Color] = [
-        Color(red: 0.95, green: 0.40, blue: 0.45), // red
-        Color(red: 0.99, green: 0.65, blue: 0.30), // orange
-        Color(red: 0.95, green: 0.80, blue: 0.35), // yellow
-        Color(red: 0.45, green: 0.78, blue: 0.50), // green
-        Color(red: 0.30, green: 0.74, blue: 0.92), // cyan
-        Color(red: 0.30, green: 0.50, blue: 0.95), // blue
-        Color(red: 0.65, green: 0.45, blue: 0.95), // purple
-        Color(red: 0.95, green: 0.45, blue: 0.78), // pink
-        Color(red: 0.40, green: 0.65, blue: 0.55), // teal
-    ]
+    static let colors: [Color] = BrandColors.agentTints
 
     static func color(for agentName: String) -> Color {
         var hash: UInt64 = 5381

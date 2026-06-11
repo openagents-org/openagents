@@ -45,6 +45,12 @@ final class WorkspaceStore {
     /// agent's terminal "stopped" / "stopping failed" status to come back.
     /// Mirrors the React app's `stoppingSessionIds`.
     var stoppingSessionIds: Set<String> = []
+    /// Sessions where the user just sent a message and we're waiting for the
+    /// agent's first response frame. Drives an immediate "thinking…" indicator
+    /// so there's no dead gap between send and the agent's first status (which
+    /// is genuine agent latency — typically 1–3s). Cleared when any agent
+    /// (non-user) message arrives, or by a safety timeout in `sendMessage`.
+    var awaitingFirstResponseSessionIds: Set<String> = []
     var isLoading: Bool = true
     var lastError: String?
 
@@ -151,6 +157,14 @@ final class WorkspaceStore {
 
     var onlineAgents: [Agent] { agents.filter(\.isOnline) }
 
+    /// Whether any agent is a member of this workspace, regardless of online
+    /// status. A member whose heartbeat has gone stale is still *connected*
+    /// to the workspace — it just isn't online right now. Use this (not
+    /// `onlineAgents`) to decide whether to surface the "connect an agent"
+    /// onboarding empty state; `onlineAgents` only gates what can be picked
+    /// to join a conversation.
+    var hasConnectedAgents: Bool { !agents.isEmpty }
+
     /// Browser tabs sorted with the most recently active first. The Browser
     /// panel validates each tab as it appears, so rows without an initial
     /// `liveUrl` can still reconnect and render.
@@ -197,6 +211,12 @@ final class WorkspaceStore {
 
     func isStopping(_ sessionId: String) -> Bool {
         stoppingSessionIds.contains(sessionId)
+    }
+
+    /// True between the user sending a message and the agent's first response —
+    /// drives the immediate "thinking…" indicator.
+    func isAwaitingFirstResponse(_ sessionId: String) -> Bool {
+        awaitingFirstResponseSessionIds.contains(sessionId)
     }
 
     private static func isTerminalStatus(_ content: String) -> Bool {
@@ -509,6 +529,9 @@ final class WorkspaceStore {
                             || $0.messageId.hasPrefix("local-restart-")
                             || $0.messageId.hasPrefix("local-status-")
                     }
+                    // First agent output arrived — the real status/steps block
+                    // now takes over from the "thinking…" placeholder indicator.
+                    awaitingFirstResponseSessionIds.remove(channel)
                 }
                 page.messages.append(contentsOf: newOnes)
                 if let last = newOnes.last { page.newestId = last.messageId }
@@ -631,6 +654,26 @@ final class WorkspaceStore {
         page.generation += 1
         pagesBySession[channel] = page
         logInfo("send", "inserted optimistic id=\(optimisticId)")
+
+        // Immediate "thinking…" affordance: if an agent is expected to reply in
+        // this channel, show the indicator the instant the message is sent —
+        // the agent's first status frame is genuine latency (1–3s), so there's
+        // nothing to fetch faster. Cleared when the agent emits any message
+        // (pollNewMessages) or by the safety timeout below.
+        let sessionForSend = sessions.first { $0.sessionId == channel }
+        let channelHasAgent = agents.contains { agent in
+            guard let s = sessionForSend else { return false }
+            return s.participants.isEmpty || s.participants.contains(agent.agentName)
+        }
+        if channelHasAgent {
+            awaitingFirstResponseSessionIds.insert(channel)
+            // Safety net: clear the indicator if no agent output arrives (e.g.
+            // an offline/broken agent) so it can't hang indefinitely.
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 45 * 1_000_000_000)
+                self?.awaitingFirstResponseSessionIds.remove(channel)
+            }
+        }
 
         do {
             // Upload attachments first; collect markdown links to splice into the message.
@@ -1051,9 +1094,13 @@ final class WorkspaceStore {
         }
     }
 
-    func createThread(master: String, participants: [String]) async {
+    func createThread(master: String, participants: [String], humanParticipants: [String] = []) async {
         do {
-            let session = try await api.createChannel(master: master, participants: participants)
+            let session = try await api.createChannel(
+                master: master,
+                participants: participants,
+                humanParticipants: humanParticipants,
+            )
             sessions.insert(session, at: 0)
             currentSessionId = session.sessionId
             await loadHistory(channel: session.sessionId)
@@ -1114,12 +1161,43 @@ final class WorkspaceStore {
         }
         messagePollTask?.cancel()
         messagePollTask = Task { [weak self] in
+            // SSE-first message updates with an adaptive-polling fallback —
+            // mirrors the web client's EventSource path in hooks/use-polling.ts.
+            // While the stream is healthy we do NOT poll on a timer (the perf
+            // win); each pushed frame triggers an incremental forward poll so
+            // we reuse pollNewMessages' dedup / optimistic-reconcile path.
             while !Task.isCancelled {
                 guard let self else { return }
-                let interval: Double = await self.hasActiveAgents ? 1.5 : 3
-                try? await Task.sleep(for: .seconds(interval))
-                if let id = self.currentSessionId {
-                    await self.pollNewMessages(channel: id)
+                guard let channel = self.currentSessionId else {
+                    try? await Task.sleep(for: .seconds(1))
+                    continue
+                }
+                // Catch up immediately — covers initial load and any gap since
+                // the last stream (e.g. right after a session switch/reconnect).
+                await self.pollNewMessages(channel: channel)
+
+                do {
+                    let stream = await self.api.streamEvents(channel: channel)
+                    for try await _ in stream {
+                        if Task.isCancelled { return }
+                        // User switched chats — drop this stream; the outer loop
+                        // reopens one for the newly selected channel.
+                        guard self.currentSessionId == channel else { break }
+                        await self.pollNewMessages(channel: channel)
+                    }
+                    // Server closed the stream cleanly — pause briefly, then the
+                    // outer loop reopens it (or picks up a new channel).
+                    try? await Task.sleep(for: .seconds(1))
+                } catch {
+                    // SSE unavailable — fall back to adaptive polling for this
+                    // channel until it changes (same cadence as the pre-SSE loop:
+                    // 1.5s with an active agent, 3s idle). Mirrors onerror→poll.
+                    logInfo("sse", "channel=\(channel) stream failed → polling fallback: \(error.localizedDescription)")
+                    while !Task.isCancelled, self.currentSessionId == channel {
+                        let interval: Double = self.hasActiveAgents ? 1.5 : 3
+                        try? await Task.sleep(for: .seconds(interval))
+                        await self.pollNewMessages(channel: channel)
+                    }
                 }
             }
         }

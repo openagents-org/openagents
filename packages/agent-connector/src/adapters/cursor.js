@@ -17,6 +17,7 @@ const { execSync, spawn } = require('child_process');
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildCursorSkillMd } = require('./workspace-prompt');
+const { defaultAgentWorkdir, whichBinary, getEnhancedEnv } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -185,15 +186,22 @@ class CursorAdapter extends BaseAdapter {
       if (fs.existsSync(portableCandidate)) return portableCandidate;
     }
 
-    // Tier 1: PATH search
+    // Tier 1: PATH search. Use the ENRICHED env so the lookup sees the dirs the
+    // launcher adds — a freshly-run cursor installer updates the *user* PATH,
+    // which the daemon's already-running process won't see, so `where` against
+    // the daemon's own PATH comes up empty even though cursor-agent is installed.
+    // windowsHide stops a console window from flashing.
     try {
+      const env = getEnhancedEnv();
       if (IS_WINDOWS) {
         const r = execSync('where cursor-agent.cmd 2>nul || where cursor-agent.exe 2>nul || where cursor-agent 2>nul || where agent.cmd 2>nul || where agent.exe 2>nul || where agent 2>nul', {
-          encoding: 'utf-8', timeout: 5000,
+          encoding: 'utf-8', timeout: 5000, windowsHide: true, env,
         });
-        return r.split(/\r?\n/)[0].trim();
+        const hit = r.split(/\r?\n/)[0].trim();
+        if (hit) return hit;
       } else {
-        return execSync('which cursor-agent || which agent', { encoding: 'utf-8', timeout: 5000 }).trim();
+        const hit = execSync('which cursor-agent || which agent', { encoding: 'utf-8', timeout: 5000, windowsHide: true, env }).trim();
+        if (hit) return hit;
       }
     } catch {}
 
@@ -207,6 +215,17 @@ class CursorAdapter extends BaseAdapter {
     // Tier 3: Common install locations
     const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
     const candidates = IS_WINDOWS ? [
+      // The Windows installer (install?win32=true) drops cursor-agent under the
+      // user home's .local/bin — the same place the Unix installer uses. This
+      // was missing, so a successful install was invisible to the launcher.
+      path.join(home, '.local', 'bin', 'cursor-agent.exe'),
+      path.join(home, '.local', 'bin', 'cursor-agent.cmd'),
+      path.join(home, '.local', 'bin', 'cursor-agent'),
+      path.join(home, '.local', 'bin', 'agent.exe'),
+      path.join(home, '.local', 'bin', 'agent.cmd'),
+      // Older/alternate layout: %LOCALAPPDATA%\Programs\cursor-agent\.
+      path.join(localAppData, 'Programs', 'cursor-agent', 'cursor-agent.exe'),
+      path.join(localAppData, 'Programs', 'cursor-agent', 'agent.exe'),
       // Windows native installer (install?win32=true) drops the CLI here.
       path.join(localAppData, 'cursor-agent', 'cursor-agent.cmd'),
       path.join(localAppData, 'cursor-agent', 'cursor-agent.exe'),
@@ -236,6 +255,12 @@ class CursorAdapter extends BaseAdapter {
       if (fs.existsSync(c)) return c;
     }
 
+    // Tier 4: Deep scan of every known bin dir (nvm/fnm/volta, homebrew, …).
+    for (const name of names) {
+      const viaWhich = whichBinary(name);
+      if (viaWhich) return viaWhich;
+    }
+
     return null;
   }
 
@@ -260,6 +285,13 @@ class CursorAdapter extends BaseAdapter {
       if (jsMatch) {
         return [nodeBin, path.resolve(cmdDir, jsMatch[1])];
       }
+      // .cmd shims that forward to a native .exe — resolve to the exe and spawn
+      // it directly. Wrapping such a .cmd in `cmd.exe /c` caps the command line
+      // at cmd.exe's 8191-char limit, truncating long args (e.g. system prompts).
+      const exeMatch = cmdContent.match(/%dp0%\\([^\s"*?]+\.exe)/i);
+      if (exeMatch) {
+        return [path.resolve(cmdDir, exeMatch[1])];
+      }
     } else {
       try {
         let target = binPath;
@@ -277,7 +309,9 @@ class CursorAdapter extends BaseAdapter {
   // ── Skill file writing ──
 
   _writeSkillFile(channelName) {
-    const workDir = this.workingDir || process.cwd();
+    // Never fall back to process.cwd() (C:\WINDOWS\system32 on a packaged
+    // Windows daemon → EPERM); use a writable per-agent dir under ~/.openagents.
+    const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
     const skillDir = path.join(workDir, '.cursor', 'skills');
     fs.mkdirSync(skillDir, { recursive: true });
     const skillFile = path.join(skillDir, 'openagents-workspace.md');
@@ -397,7 +431,7 @@ class CursorAdapter extends BaseAdapter {
     try {
       const resolved = this._resolveToNodeCmd(cmd[0]);
       if (resolved) {
-        cmd = [resolved[0], resolved[1], ...cmd.slice(1)];
+        cmd = [...resolved, ...cmd.slice(1)];
       } else if (IS_WINDOWS && cmd[0].toLowerCase().endsWith('.cmd')) {
         cmd = ['cmd.exe', '/c', ...cmd];
       }

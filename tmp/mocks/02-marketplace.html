@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenAgents Launcher — Marketplace</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">OA</div>
+      <span class="sidebar-title">OpenAgents</span>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">Overview</div>
+      <a class="nav-item" href="01-dashboard.html"><span class="icon">&#9632;</span> Dashboard</a>
+      <a class="nav-item" href="05-chat.html"><span class="icon">&#9993;</span> Chat <span class="nav-badge">3</span></a>
+      <div class="nav-section">Manage</div>
+      <a class="nav-item active" href="02-marketplace.html"><span class="icon">&#9733;</span> Marketplace</a>
+      <a class="nav-item" href="#"><span class="icon">&#9881;</span> My Agents</a>
+      <a class="nav-item" href="04-workspaces.html"><span class="icon">&#8801;</span> Workspaces</a>
+      <div class="nav-section">System</div>
+      <a class="nav-item" href="#"><span class="icon">&#128196;</span> Logs</a>
+      <a class="nav-item" href="#"><span class="icon">&#9881;</span> Settings</a>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>
+      <span class="sidebar-footer-text">Daemon running &middot; v0.7.1</span>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="topbar-title">Marketplace</span>
+      <span class="topbar-subtitle">&mdash; Discover and install AI agents</span>
+      <span class="topbar-spacer"></span>
+      <div class="topbar-search">&#128269; Search agents... <kbd>&#8984;K</kbd></div>
+    </div>
+
+    <div class="content">
+      <!-- Featured Banner -->
+      <div class="card" style="padding: 28px 32px; margin-bottom: 24px; background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%); border: none; color: white;">
+        <div style="display: flex; align-items: center; gap: 24px;">
+          <div style="flex:1">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; margin-bottom: 6px;">Featured</div>
+            <div style="font-size: 20px; font-weight: 700; margin-bottom: 6px;">Claude Code</div>
+            <div style="font-size: 13px; opacity: 0.9; line-height: 1.5; margin-bottom: 16px;">Anthropic's official AI coding agent. Deep codebase understanding, multi-file editing, and full workspace integration.</div>
+            <button class="btn" style="background: white; color: var(--accent); font-weight: 600;">Install Now</button>
+          </div>
+          <div style="width: 120px; height: 120px; background: rgba(255,255,255,0.15); border-radius: 24px; display: flex; align-items: center; justify-content: center; font-size: 56px;">&#9672;</div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="marketplace-filters">
+        <div class="filter-chip active">All</div>
+        <div class="filter-chip">Coding</div>
+        <div class="filter-chip">Open Source</div>
+        <div class="filter-chip">CLI</div>
+        <div class="filter-chip">IDE Extension</div>
+        <div class="filter-chip">Multi-Model</div>
+        <div class="filter-chip">Workspace Ready</div>
+      </div>
+
+      <!-- Agent Grid -->
+      <div class="marketplace-grid">
+        <!-- Claude -->
+        <div class="card marketplace-card" onclick="location.href='03-agent-detail.html'">
+          <div class="marketplace-card-header">
+            <div class="marketplace-card-icon agent-icon claude">&#9672;</div>
+            <div style="flex:1">
+              <div class="agent-name">Claude Code</div>
+              <div class="agent-type">Anthropic</div>
+            </div>
+            <span class="badge badge-success">Installed</span>
+          </div>
+          <div class="marketplace-card-desc">Anthropic's official AI coding assistant with deep codebase understanding and multi-file editing capabilities.</div>
+          <div class="marketplace-card-meta">
+            <span class="badge badge-accent">Workspace</span>
+            <span class="badge badge-accent">Collaboration</span>
+            <span>v1.0.23</span>
+          </div>
+          <div class="marketplace-card-actions">
+            <button class="btn btn-sm btn-secondary">Configure</button>
+            <button class="btn btn-sm btn-primary">Create Agent</button>
+          </div>
+        </div>
+
+        <!-- OpenClaw -->
+        <div class="card marketplace-card">
+          <div class="marketplace-card-header">
+            <div class="marketplace-card-icon agent-icon openclaw">&#9670;</div>
+            <div style="flex:1">
+              <div class="agent-name">OpenClaw</div>
+              <div class="agent-type">OpenAgents</div>
+            </div>
+            <span class="badge badge-success">Installed</span>
+          </div>
+          <div class="marketplace-card-desc">Open-source multi-model coding agent. Works with OpenAI, Anthropic, and any OpenAI-compatible API.</div>
+          <div class="marketplace-card-meta">
+            <span class="badge badge-accent">Workspace</span>
+            <span class="badge badge-accent">Collaboration</span>
+            <span class="badge badge-info">Open Source</span>
+          </div>
+          <div class="marketplace-card-actions">
+            <button class="btn btn-sm btn-secondary">Configure</button>
+            <button class="btn btn-sm btn-primary">Create Agent</button>
+          </div>
+        </div>
+
+        <!-- Codex -->
+        <div class="card marketplace-card">
+          <div class="marketplace-card-header">
+            <div class="marketplace-card-icon agent-icon codex">&#9679;</div>
+            <div style="flex:1">
+              <div class="agent-name">Codex</div>
+              <div class="agent-type">OpenAI</div>
+            </div>
+            <span class="badge badge-success">Installed</span>
+          </div>
+          <div class="marketplace-card-desc">OpenAI's Codex CLI agent for code generation, editing, and software engineering tasks.</div>
+          <div class="marketplace-card-meta">
+            <span class="badge badge-accent">Workspace</span>
+            <span class="badge badge-accent">Collaboration</span>
+          </div>
+          <div class="marketplace-card-actions">
+            <button class="btn btn-sm btn-secondary">Configure</button>
+            <button class="btn btn-sm btn-primary">Create Agent</button>
+          </div>
+        </div>
+
+        <!-- Cursor -->
+        <div class="card marketplace-card">
+          <div class="marketplace-card-header">
+            <div class="marketplace-card-icon agent-icon cursor">&#9674;</div>
+            <div style="flex:1">
+              <div class="agent-name">Cursor Agent</div>
+              <div class="agent-type">Anysphere</div>
+            </div>
+            <span class="badge badge-neutral">Not Installed</span>
+          </div>
+          <div class="marketplace-card-desc">AI-powered code editor with an agent CLI mode for autonomous coding tasks.</div>
+          <div class="marketplace-card-meta">
+            <span class="badge badge-accent">Workspace</span>
+            <span>IDE Required</span>
+          </div>
+          <div class="marketplace-card-actions">
+            <button class="btn btn-sm btn-primary">Install</button>
+          </div>
+        </div>
+
+        <!-- Aider -->
+        <div class="card marketplace-card">
+          <div class="marketplace-card-header">
+            <div class="marketplace-card-icon agent-icon aider">&#9998;</div>
+            <div style="flex:1">
+              <div class="agent-name">Aider</div>
+              <div class="agent-type">Paul Gauthier</div>
+            </div>
+            <span class="badge badge-neutral">Not Installed</span>
+          </div>
+          <div class="marketplace-card-desc">AI pair programming in your terminal. Works with GPT-4, Claude, and local models via git-native workflow.</div>
+          <div class="marketplace-card-meta">
+            <span class="badge badge-info">Open Source</span>
+            <span>Python</span>
+          </div>
+          <div class="marketplace-card-actions">
+            <button class="btn btn-sm btn-primary">Install</button>
+          </div>
+        </div>
+
+        <!-- Goose -->
+        <div class="card marketplace-card">
+          <div class="marketplace-card-header">
+            <div class="marketplace-card-icon agent-icon goose">&#9654;</div>
+            <div style="flex:1">
+              <div class="agent-name">Goose</div>
+              <div class="agent-type">Block</div>
+            </div>
+            <span class="badge badge-neutral">Not Installed</span>
+          </div>
+          <div class="marketplace-card-desc">Open-source AI agent by Block for autonomous software development with extensible tool system.</div>
+          <div class="marketplace-card-meta">
+            <span class="badge badge-info">Open Source</span>
+            <span>Multi-tool</span>
+          </div>
+          <div class="marketplace-card-actions">
+            <button class="btn btn-sm btn-primary">Install</button>
+          </div>
+        </div>
+
+        <!-- Gemini -->
+        <div class="card marketplace-card">
+          <div class="marketplace-card-header">
+            <div class="marketplace-card-icon agent-icon gemini">&#10022;</div>
+            <div style="flex:1">
+              <div class="agent-name">Gemini CLI</div>
+              <div class="agent-type">Google</div>
+            </div>
+            <span class="badge badge-success">Installed</span>
+          </div>
+          <div class="marketplace-card-desc">Google's Gemini-powered coding agent with deep integration into Google Cloud services.</div>
+          <div class="marketplace-card-meta">
+            <span class="badge badge-accent">Workspace</span>
+          </div>
+          <div class="marketplace-card-actions">
+            <button class="btn btn-sm btn-secondary">Configure</button>
+            <button class="btn btn-sm btn-primary">Create Agent</button>
+          </div>
+        </div>
+
+        <!-- Hermes -->
+        <div class="card marketplace-card">
+          <div class="marketplace-card-header">
+            <div class="marketplace-card-icon agent-icon hermes">&#9830;</div>
+            <div style="flex:1">
+              <div class="agent-name">Hermes</div>
+              <div class="agent-type">Nous Research</div>
+            </div>
+            <span class="badge badge-neutral">Not Installed</span>
+          </div>
+          <div class="marketplace-card-desc">Multi-tool research and coding agent by Nous Research with advanced reasoning capabilities.</div>
+          <div class="marketplace-card-meta">
+            <span class="badge badge-accent">Workspace</span>
+            <span class="badge badge-accent">Collaboration</span>
+          </div>
+          <div class="marketplace-card-actions">
+            <button class="btn btn-sm btn-primary">Install</button>
+          </div>
+        </div>
+
+        <!-- Copilot -->
+        <div class="card marketplace-card">
+          <div class="marketplace-card-header">
+            <div class="marketplace-card-icon" style="background: #e8f5e9;">&#9679;</div>
+            <div style="flex:1">
+              <div class="agent-name">GitHub Copilot</div>
+              <div class="agent-type">GitHub</div>
+            </div>
+            <span class="badge badge-neutral">Not Installed</span>
+          </div>
+          <div class="marketplace-card-desc">GitHub's AI-powered coding assistant with CLI agent mode for terminal-based development.</div>
+          <div class="marketplace-card-meta">
+            <span>Subscription Required</span>
+          </div>
+          <div class="marketplace-card-actions">
+            <button class="btn btn-sm btn-primary">Install</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

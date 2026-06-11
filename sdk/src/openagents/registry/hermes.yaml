@@ -13,8 +13,12 @@ install:
   # `hermes-agent` package on PyPI.
   macos: "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash"
   linux: "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash"
-  # Native Windows is not supported by hermes-agent upstream — run under WSL2.
-  windows: "echo 'Hermes requires WSL2 on Windows. See https://github.com/NousResearch/hermes-agent'"
+  # Native Windows is supported via hermes-agent's PowerShell installer (no WSL
+  # required): it provisions portable Python/Node/Git under %LOCALAPPDATA%\hermes
+  # and drops hermes.exe in venv\Scripts. Wrap in powershell.exe so it runs even
+  # when spawned from cmd. The adapter still falls back to a WSL install if one
+  # is present, but native is the default.
+  windows: "\"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -Command \"Invoke-RestMethod -UseBasicParsing 'https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1' | Invoke-Expression\""
 
 adapter:
   module: openagents.adapters.hermes

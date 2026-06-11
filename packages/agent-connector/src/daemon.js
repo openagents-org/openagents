@@ -5,7 +5,7 @@ const path = require('path');
 const { spawn, execSync, execFileSync } = require('child_process');
 const os = require('os');
 const { WorkspaceClient } = require('./workspace-client');
-const { getEnhancedEnv, whichBinary, IS_WINDOWS } = require('./paths');
+const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
 
 /**
  * Agent process lifecycle manager.
@@ -150,6 +150,14 @@ class Daemon {
     for (let i = 0; i < 10; i++) {
       if (!this._adapters || !this._adapters[agentName]) break;
       await new Promise(r => setTimeout(r, 500));
+    }
+    // Force-clear the adapter slot if it's still hanging. Without this,
+    // a hung adapter.run() promise prevents the slot from ever being
+    // released, and subsequent start/restart commands see "already running".
+    if (this._adapters && this._adapters[agentName]) {
+      this._log(`WARNING: ${agentName} adapter did not exit after stop — force-releasing slot`);
+      try { this._adapters[agentName].stop(); } catch {}
+      delete this._adapters[agentName];
     }
     this._writeStatus();
   }
@@ -319,7 +327,17 @@ class Daemon {
    * Read daemon PID, returning null if not running.
    */
   static readDaemonPid(configDir) {
-    return Daemon._readPid(path.join(configDir, 'daemon.pid'));
+    const pidFile = path.join(configDir, 'daemon.pid');
+    const statusFile = path.join(configDir, 'daemon.status.json');
+    const pid = Daemon._readPid(pidFile);
+    if (!pid) return null;
+
+    if (!Daemon._isAlive(pid)) {
+      Daemon._cleanupStaleDaemonFiles(pidFile, statusFile);
+      return null;
+    }
+
+    return pid;
   }
 
   // ---------------------------------------------------------------------------
@@ -477,7 +495,11 @@ class Daemon {
         openclawAgentId: agentCfg.openclaw_agent_id || 'main',
         disabledModules: skillsToDisabledModules(agentCfg.skills),
         agentEnv: this._buildAgentEnv(agentCfg),
-        workingDir: agentCfg.path || undefined,
+        // Always give the agent a real, writable working directory. Without an
+        // explicit `path`, adapters used to fall back to process.cwd(), which on
+        // a packaged Windows launcher is C:\WINDOWS\system32 — so writing
+        // .claude/skills there failed with EPERM. Root it under ~/.openagents.
+        workingDir: agentCfg.path || defaultAgentWorkdir(name),
         toolMode: agentCfg.tool_mode || 'skills',
       });
     } catch (e) {
@@ -858,6 +880,17 @@ class Daemon {
       return isNaN(pid) ? null : pid;
     } catch {
       return null;
+    }
+  }
+
+  static _cleanupStaleDaemonFiles(pidFile, statusFile) {
+    Daemon._unlinkIfExists(pidFile);
+    Daemon._unlinkIfExists(statusFile);
+  }
+
+  static _unlinkIfExists(filePath) {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
     }
   }
 

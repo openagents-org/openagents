@@ -478,9 +478,27 @@ function LocalAgentsTab({
                   </div>
                 </div>
 
-                {/* Step 3: Connect */}
+                {/* Step 3: Create agent instance */}
                 <div>
-                  <span className="text-[11px] text-muted-foreground">3. Connect to this workspace</span>
+                  <span className="text-[11px] text-muted-foreground">3. Create an agent instance</span>
+                  <div className="relative group mt-1">
+                    <pre className="bg-zinc-900 text-zinc-100 rounded-md px-3.5 py-2.5 text-xs font-mono leading-relaxed overflow-x-auto">
+                      <span className="text-zinc-500">$ </span>
+                      <span className="text-emerald-400">agn create my-{selectedEntry.name} --type {selectedEntry.name}</span>
+                    </pre>
+                    <button
+                      type="button"
+                      className="absolute top-1.5 right-1.5 size-6 flex items-center justify-center rounded bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
+                      onClick={() => copyToClipboard(`agn create my-${selectedEntry.name} --type ${selectedEntry.name}`)}
+                    >
+                      {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Step 4: Connect */}
+                <div>
+                  <span className="text-[11px] text-muted-foreground">4. Connect to this workspace</span>
                   <div className="relative group mt-1">
                     <pre className="bg-zinc-900 text-zinc-100 rounded-md px-3.5 py-2.5 text-xs font-mono leading-relaxed overflow-x-auto">
                       <span className="text-zinc-500">$ </span>
@@ -489,6 +507,45 @@ function LocalAgentsTab({
                     <button
                       className="absolute top-1.5 right-1.5 size-6 flex items-center justify-center rounded bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
                       onClick={() => copyToClipboard(`agn connect my-${selectedEntry.name} ${token}`)}
+                    >
+                      {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Step 5: Start daemon */}
+                <div>
+                  <span className="text-[11px] text-muted-foreground">5. Start the daemon</span>
+                  <div className="relative group mt-1">
+                    <pre className="bg-zinc-900 text-zinc-100 rounded-md px-3.5 py-2.5 text-xs font-mono leading-relaxed overflow-x-auto">
+                      <span className="text-zinc-500">$ </span>
+                      <span className="text-emerald-400">agn up</span>
+                    </pre>
+                    <button
+                      type="button"
+                      className="absolute top-1.5 right-1.5 size-6 flex items-center justify-center rounded bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
+                      onClick={() => copyToClipboard('agn up')}
+                    >
+                      {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
+                    </button>
+                  </div>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    If the daemon is already running, connect will notify it automatically.
+                  </p>
+                </div>
+
+                {/* Step 6: Verify status */}
+                <div>
+                  <span className="text-[11px] text-muted-foreground">6. Verify the agent is running</span>
+                  <div className="relative group mt-1">
+                    <pre className="bg-zinc-900 text-zinc-100 rounded-md px-3.5 py-2.5 text-xs font-mono leading-relaxed overflow-x-auto">
+                      <span className="text-zinc-500">$ </span>
+                      <span className="text-emerald-400">agn status</span>
+                    </pre>
+                    <button
+                      type="button"
+                      className="absolute top-1.5 right-1.5 size-6 flex items-center justify-center rounded bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
+                      onClick={() => copyToClipboard('agn status')}
                     >
                       {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
                     </button>

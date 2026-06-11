@@ -15,8 +15,6 @@ import SessionList from '../../components/chat/SessionList'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import type { ToastType } from '../../hooks/useToast'
 
-const DEFAULT_CHANNEL = 'main'
-
 interface ChatPageProps {
   showToast: (msg: string, type?: ToastType) => void
 }
@@ -277,9 +275,16 @@ export default function ChatPage({ showToast }: ChatPageProps): React.JSX.Elemen
     void activate(workspaceId, channelName)
   }
 
-  const handleNewChat = (): void => {
+  const handleNewChat = async (): Promise<void> => {
     if (!selectedWorkspaceId) return
-    void activate(selectedWorkspaceId, DEFAULT_CHANNEL)
+    try {
+      const session = await window.api.sessionCreate(selectedWorkspaceId)
+      setSelectedWorkspaceId(session.workspaceId)
+      await refreshSessions()
+      await activate(session.workspaceId, session.channelName)
+    } catch (e: unknown) {
+      showToast(`New chat failed: ${(e as Error).message}`, 'error')
+    }
   }
 
   const requestDeleteSession = (workspaceId: string, channelName: string): void => {

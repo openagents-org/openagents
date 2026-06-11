@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev -p 3001",
     "build": "next build",
-    "start": "next start -p 3000"
+    "start": "next start -p 3000",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.23",
@@ -35,7 +36,8 @@
     "@types/react-dom": "^19.2.3",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.17",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.7"
   },
   "description": "OpenAgents Go web workspace UI \u2014 Next.js sibling of the macOS/iOS Swift app under packages/go/"
 }

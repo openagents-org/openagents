@@ -10,7 +10,8 @@ $ErrorActionPreference = "Stop"
 $VERSION = "1.0.6"
 $NPM_PACKAGE = "@openagents-org/agent-launcher"
 $MIN_NODE_MAJOR = 18
-$NODE_V22 = "v22.16.0"
+$NODE_V22 = "v22.22.3"
+$NODE_V22_MIN = [version]"22.19.0"  # Minimum portable Node for agents like OpenClaw (>=22.19)
 
 # --- Helpers ---
 function Info($msg)  { Write-Host ">>> " -ForegroundColor Cyan -NoNewline; Write-Host $msg }
@@ -96,25 +97,29 @@ if ($node) {
 }
 
 # =========================================================================
-# Step 1b: Ensure portable Node.js v22+ at ~/.openagents/nodejs/
-# Agents like OpenClaw require v22.12+. System Node may be v18/v20.
+# Step 1b: Ensure portable Node.js >=22.19 at ~/.openagents/nodejs/
+# Agents like OpenClaw require Node v22.19+. System Node may be v18/v20, or an
+# older portable v22 (e.g. v22.16) left by a previous installer version.
 # =========================================================================
 $portableNode = Join-Path $nodejsDir "node.exe"
 $needPortableUpgrade = $false
 
+function Test-NodeBelowMin($verString) {
+    try { return ([version]($verString -replace '^v','')) -lt $NODE_V22_MIN } catch { return $true }
+}
+
 if (Test-Path $portableNode) {
     try {
         $pVer = & $portableNode --version 2>$null
-        $pMajor = [int]($pVer -replace '^v','').Split('.')[0]
-        if ($pMajor -lt 22) {
-            Info "Upgrading portable Node.js to $NODE_V22 (current: $pVer)..."
+        if (Test-NodeBelowMin $pVer) {
+            Info "Upgrading portable Node.js to $NODE_V22 (current: $pVer, need >=$NODE_V22_MIN)..."
             $needPortableUpgrade = $true
         }
     } catch {
         $needPortableUpgrade = $true
     }
-} elseif ($node -and $node.Major -lt 22) {
-    Info "Installing portable Node.js $NODE_V22 (system Node is $($node.Version))..."
+} elseif ($node -and (Test-NodeBelowMin $node.Version)) {
+    Info "Installing portable Node.js $NODE_V22 (system Node is $($node.Version), need >=$NODE_V22_MIN)..."
     $needPortableUpgrade = $true
 }
 
@@ -209,7 +214,7 @@ if ($latestVer -and ($latestVer -ne $installedVer)) {
     New-Item -ItemType Directory -Force -Path $coreDir | Out-Null
     tar -xzf $tgz -C $coreDir --strip-components=1
     Remove-Item $tgz -Force -ErrorAction SilentlyContinue
-    # Install blessed (TUI dep) via direct tarball — avoids npm --prefix pruning other packages
+    # Install blessed (TUI dep) via direct tarball - avoids npm --prefix pruning other packages
     $blessedDir = Join-Path $prefixDir "node_modules\blessed"
     $blessedVer = "0.1.81"
     if (-not (Test-Path (Join-Path $blessedDir "package.json"))) {
@@ -246,7 +251,7 @@ if ($latestVer -and ($latestVer -ne $installedVer)) {
             $pkg.dependencies | Add-Member -NotePropertyName "blessed" -NotePropertyValue $blessedVer -Force
             $pkg | ConvertTo-Json -Compress | Set-Content -Path $prefixPkg
         } catch {
-            Warn "Could not update $prefixPkg — creating fresh"
+            Warn "Could not update $prefixPkg - creating fresh"
             $pkgJson = @{
                 private = $true
                 dependencies = @{
@@ -260,7 +265,7 @@ if ($latestVer -and ($latestVer -ne $installedVer)) {
 
     # Create bin shims
     # Uses %~dp0-relative paths so cmd.exe OEM code page doesn't corrupt
-    # non-ASCII characters in home directory paths (e.g. C:\Users\用户名\...)
+    # non-ASCII characters in home directory paths (e.g. C:\Users\<non-ascii-name>\...)
     # Matches the launcher's shim format (2-line, no setlocal).
     $shimDir = Join-Path $prefixDir "node_modules\.bin"
     New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
@@ -319,7 +324,11 @@ function Detect-Agent {
         foreach ($p in $ExtraPaths) {
             if (Test-Path $p) {
                 $ver = ""
-                try { $ver = & $p --version 2>$null | Select-Object -First 1 } catch {}
+                # Collect full output before selecting first line; piping a native
+                # command straight into Select-Object -First 1 stops the pipeline
+                # early, killing the process and leaving $LASTEXITCODE = 255 (which
+                # would otherwise become the script's exit code).
+                try { $ver = (& $p --version 2>$null) | Select-Object -First 1 } catch {}
                 if ($ver) { Ok "$Name ($ver)" } else { Ok "$Name (found at $p)" }
                 $script:agentCount++
                 return
@@ -328,7 +337,7 @@ function Detect-Agent {
         Dim "$Name - not installed"
         return
     }
-    $ver = try { & $Binary --version 2>$null | Select-Object -First 1 } catch { "" }
+    $ver = try { (& $Binary --version 2>$null) | Select-Object -First 1 } catch { "" }
     if ($ver) { Ok "$Name ($ver)" } else { Ok $Name }
     $script:agentCount++
 }

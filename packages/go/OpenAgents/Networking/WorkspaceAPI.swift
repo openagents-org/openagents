@@ -88,6 +88,82 @@ actor WorkspaceAPI {
         }
     }
 
+    // MARK: - Server-Sent Events
+
+    /// Open the workspace SSE stream for `channel` and yield one signal per
+    /// `data:` frame. The caller treats each signal as "new events exist" and
+    /// does an incremental forward poll — reusing the dedup / optimistic-
+    /// reconcile / notification path in `WorkspaceStore.pollNewMessages` rather
+    /// than decoding+appending on a second code path. Throws on connection
+    /// failure so the caller can fall back to polling, mirroring the web
+    /// client's `EventSource(onerror → startPolling)` in `hooks/use-polling.ts`.
+    ///
+    /// Connects to `GET /v1/events/stream?network=&channel=&token=`. The token
+    /// is sent both as a query param (parity with the browser `EventSource`,
+    /// which can't set headers) and as `X-Workspace-Token`.
+    func streamEvents(channel: String) -> AsyncThrowingStream<Void, Error> {
+        // Snapshot immutable copies of actor state up front so the long-lived
+        // producer task touches no actor-isolated storage while it runs.
+        let workspaceId = self.workspaceId
+        let token = self.token
+        let baseURL = self.baseURL
+        let session = self.session
+
+        return AsyncThrowingStream { continuation in
+            let producer = Task {
+                do {
+                    guard !workspaceId.isEmpty else { throw APIError.notConfigured }
+
+                    var components = URLComponents(
+                        url: baseURL.appendingPathComponent("/v1/events/stream"),
+                        resolvingAgainstBaseURL: false,
+                    )!
+                    var items = [
+                        URLQueryItem(name: "network", value: workspaceId),
+                        URLQueryItem(name: "channel", value: channel),
+                    ]
+                    if !token.isEmpty { items.append(URLQueryItem(name: "token", value: token)) }
+                    components.queryItems = items
+
+                    var request = URLRequest(url: components.url!)
+                    request.httpMethod = "GET"
+                    // Long-lived stream — rely on the server's heartbeats to keep
+                    // it open rather than the default 60s request timeout.
+                    request.timeoutInterval = 3600
+                    request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                    request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+                    if !token.isEmpty {
+                        request.setValue(token, forHTTPHeaderField: "X-Workspace-Token")
+                    }
+
+                    let (bytes, response) = try await session.bytes(for: request)
+                    guard let http = response as? HTTPURLResponse else {
+                        throw APIError.transport("Non-HTTP response")
+                    }
+                    guard (200..<300).contains(http.statusCode) else {
+                        throw APIError.http(status: http.statusCode, body: "SSE stream open failed")
+                    }
+                    logInfo("sse", "stream open channel=\(channel)")
+
+                    // SSE framing: each event is carried by one or more `data:`
+                    // lines, terminated by a blank line. We only need to know an
+                    // event arrived, so we signal per `data:` line and ignore
+                    // comments (`:` heartbeats) and `event:`/`id:` fields.
+                    for try await line in bytes.lines {
+                        if Task.isCancelled { break }
+                        if line.hasPrefix("data:") {
+                            continuation.yield(())
+                        }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in producer.cancel() }
+        }
+    }
+
     // MARK: - Workspace metadata
 
     func getWorkspace() async throws -> Workspace {
@@ -616,11 +692,13 @@ actor WorkspaceAPI {
         title: String? = nil,
         master: String? = nil,
         participants: [String] = [],
+        humanParticipants: [String] = [],
     ) async throws -> Session {
         var payload: [String: any Encodable & Sendable] = [:]
         if let title { payload["title"] = title }
         if let master { payload["master"] = master }
         if !participants.isEmpty { payload["participants"] = participants }
+        if !humanParticipants.isEmpty { payload["human_participants"] = humanParticipants }
 
         let event = try await sendEvent(
             type: "network.channel.create",

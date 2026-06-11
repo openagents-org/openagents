@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenAgents Launcher — Welcome</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    .onboarding-screens { display: flex; gap: 40px; justify-content: center; flex-wrap: wrap; padding: 40px; }
+    .screen-label { text-align: center; font-size: 12px; color: var(--text-tertiary); margin-bottom: 16px; font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase; }
+  </style>
+</head>
+<body style="overflow: auto; background: #1a1a2e;">
+
+<div class="onboarding-screens">
+
+  <!-- Screen 1: Welcome -->
+  <div>
+    <div class="screen-label">Step 1 — Welcome</div>
+    <div class="onboarding-overlay" style="position: relative; width: 560px; height: auto; min-height: 500px; border-radius: 20px; overflow: hidden;">
+      <div class="onboarding-card" style="box-shadow: none; border-radius: 0;">
+        <div class="onboarding-progress">
+          <div class="onboarding-step active"></div>
+          <div class="onboarding-step"></div>
+          <div class="onboarding-step"></div>
+          <div class="onboarding-step"></div>
+        </div>
+        <div class="onboarding-icon">&#9672;</div>
+        <div class="onboarding-title">Welcome to OpenAgents</div>
+        <div class="onboarding-desc">
+          Your desktop hub for AI coding agents. Install, configure, and manage agents — all from one place. Let's get you set up in under 2 minutes.
+        </div>
+        <div style="background: var(--bg-input); border-radius: var(--radius); padding: 16px 20px; margin-bottom: 28px;">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
+            <span style="color: var(--success); font-size: 16px;">&#10003;</span>
+            <span style="font-size: 13px;">Runtime environment ready</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
+            <span style="color: var(--success); font-size: 16px;">&#10003;</span>
+            <span style="font-size: 13px;">Node.js v22.14.0 installed</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="color: var(--success); font-size: 16px;">&#10003;</span>
+            <span style="font-size: 13px;">Core library v0.2.119 loaded</span>
+          </div>
+        </div>
+        <div class="onboarding-actions">
+          <span class="onboarding-skip">Skip setup</span>
+          <button class="btn btn-primary btn-lg">Get Started &rarr;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Screen 2: Choose Agent -->
+  <div>
+    <div class="screen-label">Step 2 — Choose Your Agent</div>
+    <div class="onboarding-overlay" style="position: relative; width: 560px; height: auto; min-height: 500px; border-radius: 20px; overflow: hidden;">
+      <div class="onboarding-card" style="box-shadow: none; border-radius: 0;">
+        <div class="onboarding-progress">
+          <div class="onboarding-step done"></div>
+          <div class="onboarding-step active"></div>
+          <div class="onboarding-step"></div>
+          <div class="onboarding-step"></div>
+        </div>
+        <div class="onboarding-icon">&#9733;</div>
+        <div class="onboarding-title">Choose Your First Agent</div>
+        <div class="onboarding-desc">
+          Pick an AI coding agent to get started. You can install more from the Marketplace later.
+        </div>
+        <div class="onboarding-agents">
+          <div class="onboarding-agent-option selected">
+            <div class="onboarding-agent-icon agent-icon claude">&#9672;</div>
+            <div>
+              <div class="onboarding-agent-name">Claude Code</div>
+              <div class="onboarding-agent-desc">By Anthropic</div>
+            </div>
+          </div>
+          <div class="onboarding-agent-option">
+            <div class="onboarding-agent-icon agent-icon openclaw">&#9670;</div>
+            <div>
+              <div class="onboarding-agent-name">OpenClaw</div>
+              <div class="onboarding-agent-desc">Multi-model, open source</div>
+            </div>
+          </div>
+          <div class="onboarding-agent-option">
+            <div class="onboarding-agent-icon agent-icon codex">&#9679;</div>
+            <div>
+              <div class="onboarding-agent-name">Codex</div>
+              <div class="onboarding-agent-desc">By OpenAI</div>
+            </div>
+          </div>
+          <div class="onboarding-agent-option">
+            <div class="onboarding-agent-icon agent-icon gemini">&#10022;</div>
+            <div>
+              <div class="onboarding-agent-name">Gemini CLI</div>
+              <div class="onboarding-agent-desc">By Google</div>
+            </div>
+          </div>
+        </div>
+        <div class="onboarding-actions">
+          <span class="onboarding-skip">&larr; Back</span>
+          <button class="btn btn-primary btn-lg">Install &amp; Continue &rarr;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Screen 3: Configure -->
+  <div>
+    <div class="screen-label">Step 3 — Configure</div>
+    <div class="onboarding-overlay" style="position: relative; width: 560px; height: auto; min-height: 500px; border-radius: 20px; overflow: hidden;">
+      <div class="onboarding-card" style="box-shadow: none; border-radius: 0;">
+        <div class="onboarding-progress">
+          <div class="onboarding-step done"></div>
+          <div class="onboarding-step done"></div>
+          <div class="onboarding-step active"></div>
+          <div class="onboarding-step"></div>
+        </div>
+        <div class="onboarding-icon">&#128273;</div>
+        <div class="onboarding-title">Configure Claude Code</div>
+        <div class="onboarding-desc">
+          Add your API key to connect. Your credentials are stored locally and never shared.
+        </div>
+        <div style="margin-bottom: 28px;">
+          <div class="form-group">
+            <label class="form-label">Anthropic API Key</label>
+            <input class="form-input mono" type="password" placeholder="sk-ant-api03-..." value="sk-ant-api03-abcdef1234">
+            <div class="form-hint">Get your API key at <a href="#" style="color: var(--accent);">console.anthropic.com</a></div>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Agent Name</label>
+            <input class="form-input" type="text" value="my-claude" placeholder="e.g., claude-main">
+            <div class="form-hint">A friendly name for this agent instance</div>
+          </div>
+          <div style="margin-top: 16px;">
+            <div style="display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--success-light); border-radius: var(--radius-sm); font-size: 12px; color: #065f46;">
+              <span>&#10003;</span> Connection test passed — API key is valid
+            </div>
+          </div>
+        </div>
+        <div class="onboarding-actions">
+          <span class="onboarding-skip">&larr; Back</span>
+          <button class="btn btn-primary btn-lg">Continue &rarr;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Screen 4: Ready -->
+  <div>
+    <div class="screen-label">Step 4 — Ready</div>
+    <div class="onboarding-overlay" style="position: relative; width: 560px; height: auto; min-height: 500px; border-radius: 20px; overflow: hidden;">
+      <div class="onboarding-card" style="box-shadow: none; border-radius: 0;">
+        <div class="onboarding-progress">
+          <div class="onboarding-step done"></div>
+          <div class="onboarding-step done"></div>
+          <div class="onboarding-step done"></div>
+          <div class="onboarding-step active"></div>
+        </div>
+        <div class="onboarding-icon" style="background: var(--success-light);">&#10003;</div>
+        <div class="onboarding-title">You're All Set!</div>
+        <div class="onboarding-desc">
+          Your agent <strong>my-claude</strong> is installed and ready to go. Here's what you can do next:
+        </div>
+        <div style="margin-bottom: 28px;">
+          <div style="display: flex; gap: 12px; padding: 14px; background: var(--bg-input); border-radius: var(--radius); margin-bottom: 10px; cursor: pointer;" onmouseover="this.style.background='#e5e5ea'" onmouseout="this.style.background='var(--bg-input)'">
+            <span style="font-size: 20px;">&#9993;</span>
+            <div>
+              <div style="font-size: 13px; font-weight: 600;">Start chatting</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">Talk to your agent in the built-in chat</div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 12px; padding: 14px; background: var(--bg-input); border-radius: var(--radius); margin-bottom: 10px; cursor: pointer;" onmouseover="this.style.background='#e5e5ea'" onmouseout="this.style.background='var(--bg-input)'">
+            <span style="font-size: 20px;">&#8801;</span>
+            <div>
+              <div style="font-size: 13px; font-weight: 600;">Create a workspace</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">Set up a shared workspace for multi-agent collaboration</div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 12px; padding: 14px; background: var(--bg-input); border-radius: var(--radius); cursor: pointer;" onmouseover="this.style.background='#e5e5ea'" onmouseout="this.style.background='var(--bg-input)'">
+            <span style="font-size: 20px;">&#9733;</span>
+            <div>
+              <div style="font-size: 13px; font-weight: 600;">Browse the marketplace</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">Discover and install more AI agents</div>
+            </div>
+          </div>
+        </div>
+        <div class="onboarding-actions">
+          <span></span>
+          <button class="btn btn-primary btn-lg">Open Dashboard &rarr;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>

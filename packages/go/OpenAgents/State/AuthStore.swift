@@ -86,6 +86,13 @@ final class AuthStore: ObservableObject {
                 UserDefaults.standard.set(trimmedDisplay, forKey: "pushSink.lastUserDisplayName")
             }
         }
+        // Re-register the cached APNs token with the new email so mention
+        // pushes can scope to this user without waiting for the next workspace
+        // bootstrap (which may not happen if the app stays foregrounded).
+        // No-op on macOS where PushSink doesn't deal in APNs tokens.
+        #if os(iOS)
+        PushSink.shared.reregisterAfterAuthChange()
+        #endif
     }
 
     // MARK: — Sign in
@@ -173,6 +180,12 @@ final class AuthStore: ObservableObject {
         user = nil
         idToken = nil
         UserDefaults.standard.removeObject(forKey: "pushSink.lastUserEmail")
+        UserDefaults.standard.removeObject(forKey: "pushSink.lastUserDisplayName")
+        // Re-register so the device_tokens row clears its user_email and
+        // we stop receiving mention pushes addressed to the signed-out user.
+        #if os(iOS)
+        PushSink.shared.reregisterAfterAuthChange()
+        #endif
     }
 
     // MARK: — Helpers

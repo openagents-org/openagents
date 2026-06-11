@@ -34,7 +34,7 @@ struct DebugLogSheet: View {
                     isPresented = false
                 } label: {
                     Image(systemName: "xmark")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BrandColors.inkMuted)
                         .padding(8)
                 }
                 .buttonStyle(.plain)
@@ -64,9 +64,9 @@ struct DebugLogSheet: View {
                 VStack(spacing: 8) {
                     Image(systemName: "doc.text.magnifyingglass")
                         .font(.system(size: 32))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(BrandColors.inkFaint)
                     Text(log.entries.isEmpty ? "No log entries yet" : "No entries match the filter")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BrandColors.inkMuted)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -94,7 +94,7 @@ struct DebugLogSheet: View {
         HStack(alignment: .top, spacing: 8) {
             Text(timestampString(entry.date))
                 .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrandColors.inkMuted)
                 .frame(width: 84, alignment: .leading)
             Text(levelLabel(entry.level))
                 .font(.system(.caption2, design: .monospaced).weight(.semibold))
@@ -108,7 +108,7 @@ struct DebugLogSheet: View {
                 .truncationMode(.tail)
             Text(entry.message)
                 .font(.system(.caption, design: .monospaced))
-                .foregroundStyle(.primary)
+                .foregroundStyle(BrandColors.inkStrong)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)

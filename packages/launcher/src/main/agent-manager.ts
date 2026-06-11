@@ -2,6 +2,7 @@ import path from "path"
 import fs from "fs"
 import os from "os"
 import https from "https"
+import crypto from "crypto"
 import { net } from "electron"
 import { spawn, spawnSync } from "child_process"
 import { withPathEnv, readPathEnv } from "./env"
@@ -277,6 +278,39 @@ const HOSTED_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
   },
 }
 
+/**
+ * Agents hidden from the onboarding picker (Step 1). They remain fully
+ * installable and configurable from the Install tab — we just don't surface
+ * them to first-time users. Cursor and Hermes need an external CLI install +
+ * an API key, so they're a rougher first-run experience than the key-only
+ * agents; keep onboarding to the smoother options.
+ */
+const ONBOARDING_HIDDEN = new Set<string>(["cursor", "hermes"])
+
+/**
+ * The agents the launcher/workspace core officially supports today, in the
+ * order product wants them surfaced (the "8 核心 agent" list). Anything NOT in
+ * this set is shown as "coming soon" in the Install marketplace — visible but
+ * not installable, sorted to the bottom — and omitted from onboarding, so users
+ * stay on the supported set. Kept in launcher code (not the shared registry) so
+ * the supported list can move independently of the catalog, and `coreOrder`
+ * gives a single display order regardless of the registry's own
+ * featured/order (which is inconsistent for e.g. gemini).
+ */
+const CORE_AGENTS: readonly string[] = [
+  "claude",
+  "openclaw",
+  "codex",
+  "cursor",
+  "opencode",
+  "hermes",
+  "kimi",
+  "gemini",
+]
+const CORE_AGENT_ORDER = new Map<string, number>(
+  CORE_AGENTS.map((name, i) => [name, i]),
+)
+
 type LLMTestResult = {
   success: boolean
   model?: string
@@ -429,11 +463,20 @@ async function testLLMConnection(
         pick("ANTHROPIC_BASE_URL") || "https://api.anthropic.com",
       ).replace(/\/v1$/, "")
       const model = pick("ANTHROPIC_MODEL") || "claude-3-5-haiku-latest"
+      // Mirror exactly how the spawned `claude` CLI will authenticate, so the
+      // test predicts the real run: the official endpoint uses `x-api-key`,
+      // while a relay/proxy base goes through `Authorization: Bearer` (the CLI
+      // gets that via ANTHROPIC_AUTH_TOKEN — see normalizeEnvForSave). Sending
+      // x-api-key to a Bearer-only relay is precisely what makes it 401 with
+      // "invalid token", so the test must use the same header the agent does.
+      const authHeader: Record<string, string> = isOfficialAnthropicBase(base)
+        ? { "x-api-key": anthropicKey }
+        : { Authorization: `Bearer ${anthropicKey}` }
       const { status, text } = await httpRequestJson(
         `${base}/v1/messages`,
         "POST",
         {
-          "x-api-key": anthropicKey,
+          ...authHeader,
           "anthropic-version": "2023-06-01",
           "content-type": "application/json",
         },
@@ -522,6 +565,74 @@ function normalizeWorkspaceEndpoint(value: unknown): string | undefined {
   } catch {
     return undefined
   }
+}
+
+/**
+ * True when an Anthropic base URL points at Anthropic's own API (not a
+ * third-party relay/proxy). The official endpoint authenticates with the API
+ * key via the `x-api-key` header; everything else is treated as a relay that
+ * wants `Authorization: Bearer` (see normalizeEnvForSave). An unparseable value
+ * is treated as NON-official so we don't accidentally suppress the relay path.
+ */
+function isOfficialAnthropicBase(base: string): boolean {
+  try {
+    const h = new URL(base).hostname.toLowerCase()
+    return h === "anthropic.com" || h.endsWith(".anthropic.com")
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Normalize provider base URLs before they're persisted to env, so what we
+ * SAVE matches what we TEST (testLLMConnection). The mismatch this guards
+ * against: a user pastes an Anthropic-compatible relay URL that already ends
+ * in `/v1` (e.g. https://relay.example/v1). The connection test strips the
+ * trailing `/v1` before probing `${base}/v1/messages`, so it passes — but the
+ * spawned `claude` CLI appends `/v1/messages` to the raw value, hitting
+ * `…/v1/v1/messages` → 404, which the CLI mis-reports as "model not found".
+ *
+ * Anthropic's SDK owns the `/v1` segment, so the base must NOT carry it. We do
+ * NOT touch OpenAI-style bases (OPENAI_BASE_URL etc.) — those are SUPPOSED to
+ * include `/v1` (the defaults do), and the OpenAI client appends only the
+ * sub-path. Gemini already tolerates either form in its REST path builder.
+ */
+function normalizeEnvForSave(
+  env: Record<string, string>,
+): Record<string, string> {
+  const out = { ...env }
+  const anthropicBase = out.ANTHROPIC_BASE_URL
+  if (typeof anthropicBase === "string" && anthropicBase.trim()) {
+    out.ANTHROPIC_BASE_URL = anthropicBase
+      .trim()
+      .replace(/\/+$/, "")
+      .replace(/\/v1$/, "")
+  }
+
+  // Route Claude through Bearer auth on third-party relays. The Claude CLI
+  // sends ANTHROPIC_API_KEY as the `x-api-key` header, but most Anthropic-
+  // compatible relays/proxies — the usual reason a custom ANTHROPIC_BASE_URL is
+  // set — only honor `Authorization: Bearer`. With just the API key those relays
+  // reject every request as 401 "invalid token / 无效的令牌", which is exactly the
+  // failure seen creating a workspace through such a relay. ANTHROPIC_AUTH_TOKEN
+  // is sent as Bearer and, per Claude Code's auth precedence, outranks the API
+  // key, so mirroring the key into it makes the CLI authenticate the way relays
+  // expect. The daemon passes this env straight through to the spawned CLI, so
+  // the fix works without changing the installed core. We do this ONLY for a
+  // non-official base; for api.anthropic.com x-api-key is correct, so any stale
+  // token from a previous relay save is cleared (saving "" drops the line) to
+  // stop it overriding the API key.
+  const anthropicKey = (out.ANTHROPIC_API_KEY || "").trim()
+  const resolvedBase = (out.ANTHROPIC_BASE_URL || "").trim()
+  if (anthropicKey && resolvedBase) {
+    if (isOfficialAnthropicBase(resolvedBase)) {
+      out.ANTHROPIC_AUTH_TOKEN = ""
+    } else if (!(out.ANTHROPIC_AUTH_TOKEN || "").trim()) {
+      out.ANTHROPIC_AUTH_TOKEN = anthropicKey
+    }
+  }
+
+  return out
 }
 
 export interface InstalledAgentRecord {
@@ -1351,6 +1462,63 @@ export class AgentManager extends EventEmitter {
   }
 
   /**
+   * Resolve an agent type's CLI to an ABSOLUTE binary path (via the core's
+   * `installer.which`, which searches the enhanced PATH incl. the Cursor/Hermes
+   * native install dirs). Returns null when the binary can't be located.
+   */
+  resolveBinary(type: string): string | null {
+    try {
+      const installer = this._connector?.installer as
+        | Record<string, unknown>
+        | undefined
+      const which = installer?.which as
+        | ((t: string) => string | null)
+        | undefined
+      return which?.call(installer, type) || null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Rewrite a hosted-login command (e.g. "cursor-agent login", "hermes setup")
+   * so its leading binary token becomes the resolved ABSOLUTE path. This is the
+   * fix for the Windows "'cursor-agent' is not recognized as an internal or
+   * external command" failure: the native installer drops the CLI under
+   * %LOCALAPPDATA%\cursor-agent and only edits the *registry* PATH, which a
+   * freshly-spawned login terminal inherits stale — so a bare `cursor-agent
+   * login` dies. Resolving to an absolute path makes the login PATH-independent.
+   * Returns the original command unchanged when it isn't a known hosted-login
+   * binary or the binary can't be resolved (callers still inject PATH as a
+   * fallback). The returned binary path is quoted so spaces in the home dir
+   * (e.g. C:\Users\First Last\...) survive.
+   */
+  resolveLoginCommand(cmd: string): string {
+    if (!cmd || !cmd.trim()) return cmd
+    const trimmed = cmd.trim()
+    // First whitespace-delimited token, with any surrounding quotes stripped.
+    const m = trimmed.match(/^("[^"]*"|'[^']*'|\S+)(\s+[\s\S]*)?$/)
+    if (!m) return cmd
+    const rawFirst = m[1].replace(/^["']|["']$/g, "")
+    const rest = m[2] || ""
+    // Map the CLI binary name to its agent type so we can resolve via the core.
+    const base = rawFirst
+      .replace(/\.(exe|cmd|ps1|bat)$/i, "")
+      .split(/[\\/]/)
+      .pop()
+    const BINARY_TO_TYPE: Record<string, string> = {
+      "cursor-agent": "cursor",
+      agent: "cursor",
+      hermes: "hermes",
+    }
+    const type = base ? BINARY_TO_TYPE[base] : undefined
+    if (!type) return cmd
+    const abs = this.resolveBinary(type)
+    if (!abs) return cmd
+    return `"${abs}"${rest}`
+  }
+
+  /**
    * Run a FRESH sign-in probe for a hosted-login agent and resolve its health.
    * Awaitable — the Configure dialog calls this after the user confirms they
    * completed the terminal login, so the result reflects reality rather than an
@@ -1576,7 +1744,7 @@ export class AgentManager extends EventEmitter {
         name: string,
         env: unknown,
       ) => void
-      saveEnv.call(this._connector, name, updates.env)
+      saveEnv.call(this._connector, name, normalizeEnvForSave(updates.env))
     }
     this._agentsCache = { value: [], at: 0 }
     return { success: true }
@@ -1727,6 +1895,15 @@ export class AgentManager extends EventEmitter {
       const checkReady = (e.check_ready as Record<string, unknown>) || {}
       e.check_ready = { ...checkReady, login_command: spec.loginCommand }
     }
+    // Stamp the supported-core flag + display order. Non-core agents become
+    // "coming soon" (the UI sinks + disables them); core agents carry the
+    // product-defined order from CORE_AGENTS.
+    for (const entry of catalog) {
+      const e = entry as Record<string, unknown>
+      const idx = CORE_AGENT_ORDER.get(e.name as string)
+      e.comingSoon = idx === undefined
+      e.coreOrder = idx ?? 999
+    }
     return catalog
   }
 
@@ -1805,6 +1982,7 @@ export class AgentManager extends EventEmitter {
   }
 
   saveAgentEnv(agentType: string, env: Record<string, string>): unknown {
+    env = normalizeEnvForSave(env)
     const saveEnv = this._connector!.saveAgentEnv as (
       type: string,
       env: unknown,
@@ -1826,6 +2004,7 @@ export class AgentManager extends EventEmitter {
     agentName: string,
     env: Record<string, string>,
   ): unknown {
+    env = normalizeEnvForSave(env)
     const saveEnv = this._connector!.saveAgentInstanceEnv as (
       name: string,
       env: unknown,
@@ -2077,7 +2256,9 @@ export class AgentManager extends EventEmitter {
       bundled.map((b) => [b.name as string, b] as const),
     )
 
-    const result: OnboardingAgent[] = supported.map((type) => {
+    const result: OnboardingAgent[] = supported
+      .filter((type) => CORE_AGENTS.includes(type) && !ONBOARDING_HIDDEN.has(type))
+      .map((type) => {
       const cat = catalogByName.get(type)
       const reg = bundledByName.get(type)
       const regEnv = (reg?.env_config as Array<Record<string, unknown>>) || []
@@ -3450,6 +3631,39 @@ export class AgentManager extends EventEmitter {
       if (this.deleteChatSession(s.workspaceId, s.channelName)) removed++
     }
     return removed
+  }
+
+  createChatSession(workspaceId: string): ChatSessionMeta {
+    const ws = this._resolveChatWorkspace(workspaceId)
+    if (!ws) throw new Error("Workspace not found")
+
+    const dir = path.join(LAUNCHER_SESSIONS_DIR, ws.id)
+    ensureDir(dir)
+
+    let channelName = ""
+    let file = ""
+    do {
+      channelName = `chat-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`
+      file = path.join(dir, `${channelName}.json`)
+    } while (fs.existsSync(file))
+
+    const now = new Date().toISOString()
+    const meta: ChatSessionMeta = {
+      id: `${ws.id}:${channelName}`,
+      workspaceId: ws.id,
+      workspaceSlug: ws.slug,
+      workspaceName: ws.name,
+      channelName,
+      title: ws.name || ws.slug || channelName,
+      lastMessageAt: null,
+      lastMessagePreview: null,
+      messageCount: 0,
+      participants: [],
+      createdAt: now,
+    }
+
+    fs.writeFileSync(file, JSON.stringify(meta, null, 2), "utf-8")
+    return meta
   }
 
   private _touchChatSession(

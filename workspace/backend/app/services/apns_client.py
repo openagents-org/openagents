@@ -117,6 +117,12 @@ async def send_push(
     if not token_list:
         return [], []
 
+    # Reset the cached client every call so a fresh one is built bound to
+    # the current event loop. The fan-out caller uses `asyncio.run(...)`
+    # which spins up a new loop per push; reusing a cached `APNs` whose
+    # HTTP/2 streams are tied to a closed loop produced "Event loop is
+    # closed" / RuntimeError silently dropping every push after the first.
+    _reset_client()
     client = _get_client()
     if client is None:
         return [], []

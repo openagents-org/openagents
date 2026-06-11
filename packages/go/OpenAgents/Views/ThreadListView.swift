@@ -19,15 +19,19 @@ extension Session {
     }
 }
 
-/// Tracks the last "read" timestamp for routine (Inbox) channels per
-/// workspace. Persisted in `UserDefaults` so unread state survives app
-/// restarts. Mirrors the web frontend's `localStorage` map at
-/// `inbox-read:<workspaceId>` — same key format, same shape:
-/// `sessionId → lastReadAt (unix ms)`. A routine session is "unread"
-/// when its `lastEventAt > lastReadAt`.
+/// Tracks the last "read" timestamp for every session (regular chats AND
+/// routine/inbox channels) per workspace. Persisted in `UserDefaults`
+/// so unread state survives app restarts.
+///
+/// The defaults key is still `inbox-read:<workspaceId>` for backwards
+/// compatibility with the web frontend, which writes the same key
+/// (routine threads only). Swift now writes regular-chat reads to the
+/// same map; web ignores entries whose sessionId doesn't start with
+/// `routines:`, so the two clients coexist safely. A session is
+/// "unread" when its `lastEventAt > lastReadAt`.
 @MainActor
-final class InboxReadStore: ObservableObject {
-    static let shared = InboxReadStore()
+final class SessionReadStore: ObservableObject {
+    static let shared = SessionReadStore()
 
     @Published private var maps: [String: [String: Int64]] = [:]
 
@@ -77,29 +81,24 @@ final class InboxReadStore: ObservableObject {
     }
 }
 
-private enum SidebarTab: String, Hashable, CaseIterable {
-    case chats
-    case inbox
-
-    var label: String {
-        switch self {
-        case .chats: return "Chats"
-        case .inbox: return "Inbox"
-        }
-    }
-}
-
 struct ThreadListView: View {
     @Environment(WorkspaceStore.self) private var store
     @Environment(AppRouter.self) private var router
     @EnvironmentObject private var auth: AuthStore
-    @StateObject private var inboxRead = InboxReadStore.shared
+    @StateObject private var inboxRead = SessionReadStore.shared
+
+    /// Owned by `WorkspaceView`. The list only ever renders for `.chats`
+    /// or `.inbox`; `.settings` is routed to a different surface by the
+    /// parent, so this view doesn't need to handle that case in its body.
+    /// The binding is still here (not just a value) because the auto-flip
+    /// behaviour when navigating into a routine session needs to mutate
+    /// the parent's destination.
+    @Binding var destination: AppDestination
 
     @State private var searchText: String = ""
     @State private var newThreadOpen: Bool = false
     @State private var renamingSession: Session?
     @State private var renameDraft: String = ""
-    @State private var activeTab: SidebarTab = .chats
 
     private var filteredSessions: [Session] {
         let sessions = store.activeSessions
@@ -128,6 +127,16 @@ struct ThreadListView: View {
         }.count
     }
 
+    private var chatsUnreadCount: Int {
+        regularSessions.filter {
+            inboxRead.isUnread(
+                workspaceId: store.workspaceId,
+                sessionId: $0.sessionId,
+                lastEventAt: $0.lastEventAt,
+            )
+        }.count
+    }
+
     private var visibleSessions: [Session] {
         // Search spans both tabs (current behavior was searching the whole
         // session list); when the user is searching, fall back to the
@@ -136,56 +145,45 @@ struct ThreadListView: View {
         if !searchText.trimmingCharacters(in: .whitespaces).isEmpty {
             return filteredSessions
         }
-        return activeTab == .chats ? regularSessions : routineSessions
+        return destination == .inbox ? routineSessions : regularSessions
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            #if os(macOS)
-            // macOS NavigationSplitView doesn't surface the sidebar column's
-            // navigationTitle anywhere visible by default — render it in-content
-            // so the workspace name is always present at the top of the list.
-            workspaceHeader
-            Divider()
-            #endif
-            if searchText.trimmingCharacters(in: .whitespaces).isEmpty {
-                tabPicker
-            }
+            ChatListSearchField(text: $searchText)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
             list
-            if auth.user != nil {
-                Divider()
-                accountFooter
-            }
         }
         #if os(macOS)
         .navigationTitle(store.workspace?.name ?? "Workspace")
         .navigationSubtitle(store.workspace?.slug ?? store.workspaceId)
         #else
-        // iPhone shows the workspace name inline with the switch-workspace
-        // button (see .topBarLeading toolbar item) so leave the navbar title
-        // empty — otherwise it'd duplicate the name above the row.
+        // Workspace name rendered as the principal toolbar item (set
+        // below). Tab bar handles destination switching; workspace
+        // switching is in the Settings tab.
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search")
         .toolbar {
             #if os(iOS)
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    router.switchWorkspace()
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "rectangle.stack")
-                            .font(.system(size: 14, weight: .medium))
-                        Text(store.workspace?.name ?? "Workspace")
-                            .font(.system(size: 14, weight: .semibold))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                }
-                .accessibilityLabel("Switch workspace")
+            // Workspace name as nav title — switching is in the Settings
+            // tab. Browser toggle moves to the trailing slot, the workspace
+            // switch button is gone (Settings tab owns it).
+            ToolbarItem(placement: .principal) {
+                Text(store.workspace?.name ?? "Workspace")
+                    .font(.system(size: 16, weight: .semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
             ToolbarItem(placement: .topBarTrailing) {
+                browserToggleButton
+            }
+            #else
+            // Mac: browser toggle next to refresh / new-chat in primary
+            // actions, now that the in-list workspace header is gone.
+            ToolbarItem(placement: .primaryAction) {
                 browserToggleButton
             }
             #endif
@@ -241,14 +239,17 @@ struct ThreadListView: View {
                 }
             }
         }
-        // Auto-flip to the Inbox tab whenever the user navigates into a
-        // routine session by any means (CLI deep link, keyboard, mobile),
-        // and mark that session read on the way in.
+        // Mark a session read whenever it becomes the current one — same
+        // trigger for both regular chats and routine channels. For routine
+        // sessions we also flip the destination to Inbox so deep links
+        // (CLI / push) land the user on the right surface.
         .onChange(of: store.currentSessionId) { _, newValue in
             guard let id = newValue,
-                  let session = store.sessions.first(where: { $0.sessionId == id }),
-                  session.isRoutineChannel else { return }
-            if activeTab != .inbox { activeTab = .inbox }
+                  let session = store.sessions.first(where: { $0.sessionId == id })
+            else { return }
+            if session.isRoutineChannel, destination != .inbox {
+                destination = .inbox
+            }
             inboxRead.markRead(
                 workspaceId: store.workspaceId,
                 sessionId: id,
@@ -256,113 +257,6 @@ struct ThreadListView: View {
             )
         }
     }
-
-    private var accountFooter: some View {
-        HStack(spacing: 8) {
-            avatarView
-            VStack(alignment: .leading, spacing: 1) {
-                Text(auth.user?.displayName ?? "")
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-                Text(auth.user?.email ?? "")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 4)
-            Button {
-                auth.signOut()
-            } label: {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Sign out")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-    }
-
-    @ViewBuilder
-    private var avatarView: some View {
-        let initial = (auth.user?.displayName.first ?? auth.user?.email.first).map { String($0).uppercased() } ?? "?"
-        if let url = auth.user?.photoURL {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image.resizable().scaledToFill()
-                default:
-                    avatarFallback(initial: initial)
-                }
-            }
-            .frame(width: 24, height: 24)
-            .clipShape(Circle())
-        } else {
-            avatarFallback(initial: initial)
-                .frame(width: 24, height: 24)
-        }
-    }
-
-    private func avatarFallback(initial: String) -> some View {
-        ZStack {
-            Circle().fill(Color.accentColor)
-            Text(initial)
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(.white)
-        }
-    }
-
-    private var tabPicker: some View {
-        // Segmented picker carries an unread badge in the Inbox label so
-        // the count is glanceable without committing pixels to a second
-        // widget. SwiftUI's `.segmented` style happily renders a Text
-        // composed via interpolation.
-        let inboxLabel: String = inboxUnreadCount > 0
-            ? "Inbox (\(inboxUnreadCount))"
-            : "Inbox"
-        return Picker("View", selection: $activeTab) {
-            Text("Chats").tag(SidebarTab.chats)
-            Text(inboxLabel).tag(SidebarTab.inbox)
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-    }
-
-    #if os(macOS)
-    private var workspaceHeader: some View {
-        let name = store.workspace?.name ?? "Workspace"
-        let slug = store.workspace?.slug ?? store.workspaceId
-        return HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(name)
-                    .font(.headline)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(slug)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            Spacer(minLength: 0)
-            browserToggleButton
-            Button {
-                router.switchWorkspace()
-            } label: {
-                Image(systemName: "rectangle.stack")
-                    .font(.system(size: 14, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .help("Switch workspace")
-            .keyboardShortcut("k", modifiers: [.command, .shift])
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-    #endif
 
     /// Icon-only toggle for the workspace-scoped Browser Fabric viewer. Lives
     /// next to the switch-workspace button on macOS and in the trailing
@@ -375,7 +269,7 @@ struct ThreadListView: View {
         } label: {
             Image(systemName: enabled ? "safari.fill" : "safari")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(enabled ? Color.accentColor : Color.secondary)
+                .foregroundStyle(enabled ? BrandColors.primary : Color.secondary)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(enabled ? "Disable browser panel" : "Enable browser panel")
@@ -428,6 +322,11 @@ struct ThreadListView: View {
                             session: session,
                             agents: store.agents,
                             lastMessage: store.lastMessageBySession[session.sessionId],
+                            isUnread: inboxRead.isUnread(
+                                workspaceId: store.workspaceId,
+                                sessionId: session.sessionId,
+                                lastEventAt: session.lastEventAt,
+                            ),
                         )
                         .tag(session.sessionId)
                         #if !os(macOS)
@@ -497,7 +396,7 @@ struct ThreadListView: View {
 
     private var emptyState: some View {
         let isSearching = !searchText.trimmingCharacters(in: .whitespaces).isEmpty
-        let isInbox = activeTab == .inbox && !isSearching
+        let isInbox = destination == .inbox && !isSearching
         let icon: String = {
             if isSearching { return "magnifyingglass" }
             return isInbox ? "tray" : "bubble.left.and.bubble.right"
@@ -511,28 +410,34 @@ struct ThreadListView: View {
             if isInbox {
                 return "Routine activity from your agents will appear here."
             }
-            if store.onlineAgents.isEmpty {
+            if !store.hasConnectedAgents {
+                // No agent has joined this workspace yet — guide to connect.
                 return "Connect an agent to start a conversation."
+            }
+            if store.onlineAgents.isEmpty {
+                // Agents exist but none are online — they're connected, just
+                // offline. Don't push the "connect a new agent" flow.
+                return "Your agents are offline. Start one to begin a conversation."
             }
             return nil
         }()
         return VStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 40))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(BrandColors.inkFaint)
             Text(title)
                 .font(.headline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrandColors.inkMuted)
             if let subtitle {
                 Text(subtitle)
                     .font(.subheadline)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(BrandColors.inkFaint)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
             } else if !isInbox && !isSearching {
                 Text("Tap \(Image(systemName: "square.and.pencil")) to start one.")
                     .font(.subheadline)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(BrandColors.inkFaint)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 24)
             }
@@ -545,6 +450,7 @@ private struct ThreadRow: View {
     let session: Session
     let agents: [Agent]
     let lastMessage: Message?
+    let isUnread: Bool
 
     private var sessionAgents: [Agent] {
         if session.participants.isEmpty { return agents }
@@ -575,38 +481,62 @@ private struct ThreadRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            AvatarStack(agents: sessionAgents)
-                .frame(width: 36, height: 36)
+        HStack(alignment: .top, spacing: 8) {
+            // Fixed-width unread gutter so rows align whether dotted or
+            // not. Matches RoutineThreadRow.
+            ZStack {
+                if isUnread {
+                    Circle()
+                        .fill(BrandColors.primary)
+                        .frame(width: 8, height: 8)
+                }
+            }
+            .frame(width: 10)
+            .padding(.top, Self.avatarSize / 2 - 4)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
+            AvatarStack(agents: sessionAgents, size: Self.avatarSize)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
                     if session.starred {
                         Image(systemName: "star.fill")
                             .foregroundStyle(.yellow)
                             .font(.caption2)
                     }
                     Text(session.title)
-                        .font(.body)
+                        .font(.system(size: 15, weight: isUnread ? .bold : .semibold))
                         .lineLimit(1)
+                    Spacer(minLength: 4)
                     if isAgentWorking {
                         ProgressView()
                             .controlSize(.mini)
                     }
-                    Spacer()
                     Text(lastActivityLabel)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                        .foregroundStyle(BrandColors.inkMuted)
                 }
                 Text(previewLine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(BrandColors.inkMuted)
                     .lineLimit(2)
                     .italic(lastMessage?.isStatus == true)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
     }
+
+    /// Chat-list avatar diameter. Sized down from the v0.6 first cut
+    /// in two passes (56/64 → 45/51 → 40/46) — the smaller circle still
+    /// reads as a "photo" without dominating the row. Shared between
+    /// `ThreadRow` and `RoutineThreadRow` so chats and inbox rows stay
+    /// coherent.
+    static let avatarSize: CGFloat = {
+        #if os(macOS)
+        return 46
+        #else
+        return 40
+        #endif
+    }()
 }
 
 /// Row variant rendered inside the Inbox tab. Shows the agent name (the
@@ -643,89 +573,156 @@ private struct RoutineThreadRow: View {
             ZStack {
                 if isUnread {
                     Circle()
-                        .fill(Color.accentColor)
+                        .fill(BrandColors.primary)
                         .frame(width: 8, height: 8)
                 }
             }
             .frame(width: 10)
             .padding(.top, 14)
 
-            Image(systemName: "calendar.badge.clock")
-                .font(.system(size: 18))
-                .foregroundStyle(.secondary)
-                .frame(width: 32, height: 32)
+            ZStack {
+                Circle()
+                    .fill(BrandColors.primary.opacity(0.14))
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: ThreadRow.avatarSize * 0.42, weight: .medium))
+                    .foregroundStyle(BrandColors.primary)
+            }
+            .frame(width: ThreadRow.avatarSize, height: ThreadRow.avatarSize)
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
                     Text(agentName)
-                        .font(.body)
-                        .fontWeight(isUnread ? .semibold : .regular)
+                        .font(.system(size: 15, weight: isUnread ? .bold : .semibold))
                         .lineLimit(1)
-                    Spacer()
+                    Spacer(minLength: 4)
                     Text(lastActivityLabel)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 12))
+                        .foregroundStyle(BrandColors.inkMuted)
                 }
                 if !previewLine.isEmpty {
                     Text(previewLine)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13))
+                        .foregroundStyle(BrandColors.inkMuted)
                         .lineLimit(2)
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 8)
+    }
+}
+
+/// Always-visible search field at the top of the chat list (WhatsApp
+/// pattern). Replaces the pre-v0.6 `.searchable` toolbar item, which
+/// was iOS pull-down and a Mac toolbar button — both required an extra
+/// gesture to discover. This version is keyboard-focusable on both
+/// platforms and lives in the same vertical column as the list, so it
+/// reads as part of the list, not a separate affordance.
+private struct ChatListSearchField: View {
+    @Binding var text: String
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(BrandColors.inkMuted)
+            TextField("Search", text: $text)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .font(.system(size: 14))
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                #endif
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                    focused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(BrandColors.inkFaint)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(BrandColors.hairline.opacity(0.5)),
+        )
     }
 }
 
 struct AvatarStack: View {
     let agents: [Agent]
+    /// Visual diameter the stack should fill. Pass the same value the
+    /// parent reserves via `.frame(...)` so the tile actually occupies
+    /// the reserved space — earlier versions hardcoded 32pt and looked
+    /// undersized inside larger frames.
+    var size: CGFloat = 32
     var max: Int = 3
 
     var body: some View {
         let shown = Array(agents.prefix(max))
         if shown.count == 1, let agent = shown.first {
-            AvatarTile(agent: agent, size: 32, fontSize: 11)
+            AvatarTile(agent: agent, size: size)
         } else if shown.count > 1 {
+            // Stacked tiles scale proportionally with `size`: each tile
+            // is ~70% of the requested diameter so two fit side-by-side
+            // with a small overlap. Border thickness scales too so it
+            // reads at any size.
+            let tileSize = size * 0.7
+            let overlap = tileSize * 0.36
             ZStack {
                 ForEach(Array(shown.enumerated()), id: \.element.id) { index, agent in
-                    AvatarTile(agent: agent, size: 22, fontSize: 8)
+                    AvatarTile(agent: agent, size: tileSize)
                         .overlay(Circle().stroke(PlatformColors.windowBackground, lineWidth: 2))
-                        .offset(x: CGFloat(index) * -8, y: 0)
+                        .offset(x: CGFloat(index) * -overlap, y: 0)
                 }
             }
-            .frame(width: 36, alignment: .center)
+            .frame(width: size, height: size, alignment: .center)
         } else {
             Circle()
-                .fill(.gray.opacity(0.2))
-                .frame(width: 32, height: 32)
+                .fill(BrandColors.hairline)
+                .frame(width: size, height: size)
         }
     }
 }
 
+/// Solid-color circular avatar with white monogram — the iMessage /
+/// WhatsApp pattern. Earlier (pre-v0.6.1) this rendered as a 16%-opacity
+/// wash of the agent's tint, which read as "bloody" on the coral
+/// primary. Solid fill reads as confident and matches the chat-bubble
+/// glyph color used elsewhere in the brand system.
 private struct AvatarTile: View {
     let agent: Agent
     let size: CGFloat
-    let fontSize: CGFloat
+
+    /// Initials font scales with the tile so the monogram reads at any
+    /// size without hand-tuning per call site.
+    private var fontSize: CGFloat { size * 0.4 }
 
     var body: some View {
-        Circle()
-            .fill(AgentPalette.color(for: agent.agentName))
-            .frame(width: size, height: size)
-            .overlay(
-                Text(agent.initials)
-                    .font(.system(size: fontSize, weight: .bold))
-                    .foregroundStyle(.white),
-            )
-            .overlay(alignment: .bottomTrailing) {
-                if agent.isOnline {
-                    Circle()
-                        .fill(.green)
-                        .frame(width: size * 0.28, height: size * 0.28)
-                        .overlay(Circle().stroke(PlatformColors.windowBackground, lineWidth: 1.5))
-                        .offset(x: 1, y: 1)
-                }
+        let tint = AgentPalette.color(for: agent.agentName)
+        ZStack {
+            Circle().fill(tint)
+            Text(agent.initials)
+                .font(.system(size: fontSize, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+        }
+        .frame(width: size, height: size)
+        .overlay(alignment: .bottomTrailing) {
+            if agent.isOnline {
+                Circle()
+                    .fill(BrandColors.success)
+                    .frame(width: size * 0.26, height: size * 0.26)
+                    .overlay(Circle().stroke(BrandColors.bg, lineWidth: 1.5))
+                    .offset(x: 1, y: 1)
             }
+        }
     }
 }
 

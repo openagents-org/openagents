@@ -60,6 +60,12 @@ export interface CatalogEntry {
   tags?: string[]
   featured?: boolean
   order?: number
+  // Launcher-stamped (see CORE_AGENTS in agent-manager). Agents outside the
+  // supported core set are surfaced as "coming soon": visible, not installable,
+  // sorted to the bottom. `coreOrder` is the product-defined display order for
+  // the core set (999 for coming-soon agents).
+  comingSoon?: boolean
+  coreOrder?: number
   builtin?: boolean
   installed: boolean
   managed?: boolean
@@ -412,6 +418,7 @@ declare global {
 
       // ── Sessions ──
       sessionList(workspaceId?: string): Promise<ChatSessionMeta[]>
+      sessionCreate(workspaceId: string): Promise<ChatSessionMeta>
       sessionLoad(workspaceId: string, channelName: string): Promise<ChatSessionMeta | null>
       sessionDelete(workspaceId: string, channelName: string): Promise<boolean>
       sessionClear(workspaceId?: string): Promise<number>

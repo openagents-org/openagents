@@ -25,6 +25,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { defaultAgentWorkdir } = require('./paths');
 
 /**
  * Resolve the skills directory for a given agent type, rooted at the agent's
@@ -40,7 +41,10 @@ const { execFileSync } = require('child_process');
  * @returns {string} absolute path to the skills directory
  */
 function skillsDirForAgentType(agentType, workingDir) {
-  const base = workingDir || process.cwd();
+  // Never root skills at process.cwd(): a packaged Windows daemon's cwd is
+  // C:\WINDOWS\system32, so installing there throws EPERM. Fall back to a
+  // writable per-agent dir under ~/.openagents instead.
+  const base = workingDir || defaultAgentWorkdir(agentType);
   switch ((agentType || '').toLowerCase()) {
     case 'claude':
       return path.join(base, '.claude', 'skills');

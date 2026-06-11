@@ -87,9 +87,9 @@ else
             if ! command -v node >/dev/null 2>&1; then
                 info "Downloading Node.js portable..."
                 if [ "$ARCH" = "arm64" ]; then
-                    NODE_URL="https://nodejs.org/dist/v22.16.0/node-v22.16.0-darwin-arm64.tar.gz"
+                    NODE_URL="https://nodejs.org/dist/v22.22.3/node-v22.22.3-darwin-arm64.tar.gz"
                 else
-                    NODE_URL="https://nodejs.org/dist/v22.16.0/node-v22.16.0-darwin-x64.tar.gz"
+                    NODE_URL="https://nodejs.org/dist/v22.22.3/node-v22.22.3-darwin-x64.tar.gz"
                 fi
                 mkdir -p "$HOME/.openagents/nodejs"
                 curl -fsSL "$NODE_URL" | tar xz -C "$HOME/.openagents/nodejs" --strip-components=1
@@ -106,7 +106,7 @@ else
                 sudo dnf install -y nodejs 2>/dev/null || true
             else
                 info "Downloading Node.js portable..."
-                NODE_URL="https://nodejs.org/dist/v22.16.0/node-v22.16.0-linux-x64.tar.xz"
+                NODE_URL="https://nodejs.org/dist/v22.22.3/node-v22.22.3-linux-x64.tar.xz"
                 mkdir -p "$HOME/.openagents/nodejs"
                 curl -fsSL "$NODE_URL" | tar xJ -C "$HOME/.openagents/nodejs" --strip-components=1
                 export PATH="$HOME/.openagents/nodejs/bin:$PATH"
@@ -129,14 +129,16 @@ else
     fi
 fi
 
-# Ensure portable Node.js v22+ at ~/.openagents/nodejs/bin/ for agents that need it
-# (e.g. OpenClaw requires v22.12+). System Node may be older (v18/v20).
+# Ensure portable Node.js >=22.19 at ~/.openagents/nodejs/bin/ for agents that
+# need it (e.g. OpenClaw requires v22.19+). System Node may be older (v18/v20),
+# or an older portable v22 (e.g. v22.16) left by a previous installer version.
 PORTABLE_NODE="$HOME/.openagents/nodejs/bin/node"
-PORTABLE_NODE_VER="v22.16.0"
+PORTABLE_NODE_VER="v22.22.3"
 if [ -x "$PORTABLE_NODE" ]; then
     portable_major=$("$PORTABLE_NODE" -e "process.stdout.write(String(process.versions.node.split('.')[0]))" 2>/dev/null || echo 0)
-    if [ "$portable_major" -lt 22 ]; then
-        info "Upgrading portable Node.js to $PORTABLE_NODE_VER..."
+    portable_minor=$("$PORTABLE_NODE" -e "process.stdout.write(String(process.versions.node.split('.')[1]))" 2>/dev/null || echo 0)
+    if [ "$portable_major" -lt 22 ] || { [ "$portable_major" -eq 22 ] && [ "$portable_minor" -lt 19 ]; }; then
+        info "Upgrading portable Node.js to $PORTABLE_NODE_VER (current: v${portable_major}.${portable_minor}, need >=22.19)..."
         _install_portable=1
     fi
 elif [ ! -x "$PORTABLE_NODE" ]; then

@@ -19,7 +19,7 @@ struct WorkspaceSelectorView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color.clear
+            BrandColors.bg.ignoresSafeArea()
             VStack(spacing: 28) {
                 header
                 if !topRecents.isEmpty {
@@ -38,7 +38,7 @@ struct WorkspaceSelectorView: View {
                         .padding(.vertical, 8)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
                 }
                 Spacer(minLength: 0)
                 hint
@@ -52,10 +52,12 @@ struct WorkspaceSelectorView: View {
                 settingsOpen = true
             } label: {
                 Image(systemName: "gear")
+                    .foregroundStyle(BrandColors.inkMuted)
                     .padding(8)
             }
             .buttonStyle(.plain)
-            .background(.regularMaterial, in: Circle())
+            .background(BrandColors.surface, in: Circle())
+            .overlay(Circle().stroke(BrandColors.hairline, lineWidth: 0.5))
             .padding(.top, 16)
             .padding(.trailing, 16)
             .help("Settings")
@@ -72,16 +74,16 @@ struct WorkspaceSelectorView: View {
 
     private var header: some View {
         VStack(spacing: 12) {
-            AppLogoView()
-                .frame(width: 64, height: 64)
+            AppLogoView(size: 72)
                 .padding(.top, 24)
             Text("OpenAgents Workspace")
-                .font(.title3.weight(.semibold))
+                .font(BrandFonts.displaySmall)
+                .foregroundStyle(BrandColors.inkStrong)
             Text(router.isSwitching
                  ? "Select a workspace or paste a new URL."
                  : "Paste your workspace URL to get started.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .font(BrandFonts.callout)
+                .foregroundStyle(BrandColors.inkMuted)
                 .multilineTextAlignment(.center)
         }
     }
@@ -89,8 +91,9 @@ struct WorkspaceSelectorView: View {
     private var recentChipsRow: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("RECENT WORKSPACES")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.tertiary)
+                .font(BrandFonts.sectionEyebrow)
+                .tracking(0.8)
+                .foregroundStyle(BrandColors.inkMuted)
                 .padding(.leading, 4)
             FlowLayout(spacing: 8) {
                 ForEach(topRecents) { entry in
@@ -120,13 +123,13 @@ struct WorkspaceSelectorView: View {
             // URL input with link icon and dropdown chevron — matches the Electron field
             HStack(spacing: 0) {
                 Image(systemName: "link")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
                     .padding(.leading, 12)
                 TextField(
                     "",
                     text: $urlInput,
                     prompt: Text("https://workspace.openagents.org/abc?token=…")
-                        .foregroundStyle(.tertiary),
+                        .foregroundStyle(BrandColors.inkFaint),
                 )
                     .textFieldStyle(.plain)
                     .padding(.leading, 8)
@@ -147,13 +150,17 @@ struct WorkspaceSelectorView: View {
                     } label: {
                         Image(systemName: "chevron.down")
                             .rotationEffect(.degrees(dropdownOpen ? 180 : 0))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(BrandColors.inkMuted)
                             .padding(12)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .background(BrandColors.surface, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(BrandColors.hairline, lineWidth: 0.5)
+            )
             .overlay(alignment: .topLeading) {
                 if dropdownOpen && !history.isEmpty {
                     historyDropdown
@@ -166,20 +173,22 @@ struct WorkspaceSelectorView: View {
 
             if let error {
                 Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(BrandFonts.caption)
+                    .foregroundStyle(BrandColors.error)
                     .padding(.horizontal, 4)
             }
 
             Button(action: handleConnect) {
                 HStack {
-                    Text("Connect to Workspace").fontWeight(.medium)
+                    Text("Connect to Workspace")
+                        .font(BrandFonts.bodyMedium)
                     Image(systemName: "arrow.right")
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 10)
             }
             .buttonStyle(.borderedProminent)
+            .tint(BrandColors.primary)
             .controlSize(.large)
             .disabled(urlInput.trimmingCharacters(in: .whitespaces).isEmpty)
         }
@@ -193,7 +202,7 @@ struct WorkspaceSelectorView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Override the backend API URL when it differs from the workspace URL above (self-hosted setups). Saved together with this workspace.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
                     .padding(.bottom, 2)
 
                 advancedField(
@@ -206,7 +215,7 @@ struct WorkspaceSelectorView: View {
         } label: {
             Text("Advanced")
                 .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrandColors.inkMuted)
         }
     }
 
@@ -214,8 +223,8 @@ struct WorkspaceSelectorView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(.caption2.weight(.medium))
-                .foregroundStyle(.tertiary)
-            TextField("", text: text, prompt: Text(placeholder).foregroundStyle(.tertiary))
+                .foregroundStyle(BrandColors.inkFaint)
+            TextField("", text: text, prompt: Text(placeholder).foregroundStyle(BrandColors.inkFaint))
                 .textFieldStyle(.plain)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
@@ -238,14 +247,14 @@ struct WorkspaceSelectorView: View {
                     HStack(spacing: 10) {
                         Image(systemName: "clock")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(BrandColors.inkMuted)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.displayName)
                                 .font(.callout)
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(BrandColors.inkStrong)
                             Text(entry.workspaceId)
                                 .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(BrandColors.inkMuted)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                         }
@@ -270,8 +279,8 @@ struct WorkspaceSelectorView: View {
 
     private var hint: some View {
         Text(.init("Get a workspace URL by running `openagents workspace create`"))
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .font(BrandFonts.caption)
+            .foregroundStyle(BrandColors.inkMuted)
             .multilineTextAlignment(.center)
     }
 
@@ -331,17 +340,17 @@ private struct WorkspaceChip: View {
             HStack(spacing: 6) {
                 Image(systemName: "clock")
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
                 Text(entry.displayName)
-                    .font(.caption)
-                    .foregroundStyle(.primary)
+                    .font(BrandFonts.caption)
+                    .foregroundStyle(BrandColors.inkStrong)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().stroke(.secondary.opacity(0.2), lineWidth: 0.5))
+            .background(BrandColors.surface, in: Capsule())
+            .overlay(Capsule().stroke(BrandColors.hairline, lineWidth: 0.5))
         }
         .buttonStyle(.plain)
         .help(fullURL)
@@ -361,9 +370,13 @@ private extension Color {
     }
 }
 
-/// Renders the running app's icon — uses NSApp.applicationIconImage on macOS, falls back to a
-/// rounded gradient tile on iOS (where there's no equivalent runtime API for own-icon access).
+/// Renders the running app's icon. On macOS prefers NSApp's runtime icon
+/// (lets a user-set custom icon carry through); on iOS draws the shared
+/// `AppIconBadge` since `UIImage(named: "AppIcon")` returns nil for
+/// AppIcon asset entries.
 private struct AppLogoView: View {
+    var size: CGFloat = 72
+
     var body: some View {
         #if os(macOS)
         if let nsImage = NSApp.applicationIconImage {
@@ -371,22 +384,13 @@ private struct AppLogoView: View {
                 .resizable()
                 .interpolation(.high)
                 .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
         } else {
-            placeholderTile
+            AppIconBadge(size: size)
         }
         #else
-        placeholderTile
+        AppIconBadge(size: size)
         #endif
-    }
-
-    private var placeholderTile: some View {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
-            .overlay(
-                Image(systemName: "bubble.left.and.bubble.right.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(.white),
-            )
     }
 }
 

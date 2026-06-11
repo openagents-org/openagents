@@ -175,7 +175,7 @@ private struct StepRow: View {
                         .foregroundStyle(.orange)
                     Text("thinking")
                         .font(.system(size: 10).italic())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BrandColors.inkMuted)
                 }
                 Text(text)
                     .font(.caption)
@@ -190,7 +190,7 @@ private struct StepRow: View {
                     .foregroundStyle(.orange)
                 Text("thinking…")
                     .font(.caption.italic())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
                     .opacity(0.6)
             }
         }
@@ -218,7 +218,7 @@ private struct StepRow: View {
                             .foregroundStyle(.secondary.opacity(0.5))
                         Text(summary)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(BrandColors.inkMuted)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
@@ -239,10 +239,10 @@ private struct StepRow: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(args)
                         .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BrandColors.inkMuted)
                         .padding(8)
                 }
-                .background(.black.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+                .background(BrandColors.surfaceHi.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
                 .frame(maxHeight: 160)
                 .padding(.leading, 18)
             }
@@ -270,7 +270,7 @@ private struct StepRow: View {
                 .padding(.top, 1)
             Text(text)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrandColors.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }

@@ -48,7 +48,7 @@ struct HTMLBlockView: View {
                 .help("Fullscreen")
                 #endif
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(BrandColors.inkMuted)
             .padding(.bottom, 4)
 
             WebView(

@@ -25,6 +25,7 @@ export function AgentRow({
   onInstall,
   onUninstall,
 }: AgentRowProps): React.JSX.Element {
+  const isComingSoon = !!entry.comingSoon
   const isInstalled = entry.installed
   const isManaged = entry.managed !== false
   const isBusy = !!job && job.phase !== "done" && job.phase !== "error"
@@ -37,14 +38,18 @@ export function AgentRow({
 
   return (
     <div
-      onClick={onOpen}
+      onClick={isComingSoon ? undefined : onOpen}
       role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === "Enter") onOpen() }}
+      tabIndex={isComingSoon ? -1 : 0}
+      aria-disabled={isComingSoon}
+      onKeyDown={(e) => { if (!isComingSoon && e.key === "Enter") onOpen() }}
       className={cn(
         "flex items-center gap-3.5 px-4 py-3",
         "bg-(--bg-card) border border-(--border) rounded-(--radius) shadow-sm",
-        "transition-all duration-150 hover:shadow-md hover:border-(--border-hover) cursor-pointer",
+        "transition-all duration-150",
+        isComingSoon
+          ? "opacity-60 cursor-default"
+          : "hover:shadow-md hover:border-(--border-hover) cursor-pointer",
       )}
     >
       <AgentIcon type={entry.name} size={32} />
@@ -78,7 +83,9 @@ export function AgentRow({
             {stage.replace(/-/g, " ")}…
           </span>
         )}
-        {isInstalled ? (
+        {isComingSoon ? (
+          <Badge variant="default">Coming soon</Badge>
+        ) : isInstalled ? (
           isManaged
             ? <Badge variant="success">Installed</Badge>
             : <Badge variant="info" title="Installed outside OpenAgents (system/global)">Global</Badge>
@@ -96,7 +103,9 @@ export function AgentRow({
         className="shrink-0 flex gap-1.5"
         onClick={(e) => e.stopPropagation()}
       >
-        {isBusy ? (
+        {isComingSoon ? (
+          <Button size="sm" disabled>Coming soon</Button>
+        ) : isBusy ? (
           <Button size="sm" disabled>{verbLabel}</Button>
         ) : !isInstalled ? (
           <Button size="sm" variant="primary" onClick={(e) => { e.stopPropagation(); onInstall() }}>

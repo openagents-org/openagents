@@ -210,10 +210,16 @@ describe('Daemon', () => {
     assert.equal(Daemon.readDaemonPid(tmpDir), process.pid);
   });
 
-  it('readDaemonPid returns pid without validating liveness', () => {
-    fs.writeFileSync(path.join(tmpDir, 'daemon.pid'), '99999999', 'utf-8');
-    // PID validation removed — returns raw value (liveness checked elsewhere)
-    assert.equal(Daemon.readDaemonPid(tmpDir), 99999999);
+  it('readDaemonPid removes stale pid and status files', () => {
+    const pidFile = path.join(tmpDir, 'daemon.pid');
+    const statusFile = path.join(tmpDir, 'daemon.status.json');
+
+    fs.writeFileSync(pidFile, '99999999', 'utf-8');
+    fs.writeFileSync(statusFile, '{"agents":{}}', 'utf-8');
+
+    assert.equal(Daemon.readDaemonPid(tmpDir), null);
+    assert.equal(fs.existsSync(pidFile), false);
+    assert.equal(fs.existsSync(statusFile), false);
   });
 
   it('_reload is serialized (concurrent calls queue)', async () => {

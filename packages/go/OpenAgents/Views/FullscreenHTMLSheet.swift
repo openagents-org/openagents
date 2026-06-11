@@ -40,7 +40,7 @@ struct FullscreenHTMLSheet: View {
         HStack(spacing: 8) {
             Image(systemName: "globe")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BrandColors.inkMuted)
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
                 .lineLimit(1)
@@ -51,7 +51,7 @@ struct FullscreenHTMLSheet: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(BrandColors.inkMuted)
                     .padding(6)
                     .contentShape(Rectangle())
             }
