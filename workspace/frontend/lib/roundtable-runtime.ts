@@ -12,6 +12,7 @@ import {
   type RoundtablePhaseId,
   type RoundtableState,
 } from './roundtable-engine';
+import { judgeRoundtableOutput, type JudgeResult } from './roundtable-quality-judge';
 import { buildRoleAgentTaskPrompt, getAgentSkillMode } from './roundtable-role-agent';
 
 export interface RoundtableRuntimePlan {
@@ -33,6 +34,7 @@ export interface NormalizedRuntimeOutput {
   targetAgentIds: string[];
   relatedIdea?: string;
   evidenceRequest?: string;
+  judge?: JudgeResult;
 }
 
 export interface RuntimeMessageMeta {
@@ -282,12 +284,16 @@ export function normalizeRuntimeOutput(
     || 'Runtime 未返回可展示内容。';
   const interactionType = normalizeInteraction(parsed?.interactionType, plan.interactionType);
 
-  return {
+  const judged = {
     content,
     interactionType,
     targetAgentIds: targetIds.length ? targetIds : plan.targetAgentIds,
     relatedIdea,
     evidenceRequest: evidenceRequest || (interactionType === 'evidence_request' ? content : undefined),
+  };
+  return {
+    ...judged,
+    judge: judgeRoundtableOutput(judged),
   };
 }
 
