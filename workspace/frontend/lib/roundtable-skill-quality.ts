@@ -118,7 +118,7 @@ export function assessSkillDirectory(skillDir: string): SkillQualityAssessment {
 function tokenSet(value: string): Set<string> {
   return new Set(value
     .toLowerCase()
-    .replace(/[^\p{Script=Han}a-z0-9]+/gu, ' ')
+    .replace(/[^\u4e00-\u9fffa-z0-9]+/g, ' ')
     .split(/\s+/)
     .filter((item) => item.length > 1));
 }
@@ -129,8 +129,10 @@ export function compareAgenticProtocolSimilarity(items: Array<{ id: string; step
     for (let j = i + 1; j < items.length; j += 1) {
       const left = tokenSet(items[i].step2);
       const right = tokenSet(items[j].step2);
-      const intersection = [...left].filter((token) => right.has(token)).length;
-      const union = new Set([...left, ...right]).size || 1;
+      const leftTokens = Array.from(left);
+      const rightTokens = Array.from(right);
+      const intersection = leftTokens.filter((token) => right.has(token)).length;
+      const union = new Set(leftTokens.concat(rightTokens)).size || 1;
       const score = intersection / union;
       results.push({
         leftId: items[i].id,
