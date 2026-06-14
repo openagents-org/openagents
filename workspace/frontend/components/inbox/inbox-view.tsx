@@ -154,9 +154,8 @@ export function InboxView() {
     markAllNotificationsRead,
     dismissNotification,
     setCurrentSessionId,
-    sessions,
   } = useWorkspace();
-  const { setViewMode } = useLayout();
+  const { isMobile, setViewMode, openMobileDetail } = useLayout();
 
   useEffect(() => {
     refreshNotifications();
@@ -188,11 +187,9 @@ export function InboxView() {
       markNotificationRead(notification.id);
     }
     if (notification.channelName) {
-      const session = sessions.find((s) => s.sessionId === notification.channelName);
-      if (session) {
-        setCurrentSessionId(notification.channelName);
-        setViewMode('threads');
-      }
+      setCurrentSessionId(notification.channelName);
+      setViewMode('threads');
+      if (isMobile) openMobileDetail();
     }
   };
 
