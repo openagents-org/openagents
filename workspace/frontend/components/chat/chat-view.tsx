@@ -25,7 +25,7 @@ import { cn } from '@/lib/utils';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
 import { eventToMessage } from '@/lib/types';
-import type { WorkspaceMessage } from '@/lib/types';
+import type { WorkspaceMessage, CloudAgentConfig } from '@/lib/types';
 
 // Module-level message cache — survives component re-renders/unmounts.
 // Keyed by sessionId, stores the last known messages for instant thread switching.
@@ -89,6 +89,19 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 export function ChatView() {
   const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, agentModes, updateAgentMode, toggleAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
+  // Cache of cloud agent configs keyed by agentName — used to enrich message_sent analytics
+  // with the actual model + provider behind each cloud agent. Fetched once per workspace.
+  const cloudConfigsRef = useRef<Map<string, CloudAgentConfig>>(new Map());
+  useEffect(() => {
+    let cancelled = false;
+    workspaceApi.listCloudAgents().then((configs) => {
+      if (cancelled) return;
+      const map = new Map<string, CloudAgentConfig>();
+      for (const c of configs) map.set(c.agentName, c);
+      cloudConfigsRef.current = map;
+    }).catch(() => { /* analytics enrichment only — silent */ });
+    return () => { cancelled = true; };
+  }, []);
   const {
     isMobile,
     openMobileList,
@@ -379,10 +392,36 @@ export function ChatView() {
           attachments,
           currentUser.id,
         );
+        // Resolve which agent this message is targeting so we can attribute the call
+        // to a specific model + cloud-vs-local runtime in analytics.
+        const targetAgents = mentions.length > 0
+          ? agents.filter((a) => mentions.includes(a.agentName))
+          : (() => {
+              const master = agents.find((a) => a.role === 'master');
+              return master ? [master] : (agents[0] ? [agents[0]] : []);
+            })();
+        const primary = targetAgents[0];
+        const isCloud = primary?.agentType?.startsWith('cloud:') ?? false;
+        const cloudConfig = primary ? cloudConfigsRef.current.get(primary.agentName) : undefined;
+        // Cloud agentType looks like "cloud:openai" / "cloud:anthropic" — provider sits after the colon.
+        const provider = isCloud
+          ? (cloudConfig?.provider ?? primary?.agentType?.replace('cloud:', '') ?? null)
+          : null;
+        // For cloud agents the real model id is in CloudAgentConfig.model (e.g. "claude-sonnet-4-6").
+        // For local agents we fall back to the runtime name (claude / codex / kimi / …) as the closest proxy.
+        const targetModel = isCloud
+          ? (cloudConfig?.model ?? null)
+          : (primary?.agentType ?? null);
         capture('message_sent', {
           has_attachments: (attachments?.length ?? 0) > 0,
           has_mentions: mentions.length > 0,
           attachment_count: attachments?.length ?? 0,
+          target_agent_name: primary?.agentName ?? null,
+          target_agent_type: primary?.agentType ?? null,
+          target_agent_category: primary ? (isCloud ? 'cloud' : 'local') : null,
+          target_provider: provider,
+          target_model: targetModel,
+          target_count: targetAgents.length,
         });
         forceRefresh();
       } catch {
