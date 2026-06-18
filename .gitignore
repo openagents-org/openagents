@@ -213,6 +213,7 @@ sdk/demos/**/topics/*
 projects
 private_networks
 node_modules/
+.worktrees/
 
 # Generated during PyPI publish (copied from examples/default_network/)
 sdk/src/openagents/studio/build/
