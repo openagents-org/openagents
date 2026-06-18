@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@renderer/components/ui/button"
 import { globalUninstallCommand } from "../../../../shared/npm-install-spec"
 import type { CatalogEntry } from "@renderer/types"
+import { copyTextToClipboard } from "@renderer/lib/clipboard"
 
 function detectPlatform(): "macos" | "linux" | "windows" {
   if (typeof navigator === "undefined") return "linux"
@@ -42,7 +43,7 @@ export function UnmanagedNotice({
   async function copy(): Promise<void> {
     if (!command) return
     try {
-      await navigator.clipboard.writeText(command)
+      await copyTextToClipboard(command)
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
     } catch {

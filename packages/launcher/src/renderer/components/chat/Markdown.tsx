@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '../../lib/utils'
+import { copyTextToClipboard } from '../../lib/clipboard'
 
 // Lightweight Markdown renderer — supports the subset called out in stage3.md:
 // headings, paragraphs, bold/italic, inline code, fenced code blocks with copy,
@@ -161,7 +162,7 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }): React.JSX.E
   const [copied, setCopied] = useState(false)
   const copy = async (): Promise<void> => {
     try {
-      await navigator.clipboard.writeText(code)
+      await copyTextToClipboard(code)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch {}

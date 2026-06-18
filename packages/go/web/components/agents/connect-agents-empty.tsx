@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { Cpu, Copy, Check, Eye, EyeOff, RefreshCw, ArrowUpRight, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/lib/workspace-context';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 // Public download page for the desktop Launcher (placeholder — point at the
 // real release page before shipping).
@@ -120,10 +121,12 @@ function StepCard({
 
 function CommandRow({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(command);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+  const copy = async () => {
+    try {
+      await copyTextToClipboard(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {}
   };
   return (
     <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/40 px-3 py-2.5">
@@ -150,10 +153,12 @@ function LabeledValue({
 }) {
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+  const copy = async () => {
+    try {
+      await copyTextToClipboard(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {}
   };
   const shown = secret && !revealed ? '•'.repeat(Math.min(value.length, 24)) : value;
   return (

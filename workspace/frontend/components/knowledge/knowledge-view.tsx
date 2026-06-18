@@ -12,6 +12,7 @@ import type { KnowledgeEntry } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
+import { copyTextToClipboard } from '@/lib/clipboard';
 import { KnowledgeEditor } from './knowledge-editor';
 import { knowledgeAuthorName, stripLeadingTitle } from './knowledge-utils';
 
@@ -72,7 +73,7 @@ export function KnowledgeView() {
   const handleCopyMention = useCallback(async () => {
     if (!entry) return;
     try {
-      await navigator.clipboard.writeText(`@knowledge:${entry.slug}`);
+      await copyTextToClipboard(`@knowledge:${entry.slug}`);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

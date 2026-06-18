@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useThemeStore } from '../../stores/themeStore';
+import { copyTextToClipboard } from '../../utils/clipboard';
 
 interface CodeBlockProps {
   code: string;
@@ -12,10 +13,12 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
   const { theme } = useThemeStore();
   const [copied, setCopied] = useState(false);
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    try {
+      await copyTextToClipboard(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
   };
 
   // Map common language aliases to proper ones
@@ -53,7 +56,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
       <div className="code-header flex justify-between items-center px-3 py-2 bg-gray-200 dark:bg-gray-700 text-sm text-gray-600 dark:text-gray-300 border-b border-gray-300 dark:border-gray-600">
         <span className="font-mono">{normalizedLanguage}</span>
         <button 
-          onClick={copyToClipboard}
+          onClick={handleCopy}
           className="copy-button bg-gray-300 dark:bg-gray-600 hover:bg-gray-400 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-200 px-2 py-1 rounded text-xs transition-colors"
         >
           {copied ? 'Copied!' : 'Copy code'}
@@ -79,4 +82,4 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
   );
 };
 
-export default CodeBlock; 
+export default CodeBlock;

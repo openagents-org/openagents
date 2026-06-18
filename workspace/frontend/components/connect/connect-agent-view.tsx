@@ -16,6 +16,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import type { AgentCatalogEntry, CloudAgentConfig, CloudAgentProvider } from '@/lib/types';
 import { AgentIcon, ProviderIcon } from '@/components/icons/agent-icons';
+import { copyTextToClipboard } from '@/lib/clipboard';
 
 // ---------------------------------------------------------------------------
 // Brand colors for local agents and cloud providers
@@ -154,10 +155,14 @@ export function ConnectAgentView() {
     }
   }, [cfgModel, selectedProviderInfo]);
 
-  const handleCopyToken = () => {
-    navigator.clipboard.writeText(token);
-    setTokenCopied(true);
-    setTimeout(() => setTokenCopied(false), 2000);
+  const handleCopyToken = async () => {
+    try {
+      await copyTextToClipboard(token);
+      setTokenCopied(true);
+      setTimeout(() => setTokenCopied(false), 2000);
+    } catch {
+      toast.error('Failed to copy token');
+    }
   };
 
   const maskedToken = token.length > 16

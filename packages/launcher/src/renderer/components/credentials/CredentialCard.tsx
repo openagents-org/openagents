@@ -9,6 +9,7 @@ import { PlatformLogo } from "../connections/PlatformLogo"
 import { getPlatform } from "../connections/platforms"
 import { CredentialUsage } from "./CredentialUsage"
 import type { CredentialSummary } from "../../types"
+import { copyTextToClipboard } from "../../lib/clipboard"
 
 
 interface Props {
@@ -39,7 +40,7 @@ export function CredentialCard({
   const copySecret = async (): Promise<void> => {
     if (!revealed) return
     try {
-      await navigator.clipboard.writeText(revealed)
+      await copyTextToClipboard(revealed)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch {}

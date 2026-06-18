@@ -25,6 +25,7 @@ import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useT } from '@/lib/i18n';
+import { copyTextToClipboard } from '@/lib/clipboard';
 import { LanguageMenuSub } from './language-menu';
 import { SettingsDialog } from './settings-dialog';
 
@@ -71,20 +72,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
       return;
     }
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(token);
-      } else {
-        // Fallback for in-app browsers / insecure contexts without the Clipboard API
-        const ta = document.createElement('textarea');
-        ta.value = token;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-      }
+      await copyTextToClipboard(token);
       setTokenCopied(true);
       toast.success(t('userMenu.tokenCopiedToast'));
       setTimeout(() => setTokenCopied(false), 2000);
