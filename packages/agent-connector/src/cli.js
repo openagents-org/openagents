@@ -658,6 +658,127 @@ async function cmdTestLLM(connector, _flags, positional) {
   }
 }
 
+async function cmdDiagnose(connector, _flags, positional) {
+  const name = positional[0];
+  if (!name) { print('Usage: agn diagnose <agent-name>'); return; }
+
+  const agents = connector.listAgents();
+  const agent = agents.find((a) => a.name === name);
+  if (!agent) {
+    print(`Agent '${name}' not found. Run 'agn list' to see configured agents.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const pid = connector.getDaemonPid();
+  const status = connector.getDaemonStatus();
+  const agentStatus = status[name] || {};
+  const network = agent.network;
+
+  print(`\nDiagnosing agent: ${name} (${agent.type})\n`);
+
+  const checks = [];
+
+  // 1. Daemon liveness
+  const daemonOk = !!pid;
+  checks.push({ name: 'daemon', status: daemonOk ? 'ok' : 'error', detail: daemonOk ? `PID ${pid}` : 'not running' });
+
+  // 2. Adapter state
+  const adapterState = agentStatus.state || (pid ? 'stopped' : 'unknown');
+  const adapterOk = adapterState === 'running';
+  checks.push({ name: 'adapter_state', status: adapterOk ? 'ok' : adapterState === 'starting' ? 'warn' : 'error', detail: adapterState });
+
+  // 3. Workspace connection
+  if (!network) {
+    checks.push({ name: 'workspace', status: 'warn', detail: 'not connected (local-only)' });
+  } else {
+      // 4. Workspace health
+      try {
+        const { WorkspaceClient } = require('./workspace-client');
+        const endpoint = (connector.config.getNetworks().find(n => n.slug === network) || {}).endpoint || 'https://workspace-endpoint.openagents.org';
+        const client = new WorkspaceClient(endpoint);
+        const token = (connector.config.getNetworks().find(n => n.slug === network) || {}).token;
+        // Simple health check: try to get workspace metadata
+        await client.getWorkspaceMetadata(network, token);
+        checks.push({ name: 'workspace_health', status: 'ok', detail: 'reachable' });
+
+      // 5. Workspace presence (discover agent)
+      try {
+        const agentsList = await client.getAgents(network, token);
+        const self = agentsList.find(a => a.agentName === name);
+        if (self) {
+          const lastHeartbeat = self.lastHeartbeatAt ? new Date(self.lastHeartbeatAt) : null;
+          const heartbeatAge = lastHeartbeat ? Math.floor((Date.now() - lastHeartbeat.getTime()) / 1000) : null;
+          const heartbeatOk = heartbeatAge !== null && heartbeatAge < 120; // fresh if < 2 min
+          checks.push({
+            name: 'workspace_presence',
+            status: self.status === 'online' ? (heartbeatOk ? 'ok' : 'warn') : 'error',
+            detail: `${self.status || 'unknown'}${heartbeatAge !== null ? ` (${heartbeatAge}s ago)` : ''}`,
+          });
+        } else {
+          checks.push({ name: 'workspace_presence', status: 'error', detail: 'not found in workspace' });
+        }
+      } catch (e) {
+        checks.push({ name: 'workspace_presence', status: 'warn', detail: `could not check: ${e.message}` });
+      }
+
+      // 6. Session validity (heartbeat test)
+      if (adapterOk) {
+        try {
+          const sessionFile = require('path').join(require('os').homedir(), '.openagents', 'daemon.status.json');
+          let sessionId = null;
+          try {
+            const statusData = JSON.parse(require('fs').readFileSync(sessionFile, 'utf-8'));
+            sessionId = statusData.session_id || null;
+          } catch {}
+          await client.heartbeat(network, name, token, sessionId);
+          checks.push({ name: 'session', status: 'ok', detail: 'valid' });
+        } catch (e) {
+          if (e.message && e.message.includes('session')) {
+            checks.push({ name: 'session', status: 'error', detail: e.message });
+          } else {
+            checks.push({ name: 'session', status: 'warn', detail: e.message });
+          }
+        }
+      } else {
+        checks.push({ name: 'session', status: 'warn', detail: 'adapter not running' });
+      }
+
+      // 7. LLM connectivity
+      try {
+        const env = connector.getAgentEnv(agent.type);
+        const resolved = connector.resolveAgentEnv(agent.type, env);
+        const effective = { ...env, ...resolved };
+        const llmResult = await connector.testLLM(effective);
+        checks.push({ name: 'llm', status: llmResult.success ? 'ok' : 'error', detail: llmResult.success ? llmResult.model : llmResult.error });
+      } catch (e) {
+        checks.push({ name: 'llm', status: 'error', detail: e.message });
+      }
+    } catch (e) {
+      checks.push({ name: 'workspace_health', status: 'error', detail: e.message });
+    }
+  }
+
+  // Print results
+  const statusIcon = { ok: '✓', warn: '⚠', error: '✗' };
+  for (const check of checks) {
+    const icon = statusIcon[check.status] || '?';
+    print(`  ${icon} ${check.name.padEnd(22)} ${check.detail}`);
+  }
+
+  const hasError = checks.some(c => c.status === 'error');
+  const hasWarn = checks.some(c => c.status === 'warn');
+  print('');
+  if (hasError) {
+    print('Result: ISSUES FOUND — agent may not be usable');
+    process.exitCode = 1;
+  } else if (hasWarn) {
+    print('Result: WARNINGS — agent is partially operational');
+  } else {
+    print('Result: ALL CHECKS PASSED — agent is ready');
+  }
+}
+
 async function cmdVersion() {
   const pkg = require('../package.json');
   print(`${pkg.name} v${pkg.version}`);
@@ -708,6 +829,7 @@ Commands:
   tool-mode [agent] [mode]    View/set tool mode (mcp or skills)
   autostart [--disable]       Enable/disable auto-start on login
   test-llm <type>             Test LLM connection
+  diagnose <agent>            Run end-to-end diagnostics on an agent
   logs [agent] [--lines N]    View daemon logs
   workspace create [name]     Create a new workspace
   workspace join <token>      Join workspace with token
@@ -794,6 +916,7 @@ async function main() {
     skills: () => cmdSkills(connector, flags, positional),
     'tool-mode': () => cmdToolMode(connector, flags, positional),
     'test-llm': () => cmdTestLLM(connector, flags, positional),
+    'diagnose': () => cmdDiagnose(connector, flags, positional),
     update: () => cmdUpdate(),
     'mcp-server': () => {
       const { runMcpServer } = require('./mcp-server');
