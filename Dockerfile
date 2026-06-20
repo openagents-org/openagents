@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python project files
-COPY pyproject.toml setup.py setup.cfg MANIFEST.in ./
+COPY pyproject.toml setup.py MANIFEST.in ./
 COPY sdk/src/ ./sdk/src/
 
 # Install Python dependencies
