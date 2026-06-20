@@ -18,7 +18,11 @@
 'use strict';
 
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
-const { generateSessionTitle, SESSION_DEFAULT_RE } = require('./utils');
+const {
+  generateSessionTitle,
+  redactSensitiveHeaders,
+  SESSION_DEFAULT_RE,
+} = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
 
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
@@ -697,7 +701,8 @@ class BaseAdapter {
 
   async sendStatus(channel, content, extraMeta) {
     try {
-      await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
+      const safeContent = redactSensitiveHeaders(content);
+      await this.client.sendMessage(this.workspaceId, channel, this.token, safeContent, {
         senderType: 'agent',
         senderName: this.agentName,
         messageType: 'status',
