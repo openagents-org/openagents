@@ -49,7 +49,8 @@ class CodexAdapter extends BaseAdapter {
     this._loadSessions();
 
     // Determine mode:
-    // - CLI mode: only works with OpenAI's native Responses API (api.openai.com)
+    // - CLI mode: works with OpenAI's native Responses API (api.openai.com)
+    //   OR with subscription-based auth via 'codex login'
     // - Direct API mode: works with any OpenAI-compatible chat completions endpoint
     this._codexBin = this._findCodexBinary();
     this._directMode = false;
@@ -59,9 +60,10 @@ class CodexAdapter extends BaseAdapter {
     const isOpenAiNative = !this._directBaseUrl ||
       this._directBaseUrl.includes('api.openai.com');
 
-    if (this._codexBin && isOpenAiNative) {
+    if (this._codexBin && (isOpenAiNative || !this._directApiKey)) {
+      // CLI mode: either OpenAI native API or subscription auth (no API key)
       this._useCliMode = true;
-      this._log(`CLI mode: ${this._codexBin}`);
+      this._log(`CLI mode: ${this._codexBin}${!this._directApiKey ? ' (subscription auth)' : ''}`);
     } else if (this._directApiKey && this._directBaseUrl) {
       this._directMode = true;
       if (this._codexBin) {
@@ -70,7 +72,7 @@ class CodexAdapter extends BaseAdapter {
         this._log(`Direct LLM mode: ${this._directBaseUrl} model=${this._directModel || 'gpt-4o'}`);
       }
     } else if (this._codexBin) {
-      // CLI binary found, no custom base URL — assume OpenAI
+      // CLI binary found, no custom base URL — assume OpenAI or subscription auth
       this._useCliMode = true;
       this._log(`CLI mode: ${this._codexBin}`);
     } else {
@@ -270,7 +272,7 @@ class CodexAdapter extends BaseAdapter {
     } else if (this._directMode) {
       await this._handleViaDirectApi(content, msgChannel);
     } else {
-      await this.sendError(msgChannel, 'codex CLI not found. Install with: npm install -g @openai/codex');
+      await this.sendError(msgChannel, 'codex CLI not found. Install with: npm install -g @openai/codex\n\nOr configure OPENAI_API_KEY + OPENAI_BASE_URL for direct API mode.');
     }
   }
 
