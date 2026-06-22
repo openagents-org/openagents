@@ -158,7 +158,7 @@ agn connect my-aider <workspace-token>              # connect Aider into a works
 
 **Provider, model & key.** `AIDER_PROVIDER` decides which provider environment
 variable your `LLM_API_KEY` is injected into. It accepts `auto` (default),
-`openai`, `anthropic`, `openrouter`, `gemini`, `deepseek`, or
+`openai`, `anthropic`, `openrouter`, `requesty`, `gemini`, `deepseek`, or
 `openai-compatible`:
 
 | `AIDER_PROVIDER` | Key injected as | Notes |
@@ -166,6 +166,7 @@ variable your `LLM_API_KEY` is injected into. It accepts `auto` (default),
 | `anthropic` | `ANTHROPIC_API_KEY` | e.g. `AIDER_MODEL=sonnet` / `opus` / `claude-3-5-sonnet-20241022` |
 | `openai` | `OPENAI_API_KEY` | e.g. `AIDER_MODEL=gpt-4o` |
 | `openrouter` | `OPENROUTER_API_KEY` | e.g. `AIDER_MODEL=openrouter/anthropic/claude-3.5-sonnet` |
+| `requesty` | `REQUESTY_API_KEY` | e.g. `AIDER_MODEL=requesty/openai/gpt-4o` |
 | `gemini` | `GEMINI_API_KEY` | e.g. `AIDER_MODEL=gemini/gemini-1.5-pro` |
 | `deepseek` | `DEEPSEEK_API_KEY` | e.g. `AIDER_MODEL=deepseek/deepseek-chat` |
 | `openai-compatible` | `OPENAI_API_KEY` + `OPENAI_API_BASE` | **requires `LLM_BASE_URL`**; the model is normalized to `openai/<model>` |

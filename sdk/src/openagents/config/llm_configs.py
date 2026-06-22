@@ -27,6 +27,7 @@ class LLMProviderType(str, Enum):
     PERPLEXITY = "perplexity"
     GROQ = "groq"
     OPENROUTER = "openrouter"
+    REQUESTY = "requesty"
     MINIMAX = "minimax"
     LITELLM = "litellm"
     CUSTOM = "custom"  # Custom OpenAI-compatible endpoint
@@ -185,6 +186,13 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         "api_base": "https://openrouter.ai/api/v1",
         "models": [],  # User specifies model name (e.g., "anthropic/claude-3-opus")
         "API_KEY_ENV_VAR": "OPENROUTER_API_KEY",
+    },
+    # Requesty (OpenAI-compatible LLM gateway)
+    "requesty": {
+        "provider": "generic",
+        "api_base": "https://router.requesty.ai/v1",
+        "models": [],  # User specifies model name (e.g., "openai/gpt-4o-mini")
+        "API_KEY_ENV_VAR": "REQUESTY_API_KEY",
     },
     # MiniMax
     "minimax": {
@@ -495,6 +503,7 @@ def create_model_provider(
         "perplexity",
         "groq",
         "openrouter",
+        "requesty",
     ]:
         # Use predefined API base if not provided
         if not api_base and provider in MODEL_CONFIGS:
