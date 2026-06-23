@@ -359,6 +359,12 @@ describe('Goose stop terminates the process tree', () => {
       detached: process.platform !== 'win32',
       windowsHide: true,
     });
+    // Guard the piped stdout against 'error': after the SIGKILL below, macOS
+    // Node emits a benign EPIPE/ECONNRESET 'error' on it a tick later; the
+    // 'data' listener in readFirstLine has no matching 'error' listener, so it
+    // would become an uncaughtException that fails the whole single-process run
+    // with exit 1 and no `not ok` (mirrors stop-control.test.js's guard).
+    if (proc.stdout) proc.stdout.on('error', () => {});
     try {
       const childPid = Number(await readFirstLine(proc.stdout));
       assert.equal(isPidAlive(proc.pid), true);
