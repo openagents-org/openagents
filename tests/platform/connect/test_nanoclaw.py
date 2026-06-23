@@ -135,7 +135,7 @@ class TestNanoClawConnectReport:
         report = {
             "platform": os_platform,
             "openagents_version": openagents_version,
-            "agent_binary": binary_path or "(direct API mode)",
+            "agent_binary": binary_path or "(ncl not on PATH — using NANOCLAW_HOME)",
         }
         for k, v in report.items():
             safe_print(f"  {k}: {v}")

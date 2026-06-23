@@ -1,10 +1,12 @@
 """
 Platform install tests for NanoClaw agent.
 
-NanoClaw uses direct API mode — it calls the OpenAI-compatible chat
-completions API directly without needing a local binary. The install
-step verifies the registry entry loads and that the SDK recognises the
-agent type.
+NanoClaw is an EXTERNAL containerized agent runtime (Docker + the Claude
+Agent SDK), bridged to the Workspace via a native NanoClaw `openagents`
+channel — not a direct LLM API. The catalog "install" step is guidance
+only (the user sets NanoClaw up themselves); these tests just verify the
+registry entry loads and that the SDK recognises the agent type. The
+`ncl` CLI (optional, if symlinked onto PATH) is detected at runtime.
 
 Run:
     pytest tests/platform/install/test_nanoclaw.py -v
@@ -36,13 +38,14 @@ class TestNanoClawInstall:
     def test_openagents_install_nanoclaw(self):
         """`openagents install nanoclaw --yes` should succeed.
 
-        NanoClaw uses direct API mode so there is no npm package to install.
-        The install command should still succeed (the registry entry is valid).
+        NanoClaw is an external runtime, so the catalog "install" is guidance
+        only (no package is fetched). The command should still succeed because
+        the registry entry is valid.
         """
         try:
             result = run_openagents("install", AGENT_TYPE, "--yes", timeout=60)
         except subprocess.TimeoutExpired:
-            pytest.skip("Install timed out — NanoClaw uses direct API mode, no binary expected.")
+            pytest.skip("Install timed out — NanoClaw is an external runtime, no package to fetch.")
             return
 
         assert result.returncode == 0, (
@@ -52,14 +55,14 @@ class TestNanoClawInstall:
             f"stderr:\n{result.stderr[-1000:]}"
         )
 
-    def test_direct_api_mode_note(self):
-        """NanoClaw uses direct API mode — binary is optional."""
+    def test_runtime_cli_note(self):
+        """The `ncl` CLI is optional — NanoClaw can also be located via NANOCLAW_HOME."""
         binary_path = shutil.which(BINARY_NAME)
         if binary_path:
-            safe_print(f"  NanoClaw binary found at: {binary_path}")
+            safe_print(f"  ncl CLI found at: {binary_path}")
         else:
             safe_print(
-                f"  NanoClaw binary not found (expected — uses direct API mode)"
+                f"  ncl not on PATH (ok — set NANOCLAW_HOME, or symlink bin/ncl)"
             )
 
 
@@ -72,7 +75,7 @@ class TestNanoClawInstallReport:
         report = {
             "platform": os_platform,
             "openagents_version": openagents_version,
-            "agent_binary": binary_path or "(direct API mode)",
+            "agent_binary": binary_path or "(ncl not on PATH — using NANOCLAW_HOME)",
         }
         for k, v in report.items():
             safe_print(f"  {k}: {v}")

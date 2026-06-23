@@ -2,8 +2,9 @@
 Platform start tests for NanoClaw agent.
 
 Tests that `openagents create nanoclaw` can launch the agent daemon.
-NanoClaw uses direct API mode so no binary is needed — the adapter
-calls the chat completions API directly.
+NanoClaw is an external containerized runtime; the daemon-side adapter is
+the OpenAgents-side orchestrator that bridges to NanoClaw via the native
+`openagents` channel (it does not call an LLM API directly).
 
 Run:
     pytest tests/platform/start/test_nanoclaw.py -v
@@ -95,7 +96,7 @@ class TestNanoClawStartReport:
         report = {
             "platform": os_platform,
             "openagents_version": openagents_version,
-            "agent_binary": binary_path or "(direct API mode)",
+            "agent_binary": binary_path or "(ncl not on PATH — using NANOCLAW_HOME)",
         }
         for k, v in report.items():
             safe_print(f"  {k}: {v}")

@@ -523,29 +523,27 @@
   {
     "name": "nanoclaw",
     "label": "NanoClaw",
-    "description": "Lightweight containerized coding agent built on Claude Agent SDK",
-    "homepage": "https://github.com/qwibitai/nanoclaw",
+    "description": "Containerized agent runtime \u2014 each Agent Group runs in its own Docker container (Claude Agent SDK). Bridged to the Workspace via a native OpenAgents channel.",
+    "homepage": "https://github.com/nanocoai/nanoclaw",
     "tags": [
       "coding",
       "container",
-      "lightweight",
+      "docker",
+      "runtime",
       "open-source"
     ],
     "builtin": true,
+    "support": { "install": true, "workspace": true, "collaboration": false },
     "install": {
-      "binary": "nanoclaw",
-      "api_only": true,
+      "binary": "ncl",
       "requires": [
         "nodejs",
+        "docker",
         "git"
       ],
-      "macos": "echo 'NanoClaw uses direct API mode \u2014 no binary install needed'",
-      "linux": "echo 'NanoClaw uses direct API mode \u2014 no binary install needed'",
-      "windows": "echo 'NanoClaw uses direct API mode \u2014 no binary install needed'"
-    },
-    "adapter": {
-      "module": "openagents.adapters.nanoclaw",
-      "class": "NanoClawAdapter"
+      "macos": "echo 'NanoClaw is an external containerized runtime. Set it up from https://github.com/nanocoai/nanoclaw (clone, pnpm install, ./nanoclaw.sh setup), symlink bin/ncl onto your PATH, then install the OpenAgents channel: see docs/nanoclaw.md (/add-openagents).'",
+      "linux": "echo 'NanoClaw is an external containerized runtime. Set it up from https://github.com/nanocoai/nanoclaw (clone, pnpm install, ./nanoclaw.sh setup), symlink bin/ncl onto your PATH, then install the OpenAgents channel: see docs/nanoclaw.md (/add-openagents).'",
+      "windows": "echo 'NanoClaw requires Docker Desktop + WSL2 on Windows. Set it up inside WSL2 from https://github.com/nanocoai/nanoclaw, symlink bin/ncl onto your PATH, then install the OpenAgents channel: see docs/nanoclaw.md (/add-openagents).'"
     },
     "launch": {
       "args": [
@@ -554,34 +552,24 @@
     },
     "env_config": [
       {
-        "name": "OPENAI_API_KEY",
-        "description": "API key for LLM inference",
+        "name": "NANOCLAW_HOME",
+        "description": "Path to your NanoClaw checkout (optional if `ncl` is on PATH)",
+        "required": false,
+        "password": false
+      },
+      {
+        "name": "NANOCLAW_AGENT_GROUP",
+        "description": "NanoClaw Agent Group id or name to bridge to this agent",
         "required": true,
-        "password": true
+        "password": false
       }
     ],
     "check_ready": {
       "env_vars": [
-        "OPENAI_API_KEY"
+        "NANOCLAW_AGENT_GROUP"
       ],
-      "saved_env_key": "OPENAI_API_KEY",
-      "not_ready_message": "No API key \u2014 press e to configure"
-    },
-    "resolve_env": {
-      "rules": [
-        {
-          "from": "LLM_API_KEY",
-          "to": "OPENAI_API_KEY"
-        },
-        {
-          "from": "LLM_BASE_URL",
-          "to": "OPENAI_BASE_URL"
-        },
-        {
-          "from": "LLM_MODEL",
-          "to": "NANOCLAW_MODEL"
-        }
-      ]
+      "saved_env_key": "NANOCLAW_AGENT_GROUP",
+      "not_ready_message": "Set NANOCLAW_AGENT_GROUP (and NANOCLAW_HOME) \u2014 press e to configure"
     }
   },
   {
