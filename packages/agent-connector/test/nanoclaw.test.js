@@ -691,10 +691,15 @@ test('security: safeUnlinkSocket only removes sockets, never files/symlinks', as
     const sockPath = path.join(home, 'real.sock');
     await new Promise((res) => {
       const s = net.createServer();
+      s.on('error', () => {}); // macOS can emit 'error' on close after the path is gone
       s.listen(sockPath, () => s.close(() => res()));
     });
     // server closed but file may remain; recreate to be sure it's a socket
     const srv = net.createServer();
+    // We unlink its socket file below WHILE it is still listening; on macOS the
+    // subsequent close() hits ENOENT on its internal unlink and emits 'error'.
+    // Without a listener that's an uncaughtException that fails the whole run.
+    srv.on('error', () => {});
     await new Promise((res) => srv.listen(path.join(home, 's2.sock'), res));
     const s2 = path.join(home, 's2.sock');
     assert.equal(safeUnlinkSocket(s2).removed, true);
