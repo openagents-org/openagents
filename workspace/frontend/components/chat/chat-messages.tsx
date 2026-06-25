@@ -53,6 +53,22 @@ function isTerminalStatus(msg: WorkspaceMessage) {
   );
 }
 
+// Dev-only scroll diagnostics. `process.env.NODE_ENV` is statically replaced at
+// build time, so this whole helper is dead-code-eliminated in production.
+const DEBUG_SCROLL = process.env.NODE_ENV !== 'production';
+function scrollDebug(source: string, el: HTMLElement | null, extra?: Record<string, unknown>) {
+  if (!DEBUG_SCROLL || !el) return;
+  const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+  // eslint-disable-next-line no-console
+  console.debug('[chat-scroll]', source, {
+    scrollTop: el.scrollTop,
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+    isNearBottom,
+    ...extra,
+  });
+}
+
 // ── Component ──
 
 interface ChatMessagesProps {
@@ -75,6 +91,14 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const prevLengthRef = useRef(0);
+  // Track first/last message identity to distinguish prepend (older history
+  // loaded at the top) from append (new message at the bottom).
+  const prevFirstIdRef = useRef<string | null>(null);
+  const prevLastIdRef = useRef<string | null>(null);
+  // Track the last scrollKey value so the force-scroll effect only fires when
+  // scrollKey *actually* changes — not when scrollToBottom's identity changes
+  // (which it does on every message-count change, including history prepend).
+  const prevScrollKeyRef = useRef(scrollKey);
   // Track session identity to reset scroll state on thread switch
   const prevSessionRef = useRef<string | null>(null);
   // True when the user has intentionally scrolled away from the bottom.
@@ -180,32 +204,62 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
     }
   }, [totalCount, virtualizer]);
 
-  // Derive the current session from messages for thread-switch detection
+  // Derive the current session + first/last message identity from messages.
   const currentSessionId = messages.length > 0 ? messages[0].sessionId : null;
+  const firstId = messages.length > 0 ? messages[0].messageId : null;
+  const lastId = messages.length > 0 ? messages[messages.length - 1].messageId : null;
 
-  // Auto-scroll on new messages — but NOT when user has scrolled up to read history
+  // Auto-scroll on new messages — but NOT when the user has scrolled up to read
+  // history, and NOT when older history is prepended at the top.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    // Detect thread switch: reset scroll state
+    // ① Thread switch (incl. first mount, cache-seeded switch): always scroll
+    //    to bottom. This is the only scroll-to-bottom source for cache-hit
+    //    switches, where scrollKey may not change.
     if (currentSessionId !== prevSessionRef.current) {
       prevSessionRef.current = currentSessionId;
-      prevLengthRef.current = 0;
+      prevLengthRef.current = messages.length;
+      prevFirstIdRef.current = firstId;
+      prevLastIdRef.current = lastId;
       userScrolledUpRef.current = false;
+      scrollDebug('session-switch', el, { messageCount: messages.length, totalCount });
+      requestAnimationFrame(() => scrollToBottom());
+      return;
     }
 
+    // ② Prepend detection: count grew, the first message changed, but the last
+    //    message is unchanged → older history loaded at the top. Never scroll.
+    const grew = messages.length > prevLengthRef.current;
+    const isPrepend = grew && firstId !== prevFirstIdRef.current && lastId === prevLastIdRef.current;
     prevLengthRef.current = messages.length;
+    prevFirstIdRef.current = firstId;
+    prevLastIdRef.current = lastId;
+    if (isPrepend) {
+      scrollDebug('history-prepend', el, { messageCount: messages.length, totalCount });
+      return;
+    }
 
-    if (userScrolledUpRef.current) return;
-
+    // ③ Append / replace / new (streamed) message: follow only when the user is
+    //    already near the bottom.
+    if (userScrolledUpRef.current) {
+      scrollDebug('append-skip-userUp', el, { messageCount: messages.length, totalCount });
+      return;
+    }
+    scrollDebug('append-follow', el, { messageCount: messages.length, totalCount });
     requestAnimationFrame(() => scrollToBottom());
-  }, [messages.length, currentSessionId, scrollToBottom]);
+  }, [messages.length, currentSessionId, firstId, lastId, totalCount, scrollToBottom]);
 
-  // Force scroll when scrollKey changes (user sent a message)
+  // Force scroll when scrollKey *actually* changes (user sent a message, clicked
+  // "New messages", or a backfill bumped it). Guard on the real value so a mere
+  // scrollToBottom identity change (from a message-count change such as history
+  // prepend) does not re-trigger a scroll-to-bottom.
   useEffect(() => {
-    if (scrollKey) {
+    if (scrollKey !== prevScrollKeyRef.current) {
+      prevScrollKeyRef.current = scrollKey;
       userScrolledUpRef.current = false;
+      scrollDebug('scrollKey-change', containerRef.current, { scrollKey });
       requestAnimationFrame(() => scrollToBottom());
     }
   }, [scrollKey, scrollToBottom]);
@@ -231,12 +285,14 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
       ) {
         loadingOlderInternalRef.current = true;
         const prevScrollHeight = el.scrollHeight;
+        scrollDebug('load-older-start', el, { prevScrollHeight });
         await loadOlder();
         // Maintain scroll position after prepending older messages
         requestAnimationFrame(() => {
           const newScrollHeight = el.scrollHeight;
           el.scrollTop = newScrollHeight - prevScrollHeight;
           loadingOlderInternalRef.current = false;
+          scrollDebug('load-older-compensate', el, { prevScrollHeight, newScrollHeight, delta: newScrollHeight - prevScrollHeight });
         });
       }
     };
@@ -262,9 +318,12 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
               const el = containerRef.current;
               if (!el) return;
               const prevScrollHeight = el.scrollHeight;
+              scrollDebug('load-older-start(button)', el, { prevScrollHeight });
               await loadOlder();
               requestAnimationFrame(() => {
-                el.scrollTop = el.scrollHeight - prevScrollHeight;
+                const newScrollHeight = el.scrollHeight;
+                el.scrollTop = newScrollHeight - prevScrollHeight;
+                scrollDebug('load-older-compensate(button)', el, { prevScrollHeight, newScrollHeight, delta: newScrollHeight - prevScrollHeight });
               });
             }}
             className="flex items-center justify-center py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -346,7 +405,7 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
             variant="secondary"
             size="sm"
             className="rounded-full shadow-lg"
-            onClick={() => { userScrolledUpRef.current = false; scrollToBottom(); }}
+            onClick={() => { scrollDebug('user-click-scroll-bottom', containerRef.current); userScrolledUpRef.current = false; scrollToBottom(); }}
           >
             <ArrowDown className="size-4 mr-1" />
             New messages
