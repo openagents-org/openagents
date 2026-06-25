@@ -432,6 +432,10 @@ export function WorkspaceProvider({
   const lastKnownEventAtRef = React.useRef<Record<string, number | null>>({});
   const currentSessionIdRef = React.useRef<string | null>(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
+  // Track the workspace the default-thread selection last ran for, so a real
+  // workspace switch re-selects while a same-workspace re-discover/token refresh
+  // keeps the user's current thread.
+  const prevSelectedWorkspaceRef = React.useRef<string | null>(null);
 
   /** Refresh agents and channels from the discover endpoint. */
   const refreshDiscovery = useCallback(async () => {
@@ -852,9 +856,35 @@ export function WorkspaceProvider({
           lastKnownEventAtRef.current[ch.sessionId] = ch.lastEventAt;
         }
 
-        // Auto-select first session
-        if (channelSessions.length > 0 && !currentSessionId) {
-          setCurrentSessionId(channelSessions[0].sessionId);
+        // Auto-select the most-recently-updated thread, mirroring the sidebar's
+        // default (non-search) list order so the opened thread === sidebar's
+        // first row. Two distinct sets:
+        //   • keep set — current is preserved if it still belongs to this
+        //     workspace (any discovered channel: active/archived/routine) or is
+        //     a DM, AND we did not just switch workspaces.
+        //   • pick set — when we must (re)select, mirror sidebar activeSessions:
+        //     status==='active', non-routine, newest by lastEventAt||createdAt.
+        const switchedWorkspace = prevSelectedWorkspaceRef.current !== workspaceId;
+        prevSelectedWorkspaceRef.current = workspaceId;
+        const cur = currentSessionIdRef.current;
+        const keepCurrent =
+          !switchedWorkspace &&
+          cur != null &&
+          (channelSessions.some((s) => s.sessionId === cur) || cur.startsWith('dm:'));
+        if (!keepCurrent) {
+          const toMs = (s: WorkspaceSession) =>
+            s.lastEventAt || (s.createdAt ? new Date(s.createdAt).getTime() : 0);
+          const newest = [...channelSessions]
+            .filter((s) => s.status === 'active' && !s.sessionId.startsWith('routine:'))
+            .sort((a, b) => toMs(b) - toMs(a))[0];
+          if (newest) {
+            setCurrentSessionId(newest.sessionId);
+          } else {
+            // No active thread to fall back to (empty/archived-only workspace,
+            // or the current thread was deleted) — clear any stale selection so
+            // the chat area shows the empty state instead of a foreign session.
+            setCurrentSessionId(null);
+          }
         }
 
         // Seed previews from localStorage for instant display
