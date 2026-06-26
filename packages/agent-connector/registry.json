@@ -461,7 +461,11 @@
       "saved_env_key": "GEMINI_API_KEY",
       "login_command": "gemini",
       "not_ready_message": "Needs sign-in — run `gemini` to sign in, or set GEMINI_API_KEY.",
-      "unreadable_message": "Gemini credentials were found but could not be read. Check permissions on ~/.gemini, or run `gemini` to sign in again."
+      "unreadable_message": "Gemini credentials were found but could not be read. Check permissions on ~/.gemini, or run `gemini` to sign in again.",
+      "auth_detected_labels": {
+        "cli_login": "Google account sign-in detected",
+        "api_key": "API key detected"
+      }
     },
     "env_config": []
   },

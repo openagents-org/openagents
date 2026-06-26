@@ -25,3 +25,9 @@ check_ready:
   login_command: "gemini"
   not_ready_message: "Needs sign-in — run `gemini` to sign in, or set GEMINI_API_KEY."
   unreadable_message: "Gemini credentials were found but could not be read. Check permissions on ~/.gemini, or run `gemini` to sign in again."
+  # Non-sensitive, human-readable labels for a READY auth_mode. Surfaced by the
+  # connector TUI/CLI and the launcher Configure dialog so a Google sign-in is
+  # distinguished from an API key. Never contains a token, email, or path.
+  auth_detected_labels:
+    cli_login: "Google account sign-in detected"
+    api_key: "API key detected"
