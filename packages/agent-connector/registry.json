@@ -449,9 +449,19 @@
       ]
     },
     "check_ready": {
-      "not_ready_message": "Not logged in. Run: gemini",
+      "creds_file": "~/.gemini/oauth_creds.json",
+      "creds_no_parse": true,
+      "creds_path_env": [
+        "GOOGLE_APPLICATION_CREDENTIALS"
+      ],
+      "env_vars": [
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY"
+      ],
+      "saved_env_key": "GEMINI_API_KEY",
       "login_command": "gemini",
-      "alt_check": "gemini --version"
+      "not_ready_message": "Needs sign-in — run `gemini` to sign in, or set GEMINI_API_KEY.",
+      "unreadable_message": "Gemini credentials were found but could not be read. Check permissions on ~/.gemini, or run `gemini` to sign in again."
     },
     "env_config": []
   },
