@@ -60,7 +60,7 @@ class OpenCodeAdapter(BaseAdapter):
         else:
             logger.warning(
                 "OpenCode binary not found. "
-                "Install opencode: npm install -g opencode-ai@latest"
+                "Install opencode: npm install -g opencode-ai@1.17.11"
             )
 
     def _migrate_sessions_file(self, workspace_id: str, agent_name: str):
@@ -285,7 +285,7 @@ class OpenCodeAdapter(BaseAdapter):
             await self._send_error(
                 msg_channel,
                 "opencode CLI not found. Install with: "
-                "npm install -g opencode-ai@latest",
+                "npm install -g opencode-ai@1.17.11",
             )
             return ""
 

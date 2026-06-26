@@ -687,9 +687,9 @@
       "requires": [
         "nodejs"
       ],
-      "macos": "npm install -g opencode-ai@latest",
-      "linux": "npm install -g opencode-ai@latest",
-      "windows": "npm install -g opencode-ai@latest"
+      "macos": "npm install -g opencode-ai@1.17.11",
+      "linux": "npm install -g opencode-ai@1.17.11",
+      "windows": "npm install -g opencode-ai@1.17.11"
     },
     "adapter": {
       "module": "openagents.adapters.opencode",
@@ -711,8 +711,8 @@
       },
       {
         "name": "LLM_MODEL",
-        "description": "Model name",
-        "required": false,
+        "description": "Model name (required — OpenCode hangs without one)",
+        "required": true,
         "placeholder": "gpt-4o, claude-sonnet-4-20250514, etc."
       }
     ],
@@ -738,6 +738,7 @@
         "ANTHROPIC_API_KEY"
       ],
       "saved_env_key": "LLM_API_KEY",
+      "min_version": "1.17.0",
       "not_ready_message": "Not configured \u2014 press e to configure"
     }
   },

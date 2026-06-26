@@ -26,6 +26,48 @@ const IS_WINDOWS = process.platform === 'win32';
 // child with SIGTERM, the 'close' handler sees signal='SIGTERM' / code=null.
 const TIMEOUT_MS = 300000; // 5 minutes
 
+// Pinned OpenCode CLI version. Do NOT use @latest anywhere (registry.json /
+// opencode.yaml install commands, install hints below). This adapter parses
+// opencode's `--format json` stream, so an unbounded version floats the event
+// schema (text / tool / error / step events) out from under us and makes the
+// same workspace behave differently per machine.
+const OPENCODE_PINNED_VERSION = '1.17.11';
+// Supported floor — below this we block the run with `unsupported_version`.
+// The 1.17.x line is the stream-json shape this adapter targets.
+const OPENCODE_MIN_VERSION = '1.17.0';
+// Highest version whose JSON behavior is treated as verified. Newer is allowed
+// but flagged 'degraded' (the run still proceeds; any failure is classified).
+const OPENCODE_TESTED_MAX_VERSION = '1.17.11';
+
+// How long a detected CLI version / executability probe is cached on the
+// adapter instance, so preflight never spawns `--version` more than once per
+// window across channels.
+const VERSION_PROBE_TTL_MS = 60000;
+
+// Short, de-identified, actionable user messages per failure category. These
+// must NEVER default to "run auth login": only credential_missing / auth_failed
+// mention authentication. Diagnostics (exit code, signal, redacted stdout/
+// stderr) go to the daemon log, not to these.
+const FAILURE_MESSAGES = {
+  cli_not_found: `OpenCode CLI not found. Install it (\`npm install -g opencode-ai@${OPENCODE_PINNED_VERSION}\`) and try again.`,
+  cli_not_executable: 'OpenCode CLI was found but could not be started. Reinstall it, then retry.',
+  unsupported_version: `This OpenCode CLI version is not supported (requires >= ${OPENCODE_MIN_VERSION}). Reinstall \`opencode-ai@${OPENCODE_PINNED_VERSION}\` and retry.`,
+  model_missing: "No model is configured for OpenCode. Set a model (LLM_MODEL, e.g. `gpt-4o`) in this agent's configuration, then retry.",
+  credential_missing: 'OpenCode has no API key or sign-in configured. Add an API key (LLM_API_KEY) or run `opencode auth login`, then retry.',
+  auth_failed: "OpenCode's provider rejected the credentials (authentication failed). Check the API key or sign-in and retry.",
+  provider_not_configured: 'OpenCode has no usable provider configured. Configure a provider and model, then retry.',
+  model_not_found: 'The configured model was not found or is not accessible. Check the model name and your access, then retry.',
+  rate_limited: 'The provider is rate-limiting requests. Wait a moment and retry.',
+  network_error: 'OpenCode could not reach the provider (network or service error). Retry shortly.',
+  provider_server_error: 'The provider returned a server error. Retry shortly.',
+  timeout: 'OpenCode timed out before producing a reply. Retry; if it persists, check the model and provider configuration.',
+  stream_parse_error: 'OpenCode produced output this version could not parse. Update to a supported OpenCode version, or open diagnostics.',
+  empty_response: 'OpenCode finished without producing a final reply. Retry; if it persists, open diagnostics.',
+  process_crashed: 'OpenCode exited unexpectedly. Open diagnostics or retry.',
+  cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent home directory's permissions.",
+  unknown_error: 'OpenCode failed for an undetermined reason. Open diagnostics or retry.',
+};
+
 class OpenCodeAdapter extends BaseAdapter {
   /**
    * @param {object} opts - BaseAdapter opts plus:
@@ -53,7 +95,7 @@ class OpenCodeAdapter extends BaseAdapter {
     if (this._opencodeBinary) {
       this._log(`Using OpenCode subprocess mode: ${this._opencodeBinary}`);
     } else {
-      this._log('OpenCode binary not found. Install with: npm install -g opencode-ai@latest');
+      this._log(`OpenCode binary not found. Install with: npm install -g opencode-ai@${OPENCODE_PINNED_VERSION}`);
     }
   }
 
@@ -258,23 +300,22 @@ class OpenCodeAdapter extends BaseAdapter {
         return;
       }
 
+      // The only way _runOpencode resolves empty now is the stop path (handled
+      // above). Every real failure — including exit 0 with no assistant text —
+      // is thrown with a category and handled in catch, so we no longer post a
+      // generic "produced no response" that misattributes everything to auth.
       if (responseText) {
         await this.sendResponse(msgChannel, responseText);
-      } else {
-        // Exit 0 with no assistant text almost always means OpenCode has no
-        // model/provider configured (it emits only step_start then stops).
-        await this.sendResponse(
-          msgChannel,
-          'OpenCode ran but produced no response. This usually means no model/provider is configured — set one up (e.g. `opencode auth login` or configure a provider/API key) and try again.'
-        );
       }
     } catch (e) {
       if (this._stoppingChannels.has(msgChannel)) {
         this._stoppingChannels.delete(msgChannel);
         return;
       }
-      this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      const category = (e && e.category) ? e.category : this._classifyErrno(e);
+      const diagnostic = OpenCodeAdapter._redact((e && (e.diagnostic || e.message)) || '');
+      this._log(`OpenCode failure [${category}] in ${msgChannel}: ${diagnostic.slice(0, 300)}`);
+      await this._sendClassifiedError(msgChannel, category, e && e.detail);
     }
   }
 
@@ -335,8 +376,15 @@ class OpenCodeAdapter extends BaseAdapter {
    * Extract user-visible text from a single opencode JSON event.
    */
   static _extractTextFromEvent(event) {
-    const eventType = event.type || '';
-    if (['step_start', 'step_finish', 'tool_use'].includes(eventType)) return null;
+    if (!event || typeof event !== 'object') return null;
+    // Control / tool / error events carry no user-visible assistant text. Match
+    // both underscore and hyphen spellings (`step_finish` vs `step-finish`) and
+    // detect tool events by shape, since opencode's exact top-level `type`
+    // string varies across versions.
+    const eventType = String(event.type || '').toLowerCase();
+    if (['step_start', 'step-start', 'step_finish', 'step-finish', 'tool_use', 'tool'].includes(eventType)) return null;
+    if (OpenCodeAdapter._isToolEvent(event)) return null;
+    if (eventType.includes('error')) return null;
 
     const part = event.part;
     if (part && typeof part === 'object') {
@@ -350,7 +398,7 @@ class OpenCodeAdapter extends BaseAdapter {
   }
 
   static _toolStatusFromEvent(event) {
-    if ((event.type || '') !== 'tool_use') return null;
+    if (!OpenCodeAdapter._isToolEvent(event)) return null;
 
     const item = event.item || event.part || event.tool || event;
     const toolName = OpenCodeAdapter._safeToolName(
@@ -401,6 +449,11 @@ class OpenCodeAdapter extends BaseAdapter {
   async _handleStreamEvent(event, msgChannel, responseState = null) {
     const status = OpenCodeAdapter._toolStatusFromEvent(event);
     if (status) {
+      // A tool call resets `finalText` (the "text since the last tool"), so the
+      // final answer is the text emitted AFTER the last tool. But we keep
+      // `allText` intact: if the run ends on a tool with no closing text, the
+      // earlier assistant text is still recoverable instead of being reported
+      // as an empty response (see _finalTextFromStdout).
       if (responseState) responseState.finalText = '';
       await this.sendStatus(msgChannel, status);
       return;
@@ -411,6 +464,7 @@ class OpenCodeAdapter extends BaseAdapter {
       if (responseState) {
         responseState.seenText = true;
         responseState.finalText += text;
+        responseState.allText = (responseState.allText || '') + text;
       }
       if (text.trim()) await this.sendThinking(msgChannel, text.trim());
     }
@@ -436,7 +490,10 @@ class OpenCodeAdapter extends BaseAdapter {
     if (!raw) return '';
     if (OpenCodeAdapter._isOnlyControlJson(raw)) return '';
     if (responseState && responseState.seenText) {
-      return (responseState.finalText || '').trim();
+      // Prefer text after the last tool call (the natural final answer); fall
+      // back to everything streamed so a `text -> tool -> exit` sequence is not
+      // misreported as empty.
+      return (responseState.finalText || '').trim() || (responseState.allText || '').trim();
     }
     return OpenCodeAdapter._extractTextFromJson(raw);
   }
@@ -582,28 +639,22 @@ class OpenCodeAdapter extends BaseAdapter {
   }
 
   _runOpencode(content, msgChannel) {
-    const binary = this._opencodeBinary || this._findOpencodeBinary();
-    if (binary) this._opencodeBinary = binary;
-    if (!binary) {
-      return Promise.reject(new Error(
-        'opencode CLI not found. Install with: npm install -g opencode-ai@latest'
-      ));
+    // Preflight BEFORE spawning: bail out with a structured, actionable error
+    // instead of launching a child that will hang for 5 minutes or exit 1 with
+    // an opaque message. Stubbing _runOpencode in tests bypasses this, exactly
+    // like the real send path bypasses spawn when preflight fails.
+    const pf = this._preflight(msgChannel);
+    if (!pf.ok) {
+      return Promise.reject(this._failure(pf.category, pf.diagnostic, pf.detail));
     }
 
+    const binary = this._opencodeBinary;
     const cmd = [binary, 'run', '--format', 'json', '--dir', this.agentHome];
 
-    // Pin the model explicitly — without it opencode hangs waiting for
-    // interactive selection (see _resolveModel). Harmless when resuming a
-    // session (opencode keeps the session's model); essential for new ones.
+    // Preflight guarantees a resolvable model; pin it explicitly — without it
+    // opencode hangs waiting for interactive provider/model selection.
     const model = this._resolveModel();
-    if (model) {
-      cmd.push('--model', model);
-    } else {
-      this._log(
-        'WARNING: no model configured (set LLM_MODEL / OPENCODE_MODEL). ' +
-        'opencode may hang or produce no response.'
-      );
-    }
+    cmd.push('--model', model);
 
     const sessionId = this._channelSessions[msgChannel];
     let fullPrompt;
@@ -648,7 +699,7 @@ class OpenCodeAdapter extends BaseAdapter {
       let stderr = '';
       let streamBuffer = '';
       let pendingEvents = Promise.resolve();
-      const responseState = { finalText: '', seenText: false };
+      const responseState = { finalText: '', allText: '', seenText: false };
       let settled = false;
       const finish = (fn, arg) => {
         if (settled) return;
@@ -702,41 +753,359 @@ class OpenCodeAdapter extends BaseAdapter {
         stdout = stdout.trim();
         stderr = stderr.trim();
 
+        // A structured error event may ride on stdout regardless of exit code
+        // (opencode emits {"type":"error", ...} as a JSONL event). Look there
+        // first so the real auth/provider/model failure is never discarded just
+        // because stderr happened to be empty.
+        const stdoutErr = OpenCodeAdapter._extractErrorFromStdout(stdout);
+
         if (signal) {
-          this._log(`opencode killed by signal ${signal} after ${TIMEOUT_MS / 1000}s (no output: ${!stdout})`);
-          return finish(reject, new Error(
-            stderr ? stderr.slice(0, 500)
-              : `opencode timed out after ${TIMEOUT_MS / 1000}s with no response. ` +
-                'This usually means no model/provider is configured — check LLM_MODEL / LLM_API_KEY.'
-          ));
+          this._log(`opencode killed by signal ${signal} after ${TIMEOUT_MS / 1000}s (output: ${!!stdout})`);
+          const cls = OpenCodeAdapter._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
+          // A signal almost always means our own timeout fired; only override to
+          // a more specific provider error if stdout/stderr clearly show one.
+          const category = (cls.category === 'unknown_error' || cls.category === 'process_crashed')
+            ? 'timeout' : cls.category;
+          return finish(reject, this._failure(category, cls.diagnostic || `signal=${signal}`, cls.detail));
         }
 
         if (code !== 0) {
-          this._log(`opencode exited with code ${code}: ${stderr.slice(0, 300)}`);
-          // Surface the real failure instead of a generic "No response" so the
-          // user can see (e.g.) a missing model/provider or auth error.
-          return finish(reject, new Error(
-            stderr ? stderr.slice(0, 500) : `opencode exited with code ${code}`
-          ));
+          const cls = OpenCodeAdapter._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
+          this._log(`opencode exited code ${code} → [${cls.category}]: ${OpenCodeAdapter._redact(cls.diagnostic).slice(0, 300)}`);
+          return finish(reject, this._failure(cls.category, cls.diagnostic, cls.detail));
         }
 
-        if (stdout) {
-          this._persistSessionId(msgChannel, stdout);
-          const text = OpenCodeAdapter._finalTextFromStdout(stdout, responseState);
-          // Exit 0 but no assistant text usually means no model/provider is
-          // configured (opencode emits only step_start then stops). Tell the
-          // user how to fix it rather than echoing raw event JSON.
-          if (!text) {
-            this._log(`opencode produced no assistant text. stdout head: ${stdout.slice(0, 300)}`);
-            return finish(resolve, '');
-          }
-          return finish(resolve, text);
-        }
+        // Exit 0.
+        if (stdout) this._persistSessionId(msgChannel, stdout);
+        const text = stdout ? OpenCodeAdapter._finalTextFromStdout(stdout, responseState) : '';
+        if (text) return finish(resolve, text);
 
-        if (stderr) this._log(`opencode stderr: ${stderr.slice(0, 300)}`);
-        finish(resolve, '');
+        // Exit 0 with no final assistant text. This is NOT proof of a missing
+        // provider — it can be a structured error on stdout, an incomplete
+        // stream, or a genuinely empty completion. Classify rather than guess.
+        if (stdoutErr) {
+          const cls = OpenCodeAdapter._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
+          this._log(`opencode exit 0 with error event → [${cls.category}]: ${OpenCodeAdapter._redact(cls.diagnostic).slice(0, 300)}`);
+          return finish(reject, this._failure(cls.category, cls.diagnostic, cls.detail));
+        }
+        const emptyCat = OpenCodeAdapter._emptyExitCategory(stdout);
+        this._log(`opencode exit 0, no final text → [${emptyCat}]. stdout head: ${OpenCodeAdapter._redact(stdout).slice(0, 200)}`);
+        return finish(reject, this._failure(emptyCat, `exit 0, no final assistant text; stdout head: ${stdout.slice(0, 200)}`));
       });
     });
+  }
+
+  // ------------------------------------------------------------------
+  // Preflight (deterministic, no model call) + failure classification
+  // ------------------------------------------------------------------
+
+  /**
+   * Cheap, side-effect-free readiness check run immediately before spawning.
+   * Returns { ok: true, ... } or { ok: false, category, detail?, diagnostic? }.
+   * Conservative by design: it blocks only on deterministic, locally-knowable
+   * problems (no binary, unsupported version, no model, no credential at all,
+   * unusable cwd) and lets anything ambiguous through to a real run.
+   */
+  _preflight() {
+    const binary = this._opencodeBinary || this._findOpencodeBinary();
+    if (binary) this._opencodeBinary = binary;
+    if (!binary) return { ok: false, category: 'cli_not_found' };
+
+    const probe = this._detectCliVersion(binary);
+    if (!probe.executable) {
+      return { ok: false, category: 'cli_not_executable', diagnostic: 'opencode --version did not run' };
+    }
+    const vclass = OpenCodeAdapter._classifyVersion(probe.version);
+    if (vclass === 'unsupported') {
+      return {
+        ok: false,
+        category: 'unsupported_version',
+        detail: `detected ${probe.version || 'unknown'}`,
+        diagnostic: `detected ${probe.version}, requires >= ${OPENCODE_MIN_VERSION}`,
+      };
+    }
+    // 'unknown' (unparseable) and 'degraded' (newer than tested) still run.
+
+    const model = this._resolveModel();
+    if (!model) return { ok: false, category: 'model_missing' };
+
+    const cred = this._credentialState();
+    if (cred === 'missing') return { ok: false, category: 'credential_missing' };
+
+    try {
+      fs.accessSync(this.agentHome, fs.constants.R_OK | fs.constants.W_OK);
+    } catch {
+      return { ok: false, category: 'cwd_unavailable', diagnostic: `cannot access ${this.agentHome}` };
+    }
+
+    return { ok: true, version: probe.version, versionClass: vclass, model, credential: cred };
+  }
+
+  /**
+   * Probe the CLI's version and executability, cached briefly so preflight never
+   * spawns `--version` more than once per VERSION_PROBE_TTL_MS across channels.
+   * Returns { version: string|null, executable: boolean }.
+   */
+  _detectCliVersion(binary) {
+    const now = Date.now();
+    if (this._versionProbe && (now - this._versionProbe.ts) < VERSION_PROBE_TTL_MS) {
+      return this._versionProbe;
+    }
+    let version = null;
+    let executable = false;
+    try {
+      const raw = execSync(`"${binary}" --version`, {
+        encoding: 'utf-8',
+        timeout: 5000,
+        windowsHide: true,
+        env: getEnhancedEnv(),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
+      executable = true;
+      const m = raw.match(/(\d+\.\d+\.\d+)/);
+      version = m ? m[1] : (raw.split('\n')[0] || null);
+    } catch (e) {
+      const code = e && e.code;
+      if (code === 'ENOENT' || code === 'EACCES' || code === 'EPERM') {
+        executable = false; // never spawned
+      } else {
+        executable = true; // spawned but --version misbehaved
+        const out = String((e && (e.stdout || e.stderr)) || '');
+        const m = out.match(/(\d+\.\d+\.\d+)/);
+        version = m ? m[1] : null;
+      }
+    }
+    this._versionProbe = { version, executable, ts: now };
+    return this._versionProbe;
+  }
+
+  /**
+   * Best-effort credential/provider presence. 'present' | 'unknown' | 'missing'.
+   * 'unknown' (custom provider key, custom endpoint, or a config file we can't
+   * fully validate) is deliberately NOT blocked — only a total absence of any
+   * recognizable signal is 'missing'.
+   */
+  _credentialState() {
+    const env = this.agentEnv || process.env;
+    const val = (k) => (env[k] == null ? '' : String(env[k])).trim();
+    const KNOWN = [
+      'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY',
+      'GROQ_API_KEY', 'MISTRAL_API_KEY', 'DEEPSEEK_API_KEY', 'XAI_API_KEY',
+      'GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY',
+      'AZURE_API_KEY', 'AZURE_OPENAI_API_KEY',
+    ];
+    if (KNOWN.some((k) => val(k))) return 'present';
+
+    const home = os.homedir();
+    const fileNonEmpty = (p) => {
+      try { return fs.existsSync(p) && fs.statSync(p).size > 0; } catch { return false; }
+    };
+    const stores = [
+      path.join(home, '.local', 'share', 'opencode', 'auth.json'),
+      path.join(home, '.config', 'opencode', 'opencode.json'),
+      path.join(home, '.config', 'opencode', 'config.json'),
+      path.join(this.agentHome, 'opencode.json'),
+      path.join(this.agentHome, '.opencode', 'opencode.json'),
+    ];
+    if (stores.some(fileNonEmpty)) return 'present';
+
+    if (val('OPENAI_BASE_URL') || val('LLM_BASE_URL')) return 'unknown';
+    if (Object.keys(env).some((k) => /(_API_KEY|_API_TOKEN|_TOKEN)$/.test(k) && val(k))) return 'unknown';
+    return 'missing';
+  }
+
+  /** Build a categorized Error carrying diagnostic (for logs) + detail (for the user). */
+  _failure(category, diagnostic, detail) {
+    const err = new Error(`opencode ${category}${detail ? `: ${detail}` : ''}`);
+    err.category = category;
+    err.diagnostic = diagnostic || '';
+    err.detail = detail || '';
+    return err;
+  }
+
+  /** Map a raw spawn errno (ENOENT/EACCES) to a category; default unknown_error. */
+  _classifyErrno(e) {
+    const code = e && e.code;
+    if (code === 'ENOENT') return 'cli_not_found';
+    if (code === 'EACCES' || code === 'EPERM') return 'cli_not_executable';
+    return 'unknown_error';
+  }
+
+  /**
+   * Post a user-visible, de-identified, actionable error that is clearly NOT a
+   * normal reply. Carries `error_category` in metadata so the UI can route it.
+   */
+  async _sendClassifiedError(channel, category, detail) {
+    const base = FAILURE_MESSAGES[category] || FAILURE_MESSAGES.unknown_error;
+    const safe = detail ? OpenCodeAdapter._redact(detail).trim() : '';
+    const body = safe ? `${base}\n\n> ${safe}` : base;
+    const content = `⚠️ **OpenCode couldn't run** — ${body}`;
+    try {
+      await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
+        senderType: 'agent',
+        senderName: this.agentName,
+        messageType: 'error',
+        metadata: { agent_mode: this._mode, error: true, error_category: category },
+        sessionId: this._sessionId,
+      });
+    } catch {
+      // Older backends may reject an unknown messageType/metadata — fall back to
+      // the plain error path so the user still gets an actionable message.
+      try { await this.sendError(channel, content); } catch {}
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Static classifiers (pure — unit tested)
+  // ------------------------------------------------------------------
+
+  /** True when an event is a tool call, across opencode's version-varying shapes. */
+  static _isToolEvent(event) {
+    if (!event || typeof event !== 'object') return false;
+    const t = String(event.type || '').toLowerCase();
+    if (t === 'tool_use' || t === 'tool') return true;
+    const part = event.part;
+    if (part && typeof part === 'object' && String(part.type || '').toLowerCase() === 'tool') return true;
+    return false;
+  }
+
+  /** Scan stdout JSONL for a structured error event; last one wins. */
+  static _extractErrorFromStdout(raw) {
+    const events = OpenCodeAdapter._splitJsonObjects(raw);
+    for (let i = events.length - 1; i >= 0; i--) {
+      const err = OpenCodeAdapter._errorFromEvent(events[i]);
+      if (err) return err;
+    }
+    return null;
+  }
+
+  /** Pull { message, name, status } from one event, tolerant of nesting. */
+  static _errorFromEvent(ev) {
+    if (!ev || typeof ev !== 'object') return null;
+    const type = String(ev.type || '').toLowerCase();
+    const part = (ev.part && typeof ev.part === 'object') ? ev.part : null;
+    // Nested error objects carry the richest detail — try them before the
+    // wrapping event, whose only signal may be type === 'error'.
+    const candidates = [];
+    if (ev.error && typeof ev.error === 'object') candidates.push(ev.error);
+    if (part && part.error && typeof part.error === 'object') candidates.push(part.error);
+    if (part && String(part.type || '').toLowerCase().includes('error')) candidates.push(part);
+    if (type.includes('error')) candidates.push(ev);
+    if (typeof ev.error === 'string') candidates.push({ message: ev.error });
+    if (part && typeof part.error === 'string') candidates.push({ message: part.error });
+
+    const pick = (...vals) => {
+      for (const v of vals) if (typeof v === 'string' && v.trim()) return v;
+      return '';
+    };
+    for (const c of candidates) {
+      if (!c || typeof c !== 'object') continue;
+      const data = (c.data && typeof c.data === 'object') ? c.data : {};
+      const message = pick(c.message, c.error, c.detail, c.reason, data.message);
+      const name = pick(c.name, c.type);
+      const statusRaw = c.status != null ? c.status
+        : (c.statusCode != null ? c.statusCode
+          : (data.status != null ? data.status
+            : (typeof c.code === 'number' ? c.code : null)));
+      if (message || name || statusRaw != null) {
+        return {
+          message: String(message || ''),
+          name: String(name || ''),
+          status: statusRaw != null ? String(statusRaw) : '',
+        };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Classify a failed run into one taxonomy category. Conservative: an exit
+   * code alone is never "auth"; only explicit 401/403/auth wording is. Returns
+   * { category, diagnostic, detail }.
+   */
+  static _classifyFailure({ code, signal, stdout, stderr, stdoutErr } = {}) {
+    const err = stdoutErr || OpenCodeAdapter._extractErrorFromStdout(stdout || '');
+    const status = err && err.status ? String(err.status) : '';
+    const msg = (err && err.message) || '';
+    const name = (err && err.name) || '';
+    const diagnostic = [name, status, msg].filter(Boolean).join(' ')
+      || (stderr || '')
+      || `exit code ${code}${signal ? `, signal ${signal}` : ''}`;
+    const hay = `${name} ${status} ${msg} ${stderr || ''}`.toLowerCase();
+    const has = (re) => re.test(hay);
+
+    let category;
+    if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|authentication|auth(entication)? failed|forbidden|invalid token|no api key|missing api key|permission denied/)) {
+      category = 'auth_failed';
+    } else if (has(/\b429\b/) || has(/rate.?limit|too many requests|quota|overloaded/)) {
+      category = 'rate_limited';
+    } else if (has(/model.*(not found|does not exist|unknown|invalid|unsupported)|no such model|unknown model|invalid model|model_not_found|\b404\b/)) {
+      category = 'model_not_found';
+    } else if (has(/no provider|provider not configured|not configured|no model configured|no providers|missing provider/)) {
+      category = 'provider_not_configured';
+    } else if (has(/econnrefused|enotfound|etimedout|eai_again|network|fetch failed|socket hang|connection (refused|reset|error)|getaddrinfo|\bdns\b/)) {
+      category = 'network_error';
+    } else if (has(/\b5\d\d\b|server error|internal server|bad gateway|service unavailable|gateway timeout/)) {
+      category = 'provider_server_error';
+    } else if (has(/timeout|timed out/)) {
+      category = 'timeout';
+    } else if (err) {
+      category = 'unknown_error'; // recognized an error but not its kind
+    } else if (signal) {
+      category = 'timeout';
+    } else if (!stdout && !stderr) {
+      category = 'process_crashed';
+    } else if (stdout) {
+      category = 'stream_parse_error';
+    } else {
+      category = 'unknown_error';
+    }
+
+    const detail = OpenCodeAdapter._redact(msg || stderr || '').slice(0, 200);
+    return { category, diagnostic, detail };
+  }
+
+  /** Category for an exit-0 run that produced no final assistant text. */
+  static _emptyExitCategory(stdout) {
+    const raw = String(stdout || '').trim();
+    if (!raw) return 'empty_response';
+    return 'empty_response';
+  }
+
+  /** 'ok' | 'degraded' (newer than tested) | 'unsupported' (too old) | 'unknown'. */
+  static _classifyVersion(version) {
+    // Non-semver (or unreadable) → 'unknown': allow the run, never block on it.
+    if (!version || !/^\d+\.\d+/.test(String(version))) return 'unknown';
+    if (OpenCodeAdapter._cmpVer(version, OPENCODE_MIN_VERSION) < 0) return 'unsupported';
+    if (OPENCODE_TESTED_MAX_VERSION && OpenCodeAdapter._cmpVer(version, OPENCODE_TESTED_MAX_VERSION) > 0) return 'degraded';
+    return 'ok';
+  }
+
+  /** Numeric-segment semver compare. Returns -1 / 0 / 1. */
+  static _cmpVer(a, b) {
+    const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+    const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const d = (pa[i] || 0) - (pb[i] || 0);
+      if (d) return d < 0 ? -1 : 1;
+    }
+    return 0;
+  }
+
+  /** Redact secrets (keys, tokens, bearer/authorization, query secrets) from diagnostics. */
+  static _redact(s) {
+    let out = String(s == null ? '' : s);
+    out = out
+      .replace(/\bsk-[A-Za-z0-9_-]{6,}/g, 'sk-[REDACTED]')
+      .replace(/\b(?:github_pat|gh[pousr])_[A-Za-z0-9_]{10,}/g, '[REDACTED_TOKEN]')
+      .replace(/\bxox[baprs]-[A-Za-z0-9-]{8,}/g, '[REDACTED_TOKEN]')
+      .replace(/\bAKIA[0-9A-Z]{12,}/g, '[REDACTED_KEY]')
+      .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}/g, '[REDACTED_JWT]')
+      .replace(/(authorization|api[_-]?key|x-api-key|token|bearer|secret|password|passwd)(["'\s:=]+)([^\s"',}]+)/gi,
+        (m, k, sep) => `${k}${sep}[REDACTED]`)
+      .replace(/([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/gi, '$1[REDACTED]')
+      .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[REDACTED]');
+    return out;
   }
 }
 

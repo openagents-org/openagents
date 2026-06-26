@@ -544,7 +544,7 @@ _AGENT_CATALOG = [
         "name": "opencode",
         "label": "OpenCode",
         "description": "Open-source terminal-native AI coding agent",
-        "install_command": "npm install -g opencode-ai@latest",
+        "install_command": "npm install -g opencode-ai@1.17.11",
         "homepage": "https://opencode.ai",
         "tags": ["coding", "open-source", "cli", "terminal"],
         "builtin": False,
