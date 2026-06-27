@@ -35,6 +35,25 @@ const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
 // heartbeat_failed up to the daemon. A success resets the streak immediately.
 const HEARTBEAT_ERROR_THRESHOLD = 2;
 
+// ── Connection self-healing (V1) tunables ──
+// Heartbeat cadence (unchanged from legacy setInterval value).
+const HEARTBEAT_INTERVAL_MS = 30000;
+// A reconnect is only triggered when BOTH conditions hold (AND, not OR):
+//   • time since last confirmed liveness ≥ RECONNECT_AFTER_MS (we are almost
+//     certainly past the server's AGENT_TIMEOUT, so it considers us offline), and
+//   • ≥ RECONNECT_FAIL_THRESHOLD consecutive heartbeat failures.
+// This avoids re-joining (and rotating sessions) on brief blips the server
+// hasn't yet timed out.
+const RECONNECT_AFTER_MS = 90000;
+const RECONNECT_FAIL_THRESHOLD = 3;
+// 404 / missing-session_id / unknown join outcomes are "ambiguous": retried a
+// bounded number of times, then treated as terminal to avoid an infinite spin.
+const JOIN_MAX_ATTEMPTS_AMBIGUOUS = 5;
+// Join backoff: 2s → 4s → 8s → 16s → 30s cap, with ±20% jitter to spread a
+// fleet of agents recovering at once.
+const JOIN_BACKOFF_BASE_MS = 2000;
+const JOIN_BACKOFF_MAX_MS = 30000;
+
 class BaseAdapter {
   /**
    * @param {object} opts
@@ -85,6 +104,37 @@ class BaseAdapter {
     // workspace flag must reconnect/restart to pick up the change (matches
     // the Python adapter behavior in workspace_prompt.py).
     this._browserEnabledCache = null;
+    // ── Connection self-healing state (V1) ──
+    // Kill-switch: OA_ADAPTER_RECONNECT=0 → run the exact pre-patch lifecycle.
+    this._reconnectEnabled = process.env.OA_ADAPTER_RECONNECT !== '0';
+    // join attempt generation: bumped at the start of every (re)connect attempt.
+    this._attemptSeq = 0;
+    // active session generation: the attempt number of the live session, or
+    // null when no session is active (incl. the whole reconnect window). Async
+    // callbacks (heartbeat/poll/sleep) may only mutate connection state when
+    // their captured gen === _activeGen.
+    this._activeGen = null;
+    // Two distinct reconnect states (never conflated):
+    //   _reconnectPending    → threshold met but an active task is running, so
+    //                          the real reconnect is deferred (session stays live).
+    //   _reconnectInProgress → reconnect has formally begun; _activeGen is null.
+    this._reconnectPending = false;
+    this._reconnectInProgress = false;
+    // ms timestamp of last confirmed liveness (successful join OR heartbeat).
+    this._lastLivenessOkAt = 0;
+    this._consecutiveHeartbeatFailures = 0;
+    // Terminal reason that must STOP the adapter without auto-reconnect:
+    // 'session_revoked' | 'auth' | 'join_failed' | null.
+    this._terminalReason = null;
+    // Coarse connection state, for logs/internal judgement only (NOT exposed to
+    // daemon status). 'idle'|'connecting'|'connected'|'reconnecting'|'disconnected'|'session_revoked'.
+    this._connState = 'idle';
+    this._firstConnect = true;
+    // All interruptible-sleep wakers; _wakeAll() resolves every pending sleep.
+    this._waiters = new Set();
+    // Injectable clock/jitter for deterministic tests (default real impls).
+    this._clock = null;
+    this._jitter = null;
     // Wall-clock timestamp of adapter init, used by the `status` control
     // action to report uptime back to the channel. Reset on reinstantiation
     // (e.g. after a `restart` IPC bounce) so uptime tracks "time since last
@@ -173,6 +223,17 @@ class BaseAdapter {
   }
 
   async run() {
+    // Kill-switch: when disabled, run the EXACT pre-patch lifecycle so the
+    // behavior is provably identical to before this patch.
+    if (!this._reconnectEnabled) return this._runLegacyLifecycle();
+    return this._runSupervisedLifecycle();
+  }
+
+  // ------------------------------------------------------------------
+  // Legacy lifecycle (OA_ADAPTER_RECONNECT=0) — verbatim pre-patch run()
+  // ------------------------------------------------------------------
+
+  async _runLegacyLifecycle() {
     this._running = true;
 
     // Announce agent to workspace
@@ -223,9 +284,310 @@ class BaseAdapter {
     }
   }
 
+  // ------------------------------------------------------------------
+  // Supervised lifecycle (default) — join-with-retry + heartbeat self-heal
+  // ------------------------------------------------------------------
+
+  async _runSupervisedLifecycle() {
+    this._running = true;
+    this._firstConnect = true;
+    try {
+      while (this._running) {
+        this._connState = this._firstConnect ? 'connecting' : 'reconnecting';
+        const outcome = await this._joinWithRetry();      // 'ok' | 'terminal' | 'stopped'
+        if (!this._running) break;
+        if (outcome !== 'ok') { this._connState = 'disconnected'; break; }
+
+        const gen = this._activeGen;                      // set by _joinWithRetry on success
+        this._log(`event=joined agent=${this.agentName}${this._sessionId ? ` session=${this._sessionId.slice(0, 8)}` : ''} reconnect=${!this._firstConnect}`);
+
+        const reason = await this._runConnectedSession(gen);  // 'reconnect' | 'terminal' | 'stopped'
+        this._teardownLocal(gen);
+        this._firstConnect = false;
+
+        if (reason === 'reconnect') {
+          this._reconnectInProgress = false;
+          this._reconnectPending = false;
+          continue;
+        }
+        break;  // 'terminal' or 'stopped'
+      }
+    } finally {
+      this._running = false;
+      this._activeGen = null;
+      this._wakeAll();
+      this._wakeControlPoller();
+      // NOTE (V1): the supervised path intentionally does NOT call
+      // client.disconnect() here. POST /v1/leave marks the member offline by
+      // agent_name WITHOUT validating session_id, so calling it on any
+      // automatic/terminal exit can knock a newer session (that already took
+      // over this agent name) offline. Going-away presence is instead handled
+      // by the server's heartbeat AGENT_TIMEOUT. See design §7.
+    }
+  }
+
+  /**
+   * Join the workspace, retrying transient failures with backoff. A join only
+   * counts as success when the server returns a non-empty string session_id;
+   * on success the new active session generation is activated. Returns:
+   *   'ok'        — joined, _activeGen set, _sessionId valid
+   *   'terminal'  — auth failure / ambiguous-cap reached (_terminalReason set)
+   *   'stopped'   — _running cleared or attempt superseded (stop/Disconnect)
+   */
+  async _joinWithRetry() {
+    const attempt = ++this._attemptSeq;
+    let backoffN = 0;
+    let ambiguous = 0;
+
+    while (this._running && attempt === this._attemptSeq) {
+      let res = null, err = null;
+      try {
+        res = await this.client.joinNetwork(this.agentName, this.token, {
+          network: this.workspaceId,
+          agentType: this.agentType || 'agent',
+          serverHost: require('os').hostname(),
+          workingDir: this.workingDir || defaultAgentWorkdir(this.agentName),
+        });
+      } catch (e) {
+        err = e;
+      }
+      // Superseded (stop / newer attempt) while the request was in flight.
+      if (!this._running || attempt !== this._attemptSeq) return 'stopped';
+
+      if (!err) {
+        const sid = res && res.session_id;
+        if (typeof sid === 'string' && sid.length > 0) {
+          this._sessionId = sid;
+          this._lastLivenessOkAt = this._now();
+          this._consecutiveHeartbeatFailures = 0;
+          this._terminalReason = null;
+          this._connState = 'connected';
+          this._activeGen = attempt;          // ★ activate new session
+          this._reportStatus(null);           // joined OK → clear any prior error
+          return 'ok';
+        }
+        // 2xx but no usable session_id — anomalous; bounded retry.
+        ambiguous++;
+        this._log(`event=join_no_session agent=${this.agentName} attempt=${ambiguous}`);
+        if (ambiguous >= JOIN_MAX_ATTEMPTS_AMBIGUOUS) {
+          this._terminalReason = 'join_failed';
+          this._connState = 'disconnected';
+          this._setExitInfo(REASON.WORKSPACE_JOIN_FAILED, 'Workspace join failed: no session_id in response');
+          this._reportStatus(REASON.WORKSPACE_JOIN_FAILED, 'Workspace join failed: no session_id in response');
+          return 'terminal';
+        }
+      } else {
+        const cls = this._classifyError(err);
+        const { reason, message } = classifyJoinError(err);
+        if (cls === 'terminal' || cls === 'revoked') {
+          this._terminalReason = cls === 'revoked' ? 'session_revoked' : 'auth';
+          this._connState = 'disconnected';
+          this._log(`event=join_terminal agent=${this.agentName} reason=${this._errLabel(err)}`);
+          if (cls === 'revoked') {
+            this._setExitInfo(REASON.SESSION_REVOKED, 'Workspace session revoked — another client joined with the same agent name');
+            this._reportStatus(REASON.SESSION_REVOKED, 'Workspace session revoked');
+          } else {
+            this._setExitInfo(reason, message);
+            this._reportStatus(reason, message);
+          }
+          return 'terminal';
+        }
+        if (cls === 'ambiguous') {
+          ambiguous++;
+          if (ambiguous >= JOIN_MAX_ATTEMPTS_AMBIGUOUS) {
+            this._terminalReason = 'join_failed';
+            this._connState = 'disconnected';
+            this._log(`event=join_giveup agent=${this.agentName} reason=${this._errLabel(err)}`);
+            this._setExitInfo(reason, message);
+            this._reportStatus(reason, message);
+            return 'terminal';
+          }
+        }
+        this._log(`event=join_failed agent=${this.agentName} attempt=${backoffN + 1} err=${this._errLabel(err)}`);
+        // Surface the classified reason while retrying (deduped by _reportStatus);
+        // a later successful join clears it. Mirrors legacy _joinWorkspace().
+        this._reportStatus(reason, message);
+      }
+
+      await this._interruptibleSleep(this._backoff(backoffN++));
+    }
+    return 'stopped';
+  }
+
+  /**
+   * Run one connected session: skill sync, cursor setup, heartbeat loop,
+   * control poller, and the message poll loop. Returns when the session must
+   * end: 'reconnect' (heartbeat lapse), 'terminal' (revoked/auth), or
+   * 'stopped' (_running cleared). Does NOT perform any remote leave.
+   */
+  async _runConnectedSession(gen) {
+    // Skill sync (best-effort) — only meaningful right after a join.
+    await this._syncSkillsFromWorkspace();
+    // Skip stale control events each session so /restart etc. don't replay.
+    await this._skipExistingControlEvents();
+    // Jump the message cursor to head ONLY on the first connect. On reconnect
+    // we resume from _lastEventId so messages queued during the outage are
+    // still delivered (and _processedIds guards against double-dispatch).
+    if (this._firstConnect) {
+      try { await this._skipExistingEvents(); } catch (e) {
+        this._log(`skip existing events failed (non-fatal): ${this._errLabel(e)}`);
+      }
+    }
+
+    const heartbeatLoop = this._heartbeatLoop(gen);
+    const controlPoller = this._controlPollerLoop();
+    this._log('Starting poll loop...');
+    try {
+      await this._pollLoop(gen);
+    } finally {
+      // Tear down this session's background loops locally (no remote leave).
+      this._wakeAll();
+      this._wakeControlPoller();
+      try { await heartbeatLoop; } catch {}
+      try { await controlPoller; } catch {}
+    }
+
+    if (this._terminalReason) return 'terminal';
+    if (this._reconnectInProgress) return 'reconnect';
+    return 'stopped';
+  }
+
+  /** Best-effort sync of workspace-managed skills (mirrors legacy block). */
+  async _syncSkillsFromWorkspace() {
+    try {
+      const agents = await Promise.race([
+        this.client.getAgents(this.workspaceId, this.token),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('skill sync timed out (10s)')), 10000)),
+      ]);
+      const self = agents.find((a) => a.agentName === this.agentName);
+      if (self && self.enabledSkills) {
+        const { skillsToDisabledModules } = require('../skill-catalog');
+        this.disabledModules = skillsToDisabledModules(self.enabledSkills);
+        this._log(`Synced skills from workspace: disabled=[${[...this.disabledModules].join(',')}]`);
+      }
+    } catch (e) {
+      this._log(`Warning: skill sync failed (non-fatal): ${e.message}`);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Heartbeat — single-flight await loop (no overlapping requests)
+  // ------------------------------------------------------------------
+
+  async _heartbeatLoop(gen) {
+    // Initial heartbeat right after join.
+    await this._heartbeatOnce(gen);
+    while (this._running && gen === this._activeGen) {
+      await this._interruptibleSleep(HEARTBEAT_INTERVAL_MS);
+      if (!this._running || gen !== this._activeGen) break;
+      await this._heartbeatOnce(gen);   // awaited → never overlaps with the next
+    }
+  }
+
+  async _heartbeatOnce(gen) {
+    let err = null;
+    try {
+      await this.client.heartbeat(this.workspaceId, this.agentName, this.token, this._sessionId);
+    } catch (e) {
+      err = e;
+    }
+    // Stale callback from a superseded session — must not touch new state.
+    if (gen !== this._activeGen) return;
+
+    if (!err) {
+      this._lastLivenessOkAt = this._now();
+      this._consecutiveHeartbeatFailures = 0;
+      if (this._connState !== 'connected') this._connState = 'connected';  // soft recovery
+      this._reportStatus(null); // alive → clear any prior connectivity error
+      if (this._reconnectPending) {
+        this._reconnectPending = false;
+        this._log(`event=reconnect_pending_cleared agent=${this.agentName}`);
+      }
+      return;
+    }
+
+    const cls = this._classifyError(err);
+    if (cls === 'revoked') { this._onSessionRevoked(); return; }
+    if (cls === 'terminal') {
+      // 401/403 → token is bad; reconnect won't help. Terminal immediately,
+      // without waiting out the 90s freshness window.
+      this._terminalReason = 'auth';
+      this._connState = 'disconnected';
+      this._log(`event=heartbeat_auth_terminal agent=${this.agentName} reason=${this._errLabel(err)}`);
+      const { reason, message } = classifyHeartbeatError(err);
+      this._setExitInfo(reason, message);
+      this._reportStatus(reason, message);
+      this._activeGen = null;
+      this._running = false;
+      this._wakeAll();
+      return;
+    }
+    // retryable / ambiguous / unknown → count and evaluate reconnect.
+    this._consecutiveHeartbeatFailures++;
+    this._log(`event=heartbeat_failed agent=${this.agentName} consecutive=${this._consecutiveHeartbeatFailures} err=${this._errLabel(err)}`);
+    // Surface a hard error to the daemon only after repeated consecutive
+    // failures, so a single transient blip isn't mislabeled (mirrors legacy).
+    if (this._consecutiveHeartbeatFailures >= HEARTBEAT_ERROR_THRESHOLD) {
+      const { reason, message } = classifyHeartbeatError(err);
+      this._reportStatus(reason, message);
+    }
+    this._maybeTriggerReconnect();
+  }
+
+  /**
+   * Decide whether a heartbeat lapse warrants reconnect. Triggers only when
+   * BOTH the freshness window AND the consecutive-failure threshold are met.
+   * If a task is in flight, the reconnect is DEFERRED (_reconnectPending) and
+   * re-evaluated on the next heartbeat — the active session is NOT torn down.
+   */
+  _maybeTriggerReconnect() {
+    const lapsed = this._now() - this._lastLivenessOkAt;
+    const meets = lapsed >= RECONNECT_AFTER_MS &&
+                  this._consecutiveHeartbeatFailures >= RECONNECT_FAIL_THRESHOLD;
+    if (!meets) return;
+
+    if (this._hasActiveWork()) {
+      if (!this._reconnectPending) {
+        this._reconnectPending = true;
+        this._log(`event=reconnect_deferred_active_work agent=${this.agentName} lapsed_ms=${lapsed}`);
+      }
+      return;  // keep current session + heartbeat alive; do not invalidate gen
+    }
+    this._beginReconnect();
+  }
+
+  /**
+   * Formally begin reconnect: invalidate the active session IMMEDIATELY (before
+   * a new join) so any in-flight heartbeat/poll/sleep from the old generation
+   * becomes a no-op, then wake the loops so they exit and the supervisor re-joins.
+   */
+  _beginReconnect() {
+    if (this._activeGen === null) return;  // already reconnecting / not live
+    const lapsed = this._now() - this._lastLivenessOkAt;
+    this._log(`event=reconnect_begin agent=${this.agentName} lapsed_ms=${lapsed}`);
+    this._activeGen = null;          // ★ invalidate old session NOW
+    this._reconnectInProgress = true;
+    this._reconnectPending = false;
+    this._connState = 'reconnecting';
+    this._wakeAll();
+  }
+
+  /** Local-only teardown of a finished session's loops. No remote leave. */
+  _teardownLocal(_gen) {
+    this._wakeAll();
+    this._wakeControlPoller();
+  }
+
   stop() {
     this._stopRequested = true;
     this._running = false;
+    // Invalidate any live session and wake every interruptible sleep so the
+    // supervised loops (join backoff, heartbeat, poll) exit promptly instead
+    // of waiting out their timers. Harmless in legacy mode (_waiters empty,
+    // _activeGen unused).
+    this._activeGen = null;
+    this._wakeAll();
+    this._wakeControlPoller();
   }
 
   // ------------------------------------------------------------------
@@ -611,11 +973,15 @@ class BaseAdapter {
   // Poll loop
   // ------------------------------------------------------------------
 
-  async _pollLoop() {
+  async _pollLoop(gen) {
+    // Legacy (gen === undefined) keeps the non-interruptible _sleep so its
+    // timing is byte-identical to pre-patch. Supervised uses interruptible
+    // sleeps so reconnect/stop can wake the loop immediately.
+    const sleep = (ms) => (gen === undefined ? this._sleep(ms) : this._interruptibleSleep(ms));
     let idleCount = 0;
     let pollCount = 0;
 
-    while (this._running) {
+    while (this._running && (gen === undefined || gen === this._activeGen)) {
       pollCount++;
       let messages, rawCursor, composingActive = false;
       try {
@@ -631,11 +997,17 @@ class BaseAdapter {
         }
       } catch (e) {
         this._log(`Poll #${pollCount} failed: ${e.message} \nStack: ${e.stack}`);
-        await this._sleep(5000);
+        // Poll failures never trigger reconnect (only heartbeat freshness does);
+        // keep the original retry-after-5s behavior.
+        await sleep(5000);
         continue;
       }
 
       if (rawCursor) this._lastEventId = rawCursor;
+
+      // Discard results from a session that was invalidated while this poll
+      // was in flight (reconnect began): do NOT dispatch into the new session.
+      if (gen !== undefined && gen !== this._activeGen) break;
 
       // Deduplicate
       const incoming = [];
@@ -691,7 +1063,7 @@ class BaseAdapter {
       } else {
         delay = Math.min(WARM_INTERVAL + (idleCount - WARM_POLLS) * 1000, 15000);
       }
-      await this._sleep(delay);
+      await sleep(delay);
     }
   }
 
@@ -908,7 +1280,16 @@ class BaseAdapter {
 
   _onSessionRevoked() {
     this._log(`SESSION REVOKED: another client joined as '${this.agentName}'. Stopping adapter.`);
+    // Terminal: a newer client now owns this agent name. Never auto-reconnect
+    // (that would fight the new session). In legacy mode the extra fields are
+    // unused; only _running=false matters.
+    this._setExitInfo(REASON.SESSION_REVOKED, 'Workspace session revoked — another client joined with the same agent name');
+    this._reportStatus(REASON.SESSION_REVOKED, 'Workspace session revoked');
+    this._terminalReason = 'session_revoked';
+    this._connState = 'session_revoked';
+    this._activeGen = null;
     this._running = false;
+    this._wakeAll();
   }
 
   // ------------------------------------------------------------------
@@ -929,6 +1310,80 @@ class BaseAdapter {
 
   _sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** Current time in ms (injectable for deterministic tests). */
+  _now() {
+    return this._clock ? this._clock() : Date.now();
+  }
+
+  /**
+   * Sleep that can be woken early by _wakeAll() (called on stop / reconnect /
+   * teardown). Every pending sleep registers its own resolver in _waiters, so
+   * concurrent sleepers (join backoff + heartbeat + poll pacing) are ALL woken
+   * — no single-callback overwrite. Each waiter removes itself on settle.
+   */
+  _interruptibleSleep(ms) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this._waiters.delete(finish);
+        resolve();
+      };
+      const timer = setTimeout(finish, ms);
+      this._waiters.add(finish);
+      if (!this._running) finish();  // already stopping → don't wait
+    });
+  }
+
+  /** Wake every pending interruptible sleep. Each waiter self-removes. */
+  _wakeAll() {
+    for (const wake of [...this._waiters]) {
+      try { wake(); } catch { /* ignore */ }
+    }
+  }
+
+  /** Join backoff: 2s→4s→…→30s cap, with ±20% jitter (injectable for tests). */
+  _backoff(n) {
+    const base = Math.min(JOIN_BACKOFF_MAX_MS, JOIN_BACKOFF_BASE_MS * Math.pow(2, n));
+    const rand = this._jitter ? this._jitter() : (Math.random() * 2 - 1);  // [-1, 1)
+    return Math.max(0, Math.round(base + base * 0.2 * rand));
+  }
+
+  /**
+   * Classify a transport error using STRUCTURED fields only (instanceof +
+   * statusCode + code) — never message-string matching:
+   *   'revoked'    → SessionRevokedError (terminal, no auto-reconnect)
+   *   'terminal'   → 401/403 (bad credentials; retrying is pointless)
+   *   'ambiguous'  → 404 / unknown (bounded retry, then terminal)
+   *   'retryable'  → 5xx / network errors (timeout, conn refused, DNS, reset)
+   */
+  _classifyError(err) {
+    if (!err) return 'retryable';
+    if (err instanceof SessionRevokedError || err.code === 'session_revoked') return 'revoked';
+    const sc = err.statusCode;
+    if (sc === 401 || sc === 403) return 'terminal';
+    if (sc === 404) return 'ambiguous';
+    if (typeof sc === 'number' && sc >= 500) return 'retryable';
+    const code = err.code;
+    if (code && ['ETIMEDOUT', 'ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET', 'EAI_AGAIN'].includes(code)) {
+      return 'retryable';
+    }
+    // No structured signal (e.g. "Invalid response: ..." parse failures, or an
+    // unexpected 4xx) → bounded ambiguous so we never spin forever.
+    return 'ambiguous';
+  }
+
+  /** Compact, secret-free error label for logs (no message/URL/token leak). */
+  _errLabel(err) {
+    if (!err) return 'unknown';
+    if (err instanceof SessionRevokedError || err.code === 'session_revoked') return 'session_revoked';
+    if (typeof err.statusCode === 'number') return `http_${err.statusCode}`;
+    if (err.code) return String(err.code);
+    return 'error';
   }
 
   /**
