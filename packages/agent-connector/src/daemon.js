@@ -210,6 +210,7 @@ class Daemon {
         restarts: info.restarts,
         started_at: info.startedAt || null,
         last_error: info.lastError || null,
+        error_reason: info.errorReason || null,
       };
     }
     return result;
@@ -363,6 +364,9 @@ class Daemon {
       restarts: 0,
       startedAt: null,
       lastError: null,
+      // Structured failure reason (health-status REASON) paired with lastError,
+      // so the UI/TUI can classify "why" without parsing the message.
+      errorReason: null,
       proc: null,
       _backoff: 2,
     };
@@ -472,9 +476,33 @@ class Daemon {
   // Internal — adapter loop (workspace-connected agents)
   // ---------------------------------------------------------------------------
 
+  /**
+   * Apply a live status update reported by a running adapter (join/heartbeat
+   * health). A genuine failure reason → state 'error' + redacted last_error so
+   * the Agents list / TUI show the real cause; a null reason → recovered, clear
+   * the error. Ignored once the agent is stopping (a user stop must win).
+   */
+  _applyAdapterStatus(name, info, update) {
+    if (!update || this._shuttingDown || this._stoppedAgents.has(name)) return;
+    const { isErrorReason, redactDiagnostic } = require('./adapters/health-status');
+    const reason = update.reason || null;
+    if (reason && isErrorReason(reason)) {
+      info.state = 'error';
+      info.errorReason = reason;
+      info.lastError = redactDiagnostic(update.message || reason);
+    } else {
+      // Recovered / healthy again — clear any prior connectivity error.
+      if (info.state === 'error') info.state = 'running';
+      info.errorReason = null;
+      info.lastError = null;
+    }
+    this._writeStatus();
+  }
+
   async _adapterLoop(name, agentCfg, info, network) {
     const { createAdapter } = require('./adapters');
     const { skillsToDisabledModules } = require('./skill-catalog');
+    const { redactDiagnostic } = require('./adapters/health-status');
     const agentType = agentCfg.type || 'openclaw';
     const endpoint = network.endpoint || 'https://workspace-endpoint.openagents.org';
 
@@ -501,13 +529,37 @@ class Daemon {
         // .claude/skills there failed with EPERM. Root it under ~/.openagents.
         workingDir: agentCfg.path || defaultAgentWorkdir(name),
         toolMode: agentCfg.tool_mode || 'skills',
+        // Live runtime/connectivity status → daemon.status.json (Agents list/TUI).
+        onStatus: (update) => this._applyAdapterStatus(name, info, update),
       });
     } catch (e) {
-      this._log(`${name} failed to create ${agentType} adapter: ${e.message}`);
+      // A construction failure (e.g. unknown agent type in this core) is a hard
+      // error with a real cause — surface it (redacted), do not pretend stopped.
       info.state = 'error';
-      info.lastError = e.message;
+      info.errorReason = 'adapter_crashed';
+      info.lastError = redactDiagnostic(e.message || String(e));
+      this._log(`${name} failed to create ${agentType} adapter: ${info.lastError}`);
       this._writeStatus();
       return;
+    }
+
+    // Preflight: when the agent's runtime binary is genuinely missing, surface a
+    // precise reason ('runtime_missing') and DO NOT join the workspace — there is
+    // no point spinning a join/poll loop that can never run the CLI. Adapters
+    // that don't override preflight() always pass.
+    try {
+      const pf =
+        typeof adapter.preflight === 'function' ? adapter.preflight() : null;
+      if (pf && pf.ok === false) {
+        info.state = 'error';
+        info.errorReason = pf.reason || 'runtime_missing';
+        info.lastError = redactDiagnostic(pf.message || 'runtime not available');
+        this._writeStatus();
+        this._log(`${name} preflight failed (${info.errorReason}): ${info.lastError}`);
+        return;
+      }
+    } catch (e) {
+      this._log(`${name} preflight error (ignored, continuing): ${e.message}`);
     }
 
     // Store adapter reference for stop and duplicate detection
@@ -515,6 +567,8 @@ class Daemon {
 
     info.state = 'running';
     info.startedAt = new Date().toISOString();
+    info.lastError = null;
+    info.errorReason = null;
     this._writeStatus();
     this._log(`${name} adapter online → ${network.slug} (type: ${agentType})`);
 
@@ -531,14 +585,41 @@ class Daemon {
       await adapter.run();
       clearInterval(checkStop);
     } catch (e) {
-      info.lastError = (e.message || String(e)).slice(0, 200);
+      info.errorReason = info.errorReason || 'adapter_crashed';
+      info.lastError = redactDiagnostic((e.message || String(e)).slice(0, 200));
       this._log(`${name} adapter error: ${info.lastError}`);
     }
 
     delete this._adapters[name];
-    info.state = 'stopped';
+
+    // Final state: a clean stop (user stop / daemon shutdown) is NEVER an error.
+    // A terminal failure recorded by the adapter (join/heartbeat/session-revoked)
+    // or a crash surfaces as 'error' with its classified, redacted reason.
+    const userStopped =
+      this._shuttingDown ||
+      this._stoppedAgents.has(name) ||
+      (typeof adapter.wasStopRequested === 'function' && adapter.wasStopRequested());
+    if (userStopped) {
+      info.state = 'stopped';
+      info.lastError = null;
+      info.errorReason = null;
+    } else {
+      const exit =
+        (typeof adapter.getExitInfo === 'function' && adapter.getExitInfo()) ||
+        null;
+      if (exit && exit.reason) {
+        info.state = 'error';
+        info.errorReason = exit.reason;
+        info.lastError = redactDiagnostic(exit.message || exit.reason);
+      } else if (info.errorReason) {
+        // A crash, or a live error report that never recovered — keep it visible.
+        info.state = 'error';
+      } else {
+        info.state = 'stopped';
+      }
+    }
     this._writeStatus();
-    this._log(`${name} adapter stopped`);
+    this._log(`${name} adapter stopped (state: ${info.state})`);
   }
 
   // NOTE: Adapter-specific message handling (openclaw, claude, codex)

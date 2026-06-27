@@ -104,7 +104,7 @@
     ],
     "check_ready": {
       "login_command": "amp login",
-      "not_ready_message": "Not installed — run: openagents install amp"
+      "not_ready_message": "Amp is installed but not signed in — run: amp login or set AMP_API_KEY"
     }
   },
   {

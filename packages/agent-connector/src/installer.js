@@ -6,6 +6,7 @@ const path = require('path');
 const { execSync, exec } = require('child_process');
 const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, aiderBinDirs } = require('./paths');
 const { EnvManager } = require('./env');
+const { readinessReason, REASON } = require('./adapters/health-status');
 
 const STATUS_CACHE_TTL_MS = 10000;
 const statusCache = new Map();
@@ -381,17 +382,20 @@ class Installer {
           auth_mode: null,
           auth_status: null,
           execution_mode: 'unavailable',
+          reason: REASON.NOT_INSTALLED,
           message: 'Not installed',
         };
       }
 
+      const apiReadiness = this._evaluateReadiness(agentType, entry, null);
       return {
         installed: true,
         binary: null,
         version: null,
         compatible: true,
         min_version: null,
-        ...this._evaluateReadiness(agentType, entry, null),
+        reason: readinessReason(true, apiReadiness.ready),
+        ...apiReadiness,
       };
     }
 
@@ -407,6 +411,7 @@ class Installer {
         auth_mode: null,
         auth_status: null,
         execution_mode: 'unavailable',
+        reason: REASON.NOT_INSTALLED,
         message: 'Not installed',
       };
     }
@@ -438,6 +443,12 @@ class Installer {
       version,
       compatible: gate.compatible,
       min_version: gate.minVersion,
+      // Installed is proven (binary resolved). A not-ready installed agent is a
+      // login/config state, never "not installed" — version mismatch aside.
+      reason:
+        gate.compatible === false
+          ? REASON.VERSION_INCOMPATIBLE
+          : readinessReason(true, readiness.ready),
       ...readiness,
     };
   }

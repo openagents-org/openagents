@@ -3,6 +3,11 @@ export type AgentState = 'online' | 'running' | 'idle' | 'starting' | 'reconnect
 export interface HealthCheck {
   ready: boolean
   installed?: boolean
+  // Structured readiness/failure reason shared with the core + daemon
+  // (health-status.js REASON). The Agents list keys off this — NOT the free-text
+  // message — to decide "Not installed" vs "Login required". Values include
+  // 'ready' | 'not_installed' | 'login_required' | 'version_incompatible'.
+  reason?: string
   // CLI sign-in state for dual-auth agents (e.g. Claude): true (signed in) /
   // false (signed out) / null (unknown — never probed or undecidable).
   logged_in?: boolean | null
