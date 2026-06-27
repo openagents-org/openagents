@@ -336,11 +336,24 @@ describe('Goose env / provider', () => {
 function readFirstLine(stream) {
   return new Promise((resolve, reject) => {
     let buf = '';
-    const t = setTimeout(() => reject(new Error('timed out reading pid')), 3000);
+    let settled = false;
+    const finish = (fn) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(t);
+      fn();
+    };
+    const t = setTimeout(() => finish(() => reject(new Error('timed out reading pid'))), 3000);
+    // Guard the stream against 'error'. When the child is later SIGKILL'd, its
+    // stdout pipe can emit EPIPE/EBADF/ECONNRESET (notably on macOS); without an
+    // 'error' listener that becomes an unhandled 'error' event that crashes the
+    // whole test worker. The listener persists for the stream's lifetime, so a
+    // post-resolve error during teardown is swallowed instead of throwing.
+    stream.on('error', () => finish(() => reject(new Error('stdout stream error'))));
     stream.on('data', (c) => {
       buf += c.toString('utf-8');
       const i = buf.indexOf('\n');
-      if (i >= 0) { clearTimeout(t); resolve(buf.slice(0, i).trim()); }
+      if (i >= 0) finish(() => resolve(buf.slice(0, i).trim()));
     });
   });
 }
@@ -359,6 +372,12 @@ describe('Goose stop terminates the process tree', () => {
       detached: process.platform !== 'win32',
       windowsHide: true,
     });
+    // Killing the child can make its stdio/process emit 'error' (EPIPE/EBADF on
+    // macOS). Swallow so it never becomes an unhandled 'error' that crashes the
+    // test worker.
+    proc.on('error', () => {});
+    if (proc.stdout) proc.stdout.on('error', () => {});
+
     try {
       const childPid = Number(await readFirstLine(proc.stdout));
       assert.equal(isPidAlive(proc.pid), true);
