@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Rocket, Copy, Check, ChevronRight, Key, Cloud, ExternalLink, Loader2 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
+import { capture } from '@/lib/analytics';
 import { useLayout } from '@/components/layout/layout-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
@@ -29,6 +30,21 @@ export function EmptyState() {
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+  }, []);
+
+  // The onboarding view auto-shows when a workspace is open with no agent connected.
+  // It's a conditional render (no route/pageview), so fire an explicit event here.
+  // Debounced ~1s so the brief no-agents flash during initial load doesn't count;
+  // if agents arrive first, this component unmounts and the timer is cleared.
+  // The active workspace group (set on workspace open) auto-attaches for funnel joins.
+  const onboardingTracked = useRef(false);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (onboardingTracked.current) return;
+      onboardingTracked.current = true;
+      capture('workspace_onboarding_viewed');
+    }, 1000);
+    return () => clearTimeout(t);
   }, []);
 
   const selectedEntry = useMemo(
