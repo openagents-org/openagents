@@ -252,13 +252,13 @@
     "env_config": [
       {
         "name": "OPENAI_API_KEY",
-        "description": "OpenAI API key",
+        "description": "OpenAI API key (optional if using Codex subscription via 'codex login')",
         "required": false,
         "password": true
       },
       {
         "name": "OPENAI_BASE_URL",
-        "description": "OpenAI-compatible base URL",
+        "description": "OpenAI-compatible base URL (optional if using Codex subscription)",
         "required": false
       }
     ],
@@ -273,6 +273,7 @@
       ],
       "status_command": "codex login status",
       "login_command": "codex login",
+      "unverifiable": true,
       "not_ready_message": "Not configured. Set OPENAI_API_KEY + OPENAI_BASE_URL, or run: codex login"
     },
     "resolve_env": {
