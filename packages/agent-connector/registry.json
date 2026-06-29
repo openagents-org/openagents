@@ -15,7 +15,7 @@
       "binary": "aider",
       "macos": "curl -LsSf https://aider.chat/install.sh | sh",
       "linux": "curl -LsSf https://aider.chat/install.sh | sh",
-      "windows": "powershell -c \\\"irm https://aider.chat/install.ps1 | iex\\\""
+      "windows": "irm https://aider.chat/install.ps1 | iex"
     },
     "adapter": {
       "module": "openagents.adapters.aider",
@@ -80,7 +80,7 @@
       "binary": "amp",
       "macos": "curl -fsSL https://ampcode.com/install.sh | bash",
       "linux": "curl -fsSL https://ampcode.com/install.sh | bash",
-      "windows": "powershell -c \\\"irm https://ampcode.com/install.ps1 | iex\\\""
+      "windows": "irm https://ampcode.com/install.ps1 | iex"
     },
     "adapter": {
       "module": "openagents.adapters.amp",
