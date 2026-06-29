@@ -162,15 +162,20 @@ export function EmptyState() {
                 </p>
                 <div className="flex gap-2">
                   {[
-                    { label: 'macOS', href: 'https://openagents.org/api/download/launcher/mac' },
-                    { label: 'Windows', href: 'https://openagents.org/api/download/launcher/windows' },
-                    { label: 'Linux', href: 'https://openagents.org/api/download/launcher/linux-appimage' },
+                    { label: 'macOS', platform: 'mac-arm64', href: 'https://openagents.org/api/download/launcher/mac' },
+                    { label: 'Windows', platform: 'windows', href: 'https://openagents.org/api/download/launcher/windows' },
+                    { label: 'Linux', platform: 'linux-appimage', href: 'https://openagents.org/api/download/launcher/linux-appimage' },
                   ].map((dl) => (
                     <a
                       key={dl.label}
                       href={dl.href}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => capture('launcher_download_clicked', {
+                        platform: dl.platform,
+                        source: 'workspace_onboarding',
+                        agent_type: selectedEntry.name,
+                      })}
                       className="flex-1 text-center px-3 py-2.5 text-xs font-medium rounded-lg border hover:bg-accent transition-colors"
                     >
                       {dl.label}
@@ -197,7 +202,13 @@ export function EmptyState() {
                     label="Install the OpenAgents CLI"
                     command="curl -fsSL https://openagents.org/install.sh | bash"
                     isCopied={isCopied}
-                    onCopy={copyToClipboard}
+                    onCopy={(cmd) => {
+                      capture('cli_install_copied', {
+                        source: 'workspace_onboarding',
+                        agent_type: selectedEntry.name,
+                      });
+                      copyToClipboard(cmd);
+                    }}
                   />
                   <CliStep
                     step="2"
