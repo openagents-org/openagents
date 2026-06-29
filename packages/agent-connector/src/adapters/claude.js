@@ -37,6 +37,12 @@ class ClaudeAdapter extends BaseAdapter {
     this._channelSessions = {}; // channel → Claude CLI session_id
     this._channelProcesses = {}; // channel → child process
     this._stoppingChannels = new Set();
+    // Channels that have already announced "Execution stopped by user." for the
+    // current stop. Two paths race to post it (the control-action handler that
+    // kills the process, and the in-flight message handler that sees
+    // pp.userStopped after exit), so this dedups to a single notice. Reset when
+    // a new message starts processing in the channel.
+    this._stopNoticeSent = new Set();
     this._persistentProcs = {}; // channel → { proc, lineBuffer, pendingLines, idleTimer, messageResolve }
     this._IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
     this._WATCHDOG_INTERVAL_MS = 15_000; // 15s between checks
@@ -84,9 +90,7 @@ class ClaudeAdapter extends BaseAdapter {
         await this._stopProcess(proc);
         delete this._channelProcesses[channel];
         delete this._channelQueues[channel];
-        try {
-          await this.sendResponse(channel, 'Execution stopped by user.');
-        } catch {}
+        await this._postStopNotice(channel);
       } else {
         for (const pp of Object.values(this._persistentProcs)) pp.userStopped = true;
         await this._stopAllProcesses('Execution stopped by user.');
@@ -256,6 +260,18 @@ class ClaudeAdapter extends BaseAdapter {
       'longer available, so here is the recent conversation for context:\n\n' +
       tail
     );
+  }
+
+  /**
+   * Post "Execution stopped by user." at most once per channel for a given
+   * stop. The control-action handler and the in-flight message handler both
+   * race to announce a stop; without this guard the user sees it twice. The
+   * guard is reset when a new message starts processing in the channel.
+   */
+  async _postStopNotice(channel) {
+    if (!channel || this._stopNoticeSent.has(channel)) return;
+    this._stopNoticeSent.add(channel);
+    try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
   }
 
   async _stopAllProcesses(completionMessage = 'Execution stopped.') {
@@ -920,6 +936,7 @@ class ClaudeAdapter extends BaseAdapter {
 
     const msgChannel = msg.sessionId || this.channelName;
     this._stoppingChannels.delete(msgChannel);
+    this._stopNoticeSent.delete(msgChannel);
     const sender = msg.senderName || msg.senderType || 'user';
     this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
 
@@ -984,7 +1001,7 @@ class ClaudeAdapter extends BaseAdapter {
       }
       if (existingPP.userStopped) {
         if (!existingPP.everPostedAnything) {
-          try { await this.sendResponse(msgChannel, 'Execution stopped by user.'); } catch {}
+          await this._postStopNotice(msgChannel);
         }
         return;
       }
@@ -1084,7 +1101,7 @@ class ClaudeAdapter extends BaseAdapter {
           this._log(`Process exited during first message (attempt ${attempt + 1}), userStopped=${pp.userStopped}`);
           if (pp.userStopped) {
             if (!pp.everPostedAnything) {
-              try { await this.sendResponse(msgChannel, 'Execution stopped by user.'); } catch {}
+              await this._postStopNotice(msgChannel);
             }
             break;
           }
