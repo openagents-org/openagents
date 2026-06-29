@@ -260,6 +260,11 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
           if (sessionId !== currentSessionRef.current) return;
           try {
             const event = JSON.parse(ev.data);
+            // The SSE stream carries every event for the channel, not just
+            // chat messages. Only render posted messages — otherwise control
+            // events like network.channel.join/leave (emitted when adding or
+            // removing an agent) get converted into empty "User" bubbles.
+            if (event.type && event.type !== 'workspace.message.posted') return;
             const msg = eventToMessage(event);
             newestIdRef.current = msg.messageId;
             setMessages((prev) => {
