@@ -148,7 +148,14 @@ function whichBinary(name) {
     return cached.value;
   }
 
-  const cmd = IS_WINDOWS ? `where ${name}` : `which ${name}`;
+  // On a non-English Windows the console OUTPUT codepage is OEM (e.g. 936/GBK on
+  // zh-CN), so `where` prints a path whose non-ASCII bytes don't match the utf-8
+  // decoding execSync does — a Chinese username comes back mangled (e.g.
+  // `C:\Users\??.?[\…`) and yields ENOENT downstream. `chcp 65001 >nul` forces
+  // `where` to emit UTF-8 so the decode is correct; the existsSync guard then
+  // rejects any path that is still wrong, so callers fall through to their
+  // Node-derived (correctly-encoded) tiers instead of trusting garbage.
+  const cmd = IS_WINDOWS ? `chcp 65001 >nul && where ${name}` : `which ${name}`;
   try {
     const result = execSync(cmd, {
       encoding: 'utf-8',
@@ -156,14 +163,62 @@ function whichBinary(name) {
       env: { ...process.env, PATH: getEnhancedPATH() },
       timeout: 5000,
       windowsHide: true,
-    }).trim();
-    const value = result.split(/\r?\n/)[0] || null;
+    });
+    let value = null;
+    for (const line of result.split(/\r?\n/)) {
+      const hit = line.trim();
+      if (hit && fs.existsSync(hit)) { value = hit; break; }
+    }
     whichBinaryCache.set(cacheKey, { value, at: Date.now() });
     return value;
   } catch {
     whichBinaryCache.set(cacheKey, { value: null, at: Date.now() });
     return null;
   }
+}
+
+/**
+ * Codepage-safe `where`/`which` lookup, shared by every CLI adapter.
+ *
+ * Same hazard as whichBinary(): on a non-English Windows, execSync decodes
+ * `where` stdout with the wrong codepage and mangles a non-ASCII (e.g. Chinese)
+ * username in the path. Two defenses: `chcp 65001 >nul` forces UTF-8 output so
+ * the decode matches, and every hit is existence-checked so a still-mangled
+ * path is skipped (the caller then falls through to its Node-derived tiers,
+ * which build paths from process.env.APPDATA/os.homedir — always UTF-16 from
+ * the OS and never corrupted).
+ *
+ * @param {string|string[]} names  base name(s), e.g. 'claude' or ['cursor-agent','agent'].
+ *                                  On Windows each is tried as <name>.cmd, <name>.exe, <name>.
+ * @param {object} [env]           env for the lookup (defaults to getEnhancedEnv()).
+ * @returns {string|null}          an existing absolute path, or null.
+ */
+function whereBinary(names, env) {
+  const bases = Array.isArray(names) ? names : [names];
+  let cmd;
+  if (IS_WINDOWS) {
+    const parts = [];
+    for (const b of bases) {
+      parts.push(`where ${b}.cmd 2>nul`, `where ${b}.exe 2>nul`, `where ${b} 2>nul`);
+    }
+    cmd = `chcp 65001 >nul && (${parts.join(' || ')})`;
+  } else {
+    cmd = bases.map((b) => `which ${b}`).join(' || ');
+  }
+  try {
+    const out = execSync(cmd, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+      windowsHide: true,
+      env: env || getEnhancedEnv(),
+    });
+    for (const line of out.split(/\r?\n/)) {
+      const hit = line.trim();
+      if (hit && fs.existsSync(hit)) return hit;
+    }
+  } catch {}
+  return null;
 }
 
 // ---- Windows paths ----
@@ -452,6 +507,7 @@ module.exports = {
   getEnhancedPATH,
   getEnhancedEnv,
   whichBinary,
+  whereBinary,
   clearBinaryLookupCache,
   getRuntimePrefix,
   getCorePrefix,

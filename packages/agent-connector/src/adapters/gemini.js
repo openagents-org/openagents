@@ -14,6 +14,7 @@ const path = require('path');
 const { execSync, spawn } = require('child_process');
 
 const BaseAdapter = require('./base');
+const { whereBinary } = require('../paths');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildClaudeSystemPrompt } = require('./workspace-prompt');
 
@@ -151,17 +152,12 @@ class GeminiAdapter extends BaseAdapter {
     const runtimeCandidate = path.join(home, '.openagents', 'runtimes', 'gemini', 'node_modules', '.bin', `gemini${ext}`);
     if (fs.existsSync(runtimeCandidate)) return runtimeCandidate;
 
-    // Tier 1: PATH search
-    try {
-      if (IS_WINDOWS) {
-        const r = execSync('where gemini.cmd 2>nul || where gemini.exe 2>nul || where gemini 2>nul', {
-          encoding: 'utf-8', timeout: 5000,
-        });
-        return r.split(/\r?\n/)[0].trim();
-      } else {
-        return execSync('which gemini', { encoding: 'utf-8', timeout: 5000 }).trim();
-      }
-    } catch {}
+    // Tier 1: PATH search via a codepage-safe lookup (whereBinary forces UTF-8
+    // output + verifies existence so a non-ASCII/Chinese username isn't mangled
+    // into an ENOENT; it also no longer returns an empty string on a miss, which
+    // used to short-circuit the Node-derived fallback tiers below).
+    const viaWhere = whereBinary('gemini');
+    if (viaWhere) return viaWhere;
 
     // Tier 2: Next to current Node.js interpreter
     const nodeBinDir = path.dirname(process.execPath);

@@ -42,7 +42,7 @@ const { execSync, execFileSync, spawn } = require('child_process');
 
 const BaseAdapter = require('./base');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
-const { whichBinary, getEnhancedEnv, defaultAgentWorkdir } = require('../paths');
+const { whichBinary, whereBinary, getEnhancedEnv, defaultAgentWorkdir } = require('../paths');
 const { compareVersions } = require('../installer');
 const { CopilotStreamParser, redactSensitive } = require('./copilot-stream-parser');
 
@@ -167,20 +167,11 @@ class CopilotAdapter extends BaseAdapter {
     hit = named(path.join(home, '.openagents', 'nodejs', 'node_modules', '.bin'));
     if (hit) return hit;
 
-    // Tier 1: PATH search using the enriched env (matches launcher/daemon PATH).
-    try {
-      const env = getEnhancedEnv();
-      if (IS_WINDOWS) {
-        const r = execSync('where copilot.cmd 2>nul || where copilot.exe 2>nul || where copilot 2>nul', {
-          encoding: 'utf-8', timeout: 5000, windowsHide: true, env,
-        });
-        const first = r.split(/\r?\n/)[0].trim();
-        if (first) return first;
-      } else {
-        const r = execSync('which copilot', { encoding: 'utf-8', timeout: 5000, windowsHide: true, env }).trim();
-        if (r) return r;
-      }
-    } catch {}
+    // Tier 1: PATH search via a codepage-safe lookup (whereBinary forces UTF-8
+    // output + verifies existence so a non-ASCII/Chinese username isn't mangled
+    // into an ENOENT). Uses the enriched env (matches launcher/daemon PATH).
+    const viaWhere = whereBinary('copilot');
+    if (viaWhere) return viaWhere;
 
     // Tier 2: next to the current Node interpreter (npm global)
     hit = named(path.dirname(process.execPath));
