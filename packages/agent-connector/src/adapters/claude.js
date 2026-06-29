@@ -19,7 +19,7 @@ const { execSync, spawn } = require('child_process');
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd } = require('./workspace-prompt');
-const { defaultAgentWorkdir, whichBinary, getEnhancedEnv } = require('../paths');
+const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -343,24 +343,13 @@ class ClaudeAdapter extends BaseAdapter {
     const portableCandidate = path.join(portableBin, `claude${ext}`);
     if (fs.existsSync(portableCandidate)) return portableCandidate;
 
-    // Tier 1: PATH search. Use the ENRICHED env so the lookup sees the same
-    // node-version-manager / homebrew / npm-global dirs the launcher adds —
-    // a packaged Electron daemon's own PATH is minimal, which is why `which
-    // claude` came up empty and the agent reported "claude CLI not found".
-    // windowsHide stops a console window from flashing.
-    try {
-      const env = getEnhancedEnv();
-      if (IS_WINDOWS) {
-        const r = execSync('where claude.cmd 2>nul || where claude.exe 2>nul || where claude 2>nul', {
-          encoding: 'utf-8', timeout: 5000, windowsHide: true, env,
-        });
-        const hit = r.split(/\r?\n/)[0].trim();
-        if (hit) return hit;
-      } else {
-        const hit = execSync('which claude', { encoding: 'utf-8', timeout: 5000, windowsHide: true, env }).trim();
-        if (hit) return hit;
-      }
-    } catch {}
+    // Tier 1: PATH search via a codepage-safe lookup (whereBinary forces UTF-8
+    // output + verifies existence, so a non-ASCII/Chinese username isn't mangled
+    // into an ENOENT). Uses the ENRICHED env so a packaged daemon's minimal PATH
+    // still sees the node-version-manager / homebrew / npm-global dirs the
+    // launcher adds — that's why a bare `which claude` came up empty before.
+    const viaWhere = whereBinary('claude');
+    if (viaWhere) return viaWhere;
 
     // Tier 2: Next to current Node.js interpreter (npm global)
     const nodeBinDir = path.dirname(process.execPath);
@@ -558,15 +547,9 @@ class ClaudeAdapter extends BaseAdapter {
         const oaPortable = path.join(home3, '.openagents', 'nodejs', 'node_modules', '.bin', `openagents${oaExt}`);
         if (fs.existsSync(oaPortable)) oaBin = oaPortable;
       }
-      if (!oaBin) try {
-        if (IS_WINDOWS) {
-          oaBin = execSync('where openagents.cmd 2>nul || where openagents.exe 2>nul || where openagents 2>nul', {
-            encoding: 'utf-8', timeout: 5000,
-          }).split(/\r?\n/)[0].trim();
-        } else {
-          oaBin = execSync('which openagents', { encoding: 'utf-8', timeout: 5000 }).trim();
-        }
-      } catch {}
+      // Codepage-safe lookup so a non-ASCII/Chinese username in the path isn't
+      // mangled into an ENOENT (see whereBinary).
+      if (!oaBin) oaBin = whereBinary('openagents');
       if (!oaBin) {
         this._log('Could not find openagents binary — MCP tools may not be available');
         mcpCommand = 'openagents';

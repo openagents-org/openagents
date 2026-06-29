@@ -18,7 +18,7 @@ const { execSync, spawn } = require('child_process');
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt } = require('./utils');
 const { buildOpenCodeSkillMd, buildOpenCodeSystemPrompt } = require('./workspace-prompt');
-const { whichBinary, getEnhancedEnv } = require('../paths');
+const { whichBinary, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -188,19 +188,12 @@ class OpenCodeAdapter extends BaseAdapter {
     // Tier 1: PATH. Use the ENRICHED env (node-version-manager/homebrew/npm
     // dirs the launcher adds) so the lookup matches a packaged daemon's real
     // reach; windowsHide stops a console window from flashing on Windows.
-    try {
-      const env = getEnhancedEnv();
-      if (IS_WINDOWS) {
-        const r = execSync('where opencode.exe 2>nul || where opencode.cmd 2>nul || where opencode 2>nul', {
-          encoding: 'utf-8', timeout: 5000, windowsHide: true, env,
-        });
-        const hit = r.split(/\r?\n/)[0].trim();
-        if (hit) return hit;
-      } else {
-        const hit = execSync('which opencode', { encoding: 'utf-8', timeout: 5000, windowsHide: true, env }).trim();
-        if (hit) return hit;
-      }
-    } catch {}
+    // Codepage-safe lookup (whereBinary forces UTF-8 output + verifies existence
+    // so a non-ASCII/Chinese username isn't mangled into an ENOENT). Uses the
+    // ENRICHED env so a packaged daemon's minimal PATH still reaches nvm/fnm/
+    // volta/homebrew/npm dirs.
+    const viaWhere = whereBinary('opencode');
+    if (viaWhere) return viaWhere;
 
     // Tier 2: Next to Node.js
     const nearNode = path.join(path.dirname(process.execPath), `opencode${ext}`);
