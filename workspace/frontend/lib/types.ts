@@ -450,3 +450,72 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     lastEventAt: ch.last_event_at,
   };
 }
+
+// ---------------------------------------------------------------------------
+// SWE-bench evaluation (benchmark jobs — not agents)
+// ---------------------------------------------------------------------------
+
+export interface EvaluationJob {
+  id: string;
+  dataset: string;
+  split: string;
+  instance_id: string;
+  repo: string | null;
+  base_commit: string | null;
+  agent: string;
+  channel_name: string;
+  created_by: string;
+  status: string;            // queued|…|completed|failed|timeout|cancelled|error|integrity_rejected
+  outcome: string | null;    // resolved|unresolved|no_patch|patch_invalid|tests_failed|error|timeout|cancelled|integrity_rejected
+  resolved: boolean | null;
+  error_category: string | null;
+  error_reason: string | null;
+  cancel_requested: boolean;
+  integrity_mode: string;    // strict | debug
+  integrity_risk: boolean;
+  environment: Record<string, unknown> | null;
+  experimental?: boolean;
+  leaderboard_comparable?: boolean;
+  run_id: string | null;
+  docker_info: Record<string, unknown> | null;
+  report: Record<string, unknown> | null;
+  patch_available: boolean;
+  logs_available: boolean;
+  is_running: boolean;
+  duration_seconds: number | null;
+  started_at: string | null;
+  agent_started_at: string | null;
+  eval_started_at: string | null;
+  finished_at: string | null;
+  created_at: string | null;
+}
+
+export interface EvaluationDataset {
+  key: string;
+  id: string;
+  label: string;
+  splits: string[];
+  default_split: string;
+  approx_instances: Record<string, number>;
+  enabled: boolean;
+}
+
+export interface EvaluationInstance {
+  instance_id: string;
+  repo: string | null;
+  base_commit: string | null;
+  version: string | null;
+  problem_summary: string;
+}
+
+export interface EvaluationCheck {
+  name: string;
+  ok: boolean;
+  level: 'ok' | 'warn' | 'error';
+  detail: string;
+}
+
+export interface EvaluationPrecheck {
+  ok: boolean;
+  checks: EvaluationCheck[];
+}

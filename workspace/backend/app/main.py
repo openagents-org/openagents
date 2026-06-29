@@ -17,7 +17,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import config
-from app.routers import account, browser, cloud_agents, devices, events, files, knowledge, network, notifications, routines, shares, timers, todos, workspaces
+from app.routers import account, browser, cloud_agents, devices, evaluations, events, files, knowledge, network, notifications, routines, shares, timers, todos, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -285,12 +285,26 @@ async def lifespan(app: FastAPI):
 
     logger.info("LIFESPAN: creating timer task")
     timer_task = asyncio.create_task(_timer_loop())
+
+    # SWE-bench evaluation worker — inert unless SWEBENCH_ENABLED is set.
+    try:
+        from app.database import SessionLocal
+        from app.swebench import service as eval_service
+        eval_service.start_worker(SessionLocal)
+    except Exception:
+        logger.exception("LIFESPAN: failed to start swebench worker")
+
     logger.info("LIFESPAN: yielding (startup complete)")
     yield
     timer_task.cancel()
     try:
         await timer_task
     except asyncio.CancelledError:
+        pass
+    try:
+        from app.swebench import service as eval_service
+        await eval_service.stop_worker()
+    except Exception:
         pass
     # Shutdown: close Playwright browser
     from app.browser import BrowserManager
@@ -402,6 +416,7 @@ app.include_router(account.router)
 app.include_router(browser.router)
 app.include_router(cloud_agents.router)
 app.include_router(devices.router)
+app.include_router(evaluations.router)
 app.include_router(events.router)
 app.include_router(files.router)
 app.include_router(knowledge.router)
