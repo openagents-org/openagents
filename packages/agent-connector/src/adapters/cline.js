@@ -30,7 +30,7 @@ const { execSync, execFile, spawn } = require('child_process');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
-const { defaultAgentWorkdir, whichBinary, getEnhancedEnv } = require('../paths');
+const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 const {
   ClineStreamParser,
   interpretClineEnvelope,
@@ -323,21 +323,12 @@ class ClineAdapter extends BaseAdapter {
       if (fs.existsSync(pkgBin)) return pkgBin;
     }
 
-    // Tier 1: PATH search with the ENRICHED env (a packaged daemon's PATH is
+    // Tier 1: PATH search via a codepage-safe lookup (whereBinary forces UTF-8
+    // output + verifies existence so a non-ASCII/Chinese username isn't mangled
+    // into an ENOENT). Uses the ENRICHED env (a packaged daemon's PATH is
     // minimal and would miss nvm/fnm/volta/homebrew/npm-global dirs).
-    try {
-      const env = getEnhancedEnv();
-      if (IS_WINDOWS) {
-        const r = execSync('where cline.cmd 2>nul || where cline.exe 2>nul || where cline 2>nul', {
-          encoding: 'utf-8', timeout: 5000, windowsHide: true, env,
-        });
-        const hit = r.split(/\r?\n/)[0].trim();
-        if (hit) return hit;
-      } else {
-        const hit = execSync('which cline', { encoding: 'utf-8', timeout: 5000, windowsHide: true, env }).trim();
-        if (hit) return hit;
-      }
-    } catch {}
+    const viaWhere = whereBinary('cline');
+    if (viaWhere) return viaWhere;
 
     // Tier 2: next to the current Node interpreter (npm global)
     const nearNode = path.join(path.dirname(process.execPath), `cline${ext}`);

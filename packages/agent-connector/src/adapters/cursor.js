@@ -17,7 +17,7 @@ const { execSync, spawn } = require('child_process');
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildCursorSkillMd } = require('./workspace-prompt');
-const { defaultAgentWorkdir, whichBinary, getEnhancedEnv } = require('../paths');
+const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -191,19 +191,11 @@ class CursorAdapter extends BaseAdapter {
     // which the daemon's already-running process won't see, so `where` against
     // the daemon's own PATH comes up empty even though cursor-agent is installed.
     // windowsHide stops a console window from flashing.
-    try {
-      const env = getEnhancedEnv();
-      if (IS_WINDOWS) {
-        const r = execSync('where cursor-agent.cmd 2>nul || where cursor-agent.exe 2>nul || where cursor-agent 2>nul || where agent.cmd 2>nul || where agent.exe 2>nul || where agent 2>nul', {
-          encoding: 'utf-8', timeout: 5000, windowsHide: true, env,
-        });
-        const hit = r.split(/\r?\n/)[0].trim();
-        if (hit) return hit;
-      } else {
-        const hit = execSync('which cursor-agent || which agent', { encoding: 'utf-8', timeout: 5000, windowsHide: true, env }).trim();
-        if (hit) return hit;
-      }
-    } catch {}
+    // Codepage-safe lookup (whereBinary forces UTF-8 output + verifies existence
+    // so a non-ASCII/Chinese username isn't mangled into an ENOENT). Tries both
+    // cursor-agent and the bare `agent` name across .cmd/.exe/no-ext.
+    const viaWhere = whereBinary(names);
+    if (viaWhere) return viaWhere;
 
     // Tier 2: Next to current Node.js interpreter (npm global)
     const nodeBinDir = path.dirname(process.execPath);

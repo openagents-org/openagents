@@ -148,6 +148,14 @@ function whichBinary(name) {
     return cached.value;
   }
 
+  // On a non-English Windows the console OUTPUT codepage is OEM (e.g. 936/GBK on
+  // zh-CN), so `where` prints a path whose non-ASCII bytes don't match the utf-8
+  // decoding execSync does — a Chinese username comes back mangled (e.g.
+  // `C:\Users\??.?[\…`) and yields ENOENT downstream. We can't reliably re-encode
+  // it (and forcing `chcp` is unsafe under windowsHide's console-less cmd), so we
+  // existence-check every hit and only return one that's real; a mangled path
+  // fails and the caller falls through to its Node-derived tiers (built from
+  // process.env / os.homedir, which the OS hands us as correct UTF-16).
   const cmd = IS_WINDOWS ? `where ${name}` : `which ${name}`;
   try {
     const result = execSync(cmd, {
@@ -156,14 +164,76 @@ function whichBinary(name) {
       env: { ...process.env, PATH: getEnhancedPATH() },
       timeout: 5000,
       windowsHide: true,
-    }).trim();
-    const value = result.split(/\r?\n/)[0] || null;
+    });
+    let value = null;
+    for (const line of result.split(/\r?\n/)) {
+      const hit = line.trim();
+      if (hit && fs.existsSync(hit)) { value = hit; break; }
+    }
     whichBinaryCache.set(cacheKey, { value, at: Date.now() });
     return value;
   } catch {
     whichBinaryCache.set(cacheKey, { value: null, at: Date.now() });
     return null;
   }
+}
+
+/**
+ * Codepage-safe `where`/`which` lookup, shared by every CLI adapter.
+ *
+ * Hazard: on a non-English Windows the console output codepage is OEM (e.g.
+ * 936/GBK on zh-CN), so execSync decodes `where` stdout with the wrong codepage
+ * and mangles a non-ASCII (e.g. Chinese) username in the path — yielding ENOENT
+ * downstream (the `C:\Users\??.?[\…\claude.cmd` failure). Two safe defenses,
+ * no `chcp` (which is unreliable under windowsHide's console-less cmd):
+ *   1. (Windows) check the npm-global default `%APPDATA%\npm\<name>.cmd` FIRST.
+ *      APPDATA comes from the OS as UTF-16 via Node, so this path is always
+ *      correctly encoded — and it's where the npm-installed CLIs actually live.
+ *   2. Fall back to `where`/`which`, but existence-check every hit so a mangled
+ *      path is skipped and the caller drops to its own Node-derived tiers.
+ *
+ * @param {string|string[]} names  base name(s), e.g. 'claude' or ['cursor-agent','agent'].
+ *                                  On Windows each is tried as <name>.cmd, <name>.exe, <name>.
+ * @param {object} [env]           env for the lookup (defaults to getEnhancedEnv()).
+ * @returns {string|null}          an existing absolute path, or null.
+ */
+function whereBinary(names, env) {
+  const bases = Array.isArray(names) ? names : [names];
+
+  // 1. npm-global default, derived from Node's env (correct encoding even when
+  //    the username is non-ASCII). This is where `npm i -g <cli>` drops the shim.
+  if (IS_WINDOWS && process.env.APPDATA) {
+    for (const b of bases) {
+      const c = path.join(process.env.APPDATA, 'npm', `${b}.cmd`);
+      try { if (fs.existsSync(c)) return c; } catch {}
+    }
+  }
+
+  // 2. PATH lookup, existence-guarded.
+  let cmd;
+  if (IS_WINDOWS) {
+    const parts = [];
+    for (const b of bases) {
+      parts.push(`where ${b}.cmd 2>nul`, `where ${b}.exe 2>nul`, `where ${b} 2>nul`);
+    }
+    cmd = parts.join(' || ');
+  } else {
+    cmd = bases.map((b) => `which ${b}`).join(' || ');
+  }
+  try {
+    const out = execSync(cmd, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5000,
+      windowsHide: true,
+      env: env || getEnhancedEnv(),
+    });
+    for (const line of out.split(/\r?\n/)) {
+      const hit = line.trim();
+      if (hit && fs.existsSync(hit)) return hit;
+    }
+  } catch {}
+  return null;
 }
 
 // ---- Windows paths ----
@@ -452,6 +522,7 @@ module.exports = {
   getEnhancedPATH,
   getEnhancedEnv,
   whichBinary,
+  whereBinary,
   clearBinaryLookupCache,
   getRuntimePrefix,
   getCorePrefix,

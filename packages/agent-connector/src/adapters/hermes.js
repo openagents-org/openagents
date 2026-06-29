@@ -21,7 +21,7 @@ const { execSync, spawn } = require('child_process');
 
 const BaseAdapter = require('./base');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
-const { whichBinary, getEnhancedEnv } = require('../paths');
+const { whichBinary, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
 const HERMES_INSTALL_HINT = IS_WINDOWS
@@ -76,22 +76,13 @@ class HermesAdapter extends BaseAdapter {
     // Tier 1: PATH (enriched env so we see the dirs the launcher adds; a fresh
     // install updates the user PATH, which the running daemon won't pick up).
     // windowsHide stops a console window from flashing.
-    try {
-      const env = getEnhancedEnv();
-      if (IS_WINDOWS) {
-        // Native Windows is supported (install.ps1). The installer adds
-        // venv\Scripts to the user PATH; a running daemon won't see that update,
-        // hence the enriched env + the explicit candidates in Tier 2.
-        const r = execSync('where hermes.exe 2>nul || where hermes.cmd 2>nul || where hermes 2>nul', {
-          encoding: 'utf-8', timeout: 5000, windowsHide: true, env,
-        });
-        const found = r.split(/\r?\n/)[0].trim();
-        if (found) return found;
-      } else {
-        const found = execSync('which hermes', { encoding: 'utf-8', timeout: 5000, windowsHide: true, env }).trim();
-        if (found) return found;
-      }
-    } catch {}
+    // Codepage-safe lookup (whereBinary forces UTF-8 output + verifies existence
+    // so a non-ASCII/Chinese username isn't mangled into an ENOENT). Native
+    // Windows is supported (install.ps1); the installer adds venv\Scripts to the
+    // user PATH, which a running daemon won't see — hence the enriched env
+    // (whereBinary's default) + the explicit candidates in Tier 2.
+    const viaWhere = whereBinary('hermes');
+    if (viaWhere) return viaWhere;
 
     // Tier 2: Common install locations. The native Windows installer
     // (install.ps1) provisions a portable venv and drops hermes.exe under
