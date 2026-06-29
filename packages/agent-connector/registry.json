@@ -449,9 +449,23 @@
       ]
     },
     "check_ready": {
-      "not_ready_message": "Not logged in. Run: gemini",
+      "creds_file": "~/.gemini/oauth_creds.json",
+      "creds_no_parse": true,
+      "creds_path_env": [
+        "GOOGLE_APPLICATION_CREDENTIALS"
+      ],
+      "env_vars": [
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY"
+      ],
+      "saved_env_key": "GEMINI_API_KEY",
       "login_command": "gemini",
-      "alt_check": "gemini --version"
+      "not_ready_message": "Needs sign-in — run `gemini` to sign in, or set GEMINI_API_KEY.",
+      "unreadable_message": "Gemini credentials were found but could not be read. Check permissions on ~/.gemini, or run `gemini` to sign in again.",
+      "auth_detected_labels": {
+        "cli_login": "Google account sign-in detected",
+        "api_key": "API key detected"
+      }
     },
     "env_config": []
   },
@@ -687,9 +701,9 @@
       "requires": [
         "nodejs"
       ],
-      "macos": "npm install -g opencode-ai@latest",
-      "linux": "npm install -g opencode-ai@latest",
-      "windows": "npm install -g opencode-ai@latest"
+      "macos": "npm install -g opencode-ai@1.17.11",
+      "linux": "npm install -g opencode-ai@1.17.11",
+      "windows": "npm install -g opencode-ai@1.17.11"
     },
     "adapter": {
       "module": "openagents.adapters.opencode",
@@ -711,8 +725,8 @@
       },
       {
         "name": "LLM_MODEL",
-        "description": "Model name",
-        "required": false,
+        "description": "Model name (required — OpenCode hangs without one)",
+        "required": true,
         "placeholder": "gpt-4o, claude-sonnet-4-20250514, etc."
       }
     ],
@@ -738,6 +752,7 @@
         "ANTHROPIC_API_KEY"
       ],
       "saved_env_key": "LLM_API_KEY",
+      "min_version": "1.17.0",
       "not_ready_message": "Not configured \u2014 press e to configure"
     }
   },

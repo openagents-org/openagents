@@ -99,17 +99,23 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       placeholder: "claude-sonnet-4-6",
     },
   ],
+  // Gemini authenticates EITHER via its CLI's Google sign-in (the default
+  // `gemini` OAuth login, detected by the core's check_ready) OR via an API key.
+  // The key is therefore an OPTIONAL alternative — none of these fields are
+  // `required`, so a user who signs in with Google is never forced to enter a
+  // key. See KEY_OPTIONAL_LOGIN_AGENTS, which keeps the registry login_command
+  // flowing into onboarding/Configure so both paths are offered.
   gemini: [
     {
       name: "GEMINI_API_KEY",
-      description: "Google AI Studio API key — get one at https://aistudio.google.com/apikey",
-      required: true,
+      description: "Google AI Studio API key — get one at https://aistudio.google.com/apikey (optional if you sign in with Google)",
+      required: false,
       password: true,
     },
     {
       name: "GOOGLE_GEMINI_BASE_URL",
       description: "Gemini-compatible base URL (the default works for Google AI Studio; change it for a proxy or custom gateway)",
-      required: true,
+      required: false,
       default: "https://generativelanguage.googleapis.com",
       placeholder: "https://generativelanguage.googleapis.com",
     },
@@ -117,7 +123,7 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       name: "GEMINI_MODEL",
       description:
         "Model name (change it when using a relay/proxy — its channels rarely match the default)",
-      required: true,
+      required: false,
       default: "gemini-2.5-pro",
       placeholder: "gemini-2.5-pro",
     },
@@ -386,6 +392,22 @@ const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     loggedOutPattern: AMP_LOGGED_OUT,
   },
 }
+
+/**
+ * Agents in LAUNCHER_AUTH_OVERRIDES that ALSO authenticate via their CLI's own
+ * sign-in, so the API key is an OPTIONAL alternative — never required. Unlike
+ * DUAL_LOGIN_AGENTS these have NO CLI `status` probe: their sign-in is detected
+ * by the core's check_ready (e.g. Gemini's ~/.gemini/oauth_creds.json), so
+ * readiness and refreshLogin fall through to healthCheck. For these agents the
+ * launcher keeps the (optional) key fields AND surfaces the registry's
+ * `login_command`, so onboarding + the Configure dialog offer BOTH paths.
+ *
+ * Add an agent here only when its registry check_ready declares a login_command
+ * and a credential probe (creds_file / creds_path_env / env_vars). This is the
+ * sanctioned, data-driven way to express "key OR CLI login" without a renderer
+ * `agentType === 'gemini'` special-case.
+ */
+const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>(["gemini"])
 
 /**
  * Agents hidden from the onboarding picker (Step 1). They remain fully
@@ -2739,6 +2761,10 @@ export class AgentManager extends EventEmitter {
       // Dual-auth agents (Claude) keep their API-key fields AND offer a CLI
       // login. See DUAL_LOGIN_AGENTS.
       const dualLogin = DUAL_LOGIN_AGENTS[type]
+      // Key-optional-login agents (e.g. Gemini) keep their OPTIONAL key fields
+      // AND their CLI login, so the override fields stay but the login_command
+      // is preserved (not dropped like pure key-only override agents).
+      const keyOptionalLogin = KEY_OPTIONAL_LOGIN_AGENTS.has(type)
       const envFields = hostedLogin
         ? []
         : override || (regEnv.length > 0 ? regEnv : catEnv)
@@ -2747,14 +2773,18 @@ export class AgentManager extends EventEmitter {
         : dualLogin
           ? dualLogin.loginCommand
           : override
-            ? null
+            ? keyOptionalLogin
+              ? checkReady.login_command || null
+              : null
             : checkReady.login_command || null
       // `prefer_login` keeps an agent on the CLI-login path as PRIMARY even when
       // it also exposes (optional) env fields. Without it, any env field would
-      // force "env" mode. Dual-auth agents (Claude) always prefer login — the
-      // browser sign-in is the smoother first-run path, key offered as backup.
+      // force "env" mode. Dual-auth agents (Claude) and key-optional-login agents
+      // (Gemini) always prefer login — the CLI sign-in is the smoother first-run
+      // path, the key offered as an optional backup.
       const preferLogin =
-        (!!checkReady.prefer_login || !!dualLogin) && !!loginCommand
+        (!!checkReady.prefer_login || !!dualLogin || keyOptionalLogin) &&
+        !!loginCommand
       const authMode: OnboardingAgent["authMode"] = preferLogin
         ? "login"
         : envFields.length > 0

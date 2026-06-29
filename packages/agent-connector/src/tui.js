@@ -13,6 +13,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { getExtraBinDirs } = require('./paths');
+const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -764,6 +765,22 @@ function createTUI() {
     currentView = 'configure';
     const envFields = connector.registry.getEnvFields(agent.type);
     if (!envFields || envFields.length === 0) {
+      // Some agents declare no env_config yet still REQUIRE a sign-in/credential
+      // (e.g. Gemini's OAuth login). Detect that via the registry's check_ready
+      // and show readiness + login guidance instead of a misleading "no
+      // configuration required". Agents without any credential metadata keep the
+      // original message — this is gated, so other agents are untouched.
+      const entry = connector.registry.getEntry(agent.type);
+      const checkReady = entry && entry.check_ready;
+      if (hasCredentialMetadata(checkReady)) {
+        let health = null;
+        try { health = connector.healthCheck(agent.type); } catch {}
+        const g = formatAuthGuidance(entry, health);
+        const tag = g.ready ? 'green-fg' : 'yellow-fg';
+        log(`{bold}{${tag}}${entry.label || agent.type} authentication: ${g.ready ? 'Ready' : 'Not ready'}{/}{/bold}`);
+        for (const line of g.lines) log(`{gray-fg}${line}{/gray-fg}`);
+        return;
+      }
       log('{gray-fg}No configuration required for this agent type.{/gray-fg}');
       return;
     }

@@ -129,7 +129,7 @@ export function SidebarContent() {
   // ── Collapsed sidebar ──
   if (!isSidebarOpen) {
     return (
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full min-h-0">
         <div className="flex justify-center px-2.5 py-1">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -207,7 +207,7 @@ export function SidebarContent() {
   // ── Expanded sidebar ──
   return (
     <>
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full min-h-0">
         <ScrollArea className="flex-1 min-h-0">
           {/* New Thread button */}
           <div className="px-3.5 pb-3">
