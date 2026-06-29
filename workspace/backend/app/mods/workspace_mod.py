@@ -500,10 +500,34 @@ def _extract_leading_mention(content: str, known_agents: List[str]) -> Optional[
     return None
 
 
+def _member_is_online(m) -> bool:
+    """True when a WorkspaceMember is actually live.
+
+    A crashed daemon leaves ``status='online'`` forever — the column is only
+    flipped to 'offline' on a *clean* leave/heartbeat-timeout path — so the
+    column alone is unreliable. We additionally require a fresh heartbeat,
+    matching how /v1/discover and the agents list compute liveness. Cloud
+    agents have no heartbeat loop, so for them the status column is trusted.
+    """
+    from app.config import config
+    from datetime import timedelta
+    if (m.status or "").lower() != "online":
+        return False
+    if (getattr(m, "agent_type", "") or "").startswith("cloud:"):
+        return True
+    hb = m.last_heartbeat
+    if not hb:
+        return False
+    if hb.tzinfo is None:
+        hb = hb.replace(tzinfo=timezone.utc)
+    timeout = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
+    return (datetime.now(timezone.utc) - hb) <= timeout
+
+
 def _online_participant_names(db, workspace, channel) -> set:
-    """Agent names of channel participants whose WorkspaceMember status is
-    'online'. Routing prefers these so a thread whose previous agent went
-    offline (e.g. a dead daemon) doesn't keep targeting it and stranding
+    """Agent names of channel participants that are actually live (online column
+    + fresh heartbeat). Routing prefers these so a thread whose previous agent
+    went offline (e.g. a dead daemon) doesn't keep targeting it and stranding
     messages. Returns an empty set when status can't be resolved (callers then
     fall back to treating all participants as candidates)."""
     from app.models import WorkspaceMember
@@ -517,7 +541,7 @@ def _online_participant_names(db, workspace, channel) -> set:
                 WorkspaceMember.agent_name.in_(names),
             )
         ).scalars().all()
-        return {m.agent_name for m in rows if (m.status or "").lower() == "online"}
+        return {m.agent_name for m in rows if _member_is_online(m)}
     except Exception:
         return set()
 
@@ -716,7 +740,7 @@ async def _route_with_llm(channel, new_event: Event, db, workspace) -> List[str]
     # reconnects).
     online_set = {
         n for n in participant_names
-        if members.get(n) and (members[n].status or "").lower() == "online"
+        if members.get(n) and _member_is_online(members[n])
     }
     candidate_names = [n for n in participant_names if n in online_set] if online_set else participant_names
     participant_lines = []
