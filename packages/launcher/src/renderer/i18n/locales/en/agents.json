@@ -23,6 +23,8 @@
     "removeBody": "This will stop and remove <1>{{name}}</1>.",
     "health": {
       "notConfigured": "Not configured",
+      "notInstalled": "Not installed",
+      "loginRequired": "Login required",
       "ready": "Ready",
       "apiKey": "API key",
       "cliLogin": "CLI login"

@@ -23,6 +23,8 @@
     "removeBody": "这将停止并移除 <1>{{name}}</1>。",
     "health": {
       "notConfigured": "未配置",
+      "notInstalled": "未安装",
+      "loginRequired": "需要登录",
       "ready": "就绪",
       "apiKey": "API 密钥",
       "cliLogin": "CLI 登录"

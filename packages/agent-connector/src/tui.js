@@ -67,7 +67,14 @@ function getConnector() {
 
 function describeHealth(health) {
   if (!health) return '';
-  if (!health.ready) return health.message || 'Not configured';
+  if (!health.ready) {
+    // "Not installed" is reserved for a genuinely missing executable; an
+    // installed-but-signed-out agent shows its login/config message instead.
+    if (health.reason === 'not_installed' || health.installed === false) {
+      return 'Not installed';
+    }
+    return health.message || 'Not configured';
+  }
   const parts = ['Ready'];
   if (health.auth_mode === 'api_key') parts.push('API key');
   else if (health.auth_mode === 'cli_login') parts.push('CLI login');
@@ -283,11 +290,14 @@ function createTUI() {
         // Local-only agents (no workspace) show a dimmed "(local)" marker.
         const ws = r.workspace || `{gray-fg}${r.workspaceLabel}{/gray-fg}`;
         items.push(`  ${r.name.padEnd(22)} ${r.type.padEnd(14)} ${state.padEnd(30)} ${ws}`);
-        // Detail row: working dir + config warning
+        // Detail row: working dir + config warning + the REAL runtime error
+        // (spawn/join/heartbeat) when the daemon reported one, so a failure shows
+        // its actual cause instead of a swallowed/"Not installed" guess.
         const details = [];
         details.push(r.path || process.env.HOME || '~');
         if (r.health) details.push(`{cyan-fg}${describeHealth(r.health)}{/cyan-fg}`);
         if (r.notReadyMsg) details.push(`{yellow-fg}⚠ ${r.notReadyMsg}{/yellow-fg}`);
+        if (r.lastError) details.push(`{red-fg}✗ ${r.lastError}{/red-fg}`);
         items.push(`  {gray-fg}  ${details.join('  |  ')}{/gray-fg}`);
       }
       agentList.setItems(items);

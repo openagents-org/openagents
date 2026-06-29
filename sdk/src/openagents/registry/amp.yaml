@@ -33,4 +33,8 @@ env_config:
 
 check_ready:
   login_command: "amp login"
-  not_ready_message: "Not installed — run: openagents install amp"
+  # Shown when the Amp CLI IS installed but no usable auth was detected. It must
+  # NOT say "Not installed" — that wording is reserved for a genuinely missing
+  # executable. A signed-out-but-installed agent is a Login-required state, not a
+  # missing-install state (see launcher _reconcileAgentHealth / formatHealthLabel).
+  not_ready_message: "Amp is installed but not signed in — run: amp login or set AMP_API_KEY"
