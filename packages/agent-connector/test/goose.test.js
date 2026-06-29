@@ -377,7 +377,6 @@ describe('Goose stop terminates the process tree', () => {
     // test worker.
     proc.on('error', () => {});
     if (proc.stdout) proc.stdout.on('error', () => {});
-
     try {
       const childPid = Number(await readFirstLine(proc.stdout));
       assert.equal(isPidAlive(proc.pid), true);

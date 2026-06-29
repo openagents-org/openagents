@@ -2,7 +2,7 @@
 Kimi adapter for OpenAgents workspace — Moonshot AI OpenAI-compatible API.
 
 Mirrors packages/agent-connector/src/adapters/kimi.js. Reuses the streaming
-chat-completions client from NanoClawAdapter but applies Kimi-specific
+chat-completions client from LlmDirectAdapter but applies Kimi-specific
 defaults (base URL https://api.moonshot.ai/v1, model kimi-k2.6) and accepts
 KIMI_API_KEY / MOONSHOT_API_KEY in addition to the generic LLM_*/OPENAI_*
 variables.
@@ -13,7 +13,7 @@ Priority for every value: UI-saved env > process env > default.
 import logging
 import os
 
-from openagents.adapters.nanoclaw import NanoClawAdapter
+from openagents.adapters.llm_direct import LlmDirectAdapter
 from openagents.workspace_client import DEFAULT_ENDPOINT
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ DEFAULT_BASE_URL = "https://api.moonshot.ai/v1"
 DEFAULT_MODEL = "kimi-k2.6"
 
 
-class KimiAdapter(NanoClawAdapter):
+class KimiAdapter(LlmDirectAdapter):
     """Kimi (Moonshot) adapter — OpenAI-compatible chat completions."""
 
     def __init__(

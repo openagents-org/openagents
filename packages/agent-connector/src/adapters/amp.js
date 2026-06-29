@@ -366,6 +366,15 @@ class AmpAdapter extends BaseAdapter {
       // resolved binary path was logged at preflight/init.
       this._log(`Running Amp: ${cmd.map((c) => String(c)).join(' ')}`);
 
+      // Guard the child's stdio streams against 'error'. When the process is
+      // SIGKILL'd on stop, macOS Node can emit a benign EPIPE/ECONNRESET 'error'
+      // on stdout/stderr a tick later; with a 'data' listener but no 'error'
+      // listener that becomes an uncaughtException which crashes the
+      // (single-process, e.g. Node 18) test run with exit 1 and no `not ok`.
+      // No-op — data handling below is unchanged.
+      if (proc.stdout) proc.stdout.on('error', () => {});
+      if (proc.stderr) proc.stderr.on('error', () => {});
+
       let lastTurnText = [];
       let resultText = '';
       let hasToolUseSinceText = false;

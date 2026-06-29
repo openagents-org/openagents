@@ -416,7 +416,7 @@ const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>(["gemini"])
  * an API key, so they're a rougher first-run experience than the key-only
  * agents; keep onboarding to the smoother options.
  */
-const ONBOARDING_HIDDEN = new Set<string>(["cursor", "hermes", "amp"])
+const ONBOARDING_HIDDEN = new Set<string>(["cursor", "hermes", "amp", "nanoclaw"])
 
 /**
  * The agents the launcher/workspace core officially supports today, in the
@@ -443,6 +443,11 @@ const CORE_AGENTS: readonly string[] = [
   // intentionally NOT in this set — they stay "coming soon" (visible but not
   // installable) so the supported download list is the 8 core agents + amp.
   "amp",
+  // NanoClaw is a creatable Workspace agent but BETA: it's an external
+  // containerized runtime bridged via a native NanoClaw `openagents` channel.
+  // Kept out of first-run onboarding via ONBOARDING_HIDDEN; installable/creatable
+  // from the Install tab. See docs/agents/nanoclaw.md.
+  "nanoclaw",
 ]
 const CORE_AGENT_ORDER = new Map<string, number>(
   CORE_AGENTS.map((name, i) => [name, i]),

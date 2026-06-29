@@ -5,9 +5,10 @@ Tests that a NanoClaw agent connected to a workspace can receive
 a message via the workspace API. Verifies the message infrastructure
 works end-to-end (send message -> poll -> message appears).
 
-When LLM credentials are available (LLM_API_KEY / OPENAI_API_KEY),
-also tests that the agent actually generates a response via the
-direct OpenAI-compatible API.
+A real agent *response* requires the full NanoClaw runtime (Docker host +
+the `openagents` channel + a wired Agent Group); when that runtime is not
+configured (NANOCLAW_AGENT_GROUP), the response part is skipped — it is not
+faked. See docs/agents/nanoclaw.md.
 
 Run:
     pytest tests/platform/respond/test_nanoclaw.py -v
@@ -189,10 +190,11 @@ class TestNanoClawRespond:
         reason="LLM credentials not available (set LLM_API_KEY or OPENAI_API_KEY)",
     )
     def test_agent_responds_to_message(self, workspace_env):
-        """Send a message and verify NanoClaw generates a real LLM response.
+        """Send a message and verify NanoClaw generates a real response.
 
-        Uses direct API mode — calls the OpenAI-compatible chat completions
-        endpoint with the model configured in tests/platform/config.yaml.
+        Requires the full NanoClaw runtime (Docker host + `openagents` channel +
+        a wired Agent Group). Skipped when that runtime is not configured — the
+        response is never faked.
         """
         env = workspace_env
         client = env["client"]
@@ -275,7 +277,7 @@ class TestNanoClawRespondReport:
         report = {
             "platform": os_platform,
             "openagents_version": openagents_version,
-            "agent_binary": binary_path or "(direct API mode)",
+            "agent_binary": binary_path or "(ncl not on PATH — using NANOCLAW_HOME)",
             "llm_credentials": "available" if HAS_LLM_CREDENTIALS else "not set",
             "model": _cfg.get("model", "not configured"),
         }
