@@ -649,9 +649,19 @@ export function ChatView() {
             <DropdownMenuContent align="end" className="w-56">
               {(() => {
                 const participants = currentSession?.participants || [];
-                const onlineAgents = agents.filter((a) => a.status === 'online');
-                const inThread = onlineAgents.filter((a) => participants.includes(a.agentName));
-                const notInThread = onlineAgents.filter((a) => !participants.includes(a.agentName));
+                // In-thread list must include OFFLINE participants too —
+                // otherwise an agent whose daemon is down (e.g. a dead bot)
+                // can never be removed from the thread. Resolve each
+                // participant to its agent record, or synthesize a minimal
+                // offline entry when it's not in the discover list.
+                const agentByName = new Map(agents.map((a) => [a.agentName, a]));
+                const inThread = participants.map(
+                  (name) => agentByName.get(name) || { agentName: name, status: 'offline' }
+                );
+                // The "Add to thread" picker still only offers online agents.
+                const notInThread = agents.filter(
+                  (a) => a.status === 'online' && !participants.includes(a.agentName)
+                );
                 return (
                   <>
                     {inThread.length > 0 && (
@@ -664,6 +674,9 @@ export function ChatView() {
                             >
                               <AgentAvatar name={agent.agentName} size={20} />
                               <span className="text-sm flex-1 truncate">{agent.agentName}</span>
+                              {agent.status !== 'online' && (
+                                <span className="text-[10px] text-muted-foreground shrink-0">offline</span>
+                              )}
                               {inThread.length > 1 && (
                                 <button
                                   onClick={() => currentSessionId && removeParticipant(currentSessionId, agent.agentName)}
@@ -694,7 +707,7 @@ export function ChatView() {
                         ))}
                       </>
                     )}
-                    {onlineAgents.length === 0 && (
+                    {inThread.length === 0 && notInThread.length === 0 && (
                       <p className="text-sm text-muted-foreground px-2 py-3 text-center">No agents online</p>
                     )}
                   </>
