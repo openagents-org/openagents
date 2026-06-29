@@ -16,3 +16,9 @@ export function initAnalytics(): void {
 export function capture(event: string, properties?: Record<string, unknown>): void {
   posthog.capture(event, properties)
 }
+
+// Tie subsequent events to a workspace. The workspace slug is the join key that connects
+// this install's onboarding to the website + workspace funnel stages for the same workspace.
+export function group(groupType: string, groupKey: string, properties?: Record<string, unknown>): void {
+  posthog.group(groupType, groupKey, properties)
+}

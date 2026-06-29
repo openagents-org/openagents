@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { workspaceApi } from './api';
-import { capture } from './analytics';
+import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
 import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
 import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
@@ -415,6 +415,12 @@ export function WorkspaceProvider({
   // Configure API client on mount
   useEffect(() => {
     workspaceApi.configure(workspaceId, token, bearerToken || undefined);
+    // Tie all subsequent events to this workspace so they line up with the
+    // website + launcher funnel stages for the same workspace ID.
+    if (workspaceId) {
+      group('workspace', workspaceId);
+      capture('workspace_opened', { workspace_id: workspaceId });
+    }
   }, [workspaceId, token, bearerToken]);
 
   const refreshWorkspace = useCallback(async () => {

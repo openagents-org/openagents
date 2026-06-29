@@ -23,6 +23,7 @@ import { InstallMiniBanner } from "./components/install-progress/StagedProgress"
 import { useToasts } from "./hooks/useToast"
 import { useInstallProgress } from "./hooks/useInstallProgress"
 import { cn } from "./lib/utils"
+import { capture } from "./lib/analytics"
 
 export default function App(): React.JSX.Element {
   const currentTab = useUiStore((s) => s.currentTab)
@@ -82,6 +83,18 @@ export default function App(): React.JSX.Element {
       if (name) useUiStore.getState().setInstallFocusAgent(name)
     })
   }, [setCoreUpdateInfo, setCurrentTab])
+
+  // Track in-app navigation as pageviews so the launcher's page flow shows up in
+  // PostHog like website navigation does. currentTab is the single value that
+  // every navigation path (sidebar, keyboard shortcuts, deep-links, notifications,
+  // dashboard quick-actions) updates, so one effect covers them all. Fires on
+  // mount too, recording the entry screen.
+  useEffect(() => {
+    capture("$pageview", {
+      screen: currentTab,
+      $current_url: `app://launcher/${currentTab}`,
+    })
+  }, [currentTab])
 
   useEffect(() => {
     const tabs = [
