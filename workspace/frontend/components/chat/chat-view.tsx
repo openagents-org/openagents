@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ListTree, UserPlus, MessageSquare, CalendarClock, Zap, Eye, Square, ChevronLeft, X, Plus, Globe, Share2 } from 'lucide-react';
+import { ListTree, UserPlus, MessageSquare, CalendarClock, Zap, Eye, Square, ChevronLeft, X, Plus, Globe, Share2, Crown } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
 import { useLayout } from '@/components/layout/layout-context';
 import { cn } from '@/lib/utils';
@@ -116,7 +116,7 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, agentModes, updateAgentMode, toggleAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
+  const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, agentModes, updateAgentMode, toggleAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
   const {
     isMobile,
@@ -676,6 +676,22 @@ export function ChatView() {
                               <span className="text-sm flex-1 truncate">{agent.agentName}</span>
                               {agent.status !== 'online' && (
                                 <span className="text-[10px] text-muted-foreground shrink-0">offline</span>
+                              )}
+                              {currentSession?.master === agent.agentName ? (
+                                <span
+                                  className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 shrink-0"
+                                  title="Thread leader — receives messages that don't @mention anyone"
+                                >
+                                  <Crown className="size-3" /> leader
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => currentSessionId && setSessionMaster(currentSessionId, agent.agentName)}
+                                  className="size-5 flex items-center justify-center rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 text-muted-foreground hover:text-amber-600 dark:hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                                  title="Set as thread leader"
+                                >
+                                  <Crown className="size-3" />
+                                </button>
                               )}
                               {inThread.length > 1 && (
                                 <button

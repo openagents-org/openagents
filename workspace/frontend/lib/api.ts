@@ -163,10 +163,14 @@ class WorkspaceApi {
     });
   }
 
-  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean }): Promise<unknown> {
+  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean; masterAgent?: string }): Promise<unknown> {
+    // Map camelCase masterAgent → snake_case master_agent for the backend.
+    const { masterAgent, ...rest } = updates;
+    const body: Record<string, unknown> = { ...rest };
+    if (masterAgent !== undefined) body.master_agent = masterAgent;
     return this.request(`/v1/workspaces/${this.workspaceId}/channels/${channelName}`, {
       method: 'PATCH',
-      body: JSON.stringify(updates),
+      body: JSON.stringify(body),
     });
   }
 

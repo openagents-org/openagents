@@ -83,6 +83,7 @@ interface WorkspaceContextValue {
   updateSession: (sessionId: string, updates: { starred?: boolean; status?: string }) => Promise<void>;
   addParticipant: (sessionId: string, agentName: string) => Promise<void>;
   removeParticipant: (sessionId: string, agentName: string) => Promise<void>;
+  setSessionMaster: (sessionId: string, agentName: string) => Promise<void>;
   renameWorkspace: (name: string) => Promise<void>;
   refreshWorkspace: () => Promise<void>;
   refreshAgents: () => Promise<void>;
@@ -1001,6 +1002,25 @@ export function WorkspaceProvider({
     }
   }, []);
 
+  const setSessionMaster = useCallback(async (sessionId: string, agentName: string) => {
+    // Optimistic: update the thread's leader locally, roll back on failure.
+    let previous: string | null = null;
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.sessionId !== sessionId) return s;
+        previous = s.master ?? null;
+        return { ...s, master: agentName };
+      })
+    );
+    try {
+      await workspaceApi.updateChannel(sessionId, { masterAgent: agentName });
+    } catch {
+      setSessions((prev) =>
+        prev.map((s) => (s.sessionId === sessionId ? { ...s, master: previous } : s))
+      );
+    }
+  }, []);
+
   const updateSession = useCallback(async (sessionId: string, updates: { starred?: boolean; status?: string }) => {
     // Capture previous state for rollback
     const previousSession = sessions.find((s) => s.sessionId === sessionId);
@@ -1147,6 +1167,7 @@ export function WorkspaceProvider({
         updateSession,
         addParticipant,
         removeParticipant,
+        setSessionMaster,
         renameWorkspace,
         refreshWorkspace,
         refreshAgents,
