@@ -26,7 +26,8 @@ import { useInstallStore } from "../../store/install"
 import type { OnboardingAgent, EnvField } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
 import { cn } from "../../lib/utils"
-import { capture, group } from "../../lib/analytics"
+import { capture } from "../../lib/analytics"
+import { throwIfInstallFailed } from "../../utils/installErrors"
 
 const ONBOARDING_KEY = "onboarding_completed"
 const STEP_KEY = "onboarding_step"
@@ -351,8 +352,17 @@ export function OnboardingFlow({
       setTimeout(() => void poll(), 5000)
     })
     try {
-      await Promise.race([window.api.installAgentTypeStreaming(type), watchdog])
+      // The install IPC resolves with { success:false, error } on failure (it
+      // doesn't reject), so without this check a failed install would fall
+      // through to goNext() — advancing into the setup/configure step with an
+      // agent whose CLI never installed. The watchdog branch resolves to
+      // undefined, which throwIfInstallFailed treats as success.
+      const result = await Promise.race([
+        window.api.installAgentTypeStreaming(type),
+        watchdog,
+      ])
       settled = true
+      throwIfInstallFailed(result)
       await loadAgents()
       goNext()
     } catch (e) {
@@ -1057,11 +1067,18 @@ function AgentSelectionStep({
               <button
                 type="button"
                 onClick={() => setSelected(c.name)}
+                disabled={installing}
                 className={cn(
-                  "w-full h-full text-left p-3 rounded-(--radius-sm) border bg-(--bg-card) cursor-pointer transition-colors",
+                  "w-full h-full text-left p-3 rounded-(--radius-sm) border bg-(--bg-card) transition-colors",
+                  // Lock selection while an install is running — switching the
+                  // selected agent mid-download would desync the install from
+                  // the highlighted card.
+                  installing ? "cursor-not-allowed" : "cursor-pointer",
                   active
                     ? "border-(--accent) ring-2 ring-(--accent-border)"
-                    : "border-(--border) hover:border-(--border-hover)",
+                    : installing
+                      ? "border-(--border) opacity-50"
+                      : "border-(--border) hover:border-(--border-hover)",
                 )}
               >
                 <div className="flex items-start gap-2.5">
