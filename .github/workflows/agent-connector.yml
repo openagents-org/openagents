@@ -17,12 +17,7 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        # TEMPORARY: windows-latest removed to unblock the npm publish job.
-        # Several Windows-only test-portability failures (nanoclaw Unix-domain
-        # sockets/symlinks, gemini chmod-based unreadable-file check, aider
-        # non-aider-binary rejection) need skip-on-Windows gating first.
-        # Restore `windows-latest` once those tests are gated.
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         node-version: ['18', '20', '22']
 
     steps:

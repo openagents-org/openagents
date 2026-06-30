@@ -86,6 +86,9 @@ describe('Gemini readiness — OAuth credential file (6.1)', () => {
   });
 
   it('OAuth creds file exists but unreadable → unknown (NOT "Not logged in"), never Ready', () => {
+    if (process.platform === 'win32') {
+      return; // chmod(0o000) is a no-op on Windows; an unreadable file can't be simulated
+    }
     if (typeof process.getuid === 'function' && process.getuid() === 0) {
       return; // root bypasses file permissions; the unreadable path can't be simulated
     }

@@ -20,7 +20,11 @@
  * rollback-safe channel installer.
  */
 
-const { test } = require('node:test');
+const { test: _test } = require('node:test');
+// The NanoClaw bridge is Unix-domain-socket IPC (filesystem sockets + symlink
+// checks). These tests can't run on Windows (EACCES on AF_UNIX paths, no POSIX
+// symlink semantics), so skip the whole file there; Unix coverage is unchanged.
+const test = process.platform === 'win32' ? _test.skip : _test;
 const assert = require('node:assert');
 const net = require('net');
 const fs = require('fs');
