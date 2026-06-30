@@ -457,3 +457,16 @@ We welcome contributions! See [issues](https://github.com/openagents-org/openage
 **[Get Started](#get-started)** · **[Docs](https://openagents.org/docs/getting-started/overview)** · **[Showcase](https://openagents.org/showcase)** · **[Discord](https://discord.gg/openagents)**
 
 </div>
+
+## Sponsors
+
+<table>
+<tr>
+<td>
+<a href="https://signpath.io"><img src="https://signpath.org/assets/favicon-50x50.png" alt="SignPath" width="40"></a>
+</td>
+<td>
+Free code signing on Windows provided by <a href="https://signpath.io">SignPath.io</a>, certificate by <a href="https://signpath.org">SignPath Foundation</a>
+</td>
+</tr>
+</table>
