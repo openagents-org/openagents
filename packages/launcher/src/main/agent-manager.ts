@@ -278,6 +278,11 @@ interface HostedLoginSpec {
   loggedOutPattern?: RegExp
   loggedInPattern?: RegExp
   apiKeyEnv?: string
+  // Some CLIs (Gemini) have no non-interactive `status` command — auth is an
+  // interactive TUI flow that just writes a credentials file. When set, sign-in
+  // is detected by this file's existence (relative to the home dir) INSTEAD of
+  // spawning `statusArgs` (which for those CLIs would launch the TUI and hang).
+  credsFile?: string
   // Env vars wiped when the user signs in via the browser flow. Hosted-login
   // agents have no env UI (getEnvFields → []), so any saved value is stale
   // leftover that overrides the login session — e.g. an invalid CURSOR_API_KEY
@@ -369,6 +374,41 @@ const DUAL_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
     statusArgs: ["usage"],
     loggedOutPattern: AMP_LOGGED_OUT,
   },
+  gemini: {
+    // Gemini CLI (v0.46) has NO `login`/`auth`/`status` subcommand — auth is the
+    // interactive "Login with Google" OAuth flow reached by launching the CLI
+    // (its `/auth` picker), or a GEMINI_API_KEY. So the login command is bare
+    // `gemini` (on first run it prompts for the auth method and opens the browser
+    // sign-in), and sign-in is detected by the OAuth token cache it writes at
+    // ~/.gemini/oauth_creds.json — there is no status command to spawn, and
+    // spawning bare `gemini` for a probe would launch its TUI and hang. A saved
+    // GEMINI_API_KEY counts as configured credentials separately, so readiness is
+    // "installed AND (signed in OR has a key)" like the other dual-login agents.
+    loginCommand: "gemini",
+    statusArgs: [],
+    credsFile: ".gemini/oauth_creds.json",
+  },
+}
+
+/**
+ * The launcher-auth fields for an agent type, with `required` cleared for
+ * dual-login agents. Claude/Codex (and Amp) accept an API key OR a CLI sign-in,
+ * so their key/base-URL/model inputs are an ALTERNATIVE to login and must be
+ * OPTIONAL — otherwise a user who signed in via `claude auth login` / `codex
+ * login` can't save the (deliberately empty) config: the Configure dialog,
+ * onboarding, and the post-install wizard all reject the save on a missing
+ * required field. Env-only override agents (Kimi, …) keep their fields as
+ * declared. Returns null when the agent has no launcher override.
+ */
+function launcherAuthFields(
+  type: string,
+): Array<Record<string, unknown>> | null {
+  const override = LAUNCHER_AUTH_OVERRIDES[type]
+  if (!override) return null
+  if (DUAL_LOGIN_AGENTS[type]) {
+    return override.map((f) => ({ ...f, required: false }))
+  }
+  return override
 }
 
 /**
@@ -1744,6 +1784,7 @@ export class AgentManager extends EventEmitter {
       hermes: "hermes",
       claude: "claude",
       amp: "amp",
+      gemini: "gemini",
     }
     const type = base ? BINARY_TO_TYPE[base] : undefined
     if (!type) return cmd
@@ -1817,6 +1858,20 @@ export class AgentManager extends EventEmitter {
         }
         this._agentsCache = { value: [], at: 0 }
         resolve(value)
+      }
+
+      // File-based sign-in detection for CLIs with no status command (Gemini):
+      // the OAuth login just writes a creds file. Check it instead of spawning
+      // `statusArgs` — spawning bare `gemini` would launch its TUI and hang.
+      if (spec.credsFile) {
+        let value: boolean | null = null
+        try {
+          value = fs.existsSync(path.join(os.homedir(), spec.credsFile))
+        } catch {
+          value = null
+        }
+        settle(value)
+        return
       }
 
       if (!bin) {
@@ -2170,7 +2225,8 @@ export class AgentManager extends EventEmitter {
     // See HOSTED_LOGIN_AGENTS.
     if (HOSTED_LOGIN_AGENTS[agentType]) return []
 
-    const override = LAUNCHER_AUTH_OVERRIDES[agentType]
+    // required cleared for dual-login agents — see launcherAuthFields.
+    const override = launcherAuthFields(agentType)
     if (override) return override
 
     // Mirror getCatalog's bundled fallback: when the agent-launcher core
@@ -2387,6 +2443,23 @@ export class AgentManager extends EventEmitter {
     })
   }
 
+  // Extract the bare token from an official workspace.openagents.org link.
+  // Accepts both ?token=<t> and /<t> (first path segment) forms. Returns null
+  // for non-official hosts (handled by parseCustomWorkspaceUrl) or bare tokens.
+  private extractOfficialWorkspaceToken(urlStr: string): string | null {
+    try {
+      const u = new URL(urlStr.trim())
+      if (u.protocol !== "http:" && u.protocol !== "https:") return null
+      if (u.hostname.toLowerCase() !== "workspace.openagents.org") return null
+      const fromQuery = u.searchParams.get("token")
+      if (fromQuery) return fromQuery.trim()
+      const firstSegment = u.pathname.replace(/^\//, "").split("/")[0]
+      return firstSegment ? firstSegment.trim() : null
+    } catch {
+      return null
+    }
+  }
+
   private parseCustomWorkspaceUrl(
     urlStr: string,
   ): { endpoint?: string; slug?: string; token?: string } | null {
@@ -2417,7 +2490,21 @@ export class AgentManager extends EventEmitter {
     endpoint?: string
     token?: string
   }> {
-    const tokenOrSlug = (input.token || input.slug || input.url || "").trim()
+    // When the user pastes a full official workspace link
+    // (https://workspace.openagents.org/<token>?…) we must extract the bare
+    // token before handing it to resolveToken — passing the whole URL string
+    // makes the backend reject it as "Invalid or expired token". The token is
+    // either the `token` query param or the first path segment of the link.
+    const officialUrlToken = input.url
+      ? this.extractOfficialWorkspaceToken(input.url)
+      : null
+    const tokenOrSlug = (
+      input.token ||
+      input.slug ||
+      officialUrlToken ||
+      input.url ||
+      ""
+    ).trim()
     if (!tokenOrSlug) throw new Error("Missing workspace URL or token")
 
     const customParsed = input.url ? this.parseCustomWorkspaceUrl(input.url) : null
@@ -2488,48 +2575,57 @@ export class AgentManager extends EventEmitter {
     agentName: string,
     tokenOrSlug: string,
   ): Promise<unknown> {
-    try {
-      const resolveToken = this._connector!.resolveToken as (
-        token: string,
-      ) => Promise<{
-        slug?: string
-        workspace_id?: string
-        name?: string
-        endpoint?: string
-      }>
-      const info = await resolveToken.call(this._connector, tokenOrSlug)
-      const slug = info.slug || info.workspace_id
-      const wsName = info.name || slug
-      const endpoint = info.endpoint || this.configuredWorkspaceEndpoint()
+    const connectWorkspace = this._connector!.connectWorkspace as (
+      name: string,
+      slug: string,
+    ) => void
 
-      const addNetwork = (this._connector!.config as Record<string, unknown>)
-        .addNetwork as (opts: unknown) => void
-      addNetwork.call(this._connector!.config as Record<string, unknown>, {
-        id: info.workspace_id || slug,
-        slug,
-        name: wsName,
-        endpoint,
-        token: tokenOrSlug,
-      })
-
-      const connectWorkspace = this._connector!.connectWorkspace as (
-        name: string,
-        slug: string,
-      ) => void
-      connectWorkspace.call(this._connector, agentName, slug as string)
-    } catch (err) {
-      const networks = this.getNetworks() as Array<{ id?: string; slug?: string }>
-      const existing = networks.some(
-        (network) => network.slug === tokenOrSlug || network.id === tokenOrSlug,
+    // Fast path: onboarding (and the Workspaces UI) register the network first
+    // via registerWorkspaceFromToken, then call this with the workspace SLUG.
+    // A slug is NOT a token — calling resolveToken on it hits /v1/token/resolve
+    // and fails ("Invalid or expired token"). Since the network is already
+    // registered, bind the agent to it directly instead of re-resolving.
+    const networks = this.getNetworks() as Array<{ id?: string; slug?: string }>
+    const known = networks.find(
+      (network) => network.slug === tokenOrSlug || network.id === tokenOrSlug,
+    )
+    if (known) {
+      connectWorkspace.call(
+        this._connector,
+        agentName,
+        (known.slug || tokenOrSlug) as string,
       )
-      if (!existing) throw err
-
-      const connectWorkspace = this._connector!.connectWorkspace as (
-        name: string,
-        slug: string,
-      ) => void
-      connectWorkspace.call(this._connector, agentName, tokenOrSlug)
+      this.signalReload()
+      return { success: true }
     }
+
+    // Otherwise treat the argument as a raw invite TOKEN: resolve it to a
+    // workspace, register the network, then bind. resolveToken throwing here
+    // (a genuinely invalid/expired token) propagates to the caller as-is.
+    const resolveToken = this._connector!.resolveToken as (
+      token: string,
+    ) => Promise<{
+      slug?: string
+      workspace_id?: string
+      name?: string
+      endpoint?: string
+    }>
+    const info = await resolveToken.call(this._connector, tokenOrSlug)
+    const slug = info.slug || info.workspace_id
+    const wsName = info.name || slug
+    const endpoint = info.endpoint || this.configuredWorkspaceEndpoint()
+
+    const addNetwork = (this._connector!.config as Record<string, unknown>)
+      .addNetwork as (opts: unknown) => void
+    addNetwork.call(this._connector!.config as Record<string, unknown>, {
+      id: info.workspace_id || slug,
+      slug,
+      name: wsName,
+      endpoint,
+      token: tokenOrSlug,
+    })
+
+    connectWorkspace.call(this._connector, agentName, slug as string)
     this.signalReload()
     return { success: true }
   }
@@ -2606,8 +2702,10 @@ export class AgentManager extends EventEmitter {
       // Launcher-side override: agents that should authenticate with a
       // key/base-URL entered in onboarding rather than an external terminal
       // login. Forces "env" mode and hides the login command, without touching
-      // the shared registry. See LAUNCHER_AUTH_OVERRIDES.
-      const override = LAUNCHER_AUTH_OVERRIDES[type]
+      // the shared registry. `required` is cleared for dual-login agents so the
+      // key stays optional when the user signs in via the CLI instead. See
+      // LAUNCHER_AUTH_OVERRIDES / launcherAuthFields.
+      const override = launcherAuthFields(type)
       // Hosted-login agents (e.g. Cursor) sign in through their own service —
       // no key fields, drive the CLI's login instead. See HOSTED_LOGIN_AGENTS.
       const hostedLogin = HOSTED_LOGIN_AGENTS[type]

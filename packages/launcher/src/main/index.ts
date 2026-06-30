@@ -2045,7 +2045,12 @@ function setupIPC(): void {
           os.tmpdir(),
           `openagents-login-${Date.now()}.cmd`,
         )
-        fs.writeFileSync(tmpCmd, lines.join("\r\n"), "utf-8")
+        // Prepend a UTF-8 BOM so cmd.exe reads the batch file as UTF-8 instead
+        // of the console's OEM codepage (GBK/936 on Chinese Windows). Without it
+        // a non-ASCII cwd (`cd /d "D:\重要资料"`) or home dir in PATH is decoded
+        // wrong and dies with "The system cannot find the path specified." The
+        // BOM + `chcp 65001` together make non-ASCII paths in the script work.
+        fs.writeFileSync(tmpCmd, "﻿" + lines.join("\r\n"), "utf-8")
         exec(`start "OpenAgents Login" cmd /K "${tmpCmd}"`, {
           stdio: "ignore",
           shell: true,

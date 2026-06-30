@@ -176,11 +176,14 @@ export default function AgentDetail({
         // dist-tag (`@beta`, `@nightly`). Stable goes through the regular
         // pipeline which already follows `@latest`.
         const tag = channelToDistTag(channel)
-        if (tag) {
-          await window.api.installAgentTypeAtVersionStreaming(entry.name, tag)
-        } else {
-          await window.api.installAgentTypeStreaming(entry.name)
-        }
+        // The install IPC resolves with { success:false, error } on failure
+        // (it doesn't reject), so an unchecked await would fall through to the
+        // success path — marking the agent installed and auto-opening the setup
+        // wizard even when the CLI never landed. Surface the failure instead.
+        const result = tag
+          ? await window.api.installAgentTypeAtVersionStreaming(entry.name, tag)
+          : await window.api.installAgentTypeStreaming(entry.name)
+        throwIfInstallFailed(result)
         showToast(
           t("agents.detail.toast.installSuccess", {
             name: entry.label || entry.name,
