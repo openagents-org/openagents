@@ -63,6 +63,19 @@
   },
   "configureDialog": {
     "title": "配置 {{name}}",
+    "workdir": {
+      "label": "工作目录",
+      "hint": "该智能体的运行目录。修改将在智能体下次启动时生效。",
+      "placeholder": "/path/to/project",
+      "browse": "浏览…",
+      "save": "保存目录",
+      "saving": "保存中…",
+      "toast": {
+        "saved": "工作目录已更新为 {{path}}",
+        "error": "更新目录失败：{{message}}",
+        "required": "请选择一个工作目录"
+      }
+    },
     "hintLoginOnly": "该智能体通过其自有服务登录 — 无需 API 密钥。点击登录会打开一个终端并运行",
     "hintLoginOnlySuffix": "，请在其中完成登录。",
     "hintInstance": "已为该智能体保存设置。类型默认值仍可作为后备。",

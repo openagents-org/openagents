@@ -1284,7 +1284,7 @@ function resolveNpmInvocation(): {
   preArgs: string[]
   useShell: boolean
 } {
-  const portableNodeDir = path.join(os.homedir(), ".openagents", "nodejs")
+  const portableNodeDir = path.join(CONFIG_DIR, "nodejs")
   const exists = (p: string): boolean => {
     try {
       return fs.existsSync(p)
@@ -2198,6 +2198,49 @@ export class AgentManager extends EventEmitter {
     }
     this._agentsCache = { value: [], at: 0 }
     return { success: true }
+  }
+
+  /**
+   * Change an existing agent's working directory (its spawn cwd, stored as the
+   * `path` field in daemon.yaml). The folder is created up-front — a missing
+   * cwd makes the agent subprocess fail to spawn. The new cwd takes effect the
+   * next time the agent starts; a running agent is asked to reload so the
+   * daemon re-reads the config.
+   *
+   * The connector's published `config.updateAgent` is used directly here: the
+   * top-level connector exposes no agent-path setter, and reimplementing the
+   * daemon.yaml read-modify-write launcher-side would risk diverging from the
+   * core's serializer. `config.updateAgent` has shipped in the core for a long
+   * time, so it's a safe internal to lean on.
+   */
+  async setAgentWorkingDir(name: string, dirPath: string): Promise<unknown> {
+    const p = (dirPath || "").trim()
+    if (!p) throw new Error("A working directory is required.")
+    try {
+      fs.mkdirSync(p, { recursive: true })
+    } catch (e) {
+      throw new Error(
+        `Could not create the agent folder '${p}': ${(e as Error).message}`,
+      )
+    }
+    const config = (this._connector as { config?: unknown } | null)?.config as
+      | { updateAgent?: (name: string, updates: unknown) => unknown }
+      | undefined
+    if (!config?.updateAgent) {
+      throw new Error(
+        "Updating the working directory isn't supported by the installed core. Please update, then try again.",
+      )
+    }
+    config.updateAgent(name, { path: p })
+    this._agentsCache = { value: [], at: 0 }
+    // Nudge the daemon to re-read daemon.yaml so a running agent picks up the
+    // new cwd on its next (re)start. Best-effort: a stopped daemon just means
+    // the change applies whenever it next starts the agent.
+    try {
+      const sendCmd = this._connector!.sendDaemonCommand as (c: string) => void
+      sendCmd?.call(this._connector, "reload")
+    } catch {}
+    return { success: true, path: p }
   }
 
   clearCatalogCache(): void {
@@ -3332,7 +3375,7 @@ export class AgentManager extends EventEmitter {
     // Invoke bundled `node npm-cli.js` directly (no shell) so non-ASCII home
     // paths survive on Windows; see resolveNpmInvocation().
     const inv = resolveNpmInvocation()
-    const portableNodeDir = path.join(os.homedir(), ".openagents", "nodejs")
+    const portableNodeDir = path.join(CONFIG_DIR, "nodejs")
     if (onData) onData(`$ npm ${args.join(" ")}\n\n`)
 
     return new Promise((resolve) => {
@@ -3820,8 +3863,8 @@ export class AgentManager extends EventEmitter {
     } catch {}
 
     const { spawn } = require("child_process")
-    const portableNodeDir = path.join(os.homedir(), ".openagents", "nodejs")
-    const openagentsDir = path.join(os.homedir(), ".openagents")
+    const portableNodeDir = path.join(CONFIG_DIR, "nodejs")
+    const openagentsDir = CONFIG_DIR
 
     const extraDirs = [portableNodeDir, path.join(portableNodeDir, "bin")]
     const runtimesDir = path.join(openagentsDir, "runtimes")

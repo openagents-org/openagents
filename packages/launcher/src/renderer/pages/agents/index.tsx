@@ -6,9 +6,23 @@ import { Trans, useTranslation } from "react-i18next"
 import type { TFunction } from "i18next"
 import AgentIcon from "../../components/AgentIcon"
 import StatusDot, { displayState } from "../../components/ui/StatusDot"
-import { Plus, CheckCircle2, AlertTriangle, Loader2, KeyRound, Terminal } from "lucide-react"
+import {
+  Plus,
+  CheckCircle2,
+  AlertTriangle,
+  Loader2,
+  KeyRound,
+  Terminal,
+  FolderOpen,
+} from "lucide-react"
 import { Button } from "../../components/ui/Button"
-import { Modal, ModalBody, ModalFooter, ModalHeader, ModalTitle } from "../../components/ui/Modal"
+import {
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  ModalTitle,
+} from "../../components/ui/Modal"
 import { PasswordInput } from "../../components/ui/PasswordInput"
 import { TopBar } from "../../components/TopBar"
 import type { Agent, CatalogEntry, EnvField, HealthCheck } from "../../types"
@@ -16,8 +30,12 @@ import type { ToastType } from "../../hooks/useToast"
 import { cn } from "../../lib/utils"
 import { capture } from "../../lib/analytics"
 import { workspaceWebBaseUrl } from "../../lib/workspace-urls"
+import { randomAgentName } from "../../utils/randomName"
 
-export function formatHealthLabel(health: HealthCheck | null, t: TFunction): string {
+export function formatHealthLabel(
+  health: HealthCheck | null,
+  t: TFunction,
+): string {
   if (!health) return t("agents.list.health.notConfigured")
   if (!health.ready) {
     // "Not installed" is reserved for a genuinely missing executable. Decide
@@ -34,7 +52,8 @@ export function formatHealthLabel(health: HealthCheck | null, t: TFunction): str
   }
   const parts = [t("agents.list.health.ready")]
   if (health.auth_mode === "api_key") parts.push(t("agents.list.health.apiKey"))
-  else if (health.auth_mode === "cli_login") parts.push(t("agents.list.health.cliLogin"))
+  else if (health.auth_mode === "cli_login")
+    parts.push(t("agents.list.health.cliLogin"))
   if (health.execution_mode && health.execution_mode !== "unavailable")
     parts.push(health.execution_mode)
   return parts.join(" · ")
@@ -44,7 +63,8 @@ interface AgentsProps {
   showToast: (msg: string, type?: ToastType) => void
 }
 
-const LIST_ITEM = "flex flex-col gap-3 px-[18px] py-4 mb-2.5 bg-(--bg-card) border border-(--border) rounded-(--radius) shadow-sm transition-all duration-200 hover:shadow-md hover:border-(--border-hover)"
+const LIST_ITEM =
+  "flex flex-col gap-3 px-[18px] py-4 mb-2.5 bg-(--bg-card) border border-(--border) rounded-(--radius) shadow-sm transition-all duration-200 hover:shadow-md hover:border-(--border-hover)"
 
 function SkeletonListItem(): React.JSX.Element {
   return (
@@ -57,12 +77,21 @@ function SkeletonListItem(): React.JSX.Element {
 
 export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
   const { t } = useTranslation()
-  const { agents, setAgents, pendingAgentActions, addPendingAction, removePendingAction } =
-    useAgentsStore(useShallow((s) => ({
-      agents: s.agents, setAgents: s.setAgents,
+  const {
+    agents,
+    setAgents,
+    pendingAgentActions,
+    addPendingAction,
+    removePendingAction,
+  } = useAgentsStore(
+    useShallow((s) => ({
+      agents: s.agents,
+      setAgents: s.setAgents,
       pendingAgentActions: s.pendingAgentActions,
-      addPendingAction: s.addPendingAction, removePendingAction: s.removePendingAction,
-    })))
+      addPendingAction: s.addPendingAction,
+      removePendingAction: s.removePendingAction,
+    })),
+  )
   const [loading, setLoading] = useState(agents.length === 0)
   const inFlight = useRef(false)
   const queued = useRef(false)
@@ -123,9 +152,15 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
     try {
       const isRunning = ["online", "running", "idle"].includes(agent.state)
       if (isRunning) {
-        capture("agent_stopped", { agent_name: agent.name, agent_type: agent.type })
+        capture("agent_stopped", {
+          agent_name: agent.name,
+          agent_type: agent.type,
+        })
         await window.api.stopAgent(agent.name)
-        showToast(t("agents.list.toast.stoppingAgent", { name: agent.name }), "info")
+        showToast(
+          t("agents.list.toast.stoppingAgent", { name: agent.name }),
+          "info",
+        )
         // Fast initial polls — the daemon now processes stop commands within
         // ~200ms, so checking quickly catches the state flip without making
         // the user stare at a "Stopping…" toast for 3+ seconds.
@@ -134,15 +169,24 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
           await new Promise((r) => setTimeout(r, w))
           const status = await window.api.agentStatus()
           if (!status[agent.name] || status[agent.name].state === "stopped") {
-            showToast(t("agents.list.toast.stoppedAgent", { name: agent.name }), "success")
+            showToast(
+              t("agents.list.toast.stoppedAgent", { name: agent.name }),
+              "success",
+            )
             break
           }
           refresh()
         }
       } else {
-        capture("agent_started", { agent_name: agent.name, agent_type: agent.type })
+        capture("agent_started", {
+          agent_name: agent.name,
+          agent_type: agent.type,
+        })
         await window.api.startAgent(agent.name)
-        showToast(t("agents.list.toast.startingAgent", { name: agent.name }), "info")
+        showToast(
+          t("agents.list.toast.startingAgent", { name: agent.name }),
+          "info",
+        )
         const startWaits = [
           500, 1000, 1500, 2500, 3000, 3000, 3000, 3000, 3000, 3000,
         ]
@@ -151,14 +195,20 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
           const status = await window.api.agentStatus()
           const s = status[agent.name]
           if (s && ["running", "online"].includes(s.state)) {
-            showToast(t("agents.list.toast.nowRunning", { name: agent.name }), "success")
+            showToast(
+              t("agents.list.toast.nowRunning", { name: agent.name }),
+              "success",
+            )
             break
           }
           refresh()
         }
       }
     } catch (err: unknown) {
-      showToast(t("agents.list.toast.error", { message: (err as Error).message }), "error")
+      showToast(
+        t("agents.list.toast.error", { message: (err as Error).message }),
+        "error",
+      )
     } finally {
       removePendingAction(agent.name)
       refresh()
@@ -172,7 +222,10 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
       showToast(t("agents.list.toast.removed", { name }), "success")
       refresh()
     } catch (err: unknown) {
-      showToast(t("agents.list.toast.error", { message: (err as Error).message }), "error")
+      showToast(
+        t("agents.list.toast.error", { message: (err as Error).message }),
+        "error",
+      )
     }
   }
 
@@ -183,7 +236,10 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
       window.api.signalReload()
       refresh()
     } catch (err: unknown) {
-      showToast(t("agents.list.toast.error", { message: (err as Error).message }), "error")
+      showToast(
+        t("agents.list.toast.error", { message: (err as Error).message }),
+        "error",
+      )
     }
   }
 
@@ -206,7 +262,10 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
       // user lands on is actually live.
       const isRunning = ["online", "running", "idle"].includes(agent.state)
       if (!isRunning) {
-        showToast(t("agents.list.toast.startingEllipsis", { name: agent.name }), "info")
+        showToast(
+          t("agents.list.toast.startingEllipsis", { name: agent.name }),
+          "info",
+        )
         try {
           await window.api.startAgent(agent.name)
           for (let i = 0; i < 5; i++) {
@@ -217,7 +276,10 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
           }
         } catch (e: unknown) {
           showToast(
-            t("agents.list.toast.couldntStart", { name: agent.name, message: (e as Error).message }),
+            t("agents.list.toast.couldntStart", {
+              name: agent.name,
+              message: (e as Error).message,
+            }),
             "error",
           )
           return
@@ -232,7 +294,10 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
       if (ws && ws.token) url += `?token=${encodeURIComponent(ws.token)}`
       window.api.openExternal(url)
     } catch (err: unknown) {
-      showToast(t("agents.list.toast.error", { message: (err as Error).message }), "error")
+      showToast(
+        t("agents.list.toast.error", { message: (err as Error).message }),
+        "error",
+      )
     }
   }
 
@@ -264,159 +329,171 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
       />
 
       <div className="flex-1 overflow-y-auto px-9 py-6">
-
-      {loading ? (
-        <div className="flex flex-col gap-2.5">
-          <SkeletonListItem />
-          <SkeletonListItem />
-          <SkeletonListItem />
-        </div>
-      ) : agents.length === 0 ? (
-        <p className="hint py-5">
-          {t("agents.list.empty")}
-        </p>
-      ) : (
-        <div>
-          {agents.map((agent) => {
-            const isRunning = ["online", "running", "idle"].includes(
-              agent.state,
-            )
-            const isPending = pendingAgentActions.has(agent.name)
-            const health = agent.health || null
-            const readyLabel = formatHealthLabel(health, t)
-            const wsDisplay = agent.network
-              ? agent.networkName && agent.networkName !== agent.network
-                ? `${agent.network} (${agent.networkName})`
-                : agent.network
-              : ""
-            const envDisplay: string[] = []
-            if (agent.env?.LLM_BASE_URL || agent.env?.OPENAI_BASE_URL)
-              envDisplay.push(
-                t("agents.list.apiPrefix", { value: agent.env.LLM_BASE_URL || agent.env.OPENAI_BASE_URL }),
+        {loading ? (
+          <div className="flex flex-col gap-2.5">
+            <SkeletonListItem />
+            <SkeletonListItem />
+            <SkeletonListItem />
+          </div>
+        ) : agents.length === 0 ? (
+          <p className="hint py-5">{t("agents.list.empty")}</p>
+        ) : (
+          <div>
+            {agents.map((agent) => {
+              const isRunning = ["online", "running", "idle"].includes(
+                agent.state,
               )
-            if (agent.env?.LLM_MODEL || agent.env?.OPENCLAW_MODEL)
-              envDisplay.push(
-                t("agents.list.modelPrefix", { value: agent.env.LLM_MODEL || agent.env.OPENCLAW_MODEL }),
-              )
+              const isPending = pendingAgentActions.has(agent.name)
+              const health = agent.health || null
+              const readyLabel = formatHealthLabel(health, t)
+              const wsDisplay = agent.network
+                ? agent.networkName && agent.networkName !== agent.network
+                  ? `${agent.network} (${agent.networkName})`
+                  : agent.network
+                : ""
+              const envDisplay: string[] = []
+              if (agent.env?.LLM_BASE_URL || agent.env?.OPENAI_BASE_URL)
+                envDisplay.push(
+                  t("agents.list.apiPrefix", {
+                    value: agent.env.LLM_BASE_URL || agent.env.OPENAI_BASE_URL,
+                  }),
+                )
+              if (agent.env?.LLM_MODEL || agent.env?.OPENCLAW_MODEL)
+                envDisplay.push(
+                  t("agents.list.modelPrefix", {
+                    value: agent.env.LLM_MODEL || agent.env.OPENCLAW_MODEL,
+                  }),
+                )
 
-            return (
-              <div key={agent.name} className={LIST_ITEM}>
-                <div className="flex justify-between items-start gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2.5 mb-1">
-                      <AgentIcon type={agent.type} size={28} />
-                      <h4 className="text-sm font-semibold m-0">{agent.name}</h4>
-                    </div>
-                    <span className="block text-xs text-(--text-secondary) mb-0.5">{agent.type}</span>
-                    <span className="block text-[11px] text-(--text-tertiary)">
-                      {agent.runtimeMismatch ? (
-                        <span className="text-(--danger-text)">
-                          {t("agents.list.coreUpdateRequired")}
-                        </span>
-                      ) : health?.ready ? (
-                        <>🔑 {readyLabel}</>
-                      ) : (
-                        <span className="text-(--warning-text)">
-                          ⚠ {readyLabel}
+              return (
+                <div key={agent.name} className={LIST_ITEM}>
+                  <div className="flex justify-between items-start gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2.5 mb-1">
+                        <AgentIcon type={agent.type} size={28} />
+                        <h4 className="text-sm font-semibold m-0">
+                          {agent.name}
+                        </h4>
+                      </div>
+                      <span className="block text-xs text-(--text-secondary) mb-0.5">
+                        {agent.type}
+                      </span>
+                      <span className="block text-[11px] text-(--text-tertiary)">
+                        {agent.runtimeMismatch ? (
+                          <span className="text-(--danger-text)">
+                            {t("agents.list.coreUpdateRequired")}
+                          </span>
+                        ) : health?.ready ? (
+                          <>🔑 {readyLabel}</>
+                        ) : (
+                          <span className="text-(--warning-text)">
+                            ⚠ {readyLabel}
+                          </span>
+                        )}
+                        {envDisplay.length > 0 &&
+                          " · " + envDisplay.join(" · ")}
+                      </span>
+                      {agent.lastError && (
+                        <span className="block text-[11px] text-(--danger-text)">
+                          {agent.lastError}
                         </span>
                       )}
-                      {envDisplay.length > 0 &&
-                        " · " + envDisplay.join(" · ")}
-                    </span>
-                    {agent.lastError && (
-                      <span className="block text-[11px] text-(--danger-text)">{agent.lastError}</span>
-                    )}
-                  </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    <div className="flex items-center gap-1.5">
-                      <StatusDot state={agent.state} />
-                      <span className="text-[13px] font-semibold">
-                        {displayState(agent.state)}
-                      </span>
                     </div>
-                    {wsDisplay ? (
-                      <span className="text-[11px] text-(--text-secondary)">{wsDisplay}</span>
-                    ) : (
-                      <span className="text-[11px] text-(--text-tertiary)">
-                        {t("agents.list.notConnected")}
-                      </span>
-                    )}
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <div className="flex items-center gap-1.5">
+                        <StatusDot state={agent.state} />
+                        <span className="text-[13px] font-semibold">
+                          {displayState(agent.state)}
+                        </span>
+                      </div>
+                      {wsDisplay ? (
+                        <span className="text-[11px] text-(--text-secondary)">
+                          {wsDisplay}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-(--text-tertiary)">
+                          {t("agents.list.notConnected")}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="flex justify-between items-center pt-2.5 border-t border-(--border)">
-                  <div className="flex gap-1.5 flex-wrap">
-                    <Button
-                      size="sm"
-                      variant={isRunning ? "default" : "primary"}
-                      onClick={() => toggleAgent(agent)}
-                      disabled={isPending}
-                    >
-                      {isPending
-                        ? isRunning
-                          ? t("agents.list.stopping")
-                          : t("agents.list.starting")
-                        : isRunning
-                          ? t("agents.list.stop")
-                          : t("agents.list.start")}
-                    </Button>
-                    {agent.hasCli && (
+                  <div className="flex justify-between items-center pt-2.5 border-t border-(--border)">
+                    <div className="flex gap-1.5 flex-wrap">
                       <Button
                         size="sm"
-                        onClick={() => void openAgentChat(agent)}
+                        variant={isRunning ? "default" : "primary"}
+                        onClick={() => toggleAgent(agent)}
+                        disabled={isPending}
                       >
-                        <Terminal className="w-3.5 h-3.5" />{" "}
-                        {t("agents.list.chat")}
+                        {isPending
+                          ? isRunning
+                            ? t("agents.list.stopping")
+                            : t("agents.list.starting")
+                          : isRunning
+                            ? t("agents.list.stop")
+                            : t("agents.list.start")}
                       </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        setConfigureAgent({
-                          name: agent.name,
-                          type: agent.type,
-                        })
-                        setConfigureOpen(true)
-                      }}
-                    >
-                      {t("agents.list.configure")}
-                    </Button>
-                    {agent.network ? (
-                      <>
+                      {agent.hasCli && (
                         <Button
                           size="sm"
-                          onClick={() => disconnectAgent(agent.name)}
+                          onClick={() => void openAgentChat(agent)}
                         >
-                          {t("agents.list.disconnect")}
+                          <Terminal className="w-3.5 h-3.5" />{" "}
+                          {t("agents.list.chat")}
                         </Button>
-                        <Button size="sm" onClick={() => openWorkspace(agent)}>
-                          {t("agents.list.openWorkspace")}
-                        </Button>
-                      </>
-                    ) : (
+                      )}
                       <Button
                         size="sm"
                         onClick={() => {
-                          setConnectWsAgent(agent.name)
-                          setConnectWsOpen(true)
+                          setConfigureAgent({
+                            name: agent.name,
+                            type: agent.type,
+                          })
+                          setConfigureOpen(true)
                         }}
                       >
-                        {t("agents.list.connect")}
+                        {t("agents.list.configure")}
                       </Button>
-                    )}
+                      {agent.network ? (
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={() => disconnectAgent(agent.name)}
+                          >
+                            {t("agents.list.disconnect")}
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => openWorkspace(agent)}
+                          >
+                            {t("agents.list.openWorkspace")}
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setConnectWsAgent(agent.name)
+                            setConnectWsOpen(true)
+                          }}
+                        >
+                          {t("agents.list.connect")}
+                        </Button>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => setRemoveTarget(agent.name)}
+                    >
+                      {t("agents.list.remove")}
+                    </Button>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => setRemoveTarget(agent.name)}
-                  >
-                    {t("agents.list.remove")}
-                  </Button>
                 </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
+              )
+            })}
+          </div>
+        )}
       </div>
 
       <NewAgentDialog
@@ -463,7 +540,10 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
 
       <Modal open={!!removeTarget} onClose={() => setRemoveTarget(null)}>
         <div className="flex flex-col items-center py-2">
-          <AgentIcon type={agents.find((a) => a.name === removeTarget)?.type || ""} size={40} />
+          <AgentIcon
+            type={agents.find((a) => a.name === removeTarget)?.type || ""}
+            size={40}
+          />
           <ModalTitle className="mt-3 text-center">
             {t("agents.list.removeTitle", { name: removeTarget })}
           </ModalTitle>
@@ -475,10 +555,17 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
             />
           </p>
           <div className="form-actions justify-center mt-0">
-            <Button variant="destructive" onClick={() => { if (removeTarget) removeAgent(removeTarget) }}>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (removeTarget) removeAgent(removeTarget)
+              }}
+            >
               {t("agents.list.remove")}
             </Button>
-            <Button onClick={() => setRemoveTarget(null)}>{t("agents.list.cancel")}</Button>
+            <Button onClick={() => setRemoveTarget(null)}>
+              {t("agents.list.cancel")}
+            </Button>
           </div>
         </div>
       </Modal>
@@ -534,12 +621,12 @@ function NewAgentDialog({
       .catch(() => setLoading(false))
   }, [open])
 
+  // Seed a friendly random name once when the dialog opens. We deliberately
+  // do NOT regenerate on every type change — that would clobber a name the
+  // user has already edited. The name is independent of the agent type.
   useEffect(() => {
-    if (selectedType) {
-      const suffix = Math.random().toString(36).slice(2, 6)
-      setAgentName(`${selectedType}-${suffix}`)
-    }
-  }, [selectedType])
+    if (open) setAgentName(randomAgentName())
+  }, [open])
 
   // Prefill the folder with the default until the user picks/edits their own.
   useEffect(() => {
@@ -568,14 +655,9 @@ function NewAgentDialog({
   )
 
   const doCreate = async (): Promise<void> => {
-    const name =
-      agentName.trim() ||
-      `${selectedType}-${Math.random().toString(36).slice(2, 6)}`
+    const name = agentName.trim() || randomAgentName()
     if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
-      showToast(
-        t("agents.newDialog.toast.invalidName"),
-        "warning",
-      )
+      showToast(t("agents.newDialog.toast.invalidName"), "warning")
       return
     }
     if (!agentPath.trim()) {
@@ -591,86 +673,93 @@ function NewAgentDialog({
       showToast(t("agents.newDialog.toast.created", { name }), "success")
       onCreated(name, selectedType)
     } catch (err: unknown) {
-      showToast(t("agents.newDialog.toast.error", { message: (err as Error).message }), "error")
+      showToast(
+        t("agents.newDialog.toast.error", { message: (err as Error).message }),
+        "error",
+      )
     }
   }
 
   return (
     <Modal open={open} onClose={onClose}>
       <ModalTitle>{t("agents.newDialog.title")}</ModalTitle>
-        {loading ? (
-          <p className="loading-text">{t("agents.newDialog.loadingTypes")}</p>
-        ) : supportedInstalled.length === 0 ? (
-          <>
-            <p className="hint">
-              {t("agents.newDialog.noRuntimes")}
-            </p>
-            <div className="form-actions">
-              <Button
-                variant="primary"
-                onClick={() => {
-                  onClose()
-                  setCurrentTab("install")
-                }}
-              >
-                {t("agents.newDialog.goToInstall")}
-              </Button>
-              <Button onClick={onClose}>{t("agents.newDialog.cancel")}</Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="form-group">
-              <label htmlFor="agent-type">{t("agents.newDialog.agentType")}</label>
-              <select
-                id="agent-type"
-                value={selectedType}
-                onChange={(e) => setSelectedType(e.target.value)}
-              >
-                {supportedInstalled.map((c) => (
-                  <option key={c.name} value={c.name}>
-                    {c.label || c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label htmlFor="agent-name">{t("agents.newDialog.agentName")}</label>
+      {loading ? (
+        <p className="loading-text">{t("agents.newDialog.loadingTypes")}</p>
+      ) : supportedInstalled.length === 0 ? (
+        <>
+          <p className="hint">{t("agents.newDialog.noRuntimes")}</p>
+          <div className="form-actions">
+            <Button
+              variant="primary"
+              onClick={() => {
+                onClose()
+                setCurrentTab("install")
+              }}
+            >
+              {t("agents.newDialog.goToInstall")}
+            </Button>
+            <Button onClick={onClose}>{t("agents.newDialog.cancel")}</Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="form-group">
+            <label htmlFor="agent-type">
+              {t("agents.newDialog.agentType")}
+            </label>
+            <select
+              id="agent-type"
+              value={selectedType}
+              onChange={(e) => setSelectedType(e.target.value)}
+            >
+              {supportedInstalled.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.label || c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
+            <label htmlFor="agent-name">
+              {t("agents.newDialog.agentName")}
+            </label>
+            <input
+              id="agent-name"
+              type="text"
+              value={agentName}
+              onChange={(e) => setAgentName(e.target.value)}
+              placeholder="swift-lynx-37"
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="agent-working-directory">
+              {t("agents.newDialog.workingDirectory")}
+            </label>
+            <div className="flex items-center gap-2">
               <input
-                id="agent-name"
+                id="agent-working-directory"
                 type="text"
-                value={agentName}
-                onChange={(e) => setAgentName(e.target.value)}
-                placeholder={`${selectedType}-xxxx`}
+                className="flex-1"
+                value={agentPath}
+                onChange={(e) => {
+                  setFolderTouched(true)
+                  setAgentPath(e.target.value)
+                }}
+                placeholder={t("agents.newDialog.workingDirectoryPlaceholder")}
               />
-            </div>
-            <div className="form-group">
-              <label htmlFor="agent-working-directory">{t("agents.newDialog.workingDirectory")}</label>
-              <div className="flex items-center gap-2">
-                <input
-                  id="agent-working-directory"
-                  type="text"
-                  className="flex-1"
-                  value={agentPath}
-                  onChange={(e) => {
-                    setFolderTouched(true)
-                    setAgentPath(e.target.value)
-                  }}
-                  placeholder={t("agents.newDialog.workingDirectoryPlaceholder")}
-                />
-                <Button onClick={() => void browseFolder()}>
-                  {t("agents.newDialog.browse")}
-                </Button>
-              </div>
-            </div>
-            <div className="form-actions">
-              <Button variant="primary" onClick={doCreate}>
-                {t("agents.newDialog.create")}
+              <Button onClick={() => void browseFolder()}>
+                {t("agents.newDialog.browse")}
               </Button>
-              <Button onClick={onClose}>{t("agents.newDialog.cancel")}</Button>
             </div>
-          </>
-        )}
+          </div>
+          <div className="form-actions">
+            <Button variant="primary" onClick={doCreate}>
+              {t("agents.newDialog.create")}
+            </Button>
+            <Button onClick={onClose}>{t("agents.newDialog.cancel")}</Button>
+          </div>
+        </>
+      )}
     </Modal>
   )
 }
@@ -699,9 +788,9 @@ function ConfigureDialog({
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
   // Drives the manual login flow: idle (show status + Login) → awaiting (terminal
   // opened, ask the user to confirm) → checking (re-reading status after confirm).
-  const [loginPhase, setLoginPhase] = useState<"idle" | "awaiting" | "checking">(
-    "idle",
-  )
+  const [loginPhase, setLoginPhase] = useState<
+    "idle" | "awaiting" | "checking"
+  >("idle")
   const [noConfig, setNoConfig] = useState(false)
   // Auth readiness for agents whose sign-in the core can probe (e.g. Gemini's
   // OAuth creds file). Drives an opt-in banner that distinguishes a Google
@@ -723,6 +812,11 @@ function ConfigureDialog({
   const [testStatus, setTestStatus] = useState<
     "idle" | "loading" | "ok" | "error"
   >("idle")
+  // Working directory (spawn cwd) of this agent instance. Only meaningful for
+  // an existing agent (agentName set); the type-level config has no cwd.
+  const [workDir, setWorkDir] = useState("")
+  const [workDirInitial, setWorkDirInitial] = useState("")
+  const [workDirSaving, setWorkDirSaving] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -797,7 +891,8 @@ function ConfigureDialog({
                 // once — clearLoginKey is a no-op when nothing's set, and a
                 // no-op for Claude/Gemini (they declare no keys to clear, so the
                 // API key is never wiped).
-                if (ok) window.api.clearLoginKey(agentType, agentName || undefined)
+                if (ok)
+                  window.api.clearLoginKey(agentType, agentName || undefined)
               })
               .catch(() => {
                 setLoggedIn(false)
@@ -844,13 +939,76 @@ function ConfigureDialog({
     }
   }
 
+  // Load the agent's current working directory whenever the dialog opens for
+  // an existing instance. listAgents carries the per-agent `path` straight
+  // from daemon.yaml, so no extra IPC is needed.
+  useEffect(() => {
+    if (!open || !agentName) {
+      setWorkDir("")
+      setWorkDirInitial("")
+      return
+    }
+    let cancelled = false
+    window.api
+      .listAgents()
+      .then((list) => {
+        if (cancelled) return
+        const a = list.find((x) => x.name === agentName)
+        const p = a?.path || ""
+        setWorkDir(p)
+        setWorkDirInitial(p)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [open, agentName])
+
+  const browseWorkDir = async (): Promise<void> => {
+    try {
+      const picked = await window.api.selectDirectory(workDir || undefined)
+      if (picked) setWorkDir(picked)
+    } catch (err: unknown) {
+      showToast((err as Error).message, "error")
+    }
+  }
+
+  const saveWorkDir = async (): Promise<void> => {
+    const p = workDir.trim()
+    if (!p) {
+      showToast(t("agents.configureDialog.workdir.toast.required"), "warning")
+      return
+    }
+    setWorkDirSaving(true)
+    try {
+      await window.api.setAgentWorkingDir(agentName, p)
+      setWorkDirInitial(p)
+      showToast(
+        t("agents.configureDialog.workdir.toast.saved", { path: p }),
+        "success",
+      )
+      onSaved()
+    } catch (err: unknown) {
+      showToast(
+        t("agents.configureDialog.workdir.toast.error", {
+          message: (err as Error).message,
+        }),
+        "error",
+      )
+    } finally {
+      setWorkDirSaving(false)
+    }
+  }
+
   const save = async (): Promise<void> => {
     const missing = fields.find(
       (f) => f.required && !(values[f.name] || "").trim(),
     )
     if (missing) {
       showToast(
-        t("agents.configureDialog.fieldRequired", { field: missing.description || missing.name }),
+        t("agents.configureDialog.fieldRequired", {
+          field: missing.description || missing.name,
+        }),
         "warning",
       )
       return
@@ -865,7 +1023,12 @@ function ConfigureDialog({
       onSaved()
       onClose()
     } catch (err: unknown) {
-      showToast(t("agents.configureDialog.toast.errorSaving", { message: (err as Error).message }), "error")
+      showToast(
+        t("agents.configureDialog.toast.errorSaving", {
+          message: (err as Error).message,
+        }),
+        "error",
+      )
     }
   }
 
@@ -874,15 +1037,23 @@ function ConfigureDialog({
     setTestResult(null)
     try {
       const result = await window.api.testLLM(values)
-      capture("llm_test_run", { success: result.success, model: result.model || null })
+      capture("llm_test_run", {
+        success: result.success,
+        model: result.model || null,
+      })
       if (result.success) {
         setTestStatus("ok")
         setTestResult(
-          t("agents.configureDialog.test.okResult", { model: result.model, response: result.response }),
+          t("agents.configureDialog.test.okResult", {
+            model: result.model,
+            response: result.response,
+          }),
         )
       } else {
         setTestStatus("error")
-        setTestResult(result.error || t("agents.configureDialog.test.unknownError"))
+        setTestResult(
+          result.error || t("agents.configureDialog.test.unknownError"),
+        )
       }
     } catch (err: unknown) {
       setTestStatus("error")
@@ -903,7 +1074,8 @@ function ConfigureDialog({
         </ModalTitle>
         {!loading && !noConfig && loginCmd && fields.length === 0 && (
           <p className="hint m-0">
-            {t("agents.configureDialog.hintLoginOnly")} <code>{loginCmd}</code>{t("agents.configureDialog.hintLoginOnlySuffix")}
+            {t("agents.configureDialog.hintLoginOnly")} <code>{loginCmd}</code>
+            {t("agents.configureDialog.hintLoginOnlySuffix")}
           </p>
         )}
         {!loading && !noConfig && !(loginCmd && fields.length === 0) && (
@@ -919,15 +1091,58 @@ function ConfigureDialog({
       </ModalHeader>
 
       <ModalBody>
+        {!loading && agentName && (
+          <div className="form-group mb-4">
+            <label
+              htmlFor="agent-config-workdir"
+              className="flex items-center gap-1.5"
+            >
+              {t("agents.configureDialog.workdir.label")}
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="agent-config-workdir"
+                type="text"
+                className="flex-1"
+                value={workDir}
+                onChange={(e) => setWorkDir(e.target.value)}
+                placeholder={t("agents.configureDialog.workdir.placeholder")}
+              />
+              <Button onClick={() => void browseWorkDir()}>
+                {t("agents.configureDialog.workdir.browse")}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={
+                  workDirSaving ||
+                  !workDir.trim() ||
+                  workDir.trim() === workDirInitial
+                }
+                onClick={() => void saveWorkDir()}
+              >
+                {workDirSaving
+                  ? t("agents.configureDialog.workdir.saving")
+                  : t("agents.configureDialog.workdir.save")}
+              </Button>
+            </div>
+            <p className="hint mt-1 mb-0">
+              {t("agents.configureDialog.workdir.hint")}
+            </p>
+          </div>
+        )}
         {loading ? (
-          <p className="loading-text m-0">{t("agents.configureDialog.loadingConfig")}</p>
+          <p className="loading-text m-0">
+            {t("agents.configureDialog.loadingConfig")}
+          </p>
         ) : noConfig ? null : loginCmd && fields.length === 0 ? (
           <>
             <AuthStatusBanner authInfo={authInfo} authLabels={authLabels} />
             <LoginStatusCard loginPhase={loginPhase} loggedIn={loggedIn} />
             {loginPhase === "awaiting" && (
               <p className="hint m-0">
-                {t("agents.configureDialog.awaitingTerminalPrefix")} <code>{loginCmd}</code>{t("agents.configureDialog.awaitingTerminalSuffix")}
+                {t("agents.configureDialog.awaitingTerminalPrefix")}{" "}
+                <code>{loginCmd}</code>
+                {t("agents.configureDialog.awaitingTerminalSuffix")}
               </p>
             )}
           </>
@@ -946,7 +1161,9 @@ function ConfigureDialog({
                       setLoginPhase("awaiting")
                     } catch (err: unknown) {
                       showToast(
-                        t("agents.configureDialog.toast.failedOpenTerminal", { message: (err as Error).message }),
+                        t("agents.configureDialog.toast.failedOpenTerminal", {
+                          message: (err as Error).message,
+                        }),
                         "error",
                       )
                     }
@@ -979,7 +1196,10 @@ function ConfigureDialog({
                           [f.name]: e.target.value,
                         }))
                       }
-                      placeholder={f.placeholder || t("agents.configureDialog.enterField", { name: f.name })}
+                      placeholder={
+                        f.placeholder ||
+                        t("agents.configureDialog.enterField", { name: f.name })
+                      }
                     />
                   ) : (
                     <input
@@ -992,7 +1212,10 @@ function ConfigureDialog({
                           [f.name]: e.target.value,
                         }))
                       }
-                      placeholder={f.placeholder || t("agents.configureDialog.enterField", { name: f.name })}
+                      placeholder={
+                        f.placeholder ||
+                        t("agents.configureDialog.enterField", { name: f.name })
+                      }
                     />
                   )}
                 </div>
@@ -1020,7 +1243,9 @@ function ConfigureDialog({
         <ModalFooter>
           {noConfig ? (
             <div className="form-actions mt-0">
-              <Button onClick={onClose}>{t("agents.configureDialog.close")}</Button>
+              <Button onClick={onClose}>
+                {t("agents.configureDialog.close")}
+              </Button>
             </div>
           ) : loginCmd && fields.length === 0 ? (
             loginPhase === "awaiting" ? (
@@ -1028,7 +1253,9 @@ function ConfigureDialog({
                 <Button variant="primary" onClick={confirmLogin}>
                   {t("agents.configureDialog.finishedSigningIn")}
                 </Button>
-                <Button onClick={() => setLoginPhase("idle")}>{t("agents.configureDialog.notYet")}</Button>
+                <Button onClick={() => setLoginPhase("idle")}>
+                  {t("agents.configureDialog.notYet")}
+                </Button>
               </div>
             ) : (
               <div className="form-actions mt-0">
@@ -1041,15 +1268,21 @@ function ConfigureDialog({
                       setLoginPhase("awaiting")
                     } catch (err: unknown) {
                       showToast(
-                        t("agents.configureDialog.toast.failedOpenTerminal", { message: (err as Error).message }),
+                        t("agents.configureDialog.toast.failedOpenTerminal", {
+                          message: (err as Error).message,
+                        }),
                         "error",
                       )
                     }
                   }}
                 >
-                  {loggedIn ? t("agents.configureDialog.reLogin") : t("agents.configureDialog.login")}
+                  {loggedIn
+                    ? t("agents.configureDialog.reLogin")
+                    : t("agents.configureDialog.login")}
                 </Button>
-                <Button onClick={onClose}>{t("agents.configureDialog.close")}</Button>
+                <Button onClick={onClose}>
+                  {t("agents.configureDialog.close")}
+                </Button>
               </div>
             )
           ) : (
@@ -1061,9 +1294,13 @@ function ConfigureDialog({
                 onClick={testConnection}
                 disabled={testStatus === "loading"}
               >
-                {testStatus === "loading" ? t("agents.configureDialog.testing") : t("agents.configureDialog.testConnection")}
+                {testStatus === "loading"
+                  ? t("agents.configureDialog.testing")
+                  : t("agents.configureDialog.testConnection")}
               </Button>
-              <Button onClick={onClose}>{t("agents.configureDialog.cancel")}</Button>
+              <Button onClick={onClose}>
+                {t("agents.configureDialog.cancel")}
+              </Button>
             </div>
           )}
         </ModalFooter>
@@ -1085,7 +1322,11 @@ function AuthStatusBanner({
   authInfo,
   authLabels,
 }: {
-  authInfo: { ready: boolean; authMode: string | null; message: string | null } | null
+  authInfo: {
+    ready: boolean
+    authMode: string | null
+    message: string | null
+  } | null
   authLabels: Record<string, string> | null
 }): React.JSX.Element | null {
   const { t } = useTranslation()
@@ -1106,7 +1347,9 @@ function AuthStatusBanner({
   return (
     <div className="flex items-start gap-2 p-3 rounded-(--radius) bg-(--bg-input) text-[13px] text-(--warning-text)">
       <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" strokeWidth={2} />
-      <span>{authInfo.message || t("agents.configureDialog.authNotReadyGeneric")}</span>
+      <span>
+        {authInfo.message || t("agents.configureDialog.authNotReadyGeneric")}
+      </span>
     </div>
   )
 }
@@ -1159,7 +1402,9 @@ function LoginStatusCard({
             className="w-5 h-5 shrink-0 text-(--text-tertiary) animate-spin"
             strokeWidth={2}
           />
-          <strong className="text-[13px]">{t("agents.loginStatus.checking")}</strong>
+          <strong className="text-[13px]">
+            {t("agents.loginStatus.checking")}
+          </strong>
         </>
       ) : loggedIn ? (
         <>
@@ -1167,7 +1412,9 @@ function LoginStatusCard({
             className="w-5 h-5 shrink-0 text-(--success-text)"
             strokeWidth={2}
           />
-          <strong className="text-[13px]">{t("agents.loginStatus.signedIn")}</strong>
+          <strong className="text-[13px]">
+            {t("agents.loginStatus.signedIn")}
+          </strong>
         </>
       ) : (
         <>
@@ -1175,7 +1422,9 @@ function LoginStatusCard({
             className="w-5 h-5 shrink-0 text-(--warning-text)"
             strokeWidth={2}
           />
-          <strong className="text-[13px]">{t("agents.loginStatus.notSignedIn")}</strong>
+          <strong className="text-[13px]">
+            {t("agents.loginStatus.notSignedIn")}
+          </strong>
         </>
       )}
     </div>
@@ -1209,7 +1458,9 @@ function CliLoginBlock({
             {t("agents.loginStatus.signInWithCli")}
           </p>
           <p className="hint m-0 mt-1 mb-0 leading-snug">
-            {t("agents.loginStatus.opensTerminalPrefix")} <code>{loginCmd}</code> {t("agents.loginStatus.opensTerminalSuffix")}
+            {t("agents.loginStatus.opensTerminalPrefix")}{" "}
+            <code>{loginCmd}</code>{" "}
+            {t("agents.loginStatus.opensTerminalSuffix")}
           </p>
         </div>
       </div>
@@ -1225,7 +1476,9 @@ function CliLoginBlock({
             <Button variant="primary" onClick={onConfirmLogin}>
               {t("agents.loginStatus.finishedSigningIn")}
             </Button>
-            <Button onClick={onCancelAwaiting}>{t("agents.loginStatus.notYet")}</Button>
+            <Button onClick={onCancelAwaiting}>
+              {t("agents.loginStatus.notYet")}
+            </Button>
           </div>
         </>
       ) : (
@@ -1235,7 +1488,9 @@ function CliLoginBlock({
             disabled={loginPhase === "checking"}
             onClick={onOpenTerminal}
           >
-            {loggedIn ? t("agents.loginStatus.reLogin") : t("agents.loginStatus.signIn")}
+            {loggedIn
+              ? t("agents.loginStatus.reLogin")
+              : t("agents.loginStatus.signIn")}
           </Button>
         </div>
       )}
@@ -1291,38 +1546,69 @@ function ConnectWorkspaceDialog({
 
   const doConnect = async (slug: string): Promise<void> => {
     try {
-      showToast(t("agents.connectDialog.toast.connecting", { name: agentName }), "info")
+      showToast(
+        t("agents.connectDialog.toast.connecting", { name: agentName }),
+        "info",
+      )
       await window.api.connectWorkspace(agentName, slug)
       capture("workspace_connected", { agent_name: agentName })
       window.api.signalReload()
-      showToast(t("agents.connectDialog.toast.connectedTo", { slug }), "success")
+      showToast(
+        t("agents.connectDialog.toast.connectedTo", { slug }),
+        "success",
+      )
       onConnected()
       onClose()
     } catch (err: unknown) {
-      showToast(t("agents.connectDialog.toast.error", { message: (err as Error).message }), "error")
+      showToast(
+        t("agents.connectDialog.toast.error", {
+          message: (err as Error).message,
+        }),
+        "error",
+      )
     }
   }
 
   const doCreate = async (): Promise<void> => {
     const name = newWsName.trim()
     if (!name) {
-      showToast(t("agents.connectDialog.toast.workspaceNameRequired"), "warning")
+      showToast(
+        t("agents.connectDialog.toast.workspaceNameRequired"),
+        "warning",
+      )
       return
     }
     try {
-      showToast(t("agents.connectDialog.toast.creatingWorkspace", { name }), "info")
+      showToast(
+        t("agents.connectDialog.toast.creatingWorkspace", { name }),
+        "info",
+      )
       const result = await window.api.createWorkspace(name)
       capture("workspace_created", { source: "agents_page" })
-      showToast(t("agents.connectDialog.toast.workspaceCreated", { name }), "success")
+      showToast(
+        t("agents.connectDialog.toast.workspaceCreated", { name }),
+        "success",
+      )
       if (result && result.token && agentName) {
         await window.api.connectWorkspace(agentName, result.token)
         window.api.signalReload()
-        showToast(t("agents.connectDialog.toast.connectedToName", { name: agentName, workspace: name }), "success")
+        showToast(
+          t("agents.connectDialog.toast.connectedToName", {
+            name: agentName,
+            workspace: name,
+          }),
+          "success",
+        )
       }
       onConnected()
       onClose()
     } catch (err: unknown) {
-      showToast(t("agents.connectDialog.toast.error", { message: (err as Error).message }), "error")
+      showToast(
+        t("agents.connectDialog.toast.error", {
+          message: (err as Error).message,
+        }),
+        "error",
+      )
     }
   }
 
@@ -1336,7 +1622,9 @@ function ConnectWorkspaceDialog({
       showToast(t("agents.connectDialog.toast.joining"), "info")
       const parsedUrl = parseWorkspaceUrl(trimmedToken)
       if (parsedUrl && parsedUrl.hostname !== "workspace.openagents.org") {
-        const ws = await window.api.registerWorkspaceFromToken({ url: trimmedToken })
+        const ws = await window.api.registerWorkspaceFromToken({
+          url: trimmedToken,
+        })
         const workspaceKey = ws.slug || ws.id
         if (!workspaceKey) throw new Error("Could not register workspace URL")
         await window.api.connectWorkspace(agentName, workspaceKey)
@@ -1348,90 +1636,105 @@ function ConnectWorkspaceDialog({
       onConnected()
       onClose()
     } catch (err: unknown) {
-      showToast(t("agents.connectDialog.toast.error", { message: (err as Error).message }), "error")
+      showToast(
+        t("agents.connectDialog.toast.error", {
+          message: (err as Error).message,
+        }),
+        "error",
+      )
     }
   }
 
   return (
     <Modal open={open} onClose={onClose}>
-      <ModalTitle>{t("agents.connectDialog.title", { name: agentName })}</ModalTitle>
-        {view === "list" && (
-          <>
-            <div className="flex flex-col gap-1 mb-3.5">
-              {workspaces.map((ws) => {
-                const display = ws.name || ws.slug || ws.id
-                const url = `${workspaceWebBaseUrl(ws.endpoint)}/${ws.slug || ws.id}`
-                return (
-                  <button
-                    key={ws.id}
-                    type="button"
-                    className="text-left px-4 py-[11px] text-[13px] w-full rounded-sm bg-[var(--bg-card)] border border-[color:var(--border)] cursor-pointer transition-all duration-150 hover:bg-[var(--accent-bg)] hover:border-[color:var(--accent-border)]"
-                    onClick={() => doConnect(ws.slug || ws.id)}
-                  >
-                    {display} — {url}
-                  </button>
-                )
-              })}
-              <button
-                type="button"
-                className="text-left px-4 py-[11px] text-[13px] w-full rounded-sm bg-[var(--bg-card)] border border-[color:var(--border)] cursor-pointer transition-all duration-150 hover:bg-[var(--accent-bg)] hover:border-[color:var(--accent-border)]"
-                onClick={() => setView("create")}
-              >
-                {t("agents.connectDialog.createNew")}
-              </button>
-              <button
-                type="button"
-                className="text-left px-4 py-[11px] text-[13px] w-full rounded-sm bg-[var(--bg-card)] border border-[color:var(--border)] cursor-pointer transition-all duration-150 hover:bg-[var(--accent-bg)] hover:border-[color:var(--accent-border)]"
-                onClick={() => setView("token")}
-              >
-                {t("agents.connectDialog.joinWithToken")}
-              </button>
-            </div>
-            <Button onClick={onClose} className="w-full">
+      <ModalTitle>
+        {t("agents.connectDialog.title", { name: agentName })}
+      </ModalTitle>
+      {view === "list" && (
+        <>
+          <div className="flex flex-col gap-1 mb-3.5">
+            {workspaces.map((ws) => {
+              const display = ws.name || ws.slug || ws.id
+              const url = `${workspaceWebBaseUrl(ws.endpoint)}/${ws.slug || ws.id}`
+              return (
+                <button
+                  key={ws.id}
+                  type="button"
+                  className="text-left px-4 py-[11px] text-[13px] w-full rounded-sm bg-[var(--bg-card)] border border-[color:var(--border)] cursor-pointer transition-all duration-150 hover:bg-[var(--accent-bg)] hover:border-[color:var(--accent-border)]"
+                  onClick={() => doConnect(ws.slug || ws.id)}
+                >
+                  {display} — {url}
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              className="text-left px-4 py-[11px] text-[13px] w-full rounded-sm bg-[var(--bg-card)] border border-[color:var(--border)] cursor-pointer transition-all duration-150 hover:bg-[var(--accent-bg)] hover:border-[color:var(--accent-border)]"
+              onClick={() => setView("create")}
+            >
+              {t("agents.connectDialog.createNew")}
+            </button>
+            <button
+              type="button"
+              className="text-left px-4 py-[11px] text-[13px] w-full rounded-sm bg-[var(--bg-card)] border border-[color:var(--border)] cursor-pointer transition-all duration-150 hover:bg-[var(--accent-bg)] hover:border-[color:var(--accent-border)]"
+              onClick={() => setView("token")}
+            >
+              {t("agents.connectDialog.joinWithToken")}
+            </button>
+          </div>
+          <Button onClick={onClose} className="w-full">
+            {t("agents.connectDialog.cancel")}
+          </Button>
+        </>
+      )}
+      {view === "create" && (
+        <>
+          <div className="form-group">
+            <label htmlFor="new-workspace-name">
+              {t("agents.connectDialog.workspaceName")}
+            </label>
+            <input
+              id="new-workspace-name"
+              type="text"
+              value={newWsName}
+              onChange={(e) => setNewWsName(e.target.value)}
+              placeholder={t("agents.connectDialog.workspaceNamePlaceholder")}
+            />
+          </div>
+          <div className="form-actions">
+            <Button variant="primary" onClick={doCreate}>
+              {t("agents.connectDialog.create")}
+            </Button>
+            <Button onClick={onClose}>
               {t("agents.connectDialog.cancel")}
             </Button>
-          </>
-        )}
-        {view === "create" && (
-          <>
-            <div className="form-group">
-              <label htmlFor="new-workspace-name">{t("agents.connectDialog.workspaceName")}</label>
-              <input
-                id="new-workspace-name"
-                type="text"
-                value={newWsName}
-                onChange={(e) => setNewWsName(e.target.value)}
-                placeholder={t("agents.connectDialog.workspaceNamePlaceholder")}
-              />
-            </div>
-            <div className="form-actions">
-              <Button variant="primary" onClick={doCreate}>
-                {t("agents.connectDialog.create")}
-              </Button>
-              <Button onClick={onClose}>{t("agents.connectDialog.cancel")}</Button>
-            </div>
-          </>
-        )}
-        {view === "token" && (
-          <>
-            <div className="form-group">
-              <label htmlFor="workspace-url-or-token">{t("agents.connectDialog.pasteUrlOrToken")}</label>
-              <input
-                id="workspace-url-or-token"
-                type="text"
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                placeholder={t("agents.connectDialog.pasteUrlPlaceholder")}
-              />
-            </div>
-            <div className="form-actions">
-              <Button variant="primary" onClick={doJoinToken}>
-                {t("agents.connectDialog.join")}
-              </Button>
-              <Button onClick={onClose}>{t("agents.connectDialog.cancel")}</Button>
-            </div>
-          </>
-        )}
+          </div>
+        </>
+      )}
+      {view === "token" && (
+        <>
+          <div className="form-group">
+            <label htmlFor="workspace-url-or-token">
+              {t("agents.connectDialog.pasteUrlOrToken")}
+            </label>
+            <input
+              id="workspace-url-or-token"
+              type="text"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder={t("agents.connectDialog.pasteUrlPlaceholder")}
+            />
+          </div>
+          <div className="form-actions">
+            <Button variant="primary" onClick={doJoinToken}>
+              {t("agents.connectDialog.join")}
+            </Button>
+            <Button onClick={onClose}>
+              {t("agents.connectDialog.cancel")}
+            </Button>
+          </div>
+        </>
+      )}
     </Modal>
   )
 }
