@@ -500,10 +500,59 @@ def _extract_leading_mention(content: str, known_agents: List[str]) -> Optional[
     return None
 
 
-def _fallback_targets(event, channel, mentions: List[str]) -> List[str]:
+def _member_is_online(m) -> bool:
+    """True when a WorkspaceMember is actually live.
+
+    A crashed daemon leaves ``status='online'`` forever — the column is only
+    flipped to 'offline' on a *clean* leave/heartbeat-timeout path — so the
+    column alone is unreliable. We additionally require a fresh heartbeat,
+    matching how /v1/discover and the agents list compute liveness. Cloud
+    agents have no heartbeat loop, so for them the status column is trusted.
+    """
+    from app.config import config
+    from datetime import timedelta
+    if (m.status or "").lower() != "online":
+        return False
+    if (getattr(m, "agent_type", "") or "").startswith("cloud:"):
+        return True
+    hb = m.last_heartbeat
+    if not hb:
+        return False
+    if hb.tzinfo is None:
+        hb = hb.replace(tzinfo=timezone.utc)
+    timeout = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
+    return (datetime.now(timezone.utc) - hb) <= timeout
+
+
+def _online_participant_names(db, workspace, channel) -> set:
+    """Agent names of channel participants that are actually live (online column
+    + fresh heartbeat). Routing prefers these so a thread whose previous agent
+    went offline (e.g. a dead daemon) doesn't keep targeting it and stranding
+    messages. Returns an empty set when status can't be resolved (callers then
+    fall back to treating all participants as candidates)."""
+    from app.models import WorkspaceMember
+    names = [p.agent_name for p in (channel.participants or [])]
+    if not names:
+        return set()
+    try:
+        rows = db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == workspace.id,
+                WorkspaceMember.agent_name.in_(names),
+            )
+        ).scalars().all()
+        return {m.agent_name for m in rows if _member_is_online(m)}
+    except Exception:
+        return set()
+
+
+def _fallback_targets(event, channel, mentions: List[str], online_names: set = None) -> List[str]:
     """Determine target agents when LLM router is unavailable.
 
-    Priority: explicit @mentions → master (for human/member msgs) → all participants.
+    Priority: explicit @mentions → master (for human/member msgs) → online
+    participant → any participant. When ``online_names`` is provided, an online
+    participant is chosen over an offline one so messages aren't stranded on a
+    dead agent. An explicit @mention is always honored as-is (the user chose it).
     """
     if mentions:
         return [mentions[0]]
@@ -514,8 +563,12 @@ def _fallback_targets(event, channel, mentions: List[str]) -> List[str]:
             if sender == channel.master_agent:
                 return []
         return [channel.master_agent]
-    # No master — target the first participant
+    # No master — prefer an online participant, else the first participant.
     participants = [p.agent_name for p in (channel.participants or [])]
+    if online_names:
+        online_first = [p for p in participants if p in online_names]
+        if online_first:
+            return [online_first[0]]
     return [participants[0]] if participants else []
 
 
@@ -680,8 +733,18 @@ async def _route_with_llm(channel, new_event: Event, db, workspace) -> List[str]
             )
         ).scalars().all()
     }
+    # Only offer ONLINE participants to the router when any are online — an
+    # offline agent (dead daemon) can't reply, so routing to it by
+    # conversational continuity just strands the message. If none are online,
+    # present all participants (the chosen one will pick the message up when it
+    # reconnects).
+    online_set = {
+        n for n in participant_names
+        if members.get(n) and _member_is_online(members[n])
+    }
+    candidate_names = [n for n in participant_names if n in online_set] if online_set else participant_names
     participant_lines = []
-    for name in participant_names:
+    for name in candidate_names:
         m = members.get(name)
         role = m.role if m else "member"
         desc = m.description if m and m.description else ""
@@ -739,9 +802,11 @@ async def _route_with_llm(channel, new_event: Event, db, workspace) -> List[str]
             agent_name = raw_result[len("next:"):].strip().split(",")[0].strip()
             # Case-insensitive participant lookup, then canonicalize to
             # the stored case.
+            # Validate against the candidate set (online participants when any
+            # are online) so the router can't route to an offline agent while a
+            # live one is available.
             participants_by_lower = {
-                p.agent_name.lower(): p.agent_name
-                for p in (channel.participants or [])
+                name.lower(): name for name in candidate_names
             }
             canonical = participants_by_lower.get(agent_name.lower())
             if canonical is None:
@@ -774,7 +839,7 @@ async def _route_with_llm(channel, new_event: Event, db, workspace) -> List[str]
         # router can silently drop a legitimate follow-up question like
         # "how about Julia?" after a previous "final answer" message.
         if (new_event.source or "").startswith("human:"):
-            fallback = _fallback_targets(new_event, channel, [])
+            fallback = _fallback_targets(new_event, channel, [], online_set)
             if fallback:
                 logger.info(
                     "LLM router returned stop/invalid for human message — "
@@ -788,7 +853,7 @@ async def _route_with_llm(channel, new_event: Event, db, workspace) -> List[str]
         # Same safety net on exception: humans still get a reply.
         if (new_event.source or "").startswith("human:"):
             try:
-                fallback = _fallback_targets(new_event, channel, [])
+                fallback = _fallback_targets(new_event, channel, [], online_set)
                 if fallback:
                     return fallback
             except Exception:
@@ -956,6 +1021,10 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     if not channel:
         return event
 
+    # Online participants — used so routing prefers a live agent over one whose
+    # daemon is down (an offline target just strands the message).
+    online_names = _online_participant_names(db, workspace, channel)
+
     # ── Multi-agent channel: always use LLM router ──────────────────
     real_participants = [
         p for p in (channel.participants or [])
@@ -967,10 +1036,10 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             targets = await _route_with_llm(channel, event, db, workspace)
         else:
             # LLM router not available — fallback to mention or master
-            targets = _fallback_targets(event, channel, mentions)
+            targets = _fallback_targets(event, channel, mentions, online_names)
     # ── Single-agent channel ────────────────────────────────────────
     else:
-        targets = _fallback_targets(event, channel, mentions)
+        targets = _fallback_targets(event, channel, mentions, online_names)
 
     # ALWAYS set target_agents, even when nobody should respond.
     #

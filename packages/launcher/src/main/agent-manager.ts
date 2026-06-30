@@ -99,17 +99,23 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       placeholder: "claude-sonnet-4-6",
     },
   ],
+  // Gemini authenticates EITHER via its CLI's Google sign-in (the default
+  // `gemini` OAuth login, detected by the core's check_ready) OR via an API key.
+  // The key is therefore an OPTIONAL alternative — none of these fields are
+  // `required`, so a user who signs in with Google is never forced to enter a
+  // key. See KEY_OPTIONAL_LOGIN_AGENTS, which keeps the registry login_command
+  // flowing into onboarding/Configure so both paths are offered.
   gemini: [
     {
       name: "GEMINI_API_KEY",
-      description: "Google AI Studio API key — get one at https://aistudio.google.com/apikey",
-      required: true,
+      description: "Google AI Studio API key — get one at https://aistudio.google.com/apikey (optional if you sign in with Google)",
+      required: false,
       password: true,
     },
     {
       name: "GOOGLE_GEMINI_BASE_URL",
       description: "Gemini-compatible base URL (the default works for Google AI Studio; change it for a proxy or custom gateway)",
-      required: true,
+      required: false,
       default: "https://generativelanguage.googleapis.com",
       placeholder: "https://generativelanguage.googleapis.com",
     },
@@ -117,7 +123,7 @@ const LAUNCHER_AUTH_OVERRIDES: Record<
       name: "GEMINI_MODEL",
       description:
         "Model name (change it when using a relay/proxy — its channels rarely match the default)",
-      required: true,
+      required: false,
       default: "gemini-2.5-pro",
       placeholder: "gemini-2.5-pro",
     },
@@ -292,6 +298,22 @@ interface HostedLoginSpec {
   loginClearsEnv?: string[]
 }
 
+/**
+ * Readiness reason codes surfaced to the Agents list. These MUST match the
+ * core's health-status REASON values (packages/agent-connector/src/adapters/
+ * health-status.js) so the Install page, the Agents list and the daemon share
+ * one vocabulary. The renderer keys off `reason` (not the free-text message) to
+ * decide whether to show "Not installed" vs "Login required".
+ *
+ * Hard rule: NOT_INSTALLED is only for a genuinely missing executable; an
+ * installed-but-signed-out agent is LOGIN_REQUIRED.
+ */
+const READY_REASON = {
+  READY: "ready",
+  NOT_INSTALLED: "not_installed",
+  LOGIN_REQUIRED: "login_required",
+} as const
+
 const HOSTED_LOGIN_AGENTS: Record<string, HostedLoginSpec> = {
   cursor: {
     loginCommand: "cursor-agent login",
@@ -412,13 +434,29 @@ function launcherAuthFields(
 }
 
 /**
+ * Agents in LAUNCHER_AUTH_OVERRIDES that ALSO authenticate via their CLI's own
+ * sign-in, so the API key is an OPTIONAL alternative — never required. Unlike
+ * DUAL_LOGIN_AGENTS these have NO CLI `status` probe: their sign-in is detected
+ * by the core's check_ready (e.g. Gemini's ~/.gemini/oauth_creds.json), so
+ * readiness and refreshLogin fall through to healthCheck. For these agents the
+ * launcher keeps the (optional) key fields AND surfaces the registry's
+ * `login_command`, so onboarding + the Configure dialog offer BOTH paths.
+ *
+ * Add an agent here only when its registry check_ready declares a login_command
+ * and a credential probe (creds_file / creds_path_env / env_vars). This is the
+ * sanctioned, data-driven way to express "key OR CLI login" without a renderer
+ * `agentType === 'gemini'` special-case.
+ */
+const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>(["gemini"])
+
+/**
  * Agents hidden from the onboarding picker (Step 1). They remain fully
  * installable and configurable from the Install tab — we just don't surface
  * them to first-time users. Cursor and Hermes need an external CLI install +
  * an API key, so they're a rougher first-run experience than the key-only
  * agents; keep onboarding to the smoother options.
  */
-const ONBOARDING_HIDDEN = new Set<string>(["cursor", "hermes", "amp"])
+const ONBOARDING_HIDDEN = new Set<string>(["cursor", "hermes", "amp", "nanoclaw"])
 
 /**
  * The agents the launcher/workspace core officially supports today, in the
@@ -445,6 +483,11 @@ const CORE_AGENTS: readonly string[] = [
   // intentionally NOT in this set — they stay "coming soon" (visible but not
   // installable) so the supported download list is the 8 core agents + amp.
   "amp",
+  // NanoClaw is a creatable Workspace agent but BETA: it's an external
+  // containerized runtime bridged via a native NanoClaw `openagents` channel.
+  // Kept out of first-run onboarding via ONBOARDING_HIDDEN; installable/creatable
+  // from the Install tab. See docs/agents/nanoclaw.md.
+  "nanoclaw",
 ]
 const CORE_AGENT_ORDER = new Map<string, number>(
   CORE_AGENTS.map((name, i) => [name, i]),
@@ -1551,9 +1594,11 @@ export class AgentManager extends EventEmitter {
       ...h,
       installed: true,
       ready,
+      reason: ready ? READY_REASON.READY : READY_REASON.LOGIN_REQUIRED,
       auth_mode: ready ? "api_key" : null,
       execution_mode: ready ? h.execution_mode || "direct" : "unavailable",
-      message: ready ? "Ready" : this._notReadyMessage(type),
+      // Binary confirmed on disk → never "not installed"; show login-required.
+      message: ready ? "Ready" : this._loginRequiredMessage(type),
     }
   }
 
@@ -1587,6 +1632,7 @@ export class AgentManager extends EventEmitter {
         return {
           installed: true,
           ready: true,
+          reason: READY_REASON.READY,
           auth_mode: "api_key",
           execution_mode: "direct",
           message: "Ready",
@@ -1600,6 +1646,7 @@ export class AgentManager extends EventEmitter {
         ? {
             installed: true,
             ready: true,
+            reason: READY_REASON.READY,
             auth_mode: "cli_login",
             execution_mode: "subprocess",
             message: "Ready",
@@ -1607,9 +1654,10 @@ export class AgentManager extends EventEmitter {
         : {
             installed: false,
             ready: false,
+            reason: READY_REASON.NOT_INSTALLED,
             auth_mode: null,
             execution_mode: "unavailable",
-            message: this._notReadyMessage(type),
+            message: this._notInstalledMessage(type),
           }
     }
     const health = this._reconcileHealth(type, typeHealth)
@@ -1633,6 +1681,7 @@ export class AgentManager extends EventEmitter {
         return {
           installed: true,
           ready: true,
+          reason: READY_REASON.READY,
           auth_mode: cliLoggedIn ? "cli_login" : "api_key",
           execution_mode: "direct",
           message: "Ready",
@@ -1647,12 +1696,25 @@ export class AgentManager extends EventEmitter {
         ...h,
         installed: true,
         ready: true,
+        reason: READY_REASON.READY,
         auth_mode: cliLoggedIn ? "cli_login" : "api_key",
         execution_mode:
           h.execution_mode && h.execution_mode !== "unavailable"
             ? h.execution_mode
             : "direct",
         message: "Ready",
+      }
+    }
+    // Installed (binary resolved) but no usable credentials/login detected:
+    // surface a Login-required state, never a "not installed" message. The core
+    // health already carries reason='login_required' for this case; harden it
+    // here so a probe that hasn't populated yet can't fall through to the raw
+    // (possibly stale) message.
+    if (h.installed === true && h.ready !== true) {
+      return {
+        ...h,
+        reason: READY_REASON.LOGIN_REQUIRED,
+        message: this._loginRequiredMessage(type),
       }
     }
     return health
@@ -1671,15 +1733,17 @@ export class AgentManager extends EventEmitter {
       return {
         installed: false,
         ready: false,
+        reason: READY_REASON.NOT_INSTALLED,
         auth_mode: null,
         execution_mode: "unavailable",
-        message: this._notReadyMessage(type),
+        message: this._notInstalledMessage(type),
       }
     }
     if (this._hostedLoginIsAuthed(type) === false) {
       return {
         installed: true,
         ready: false,
+        reason: READY_REASON.LOGIN_REQUIRED,
         auth_mode: null,
         execution_mode: "unavailable",
         message: "Not signed in — open Configure and click Login",
@@ -1688,6 +1752,7 @@ export class AgentManager extends EventEmitter {
     return {
       installed: true,
       ready: true,
+      reason: READY_REASON.READY,
       auth_mode: "cli_login",
       execution_mode: "subprocess",
       message: "Ready",
@@ -1830,6 +1895,65 @@ export class AgentManager extends EventEmitter {
     return p
   }
 
+  /**
+   * Child env for a launcher-side CLI probe, built the SAME way the daemon's
+   * adapter builds it: the core's getEnhancedEnv adds nvm/fnm/volta/homebrew,
+   * ~/.local/bin and ~/.amp/bin to PATH and (on Windows) forces UTF-8 output +
+   * ComSpec. This is what makes `amp`/`amp.cmd` resolvable from a GUI-spawned
+   * process whose PATH never inherited the installer's edits — so the Agents
+   * list and the daemon agree on whether amp is runnable. Never a bare
+   * process.env. `extra` (e.g. AMP_API_KEY/AMP_URL) is merged in, never logged.
+   */
+  private _enhancedChildEnv(
+    extra?: Record<string, string>,
+  ): NodeJS.ProcessEnv {
+    const base: NodeJS.ProcessEnv = { ...process.env, ...(extra || {}) }
+    try {
+      // Reuse the SAME core the launcher loaded (loadCore prefers the local
+      // workspace copy) so the enhanced PATH matches the daemon's exactly.
+      const paths = (core as Record<string, unknown> | null)?.paths as
+        | { getEnhancedEnv?: (e?: NodeJS.ProcessEnv) => NodeJS.ProcessEnv }
+        | undefined
+      if (typeof paths?.getEnhancedEnv === "function")
+        return paths.getEnhancedEnv(base)
+    } catch {
+      /* fall back to the un-enhanced base below */
+    }
+    return base
+  }
+
+  /**
+   * Spawn an agent CLI for a short-lived probe (status / usage), the SAME way
+   * the daemon's adapter (_spawnAmp) does: shell:true for a Windows `.cmd`/`.bat`
+   * shim — Node cannot launch those directly via CreateProcess, so a bare
+   * spawn(bin) throws and the probe used to fall back to a misleading "Not
+   * installed". Enhanced PATH + windowsHide round it out. The shell rule mirrors
+   * the shared core helper (shouldUseShellForBinary) so launcher and daemon
+   * never diverge on `.cmd`.
+   */
+  private _spawnAgentCli(
+    bin: string,
+    args: string[],
+    extra?: Record<string, string>,
+  ): ReturnType<typeof spawn> {
+    const useShell = process.platform === "win32" && /\.(cmd|bat)$/i.test(bin)
+    return spawn(bin, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: this._enhancedChildEnv(extra),
+      windowsHide: true,
+      shell: useShell,
+    })
+  }
+
+  /** Saved type-level env for a probe (e.g. AMP_URL / AMP_API_KEY), never thrown. */
+  private _savedTypeEnvForProbe(type: string): Record<string, string> {
+    try {
+      return (this.getAgentEnv(type) as Record<string, string>) || {}
+    } catch {
+      return {}
+    }
+  }
+
   private _runHostedLoginProbe(
     type: string,
     spec: HostedLoginSpec,
@@ -1879,9 +2003,14 @@ export class AgentManager extends EventEmitter {
         return
       }
       try {
-        const child = spawn(bin, spec.statusArgs, {
-          stdio: ["ignore", "pipe", "pipe"],
-        })
+        // Same env + Windows .cmd handling as the daemon adapter, plus the
+        // saved type env so a configured AMP_URL / AMP_API_KEY is honored by the
+        // `amp usage` sign-in probe (key present is itself a valid auth path).
+        const child = this._spawnAgentCli(
+          bin,
+          spec.statusArgs,
+          this._savedTypeEnvForProbe(type),
+        )
         let out = ""
         let settled = false
         const finish = (value: boolean | null): void => {
@@ -1989,6 +2118,30 @@ export class AgentManager extends EventEmitter {
       if (checkReady?.not_ready_message) return checkReady.not_ready_message
     } catch {}
     return "Not configured — add an API key in Configure"
+  }
+
+  /**
+   * Message for an agent that IS installed but not yet usable (signed out / no
+   * API key). Reuses the registry's not_ready hint when it reads as a login
+   * prompt, but NEVER surfaces a stale "not installed" wording for a resolved
+   * binary — that would re-introduce the exact bug this fix removes.
+   */
+  private _loginRequiredMessage(type: string): string {
+    const msg = this._notReadyMessage(type)
+    if (msg && !/not\s+installed/i.test(msg)) return msg
+    return "Installed · Login required — sign in or add an API key"
+  }
+
+  /**
+   * Message for a genuinely-missing executable. Reuses the registry hint only
+   * when it actually says "not installed"; otherwise a plain "Not installed".
+   * (amp's not_ready_message now describes a login state, so it must NOT be used
+   * for the not-installed case.)
+   */
+  private _notInstalledMessage(type: string): string {
+    const msg = this._notReadyMessage(type)
+    if (msg && /not\s+installed/i.test(msg)) return msg
+    return "Not installed"
   }
 
   async addAgent(agentConfig: {
@@ -2354,11 +2507,11 @@ export class AgentManager extends EventEmitter {
         })
         return
       }
-      const childEnv: NodeJS.ProcessEnv = { ...process.env }
+      const extra: Record<string, string> = {}
       const key = (env.AMP_API_KEY || "").trim()
-      if (key) childEnv.AMP_API_KEY = key
+      if (key) extra.AMP_API_KEY = key
       const url = (env.AMP_URL || "").trim()
-      if (url) childEnv.AMP_URL = url
+      if (url) extra.AMP_URL = url
 
       let out = ""
       let settled = false
@@ -2370,10 +2523,9 @@ export class AgentManager extends EventEmitter {
       }
       let child: ReturnType<typeof spawn>
       try {
-        child = spawn(bin, ["usage"], {
-          stdio: ["ignore", "pipe", "pipe"],
-          env: childEnv,
-        })
+        // Enhanced PATH + Windows .cmd handling shared with the daemon adapter;
+        // the entered key/URL are injected as `extra` (never the saved env).
+        child = this._spawnAgentCli(bin, ["usage"], extra)
       } catch (e) {
         done({
           success: false,
@@ -2712,6 +2864,10 @@ export class AgentManager extends EventEmitter {
       // Dual-auth agents (Claude) keep their API-key fields AND offer a CLI
       // login. See DUAL_LOGIN_AGENTS.
       const dualLogin = DUAL_LOGIN_AGENTS[type]
+      // Key-optional-login agents (e.g. Gemini) keep their OPTIONAL key fields
+      // AND their CLI login, so the override fields stay but the login_command
+      // is preserved (not dropped like pure key-only override agents).
+      const keyOptionalLogin = KEY_OPTIONAL_LOGIN_AGENTS.has(type)
       const envFields = hostedLogin
         ? []
         : override || (regEnv.length > 0 ? regEnv : catEnv)
@@ -2720,14 +2876,18 @@ export class AgentManager extends EventEmitter {
         : dualLogin
           ? dualLogin.loginCommand
           : override
-            ? null
+            ? keyOptionalLogin
+              ? checkReady.login_command || null
+              : null
             : checkReady.login_command || null
       // `prefer_login` keeps an agent on the CLI-login path as PRIMARY even when
       // it also exposes (optional) env fields. Without it, any env field would
-      // force "env" mode. Dual-auth agents (Claude) always prefer login — the
-      // browser sign-in is the smoother first-run path, key offered as backup.
+      // force "env" mode. Dual-auth agents (Claude) and key-optional-login agents
+      // (Gemini) always prefer login — the CLI sign-in is the smoother first-run
+      // path, the key offered as an optional backup.
       const preferLogin =
-        (!!checkReady.prefer_login || !!dualLogin) && !!loginCommand
+        (!!checkReady.prefer_login || !!dualLogin || keyOptionalLogin) &&
+        !!loginCommand
       const authMode: OnboardingAgent["authMode"] = preferLogin
         ? "login"
         : envFields.length > 0
@@ -3523,13 +3683,21 @@ export class AgentManager extends EventEmitter {
       installed,
       ready,
       logged_in: loggedIn,
+      reason: ready
+        ? READY_REASON.READY
+        : !installed
+          ? READY_REASON.NOT_INSTALLED
+          : READY_REASON.LOGIN_REQUIRED,
       auth_mode:
         loggedIn === true ? "cli_login" : hasKey ? "api_key" : h.auth_mode ?? null,
+      // Installed-but-signed-out is Login-required, not "not installed". Uses the
+      // agent's own registry hint (e.g. amp → "run: amp login or set
+      // AMP_API_KEY") instead of a Claude-specific string.
       message: ready
         ? "Ready"
         : !installed
-          ? this._notReadyMessage(type)
-          : "Not signed in — log in to Claude or add an API key",
+          ? this._notInstalledMessage(type)
+          : this._loginRequiredMessage(type),
     }
   }
 

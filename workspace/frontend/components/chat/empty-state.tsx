@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Rocket, Copy, Check, ChevronRight, Key, Cloud, ExternalLink, Loader2 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
+import { capture } from '@/lib/analytics';
 import { useLayout } from '@/components/layout/layout-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
@@ -29,6 +30,21 @@ export function EmptyState() {
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
+  }, []);
+
+  // The onboarding view auto-shows when a workspace is open with no agent connected.
+  // It's a conditional render (no route/pageview), so fire an explicit event here.
+  // Debounced ~1s so the brief no-agents flash during initial load doesn't count;
+  // if agents arrive first, this component unmounts and the timer is cleared.
+  // The active workspace group (set on workspace open) auto-attaches for funnel joins.
+  const onboardingTracked = useRef(false);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (onboardingTracked.current) return;
+      onboardingTracked.current = true;
+      capture('workspace_onboarding_viewed');
+    }, 1000);
+    return () => clearTimeout(t);
   }, []);
 
   const selectedEntry = useMemo(
@@ -146,15 +162,20 @@ export function EmptyState() {
                 </p>
                 <div className="flex gap-2">
                   {[
-                    { label: 'macOS', href: 'https://openagents.org/api/download/launcher/mac' },
-                    { label: 'Windows', href: 'https://openagents.org/api/download/launcher/windows' },
-                    { label: 'Linux', href: 'https://openagents.org/api/download/launcher/linux-appimage' },
+                    { label: 'macOS', platform: 'mac-arm64', href: 'https://openagents.org/api/download/launcher/mac' },
+                    { label: 'Windows', platform: 'windows', href: 'https://openagents.org/api/download/launcher/windows' },
+                    { label: 'Linux', platform: 'linux-appimage', href: 'https://openagents.org/api/download/launcher/linux-appimage' },
                   ].map((dl) => (
                     <a
                       key={dl.label}
                       href={dl.href}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={() => capture('launcher_download_clicked', {
+                        platform: dl.platform,
+                        source: 'workspace_onboarding',
+                        agent_type: selectedEntry.name,
+                      })}
                       className="flex-1 text-center px-3 py-2.5 text-xs font-medium rounded-lg border hover:bg-accent transition-colors"
                     >
                       {dl.label}
@@ -181,7 +202,13 @@ export function EmptyState() {
                     label="Install the OpenAgents CLI"
                     command="curl -fsSL https://openagents.org/install.sh | bash"
                     isCopied={isCopied}
-                    onCopy={copyToClipboard}
+                    onCopy={(cmd) => {
+                      capture('cli_install_copied', {
+                        source: 'workspace_onboarding',
+                        agent_type: selectedEntry.name,
+                      });
+                      copyToClipboard(cmd);
+                    }}
                   />
                   <CliStep
                     step="2"

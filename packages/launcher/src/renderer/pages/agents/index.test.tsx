@@ -250,3 +250,171 @@ describe("ConnectWorkspaceDialog — existing / create / token flows", () => {
     expect(api.registerWorkspaceFromToken).not.toHaveBeenCalled()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Configure dialog — Gemini dual-auth (OAuth login OR API key). Verifies the
+// fix for "Gemini shown as no-config / forced API key": the dialog must surface
+// the real auth state (Google sign-in vs API key vs none) and never force a key
+// or mislabel an unauthenticated Gemini as "No configuration required".
+// ---------------------------------------------------------------------------
+describe("Configure dialog — Gemini auth states", () => {
+  // Optional (not required) key fields — a Google sign-in needs no key.
+  const geminiFields = [
+    { name: "GEMINI_API_KEY", description: "Google AI Studio API key", required: false, password: true },
+    { name: "GOOGLE_GEMINI_BASE_URL", description: "Base URL", required: false, default: "https://generativelanguage.googleapis.com" },
+    { name: "GEMINI_MODEL", description: "Model name", required: false, default: "gemini-2.5-pro" },
+  ]
+  const geminiCatalog = [
+    {
+      name: "gemini",
+      label: "Gemini CLI",
+      installed: true,
+      check_ready: {
+        login_command: "gemini",
+        env_vars: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+        not_ready_message: "Needs sign-in — run `gemini` to sign in, or set GEMINI_API_KEY.",
+        auth_detected_labels: {
+          cli_login: "Google account sign-in detected",
+          api_key: "API key detected",
+        },
+      },
+    },
+  ]
+
+  async function openGeminiConfigure(health: Record<string, unknown>): Promise<Api> {
+    const api = installApi({
+      listAgents: vi
+        .fn()
+        .mockResolvedValue([makeAgent({ name: "gem-1", type: "gemini" })]),
+      getCatalog: vi.fn().mockResolvedValue(geminiCatalog),
+      getEnvFields: vi.fn().mockResolvedValue(geminiFields),
+      refreshLogin: vi.fn().mockResolvedValue(health),
+      clearLoginKey: vi.fn().mockResolvedValue(undefined),
+      openTerminal: vi.fn().mockResolvedValue(undefined),
+    })
+    const user = userEvent.setup()
+    render(<Agents showToast={showToast} />)
+    await screen.findByText("gem-1")
+    await user.click(screen.getByRole("button", { name: /configure/i }))
+    await screen.findByText(/configure gem-1/i)
+    return api
+  }
+
+  it("OAuth signed in → 'Google account sign-in detected', no forced API key", async () => {
+    await openGeminiConfigure({ ready: true, auth_mode: "cli_login", message: "Ready" })
+    expect(
+      await screen.findByText(/Google account sign-in detected/i),
+    ).toBeInTheDocument()
+    // The login command stays available as an option…
+    expect(screen.getAllByText(/gemini/).length).toBeGreaterThan(0)
+    // …and the agent is NOT mislabeled as needing no configuration.
+    expect(screen.queryByText(/no configuration required/i)).not.toBeInTheDocument()
+    // The API-key field carries no "required" asterisk (it's optional).
+    const keyLabel = screen.getByText(/Google AI Studio API key/i)
+    expect(keyLabel.querySelector(".required")).toBeNull()
+  })
+
+  it("OAuth ready + empty API key → Save is NOT blocked by a required field", async () => {
+    const api = await openGeminiConfigure({
+      ready: true,
+      auth_mode: "cli_login",
+      message: "Ready",
+    })
+    const user = userEvent.setup()
+    // Save with every key field left blank — optional fields must not gate it.
+    await user.click(screen.getByRole("button", { name: /^save$/i }))
+    await waitFor(() =>
+      expect(api.saveAgentInstanceEnv).toHaveBeenCalledWith("gem-1", expect.anything()),
+    )
+    // No "<field> is required" validation warning was raised.
+    expect(showToast).not.toHaveBeenCalledWith(
+      expect.stringMatching(/is required/i),
+      "warning",
+    )
+  })
+
+  it("API key configured → 'API key detected', no 'must sign in' demand", async () => {
+    await openGeminiConfigure({ ready: true, auth_mode: "api_key", message: "Ready" })
+    expect(await screen.findByText(/API key detected/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no configuration required/i)).not.toBeInTheDocument()
+    // Not the unauthenticated guidance.
+    expect(
+      screen.queryByText(/run `gemini` to sign in, or set GEMINI_API_KEY/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it("not authenticated → login guidance, never 'No configuration required'", async () => {
+    await openGeminiConfigure({
+      ready: false,
+      auth_mode: null,
+      auth_status: "no_credentials",
+      message: "Needs sign-in — run `gemini` to sign in, or set GEMINI_API_KEY.",
+    })
+    expect(
+      await screen.findByText(/run `gemini` to sign in, or set GEMINI_API_KEY/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/no configuration required/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Google account sign-in detected/i)).not.toBeInTheDocument()
+  })
+
+  it("service-account file invalid → not ready, surfaces failure, never Ready", async () => {
+    await openGeminiConfigure({
+      ready: false,
+      auth_mode: null,
+      auth_status: "no_credentials",
+      message: "The configured Google application credentials file could not be accessed.",
+    })
+    expect(
+      await screen.findByText(/credentials file could not be accessed/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/^Ready —/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/no configuration required/i)).not.toBeInTheDocument()
+  })
+})
+
+// Regression: agents WITHOUT auth_detected_labels are untouched by the Gemini
+// banner — a genuinely no-config agent still reads "No configuration required",
+// and a plain API-key agent still shows just its key fields.
+describe("Configure dialog — other agents unaffected", () => {
+  it("no env fields + no login command → still 'No configuration required'", async () => {
+    const api = installApi({
+      listAgents: vi
+        .fn()
+        .mockResolvedValue([makeAgent({ name: "plain-1", type: "claude" })]),
+      getCatalog: vi
+        .fn()
+        .mockResolvedValue([{ name: "claude", label: "Claude", installed: true }]),
+      getEnvFields: vi.fn().mockResolvedValue([]),
+    })
+    const user = userEvent.setup()
+    render(<Agents showToast={showToast} />)
+    await screen.findByText("plain-1")
+    await user.click(screen.getByRole("button", { name: /configure/i }))
+    expect(await screen.findByText(/no configuration required/i)).toBeInTheDocument()
+    expect(api.refreshLogin).toBeUndefined()
+  })
+
+  it("env-only agent (no labels) → key fields, no auth banner", async () => {
+    installApi({
+      listAgents: vi
+        .fn()
+        .mockResolvedValue([makeAgent({ name: "kimi-1", type: "kimi" })]),
+      getCatalog: vi
+        .fn()
+        .mockResolvedValue([{ name: "kimi", label: "Kimi", installed: true }]),
+      getEnvFields: vi
+        .fn()
+        .mockResolvedValue([
+          { name: "KIMI_API_KEY", description: "Kimi API key", required: true, password: true },
+        ]),
+    })
+    const user = userEvent.setup()
+    render(<Agents showToast={showToast} />)
+    await screen.findByText("kimi-1")
+    await user.click(screen.getByRole("button", { name: /configure/i }))
+    expect(await screen.findByText(/Kimi API key/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no configuration required/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/sign-in detected/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/API key detected/i)).not.toBeInTheDocument()
+  })
+})

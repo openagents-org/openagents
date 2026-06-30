@@ -151,7 +151,10 @@ describe('Aider install — verification failure (no binary)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Aider install — rejects a same-named non-Aider binary', () => {
-  it('install(): a binary whose --version is not Aider → verification fails', async () => {
+  // Skipped on Windows: the wrong binary is a written shell/node script whose
+  // `--version` can't be executed there, so the verify can't read it back to
+  // detect a non-Aider tool (the very thing this test exercises).
+  it('install(): a binary whose --version is not Aider → verification fails', { skip: process.platform === 'win32' }, async () => {
     const wrong = writeWrongBinary(path.join(tmpHome, '.local', 'bin'));
     const inst = new Installer(mockRegistry, tmpDir);
     inst._execShell = async () => 'ok';

@@ -17,7 +17,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { listMyWorkspaces, createWorkspace, type WorkspaceSummary } from '@/lib/dashboard-api';
 import { timeAgo } from '@/lib/helpers';
-import { capture } from '@/lib/analytics';
+import { capture, group } from '@/lib/analytics';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 
 // ---------------------------------------------------------------------------
@@ -51,12 +51,12 @@ function LandingPage() {
   const { isOpenAgentsDomain, signIn } = useOpenAgentsAuth();
 
   const agents = [
-    { name: 'Claude Code', status: 'supported', command: 'openagents start claude', color: 'bg-amber-500' },
-    { name: 'OpenClaw', status: 'supported', command: 'openagents start openclaw', color: 'bg-violet-500' },
-    { name: 'Codex CLI', status: 'supported', command: 'openagents start codex', color: 'bg-emerald-500' },
-    { name: 'Aider', status: 'supported', command: 'openagents start aider', color: 'bg-blue-500' },
-    { name: 'Goose', status: 'supported', command: 'openagents start goose', color: 'bg-rose-500' },
-    { name: 'Custom YAML', status: 'supported', command: 'openagents start ./my-agent/', color: 'bg-zinc-500' },
+    { name: 'Claude Code', status: 'supported', command: 'agn install claude', color: 'bg-amber-500' },
+    { name: 'OpenClaw', status: 'supported', command: 'agn install openclaw', color: 'bg-violet-500' },
+    { name: 'Codex CLI', status: 'supported', command: 'agn install codex', color: 'bg-emerald-500' },
+    { name: 'Aider', status: 'supported', command: 'agn install aider', color: 'bg-blue-500' },
+    { name: 'Goose', status: 'supported', command: 'agn install goose', color: 'bg-rose-500' },
+    { name: 'Custom', status: 'supported', command: 'agn create my-agent --type custom', color: 'bg-zinc-500' },
   ];
 
   return (
@@ -109,7 +109,7 @@ function LandingPage() {
           </p>
           <div className="max-w-lg mx-auto space-y-3">
             <CodeBlock code="curl -fsSL https://openagents.org/install.sh | bash" />
-            <CodeBlock code="openagents start claude" />
+            <CodeBlock code={`agn create my-agent --type claude --install\nagn up`} />
           </div>
           <p className="mt-4 text-sm text-muted-foreground">
             Install in seconds. Works on macOS, Linux, and Windows.
@@ -130,7 +130,7 @@ function LandingPage() {
                 <div className="size-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold shrink-0">1</div>
                 <h3 className="font-semibold text-lg">Create a workspace</h3>
               </div>
-              <CodeBlock code="openagents workspace create" />
+              <CodeBlock code="agn workspace create" />
               <p className="text-sm text-muted-foreground">
                 Creates a workspace and gives you a shareable token. Share it with teammates or other agents.
               </p>
@@ -141,9 +141,9 @@ function LandingPage() {
                 <div className="size-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold shrink-0">2</div>
                 <h3 className="font-semibold text-lg">Connect your agents</h3>
               </div>
-              <CodeBlock code={`openagents start openclaw\nopenagents start claude`} />
+              <CodeBlock code={`agn create my-agent --type claude --install\nagn up\nagn connect my-agent <token>`} />
               <p className="text-sm text-muted-foreground">
-                Start any supported agent and it auto-connects to your workspace. Run as many as you need.
+                Create an agent, start the daemon, and connect it with the token from step 1. Add as many agents as you need.
               </p>
             </div>
             {/* Step 3 */}
@@ -170,7 +170,7 @@ function LandingPage() {
             Supported agents
           </h2>
           <p className="text-center text-muted-foreground mb-10 max-w-xl mx-auto">
-            Connect any of these agents to your workspace with a single command. More agents are added regularly.
+            Install any of these agents with a single command, then connect them to your workspace. More agents are added regularly.
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {agents.map((agent) => (
@@ -191,7 +191,7 @@ function LandingPage() {
             ))}
           </div>
           <p className="text-center text-sm text-muted-foreground mt-6">
-            Search for more: <code className="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-xs font-mono">openagents search coding</code>
+            Search for more: <code className="bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded text-xs font-mono">agn search coding</code>
           </p>
         </div>
       </section>
@@ -211,7 +211,7 @@ function LandingPage() {
             <FeatureCard
               icon={<Zap className="size-5" />}
               title="One-Command Setup"
-              description="openagents start claude creates, configures, and runs your agent. Background daemon auto-restarts on crash."
+              description="agn create installs, configures, and runs your agent in one step. Background daemon auto-restarts on crash."
             />
             <FeatureCard
               icon={<Shield className="size-5" />}
@@ -235,24 +235,26 @@ function LandingPage() {
           </h2>
           <div className="space-y-6">
             <CLIGroup title="Agent Management" commands={[
-              { cmd: 'openagents', desc: 'Scan machine, show agent status' },
-              { cmd: 'openagents start <type>', desc: 'Start an agent (create + workspace prompt + daemon)' },
-              { cmd: 'openagents stop <name>', desc: 'Stop a specific agent' },
-              { cmd: 'openagents status', desc: 'Show running agents and daemon health' },
-              { cmd: 'openagents install <type>', desc: 'Install an agent runtime' },
-              { cmd: 'openagents search <query>', desc: 'Search available agents' },
+              { cmd: 'agn', desc: 'Scan machine, show agent status' },
+              { cmd: 'agn install <type>', desc: 'Install an agent runtime' },
+              { cmd: 'agn create <name> --type <type>', desc: 'Create an agent instance' },
+              { cmd: 'agn connect <name> <token>', desc: 'Connect an agent to a workspace' },
+              { cmd: 'agn start <name>', desc: 'Start a configured agent via the daemon' },
+              { cmd: 'agn stop <name>', desc: 'Stop a specific agent' },
+              { cmd: 'agn search <query>', desc: 'Search available agents' },
             ]} />
             <CLIGroup title="Daemon" commands={[
-              { cmd: 'openagents up', desc: 'Start daemon (all configured agents)' },
-              { cmd: 'openagents down', desc: 'Stop daemon' },
-              { cmd: 'openagents autostart', desc: 'Auto-start on login' },
-              { cmd: 'openagents logs -f', desc: 'Follow logs in real time' },
+              { cmd: 'agn up', desc: 'Start daemon (all configured agents)' },
+              { cmd: 'agn down', desc: 'Stop daemon' },
+              { cmd: 'agn status', desc: 'Show running agents and daemon health' },
+              { cmd: 'agn autostart', desc: 'Auto-start on login' },
+              { cmd: 'agn logs', desc: 'Show recent daemon logs' },
             ]} />
             <CLIGroup title="Workspace" commands={[
-              { cmd: 'openagents workspace create', desc: 'Create a workspace, get shareable token' },
-              { cmd: 'openagents workspace join <token>', desc: 'Join with a token' },
-              { cmd: 'openagents workspace list', desc: 'List configured workspaces' },
-              { cmd: 'openagents workspace members', desc: 'List agents in a workspace' },
+              { cmd: 'agn workspace create', desc: 'Create a workspace, get shareable token' },
+              { cmd: 'agn workspace join <token>', desc: 'Join with a token' },
+              { cmd: 'agn workspace list', desc: 'List configured workspaces' },
+              { cmd: 'agn disconnect <name>', desc: 'Disconnect an agent from its workspace' },
             ]} />
           </div>
         </div>
@@ -265,7 +267,7 @@ function LandingPage() {
           <p className="text-muted-foreground">
             Install OpenAgents and have your first agent running in under a minute.
           </p>
-          <CodeBlock code="curl -fsSL https://openagents.org/install.sh | bash && openagents start claude" className="max-w-xl mx-auto" />
+          <CodeBlock code={`curl -fsSL https://openagents.org/install.sh | bash\nagn create my-agent --type claude --install && agn up`} className="max-w-xl mx-auto" />
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <a href="https://openagents.org/docs/getting-started/overview">
               <Button>
@@ -359,7 +361,12 @@ function CreateWorkspaceForm({
     setLoading(true);
     try {
       const ws = await createWorkspace(agentName.trim(), name.trim() || undefined);
-      capture('workspace_created', { agent_name: agentName.trim() });
+      group('workspace', ws.slug);
+      capture('workspace_created', {
+        source: 'workspace_app',
+        workspace_id: ws.slug,
+        agent_name: agentName.trim(),
+      });
       onCreated();
       router.push(`/${ws.slug}?token=${ws.token}`);
     } catch (err: unknown) {

@@ -6,6 +6,7 @@ const path = require('path');
 const { execSync, exec } = require('child_process');
 const { whichBinary, getEnhancedEnv, getRuntimePrefix, clearBinaryLookupCache, aiderBinDirs } = require('./paths');
 const { EnvManager } = require('./env');
+const { readinessReason, REASON } = require('./adapters/health-status');
 
 const STATUS_CACHE_TTL_MS = 10000;
 const statusCache = new Map();
@@ -381,17 +382,20 @@ class Installer {
           auth_mode: null,
           auth_status: null,
           execution_mode: 'unavailable',
+          reason: REASON.NOT_INSTALLED,
           message: 'Not installed',
         };
       }
 
+      const apiReadiness = this._evaluateReadiness(agentType, entry, null);
       return {
         installed: true,
         binary: null,
         version: null,
         compatible: true,
         min_version: null,
-        ...this._evaluateReadiness(agentType, entry, null),
+        reason: readinessReason(true, apiReadiness.ready),
+        ...apiReadiness,
       };
     }
 
@@ -407,6 +411,7 @@ class Installer {
         auth_mode: null,
         auth_status: null,
         execution_mode: 'unavailable',
+        reason: REASON.NOT_INSTALLED,
         message: 'Not installed',
       };
     }
@@ -438,6 +443,12 @@ class Installer {
       version,
       compatible: gate.compatible,
       min_version: gate.minVersion,
+      // Installed is proven (binary resolved). A not-ready installed agent is a
+      // login/config state, never "not installed" — version mismatch aside.
+      reason:
+        gate.compatible === false
+          ? REASON.VERSION_INCOMPATIBLE
+          : readinessReason(true, readiness.ready),
       ...readiness,
     };
   }
@@ -515,6 +526,13 @@ class Installer {
     const envAnyReady = this._hasAnyValue(process.env, checkReady.env_vars);
     const savedAnyReady = !!(checkReady.saved_env_key && savedEnv[checkReady.saved_env_key]);
     const credsReady = this._checkCredsReady(checkReady);
+    // Content-free credential probes (opt-in via check_ready). Detect agents
+    // whose sign-in is a local OAuth/credential FILE (e.g. Gemini's
+    // ~/.gemini/oauth_creds.json) or a service-account file path, WITHOUT
+    // parsing or logging the token. Additive: agents that don't declare
+    // creds_no_parse / creds_path_env get identical behavior to before.
+    const credsFile = this._evaluateCredsFile(checkReady);
+    const credsPathReady = this._checkCredsPathEnv(checkReady, savedEnv);
 
     let cliReady = false;
     if (checkReady.status_command && binary) {
@@ -554,13 +572,27 @@ class Installer {
       };
     }
 
-    if (credsReady) {
+    if (credsReady || credsFile.ready || credsPathReady) {
       return {
         ready: true,
         auth_mode: 'cli_login',
         auth_status: 'ready',
         execution_mode: 'subprocess',
         message: 'Ready',
+      };
+    }
+
+    // A credential file was found but could not be read (e.g. permissions).
+    // That is NOT "no credentials" — report it as 'unknown' with a distinct
+    // message so the UI never mislabels a real (if unreadable) login as
+    // "Not logged in". Only reachable for agents that opt into creds_no_parse.
+    if (credsFile.unreadable) {
+      return {
+        ready: false,
+        auth_mode: null,
+        auth_status: 'unknown',
+        execution_mode: 'unavailable',
+        message: checkReady.unreadable_message || 'Credentials were found but could not be read.',
       };
     }
 
@@ -608,6 +640,74 @@ class Installer {
       }
     }
 
+    return false;
+  }
+
+  /** Expand a leading "~" to the running user's home directory. */
+  _expandHome(p) {
+    if (typeof p !== 'string' || !p) return p;
+    if (p === '~') return os.homedir();
+    if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(os.homedir(), p.slice(2));
+    return p;
+  }
+
+  /**
+   * Existence/readability of a credential file WITHOUT reading its contents —
+   * never loads a token/key into memory. Returns 'present' | 'unreadable' |
+   * 'absent'. A non-empty readable file (or a non-empty directory) is 'present';
+   * a path that exists but cannot be statted/read is 'unreadable'. Resolves "~"
+   * against the running user's home (the daemon/launcher user), not the
+   * renderer/browser user.
+   */
+  _credsFileState(checkReady) {
+    if (!checkReady || !checkReady.creds_file) return 'absent';
+    const p = this._expandHome(checkReady.creds_file);
+    let exists = false;
+    try { exists = fs.existsSync(p); } catch { return 'unreadable'; }
+    if (!exists) return 'absent';
+    try {
+      const st = fs.statSync(p);
+      if (st.isDirectory()) return fs.readdirSync(p).length > 0 ? 'present' : 'absent';
+      fs.accessSync(p, fs.constants.R_OK);
+      return st.size > 0 ? 'present' : 'absent';
+    } catch {
+      return 'unreadable';
+    }
+  }
+
+  /**
+   * Opt-in, content-free creds-file readiness. Active ONLY when
+   * `check_ready.creds_no_parse` is set, so existing creds_file agents (which
+   * parse + match `creds_key` via _checkCredsReady) keep their exact behavior.
+   * Returns { ready, unreadable }.
+   */
+  _evaluateCredsFile(checkReady) {
+    if (!checkReady || !checkReady.creds_file || !checkReady.creds_no_parse) {
+      return { ready: false, unreadable: false };
+    }
+    const state = this._credsFileState(checkReady);
+    return { ready: state === 'present', unreadable: state === 'unreadable' };
+  }
+
+  /**
+   * Treat the named env vars as paths to a credential FILE (e.g.
+   * GOOGLE_APPLICATION_CREDENTIALS) and count one as ready only when its target
+   * exists and is a readable file — a non-empty value alone is NOT enough.
+   * Checks both the process env and the agent's saved env.
+   */
+  _checkCredsPathEnv(checkReady, savedEnv) {
+    const names = checkReady && checkReady.creds_path_env;
+    if (!Array.isArray(names) || !names.length) return false;
+    for (const name of names) {
+      const raw = ((process.env[name] || (savedEnv && savedEnv[name]) || '') + '').trim();
+      if (!raw) continue;
+      try {
+        const p = this._expandHome(raw);
+        if (!fs.existsSync(p)) continue;
+        fs.accessSync(p, fs.constants.R_OK);
+        if (fs.statSync(p).isFile()) return true;
+      } catch { /* unreadable / bad path → not a usable credential */ }
+    }
     return false;
   }
 

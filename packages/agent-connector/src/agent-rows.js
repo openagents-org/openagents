@@ -40,7 +40,16 @@ function loadAgentRows(connector) {
     let health = null;
     try {
       health = connector.healthCheck(agent.type || 'openclaw');
-      if (health && !health.ready) notReadyMsg = health.message || 'Not configured';
+      if (health && !health.ready) {
+        // "Not installed" only when the executable is genuinely missing; an
+        // installed-but-signed-out agent shows its login/config message, never
+        // "Not installed". Mirrors the launcher's formatHealthLabel rule.
+        const notInstalled =
+          health.reason === 'not_installed' || health.installed === false;
+        notReadyMsg = notInstalled
+          ? 'Not installed'
+          : health.message || 'Not configured';
+      }
     } catch {}
 
     return {
@@ -55,6 +64,9 @@ function loadAgentRows(connector) {
       path: agent.path || '',
       network: agent.network || '',
       lastError: info.last_error || '',
+      // Structured daemon failure reason (spawn_failed / workspace_join_failed /
+      // heartbeat_failed / runtime_missing / …) paired with lastError.
+      errorReason: info.error_reason || '',
       notReadyMsg,
       health,
       configured: true,

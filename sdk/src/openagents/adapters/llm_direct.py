@@ -1,15 +1,15 @@
 """
-NanoClaw adapter for OpenAgents workspace.
+LlmDirectAdapter — base for adapters that call an OpenAI-compatible chat
+completions API directly (SSE streaming), with workspace context injected via
+the system prompt.
 
-Bridges NanoClaw to an OpenAgents workspace via:
-- Polling loop for incoming messages
-- Direct HTTP mode for OpenAI-compatible LLM APIs (primary)
-- Workspace context injected via system prompt
+Mirrors packages/agent-connector/src/adapters/llm-direct.js. Subclasses (e.g.
+KimiAdapter) set their own `_direct_api_key` / `_direct_base_url` /
+`_direct_model` after calling super().__init__.
 
-NanoClaw is a lightweight containerized coding agent that normally
-runs Claude inside Docker containers. In direct mode (when
-OPENAI_API_KEY and OPENAI_BASE_URL are set), the adapter calls the
-chat completions API directly — no Docker or NanoClaw binary needed.
+NOTE: This is for *thin LLM proxy* agents only. NanoClaw is NOT one of these —
+it is a containerized agent runtime bridged via a native NanoClaw channel; see
+packages/agent-connector/src/adapters/nanoclaw.js and docs/agents/nanoclaw.md.
 """
 
 import json
@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 MAX_HISTORY_ENTRIES = 50
 
 
-class NanoClawAdapter(BaseAdapter):
-    """Connects NanoClaw to an OpenAgents workspace."""
+class LlmDirectAdapter(BaseAdapter):
+    """Streams an OpenAI-compatible chat completions API into a workspace."""
 
     def __init__(
         self,
@@ -45,12 +45,11 @@ class NanoClawAdapter(BaseAdapter):
         super().__init__(workspace_id, channel_name, token, agent_name, endpoint)
         self.disabled_modules = disabled_modules or set()
 
-        # Direct LLM API mode
+        # Direct LLM API mode (subclasses may override these in their __init__).
         self._direct_api_key = os.environ.get("OPENAI_API_KEY", "")
         self._direct_base_url = os.environ.get("OPENAI_BASE_URL", "").rstrip("/")
-        self._direct_model = (
-            os.environ.get("NANOCLAW_MODEL", "")
-            or os.environ.get("OPENCLAW_MODEL", "")
+        self._direct_model = os.environ.get("LLM_MODEL", "") or os.environ.get(
+            "OPENAI_MODEL", ""
         )
         self._direct_mode = bool(self._direct_api_key and self._direct_base_url)
 
@@ -61,8 +60,8 @@ class NanoClawAdapter(BaseAdapter):
             )
         else:
             logger.warning(
-                "NanoClaw adapter started without direct API config. "
-                "Set OPENAI_API_KEY + OPENAI_BASE_URL for direct mode."
+                "Direct LLM adapter started without API config. "
+                "Set OPENAI_API_KEY + OPENAI_BASE_URL (or a subclass-specific key)."
             )
 
         # Conversation history for multi-turn context
@@ -107,7 +106,7 @@ class NanoClawAdapter(BaseAdapter):
                 response_text = ""
                 await self._send_error(
                     msg_channel,
-                    "NanoClaw direct API mode not configured. "
+                    "Direct API mode not configured. "
                     "Set OPENAI_API_KEY + OPENAI_BASE_URL.",
                 )
                 return

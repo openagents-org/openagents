@@ -20,8 +20,20 @@
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
 const { generateSessionTitle, SESSION_DEFAULT_RE } = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
+const {
+  REASON,
+  classifyJoinError,
+  classifyHeartbeatError,
+} = require('./health-status');
 
 const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
+
+// Heartbeat runs every 30s. A SINGLE failure is usually a transient blip (brief
+// network hiccup, server redeploy) that the next tick recovers from — surfacing
+// it as a hard 'error' would make the agent flap red for no real reason. Only
+// after this many CONSECUTIVE failures (~60s+ of real downtime) do we report
+// heartbeat_failed up to the daemon. A success resets the streak immediately.
+const HEARTBEAT_ERROR_THRESHOLD = 2;
 
 class BaseAdapter {
   /**
@@ -32,7 +44,7 @@ class BaseAdapter {
    * @param {string} opts.agentName
    * @param {string} [opts.endpoint]
    */
-  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir }) {
+  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus }) {
     this.workspaceId = workspaceId;
     this.channelName = channelName;
     this.token = token;
@@ -41,6 +53,21 @@ class BaseAdapter {
     this.agentEnv = agentEnv || process.env;
     this.agentType = agentType;
     this.workingDir = workingDir || undefined;
+    // Optional callback the daemon supplies to surface live runtime/connectivity
+    // status (reason + redacted message) into daemon.status.json so the Agents
+    // list / TUI can show the REAL failure instead of a swallowed log line. A
+    // null reason means "healthy again" (clears any prior error).
+    this._onStatus = typeof onStatus === 'function' ? onStatus : null;
+    this._lastReportedStatusKey = null;
+    // Consecutive heartbeat failures — a transient single blip must not flip the
+    // agent to a hard error (see HEARTBEAT_ERROR_THRESHOLD).
+    this._heartbeatFailStreak = 0;
+    // Structured terminal exit reason ({ reason, message }) read by the daemon
+    // after run() returns, to distinguish a clean stop from a real failure.
+    this._exitInfo = null;
+    // Set when the user explicitly stops this adapter (vs an error/revoke), so a
+    // clean stop is never mislabeled as an error.
+    this._stopRequested = false;
     this.client = new WorkspaceClient(this.endpoint);
     this._lastEventId = null;
     this._lastToolResultId = null;
@@ -71,13 +98,62 @@ class BaseAdapter {
   }
 
   // ------------------------------------------------------------------
+  // Runtime status reporting (daemon surfaces this in daemon.status.json)
+  // ------------------------------------------------------------------
+
+  /**
+   * Surface a live status transition to the daemon. `reason` null/'' means the
+   * agent is healthy again (clears any prior error). Deduped so a repeated
+   * failure (e.g. heartbeat every 30s on a down workspace) writes the status
+   * file once, not on every tick. Never throws — status is best-effort.
+   */
+  _reportStatus(reason, message) {
+    const key = `${reason || ''}|${message || ''}`;
+    if (key === this._lastReportedStatusKey) return;
+    this._lastReportedStatusKey = key;
+    if (!this._onStatus) return;
+    try {
+      this._onStatus({ reason: reason || null, message: message || null });
+    } catch { /* status is best-effort */ }
+  }
+
+  /** Record the FIRST terminal failure reason; later teardown noise can't mask it. */
+  _setExitInfo(reason, message) {
+    if (!this._exitInfo) this._exitInfo = { reason, message };
+  }
+
+  /** Read by the daemon after run() returns. null = clean exit. */
+  getExitInfo() {
+    return this._exitInfo;
+  }
+
+  /** True when stop() was called explicitly (a clean user stop, not a failure). */
+  wasStopRequested() {
+    return this._stopRequested === true;
+  }
+
+  /**
+   * Preflight gate, run by the daemon BEFORE join. Default: always runnable.
+   * Subclasses whose agent needs a resolvable CLI binary override this to return
+   * { ok:false, reason:'runtime_missing', message } so the daemon surfaces a
+   * precise reason and skips the workspace join (no pointless join loop).
+   */
+  preflight() {
+    return { ok: true };
+  }
+
+  // ------------------------------------------------------------------
   // Lifecycle
   // ------------------------------------------------------------------
 
-  async run() {
-    this._running = true;
-
-    // Announce agent to workspace
+  /**
+   * Announce this agent to the workspace (/v1/join). Returns true on success.
+   * On failure surfaces the REAL reason (e.g. "Workspace join failed: HTTP 401")
+   * to the daemon status instead of only logging it — non-fatal, the poll/
+   * heartbeat loops keep retrying and a later success clears it. Extracted from
+   * run() so the failure-reporting can be unit-tested without the poll loop.
+   */
+  async _joinWorkspace() {
     try {
       const joinResult = await this.client.joinNetwork(this.agentName, this.token, {
         network: this.workspaceId,
@@ -87,9 +163,21 @@ class BaseAdapter {
       });
       this._sessionId = (joinResult && joinResult.session_id) || null;
       this._log(`Joined workspace ${this.workspaceId}${this._sessionId ? ` (session ${this._sessionId.slice(0, 8)})` : ''}`);
+      this._reportStatus(null); // joined OK → clear any prior error
+      return true;
     } catch (e) {
-      this._log(`Warning: join failed: ${e.message} \nStack: ${e.stack}`);
+      const { reason, message } = classifyJoinError(e);
+      this._log(`${message} (status: ${e && e.statusCode != null ? e.statusCode : 'n/a'})`);
+      this._reportStatus(reason, message);
+      return false;
     }
+  }
+
+  async run() {
+    this._running = true;
+
+    // Announce agent to workspace
+    await this._joinWorkspace();
 
     // Sync workspace-managed skills into disabledModules
     try {
@@ -137,6 +225,7 @@ class BaseAdapter {
   }
 
   stop() {
+    this._stopRequested = true;
     this._running = false;
   }
 
@@ -164,13 +253,25 @@ class BaseAdapter {
   async _heartbeat() {
     try {
       await this.client.heartbeat(this.workspaceId, this.agentName, this.token, this._sessionId);
+      this._heartbeatFailStreak = 0;
+      this._reportStatus(null); // alive → clear any prior connectivity error
     } catch (e) {
       if (e instanceof SessionRevokedError) {
         this._log(`SESSION REVOKED: another client joined as '${this.agentName}'. Stopping adapter.`);
+        // Terminal (not a user stop): record so the daemon can show why it ended.
+        this._setExitInfo(REASON.SESSION_REVOKED, 'Workspace session revoked — another client joined with the same agent name');
+        this._reportStatus(REASON.SESSION_REVOKED, 'Workspace session revoked');
         this._running = false;
         return;
       }
-      this._log(`Heartbeat failed: ${e.message}`);
+      // Only surface a hard error after repeated consecutive failures, so a
+      // single transient blip (or an expected brief reconnect) isn't mislabeled.
+      this._heartbeatFailStreak++;
+      const { reason, message } = classifyHeartbeatError(e);
+      this._log(`${message} (consecutive failures: ${this._heartbeatFailStreak})`);
+      if (this._heartbeatFailStreak >= HEARTBEAT_ERROR_THRESHOLD) {
+        this._reportStatus(reason, message);
+      }
     }
   }
 

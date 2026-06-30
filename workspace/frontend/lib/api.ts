@@ -6,6 +6,10 @@ import type {
   CloudAgentConfig,
   CloudAgentProvider,
   DMConversation,
+  EvaluationDataset,
+  EvaluationInstance,
+  EvaluationJob,
+  EvaluationPrecheck,
   EventPollResponse,
   KnowledgeEntry,
   MessagePollResponse,
@@ -159,10 +163,14 @@ class WorkspaceApi {
     });
   }
 
-  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean }): Promise<unknown> {
+  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean; masterAgent?: string }): Promise<unknown> {
+    // Map camelCase masterAgent → snake_case master_agent for the backend.
+    const { masterAgent, ...rest } = updates;
+    const body: Record<string, unknown> = { ...rest };
+    if (masterAgent !== undefined) body.master_agent = masterAgent;
     return this.request(`/v1/workspaces/${this.workspaceId}/channels/${channelName}`, {
       method: 'PATCH',
-      body: JSON.stringify(updates),
+      body: JSON.stringify(body),
     });
   }
 
@@ -1071,6 +1079,95 @@ class WorkspaceApi {
         source,
       }),
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // SWE-bench evaluations (benchmark jobs — not agents)
+  // ---------------------------------------------------------------------------
+
+  async listEvaluationDatasets(): Promise<{
+    enabled: boolean;
+    datasets: EvaluationDataset[];
+    experimental?: boolean;
+    leaderboard_comparable?: boolean;
+    notice?: string;
+    default_integrity_mode?: string;
+  }> {
+    return this.request('/v1/evaluations/datasets');
+  }
+
+  async listEvaluationInstances(params: {
+    dataset: string;
+    split?: string;
+    limit?: number;
+    offset?: number;
+    search?: string;
+  }): Promise<{ total: number; items: EvaluationInstance[]; limit: number; offset: number }> {
+    const q = new URLSearchParams({ network: this.requireWorkspace(), dataset: params.dataset });
+    if (params.split) q.set('split', params.split);
+    if (params.limit != null) q.set('limit', String(params.limit));
+    if (params.offset != null) q.set('offset', String(params.offset));
+    if (params.search) q.set('search', params.search);
+    return this.request(`/v1/evaluations/instances?${q}`);
+  }
+
+  async evaluationPrecheck(dataset?: string, split?: string): Promise<EvaluationPrecheck> {
+    const q = new URLSearchParams({ network: this.requireWorkspace() });
+    if (dataset) q.set('dataset', dataset);
+    if (split) q.set('split', split);
+    return this.request<EvaluationPrecheck>(`/v1/evaluations/precheck?${q}`);
+  }
+
+  async listEvaluations(status?: string): Promise<EvaluationJob[]> {
+    const q = new URLSearchParams({ network: this.requireWorkspace() });
+    if (status) q.set('status', status);
+    const raw = await this.request<{ jobs: EvaluationJob[] }>(`/v1/evaluations?${q}`);
+    return raw.jobs || [];
+  }
+
+  async getEvaluation(jobId: string): Promise<EvaluationJob> {
+    return this.request<EvaluationJob>(`/v1/evaluations/${jobId}`);
+  }
+
+  async createEvaluation(params: {
+    dataset: string;
+    instance_id: string;
+    agent: string;
+    split?: string;
+    source?: string;
+    mode?: string;
+  }): Promise<EvaluationJob> {
+    return this.request<EvaluationJob>('/v1/evaluations', {
+      method: 'POST',
+      body: JSON.stringify({ ...params, network: this.requireWorkspace() }),
+    });
+  }
+
+  async cancelEvaluation(jobId: string): Promise<EvaluationJob> {
+    return this.request<EvaluationJob>(`/v1/evaluations/${jobId}`, { method: 'DELETE' });
+  }
+
+  async retryEvaluation(jobId: string): Promise<EvaluationJob> {
+    return this.request<EvaluationJob>(`/v1/evaluations/${jobId}/retry`, { method: 'POST' });
+  }
+
+  /** Fetch the collected patch as raw text (not wrapped in ApiResponse). */
+  async getEvaluationPatch(jobId: string): Promise<string> {
+    return this.fetchText(`/v1/evaluations/${jobId}/patch`);
+  }
+
+  /** Fetch the harness log bundle as raw text. */
+  async getEvaluationLogs(jobId: string): Promise<string> {
+    return this.fetchText(`/v1/evaluations/${jobId}/logs`);
+  }
+
+  private async fetchText(path: string): Promise<string> {
+    const headers: Record<string, string> = {};
+    if (this.token) headers['X-Workspace-Token'] = this.token;
+    if (this.bearerToken) headers['Authorization'] = `Bearer ${this.bearerToken}`;
+    const res = await fetch(`${API_URL}${path}`, { cache: 'no-store', headers });
+    if (!res.ok) throw new Error(`API ${res.status}: ${await res.text()}`);
+    return res.text();
   }
 }
 

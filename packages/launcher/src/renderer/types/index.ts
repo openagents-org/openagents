@@ -3,6 +3,11 @@ export type AgentState = 'online' | 'running' | 'idle' | 'starting' | 'reconnect
 export interface HealthCheck {
   ready: boolean
   installed?: boolean
+  // Structured readiness/failure reason shared with the core + daemon
+  // (health-status.js REASON). The Agents list keys off this — NOT the free-text
+  // message — to decide "Not installed" vs "Login required". Values include
+  // 'ready' | 'not_installed' | 'login_required' | 'version_incompatible'.
+  reason?: string
   // CLI sign-in state for dual-auth agents (e.g. Claude): true (signed in) /
   // false (signed out) / null (unknown — never probed or undecidable).
   logged_in?: boolean | null
@@ -10,6 +15,11 @@ export interface HealthCheck {
   version?: string | null
   message?: string
   auth_mode?: string
+  // Coarse auth classification from the core's readiness probe: 'ready' |
+  // 'no_credentials' | 'unknown' | null. Distinct from `ready` so the UI can
+  // tell "found a credential file but couldn't read it" (unknown) apart from
+  // "no credentials at all" (no_credentials).
+  auth_status?: string | null
   execution_mode?: string
 }
 
@@ -98,6 +108,11 @@ export interface CatalogEntry {
     not_ready_message?: string
     env_vars?: string[]
     saved_env_key?: string
+    // Non-sensitive, human-readable labels for a READY auth_mode (e.g. Gemini
+    // maps cli_login → "Google account sign-in detected"). When present, the
+    // Configure dialog shows an auth-status banner distinguishing a CLI sign-in
+    // from an API key. Never contains a token, email, or path.
+    auth_detected_labels?: Record<string, string>
   }
   env_config?: EnvField[]
   screenshots?: string[]

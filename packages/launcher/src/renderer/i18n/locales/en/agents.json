@@ -23,6 +23,8 @@
     "removeBody": "This will stop and remove <1>{{name}}</1>.",
     "health": {
       "notConfigured": "Not configured",
+      "notInstalled": "Not installed",
+      "loginRequired": "Login required",
       "ready": "Ready",
       "apiKey": "API key",
       "cliLogin": "CLI login"
@@ -66,6 +68,9 @@
     "hintInstance": "Settings saved for this agent. Type defaults remain available as fallbacks.",
     "hintType": "Settings saved to ~/.openagents/env/",
     "hintNoConfig": "No configuration required for this agent type.",
+    "authReadyPrefix": "Ready —",
+    "authReadyGeneric": "authenticated",
+    "authNotReadyGeneric": "This agent requires authentication before use.",
     "loadingConfig": "Loading configuration...",
     "awaitingTerminalPrefix": "A terminal opened running",
     "awaitingTerminalSuffix": ". Once you've finished signing in there, let us know and we'll verify it.",

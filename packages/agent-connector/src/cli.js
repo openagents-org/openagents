@@ -1,6 +1,7 @@
 'use strict';
 
 const { AgentConnector, Daemon } = require('./index');
+const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
 
 // ---------------------------------------------------------------------------
 // Arg parsing
@@ -483,14 +484,30 @@ async function cmdEnv(connector, flags, positional) {
       const display = field.password && val ? '***' : (val || '(not set)');
       print(`  ${field.name}: ${display}  ${field.required ? '(required)' : ''}`);
     }
+    return;
+  }
+
+  // No env_config, but the agent may still require a sign-in/credential (e.g.
+  // Gemini's OAuth login). Surface readiness + login guidance from the registry
+  // check_ready rather than a misleading "No env vars configured". Gated on
+  // credential metadata so plain no-config agents keep their existing output.
+  const entry = connector.registry.getEntry(type);
+  if (hasCredentialMetadata(entry && entry.check_ready)) {
+    let health = null;
+    try { health = connector.healthCheck(type); } catch {}
+    const g = formatAuthGuidance(entry, health);
+    print(`${entry.label || type} authentication status: ${g.ready ? 'Ready' : 'Not ready'}`);
+    print('');
+    for (const line of g.lines) print(line);
+    return;
+  }
+
+  const entries = Object.entries(env);
+  if (entries.length === 0) {
+    print(`No env vars configured for ${type}`);
   } else {
-    const entries = Object.entries(env);
-    if (entries.length === 0) {
-      print(`No env vars configured for ${type}`);
-    } else {
-      for (const [k, v] of entries) {
-        print(`  ${k}: ${v}`);
-      }
+    for (const [k, v] of entries) {
+      print(`  ${k}: ${v}`);
     }
   }
 }

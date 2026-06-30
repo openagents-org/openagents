@@ -243,7 +243,9 @@ class ClineAdapter extends BaseAdapter {
       : [path.join(home, '.openagents', 'nodejs', 'node'),
          path.join(home, '.openagents', 'nodejs', 'bin', 'node')];
     for (const c of candidates) if (fs.existsSync(c)) return c;
-    return 'node';
+    // Fall back to the node already running this daemon (absolute, always valid).
+    // Bare 'node' can be off-PATH in a packaged daemon or CI runner.
+    return process.execPath;
   }
 
   /**

@@ -35,6 +35,15 @@ const SELECTED_AGENT_KEY = "last_selected_agent"
 
 type Step = 0 | 1 | 2 | 3 | 4
 
+// Human-readable names for the onboarding steps so the funnel reads clearly in PostHog.
+const STEP_NAMES: Record<Step, string> = {
+  0: "welcome",
+  1: "select_agent",
+  2: "configure",
+  3: "create_agent",
+  4: "connect_workspace",
+}
+
 const isWindows =
   typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent)
 
@@ -142,7 +151,18 @@ export function OnboardingFlow({
     try {
       localStorage.setItem(STEP_KEY, String(step))
     } catch {}
+    // Emit one event per onboarding step so we can see where users drop off.
+    capture("onboarding_step_viewed", { step, step_name: STEP_NAMES[step] })
   }, [step])
+
+  // Mark the start of onboarding exactly once when the flow first opens.
+  const startedRef = React.useRef(false)
+  useEffect(() => {
+    if (open && !startedRef.current) {
+      startedRef.current = true
+      capture("onboarding_started")
+    }
+  }, [open])
 
   useEffect(() => {
     if (selectedAgent) {
@@ -512,7 +532,11 @@ export function OnboardingFlow({
         workspaceName: wsName,
       })
       if (res.workspaceName) {
-        capture("workspace_created", { source: "onboarding" })
+        if (res.workspaceSlug) group("workspace", res.workspaceSlug)
+        capture("workspace_created", {
+          source: "launcher_onboarding",
+          workspace_id: res.workspaceSlug,
+        })
         showToast(
           t("onboarding.flow.toast.workspaceCreated", { name: res.workspaceName }),
           "success",
@@ -545,7 +569,11 @@ export function OnboardingFlow({
       const slug = ws?.slug
       if (!slug) throw new Error(t("onboarding.flow.toast.workspaceResolveFailed"))
       await window.api.connectWorkspace(agentName.trim(), slug)
-      capture("workspace_connected", { source: "onboarding" })
+      group("workspace", slug)
+      capture("workspace_connected", {
+        source: "launcher_onboarding",
+        workspace_id: slug,
+      })
       showToast(
         t("onboarding.flow.toast.workspaceConnected", { name: ws.name || slug }),
         "success",

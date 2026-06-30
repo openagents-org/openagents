@@ -17,9 +17,21 @@ import { cn } from "../../lib/utils"
 import { capture } from "../../lib/analytics"
 import { workspaceWebBaseUrl } from "../../lib/workspace-urls"
 
-function formatHealthLabel(health: HealthCheck | null, t: TFunction): string {
+export function formatHealthLabel(health: HealthCheck | null, t: TFunction): string {
   if (!health) return t("agents.list.health.notConfigured")
-  if (!health.ready) return health.message || t("agents.list.health.notConfigured")
+  if (!health.ready) {
+    // "Not installed" is reserved for a genuinely missing executable. Decide
+    // from the structured reason / installed flag, NOT the free-text message —
+    // an installed-but-signed-out agent must read "Login required", never
+    // "Not installed" (the bug this guard removes). Stale messages that still
+    // say "not installed" on a resolved binary are suppressed defensively.
+    const notInstalled =
+      health.reason === "not_installed" || health.installed === false
+    if (notInstalled) return t("agents.list.health.notInstalled")
+    const msg = health.message
+    if (msg && !/not\s+installed/i.test(msg)) return msg
+    return t("agents.list.health.loginRequired")
+  }
   const parts = [t("agents.list.health.ready")]
   if (health.auth_mode === "api_key") parts.push(t("agents.list.health.apiKey"))
   else if (health.auth_mode === "cli_login") parts.push(t("agents.list.health.cliLogin"))
@@ -691,6 +703,21 @@ function ConfigureDialog({
     "idle",
   )
   const [noConfig, setNoConfig] = useState(false)
+  // Auth readiness for agents whose sign-in the core can probe (e.g. Gemini's
+  // OAuth creds file). Drives an opt-in banner that distinguishes a Google
+  // account sign-in from an API key, or shows login guidance when neither is
+  // present — so Gemini is never demanded an API key it doesn't need.
+  const [authInfo, setAuthInfo] = useState<{
+    ready: boolean
+    authMode: string | null
+    message: string | null
+  } | null>(null)
+  // Registry-supplied, non-sensitive labels per auth_mode
+  // (check_ready.auth_detected_labels). Presence is the opt-in gate: the banner
+  // only renders for agents that declare these (today: Gemini).
+  const [authLabels, setAuthLabels] = useState<Record<string, string> | null>(
+    null,
+  )
   const [loading, setLoading] = useState(true)
   const [testResult, setTestResult] = useState<string | null>(null)
   const [testStatus, setTestStatus] = useState<
@@ -706,6 +733,8 @@ function ConfigureDialog({
     setLoginCmd(null)
     setLoggedIn(null)
     setLoginPhase("idle")
+    setAuthInfo(null)
+    setAuthLabels(null)
     // Reset fields/values too: the dialog stays mounted across agents, and
     // getEnvFields returns [] for login-only agents (Cursor/Hermes) so the
     // `if (hasFields)` branch below never calls setFields for them. Without
@@ -740,6 +769,11 @@ function ConfigureDialog({
         window.api.getCatalog().then((catalog) => {
           const entry = catalog.find((c) => c.name === agentType)
           const cmd = entry?.check_ready?.login_command || null
+          // Opt-in auth banner: only agents that declare per-mode labels
+          // (e.g. Gemini) get the "Google account sign-in detected" / "API key
+          // detected" / login-guidance banner. Others are untouched.
+          const labels = entry?.check_ready?.auth_detected_labels || null
+          setAuthLabels(labels && Object.keys(labels).length ? labels : null)
           if (cmd) {
             setLoginCmd(cmd)
             // Read the REAL sign-in state once on open (a fresh probe), so the
@@ -752,15 +786,23 @@ function ConfigureDialog({
                 // prefer it; fall back to `ready` for pure login agents.
                 const ok = h?.logged_in ?? h?.ready ?? false
                 setLoggedIn(ok)
+                setAuthInfo({
+                  ready: !!h?.ready,
+                  authMode: (h?.auth_mode as string) ?? null,
+                  message: (h?.message as string) ?? null,
+                })
                 // Already signed in via the browser session? Then any saved
                 // CURSOR_API_KEY/MODEL is stale leftover that conflicts with
                 // the login (and was breaking the workspace chat). Drop it
                 // once — clearLoginKey is a no-op when nothing's set, and a
-                // no-op for Claude (it declares no keys to clear, so the API
-                // key is never wiped).
+                // no-op for Claude/Gemini (they declare no keys to clear, so the
+                // API key is never wiped).
                 if (ok) window.api.clearLoginKey(agentType, agentName || undefined)
               })
-              .catch(() => setLoggedIn(false))
+              .catch(() => {
+                setLoggedIn(false)
+                setAuthInfo(null)
+              })
           } else if (!hasFields) {
             setNoConfig(true)
           }
@@ -782,6 +824,11 @@ function ConfigureDialog({
       const h = await window.api.refreshLogin(agentType)
       const ok = !!h?.ready
       setLoggedIn(ok)
+      setAuthInfo({
+        ready: ok,
+        authMode: (h?.auth_mode as string) ?? null,
+        message: (h?.message as string) ?? null,
+      })
       onSaved()
       showToast(
         ok
@@ -876,6 +923,7 @@ function ConfigureDialog({
           <p className="loading-text m-0">{t("agents.configureDialog.loadingConfig")}</p>
         ) : noConfig ? null : loginCmd && fields.length === 0 ? (
           <>
+            <AuthStatusBanner authInfo={authInfo} authLabels={authLabels} />
             <LoginStatusCard loginPhase={loginPhase} loggedIn={loggedIn} />
             {loginPhase === "awaiting" && (
               <p className="hint m-0">
@@ -885,6 +933,7 @@ function ConfigureDialog({
           </>
         ) : (
           <>
+            <AuthStatusBanner authInfo={authInfo} authLabels={authLabels} />
             {loginCmd && (
               <>
                 <CliLoginBlock
@@ -1020,6 +1069,45 @@ function ConfigureDialog({
         </ModalFooter>
       )}
     </Modal>
+  )
+}
+
+/**
+ * Opt-in auth-readiness banner for agents whose sign-in the core can probe
+ * (today: Gemini). Renders ONLY when the agent declares per-mode labels in
+ * check_ready.auth_detected_labels — so no other agent's Configure dialog is
+ * affected. When ready it names the detected method (Google account sign-in vs
+ * API key) so a logged-in user is never asked for a key; when not ready it
+ * surfaces the core's non-sensitive guidance message. Never shows a token,
+ * email, or path.
+ */
+function AuthStatusBanner({
+  authInfo,
+  authLabels,
+}: {
+  authInfo: { ready: boolean; authMode: string | null; message: string | null } | null
+  authLabels: Record<string, string> | null
+}): React.JSX.Element | null {
+  const { t } = useTranslation()
+  if (!authLabels || !authInfo) return null
+  if (authInfo.ready) {
+    const detected =
+      (authInfo.authMode && authLabels[authInfo.authMode]) ||
+      t("agents.configureDialog.authReadyGeneric")
+    return (
+      <div className="flex items-center gap-2 p-3 rounded-(--radius) bg-(--bg-input) text-[13px] text-(--success-text)">
+        <CheckCircle2 className="w-4 h-4 shrink-0" strokeWidth={2} />
+        <span>
+          {t("agents.configureDialog.authReadyPrefix")} {detected}
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-start gap-2 p-3 rounded-(--radius) bg-(--bg-input) text-[13px] text-(--warning-text)">
+      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" strokeWidth={2} />
+      <span>{authInfo.message || t("agents.configureDialog.authNotReadyGeneric")}</span>
+    </div>
   )
 }
 

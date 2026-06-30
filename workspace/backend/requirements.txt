@@ -19,3 +19,10 @@ playwright>=1.40.0
 anthropic>=0.39.0
 openai>=1.0.0
 redis>=5.0.0
+
+# ── SWE-bench evaluation (OPTIONAL, EXPERIMENTAL, default-off) ──────────────
+# Only needed when SWEBENCH_ENABLED=true. Imported lazily so the backend boots
+# without them. Pinned, reproducible versions live in requirements-swebench.txt;
+# install them on a Docker-capable host:
+#   pip install -r requirements-swebench.txt
+# (swebench==4.1.0, datasets==3.6.0, docker==7.1.0)

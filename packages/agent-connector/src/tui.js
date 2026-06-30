@@ -13,6 +13,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { getExtraBinDirs } = require('./paths');
+const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -67,7 +68,14 @@ function getConnector() {
 
 function describeHealth(health) {
   if (!health) return '';
-  if (!health.ready) return health.message || 'Not configured';
+  if (!health.ready) {
+    // "Not installed" is reserved for a genuinely missing executable; an
+    // installed-but-signed-out agent shows its login/config message instead.
+    if (health.reason === 'not_installed' || health.installed === false) {
+      return 'Not installed';
+    }
+    return health.message || 'Not configured';
+  }
   const parts = ['Ready'];
   if (health.auth_mode === 'api_key') parts.push('API key');
   else if (health.auth_mode === 'cli_login') parts.push('CLI login');
@@ -283,11 +291,14 @@ function createTUI() {
         // Local-only agents (no workspace) show a dimmed "(local)" marker.
         const ws = r.workspace || `{gray-fg}${r.workspaceLabel}{/gray-fg}`;
         items.push(`  ${r.name.padEnd(22)} ${r.type.padEnd(14)} ${state.padEnd(30)} ${ws}`);
-        // Detail row: working dir + config warning
+        // Detail row: working dir + config warning + the REAL runtime error
+        // (spawn/join/heartbeat) when the daemon reported one, so a failure shows
+        // its actual cause instead of a swallowed/"Not installed" guess.
         const details = [];
         details.push(r.path || process.env.HOME || '~');
         if (r.health) details.push(`{cyan-fg}${describeHealth(r.health)}{/cyan-fg}`);
         if (r.notReadyMsg) details.push(`{yellow-fg}⚠ ${r.notReadyMsg}{/yellow-fg}`);
+        if (r.lastError) details.push(`{red-fg}✗ ${r.lastError}{/red-fg}`);
         items.push(`  {gray-fg}  ${details.join('  |  ')}{/gray-fg}`);
       }
       agentList.setItems(items);
@@ -754,6 +765,22 @@ function createTUI() {
     currentView = 'configure';
     const envFields = connector.registry.getEnvFields(agent.type);
     if (!envFields || envFields.length === 0) {
+      // Some agents declare no env_config yet still REQUIRE a sign-in/credential
+      // (e.g. Gemini's OAuth login). Detect that via the registry's check_ready
+      // and show readiness + login guidance instead of a misleading "no
+      // configuration required". Agents without any credential metadata keep the
+      // original message — this is gated, so other agents are untouched.
+      const entry = connector.registry.getEntry(agent.type);
+      const checkReady = entry && entry.check_ready;
+      if (hasCredentialMetadata(checkReady)) {
+        let health = null;
+        try { health = connector.healthCheck(agent.type); } catch {}
+        const g = formatAuthGuidance(entry, health);
+        const tag = g.ready ? 'green-fg' : 'yellow-fg';
+        log(`{bold}{${tag}}${entry.label || agent.type} authentication: ${g.ready ? 'Ready' : 'Not ready'}{/}{/bold}`);
+        for (const line of g.lines) log(`{gray-fg}${line}{/gray-fg}`);
+        return;
+      }
       log('{gray-fg}No configuration required for this agent type.{/gray-fg}');
       return;
     }

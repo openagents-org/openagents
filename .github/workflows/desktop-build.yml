@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       sign_windows:
-        description: "Sign Windows EXE/MSI via SignPath (Foundation OSS test cert)"
+        description: "Sign Windows EXE/MSI via SignPath (Foundation OSS production cert)"
         type: boolean
         default: false
   push:
@@ -217,19 +217,23 @@ jobs:
       # SignPath's GitHub connector pulls the binaries-only artifact uploaded by
       # build-windows, verifies it originated from this workflow (trusted build
       # system + origin verification), signs every *.exe/*.msi per the
-      # `windows-installers` artifact configuration, then downloads + extracts the
-      # signed zip into ./signed. Switch signing-policy-slug to `release-signing`
-      # once SignPath issues the production certificate.
+      # `windows-zip` artifact configuration with the production certificate
+      # (`release-signing` policy), then downloads + extracts the signed zip
+      # into ./signed.
       - name: Sign Windows installers via SignPath
         uses: signpath/github-action-submit-signing-request@v2
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: 3cd61c8a-8f13-4e5c-8e40-93e0a15eef32
           project-slug: openagents
-          signing-policy-slug: test-signing
+          signing-policy-slug: release-signing
           artifact-configuration-slug: windows-zip
           github-artifact-id: ${{ needs.build-windows.outputs.tosign-artifact-id }}
           wait-for-completion: true
+          # The Foundation production certificate mandates a manual approval per
+          # signing request (it cannot be disabled). Wait up to 30 min so the
+          # approver has time to approve the request in the SignPath portal.
+          wait-for-completion-timeout-in-seconds: 1800
           output-artifact-directory: signed
 
       - name: Download unsigned artifacts (for update metadata)

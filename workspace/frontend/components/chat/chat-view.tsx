@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ListTree, UserPlus, MessageSquare, CalendarClock, Zap, Eye, Square, ChevronLeft, X, Plus, Globe, Share2 } from 'lucide-react';
+import { ListTree, UserPlus, MessageSquare, CalendarClock, Zap, Eye, Square, ChevronLeft, X, Plus, Globe, Share2, Crown } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
 import { useLayout } from '@/components/layout/layout-context';
 import { cn } from '@/lib/utils';
@@ -116,7 +116,7 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, agentModes, updateAgentMode, toggleAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
+  const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, agentModes, updateAgentMode, toggleAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
   const {
     isMobile,
@@ -649,9 +649,19 @@ export function ChatView() {
             <DropdownMenuContent align="end" className="w-56">
               {(() => {
                 const participants = currentSession?.participants || [];
-                const onlineAgents = agents.filter((a) => a.status === 'online');
-                const inThread = onlineAgents.filter((a) => participants.includes(a.agentName));
-                const notInThread = onlineAgents.filter((a) => !participants.includes(a.agentName));
+                // In-thread list must include OFFLINE participants too —
+                // otherwise an agent whose daemon is down (e.g. a dead bot)
+                // can never be removed from the thread. Resolve each
+                // participant to its agent record, or synthesize a minimal
+                // offline entry when it's not in the discover list.
+                const agentByName = new Map(agents.map((a) => [a.agentName, a]));
+                const inThread = participants.map(
+                  (name) => agentByName.get(name) || { agentName: name, status: 'offline' }
+                );
+                // The "Add to thread" picker still only offers online agents.
+                const notInThread = agents.filter(
+                  (a) => a.status === 'online' && !participants.includes(a.agentName)
+                );
                 return (
                   <>
                     {inThread.length > 0 && (
@@ -664,6 +674,25 @@ export function ChatView() {
                             >
                               <AgentAvatar name={agent.agentName} size={20} />
                               <span className="text-sm flex-1 truncate">{agent.agentName}</span>
+                              {agent.status !== 'online' && (
+                                <span className="text-[10px] text-muted-foreground shrink-0">offline</span>
+                              )}
+                              {currentSession?.master === agent.agentName ? (
+                                <span
+                                  className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 shrink-0"
+                                  title="Thread leader — receives messages that don't @mention anyone"
+                                >
+                                  <Crown className="size-3" /> leader
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => currentSessionId && setSessionMaster(currentSessionId, agent.agentName)}
+                                  className="size-5 flex items-center justify-center rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 text-muted-foreground hover:text-amber-600 dark:hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                                  title="Set as thread leader"
+                                >
+                                  <Crown className="size-3" />
+                                </button>
+                              )}
                               {inThread.length > 1 && (
                                 <button
                                   onClick={() => currentSessionId && removeParticipant(currentSessionId, agent.agentName)}
@@ -694,7 +723,7 @@ export function ChatView() {
                         ))}
                       </>
                     )}
-                    {onlineAgents.length === 0 && (
+                    {inThread.length === 0 && notInThread.length === 0 && (
                       <p className="text-sm text-muted-foreground px-2 py-3 text-center">No agents online</p>
                     )}
                   </>

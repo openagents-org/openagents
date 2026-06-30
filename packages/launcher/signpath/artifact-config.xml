@@ -11,19 +11,25 @@
   `launcher-windows-tosign.zip`), so a config rooted at <msi-file>/<pe-file>
   fails with "the file does not correspond to the specified file type".
 
-  The build uploads exactly two files at the zip root (verified):
-    - OpenAgents-Launcher-<ver>-win-x64.exe   (NSIS installer)
+  The build uploads three files at the zip root (verified):
+    - OpenAgents-Launcher-<ver>-win-x64.exe            (NSIS installer)
+    - OpenAgents-Launcher-<ver>-win-x64-portable.exe   (portable build)
     - OpenAgents-Launcher-<ver>-win-x64.msi
-  SignPath requires every file in the zip to be matched, so both are covered
-  below and Authenticode-signed (signs the installer/MSI wrapper).
+  SignPath requires every file in the zip to be matched. There are TWO .exe
+  files (installer + portable), so use a <pe-file-set> with <for-each> to sign
+  all matching exes — a single <pe-file path="*.exe"> errors with
+  "Expected path to match exactly 1 item, but found 2".
 
   Docs: https://docs.signpath.io/artifact-configuration/
 -->
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
   <zip-file>
-    <pe-file path="*.exe">
-      <authenticode-sign />
-    </pe-file>
+    <pe-file-set>
+      <include path="*.exe" />
+      <for-each>
+        <authenticode-sign />
+      </for-each>
+    </pe-file-set>
     <msi-file path="*.msi">
       <authenticode-sign />
     </msi-file>

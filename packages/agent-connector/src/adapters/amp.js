@@ -30,6 +30,7 @@ const { execSync, spawn } = require('child_process');
 const BaseAdapter = require('./base');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 const { whichBinary, getEnhancedEnv } = require('../paths');
+const { REASON, classifySpawnError, redactDiagnostic, shouldUseShellForBinary } = require('./health-status');
 
 const IS_WINDOWS = process.platform === 'win32';
 // Terminate the subprocess if it produces no output for this long (a wedged
@@ -145,6 +146,27 @@ class AmpAdapter extends BaseAdapter {
     return null;
   }
 
+  /**
+   * Preflight gate (run by the daemon before join). Amp needs a resolvable CLI
+   * binary to do anything useful, so when none can be found we surface a precise
+   * 'runtime_missing' reason and skip the workspace join entirely — instead of
+   * joining and then failing every message. This is also the one place that
+   * logs the resolved Amp path for diagnostics. NOTE: 'runtime_missing' (binary
+   * gone at run time), NOT 'not_installed' — install detection lives elsewhere.
+   */
+  preflight() {
+    if (!this._ampBin) this._ampBin = this._findAmpBinary();
+    if (!this._ampBin) {
+      return {
+        ok: false,
+        reason: REASON.RUNTIME_MISSING,
+        message: `Amp CLI not found — install with: ${ampInstallHint()}`,
+      };
+    }
+    this._log(`Amp CLI resolved: ${this._ampBin}`);
+    return { ok: true };
+  }
+
   // ------------------------------------------------------------------
   // Prompt / command construction
   // ------------------------------------------------------------------
@@ -222,7 +244,9 @@ class AmpAdapter extends BaseAdapter {
 
     if (!this._ampBin) this._ampBin = this._findAmpBinary();
     if (!this._ampBin) {
-      await this.sendError(msgChannel, `Amp CLI not found. Install with: ${ampInstallHint()}`);
+      const message = `Amp CLI not found — install with: ${ampInstallHint()}`;
+      this._reportStatus(REASON.RUNTIME_MISSING, message);
+      await this.sendError(msgChannel, message);
       return;
     }
 
@@ -234,8 +258,25 @@ class AmpAdapter extends BaseAdapter {
     try {
       responseText = await this._runAmp(content, msgChannel);
     } catch (e) {
-      this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      // A failure to LAUNCH the amp process (ENOENT/EACCES/spawn error) is a
+      // distinct, actionable failure — surface it as spawn_failed with the
+      // resolved path + code, never a generic "Not installed". Other errors keep
+      // a redacted generic message. Both report up so the agent row shows why.
+      if (this._isSpawnError(e)) {
+        const { reason, message } = classifySpawnError(e, {
+          label: 'Amp',
+          bin: this._ampBin,
+        });
+        this._log(message);
+        this._reportStatus(reason, message);
+        await this.sendError(msgChannel, message);
+      } else {
+        this._log(`Error handling message: ${redactDiagnostic(e.message)}`);
+        await this.sendError(
+          msgChannel,
+          `Error processing message: ${redactDiagnostic(e.message)}`,
+        );
+      }
       return;
     }
 
@@ -243,11 +284,27 @@ class AmpAdapter extends BaseAdapter {
       this._stoppingChannels.delete(msgChannel);
       return;
     }
+    // A successful turn proves the runtime is healthy — clear any prior
+    // spawn/runtime error the agent row may be showing.
+    this._reportStatus(null);
     if (responseText) {
       await this.sendResponse(msgChannel, responseText);
     } else {
       await this.sendResponse(msgChannel, 'No response generated. Please try again.');
     }
+  }
+
+  /** True when an error is a child_process spawn failure (vs. a runtime error). */
+  _isSpawnError(e) {
+    if (!e) return false;
+    const code = e.code || e.errno;
+    return (
+      e.syscall === 'spawn' ||
+      e.syscall === 'spawn amp' ||
+      code === 'ENOENT' ||
+      code === 'EACCES' ||
+      code === 'EPERM'
+    );
   }
 
   // ------------------------------------------------------------------
@@ -299,9 +356,24 @@ class AmpAdapter extends BaseAdapter {
         cwd: this.workingDir,
         detached: !IS_WINDOWS,
         windowsHide: true,
-        shell: IS_WINDOWS && String(cmd[0]).toLowerCase().endsWith('.cmd'),
+        // Windows .cmd/.bat shims (npm/pnpm/yarn global bins) are not directly
+        // executable — must go through a shell. Shared helper so the daemon,
+        // adapter and launcher probe all agree on the rule.
+        shell: shouldUseShellForBinary(cmd[0]),
       });
       this._channelProcesses[msgChannel] = proc;
+      // Diagnostic: the exact argv we launched (no secrets — flags only). The
+      // resolved binary path was logged at preflight/init.
+      this._log(`Running Amp: ${cmd.map((c) => String(c)).join(' ')}`);
+
+      // Guard the child's stdio streams against 'error'. When the process is
+      // SIGKILL'd on stop, macOS Node can emit a benign EPIPE/ECONNRESET 'error'
+      // on stdout/stderr a tick later; with a 'data' listener but no 'error'
+      // listener that becomes an uncaughtException which crashes the
+      // (single-process, e.g. Node 18) test run with exit 1 and no `not ok`.
+      // No-op — data handling below is unchanged.
+      if (proc.stdout) proc.stdout.on('error', () => {});
+      if (proc.stderr) proc.stderr.on('error', () => {});
 
       let lastTurnText = [];
       let resultText = '';
