@@ -277,6 +277,3 @@ deploy/
 # APNs auth keys (Apple Push Notification service .p8 private keys)
 workspace/backend/secrets/
 *.p8
-
-# SWE-bench harness run reports
-workspace/backend/openagents.run.json

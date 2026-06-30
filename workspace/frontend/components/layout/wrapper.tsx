@@ -17,7 +17,6 @@ import { RoutineList } from '@/components/routines/routine-list';
 import { SkillsView } from '@/components/skills/skills-view';
 import { InboxView } from '@/components/inbox/inbox-view';
 import { KnowledgeView } from '@/components/knowledge/knowledge-view';
-import { BenchmarksView } from '@/components/benchmarks/benchmarks-view';
 import { useWorkspace } from '@/lib/workspace-context';
 import { EmptyState } from '@/components/chat/empty-state';
 
@@ -94,10 +93,6 @@ export function Wrapper() {
             <div className="h-full mx-2 my-1.5 bg-background overflow-hidden border border-input rounded-xl shadow-xs">
               <KnowledgeView />
             </div>
-          ) : viewMode === 'benchmarks' ? (
-            <div className="h-full mx-2 my-1.5 bg-background overflow-hidden border border-input rounded-xl shadow-xs">
-              <BenchmarksView />
-            </div>
           ) : mobilePane === 'list' ? (
             /* List pane — full width */
             <div className="h-full mx-2 my-1.5 bg-background overflow-hidden border border-input rounded-xl shadow-xs flex flex-col">
@@ -158,7 +153,7 @@ export function Wrapper() {
             <>
               {/* Middle pane — thread list or file list
                   Hidden for: connect view, expanded detail, or when browser preview is active */}
-              {viewMode !== 'connect' && viewMode !== 'tasks' && viewMode !== 'inbox' && viewMode !== 'knowledge' && viewMode !== 'skills' && viewMode !== 'benchmarks' && !isDetailExpanded && !(splitBrowser && showBrowserPreview && viewMode === 'threads') && (
+              {viewMode !== 'connect' && viewMode !== 'tasks' && viewMode !== 'inbox' && viewMode !== 'knowledge' && viewMode !== 'skills' && !isDetailExpanded && !(splitBrowser && showBrowserPreview && viewMode === 'threads') && (
                 <div className="shrink-0 w-[300px] xl:w-[400px] bg-background overflow-hidden border border-input rounded-xl shadow-xs flex flex-col">
                   {viewMode === 'threads' && <ThreadList />}
                   {viewMode === 'files' && <FileList />}
@@ -195,7 +190,6 @@ export function Wrapper() {
                   {viewMode === 'inbox' && <InboxView />}
                   {viewMode === 'skills' && <SkillsView />}
                   {viewMode === 'knowledge' && <KnowledgeView />}
-                  {viewMode === 'benchmarks' && <BenchmarksView />}
 
                   {/* Agent profile slide-over */}
                   {isAgentPanelOpen && <AgentProfilePanel />}
