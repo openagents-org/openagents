@@ -230,6 +230,10 @@ jobs:
           artifact-configuration-slug: windows-zip
           github-artifact-id: ${{ needs.build-windows.outputs.tosign-artifact-id }}
           wait-for-completion: true
+          # The Foundation production certificate mandates a manual approval per
+          # signing request (it cannot be disabled). Wait up to 30 min so the
+          # approver has time to approve the request in the SignPath portal.
+          wait-for-completion-timeout-in-seconds: 1800
           output-artifact-directory: signed
 
       - name: Download unsigned artifacts (for update metadata)
