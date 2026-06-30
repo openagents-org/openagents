@@ -426,8 +426,14 @@ function parseYamlValue(val) {
   if (val === 'true') return true;
   if (val === 'false') return false;
   if (/^\d+$/.test(val)) return parseInt(val, 10);
-  if ((val.startsWith("'") && val.endsWith("'")) ||
-      (val.startsWith('"') && val.endsWith('"'))) {
+  if (val.startsWith('"') && val.endsWith('"')) {
+    // Reverse serializeYamlValue's escaping (\\ → \, \" → "). Without this a
+    // double-quoted Windows path like "D:\重要资料" (quoted because of the drive
+    // colon) round-trips to D:\\重要资料 and accumulates an extra backslash on
+    // every save/load cycle, corrupting the agent's working dir.
+    return val.slice(1, -1).replace(/\\(["\\])/g, '$1');
+  }
+  if (val.startsWith("'") && val.endsWith("'")) {
     return val.slice(1, -1);
   }
   if (val.startsWith('{') || val.startsWith('[')) {
