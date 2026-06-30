@@ -26,7 +26,7 @@ import { useInstallStore } from "../../store/install"
 import type { OnboardingAgent, EnvField } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
 import { cn } from "../../lib/utils"
-import { capture } from "../../lib/analytics"
+import { capture, group } from "../../lib/analytics"
 import { throwIfInstallFailed } from "../../utils/installErrors"
 
 const ONBOARDING_KEY = "onboarding_completed"

@@ -27,9 +27,10 @@ export function throwIfInstallFailed(result: unknown): void {
     "success" in result &&
     (result as { success?: unknown }).success === false
   ) {
+    const err = (result as { error?: unknown }).error
     throw new Error(
-      typeof (result as { error?: unknown }).error === "string"
-        ? (result as { error: string }).error
+      typeof err === "string"
+        ? err
         : "The installer stopped before it could finish.",
     )
   }

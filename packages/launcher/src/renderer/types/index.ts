@@ -351,6 +351,7 @@ declare global {
       addAgent(config: { name: string; type: string; path?: string }): Promise<unknown>
       removeAgent(name: string): Promise<unknown>
       updateAgent(name: string, config: unknown): Promise<unknown>
+      setAgentWorkingDir(name: string, dir: string): Promise<{ success: boolean; path?: string }>
       startAgent(name: string): Promise<unknown>
       stopAgent(name: string): Promise<unknown>
       startAll(): Promise<unknown>

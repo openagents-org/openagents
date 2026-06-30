@@ -1268,6 +1268,9 @@ function setupIPC(): void {
   ipcMain.handle("agents:update", (_e, name, config) =>
     requireManager().updateAgent(name, config),
   )
+  ipcMain.handle("agents:set-workdir", (_e, name: string, dir: string) =>
+    requireManager().setAgentWorkingDir(name, dir),
+  )
 
   ipcMain.handle("agents:start", (_e, name) =>
     requireManager().startAgent(name),
@@ -2181,40 +2184,15 @@ app.whenReady().then(async () => {
   })
   createTray()
 
-  // ── One-time upgrade migration ──
-  // A big version bump can leave DERIVED caches stale enough to misbehave, so
-  // on the first launch after an upgrade we clear (1) the agent catalog cache
-  // and (2) the downloaded core (ensureCoreLibrary below reinstalls @latest),
-  // and flag the renderer to re-run onboarding. USER DATA is never touched —
-  // API keys (~/.openagents/env), agents (daemon.yaml), workspaces, chat
-  // history and credentials all survive. A fresh install (no prior recorded
-  // version) skips cleanup and just records the current version.
-  try {
-    const currentVersion = getLauncherVersion()
-    const prevVersion = store.get("lastMigratedVersion") as string | undefined
-    if (prevVersion && prevVersion !== currentVersion) {
-      slog(
-        `Upgrade ${prevVersion} → ${currentVersion}: clearing derived caches`,
-      )
-      try {
-        fs.rmSync(
-          path.join(os.homedir(), ".openagents", "agent_catalog.json"),
-          { force: true },
-        )
-      } catch {}
-      try {
-        fs.rmSync(
-          path.join(GLOBAL_MODULES, "@openagents-org", "agent-launcher"),
-          { recursive: true, force: true },
-        )
-      } catch {}
-      store.set("pendingOnboardingReset", true)
-    }
-    if (prevVersion !== currentVersion)
-      store.set("lastMigratedVersion", currentVersion)
-  } catch (e) {
-    slog(`upgrade migration failed: ${(e as Error).message}`)
-  }
+  // NOTE: We deliberately do NOT wipe derived caches (agent catalog + the
+  // downloaded core library) on an app upgrade. Clearing the core forced
+  // ensureCoreLibrary() to re-download it on the next launch, and whenever
+  // that download failed (offline, proxy/VPN, AV-blocked) the in-process
+  // connector stayed null — so onboarding's first install died at the
+  // "preparing the installer" step with no obvious cause. ensureCoreLibrary()
+  // already self-heals a stale core (it compares the installed version against
+  // npm `latest` and reinstalls when they differ), so the pre-emptive wipe was
+  // pure downside. The previously-installed core keeps working across upgrades.
 
   // Detect a working bundled node, not just file presence. A previous
   // download interrupted by ECONNRESET leaves a corrupt node.exe at the

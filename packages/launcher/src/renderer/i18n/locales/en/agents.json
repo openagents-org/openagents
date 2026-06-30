@@ -63,6 +63,19 @@
   },
   "configureDialog": {
     "title": "Configure {{name}}",
+    "workdir": {
+      "label": "Working directory",
+      "hint": "Where this agent runs. A change applies the next time the agent starts.",
+      "placeholder": "/path/to/project",
+      "browse": "Browse…",
+      "save": "Save folder",
+      "saving": "Saving…",
+      "toast": {
+        "saved": "Working directory updated to {{path}}",
+        "error": "Couldn't update the folder: {{message}}",
+        "required": "Choose a working folder"
+      }
+    },
     "hintLoginOnly": "This agent signs in through its own service — no API key needed. Login opens a terminal running",
     "hintLoginOnlySuffix": "; complete the sign-in there.",
     "hintInstance": "Settings saved for this agent. Type defaults remain available as fallbacks.",
