@@ -265,7 +265,9 @@ class CursorAdapter extends BaseAdapter {
     for (const c of candidates) {
       if (fs.existsSync(c)) return c;
     }
-    return 'node';
+    // Fall back to the node already running this daemon (absolute, always valid).
+    // Bare 'node' can be off-PATH in a packaged daemon or CI runner.
+    return process.execPath;
   }
 
   _resolveToNodeCmd(binPath) {
