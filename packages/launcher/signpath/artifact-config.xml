@@ -16,20 +16,18 @@
     - OpenAgents-Launcher-<ver>-win-x64-portable.exe   (portable build)
     - OpenAgents-Launcher-<ver>-win-x64.msi
   SignPath requires every file in the zip to be matched. There are TWO .exe
-  files (installer + portable), so use a <pe-file-set> with <for-each> to sign
-  all matching exes — a single <pe-file path="*.exe"> errors with
-  "Expected path to match exactly 1 item, but found 2".
+  files (installer + portable). A wildcard path defaults to exactly ONE match
+  (min-matches/max-matches both default to 1), so `*.exe` errors with
+  "Expected path to match exactly 1 item, but found 2" unless we set
+  max-matches="unbounded" (per the SignPath docs' own example).
 
-  Docs: https://docs.signpath.io/artifact-configuration/
+  Docs: https://docs.signpath.io/artifact-configuration/syntax
 -->
 <artifact-configuration xmlns="http://signpath.io/artifact-configuration/v1">
   <zip-file>
-    <pe-file-set>
-      <include path="*.exe" />
-      <for-each>
-        <authenticode-sign />
-      </for-each>
-    </pe-file-set>
+    <pe-file path="*.exe" max-matches="unbounded">
+      <authenticode-sign />
+    </pe-file>
     <msi-file path="*.msi">
       <authenticode-sign />
     </msi-file>
