@@ -20,6 +20,7 @@ import Install from "./pages/install"
 import Logs from "./pages/logs"
 import Settings from "./pages/settings"
 import { InstallMiniBanner } from "./components/install-progress/StagedProgress"
+import { LauncherUpdateBanner } from "./components/LauncherUpdateBanner"
 import { useToasts } from "./hooks/useToast"
 import { useInstallProgress } from "./hooks/useInstallProgress"
 import { cn } from "./lib/utils"
@@ -160,6 +161,7 @@ export default function App(): React.JSX.Element {
         />
       )}
 
+      <LauncherUpdateBanner />
       <ToastContainer />
       <CommandPalette />
       <OnboardingFlow

@@ -56,6 +56,12 @@ let _state: UpdaterState = {
 let _getWindow: () => BrowserWindow | null = () => null
 let _log: (msg: string) => void = () => {}
 let _ipcRegistered = false
+// Reads the persisted "Automatic updates" setting. When true, background checks
+// auto-download the update and electron-updater installs it on the next quit.
+let _isAutoUpdateEnabled: () => boolean = () => false
+// Fired once a background auto-download finishes, so the main process can notify
+// the user and offer a "restart to update now" affordance (tray + banner).
+let _onDownloaded: (version: string) => void = () => {}
 
 function emit(patch: Partial<UpdaterState>): void {
   _state = { ..._state, ...patch }
@@ -111,6 +117,9 @@ function wireEvents(): void {
       latestVersion: info.version,
       releaseNotes: normalizeReleaseNotes(info.releaseNotes),
     })
+    try {
+      _onDownloaded(info.version)
+    } catch {}
   })
   autoUpdater.on("error", (err: Error) => {
     _log(`[updater] error: ${err.message}`)
@@ -127,6 +136,10 @@ function registerIpc(): void {
   ipcMain.handle("updater:check", async () => {
     if (!_state.supported) return _state
     try {
+      // A manual check from Settings is user-driven: never auto-download here,
+      // the page has its own Download button. Background checks
+      // (checkForUpdatesOnStartup) are what honor the auto-update setting.
+      autoUpdater.autoDownload = false
       await autoUpdater.checkForUpdates()
     } catch (err) {
       emit({ status: "error", error: (err as Error).message })
@@ -160,9 +173,13 @@ function registerIpc(): void {
 export function setupAutoUpdater(opts: {
   getWindow: () => BrowserWindow | null
   log: (msg: string) => void
+  isAutoUpdateEnabled: () => boolean
+  onDownloaded: (version: string) => void
 }): void {
   _getWindow = opts.getWindow
   _log = opts.log
+  _isAutoUpdateEnabled = opts.isAutoUpdateEnabled
+  _onDownloaded = opts.onDownloaded
   _state.currentVersion = app.getVersion()
 
   // Dev builds have no app-update.yml — calling autoUpdater would throw. Still
@@ -196,14 +213,33 @@ export function setupAutoUpdater(opts: {
   registerIpc()
 }
 
-// Fired on launch when the "Automatic updates" setting is on: check silently
-// and let the renderer surface a banner. We never auto-download — the user
-// drives the (potentially metered) download from the UI.
+// Fired on launch and on an interval. When "Automatic updates" is on this
+// auto-downloads the new version in the background; electron-updater then
+// installs it on the next quit (autoInstallOnAppQuit), and we also surface a
+// "restart to update now" banner/tray item via _onDownloaded for immediacy.
+// The caller only invokes this when the setting is enabled, but we still gate
+// autoDownload on the live setting so a mid-session toggle is respected.
 export async function checkForUpdatesOnStartup(): Promise<void> {
   if (!_state.supported) return
   try {
+    autoUpdater.autoDownload = _isAutoUpdateEnabled()
     await autoUpdater.checkForUpdates()
   } catch (err) {
     _log(`[updater] startup check failed: ${(err as Error).message}`)
   }
+}
+
+// Current updater state — used by the tray to decide whether to show a
+// "restart to update" item.
+export function getUpdaterState(): UpdaterState {
+  return _state
+}
+
+// Quit and install a downloaded update immediately (tray / banner "restart
+// now"). No-op unless a package is actually downloaded and ready.
+export function installDownloadedUpdate(): boolean {
+  if (!_state.supported || _state.status !== "downloaded") return false
+  ;(app as typeof app & { isQuitting: boolean }).isQuitting = true
+  setImmediate(() => autoUpdater.quitAndInstall(false, true))
+  return true
 }
