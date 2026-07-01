@@ -169,6 +169,26 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
     return off
   }, [])
 
+  // Auto-check the moment the user opens the Updates section, so a supported
+  // build immediately resolves to "Up to date (vX)" or "New version available"
+  // instead of sitting on a stale "Current version · Check for updates". Skips
+  // when a check/download is already in flight, and never on unsupported (dev)
+  // builds. Manual checks stay user-driven (no auto-download).
+  useEffect(() => {
+    if (section !== "updates") return
+    if (!updater?.supported) return
+    const s = updater.status
+    if (s === "checking" || s === "downloading" || s === "downloaded") return
+    window.api.checkLauncherUpdate().then(
+      (next) => {
+        if (mounted.current) setUpdater(next)
+      },
+      () => {},
+    )
+    // Only re-run when the section changes, not on every updater tick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section])
+
   const checkUpdate = async (): Promise<void> => {
     try {
       const s = await window.api.checkLauncherUpdate()

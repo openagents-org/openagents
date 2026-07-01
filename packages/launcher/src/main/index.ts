@@ -26,9 +26,18 @@ import { probe as probeConnection } from "./connection-tester"
 import {
   setupAutoUpdater,
   checkForUpdatesOnStartup,
+  getUpdaterState,
+  installDownloadedUpdate,
 } from "./updater"
 import { getGitHubClient, parseGitHubRepo } from "./github-bridge"
 import { GitHubBindingsStore } from "./github-bindings-store"
+import {
+  setRegionPreference,
+  useChinaMirror,
+  nodeDistUrls,
+  npmUrls,
+  npmRegistryBase,
+} from "./mirror"
 import {
   setNotificationsWindow,
   pushNotification,
@@ -144,6 +153,10 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let agentManager: AgentManager | null = null
 let coreVersion: string | null = null
+// Last launcher-update version we notified about, so re-emitted
+// update-downloaded events (electron-updater fires it from cache on every
+// subsequent check) don't spam the same "update ready" toast.
+let _lastUpdateNotifiedVersion: string | null = null
 
 let _launcherVersionCache: string | null = null
 function getLauncherVersion(): string {
@@ -244,16 +257,19 @@ async function downloadFile(
     const res = await resolveResponse(url)
     const total = parseInt(res.headers["content-length"] || "0", 10) || 0
     let downloaded = 0
-    if (onProgress) {
-      res.on("data", (chunk: Buffer) => {
-        downloaded += chunk.length
-        if (total)
-          onProgress(
-            Math.round((downloaded / total) * 100),
-            `${(downloaded / 1e6).toFixed(1)} MB`,
-          )
-      })
-    }
+    // Always count bytes — the short-read integrity check below depends on it.
+    // (Previously this counter lived inside `if (onProgress)`, so every
+    // progress-less download — core lib, npm tarball — reported 0 bytes and
+    // false-failed with "Short read: got 0 of N", which is what stranded the
+    // core library at an old version.) Progress reporting stays optional.
+    res.on("data", (chunk: Buffer) => {
+      downloaded += chunk.length
+      if (onProgress && total)
+        onProgress(
+          Math.round((downloaded / total) * 100),
+          `${(downloaded / 1e6).toFixed(1)} MB`,
+        )
+    })
     // pipeline() respects backpressure and rejects on any error from either
     // stream, including mid-download ECONNRESET — exactly the failure mode
     // that left a corrupt node.exe on disk in the original implementation.
@@ -280,12 +296,11 @@ function sha256OfFile(filePath: string): Promise<string> {
   })
 }
 
-async function fetchNodeShasum(
+function fetchShasumFrom(
   https: typeof import("https"),
-  nodeVersion: string,
+  url: string,
   relativePath: string,
 ): Promise<string | null> {
-  const url = `https://nodejs.org/dist/${nodeVersion}/SHASUMS256.txt`
   return new Promise((resolve) => {
     https
       .get(url, (res) => {
@@ -313,6 +328,20 @@ async function fetchNodeShasum(
       })
       .on("error", () => resolve(null))
   })
+}
+
+async function fetchNodeShasum(
+  https: typeof import("https"),
+  nodeVersion: string,
+  relativePath: string,
+): Promise<string | null> {
+  // Verify against the checksum published by whichever origin we'll actually
+  // download from — mirror first, official fallback (see nodeDistUrls).
+  for (const url of nodeDistUrls(`${nodeVersion}/SHASUMS256.txt`)) {
+    const sum = await fetchShasumFrom(https, url, relativePath)
+    if (sum) return sum
+  }
+  return null
 }
 
 // Map process.arch to Node.js distribution arch. Falls back to x64 — Windows
@@ -354,6 +383,29 @@ async function downloadAndVerify(
   throw lastErr || new Error("download failed")
 }
 
+// Try a list of mirror candidates in order (China mirror first, official
+// fallback — see mirror.ts). Each candidate still gets downloadAndVerify's own
+// 2-attempt retry, so a flaky mirror falls through to the official origin.
+async function downloadVerifyCandidates(
+  https: typeof import("https"),
+  urls: string[],
+  destPath: string,
+  expectedSha: string | null,
+  onProgress: ((pct: number, detail: string) => void) | null,
+): Promise<void> {
+  let lastErr: Error | null = null
+  for (const url of urls) {
+    try {
+      await downloadAndVerify(https, url, destPath, expectedSha, onProgress)
+      return
+    } catch (e: unknown) {
+      lastErr = e as Error
+      slog(`mirror candidate failed (${url}): ${lastErr.message}`)
+    }
+  }
+  throw lastErr || new Error("download failed (all mirrors)")
+}
+
 async function downloadNodejs(
   nodejsDir: string,
   onProgress: (pct: number, detail: string) => void,
@@ -372,14 +424,14 @@ async function downloadNodejs(
 
   if (process.platform === "win32") {
     const nodeRelative = `win-${arch}/node.exe`
-    const nodeExeUrl = `https://nodejs.org/dist/${nodeVersion}/${nodeRelative}`
+    const nodeExeUrls = nodeDistUrls(`${nodeVersion}/${nodeRelative}`)
     const nodeExeDest = path.join(nodejsDir, "node.exe")
     const expectedSha = await fetchNodeShasum(https, nodeVersion, nodeRelative)
     if (!expectedSha)
       slog(`SHASUMS256.txt unavailable — proceeding without hash verification`)
-    await downloadAndVerify(
+    await downloadVerifyCandidates(
       https,
-      nodeExeUrl,
+      nodeExeUrls,
       nodeExeDest,
       expectedSha,
       onProgress,
@@ -394,11 +446,11 @@ async function downloadNodejs(
     }
 
     const npmVersion = "10.9.8"
-    const npmUrl = `https://registry.npmjs.org/npm/-/npm-${npmVersion}.tgz`
+    const npmCandidates = npmUrls(`npm/-/npm-${npmVersion}.tgz`)
     const npmTgz = path.join(os.tmpdir(), `npm-${npmVersion}.tgz`)
     const npmModDir = path.join(nodejsDir, "node_modules", "npm")
     if (onProgress) onProgress(85, "Installing npm...")
-    await downloadAndVerify(https, npmUrl, npmTgz, null, null)
+    await downloadVerifyCandidates(https, npmCandidates, npmTgz, null, null)
 
     fs.mkdirSync(npmModDir, { recursive: true })
     try {
@@ -432,10 +484,11 @@ async function downloadNodejs(
   } else {
     const platName = process.platform === "darwin" ? "darwin" : "linux"
     const ext = process.platform === "darwin" ? "tar.gz" : "tar.xz"
-    const url = `https://nodejs.org/dist/${nodeVersion}/node-${nodeVersion}-${platName}-${arch}.${ext}`
+    const nodeRelative = `node-${nodeVersion}-${platName}-${arch}.${ext}`
+    const urls = nodeDistUrls(`${nodeVersion}/${nodeRelative}`)
     const tarPath = path.join(os.tmpdir(), `node-${nodeVersion}.${ext}`)
 
-    await downloadFile(https, url, tarPath, onProgress)
+    await downloadVerifyCandidates(https, urls, tarPath, null, onProgress)
     if (onProgress) onProgress(90, "Extracting...")
     const flag = ext === "tar.gz" ? "-xzf" : "-xJf"
     execSync(
@@ -520,11 +573,10 @@ async function ensureCoreLibrary(): Promise<void> {
 
   const https = require("https")
   try {
-    const latestVersion: string = await new Promise((res, rej) => {
-      https
-        .get(
-          `https://registry.npmjs.org/${CORE_PKG}/latest`,
-          (r: import("http").IncomingMessage) => {
+    const fetchLatestFrom = (url: string): Promise<string> =>
+      new Promise((res, rej) => {
+        https
+          .get(url, (r: import("http").IncomingMessage) => {
             let d = ""
             r.on("data", (c: Buffer) => (d += c))
             r.on("end", () => {
@@ -534,10 +586,21 @@ async function ensureCoreLibrary(): Promise<void> {
                 rej(new Error("parse error"))
               }
             })
-          },
-        )
-        .on("error", rej)
-    })
+          })
+          .on("error", rej)
+      })
+    let latestVersion: string | null = null
+    let latestErr: Error | null = null
+    for (const url of npmUrls(`${CORE_PKG}/latest`)) {
+      try {
+        latestVersion = await fetchLatestFrom(url)
+        break
+      } catch (e: unknown) {
+        latestErr = e as Error
+        slog(`core latest lookup failed (${url}): ${latestErr.message}`)
+      }
+    }
+    if (!latestVersion) throw latestErr || new Error("core latest lookup failed")
 
     if (!installedVersion) {
       slog("Core library not found — installing v" + latestVersion + "...")
@@ -558,14 +621,16 @@ async function ensureCoreLibrary(): Promise<void> {
     }
 
     if (!installedVersion || latestVersion !== installedVersion) {
-      const tgzUrl = `https://registry.npmjs.org/${CORE_PKG}/-/agent-launcher-${latestVersion}.tgz`
+      const tgzUrls = npmUrls(
+        `${CORE_PKG}/-/agent-launcher-${latestVersion}.tgz`,
+      )
       const tgzPath = path.join(
         os.tmpdir(),
         `agent-launcher-${latestVersion}.tgz`,
       )
       const destDir = path.join(GLOBAL_MODULES, CORE_PKG)
 
-      await downloadFile(https, tgzUrl, tgzPath, null)
+      await downloadVerifyCandidates(https, tgzUrls, tgzPath, null, null)
       try {
         fs.rmSync(destDir, { recursive: true, force: true })
       } catch {}
@@ -601,7 +666,7 @@ async function ensureCoreLibrary(): Promise<void> {
       if (npmCmd) {
         try {
           execSync(
-            `${npmCmd} install --prefix "${PORTABLE_NODE_DIR}" ${CORE_PKG}@latest --ignore-scripts`,
+            `${npmCmd} install --prefix "${PORTABLE_NODE_DIR}" ${CORE_PKG}@latest --ignore-scripts --registry ${npmRegistryBase()}`,
             {
               stdio: "pipe",
               timeout: 120000,
@@ -636,10 +701,11 @@ async function ensureCoreLibrary(): Promise<void> {
     try {
       const npmTgz = path.join(os.tmpdir(), "npm-reinstall.tgz")
       const npmDir = path.join(PORTABLE_NODE_DIR, "node_modules", "npm")
-      await downloadFile(
+      await downloadVerifyCandidates(
         https,
-        "https://registry.npmjs.org/npm/-/npm-10.9.8.tgz",
+        npmUrls("npm/-/npm-10.9.8.tgz"),
         npmTgz,
+        null,
         null,
       )
       fs.mkdirSync(npmDir, { recursive: true })
@@ -856,11 +922,28 @@ function updateTrayMenu(): void {
         ]
       : []
 
+  // Launcher self-update: once a background download has landed, offer an
+  // immediate "restart to update" instead of waiting for the next quit.
+  const launcherUpdate = getUpdaterState()
+  const launcherUpdateItems: Electron.MenuItemConstructorOptions[] =
+    launcherUpdate.status === "downloaded"
+      ? [
+          { type: "separator" },
+          {
+            label: `Restart to update (v${launcherUpdate.latestVersion ?? "?"})`,
+            click: () => {
+              installDownloadedUpdate()
+            },
+          },
+        ]
+      : []
+
   const menu = Menu.buildFromTemplate([
     { label: "Open Dashboard", click: () => createWindow() },
     { type: "separator" },
     ...agentItems,
     ...updateItems,
+    ...launcherUpdateItems,
     { type: "separator" },
     {
       label: "Quit OpenAgents",
@@ -2177,10 +2260,44 @@ if (!gotLock) {
 app.whenReady().then(async () => {
   if (process.platform !== "darwin") Menu.setApplicationMenu(null)
 
+  // Resolve the download region BEFORE any runtime download runs. `downloadRegion`
+  // ('auto' | 'global' | 'cn') lets support/QA pin the origin; default 'auto'
+  // detects mainland China by timezone/locale and routes Node/npm/core through
+  // the npmmirror mirror (with the official origin as fallback). Also point npm's
+  // own registry at the mirror so agent installs the core/daemon spawn go fast too.
+  setRegionPreference(store.get("downloadRegion"))
+  if (useChinaMirror()) {
+    process.env.npm_config_registry = npmRegistryBase()
+    slog(`download region: china mirror (registry=${npmRegistryBase()})`)
+  }
+
   setupIPC()
   setupAutoUpdater({
     getWindow: () => mainWindow,
     log: slog,
+    // "Automatic updates" ON (default) = background checks auto-download and
+    // electron-updater installs on the next quit. OFF = no check at all.
+    isAutoUpdateEnabled: () => store.get("autoUpdate") !== false,
+    onDownloaded: (version) => {
+      // A background auto-download finished. Make it discoverable: notify the
+      // user and refresh the tray so "Restart to update" appears. The install
+      // itself happens on the next quit, or immediately if the user restarts.
+      // Guard against duplicate notifications: electron-updater re-emits
+      // update-downloaded from cache on every subsequent check once a package
+      // is staged, so only notify once per version.
+      updateTrayMenu()
+      if (_lastUpdateNotifiedVersion === version) return
+      _lastUpdateNotifiedVersion = version
+      slog(`[updater] auto-update v${version} downloaded — ready to install`)
+      try {
+        pushNotification({
+          kind: "system",
+          title: "Update ready",
+          body: `OpenAgents Launcher v${version} will install when you restart.`,
+          source: "launcher-update",
+        })
+      } catch {}
+    },
   })
   createTray()
 
@@ -2308,10 +2425,11 @@ app.whenReady().then(async () => {
       const npmVersion = "10.9.8"
       const npmTgz = path.join(os.tmpdir(), `npm-${npmVersion}.tgz`)
       const npmModDir = path.join(PORTABLE_NODE_DIR, "node_modules", "npm")
-      await downloadFile(
+      await downloadVerifyCandidates(
         https,
-        `https://registry.npmjs.org/npm/-/npm-${npmVersion}.tgz`,
+        npmUrls(`npm/-/npm-${npmVersion}.tgz`),
         npmTgz,
+        null,
         null,
       )
       fs.mkdirSync(npmModDir, { recursive: true })

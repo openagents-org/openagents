@@ -6,6 +6,7 @@ import crypto from "crypto"
 import { net } from "electron"
 import { spawn, spawnSync } from "child_process"
 import { withPathEnv, readPathEnv } from "./env"
+import { npmRegistryBase } from "./mirror"
 import { EventEmitter } from "events"
 // Bundled fallback registry. When the agent-launcher core hasn't installed
 // yet (slow network, antivirus interference on Windows, etc) the connector's
@@ -4527,7 +4528,7 @@ class Installer {
 
 function fetchNpmInfo(pkg: string): Promise<NpmRegistryInfo> {
   return new Promise((resolve, reject) => {
-    const url = `https://registry.npmjs.org/${encodeURIComponent(pkg).replace("%40", "@")}`
+    const url = `${npmRegistryBase()}/${encodeURIComponent(pkg).replace("%40", "@")}`
     const req = https.get(
       url,
       { headers: { Accept: "application/json" } },
