@@ -808,10 +808,9 @@ function ConfigureDialog({
     null,
   )
   const [loading, setLoading] = useState(true)
-  const [testResult, setTestResult] = useState<string | null>(null)
-  const [testStatus, setTestStatus] = useState<
-    "idle" | "loading" | "ok" | "error"
-  >("idle")
+  // Only tracks the in-flight state so the button can show "Testing…"; the
+  // actual result is surfaced via a toast, not inline in the dialog.
+  const [testStatus, setTestStatus] = useState<"idle" | "loading">("idle")
   // Working directory (spawn cwd) of this agent instance. Only meaningful for
   // an existing agent (agentName set); the type-level config has no cwd.
   const [workDir, setWorkDir] = useState("")
@@ -821,7 +820,6 @@ function ConfigureDialog({
   useEffect(() => {
     if (!open) return
     setLoading(true)
-    setTestResult(null)
     setTestStatus("idle")
     setNoConfig(false)
     setLoginCmd(null)
@@ -1034,7 +1032,6 @@ function ConfigureDialog({
 
   const testConnection = async (): Promise<void> => {
     setTestStatus("loading")
-    setTestResult(null)
     try {
       const result = await window.api.testLLM(values)
       capture("llm_test_run", {
@@ -1042,22 +1039,23 @@ function ConfigureDialog({
         model: result.model || null,
       })
       if (result.success) {
-        setTestStatus("ok")
-        setTestResult(
+        showToast(
           t("agents.configureDialog.test.okResult", {
             model: result.model,
             response: result.response,
           }),
+          "success",
         )
       } else {
-        setTestStatus("error")
-        setTestResult(
+        showToast(
           result.error || t("agents.configureDialog.test.unknownError"),
+          "error",
         )
       }
     } catch (err: unknown) {
-      setTestStatus("error")
-      setTestResult((err as Error).message)
+      showToast((err as Error).message, "error")
+    } finally {
+      setTestStatus("idle")
     }
   }
 
@@ -1066,10 +1064,10 @@ function ConfigureDialog({
       open={open}
       onClose={onClose}
       layout="panel"
-      className="min-w-[480px]! max-w-[560px]!"
+      className="min-w-140! max-w-170!"
     >
-      <ModalHeader>
-        <ModalTitle className="mb-2">
+      <ModalHeader className="pt-3 pb-1">
+        <ModalTitle className="mb-1.5">
           {t("agents.configureDialog.title", { name: agentName || agentType })}
         </ModalTitle>
         {!loading && !noConfig && loginCmd && fields.length === 0 && (
@@ -1092,7 +1090,7 @@ function ConfigureDialog({
 
       <ModalBody>
         {!loading && agentName && (
-          <div className="form-group mb-4">
+          <div className="form-group mb-0!">
             <label
               htmlFor="agent-config-workdir"
               className="flex items-center gap-1.5"
@@ -1221,20 +1219,6 @@ function ConfigureDialog({
                 </div>
               ))}
             </div>
-            {testResult && (
-              <div
-                className={cn(
-                  "text-xs m-0",
-                  testStatus === "ok"
-                    ? "test-success"
-                    : testStatus === "error"
-                      ? "test-error"
-                      : "test-loading",
-                )}
-              >
-                {testResult}
-              </div>
-            )}
           </>
         )}
       </ModalBody>
@@ -1652,37 +1636,51 @@ function ConnectWorkspaceDialog({
       </ModalTitle>
       {view === "list" && (
         <>
-          <div className="flex flex-col gap-1 mb-3.5">
-            {workspaces.map((ws) => {
-              const display = ws.name || ws.slug || ws.id
-              const url = `${workspaceWebBaseUrl(ws.endpoint)}/${ws.slug || ws.id}`
-              return (
-                <button
-                  key={ws.id}
-                  type="button"
-                  className="text-left px-4 py-[11px] text-[13px] w-full rounded-sm bg-[var(--bg-card)] border border-[color:var(--border)] cursor-pointer transition-all duration-150 hover:bg-[var(--accent-bg)] hover:border-[color:var(--accent-border)]"
-                  onClick={() => doConnect(ws.slug || ws.id)}
-                >
-                  {display} — {url}
-                </button>
-              )
-            })}
+          {/* Existing workspaces: their own scroll region so a long list never
+              pushes the create/join/cancel actions off-screen. Each row shows
+              the name prominently with just the short slug (the full URL is
+              redundant — same host for all — and lives in the hover title). */}
+          {workspaces.length > 0 && (
+            <div className="flex flex-col gap-1 mb-3 max-h-[42vh] overflow-y-auto scrollbar-hide">
+              {workspaces.map((ws) => {
+                const display = ws.name || ws.slug || ws.id
+                const shortId = ws.slug || ws.id
+                return (
+                  <button
+                    key={ws.id}
+                    type="button"
+                    title={`${workspaceWebBaseUrl(ws.endpoint)}/${shortId}`}
+                    className="flex items-center justify-between gap-3 text-left px-3 py-2 text-[13px] w-full rounded-sm bg-(--bg-card) border border-(--border) cursor-pointer transition-all duration-150 hover:bg-(--accent-bg) hover:border-(--accent-border)"
+                    onClick={() => doConnect(ws.slug || ws.id)}
+                  >
+                    <span className="font-medium truncate">{display}</span>
+                    <span className="shrink-0 font-mono text-[11px] text-(--text-tertiary)">
+                      {shortId}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          {/* Actions are visually distinct from workspace rows (dashed border)
+              so they don't read as "just another workspace". */}
+          <div className="flex flex-col gap-1">
             <button
               type="button"
-              className="text-left px-4 py-[11px] text-[13px] w-full rounded-sm bg-[var(--bg-card)] border border-[color:var(--border)] cursor-pointer transition-all duration-150 hover:bg-[var(--accent-bg)] hover:border-[color:var(--accent-border)]"
+              className="text-left px-3 py-2 text-[13px] w-full rounded-sm border border-dashed border-(--border) text-(--accent) font-medium cursor-pointer transition-all duration-150 hover:bg-(--accent-bg) hover:border-(--accent-border)"
               onClick={() => setView("create")}
             >
               {t("agents.connectDialog.createNew")}
             </button>
             <button
               type="button"
-              className="text-left px-4 py-[11px] text-[13px] w-full rounded-sm bg-[var(--bg-card)] border border-[color:var(--border)] cursor-pointer transition-all duration-150 hover:bg-[var(--accent-bg)] hover:border-[color:var(--accent-border)]"
+              className="text-left px-3 py-2 text-[13px] w-full rounded-sm border border-dashed border-(--border) text-(--text-secondary) cursor-pointer transition-all duration-150 hover:bg-(--accent-bg) hover:border-(--accent-border)"
               onClick={() => setView("token")}
             >
               {t("agents.connectDialog.joinWithToken")}
             </button>
           </div>
-          <Button onClick={onClose} className="w-full">
+          <Button onClick={onClose} className="w-full mt-3">
             {t("agents.connectDialog.cancel")}
           </Button>
         </>

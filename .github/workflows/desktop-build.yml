@@ -100,6 +100,52 @@ jobs:
           echo "macOS build failed after 3 attempts." >&2
           exit 1
 
+      - name: Repack macOS update zip with ditto (preserve framework symlinks)
+        # electron-builder's own zip flattens the Electron Framework symlinks
+        # (Electron Framework, Resources, Versions/Current become real
+        # files/dirs), so the extracted bundle has BOTH a top-level binary and a
+        # Versions/ dir — codesign rejects it during auto-update with "bundle
+        # format is ambiguous (could be app or framework)" and the update fails.
+        # The DMG is unaffected (its .app keeps the symlinks); only the update
+        # zip is broken. Repack the already-signed/notarized .app with macOS
+        # ditto (which preserves symlinks), sanity-check with codesign, then
+        # recompute the zip's sha512/size in latest-mac.yml and drop the stale
+        # blockmap so electron-updater's hash check passes.
+        run: |
+          set -euo pipefail
+          APP=$(ls -d dist/mac*/*.app | head -1)
+          ZIP=$(ls dist/*-mac-${{ matrix.arch }}.zip)
+          echo "Repacking $APP -> $ZIP"
+          rm -f "$ZIP" "$ZIP.blockmap"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+          # Fail loudly if the repacked zip still doesn't validate — extract it
+          # exactly like Squirrel does and run the same codesign check the
+          # updater runs on the client.
+          TMP=$(mktemp -d)
+          ditto -x -k "$ZIP" "$TMP"
+          codesign -v --verbose=4 "$TMP/$(basename "$APP")"
+          rm -rf "$TMP"
+          # Recompute sha512/size for the new zip in latest-mac.yml. Uses ruby
+          # (preinstalled on macOS runners) to avoid a pip dependency.
+          ruby -ryaml -rdigest -rbase64 -e '
+            zip, yml = ARGV
+            data = File.binread(zip)
+            sha  = Base64.strict_encode64(Digest::SHA512.digest(data))
+            size = data.bytesize
+            name = File.basename(zip)
+            doc  = YAML.load_file(yml)
+            (doc["files"] || []).each do |f|
+              if f["url"] == name
+                f["sha512"] = sha; f["size"] = size; f.delete("blockMapSize")
+              end
+            end
+            if doc["path"] == name
+              doc["sha512"] = sha; doc["size"] = size
+            end
+            File.write(yml, doc.to_yaml)
+            puts File.read(yml)
+          ' "$ZIP" dist/latest-mac.yml
+
       - name: Verify macOS artifacts
         run: |
           ls -la dist

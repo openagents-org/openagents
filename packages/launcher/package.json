@@ -1,6 +1,6 @@
 {
   "name": "openagents-launcher",
-  "version": "0.8.12",
+  "version": "0.8.13",
   "description": "OpenAgents Launcher — install, configure, and manage your AI agents",
   "main": "out/main/index.js",
   "homepage": "https://github.com/openagents-org/openagents",
@@ -15,6 +15,7 @@
     "directory": "packages/launcher"
   },
   "scripts": {
+    "postinstall": "node ./scripts/ensure-electron.mjs",
     "dev": "electron-vite dev",
     "test": "vitest run",
     "test:watch": "vitest",
