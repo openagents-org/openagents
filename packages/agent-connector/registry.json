@@ -835,5 +835,75 @@
       "login_command": "hermes setup",
       "not_ready_message": "Hermes not configured — run: hermes setup"
     }
+  },
+  {
+    "name": "mini-swe-agent",
+    "label": "mini-SWE-agent",
+    "description": "A minimal shell-based coding agent for fixing issues and modifying code in a workspace.",
+    "homepage": "https://mini-swe-agent.com",
+    "tags": [
+      "coding",
+      "cli",
+      "shell",
+      "autonomous"
+    ],
+    "builtin": true,
+    "support": {
+      "install": true,
+      "workspace": true,
+      "collaboration": true
+    },
+    "install": {
+      "binary": "mini",
+      "verify": "mini --help",
+      "verify_win": "mini --help",
+      "macos": "pip install mini-swe-agent",
+      "linux": "pip install mini-swe-agent",
+      "windows": "pip install mini-swe-agent"
+    },
+    "launch": {
+      "args": []
+    },
+    "env_config": [
+      {
+        "name": "MSWEA_MODEL_NAME",
+        "description": "Model to use (routed through LiteLLM), e.g. anthropic/claude-sonnet-4-5 or gpt-4o. Optional when a model is already configured via a config file or `mini-extra config setup`. Passed as --model.",
+        "required": false,
+        "placeholder": "anthropic/claude-sonnet-4-5"
+      },
+      {
+        "name": "MSWEA_MINI_CONFIG_PATH",
+        "description": "Path to a FULL mini config file (YAML). Optional. This REPLACES mini's built-in default config (agent prompt templates, step/environment settings) — it does not merge — so provide a complete file (a good starting point is the output of `mini-extra config setup`). Leave blank to use mini's default config.",
+        "required": false,
+        "placeholder": "/path/to/mini.yaml"
+      },
+      {
+        "name": "MSWEA_COST_LIMIT",
+        "description": "Optional per-run cost limit in USD, passed as --cost-limit. Leave blank for mini's default.",
+        "required": false,
+        "placeholder": "3.0"
+      },
+      {
+        "name": "ANTHROPIC_API_KEY",
+        "description": "Anthropic API key — used when the model is an Anthropic model. Leave blank if using another provider or a key already in your environment.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "OPENAI_API_KEY",
+        "description": "OpenAI API key — used when the model is an OpenAI model. Leave blank if using another provider or a key already in your environment.",
+        "required": false,
+        "password": true
+      }
+    ],
+    "check_ready": {
+      "env_vars": [
+        "MSWEA_MODEL_NAME",
+        "MSWEA_MINI_CONFIG_PATH",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY"
+      ],
+      "not_ready_message": "mini-SWE-agent CLI detected. Configure a model through environment variables (MSWEA_MODEL_NAME + a provider key), a full config file (MSWEA_MINI_CONFIG_PATH), or the Model field before running a task."
+    }
   }
 ]
