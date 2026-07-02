@@ -109,7 +109,8 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
       const all = (await window.api.getAllSettings()) as Record<string, unknown>
       if (!mounted.current) return
       setStartOnBoot(!!all.startOnBoot)
-      setMinimizeToTray(!!all.minimizeToTray)
+      // Default on: closing the window hides to tray unless the user opts out.
+      setMinimizeToTray(all.minimizeToTray !== false)
       setAutoUpdate(all.autoUpdate !== false)
       setGpuAccel(all.gpuAcceleration !== false)
       setDefaultAgentType((all.defaultAgentType as string) || "")
@@ -456,11 +457,12 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
           {section === "agents" && (
             <SettingsCard title={t("settings.agents.title")}>
               <Row
-                label={t("settings.agents.defaultType")}
+                label={`${t("settings.agents.defaultType")} · ${t("common.comingSoon")}`}
                 desc={t("settings.agents.defaultTypeDesc")}
               >
                 <Select
                   value={defaultAgentType}
+                  disabled
                   onChange={(e) => {
                     setDefaultAgentType(e.target.value)
                     void set("defaultAgentType", e.target.value)
@@ -478,11 +480,12 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
               <Separator />
               <Row
                 stacked
-                label={t("settings.agents.defaultModel")}
+                label={`${t("settings.agents.defaultModel")} · ${t("common.comingSoon")}`}
                 desc={t("settings.agents.defaultModelDesc")}
               >
                 <Input
                   value={defaultModel}
+                  disabled
                   onChange={(e) => setDefaultModel(e.target.value)}
                   onBlur={() => void set("defaultModel", defaultModel)}
                   placeholder={t("settings.agents.defaultModelPlaceholder")}
@@ -491,11 +494,12 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
               </Row>
               <Separator />
               <Row
-                label={t("settings.agents.autoStart")}
+                label={`${t("settings.agents.autoStart")} · ${t("common.comingSoon")}`}
                 desc={t("settings.agents.autoStartDesc")}
               >
                 <Switch
                   checked={autoStart}
+                  disabled
                   onCheckedChange={(v) => {
                     setAutoStart(v)
                     void set("agentAutoStart", v)

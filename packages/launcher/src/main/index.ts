@@ -5,6 +5,7 @@ import {
   Menu,
   ipcMain,
   nativeImage,
+  session,
   shell,
 } from "electron"
 import path from "path"
@@ -13,7 +14,7 @@ import os from "os"
 import crypto from "crypto"
 import { pipeline } from "stream/promises"
 import { Transform } from "stream"
-import { execSync, execFile, spawnSync } from "child_process"
+import { execSync, execFile, execFileSync, spawnSync } from "child_process"
 import { Store } from "./store"
 import { readPathEnv, writePathEnv, withPathEnv } from "./env"
 import { AgentManager, type ChatStreamEvent } from "./agent-manager"
@@ -146,6 +147,15 @@ if (
 }
 
 const store = new Store()
+
+// User-controlled GPU toggle (Settings → General). disableHardwareAcceleration
+// must run before app "ready", and this module scope is still pre-ready. Only
+// disable when explicitly turned off (default on); the --disable-gpu / headless
+// check above forces it off regardless. Takes effect after a restart.
+if (store.get("gpuAcceleration") === false) {
+  app.disableHardwareAcceleration()
+}
+
 const connectionsStore = new ConnectionsStore()
 const credentialsStore = new CredentialsStore()
 const githubBindingsStore = new GitHubBindingsStore()
@@ -406,6 +416,30 @@ async function downloadVerifyCandidates(
   throw lastErr || new Error("download failed (all mirrors)")
 }
 
+// Extract a tarball with tar, passing args as an ARRAY (never a shell string).
+// A shell string like `tar -xzf "${path}"` is interpreted by cmd.exe using the
+// OEM code page (936/GBK on zh-CN Windows), which corrupts any non-ASCII path
+// segment (e.g. a Chinese Windows username: C:\Users\王思璠\.openagents\…) and
+// makes tar fail to find/create the directory. execFileSync bypasses the shell
+// entirely, so the path is handed to the process verbatim as Unicode.
+function extractTarball(
+  archivePath: string,
+  destDir: string,
+  opts: { xz?: boolean; timeout?: number } = {},
+): void {
+  execFileSync(
+    "tar",
+    [
+      opts.xz ? "-xJf" : "-xzf",
+      archivePath,
+      "-C",
+      destDir,
+      "--strip-components=1",
+    ],
+    { timeout: opts.timeout ?? 60000, stdio: "pipe" },
+  )
+}
+
 async function downloadNodejs(
   nodejsDir: string,
   onProgress: (pct: number, detail: string) => void,
@@ -453,14 +487,9 @@ async function downloadNodejs(
     await downloadVerifyCandidates(https, npmCandidates, npmTgz, null, null)
 
     fs.mkdirSync(npmModDir, { recursive: true })
-    try {
-      execSync(`tar -xzf "${npmTgz}" -C "${npmModDir}" --strip-components=1`, {
-        timeout: 60000,
-        stdio: "pipe",
-      })
-    } catch (e: unknown) {
-      slog(`npm extraction failed: ${(e as Error).message}`)
-    }
+    // Let a failure here propagate: if npm can't be unpacked the app is unusable
+    // (blank window), so surface it on the splash instead of silently continuing.
+    extractTarball(npmTgz, npmModDir)
     try {
       fs.unlinkSync(npmTgz)
     } catch {}
@@ -490,11 +519,10 @@ async function downloadNodejs(
 
     await downloadVerifyCandidates(https, urls, tarPath, null, onProgress)
     if (onProgress) onProgress(90, "Extracting...")
-    const flag = ext === "tar.gz" ? "-xzf" : "-xJf"
-    execSync(
-      `tar ${flag} "${tarPath}" -C "${nodejsDir}" --strip-components=1`,
-      { timeout: 120000 },
-    )
+    extractTarball(tarPath, nodejsDir, {
+      xz: ext !== "tar.gz",
+      timeout: 120000,
+    })
     try {
       fs.unlinkSync(tarPath)
     } catch {}
@@ -600,7 +628,8 @@ async function ensureCoreLibrary(): Promise<void> {
         slog(`core latest lookup failed (${url}): ${latestErr.message}`)
       }
     }
-    if (!latestVersion) throw latestErr || new Error("core latest lookup failed")
+    if (!latestVersion)
+      throw latestErr || new Error("core latest lookup failed")
 
     if (!installedVersion) {
       slog("Core library not found — installing v" + latestVersion + "...")
@@ -635,10 +664,7 @@ async function ensureCoreLibrary(): Promise<void> {
         fs.rmSync(destDir, { recursive: true, force: true })
       } catch {}
       fs.mkdirSync(destDir, { recursive: true })
-      execSync(`tar -xzf "${tgzPath}" -C "${destDir}" --strip-components=1`, {
-        timeout: 60000,
-        stdio: "pipe",
-      })
+      extractTarball(tgzPath, destDir)
       try {
         fs.unlinkSync(tgzPath)
       } catch {}
@@ -709,10 +735,7 @@ async function ensureCoreLibrary(): Promise<void> {
         null,
       )
       fs.mkdirSync(npmDir, { recursive: true })
-      execSync(`tar -xzf "${npmTgz}" -C "${npmDir}" --strip-components=1`, {
-        timeout: 60000,
-        stdio: "pipe",
-      })
+      extractTarball(npmTgz, npmDir)
       try {
         fs.unlinkSync(npmTgz)
       } catch {}
@@ -761,10 +784,10 @@ function createWindow(): void {
   }
 
   mainWindow = new BrowserWindow({
-    width: 900,
-    height: 650,
-    minWidth: 700,
-    minHeight: 500,
+    minWidth: 1200,
+    minHeight: 800,
+    width: 1200,
+    height: 800,
     title: "OpenAgents Launcher",
     autoHideMenuBar: true,
     webPreferences: {
@@ -822,7 +845,13 @@ function createWindow(): void {
   }
 
   mainWindow.on("close", (e) => {
-    if (!(app as typeof app & { isQuitting?: boolean }).isQuitting) {
+    // Honor the "Minimize to tray" setting (Settings → General, default on).
+    // When off, closing the window really quits instead of hiding to the tray.
+    const toTray = store.get("minimizeToTray") !== false
+    if (
+      toTray &&
+      !(app as typeof app & { isQuitting?: boolean }).isQuitting
+    ) {
       e.preventDefault()
       mainWindow!.hide()
       if (process.platform === "darwin" && app.dock) app.dock.hide()
@@ -832,6 +861,52 @@ function createWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null
   })
+}
+
+// Apply the "Launch at login" setting (Settings → General) to the OS.
+function applyStartOnBoot(): void {
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: store.get("startOnBoot") === true,
+    })
+  } catch {}
+}
+
+// Apply proxy settings (Settings → Network) two ways:
+//  1. process.env HTTP(S)_PROXY / NO_PROXY — inherited by every child process
+//     we spawn (npm, agent CLIs), all of which honor these standard vars.
+//  2. session.setProxy — covers Electron's own network stack (renderer fetch,
+//     the net module).
+// node's core https (our Node/npm bootstrap downloads) doesn't read these, but
+// those already go through regional mirrors so proxy coverage there is moot.
+function applyProxyFromSettings(): void {
+  const http = ((store.get("httpProxy") as string) || "").trim()
+  const https = ((store.get("httpsProxy") as string) || "").trim()
+  const no = ((store.get("noProxy") as string) || "").trim()
+
+  const setOrClear = (name: string, value: string): void => {
+    if (value) {
+      process.env[name] = value
+      process.env[name.toLowerCase()] = value
+    } else {
+      delete process.env[name]
+      delete process.env[name.toLowerCase()]
+    }
+  }
+  setOrClear("HTTP_PROXY", http)
+  setOrClear("HTTPS_PROXY", https)
+  setOrClear("NO_PROXY", no)
+
+  if (session?.defaultSession) {
+    const rules = [http && `http=${http}`, https && `https=${https}`]
+      .filter(Boolean)
+      .join(";")
+    void session.defaultSession.setProxy(
+      rules
+        ? { proxyRules: rules, proxyBypassRules: no || undefined }
+        : { mode: "direct" },
+    )
+  }
 }
 
 function createPlaceholderIcon(): Electron.NativeImage {
@@ -1025,7 +1100,8 @@ function installStepLabel(phase: InstallPhase, verb: InstallVerb): string {
     if (verb === "update") return "installing the update"
     return "running the installer"
   }
-  if (phase === "preparing" || phase === "idle") return "preparing the installer"
+  if (phase === "preparing" || phase === "idle")
+    return "preparing the installer"
   return "finishing the installation"
 }
 
@@ -1048,7 +1124,8 @@ function userFacingInstallError(
     text.includes("command not found")
   ) {
     reason = "A required command could not be started."
-    hint = "Check that the required tool is installed and available, then try again."
+    hint =
+      "Check that the required tool is installed and available, then try again."
   } else if (
     text.includes("short read") ||
     text.includes("ssl") ||
@@ -1466,7 +1543,11 @@ function setupIPC(): void {
         : "install"
       try {
         const result = await runInstallWithPhases(agentType, verb, (cb) =>
-          agentManager!.installAgentTypeAtVersionStreaming(agentType, target, cb),
+          agentManager!.installAgentTypeAtVersionStreaming(
+            agentType,
+            target,
+            cb,
+          ),
         )
         await refreshAgentUpdates().catch(() => {})
         return result
@@ -1618,21 +1699,24 @@ function setupIPC(): void {
   // Native folder picker for onboarding's "Create your first agent" step. The
   // chosen directory becomes the agent's working directory. Returns null when
   // the user cancels.
-  ipcMain.handle("dialog:select-directory", async (_e, defaultPath?: string) => {
-    const { dialog } = require("electron")
-    const win = BrowserWindow.getFocusedWindow() || mainWindow
-    const opts = {
-      properties: ["openDirectory", "createDirectory"] as Array<
-        "openDirectory" | "createDirectory"
-      >,
-      ...(defaultPath ? { defaultPath } : {}),
-    }
-    const result = win
-      ? await dialog.showOpenDialog(win, opts)
-      : await dialog.showOpenDialog(opts)
-    if (result.canceled || !result.filePaths?.length) return null
-    return result.filePaths[0]
-  })
+  ipcMain.handle(
+    "dialog:select-directory",
+    async (_e, defaultPath?: string) => {
+      const { dialog } = require("electron")
+      const win = BrowserWindow.getFocusedWindow() || mainWindow
+      const opts = {
+        properties: ["openDirectory", "createDirectory"] as Array<
+          "openDirectory" | "createDirectory"
+        >,
+        ...(defaultPath ? { defaultPath } : {}),
+      }
+      const result = win
+        ? await dialog.showOpenDialog(win, opts)
+        : await dialog.showOpenDialog(opts)
+      if (result.canceled || !result.filePaths?.length) return null
+      return result.filePaths[0]
+    },
+  )
 
   // ── Onboarding ──
   // Runnable-only picker + atomic, verified provisioning. See agent-manager.ts.
@@ -1666,21 +1750,32 @@ function setupIPC(): void {
     if (key === "workspaceEndpoint" && agentManager) {
       agentManager.reloadCore()
     }
+    if (key === "startOnBoot") applyStartOnBoot()
+    if (key === "httpProxy" || key === "httpsProxy" || key === "noProxy") {
+      applyProxyFromSettings()
+    }
   })
 
   // ── Connections ──
   ipcMain.handle("connections:list", () => connectionsStore.list())
-  ipcMain.handle("connections:upsert", (_e, record) => connectionsStore.upsert(record))
+  ipcMain.handle("connections:upsert", (_e, record) =>
+    connectionsStore.upsert(record),
+  )
   ipcMain.handle("connections:remove", (_e, id) => connectionsStore.remove(id))
   ipcMain.handle("connections:set-status", (_e, id, status, lastError) =>
     connectionsStore.setStatus(id, status, lastError),
   )
   ipcMain.handle("connections:test", async (_e, id) => {
     const conn = connectionsStore.get(id)
-    if (!conn) return { ok: false, status: "error", detail: "Connection not found" }
+    if (!conn)
+      return { ok: false, status: "error", detail: "Connection not found" }
     if (!conn.credentialId) {
       connectionsStore.setStatus(id, "unauthorized", "No credential linked")
-      return { ok: false, status: "unauthorized", detail: "No credential linked" }
+      return {
+        ok: false,
+        status: "unauthorized",
+        detail: "No credential linked",
+      }
     }
     const secret = credentialsStore.getSecret(conn.credentialId)
     if (!secret) {
@@ -1694,7 +1789,11 @@ function setupIPC(): void {
       result.detail,
     )
     if (result.account) {
-      connectionsStore.upsert({ id, platform: conn.platform, account: result.account })
+      connectionsStore.upsert({
+        id,
+        platform: conn.platform,
+        account: result.account,
+      })
     }
     credentialsStore.recordTest(conn.credentialId, result.ok, result.detail)
     return result
@@ -1702,7 +1801,9 @@ function setupIPC(): void {
 
   // ── Credentials ──
   ipcMain.handle("credentials:list", () => credentialsStore.list())
-  ipcMain.handle("credentials:upsert", (_e, input) => credentialsStore.upsert(input))
+  ipcMain.handle("credentials:upsert", (_e, input) =>
+    credentialsStore.upsert(input),
+  )
   ipcMain.handle("credentials:remove", (_e, id) => {
     const removed = credentialsStore.remove(id)
     if (removed) {
@@ -1712,18 +1813,27 @@ function setupIPC(): void {
     return removed
   })
   ipcMain.handle("credentials:reveal", (_e, id) => credentialsStore.reveal(id))
-  ipcMain.handle("credentials:test", async (_e, payload: {
-    id?: string
-    provider: string
-    secret?: string
-  }) => {
-    let secret = payload.secret
-    if (!secret && payload.id) secret = credentialsStore.getSecret(payload.id) || undefined
-    if (!secret) return { ok: false, status: "error", detail: "No secret provided" }
-    const result = await probeConnection(payload.provider, secret)
-    if (payload.id) credentialsStore.recordTest(payload.id, result.ok, result.detail)
-    return result
-  })
+  ipcMain.handle(
+    "credentials:test",
+    async (
+      _e,
+      payload: {
+        id?: string
+        provider: string
+        secret?: string
+      },
+    ) => {
+      let secret = payload.secret
+      if (!secret && payload.id)
+        secret = credentialsStore.getSecret(payload.id) || undefined
+      if (!secret)
+        return { ok: false, status: "error", detail: "No secret provided" }
+      const result = await probeConnection(payload.provider, secret)
+      if (payload.id)
+        credentialsStore.recordTest(payload.id, result.ok, result.detail)
+      return result
+    },
+  )
 
   /**
    * Apply a credential to one or more agent types' .env files. Bridges the new
@@ -1734,10 +1844,21 @@ function setupIPC(): void {
    */
   ipcMain.handle(
     "credentials:apply-to-agents",
-    async (_e, payload: { credentialId: string; envKey: string; agentTypes: string[] }) => {
+    async (
+      _e,
+      payload: { credentialId: string; envKey: string; agentTypes: string[] },
+    ) => {
       const { credentialId, envKey, agentTypes } = payload
-      if (!credentialId || !envKey || !Array.isArray(agentTypes) || agentTypes.length === 0) {
-        return { ok: false, error: "Missing credentialId / envKey / agentTypes" }
+      if (
+        !credentialId ||
+        !envKey ||
+        !Array.isArray(agentTypes) ||
+        agentTypes.length === 0
+      ) {
+        return {
+          ok: false,
+          error: "Missing credentialId / envKey / agentTypes",
+        }
       }
       const secret = credentialsStore.getSecret(credentialId)
       if (!secret) return { ok: false, error: "Credential not found" }
@@ -1746,7 +1867,8 @@ function setupIPC(): void {
       const errors: string[] = []
       for (const type of agentTypes) {
         try {
-          const existing = (agentManager.getAgentEnv(type) as Record<string, string>) || {}
+          const existing =
+            (agentManager.getAgentEnv(type) as Record<string, string>) || {}
           const next = { ...existing, [envKey]: secret }
           agentManager.saveAgentEnv(type, next)
           written.push(type)
@@ -1784,8 +1906,9 @@ function setupIPC(): void {
   ipcMain.handle(
     "github:probe",
     async (_e, payload: { credentialId?: string; secret?: string }) => {
-      const token = payload.secret
-        || (payload.credentialId ? resolveGitHubToken(payload.credentialId) : null)
+      const token =
+        payload.secret ||
+        (payload.credentialId ? resolveGitHubToken(payload.credentialId) : null)
       if (!token) return { ok: false, error: "Missing GitHub token" }
       try {
         const r = await getGitHubClient().probe(token)
@@ -1796,24 +1919,33 @@ function setupIPC(): void {
     },
   )
 
-  ipcMain.handle(
-    "github:parse-repo",
-    (_e, input: string) => parseGitHubRepo(input),
+  ipcMain.handle("github:parse-repo", (_e, input: string) =>
+    parseGitHubRepo(input),
   )
 
   ipcMain.handle("github:list-bindings", () => githubBindingsStore.list())
 
   ipcMain.handle(
     "github:bind-repo",
-    async (_e, payload: { agentName: string; repo: string; credentialId: string }) => {
+    async (
+      _e,
+      payload: { agentName: string; repo: string; credentialId: string },
+    ) => {
       const parsed = parseGitHubRepo(payload.repo)
-      if (!parsed) return { ok: false, error: "Could not parse repo (use owner/name or URL)" }
+      if (!parsed)
+        return {
+          ok: false,
+          error: "Could not parse repo (use owner/name or URL)",
+        }
       const token = resolveGitHubToken(payload.credentialId)
       if (!token) return { ok: false, error: "Credential not found" }
       try {
         await getGitHubClient().getRepo(parsed.owner, parsed.name, token)
       } catch (e) {
-        return { ok: false, error: `Cannot access ${parsed.owner}/${parsed.name}: ${(e as Error).message}` }
+        return {
+          ok: false,
+          error: `Cannot access ${parsed.owner}/${parsed.name}: ${(e as Error).message}`,
+        }
       }
       const binding = githubBindingsStore.upsert({
         agentName: payload.agentName,
@@ -1843,12 +1975,17 @@ function setupIPC(): void {
       const binding = githubBindingsStore.get(payload.agentName)
       if (!binding) return { ok: false, error: "Agent is not bound to a repo" }
       const token = resolveGitHubToken(binding.credentialId)
-      if (!token) return { ok: false, error: "Credential missing for this binding" }
+      if (!token)
+        return { ok: false, error: "Credential missing for this binding" }
       try {
         const items = await getGitHubClient().listIssues(
           binding.owner,
           binding.repo,
-          { state: payload.state, perPage: payload.perPage, page: payload.page },
+          {
+            state: payload.state,
+            perPage: payload.perPage,
+            page: payload.page,
+          },
           token,
         )
         return { ok: true, items }
@@ -1872,12 +2009,17 @@ function setupIPC(): void {
       const binding = githubBindingsStore.get(payload.agentName)
       if (!binding) return { ok: false, error: "Agent is not bound to a repo" }
       const token = resolveGitHubToken(binding.credentialId)
-      if (!token) return { ok: false, error: "Credential missing for this binding" }
+      if (!token)
+        return { ok: false, error: "Credential missing for this binding" }
       try {
         const items = await getGitHubClient().listPullRequests(
           binding.owner,
           binding.repo,
-          { state: payload.state, perPage: payload.perPage, page: payload.page },
+          {
+            state: payload.state,
+            perPage: payload.perPage,
+            page: payload.page,
+          },
           token,
         )
         return { ok: true, items }
@@ -1896,7 +2038,8 @@ function setupIPC(): void {
       const binding = githubBindingsStore.get(payload.agentName)
       if (!binding) return { ok: false, error: "Agent is not bound to a repo" }
       const token = resolveGitHubToken(binding.credentialId)
-      if (!token) return { ok: false, error: "Credential missing for this binding" }
+      if (!token)
+        return { ok: false, error: "Credential missing for this binding" }
       if (!payload.body || !payload.body.trim()) {
         return { ok: false, error: "Comment body is empty" }
       }
@@ -2207,9 +2350,7 @@ function setupIPC(): void {
     // can't be driven interactively from a terminal.
     const binary = agentManager.resolveBinary(type)
     if (!binary)
-      throw new Error(
-        `Agent type '${type}' has no interactive CLI to open.`,
-      )
+      throw new Error(`Agent type '${type}' has no interactive CLI to open.`)
     const cwd = agent.path || os.homedir()
     try {
       fs.mkdirSync(cwd, { recursive: true })
@@ -2259,6 +2400,12 @@ if (!gotLock) {
 
 app.whenReady().then(async () => {
   if (process.platform !== "darwin") Menu.setApplicationMenu(null)
+
+  // Apply user settings that must reach the OS / network layer on every launch
+  // (the renderer only writes them to the store; the main process is what makes
+  // them take effect).
+  applyStartOnBoot()
+  applyProxyFromSettings()
 
   // Resolve the download region BEFORE any runtime download runs. `downloadRegion`
   // ('auto' | 'global' | 'cn') lets support/QA pin the origin; default 'auto'
@@ -2433,10 +2580,7 @@ app.whenReady().then(async () => {
         null,
       )
       fs.mkdirSync(npmModDir, { recursive: true })
-      execSync(`tar -xzf "${npmTgz}" -C "${npmModDir}" --strip-components=1`, {
-        timeout: 60000,
-        stdio: "pipe",
-      })
+      extractTarball(npmTgz, npmModDir)
       try {
         fs.unlinkSync(npmTgz)
       } catch {}
