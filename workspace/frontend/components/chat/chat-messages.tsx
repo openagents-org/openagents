@@ -203,16 +203,19 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
   });
 
   const scrollToBottom = useCallback(() => {
-    if (totalCount > 0) {
-      virtualizer.scrollToIndex(totalCount - 1, { align: 'end' });
-      // Also nudge the native scroll in case the virtualizer hasn't measured the last item yet
+    if (totalCount === 0) return;
+    // Single corrective pin instead of scrollToIndex (estimate-based) followed
+    // by an immediate scrollTop: those two land a frame apart at different
+    // offsets, which is the visible "flash + jump". Wait two frames so the
+    // virtualizer has measured the (possibly tall) newly-appended rows, then
+    // pin to the true bottom once.
+    requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        if (containerRef.current) {
-          containerRef.current.scrollTop = containerRef.current.scrollHeight;
-        }
+        const el = containerRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
       });
-    }
-  }, [totalCount, virtualizer]);
+    });
+  }, [totalCount]);
 
   // Derive the current session + first/last message identity from messages.
   const currentSessionId = messages.length > 0 ? messages[0].sessionId : null;
