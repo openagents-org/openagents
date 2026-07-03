@@ -114,6 +114,23 @@ describe('CLI', () => {
     }
   });
 
+  it('create rejects an unknown agent type without creating an entry', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-'));
+    try {
+      const res = runCapture({}, 'create', 'random-bot', '--type', 'calude', '--config', tmpDir);
+      assert.equal(res.code, 1);
+      assert.ok(res.stdout.includes("unknown agent type 'calude'"));
+      assert.ok(!res.stdout.includes('Created local agent'));
+
+      // The invalid agent must NOT be persisted to config.
+      const listOut = runWithConfig(tmpDir, 'list');
+      assert.ok(listOut.includes('No agents configured'));
+      assert.ok(!listOut.includes('random-bot'));
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('env set and get', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-'));
     try {
