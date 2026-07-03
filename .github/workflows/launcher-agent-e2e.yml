@@ -81,7 +81,9 @@ jobs:
           node-version: 22
 
       - name: Install deps
-        run: npm ci
+        # `npm install` (not `npm ci`) to match desktop-build.yml — the committed
+        # lockfile is intentionally loose in this repo.
+        run: npm install
 
       - name: Build launcher (from source)
         run: npm run build
