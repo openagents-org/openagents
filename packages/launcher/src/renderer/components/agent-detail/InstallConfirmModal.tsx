@@ -72,10 +72,10 @@ export function InstallConfirmModal({
           </code>
         )}
         <div className="form-actions justify-center mt-5">
-          <Button variant="primary" onClick={onConfirm}>
+          <Button variant="primary" data-testid="install-confirm" onClick={onConfirm}>
             {verbLabel}
           </Button>
-          <Button onClick={onCancel}>{t("agents.installConfirm.cancel")}</Button>
+          <Button data-testid="install-cancel" onClick={onCancel}>{t("agents.installConfirm.cancel")}</Button>
         </div>
       </div>
     </Modal>

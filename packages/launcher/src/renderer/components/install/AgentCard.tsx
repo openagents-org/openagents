@@ -49,6 +49,9 @@ export function AgentCard({
       role="button"
       tabIndex={isComingSoon ? -1 : 0}
       aria-disabled={isComingSoon}
+      data-testid={`agent-card-${entry.name}`}
+      data-installed={isInstalled ? "true" : "false"}
+      data-busy={isBusy ? "true" : "false"}
       onKeyDown={(e) => { if (!isComingSoon && e.key === "Enter") onOpen() }}
       className={cn(
         "group flex flex-col gap-2.5 min-h-[170px] px-4.5 py-4",
@@ -122,7 +125,7 @@ export function AgentCard({
         ) : isBusy ? (
           <Button size="sm" disabled>{verbLabel}</Button>
         ) : !isInstalled ? (
-          <Button size="sm" variant="primary" onClick={(e) => { e.stopPropagation(); onInstall() }}>
+          <Button size="sm" variant="primary" data-testid={`install-btn-${entry.name}`} onClick={(e) => { e.stopPropagation(); onInstall() }}>
             {t("install.card.install")}
           </Button>
         ) : isManaged ? (

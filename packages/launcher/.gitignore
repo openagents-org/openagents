@@ -7,6 +7,11 @@ dist
 # TypeScript incremental build artifacts
 *.tsbuildinfo
 
+# Playwright E2E artifacts
+e2e-results/
+test-results/
+playwright-report/
+
 # Local tool configuration (often contains machine-specific paths)
 .claude/
 .vscode/

@@ -1,0 +1,160 @@
+name: Launcher Agent E2E
+
+# GUI end-to-end tests that drive the built Electron launcher (Playwright
+# _electron) through the real user journey per agent, on GitHub-hosted macOS +
+# Windows runners.
+#
+# SPIKE SCOPE (current): boot + install one agent (default openclaw), no API
+# keys. This exists to de-risk the biggest unknown — can a GUI Electron app
+# launch + run a real install on hosted macOS AND Windows? — before wiring the
+# full install→configure→connect→start→respond flow for all 7 agents.
+#
+# Cadence: nightly (daily results table) + manual dispatch. Release-tag gating
+# (launcher-v*) is added once the keyed flow is in.
+
+on:
+  workflow_dispatch:
+    inputs:
+      agents:
+        description: "Comma-separated agent slugs (e.g. openclaw,codex,claude). Default: openclaw"
+        required: false
+        default: "openclaw"
+      os:
+        description: "Which OS to run: macos, windows, or both"
+        required: false
+        default: "both"
+  schedule:
+    # 07:17 UTC daily — off the :00 mark on purpose.
+    - cron: "17 7 * * *"
+
+concurrency:
+  group: launcher-agent-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Build the os × agent matrix from inputs (nightly falls back to defaults).
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.mk.outputs.matrix }}
+    steps:
+      - id: mk
+        shell: bash
+        run: |
+          AGENTS_IN="${{ github.event.inputs.agents }}"
+          OS_IN="${{ github.event.inputs.os }}"
+          AGENTS="${AGENTS_IN:-openclaw}"
+          OS="${OS_IN:-both}"
+
+          case "$OS" in
+            macos)   OS_JSON='["macos-latest"]' ;;
+            windows) OS_JSON='["windows-latest"]' ;;
+            *)       OS_JSON='["macos-latest","windows-latest"]' ;;
+          esac
+
+          AGENT_JSON=$(echo "$AGENTS" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -v '^$' \
+            | node -e "const a=require('fs').readFileSync(0,'utf8').split('\n').filter(Boolean);process.stdout.write(JSON.stringify(a))")
+
+          echo "matrix={\"os\":$OS_JSON,\"agent\":$AGENT_JSON}" >> "$GITHUB_OUTPUT"
+          echo "os=$OS_JSON agents=$AGENT_JSON"
+
+  e2e:
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: packages/launcher
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build launcher (from source)
+        run: npm run build
+
+      - name: Run E2E (${{ matrix.agent }})
+        id: run
+        env:
+          E2E_AGENT: ${{ matrix.agent }}
+          # Keys (added later for the keyed flow):
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          E2E_WS_TOKEN: ${{ secrets.E2E_WS_TOKEN }}
+          E2E_WS_SLUG: ${{ secrets.E2E_WS_SLUG }}
+        run: npx playwright test
+
+      - name: Record result row
+        if: always()
+        shell: bash
+        env:
+          E2E_OS: ${{ matrix.os }}
+          E2E_AGENT: ${{ matrix.agent }}
+          E2E_OUTCOME: ${{ steps.run.outcome }}
+        run: |
+          mkdir -p rows
+          DUR=$(node -e "try{const r=require('./e2e-results/results.json');console.log(Math.round((r.stats?.duration||0)/1000))}catch(e){console.log(0)}")
+          if [ "$E2E_OUTCOME" = "success" ]; then STATUS="✅ pass"; else STATUS="❌ fail"; fi
+          printf '%s\t%s\t%s\t%ss\n' "$E2E_AGENT" "$E2E_OS" "$STATUS" "$DUR" > "rows/${E2E_OS}-${E2E_AGENT}.tsv"
+
+      - name: Upload result row
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: row-${{ matrix.os }}-${{ matrix.agent }}
+          path: packages/launcher/rows/*.tsv
+          if-no-files-found: warn
+
+      - name: Upload traces / screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trace-${{ matrix.os }}-${{ matrix.agent }}
+          path: |
+            packages/launcher/e2e-results/
+            packages/launcher/test-results/
+          if-no-files-found: ignore
+
+  summary:
+    needs: e2e
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download result rows
+        uses: actions/download-artifact@v4
+        with:
+          pattern: row-*
+          path: rows
+          merge-multiple: true
+
+      - name: Build daily results table
+        shell: bash
+        run: |
+          {
+            echo "## Launcher Agent E2E — $(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo ""
+            echo "| Agent | OS | Result | Duration |"
+            echo "|-------|----|--------|----------|"
+            if ls rows/*.tsv >/dev/null 2>&1; then
+              cat rows/*.tsv | sort | awk -F'\t' '{print "| "$1" | "$2" | "$3" | "$4" |"}'
+            else
+              echo "| _(no results)_ | | | |"
+            fi
+          } | tee "$GITHUB_STEP_SUMMARY" > daily-summary.md
+
+      - name: Upload daily summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-summary
+          path: daily-summary.md
