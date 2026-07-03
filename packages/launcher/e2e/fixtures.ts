@@ -28,6 +28,22 @@ function mainEntry(): string {
     : path.resolve(process.cwd(), "out/main/index.js")
 }
 
+// On first launch the app shows a `data:text/html` SPLASH window while it
+// bootstraps (downloads the portable Node runtime + core lib, minutes), then
+// creates the real mainWindow at `index.html` and destroys the splash. So the
+// naive firstWindow() returns the splash — we must wait for the index.html one.
+async function mainAppPage(app: ElectronApplication): Promise<Page> {
+  const deadline = Date.now() + 6 * 60 * 1000
+  while (Date.now() < deadline) {
+    for (const w of app.windows()) {
+      if (w.url().includes("index.html")) return w
+    }
+    // Wait for the next window event (splash → main), but don't busy-spin.
+    await app.waitForEvent("window", { timeout: 5000 }).catch(() => {})
+  }
+  throw new Error("main app window (index.html) never appeared within 6 min")
+}
+
 export const test = base.extend<LauncherFixtures>({
   app: async ({}, use) => {
     const home = mkdtempSync(path.join(tmpdir(), "oa-e2e-"))
@@ -53,9 +69,11 @@ export const test = base.extend<LauncherFixtures>({
   },
 
   page: async ({ app }, use) => {
-    const page = await app.firstWindow()
-    // Pre-dismiss first-run overlays, then reload so the flags are read before
-    // the app's onboarding effect runs.
+    const page = await mainAppPage(app)
+    await page.waitForLoadState("domcontentloaded")
+    // Pre-dismiss first-run overlays (onboarding wizard + spotlight tour) so
+    // they don't intercept clicks, then reload so the flags are read before the
+    // app's onboarding effect runs.
     await page.addInitScript(() => {
       try {
         localStorage.setItem("onboarding_completed", "true")
