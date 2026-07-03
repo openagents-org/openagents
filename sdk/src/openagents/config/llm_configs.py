@@ -191,6 +191,7 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         "provider": "minimax",
         "api_base": "https://api.minimax.io/v1",
         "models": [
+            "MiniMax-M3",
             "MiniMax-M2.7",
             "MiniMax-M2.7-highspeed",
         ],

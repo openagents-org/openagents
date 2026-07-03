@@ -170,9 +170,10 @@ class TestMiniMaxConfig:
     def test_minimax_has_correct_models(self):
         """Test that minimax config has the correct models."""
         models = MODEL_CONFIGS["minimax"]["models"]
+        assert "MiniMax-M3" in models
         assert "MiniMax-M2.7" in models
         assert "MiniMax-M2.7-highspeed" in models
-        assert len(models) == 2
+        assert len(models) == 3
 
     def test_minimax_has_correct_api_base(self):
         """Test that minimax config has the correct API base URL."""
