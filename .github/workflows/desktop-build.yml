@@ -254,7 +254,15 @@ jobs:
   sign-windows:
     needs: build-windows
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && inputs.sign_windows
+    # Sign on manual dispatch (when the toggle is on) AND on every launcher-v* /
+    # desktop-v* tag push, so tagged releases publish signed installers. The
+    # production cert requires a manual approval in the SignPath portal, so a
+    # tagged release pauses at this step until it is approved (see the 30-min
+    # wait-for-completion-timeout below).
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.sign_windows) ||
+      startsWith(github.ref, 'refs/tags/launcher-v') ||
+      startsWith(github.ref, 'refs/tags/desktop-v')
     permissions:
       contents: read
       actions: read
