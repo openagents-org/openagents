@@ -37,10 +37,26 @@ test.describe("launcher install smoke", () => {
     await page.getByTestId(`install-btn-${SLUG}`).click()
     await page.getByTestId("install-confirm").click()
 
-    // 5. Card flips to installed and settles (not busy).
-    await expect(card).toHaveAttribute("data-installed", "true", {
-      timeout: INSTALL_TIMEOUT,
-    })
-    await expect(card).toHaveAttribute("data-busy", "false", { timeout: 60_000 })
+    // 5. Clicking Install navigates to the AgentDetail view (and may auto-open a
+    // setup wizard), so the marketplace card unmounts — asserting on it is
+    // unreliable. Instead confirm completion via the app's own installed-agents
+    // state over the same IPC bridge the UI uses. The action was driven through
+    // the GUI; only the outcome check is view-independent.
+    await expect
+      .poll(
+        async () => {
+          const names = await page.evaluate(async () => {
+            const list = await (
+              window as unknown as {
+                api: { getInstalledAgents: () => Promise<Array<{ name: string }>> }
+              }
+            ).api.getInstalledAgents()
+            return list.map((r) => r.name)
+          })
+          return names.includes(SLUG)
+        },
+        { timeout: INSTALL_TIMEOUT, intervals: [5_000] },
+      )
+      .toBe(true)
   })
 })

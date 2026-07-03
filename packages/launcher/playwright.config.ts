@@ -9,7 +9,9 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  // Spike: 0 retries so a failure doesn't burn a second ~15-min install. Bump
+  // back to 1 for nightly once the flow is stable.
+  retries: 0,
   // Per-test caps are set inside specs (installs need up to ~15 min); this is a
   // backstop so a wedged app can't hang the job indefinitely.
   timeout: 20 * 60 * 1000,
