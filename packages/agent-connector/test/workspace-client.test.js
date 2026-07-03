@@ -104,3 +104,39 @@ describe('WorkspaceClient', () => {
       });
   });
 });
+
+// Regression guard for the "online but deaf" wedge: a request whose socket
+// never receives a response — or whose TCP connect never completes — must
+// reject within its deadline instead of hanging forever and stalling the
+// caller's single poll loop. The socket `timeout` option is not armed until a
+// socket exists, so it does not cover the DNS/connect phase; AbortSignal.timeout
+// does.
+describe('WorkspaceClient request deadlines', () => {
+  it('_get rejects promptly when the server accepts but never responds', { timeout: 10000 }, async () => {
+    const server = http.createServer(() => { /* intentionally never respond */ });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    const client = new WorkspaceClient(`http://127.0.0.1:${port}`);
+    const start = Date.now();
+    try {
+      await assert.rejects(() => client._get('/v1/events', {}, 400));
+      const elapsed = Date.now() - start;
+      assert.ok(elapsed < 5000, `expected reject within 5s, took ${elapsed}ms`);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('_get rejects within the deadline when TCP connect hangs', { timeout: 10000 }, async () => {
+    // 192.0.2.1 is TEST-NET-1 (RFC 5737): routers drop it, so the SYN never
+    // completes and no socket is ever established. The socket `timeout` option
+    // is not armed until a socket exists, so ONLY the AbortSignal.timeout
+    // deadline can end this — this test hangs to its 10s cap (and fails) if the
+    // signal is removed and the platform doesn't bound connect on its own.
+    const client = new WorkspaceClient('http://192.0.2.1:81');
+    const start = Date.now();
+    await assert.rejects(() => client._get('/v1/events', {}, 500));
+    const elapsed = Date.now() - start;
+    assert.ok(elapsed < 8000, `expected reject within 8s, took ${elapsed}ms`);
+  });
+});
