@@ -88,20 +88,31 @@ async function checkForUpdate() {
 }
 
 /**
- * Walk up from __dirname until we find the enclosing node_modules; the
- * directory containing node_modules is the install prefix.
+ * Derive the npm `--prefix` for a global install from the npm binary location.
+ *
+ * npm resolves `-g` installs relative to a PREFIX, and the layout differs by
+ * platform:
+ *   Unix:    packages → {prefix}/lib/node_modules   (npm bin at {prefix}/bin)
+ *   Windows: packages → {prefix}/node_modules        (npm bin at {prefix})
+ *
+ * So the prefix is the PARENT of npm's bin dir on Unix, and the bin dir itself
+ * on Windows. The previous implementation walked up to the enclosing
+ * node_modules and returned the directory containing it — which on Unix is
+ * `{prefix}/lib`. Passing THAT as `--prefix` made npm append `lib/node_modules`
+ * again, installing into `{prefix}/lib/lib/node_modules` while the running `agn`
+ * (loaded from `{prefix}/lib/node_modules`) never changed: `agn update` reported
+ * success but silently no-op'd on every Unix host.
  */
-function detectInstallPrefix() {
-  let dir = __dirname;
-  for (let i = 0; i < 10; i++) {
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    if (path.basename(parent) === 'node_modules') {
-      return path.dirname(parent);
-    }
-    dir = parent;
-  }
-  return null;
+function npmPrefixFromBin(npmBin, platform = process.platform) {
+  if (!npmBin) return null;
+  // Use the target platform's path semantics so a Windows path resolves
+  // correctly even when this runs on a POSIX host (and vice versa).
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  const binDir = p.dirname(npmBin);
+  // A bare name (e.g. 'npm' from the PATH hard-fallback) has no usable
+  // directory — let npm resolve its own default global prefix instead.
+  if (binDir === '.' || binDir === '') return null;
+  return platform === 'win32' ? binDir : p.dirname(binDir);
 }
 
 /**
@@ -139,7 +150,7 @@ function runUpdate(opts = {}) {
   const platform = opts.platform || process.platform;
   const spawn = opts.spawn || spawnSync;
   const npmBin = opts.npmBin || findNpmBin({ platform });
-  const prefix = opts.prefix !== undefined ? opts.prefix : detectInstallPrefix();
+  const prefix = opts.prefix !== undefined ? opts.prefix : npmPrefixFromBin(npmBin, platform);
   // Use a GLOBAL install (-g). A LOCAL install (`npm install <pkg> --prefix
   // <dir>`) treats <dir> as a project root and prunes every node_modules entry
   // not reachable from its package.json. When the prefix is the portable node
@@ -228,5 +239,6 @@ module.exports = {
   notifyAndMaybeUpdate,
   runUpdate,
   findNpmBin,
+  npmPrefixFromBin,
   currentVersion,
 };
