@@ -297,11 +297,13 @@ jobs:
           path: unsigned
 
       - name: Regenerate update metadata for signed EXE
-        # SignPath re-signs the EXE *after* electron-builder hashed it, so the
-        # sha512/size recorded in the unsigned latest.yml no longer match the
-        # bytes we ship. electron-updater verifies that hash and would reject
-        # the download. Recompute sha512/size against the signed EXE and drop
-        # the now-stale blockmap so the updater falls back to a full download.
+        # SignPath re-signs the installers *after* electron-builder hashed them,
+        # so the sha512/size in the unsigned latest.yml no longer match the bytes
+        # we ship and electron-updater would reject the download. Recompute each
+        # latest.yml entry from ITS OWN signed binary (matched by filename) — the
+        # build emits multiple exes (NSIS installer + portable), so we must not
+        # blanket-apply one hash to every .exe entry. Drop the now-stale blockmap
+        # so the updater falls back to a full download.
         run: |
           set -euo pipefail
           if [ ! -f unsigned/latest.yml ]; then
@@ -309,23 +311,28 @@ jobs:
             exit 0
           fi
           pip install --quiet pyyaml
-          SIGNED_EXE=$(ls signed/*.exe | head -1)
-          python3 - "$SIGNED_EXE" unsigned/latest.yml signed/latest.yml <<'PY'
-          import base64, hashlib, os, sys, yaml
-          exe, src, dst = sys.argv[1], sys.argv[2], sys.argv[3]
-          data = open(exe, "rb").read()
-          sha512 = base64.b64encode(hashlib.sha512(data).digest()).decode()
-          size = len(data)
-          name = os.path.basename(exe)
+          python3 - unsigned/latest.yml signed/latest.yml signed <<'PY'
+          import base64, hashlib, glob, os, sys, yaml
+          src, dst, signdir = sys.argv[1], sys.argv[2], sys.argv[3]
+          def digest(p):
+              d = open(p, "rb").read()
+              return base64.b64encode(hashlib.sha512(d).digest()).decode(), len(d)
+          # basename -> signed binary path (exe/msi returned by SignPath)
+          signed = {
+              os.path.basename(p): p
+              for p in glob.glob(os.path.join(signdir, "*"))
+              if os.path.isfile(p) and not p.endswith(".yml")
+          }
           doc = yaml.safe_load(open(src))
           for f in doc.get("files", []):
-              if f.get("url", "").endswith(".exe"):
-                  f["sha512"] = sha512
-                  f["size"] = size
+              b = os.path.basename(f.get("url", ""))
+              if b in signed:
+                  f["sha512"], f["size"] = digest(signed[b])
                   f.pop("blockMapSize", None)
-          doc["sha512"] = sha512
-          doc["size"] = size
-          doc["path"] = name
+          # Top-level path/sha512/size describe the primary installer.
+          top = os.path.basename(doc.get("path", ""))
+          if top in signed:
+              doc["sha512"], doc["size"] = digest(signed[top])
           yaml.safe_dump(doc, open(dst, "w"), default_flow_style=False, sort_keys=False)
           print(open(dst).read())
           PY
