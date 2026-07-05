@@ -267,23 +267,45 @@ export function WorkspaceProvider({
         const result = await workspaceApi.pollEvents({ type: 'workspace.user', sort: 'desc', limit: 200 });
         if (cancelled) return;
         const cutoff = Date.now() - 45_000;
-        const map = new Map<string, OnlineUser>();
+        // Track each live connection by its (possibly per-device) user_id so
+        // that left/heartbeat events are applied per-connection correctly.
+        const connections = new Map<string, OnlineUser>();
         for (const event of [...result.events].reverse()) {
           const payload = (event.payload || {}) as Record<string, string>;
           const userId = payload.user_id || payload.sender_id;
           if (!userId) continue;
           if (event.type === 'workspace.user.left') {
-            map.delete(userId);
+            connections.delete(userId);
             continue;
           }
           const userName = payload.user_name || payload.sender_name || 'User';
-          map.set(userId, { id: userId, name: userName, status: 'online', lastSeen: event.timestamp });
+          connections.set(userId, { id: userId, name: userName, status: 'online', lastSeen: event.timestamp });
         }
-        const users = Array.from(map.values())
-          .filter((u) => u.id === currentUserRef.current.id || u.lastSeen >= cutoff)
+        // Collapse multiple connections of the same person (e.g. the same user
+        // open in two tabs / on two devices) into a single row. Anonymous users
+        // get a fresh random user_id per browser, so dedup by name — plus the
+        // current user's own id, which may differ across places (auth vs anon).
+        const myId = currentUserRef.current.id;
+        const myName = currentUserRef.current.name.trim().toLowerCase();
+        const byPerson = new Map<string, { user: OnlineUser; isSelf: boolean }>();
+        for (const conn of connections.values()) {
+          const isSelf = conn.id === myId || (!!myName && conn.name.trim().toLowerCase() === myName);
+          const key = isSelf ? '__self__' : `name:${conn.name.trim().toLowerCase()}`;
+          const prev = byPerson.get(key);
+          const lastSeen = Math.max(conn.lastSeen, prev?.user.lastSeen ?? 0);
+          // Keep the current user's own id on the self row so the sidebar's
+          // "(you)" label (u.id === currentUser.id) keeps working.
+          byPerson.set(key, {
+            user: { id: isSelf ? myId : conn.id, name: conn.name, status: 'online', lastSeen },
+            isSelf,
+          });
+        }
+        const users = Array.from(byPerson.values())
+          .filter(({ user, isSelf }) => isSelf || user.lastSeen >= cutoff)
+          .map(({ user }) => user)
           .sort((a, b) => {
-            if (a.id === currentUserRef.current.id) return -1;
-            if (b.id === currentUserRef.current.id) return 1;
+            if (a.id === myId) return -1;
+            if (b.id === myId) return 1;
             return a.name.localeCompare(b.name);
           });
         setOnlineUsers(users);
