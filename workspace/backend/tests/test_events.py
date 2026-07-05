@@ -330,31 +330,34 @@ class TestPollTargetAgents:
     """GET /v1/events?target_agents= — server-side per-agent filtering.
 
     The adapter's `pollPending` sends this so agents stop pulling the whole
-    network's traffic. The filter is a safe superset: matching + untargeted
-    events are returned; events for *other* agents and the `__no_response__`
-    sentinel are excluded.
+    network's traffic. The filter matches exactly what the adapter keeps:
+    events targeting the agent + untargeted *human* messages. Events for other
+    agents, the `__no_response__` sentinel, and untargeted *agent* messages
+    (agent-to-agent chatter the adapter discards) are excluded.
     """
 
     def _seed(self, db, workspace):
-        """Insert message events with assorted target_agents into a channel."""
+        """Insert message events with assorted target_agents + sources."""
         from app.models import EventRecord
 
         net = workspace["id"]
         ch = f"channel/{workspace['channel']['name']}"
         rows = [
-            ("ev-a", ["alpha"]),                 # for alpha
-            ("ev-b", ["beta"]),                  # for beta only
-            ("ev-ab", ["alpha", "beta"]),        # for both
-            ("ev-none", None),                   # untargeted (no key)
-            ("ev-noresp", ["__no_response__"]),  # routed-to-nobody sentinel
+            # (id, target_agents, source)
+            ("ev-a", ["alpha"], "human:user1"),           # for alpha
+            ("ev-b", ["beta"], "human:user1"),            # for beta only
+            ("ev-ab", ["alpha", "beta"], "human:user1"),  # for both
+            ("ev-human-none", None, "human:user1"),       # untargeted human → broadcast
+            ("ev-agent-none", None, "openagents:beta"),   # untargeted agent → discarded
+            ("ev-noresp", ["__no_response__"], "human:user1"),  # routed-to-nobody
         ]
-        for i, (eid, targets) in enumerate(rows):
+        for i, (eid, targets, source) in enumerate(rows):
             meta = {} if targets is None else {"target_agents": targets}
             db.add(EventRecord(
                 id=eid,
                 network_id=net,
                 type="workspace.message.posted",
-                source="human:user1",
+                source=source,
                 target=ch,
                 payload={"content": eid, "message_type": "chat"},
                 metadata_=meta,
@@ -362,7 +365,7 @@ class TestPollTargetAgents:
             ))
         db.commit()
 
-    def test_filters_to_targeted_plus_untargeted(self, client, workspace, db):
+    def test_filters_to_targeted_plus_untargeted_human(self, client, workspace, db):
         self._seed(db, workspace)
 
         resp = client.get("/v1/events", params={
@@ -373,12 +376,14 @@ class TestPollTargetAgents:
         assert resp.status_code == 200
         ids = {e["id"] for e in resp.json()["data"]["events"]}
 
-        # alpha's events + untargeted broadcast, never beta-only or the sentinel
+        # alpha's events + untargeted *human* broadcast
         assert "ev-a" in ids
         assert "ev-ab" in ids
-        assert "ev-none" in ids
+        assert "ev-human-none" in ids
+        # never beta-only, the sentinel, or untargeted *agent* chatter
         assert "ev-b" not in ids
         assert "ev-noresp" not in ids
+        assert "ev-agent-none" not in ids
 
     def test_next_cursor_skips_ahead_to_stream_tip(self, client, workspace, db):
         """When an agent has drained its own events, next_cursor jumps to the
@@ -408,5 +413,5 @@ class TestPollTargetAgents:
         }, headers={"X-Workspace-Token": workspace["token"]})
         data = resp.json()["data"]
         ids = {e["id"] for e in data["events"]}
-        assert {"ev-a", "ev-b", "ev-ab", "ev-none", "ev-noresp"} <= ids
+        assert {"ev-a", "ev-b", "ev-ab", "ev-human-none", "ev-agent-none", "ev-noresp"} <= ids
         assert "next_cursor" not in data

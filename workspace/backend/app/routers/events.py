@@ -441,29 +441,43 @@ def poll_events(
     if target_agents:
         # Return only events routed to this agent — mirrors the adapter's
         # client-side `target_agents` filter so agents stop pulling the whole
-        # network's traffic and discarding ~(N-1)/N of it. This is a *safe
-        # superset*: we also return untargeted events (no target_agents key),
-        # so nothing the client would have kept is dropped — the adapter's
-        # client-side filter (kept for backward-compat with older backends)
-        # then narrows to the exact set. Sentinel `["__no_response__"]` and
-        # events targeted at *other* agents are excluded here.
+        # network's traffic and discarding ~(N-1)/N of it.
+        #
+        # The set matches exactly what the adapter keeps (verified against live
+        # traffic — this filter == the client filter for every agent):
+        #   • events whose metadata.target_agents contains this agent, PLUS
+        #   • *untargeted human* messages (no target_agents key) — the adapter
+        #     broadcasts those.
+        # Untargeted *agent/system* messages are the bulk of a busy workspace's
+        # traffic (agent-to-agent chatter) and the adapter always discards them
+        # when they carry no target list, so returning them was the difference
+        # between "filter is correct" and "filter actually reduces load". They
+        # are excluded here. Events targeted at *other* agents and the
+        # `["__no_response__"]` sentinel are excluded too.
         if db.bind.dialect.name == "postgresql":
-            # `@>` array containment + GIN-friendly; `? 'target_agents'`
-            # detects the untargeted-event fallback.
+            # `@>` array containment (GIN-friendly); `? 'target_agents'` detects
+            # the untargeted case, scoped to human senders.
             query = query.where(
                 or_(
                     EventRecord.metadata_.contains({"target_agents": [target_agents]}),
-                    ~EventRecord.metadata_.has_key("target_agents"),
+                    and_(
+                        EventRecord.source.startswith("human:"),
+                        ~EventRecord.metadata_.has_key("target_agents"),
+                    ),
                 )
             )
         else:
             # SQLite (tests): no JSONB operators — fall back to a text match.
-            # Over-inclusive but safe; the adapter re-filters client-side.
+            # Over-inclusive on the containment side but safe; the adapter
+            # re-filters client-side.
             meta_text = cast(EventRecord.metadata_, Text)
             query = query.where(
                 or_(
                     meta_text.like(f'%"{target_agents}"%'),
-                    meta_text.notlike('%target_agents%'),
+                    and_(
+                        EventRecord.source.startswith("human:"),
+                        meta_text.notlike('%target_agents%'),
+                    ),
                 )
             )
 
