@@ -82,8 +82,18 @@ test.describe("launcher full flow", () => {
         .toContain(SLUG)
     }
 
+    // Installing an API-key agent auto-opens the post-install SetupWizard modal,
+    // whose overlay blocks navigation. Dismiss it (Escape → base Modal.onClose),
+    // retrying because it opens asynchronously after the install resolves.
+    await expect(async () => {
+      await page.keyboard.press("Escape")
+      await page.getByTestId("nav-agents").click({ timeout: 2_000 })
+      await expect(page.getByTestId("new-agent-open")).toBeVisible({
+        timeout: 2_000,
+      })
+    }).toPass({ timeout: 30_000 })
+
     // 2. Create an agent instance.
-    await page.getByTestId("nav-agents").click()
     await page.getByTestId("new-agent-open").click()
     await page.locator("#agent-type").selectOption(SLUG)
     await page.locator("#agent-name").fill(name)
