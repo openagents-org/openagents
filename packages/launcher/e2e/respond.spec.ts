@@ -132,12 +132,15 @@ test.describe("launcher full flow", () => {
     const hasKeyFields = await save
       .isVisible({ timeout: 60_000 })
       .catch(() => false)
+    // Success of the configure step = the Connect dialog has opened (its
+    // join-token toggle is visible). We assert on THAT rather than the Save
+    // button vanishing, because codex's dual-auth dialog transiently re-enters
+    // its loading state on Windows (footer unmounts briefly), which would
+    // false-positive a "dialog closed" check.
+    const joinToggle = page.getByTestId("ws-join-toggle")
     if (hasKeyFields) {
-      // Retry fill+Save until the dialog closes. save() only closes when no
-      // required field is blank; on some agents (dual-auth codex on Windows) a
-      // late getAgentInstanceEnv re-init can blank a field right at click time,
-      // so Save is rejected and the dialog stays open — re-fill and try again.
       await expect(async () => {
+        if (await joinToggle.isVisible().catch(() => false)) return
         const fieldIds = await page.evaluate(() =>
           Array.from(document.querySelectorAll('[id^="agent-config-"]')).map(
             (e) => e.id,
@@ -151,9 +154,9 @@ test.describe("launcher full flow", () => {
           else if (varName.endsWith("_MODEL")) val = spec?.model
           if (val) await page.locator(`[id="${id}"]`).fill(val)
         }
-        await save.click()
-        await expect(save).toBeHidden({ timeout: 4_000 })
-      }).toPass({ timeout: 40_000 })
+        await save.click().catch(() => {})
+        await expect(joinToggle).toBeVisible({ timeout: 6_000 })
+      }).toPass({ timeout: 60_000 })
     } else {
       await page.evaluate(
         async ({ n, env }) => {
@@ -170,7 +173,11 @@ test.describe("launcher full flow", () => {
         },
         { n: name, env: injectionEnv() },
       )
-      await page.keyboard.press("Escape")
+      await expect(async () => {
+        if (await joinToggle.isVisible().catch(() => false)) return
+        await page.keyboard.press("Escape")
+        await expect(joinToggle).toBeVisible({ timeout: 4_000 })
+      }).toPass({ timeout: 30_000 })
     }
 
     // 4. Connect to the workspace (dialog auto-opens for a new agent).
