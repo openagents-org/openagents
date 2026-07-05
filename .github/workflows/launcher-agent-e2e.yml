@@ -48,9 +48,9 @@ jobs:
         run: |
           AGENTS_IN="${{ github.event.inputs.agents }}"
           OS_IN="${{ github.event.inputs.os }}"
-          # TEMP: gemini-only to validate the CLI API-key auth + native base-URL fix.
+          # TEMP: opencode-only to validate the GPT-model switch.
           # Restore full matrix: codex,claude,hermes,openclaw,opencode,gemini,cursor
-          AGENTS="${AGENTS_IN:-gemini}"
+          AGENTS="${AGENTS_IN:-opencode}"
           OS="${OS_IN:-both}"
 
           case "$OS" in

@@ -42,7 +42,9 @@ const CREDS: Record<string, Cred> = {
   codex: { key: process.env.E2E_CODEX_API_KEY, base: GW, model: "gpt-5-mini" },
   gemini: { key: process.env.E2E_GEMINI_API_KEY, base: GEMINI_BASE, model: "gemini-3.5-flash" },
   openclaw: { key: process.env.E2E_DEEPSEEK_API_KEY, base: GW, model: "deepseek-v4-flash" },
-  opencode: { key: process.env.E2E_DEEPSEEK_API_KEY, base: GW, model: "deepseek-v4-flash" },
+  // opencode → GPT model (deepseek-v4-flash returned provider_server_error via
+  // opencode's openai provider). gpt-5-mini works cleanly on the gateway.
+  opencode: { key: process.env.E2E_CODEX_API_KEY, base: GW, model: "gpt-5-mini" },
   hermes: { key: process.env.E2E_DEEPSEEK_API_KEY, base: GW, model: "deepseek-v4-flash" },
   cursor: { key: process.env.E2E_DEEPSEEK_API_KEY, base: GW, model: "deepseek-v4-flash" },
 }
