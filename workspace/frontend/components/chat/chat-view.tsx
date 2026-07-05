@@ -45,6 +45,15 @@ function normalizeAgentAddress(address: string): string {
   return address.replace(/^openagents:/, '');
 }
 
+/** Condense an agent description down to a few words for the roster bar. */
+function shortDescription(desc: string | null, maxWords = 8): string {
+  if (!desc) return '';
+  const clean = desc.trim().replace(/\s+/g, ' ');
+  const words = clean.split(' ');
+  if (words.length <= maxWords) return clean;
+  return words.slice(0, maxWords).join(' ') + '…';
+}
+
 function messagesForSession(sessionId: string, msgs: WorkspaceMessage[]): WorkspaceMessage[] {
   const dmPair = parseDMSession(sessionId);
   return msgs.flatMap((msg) => {
@@ -754,6 +763,42 @@ export function ChatView() {
           </DropdownMenu>
         </div>
       </div>
+
+      {/* Agent roster bar — thin strip listing who's in the thread + a hint of
+          their responsibility. Only shown for group threads (>1 agent), never DMs. */}
+      {!isDM && (() => {
+        const participants = currentSession?.participants || [];
+        const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
+        if (sessionAgents.length <= 1) return null;
+        return (
+          <div className="flex items-center gap-2 px-2 lg:px-4 py-1.5 border-b shrink-0 overflow-x-auto bg-zinc-50/60 dark:bg-zinc-900/40">
+            {sessionAgents.map((agent, i) => {
+              const desc = shortDescription(agent.description);
+              const isMaster = currentSession?.master === agent.agentName;
+              return (
+                <div key={agent.agentName} className="flex items-center gap-2 shrink-0">
+                  {i > 0 && <span className="text-zinc-300 dark:text-zinc-700 select-none">|</span>}
+                  <div
+                    className="flex items-center gap-1.5 shrink-0"
+                    title={agent.description ? `${agent.agentName} — ${agent.description}` : agent.agentName}
+                  >
+                    <AgentAvatar name={agent.agentName} size={16} status={agent.status} showStatus />
+                    <span className="text-[11px] font-semibold text-zinc-700 dark:text-zinc-200 shrink-0">
+                      {agent.agentName}
+                    </span>
+                    {isMaster && <Crown className="size-2.5 text-amber-500 shrink-0" />}
+                    {desc && (
+                      <span className="text-[11px] text-muted-foreground truncate max-w-[220px]">
+                        {desc}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Messages */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
