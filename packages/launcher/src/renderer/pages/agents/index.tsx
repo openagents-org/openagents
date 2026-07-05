@@ -321,7 +321,7 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
         title={t("agents.list.title")}
         subtitle={t("agents.list.subtitle")}
         actions={
-          <Button variant="primary" onClick={() => setNewAgentOpen(true)}>
+          <Button variant="primary" data-testid="new-agent-open" onClick={() => setNewAgentOpen(true)}>
             <Plus className="w-3.5 h-3.5" />
             {t("agents.list.newAgent")}
           </Button>
@@ -366,7 +366,13 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
                 )
 
               return (
-                <div key={agent.name} className={LIST_ITEM}>
+                <div
+                  key={agent.name}
+                  className={LIST_ITEM}
+                  data-testid={`agent-row-${agent.name}`}
+                  data-state={agent.state}
+                  data-network={agent.network || ""}
+                >
                   <div className="flex justify-between items-start gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2.5 mb-1">
@@ -422,6 +428,7 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
                       <Button
                         size="sm"
                         variant={isRunning ? "default" : "primary"}
+                        data-testid={`agent-toggle-${agent.name}`}
                         onClick={() => toggleAgent(agent)}
                         disabled={isPending}
                       >
@@ -444,6 +451,7 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
                       )}
                       <Button
                         size="sm"
+                        data-testid={`agent-configure-${agent.name}`}
                         onClick={() => {
                           setConfigureAgent({
                             name: agent.name,
@@ -472,6 +480,7 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
                       ) : (
                         <Button
                           size="sm"
+                          data-testid={`agent-connect-${agent.name}`}
                           onClick={() => {
                             setConnectWsAgent(agent.name)
                             setConnectWsOpen(true)
@@ -753,7 +762,7 @@ function NewAgentDialog({
             </div>
           </div>
           <div className="form-actions">
-            <Button variant="primary" onClick={doCreate}>
+            <Button variant="primary" data-testid="new-agent-create" onClick={doCreate}>
               {t("agents.newDialog.create")}
             </Button>
             <Button onClick={onClose}>{t("agents.newDialog.cancel")}</Button>
@@ -1271,7 +1280,7 @@ function ConfigureDialog({
             )
           ) : (
             <div className="form-actions mt-0">
-              <Button variant="primary" onClick={save}>
+              <Button variant="primary" data-testid="cfg-save" onClick={save}>
                 {t("agents.configureDialog.save")}
               </Button>
               <Button
@@ -1674,6 +1683,7 @@ function ConnectWorkspaceDialog({
             </button>
             <button
               type="button"
+              data-testid="ws-join-toggle"
               className="text-left px-3 py-2 text-[13px] w-full rounded-sm border border-dashed border-(--border) text-(--text-secondary) cursor-pointer transition-all duration-150 hover:bg-(--accent-bg) hover:border-(--accent-border)"
               onClick={() => setView("token")}
             >
@@ -1724,7 +1734,7 @@ function ConnectWorkspaceDialog({
             />
           </div>
           <div className="form-actions">
-            <Button variant="primary" onClick={doJoinToken}>
+            <Button variant="primary" data-testid="ws-join" onClick={doJoinToken}>
               {t("agents.connectDialog.join")}
             </Button>
             <Button onClick={onClose}>

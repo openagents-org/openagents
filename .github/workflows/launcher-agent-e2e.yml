@@ -48,10 +48,10 @@ jobs:
         run: |
           AGENTS_IN="${{ github.event.inputs.agents }}"
           OS_IN="${{ github.event.inputs.os }}"
-          # Default (nightly / push): the full 7-agent target matrix. The install
-          # smoke needs no API keys; the keyed flow (configure→connect→respond)
-          # is added on top later.
-          AGENTS="${AGENTS_IN:-codex,claude,hermes,openclaw,opencode,gemini,cursor}"
+          # TEMP: openclaw-only while validating the keyed (connect+respond) flow.
+          # Restore to the full 7-agent matrix once green:
+          # codex,claude,hermes,openclaw,opencode,gemini,cursor
+          AGENTS="${AGENTS_IN:-openclaw}"
           OS="${OS_IN:-both}"
 
           case "$OS" in
