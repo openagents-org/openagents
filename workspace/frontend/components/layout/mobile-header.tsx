@@ -16,13 +16,11 @@ import { SidebarContent } from './sidebar-content';
 import { useLayout, type ViewMode } from './layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { cn } from '@/lib/utils';
-import { NewThreadDialog } from '@/components/threads/new-thread-dialog';
 
 export function MobileHeader() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const [newThreadOpen, setNewThreadOpen] = useState(false);
-  const { viewMode, setViewMode, openMobileList, openMobileDetail } = useLayout();
-  const { workspace, createSession, sessions, agents } = useWorkspace();
+  const { viewMode, setViewMode, openMobileList, openNewThread } = useLayout();
+  const { workspace } = useWorkspace();
 
   // Close sheet when clicking a session
   useEffect(() => {
@@ -41,16 +39,8 @@ export function MobileHeader() {
     openMobileList();
   };
 
-  const handleNewThread = () => {
-    // With 2+ agents, let the user pick who joins instead of auto-adding everyone.
-    if (agents.length >= 2) {
-      setNewThreadOpen(true);
-    } else {
-      createSession();
-      setViewMode('threads');
-      openMobileDetail();
-    }
-  };
+  // Open the shared agent picker so the user chooses who joins the new session.
+  const handleNewThread = () => openNewThread();
 
   const tabs: { mode: ViewMode; icon: typeof MessageSquare; label: string }[] = [
     { mode: 'threads', icon: MessageSquare, label: 'Threads' },
@@ -121,19 +111,6 @@ export function MobileHeader() {
           ))}
         </div>
       </nav>
-
-      {/* New Thread Dialog (agent picker) */}
-      <NewThreadDialog
-        open={newThreadOpen}
-        onOpenChange={setNewThreadOpen}
-        agents={agents}
-        sessions={sessions}
-        onCreateThread={({ master, participants, resumeFrom }) => {
-          createSession({ master, participants, resumeFrom });
-          setViewMode('threads');
-          openMobileDetail();
-        }}
-      />
     </>
   );
 }

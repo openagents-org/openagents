@@ -11,7 +11,7 @@ import { useWorkspace } from '@/lib/workspace-context';
  * `openNewThread()` without each one owning its own dialog instance.
  */
 export function NewThreadDialogHost() {
-  const { newThreadOpen, setNewThreadOpen, setViewMode } = useLayout();
+  const { newThreadOpen, setNewThreadOpen, setViewMode, isMobile, openMobileDetail } = useLayout();
   const { agents, sessions, createSession } = useWorkspace();
 
   return (
@@ -23,6 +23,8 @@ export function NewThreadDialogHost() {
       onCreateThread={({ master, participants, resumeFrom }) => {
         createSession({ master, participants, resumeFrom });
         setViewMode('threads');
+        // On mobile, jump to the detail pane so the new thread is visible.
+        if (isMobile) openMobileDetail();
       }}
     />
   );
