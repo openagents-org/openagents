@@ -19,6 +19,7 @@
     "dev": "electron-vite dev",
     "test": "vitest run",
     "test:watch": "vitest",
+    "e2e": "playwright test",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "build:mac": "npm run build && electron-builder --mac --x64 --arm64 --publish never",
@@ -44,6 +45,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.0.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",

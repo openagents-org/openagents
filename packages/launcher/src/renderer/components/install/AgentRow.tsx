@@ -44,6 +44,9 @@ export function AgentRow({
       role="button"
       tabIndex={isComingSoon ? -1 : 0}
       aria-disabled={isComingSoon}
+      data-testid={`agent-card-${entry.name}`}
+      data-installed={isInstalled ? "true" : "false"}
+      data-busy={isBusy ? "true" : "false"}
       onKeyDown={(e) => { if (!isComingSoon && e.key === "Enter") onOpen() }}
       className={cn(
         "flex items-center gap-3.5 px-4 py-3",
@@ -110,7 +113,7 @@ export function AgentRow({
         ) : isBusy ? (
           <Button size="sm" disabled>{verbLabel}</Button>
         ) : !isInstalled ? (
-          <Button size="sm" variant="primary" onClick={(e) => { e.stopPropagation(); onInstall() }}>
+          <Button size="sm" variant="primary" data-testid={`install-btn-${entry.name}`} onClick={(e) => { e.stopPropagation(); onInstall() }}>
             {t("install.card.install")}
           </Button>
         ) : isManaged ? (

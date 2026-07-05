@@ -71,6 +71,14 @@ export const useInstallStore = create<InstallState>((set) => ({
   setUpdates: (updates) => set({ updates }),
 }))
 
+// Expose the install store for E2E diagnostics (read an agent's streamed install
+// log). Harmless in production; used by the launcher-agent-e2e harness.
+if (typeof window !== "undefined") {
+  ;(
+    window as unknown as { __oaInstallStore?: typeof useInstallStore }
+  ).__oaInstallStore = useInstallStore
+}
+
 export function hasPendingUpdate(updates: AgentUpdateInfo[], name: string): boolean {
   const info = updates.find((u) => u.name === name)
   if (!info || !info.current || !info.latest) return false

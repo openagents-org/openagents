@@ -123,6 +123,7 @@ export default function Sidebar(): React.JSX.Element {
                       <button
                         type="button"
                         data-tour={item.id}
+                        data-testid={`nav-${item.id}`}
                         title={t(`nav.items.${item.id}.description`)}
                         onClick={() => {
                           capture("tab_switched", { tab: item.id })
