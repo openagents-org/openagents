@@ -104,3 +104,28 @@ describe('WorkspaceClient', () => {
       });
   });
 });
+
+// Regression guard for the "online but deaf" wedge: a request whose socket
+// never receives a response must reject within its deadline instead of hanging
+// forever and stalling the caller's single poll loop. (AbortSignal.timeout ALSO
+// covers the DNS/connect phase, which the socket `timeout` option cannot —
+// it is not armed until a socket exists — but exercising that needs real
+// unroutable network state, which isn't hermetic across CI platforms. The
+// deterministic local case below is what we assert; the DNS/connect rationale
+// lives in the workspace-client.js comment.)
+describe('WorkspaceClient request deadlines', () => {
+  it('_get rejects promptly when the server accepts but never responds', { timeout: 10000 }, async () => {
+    const server = http.createServer(() => { /* intentionally never respond */ });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    const client = new WorkspaceClient(`http://127.0.0.1:${port}`);
+    const start = Date.now();
+    try {
+      await assert.rejects(() => client._get('/v1/events', {}, 400));
+      const elapsed = Date.now() - start;
+      assert.ok(elapsed < 5000, `expected reject within 5s, took ${elapsed}ms`);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
