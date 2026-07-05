@@ -26,11 +26,6 @@ on:
   schedule:
     # 07:17 UTC daily — off the :00 mark on purpose.
     - cron: "17 7 * * *"
-  # TEMPORARY (spike validation only): auto-run on this feature branch because
-  # workflow_dispatch isn't registered until the file lands on the default
-  # branch. REMOVE this push trigger before merging to develop.
-  push:
-    branches: [feature/launcher-agent-e2e]
 
 concurrency:
   group: launcher-agent-e2e-${{ github.ref }}
