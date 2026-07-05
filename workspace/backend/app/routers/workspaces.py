@@ -15,6 +15,7 @@ PATCH  /v1/workspaces/{id}/members/{name}  Update agent description/role
 
 import json as _json
 import logging
+import os
 import secrets
 import time
 import uuid
@@ -579,6 +580,24 @@ class SkillStatusRequest(BaseModel):
 _VALID_SKILL_STATES = {"installing", "installed", "failed", "uninstalled"}
 
 
+class CustomSkillRegisterRequest(BaseModel):
+    """Register a previously-uploaded workspace file as a custom skill.
+
+    The file must already exist as a ``FileRecord`` in *this* workspace (upload
+    via ``POST /v1/files`` first, then register with the returned ``file_id``).
+    """
+    file_id: str
+    id: Optional[str] = None            # auto-derived from filename when omitted
+    name: Optional[str] = None
+    description: Optional[str] = None
+    filename: Optional[str] = None      # original name, for display metadata only
+
+
+def _custom_skills_map(workspace) -> dict:
+    """Return a shallow copy of ``settings["custom_skills"]`` (id → metadata)."""
+    return dict((workspace.settings or {}).get("custom_skills") or {})
+
+
 def _emit_agent_control_event(db, workspace, agent_name: str, action: str, payload: dict) -> None:
     """Persist a ``workspace.agent.control`` event targeted at one agent and
     publish it to the workspace's Redis pub/sub channel.
@@ -692,24 +711,61 @@ async def install_skill(
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
 
+    # Built-in catalog first; then fall back to this workspace's custom skills.
     skill = find_skill(body.skill_id)
-    if not skill:
+    custom = None if skill else _custom_skills_map(workspace).get(body.skill_id)
+    if not skill and not custom:
         return json_response(ResponseCode.NOT_FOUND, f"Unknown skill: {body.skill_id}")
+
+    # For a custom skill, confirm its backing upload still exists and belongs to
+    # this workspace BEFORE marking installing / emitting the control event.
+    # Otherwise a file deleted from Workspace Files would only surface as a
+    # late agent-side readFile failure; fail fast here with a clear, actionable
+    # message so the UI can tell the user to re-upload.
+    if custom:
+        from app.models import FileRecord
+        file_id = custom.get("file_id")
+        file_rec = db.execute(
+            select(FileRecord).where(FileRecord.id == file_id)
+        ).scalar_one_or_none() if file_id else None
+        if (not file_rec or file_rec.status != "active"
+                or str(file_rec.workspace_id) != str(workspace.id)):
+            return json_response(
+                ResponseCode.CONFLICT,
+                "This skill's uploaded file was deleted. Please re-upload the skill.",
+            )
 
     skills_data = dict(member.enabled_skills or {})
     skills_data = _set_skill_status(skills_data, body.skill_id, "installing")
     member.enabled_skills = skills_data
 
-    # Carry the catalog metadata the launcher needs to fetch the skill.
-    _emit_agent_control_event(db, workspace, agent_name, "skill.install", {
-        "skill": {
-            "id": skill["id"],
-            "name": skill.get("name", skill["id"]),
-            "description": skill.get("description", ""),
-            "source_repo": skill.get("source_repo", ""),
-            "source_path": skill.get("source_path", ""),
-        },
-    })
+    if custom:
+        # Custom skill: the agent downloads the uploaded file from workspace
+        # storage via WorkspaceClient.readFile. Send only metadata + file_id —
+        # NEVER the file contents / base64 in the control event payload.
+        _emit_agent_control_event(db, workspace, agent_name, "skill.install", {
+            "skill": {
+                "id": custom["id"],
+                "name": custom.get("name", custom["id"]),
+                "description": custom.get("description", ""),
+                "source_type": custom.get("source_type", "workspace_file"),
+                "file_id": custom.get("file_id"),
+                "filename": custom.get("filename"),
+                "content_type": custom.get("content_type"),
+                "package_type": custom.get("package_type"),
+            },
+        })
+    else:
+        # Carry the catalog metadata the launcher needs to fetch the skill.
+        _emit_agent_control_event(db, workspace, agent_name, "skill.install", {
+            "skill": {
+                "id": skill["id"],
+                "name": skill.get("name", skill["id"]),
+                "description": skill.get("description", ""),
+                "source_repo": skill.get("source_repo", ""),
+                "source_path": skill.get("source_path", ""),
+            },
+        })
     db.commit()
 
     logger.info(
@@ -884,6 +940,140 @@ async def uninstall_skill(
         "action": "uninstalled",
         "installedSkills": installed,
     })
+
+
+# ---------------------------------------------------------------------------
+# GET  /v1/workspaces/{workspace_id}/skills/custom   — list custom skills
+# POST /v1/workspaces/{workspace_id}/skills/custom   — register a custom skill
+# ---------------------------------------------------------------------------
+
+@router.get("/{workspace_id}/skills/custom")
+async def list_custom_skills(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """List this workspace's user-uploaded custom skills."""
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+
+    return success_response({"skills": list(_custom_skills_map(workspace).values())})
+
+
+@router.post("/{workspace_id}/skills/custom")
+async def register_custom_skill(
+    workspace_id: str,
+    body: CustomSkillRegisterRequest,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Register an already-uploaded workspace file as a custom skill.
+
+    Validates that the file belongs to this workspace and that its bytes are a
+    valid ``.md`` or ``.zip`` skill package, then stores metadata under
+    ``Workspace.settings["custom_skills"]``. The file bytes are never copied
+    into settings — only a ``file_id`` reference is kept.
+    """
+    from app.custom_skills import (
+        CUSTOM_SKILL_CATEGORY,
+        CUSTOM_SKILL_SOURCE_TYPE,
+        CustomSkillError,
+        derive_skill_id,
+        inspect_package,
+        is_valid_skill_id,
+    )
+    from app.models import FileRecord
+    from app.skill_catalog import find_skill
+    from app.storage import get_file_store
+
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+
+    # The file must exist AND belong to this workspace. The generic file
+    # download route only checks "can you access the file's own workspace", so
+    # this ownership check is genuinely required here — it stops a caller from
+    # registering another workspace's file id into this workspace.
+    file_rec = db.execute(
+        select(FileRecord).where(FileRecord.id == body.file_id)
+    ).scalar_one_or_none()
+    if not file_rec or file_rec.status != "active":
+        return json_response(ResponseCode.NOT_FOUND, "File not found")
+    if str(file_rec.workspace_id) != str(workspace.id):
+        return json_response(ResponseCode.NOT_FOUND, "File not found in this workspace")
+
+    skill_id = (body.id or "").strip() or derive_skill_id(body.filename or file_rec.filename)
+    if not is_valid_skill_id(skill_id):
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            "Invalid skill id. Use letters, digits, '.', '_' or '-' and do not start with a dash.",
+        )
+
+    # No shadowing of a built-in catalog skill, and no duplicate custom id.
+    if find_skill(skill_id):
+        return json_response(
+            ResponseCode.CONFLICT, f"'{skill_id}' conflicts with a built-in catalog skill",
+        )
+    existing = _custom_skills_map(workspace)
+    if skill_id in existing:
+        return json_response(
+            ResponseCode.CONFLICT, f"A custom skill '{skill_id}' already exists in this workspace",
+        )
+
+    store = get_file_store()
+    try:
+        data = store.read(file_rec.storage_key)
+    except Exception:
+        return json_response(ResponseCode.BAD_REQUEST, "Could not read the uploaded file")
+
+    # Validate by inspecting bytes — do NOT trust the stored content_type.
+    try:
+        pkg = inspect_package(data, file_rec.filename)
+    except CustomSkillError as exc:
+        return json_response(ResponseCode.BAD_REQUEST, str(exc))
+
+    entry = {
+        "id": skill_id,
+        "name": (body.name or "").strip() or skill_id,
+        "description": (body.description or "").strip(),
+        "category": CUSTOM_SKILL_CATEGORY,
+        "tags": [],
+        "author": "Workspace user",
+        "source_type": CUSTOM_SKILL_SOURCE_TYPE,
+        "file_id": file_rec.id,
+        "filename": os.path.basename(body.filename or file_rec.filename),
+        "content_type": pkg["content_type"],
+        "package_type": pkg["package_type"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Persist via copy-then-reassign: SQLAlchemy does not detect in-place edits
+    # of a JSONB column (no MutableDict here), so we rebuild and reassign the
+    # whole settings dict. The copy also preserves any other custom skills.
+    current = dict(workspace.settings or {})
+    skills = dict(current.get("custom_skills") or {})
+    skills[skill_id] = entry
+    current["custom_skills"] = skills
+    workspace.settings = current
+    db.add(workspace)
+    db.commit()
+
+    logger.info(
+        "register_custom_skill: '%s' (%s) registered in workspace %s",
+        skill_id, entry["package_type"], workspace.id,
+    )
+    return success_response(entry)
 
 
 # ---------------------------------------------------------------------------

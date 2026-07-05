@@ -1,11 +1,19 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
-import { Sparkles, Search, ExternalLink, Star, ArrowRight, Check, Plus, Loader2, AlertCircle } from 'lucide-react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { Sparkles, Search, ExternalLink, Star, ArrowRight, Check, Plus, Loader2, AlertCircle, Upload, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
+import type { WorkspaceCustomSkill } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { toast } from 'sonner';
 
 // ---------------------------------------------------------------------------
@@ -17,12 +25,61 @@ interface Skill {
   name: string;
   description: string;
   category: string;
-  logo: string;
   tags: string[];
-  sourceRepo: string;
-  sourcePath: string;
-  author: string;
+  // Catalog skills carry logo + GitHub source; custom (uploaded) skills don't.
+  logo?: string;
+  sourceRepo?: string;
+  sourcePath?: string;
+  author?: string;
   featured?: boolean;
+  // Custom (workspace_file) skills — uploaded .md/.zip packages.
+  sourceType?: 'catalog' | 'workspace_file';
+  fileId?: string;
+  filename?: string;
+  contentType?: string;
+  packageType?: 'md' | 'zip';
+}
+
+const CUSTOM_SKILL_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
+
+/** Map a backend custom skill into the local Skill shape used by the UI. */
+function customSkillToSkill(c: WorkspaceCustomSkill): Skill {
+  return {
+    id: c.id,
+    name: c.name,
+    description: c.description || '',
+    category: 'custom',
+    tags: c.tags || [],
+    author: c.author || 'Workspace user',
+    sourceType: 'workspace_file',
+    fileId: c.fileId,
+    filename: c.filename,
+    contentType: c.contentType,
+    packageType: c.packageType,
+  };
+}
+
+function deriveSkillId(filename: string): string {
+  const stem = filename.replace(/\.[^.]+$/, '');
+  return (
+    stem.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^[-._]+|[-._]+$/g, '').slice(0, 64) ||
+    'custom-skill'
+  );
+}
+
+/** Pull the human-readable message out of an API error like `API 400: {json}`. */
+function extractErrorMessage(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  const brace = msg.indexOf('{');
+  if (brace >= 0) {
+    try {
+      const parsed = JSON.parse(msg.slice(brace));
+      if (parsed && typeof parsed.message === 'string') return parsed.message;
+    } catch {
+      /* fall through */
+    }
+  }
+  return msg;
 }
 
 const SI = 'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons';
@@ -121,6 +178,7 @@ const CATEGORIES = [
   { id: 'integrations', label: 'Integrations', icon: '🔗' },
   { id: 'documents', label: 'Documents', icon: '📄' },
   { id: 'sensenova', label: 'SenseNova', icon: '🌟' },
+  { id: 'custom', label: 'Custom', icon: '📦' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -136,8 +194,12 @@ function SkillCard({ skill, onSelect }: { skill: Skill; onSelect: (s: Skill) => 
       <div className="flex items-start gap-3">
         {/* Logo */}
         <div className="size-10 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={skill.logo} alt="" className="h-5 w-5 object-contain dark:invert" />
+          {skill.logo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={skill.logo} alt="" className="h-5 w-5 object-contain dark:invert" />
+          ) : (
+            <Package className="h-5 w-5 text-muted-foreground" />
+          )}
         </div>
 
         <div className="flex-1 min-w-0">
@@ -168,7 +230,9 @@ function SkillCard({ skill, onSelect }: { skill: Skill; onSelect: (s: Skill) => 
 
       {/* Footer */}
       <div className="flex items-center justify-between mt-2.5 ml-[52px]">
-        <span className="text-[9px] text-muted-foreground">{skill.sourceRepo.split('/')[0]}</span>
+        <span className="text-[9px] text-muted-foreground">
+          {skill.sourceRepo ? skill.sourceRepo.split('/')[0] : (skill.author || 'Custom')}
+        </span>
         <span className="text-[10px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
           View <ArrowRight className="size-2.5" />
         </span>
@@ -182,7 +246,10 @@ function SkillCard({ skill, onSelect }: { skill: Skill; onSelect: (s: Skill) => 
 // ---------------------------------------------------------------------------
 
 function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) {
-  const ghUrl = `https://github.com/${skill.sourceRepo}/tree/main/${skill.sourcePath}`;
+  const isCustom = skill.sourceType === 'workspace_file';
+  const ghUrl = skill.sourceRepo
+    ? `https://github.com/${skill.sourceRepo}/tree/main/${skill.sourcePath}`
+    : '';
   const { agents, refreshWorkspace } = useWorkspace();
   const [installing, setInstalling] = useState<string | null>(null);
 
@@ -195,8 +262,11 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
       // drives the badge from here, picked up by discovery polling.
       await refreshWorkspace();
       toast.success(`Installing ${skill.name} on ${agentName}…`);
-    } catch {
-      toast.error('Failed to request skill install');
+    } catch (e) {
+      // Surface the backend message — e.g. a custom skill whose uploaded file
+      // was deleted returns "…please re-upload the skill." rather than a
+      // generic failure the user can't act on.
+      toast.error(extractErrorMessage(e) || 'Failed to request skill install');
     } finally {
       setInstalling(null);
     }
@@ -248,8 +318,12 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
         <div className="px-5 pt-5 pb-3 border-b border-border">
           <div className="flex items-start gap-3">
             <div className="size-12 rounded-xl bg-muted/60 flex items-center justify-center shrink-0">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={skill.logo} alt="" className="h-7 w-7 object-contain dark:invert" />
+              {skill.logo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={skill.logo} alt="" className="h-7 w-7 object-contain dark:invert" />
+              ) : (
+                <Package className="h-7 w-7 text-muted-foreground" />
+              )}
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -354,23 +428,44 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
             </div>
             <div className="rounded-lg border border-border p-2.5">
               <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">Author</div>
-              <div className="text-xs font-medium">{skill.author}</div>
+              <div className="text-xs font-medium">{skill.author || 'Workspace user'}</div>
             </div>
           </div>
 
-          <div className="rounded-lg border border-border p-2.5">
-            <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">Source</div>
-            <a href={ghUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
-              {skill.sourceRepo}/{skill.sourcePath} <ExternalLink className="size-2.5" />
-            </a>
-          </div>
+          {/* Custom (uploaded) skills show the uploaded package instead of a
+              GitHub source / CLI install command. */}
+          {isCustom ? (
+            <div className="rounded-lg border border-border p-2.5">
+              <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Uploaded package</div>
+              <div className="flex items-center gap-2">
+                <Package className="size-3.5 text-muted-foreground shrink-0" />
+                <span className="text-xs font-medium truncate">{skill.filename || `${skill.id}.${skill.packageType || 'md'}`}</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase shrink-0">
+                  {skill.packageType || 'md'}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <>
+              {skill.sourceRepo && (
+                <div className="rounded-lg border border-border p-2.5">
+                  <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">Source</div>
+                  <a href={ghUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                    {skill.sourceRepo}/{skill.sourcePath} <ExternalLink className="size-2.5" />
+                  </a>
+                </div>
+              )}
 
-          <div className="rounded-lg border border-border p-3 bg-muted/30">
-            <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">CLI Install</div>
-            <code className="text-[11px] font-mono block bg-background rounded-md p-2.5 border border-border select-all break-all">
-              npx @anthropic-ai/skills install {skill.sourceRepo}/{skill.sourcePath}
-            </code>
-          </div>
+              {skill.sourceRepo && (
+                <div className="rounded-lg border border-border p-3 bg-muted/30">
+                  <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">CLI Install</div>
+                  <code className="text-[11px] font-mono block bg-background rounded-md p-2.5 border border-border select-all break-all">
+                    npx @anthropic-ai/skills install {skill.sourceRepo}/{skill.sourcePath}
+                  </code>
+                </div>
+              )}
+            </>
+          )}
 
           <div className="rounded-lg border border-border p-2.5">
             <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Compatible With</div>
@@ -385,10 +480,12 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
 
         <div className="px-5 py-3 border-t border-border flex items-center justify-between">
           <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">Close</button>
-          <a href={ghUrl} target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90">
-            View on GitHub <ExternalLink className="size-3" />
-          </a>
+          {!isCustom && ghUrl && (
+            <a href={ghUrl} target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90">
+              View on GitHub <ExternalLink className="size-3" />
+            </a>
+          )}
         </div>
       </div>
     </>
@@ -400,12 +497,35 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
 // ---------------------------------------------------------------------------
 
 export function SkillsView() {
+  const { workspace } = useWorkspace();
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
+  const [customSkills, setCustomSkills] = useState<Skill[]>([]);
+  const [uploadOpen, setUploadOpen] = useState(false);
+
+  // Load this workspace's custom skills once the workspace (and hence the
+  // configured API client) is ready.
+  const workspaceId = workspace?.workspaceId;
+  useEffect(() => {
+    if (!workspaceId) return;
+    let cancelled = false;
+    workspaceApi.getCustomSkills()
+      .then(list => { if (!cancelled) setCustomSkills(list.map(customSkillToSkill)); })
+      .catch(() => { /* non-fatal: just show the catalog */ });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+
+  const handleUploaded = useCallback((created: WorkspaceCustomSkill) => {
+    const skill = customSkillToSkill(created);
+    setCustomSkills(prev => [skill, ...prev.filter(s => s.id !== skill.id)]);
+    setActiveCategory('custom');
+  }, []);
+
+  const allSkills = useMemo(() => [...SKILLS, ...customSkills], [customSkills]);
 
   const filtered = useMemo(() => {
-    let result = SKILLS;
+    let result = allSkills;
     if (activeCategory !== 'all') result = result.filter(s => s.category === activeCategory);
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -415,15 +535,15 @@ export function SkillsView() {
       );
     }
     return result;
-  }, [search, activeCategory]);
+  }, [search, activeCategory, allSkills]);
 
   const featured = useMemo(() => SKILLS.filter(s => s.featured), []);
 
   const categoryCounts = useMemo(() => {
-    const c: Record<string, number> = { all: SKILLS.length };
-    for (const s of SKILLS) c[s.category] = (c[s.category] || 0) + 1;
+    const c: Record<string, number> = { all: allSkills.length };
+    for (const s of allSkills) c[s.category] = (c[s.category] || 0) + 1;
     return c;
-  }, []);
+  }, [allSkills]);
 
   return (
     <div className="h-full flex flex-col">
@@ -432,7 +552,14 @@ export function SkillsView() {
         <div className="flex items-center gap-2">
           <Sparkles className="size-4 text-amber-500" />
           <h2 className="text-sm font-semibold">Skill Hub</h2>
-          <span className="text-xs text-muted-foreground">{SKILLS.length} skills</span>
+          <span className="text-xs text-muted-foreground">{allSkills.length} skills</span>
+          <button
+            onClick={() => setUploadOpen(true)}
+            className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+          >
+            <Upload className="size-3.5" />
+            Upload custom skill
+          </button>
         </div>
 
         <div className="relative">
@@ -510,6 +637,177 @@ export function SkillsView() {
       </div>
 
       {selectedSkill && <SkillDetail skill={selectedSkill} onClose={() => setSelectedSkill(null)} />}
+      <UploadSkillDialog open={uploadOpen} onOpenChange={setUploadOpen} onUploaded={handleUploaded} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Upload custom skill dialog
+// ---------------------------------------------------------------------------
+
+function UploadSkillDialog({
+  open,
+  onOpenChange,
+  onUploaded,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onUploaded: (skill: WorkspaceCustomSkill) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [id, setId] = useState('');
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = useCallback(() => {
+    setFile(null); setId(''); setName(''); setDescription('');
+    setError(null); setSubmitting(false);
+  }, []);
+
+  const onPickFile = (f: File | null) => {
+    setError(null);
+    setFile(f);
+    if (f) {
+      setId(deriveSkillId(f.name));
+      setName(f.name.replace(/\.[^.]+$/, ''));
+    }
+  };
+
+  const ext = file ? file.name.toLowerCase().slice(file.name.lastIndexOf('.')) : '';
+  const extOk = ext === '.md' || ext === '.zip';
+  const idValid = CUSTOM_SKILL_ID_RE.test(id);
+  const canSubmit = !!file && extOk && idValid && !submitting;
+
+  const submit = async () => {
+    if (!file) { setError('Choose a .md or .zip file to upload.'); return; }
+    if (!extOk) { setError('Only .md and .zip files are supported.'); return; }
+    if (!idValid) { setError('Invalid skill id — use letters, digits, ".", "_" or "-", not starting with a dash.'); return; }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const created = await workspaceApi.uploadCustomSkill(file, {
+        id: id.trim(),
+        name: name.trim() || id.trim(),
+        description: description.trim(),
+      });
+      toast.success(`Uploaded "${created.name}"`);
+      onUploaded(created);
+      reset();
+      onOpenChange(false);
+    } catch (e) {
+      setError(extractErrorMessage(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Upload custom skill</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          {/* File picker */}
+          <div>
+            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+              Skill package (.md or .zip)
+            </label>
+            <label className="mt-1 flex items-center gap-2 rounded-lg border border-dashed border-input px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors">
+              <Upload className="size-4 text-muted-foreground shrink-0" />
+              <span className="text-xs truncate flex-1">
+                {file ? file.name : 'Choose a .md or .zip file…'}
+              </span>
+              {file && (
+                <span className="text-[10px] text-muted-foreground shrink-0">
+                  {(file.size / 1024).toFixed(1)} KB
+                </span>
+              )}
+              <input
+                type="file"
+                accept=".md,.zip"
+                className="hidden"
+                onChange={(e) => onPickFile(e.target.files?.[0] || null)}
+              />
+            </label>
+            {file && !extOk && (
+              <p className="mt-1 text-[11px] text-red-500">Only .md and .zip files are supported.</p>
+            )}
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              A .zip must contain a SKILL.md (at the root or in a single top-level folder).
+            </p>
+          </div>
+
+          {/* Skill id */}
+          <div>
+            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Skill ID</label>
+            <input
+              type="text"
+              value={id}
+              onChange={(e) => setId(e.target.value)}
+              placeholder="my-custom-skill"
+              className="mt-1 w-full px-3 py-2 text-sm rounded-lg bg-muted/50 border border-input focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            {id !== '' && !idValid && (
+              <p className="mt-1 text-[11px] text-red-500">
+                Use letters, digits, &quot;.&quot;, &quot;_&quot; or &quot;-&quot;, not starting with a dash.
+              </p>
+            )}
+          </div>
+
+          {/* Name */}
+          <div>
+            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="My Custom Skill"
+              className="mt-1 w-full px-3 py-2 text-sm rounded-lg bg-muted/50 border border-input focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Description (optional)</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              placeholder="What does this skill do?"
+              className="mt-1 w-full px-3 py-2 text-sm rounded-lg bg-muted/50 border border-input focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+            />
+          </div>
+
+          {error && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2">
+              <AlertCircle className="size-3.5 text-red-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-red-600 dark:text-red-400">{error}</p>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <button
+            onClick={() => onOpenChange(false)}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={!canSubmit}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50"
+          >
+            {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+            {submitting ? 'Uploading…' : 'Upload'}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

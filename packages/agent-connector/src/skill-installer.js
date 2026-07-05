@@ -24,8 +24,15 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const zlib = require('zlib');
 const { execFileSync } = require('child_process');
 const { defaultAgentWorkdir } = require('./paths');
+
+// Uploaded-skill (.zip) extraction guards. Mirrors the server-side limits in
+// workspace/backend/app/custom_skills.py so both ends agree.
+const MAX_ZIP_ENTRIES = 2000;
+const MAX_ZIP_UNCOMPRESSED_BYTES = 50 * 1024 * 1024; // 50 MB expanded total
+const MAX_ZIP_COMPRESSION_RATIO = 200;               // expanded / stored
 
 /**
  * Resolve the skills directory for a given agent type, rooted at the agent's
@@ -258,6 +265,47 @@ function installSkill({ skill, agentType, workingDir, fetcher, log }) {
 }
 
 /**
+ * Install a user-uploaded custom skill (source_type=workspace_file) from an
+ * already-downloaded Buffer. Unlike catalog skills, the bytes are provided by
+ * the caller (the adapter downloads them via WorkspaceClient.readFile) — the
+ * installer never touches the network here.
+ *
+ *  - `.md`  → written verbatim as <destDir>/SKILL.md
+ *  - `.zip` → extracted with full path/symlink/zip-bomb validation; a single
+ *             top-level directory is stripped so SKILL.md ends up at the root.
+ *
+ * Reuses installSkill's dest-dir resolution, clean-on-reinstall, and final
+ * SKILL.md verification by passing a synchronous fetcher that writes the Buffer.
+ *
+ * @param {object} args
+ * @param {object} args.skill        metadata (id, package_type, filename, …)
+ * @param {Buffer} args.buffer       the uploaded file bytes
+ * @param {string} args.agentType
+ * @param {string} [args.workingDir]
+ * @param {function} [args.log]
+ * @returns {{path: string, skillId: string, partial: boolean}}
+ */
+function installUploadedSkill({ skill, buffer, agentType, workingDir, log }) {
+  const _log = log || (() => {});
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    const id = (skill && (skill.id || skill.skill_id)) || 'unknown';
+    throw new Error(`uploaded skill "${id}" has no file content`);
+  }
+  const packageType = _resolvePackageType(skill, buffer);
+  const fetcher = ({ destDir }) => {
+    if (packageType === 'zip') {
+      _installUploadedZip(buffer, destDir, _log);
+    } else {
+      fs.mkdirSync(destDir, { recursive: true });
+      fs.writeFileSync(path.join(destDir, 'SKILL.md'), buffer);
+      _log('wrote uploaded SKILL.md');
+    }
+    return { partial: false };
+  };
+  return installSkill({ skill, agentType, workingDir, fetcher, log: _log });
+}
+
+/**
  * Remove an installed skill directory. Idempotent.
  *
  * @returns {{path: string, removed: boolean, skillId: string}}
@@ -363,6 +411,175 @@ function _copyDir(src, dest) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Uploaded-skill (workspace_file) install internals
+// ---------------------------------------------------------------------------
+
+/** Decide md vs zip: declared package_type → zip magic sniff → filename hint. */
+function _resolvePackageType(skill, buffer) {
+  const declared = String((skill && (skill.package_type || skill.packageType)) || '').toLowerCase();
+  if (declared === 'zip' || declared === 'md') return declared;
+  if (Buffer.isBuffer(buffer) && buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4b) {
+    return 'zip'; // "PK"
+  }
+  const fn = String((skill && (skill.filename || skill.file_name)) || '').toLowerCase();
+  if (fn.endsWith('.zip')) return 'zip';
+  return 'md';
+}
+
+/** Only a real SKILL.md counts (uploaded zips must ship one, not just any *.md). */
+function _hasSkillMd(dir) {
+  for (const c of ['SKILL.md', 'skill.md', 'Skill.md']) {
+    if (fs.existsSync(path.join(dir, c))) return true;
+  }
+  return false;
+}
+
+// Path safety for a zip entry name. Mirrors _is_unsafe_zip_name in the backend:
+// reject absolute paths, Windows drive paths, and any ".." segment.
+function _isUnsafeZipName(name) {
+  if (!name) return true;
+  if (name.startsWith('/') || name.startsWith('\\')) return true;
+  if (/^[A-Za-z]:/.test(name)) return true;
+  return name.split(/[\\/]/).some((seg) => seg === '..');
+}
+
+function _isSymlinkMode(unixMode) {
+  return (unixMode & 0o170000) === 0o120000; // S_IFLNK
+}
+
+/**
+ * Parse a zip's central directory into entry descriptors. We trust the central
+ * directory (not local headers) for sizes/method, and reject zip64 (skills are
+ * small). Returns [{name, method, compSize, uncompSize, unixMode, localOffset}].
+ */
+function _readZipEntries(buf) {
+  const EOCD_SIG = 0x06054b50;
+  const maxBack = Math.min(buf.length, 22 + 0xffff);
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= buf.length - maxBack && i >= 0; i--) {
+    if (buf.readUInt32LE(i) === EOCD_SIG) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('invalid zip: end-of-central-directory not found');
+
+  const totalEntries = buf.readUInt16LE(eocd + 10);
+  const cdOffset = buf.readUInt32LE(eocd + 16);
+  if (totalEntries === 0xffff || cdOffset === 0xffffffff) {
+    throw new Error('zip64 archives are not supported');
+  }
+
+  const entries = [];
+  let p = cdOffset;
+  for (let n = 0; n < totalEntries; n++) {
+    if (p + 46 > buf.length || buf.readUInt32LE(p) !== 0x02014b50) {
+      throw new Error('invalid zip: corrupt central directory');
+    }
+    const method = buf.readUInt16LE(p + 10);
+    const compSize = buf.readUInt32LE(p + 20);
+    const uncompSize = buf.readUInt32LE(p + 24);
+    const nameLen = buf.readUInt16LE(p + 28);
+    const extraLen = buf.readUInt16LE(p + 30);
+    const commentLen = buf.readUInt16LE(p + 32);
+    const externalAttr = buf.readUInt32LE(p + 38);
+    const localOffset = buf.readUInt32LE(p + 42);
+    if (compSize === 0xffffffff || uncompSize === 0xffffffff || localOffset === 0xffffffff) {
+      throw new Error('zip64 archives are not supported');
+    }
+    const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
+    entries.push({
+      name, method, compSize, uncompSize, localOffset,
+      unixMode: (externalAttr >>> 16) & 0xffff,
+    });
+    p += 46 + nameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+
+/** Read + decompress one entry's bytes (store or deflate only). */
+function _zipEntryData(buf, e) {
+  if (e.localOffset + 30 > buf.length || buf.readUInt32LE(e.localOffset) !== 0x04034b50) {
+    throw new Error(`invalid zip: bad local header for "${e.name}"`);
+  }
+  const nameLen = buf.readUInt16LE(e.localOffset + 26);
+  const extraLen = buf.readUInt16LE(e.localOffset + 28);
+  const start = e.localOffset + 30 + nameLen + extraLen;
+  const end = start + e.compSize;
+  if (end > buf.length) throw new Error(`invalid zip: truncated data for "${e.name}"`);
+  const raw = buf.subarray(start, end);
+  if (e.method === 0) return Buffer.from(raw);          // stored
+  if (e.method === 8) return zlib.inflateRawSync(raw);  // deflate
+  throw new Error(`unsupported zip compression method ${e.method} for "${e.name}"`);
+}
+
+/**
+ * Extract a validated zip Buffer into `outDir`. Enforces entry-count, total-
+ * size and compression-ratio caps, rejects unsafe paths / symlinks, and
+ * verifies every written path stays inside `outDir`.
+ */
+function _extractZipToDir(buffer, outDir, log) {
+  const entries = _readZipEntries(buffer);
+  if (entries.length > MAX_ZIP_ENTRIES) {
+    throw new Error(`zip has too many entries (> ${MAX_ZIP_ENTRIES})`);
+  }
+  let totalUncomp = 0;
+  let totalComp = 0;
+  for (const e of entries) { totalUncomp += e.uncompSize; totalComp += e.compSize; }
+  if (totalUncomp > MAX_ZIP_UNCOMPRESSED_BYTES) {
+    throw new Error('zip expands too large');
+  }
+  if (totalComp > 0 && totalUncomp / totalComp > MAX_ZIP_COMPRESSION_RATIO) {
+    throw new Error('zip compression ratio looks abusive (possible zip bomb)');
+  }
+
+  const root = path.resolve(outDir);
+  fs.mkdirSync(root, { recursive: true });
+  for (const e of entries) {
+    if (_isSymlinkMode(e.unixMode)) throw new Error(`zip contains a symlink entry: "${e.name}"`);
+    if (_isUnsafeZipName(e.name)) throw new Error(`zip contains an unsafe path: "${e.name}"`);
+    const isDir = e.name.endsWith('/');
+    const dest = path.resolve(root, e.name.replace(/\\/g, '/'));
+    if (dest !== root && !dest.startsWith(root + path.sep)) {
+      throw new Error(`zip entry escapes target dir: "${e.name}"`);
+    }
+    if (isDir) { fs.mkdirSync(dest, { recursive: true }); continue; }
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, _zipEntryData(buffer, e));
+  }
+  if (log) log(`extracted ${entries.length} zip entr${entries.length === 1 ? 'y' : 'ies'}`);
+}
+
+/**
+ * Install an uploaded `.zip` into `destDir`: extract to a temp dir, verify a
+ * SKILL.md is present (stripping a single wrapper directory if needed), then
+ * copy the validated tree in. On any failure the temp dir is cleaned up and
+ * nothing partial is written into destDir (installSkill emptied it first).
+ */
+function _installUploadedZip(buffer, destDir, log) {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-skillzip-'));
+  try {
+    _extractZipToDir(buffer, tmp, log);
+
+    // Strip a single top-level wrapper dir (my-skill/SKILL.md → SKILL.md).
+    let srcRoot = tmp;
+    if (!_hasSkillMd(tmp)) {
+      const ents = fs.readdirSync(tmp, { withFileTypes: true });
+      const dirs = ents.filter((e) => e.isDirectory());
+      const files = ents.filter((e) => !e.isDirectory());
+      if (dirs.length === 1 && files.length === 0 && _hasSkillMd(path.join(tmp, dirs[0].name))) {
+        srcRoot = path.join(tmp, dirs[0].name);
+      }
+    }
+    if (!_hasSkillMd(srcRoot)) {
+      throw new Error('uploaded skill .zip has no SKILL.md');
+    }
+
+    fs.mkdirSync(destDir, { recursive: true });
+    _copyDir(srcRoot, destDir);
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {}
+  }
+}
+
 // Blocking GET used only by defaultFetcher's HTTPS fallback (which runs off
 // the hot path inside a try/catch). Uses curl for redirect handling; returns
 // the body string or throws. git sparse-checkout is the primary strategy, so
@@ -379,6 +596,7 @@ function _httpGetSync(url) {
 module.exports = {
   skillsDirForAgentType,
   installSkill,
+  installUploadedSkill,
   uninstallSkill,
   listInstalledSkills,
   normalizeSkill,

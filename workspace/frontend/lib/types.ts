@@ -46,6 +46,26 @@ export interface SkillCatalogEntry {
   author: string;
 }
 
+/**
+ * A workspace-scoped custom skill: a user-uploaded .md/.zip package registered
+ * in Workspace.settings["custom_skills"]. Camel-cased from the backend snake
+ * shape by mapCustomSkill() in api.ts.
+ */
+export interface WorkspaceCustomSkill {
+  id: string;
+  name: string;
+  description?: string;
+  category: 'custom';
+  tags?: string[];
+  author?: string;
+  sourceType: 'workspace_file';
+  fileId: string;
+  filename: string;
+  contentType?: string;
+  packageType: 'md' | 'zip';
+  createdAt?: string;
+}
+
 export interface WorkspaceSession {
   sessionId: string;
   workspaceId: string;
