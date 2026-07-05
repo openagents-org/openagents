@@ -17,6 +17,8 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 
 interface LauncherFixtures {
+  /** Isolated HOME for this test — `~/.openagents` (daemon log/config) lives here. */
+  homeDir: string
   app: ElectronApplication
   page: Page
 }
@@ -45,12 +47,16 @@ async function mainAppPage(app: ElectronApplication): Promise<Page> {
 }
 
 export const test = base.extend<LauncherFixtures>({
-  app: async ({}, use) => {
+  homeDir: async ({}, use) => {
     const home = mkdtempSync(path.join(tmpdir(), "oa-e2e-"))
+    await use(home)
+  },
+
+  app: async ({ homeDir }, use) => {
     // Windows keys userData off APPDATA; give it a home-scoped location too so
     // profiles never leak between runs on self-hosted-style reuse.
-    const appData = path.join(home, "AppData", "Roaming")
-    const localAppData = path.join(home, "AppData", "Local")
+    const appData = path.join(homeDir, "AppData", "Roaming")
+    const localAppData = path.join(homeDir, "AppData", "Local")
     mkdirSync(appData, { recursive: true })
     mkdirSync(localAppData, { recursive: true })
 
@@ -58,8 +64,8 @@ export const test = base.extend<LauncherFixtures>({
       args: [mainEntry()],
       env: {
         ...process.env,
-        HOME: home,
-        USERPROFILE: home,
+        HOME: homeDir,
+        USERPROFILE: homeDir,
         APPDATA: appData,
         LOCALAPPDATA: localAppData,
       },

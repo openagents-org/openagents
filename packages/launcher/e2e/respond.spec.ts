@@ -43,7 +43,7 @@ function haveAgentKey(): boolean {
 }
 
 test.describe("launcher full flow", () => {
-  test(`${SLUG} installs, connects, and replies`, async ({ page }) => {
+  test(`${SLUG} installs, connects, and replies`, async ({ page, homeDir }) => {
     test.skip(!haveWorkspaceCreds(), "E2E_WS_TOKEN / E2E_WS_SLUG not set")
     test.skip(LOGIN_ONLY.has(SLUG), `${SLUG} is login-only (env-injection TODO)`)
     test.skip(!haveAgentKey(), `no provider API key for ${SLUG}`)
@@ -133,10 +133,24 @@ test.describe("launcher full flow", () => {
     })
 
     // 6. Send a message and confirm a meaningful reply via the workspace API.
-    await new Promise((r) => setTimeout(r, 15_000)) // let it join + start polling
+    await new Promise((r) => setTimeout(r, 25_000)) // let it join + start polling
     const cursor = await baselineCursor()
     await sendMessage(name, name, "What is 2+2? Reply with just the number.")
-    const reply = await pollForReply(name, name, cursor)
-    expect(reply).toContain("4")
+    try {
+      const reply = await pollForReply(name, name, cursor, 300_000)
+      expect(reply).toContain("4")
+    } catch (e) {
+      // Attach the daemon log/status so a non-reply is diagnosable (why the
+      // agent didn't answer: LLM error, join failure, wrong model, etc.).
+      const fs = await import("node:fs")
+      const p = await import("node:path")
+      for (const rel of ["daemon.log", "daemon.status.json", "daemon.yaml"]) {
+        const fp = p.join(homeDir, ".openagents", rel)
+        if (fs.existsSync(fp)) {
+          await test.info().attach(rel, { path: fp })
+        }
+      }
+      throw e
+    }
   })
 })
