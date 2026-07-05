@@ -131,6 +131,21 @@ describe('mini-SWE-agent adapter — registry metadata / readiness semantics', (
     );
   });
 
+  it('exposes DEEPSEEK_API_KEY and a per-provider base URL for each of the three providers', () => {
+    const names = entry.env_config.map((x) => x.name);
+    assert.ok(names.includes('DEEPSEEK_API_KEY'), 'DEEPSEEK_API_KEY field must exist');
+    // Per-provider base URLs (litellm reads a different var per provider).
+    for (const baseUrl of ['OPENAI_BASE_URL', 'ANTHROPIC_BASE_URL', 'DEEPSEEK_API_BASE']) {
+      assert.ok(names.includes(baseUrl), `${baseUrl} field must exist`);
+      // A base URL is only an endpoint — never a readiness signal on its own.
+      assert.ok(!entry.check_ready.env_vars.includes(baseUrl), `${baseUrl} must NOT be a readiness signal`);
+    }
+    // A DeepSeek key DOES count as configured.
+    assert.ok(entry.check_ready.env_vars.includes('DEEPSEEK_API_KEY'));
+    const deepseek = entry.env_config.find((x) => x.name === 'DEEPSEEK_API_KEY');
+    assert.equal(deepseek.password, true, 'DEEPSEEK_API_KEY must be a masked field');
+  });
+
   it('uses a non-blocking "configure a model" hint — never claims the CLI is missing', () => {
     const msg = entry.check_ready.not_ready_message.toLowerCase();
     assert.ok(!msg.includes('not installed'), 'must not say "not installed"');

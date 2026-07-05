@@ -890,10 +890,34 @@
         "password": true
       },
       {
+        "name": "ANTHROPIC_BASE_URL",
+        "description": "Custom endpoint for native `anthropic/…` models (an enterprise gateway or Anthropic-protocol relay). Leave blank for hosted Anthropic. Note: most third-party relays are OpenAI-compatible — for those use an `openai/…` model + OPENAI_BASE_URL instead.",
+        "required": false,
+        "placeholder": "https://your-anthropic-gateway.example"
+      },
+      {
         "name": "OPENAI_API_KEY",
         "description": "OpenAI API key — used when the model is an OpenAI model. Leave blank if using another provider or a key already in your environment.",
         "required": false,
         "password": true
+      },
+      {
+        "name": "OPENAI_BASE_URL",
+        "description": "Custom endpoint for OpenAI-compatible models (a relay/proxy or self-hosted gateway) — applies only to `openai/…` models. Leave blank for hosted OpenAI, or for native providers like `deepseek/…` / `anthropic/…`.",
+        "required": false,
+        "placeholder": "https://your-relay.example/v1"
+      },
+      {
+        "name": "DEEPSEEK_API_KEY",
+        "description": "DeepSeek API key — used when the model is a `deepseek/…` model (e.g. deepseek/deepseek-chat or deepseek/deepseek-reasoner). Connects directly to api.deepseek.com; no base URL needed.",
+        "required": false,
+        "password": true
+      },
+      {
+        "name": "DEEPSEEK_API_BASE",
+        "description": "Custom endpoint for native `deepseek/…` models. Leave blank to use DeepSeek's default (api.deepseek.com).",
+        "required": false,
+        "placeholder": "https://api.deepseek.com"
       }
     ],
     "check_ready": {
@@ -901,7 +925,8 @@
         "MSWEA_MODEL_NAME",
         "MSWEA_MINI_CONFIG_PATH",
         "ANTHROPIC_API_KEY",
-        "OPENAI_API_KEY"
+        "OPENAI_API_KEY",
+        "DEEPSEEK_API_KEY"
       ],
       "not_ready_message": "mini-SWE-agent CLI detected. Configure a model through environment variables (MSWEA_MODEL_NAME + a provider key), a full config file (MSWEA_MINI_CONFIG_PATH), or the Model field before running a task."
     }
