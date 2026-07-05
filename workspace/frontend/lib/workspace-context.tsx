@@ -288,7 +288,7 @@ export function WorkspaceProvider({
         const myId = currentUserRef.current.id;
         const myName = currentUserRef.current.name.trim().toLowerCase();
         const byPerson = new Map<string, { user: OnlineUser; isSelf: boolean }>();
-        for (const conn of connections.values()) {
+        for (const conn of Array.from(connections.values())) {
           const isSelf = conn.id === myId || (!!myName && conn.name.trim().toLowerCase() === myName);
           const key = isSelf ? '__self__' : `name:${conn.name.trim().toLowerCase()}`;
           const prev = byPerson.get(key);
