@@ -49,14 +49,32 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const dragCountRef = React.useRef(0);
 
-  // Sync message state when draft prop changes (thread switch)
+  // Auto-size the textarea to its content (capped), toggling a scrollbar past
+  // the cap. Centralized here so every path that changes `message` — typing,
+  // mention insert, draft restore on thread switch, send-clear — resizes
+  // consistently.
+  const resizeTextarea = React.useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    const capped = Math.min(ta.scrollHeight, 200);
+    ta.style.height = `${capped}px`;
+    ta.style.overflowY = ta.scrollHeight > 200 ? 'auto' : 'hidden';
+  }, []);
+
+  // Sync message state when draft prop changes (thread switch). Note: the draft
+  // is controlled and round-trips on every keystroke, so this must NOT reset the
+  // height itself — otherwise the box collapses to one row while typing. The
+  // layout effect below handles sizing off `message`.
   React.useEffect(() => {
     setMessage(draft ?? '');
-    // Reset textarea height when switching threads
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
   }, [draft]);
+
+  // Keep the textarea sized to its content whenever the message changes.
+  // useLayoutEffect runs synchronously before paint, so there's no flicker.
+  React.useLayoutEffect(() => {
+    resizeTextarea();
+  }, [message, resizeTextarea]);
 
   // Auto-focus textarea when focusKey changes (thread opened/switched)
   React.useEffect(() => {
@@ -130,10 +148,8 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
     onDraftChange?.('');
     setPendingFiles([]);
     setShowMentions(false);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.blur();
-    }
+    // Height resets via the layout effect when `message` becomes ''.
+    textareaRef.current?.blur();
   };
 
   const insertMention = (mentionText: string) => {
@@ -213,8 +229,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
     setMessage(value);
     onDraftChange?.(value);
     const textarea = e.target;
-    textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
+    // Height is kept in sync by the layout effect keyed on `message`.
 
     // Detect @mention trigger
     const cursorPos = textarea.selectionStart;
