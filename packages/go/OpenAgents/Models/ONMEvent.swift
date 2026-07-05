@@ -81,7 +81,6 @@ struct ONMEvent: Decodable, Sendable {
         let content = payload?["content"]?.stringValue ?? ""
         let messageType = payload?["message_type"]?.stringValue ?? "chat"
         let mentions = payload?["mentions"]?.stringArrayValue ?? []
-        let attachment = ONMEvent.extractAttachment(from: payload)
 
         return Message(
             messageId: id,
@@ -92,30 +91,7 @@ struct ONMEvent: Decodable, Sendable {
             mentions: mentions,
             messageType: messageType,
             timestamp: timestamp,
-            attachment: attachment,
         )
-    }
-
-    /// Pull an A2UI spec out of the message payload, if present. The agent
-    /// can deliver it as either an inline JSON object (preferred) or a
-    /// pre-serialized string — we accept both so we don't bind the backend
-    /// to a single encoding choice. Returns nil when there's no spec.
-    private static func extractAttachment(from payload: JSONValue?) -> A2UIAttachment? {
-        guard let specValue = payload?["spec"] else { return nil }
-        let toolCallId = payload?["spec_tool_call_id"]?.stringValue
-
-        switch specValue {
-        case .string(let s) where !s.isEmpty:
-            return A2UIAttachment(json: s, toolCallId: toolCallId)
-        case .object:
-            guard let data = try? JSONEncoder().encode(specValue),
-                  let json = String(data: data, encoding: .utf8) else {
-                return nil
-            }
-            return A2UIAttachment(json: json, toolCallId: toolCallId)
-        default:
-            return nil
-        }
     }
 }
 

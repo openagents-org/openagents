@@ -156,15 +156,12 @@ class WorkspaceClient {
    */
   async sendMessage(workspaceId, channelName, token, content, {
     senderType = 'agent', senderName, messageType = 'chat', metadata, attachments, sessionId,
-    spec, specToolCallId,
   } = {}) {
     const sourcePrefix = senderType === 'agent' ? 'openagents' : 'human';
     const source = senderName ? `${sourcePrefix}:${senderName}` : `${sourcePrefix}:unknown`;
 
     const payload = { content, message_type: messageType };
     if (attachments && attachments.length) payload.attachments = attachments;
-    if (spec) payload.spec = spec;
-    if (specToolCallId) payload.spec_tool_call_id = specToolCallId;
 
     return this.sendEvent(workspaceId, {
       type: 'workspace.message.posted',
@@ -173,30 +170,6 @@ class WorkspaceClient {
       payload,
       metadata: metadata || {},
     }, token, sessionId);
-  }
-
-  /**
-   * Poll workspace.tool_result events — the client's response to an agent's
-   * render_ui invocation. Returns events directly (no message normalization)
-   * because the caller treats them differently than chat messages.
-   */
-  async pollToolResults(workspaceId, token, { after, limit = 50 } = {}) {
-    const params = new URLSearchParams({
-      network: workspaceId,
-      type: 'workspace.tool_result',
-      limit: String(limit),
-    });
-    if (after) params.set('after', after);
-
-    const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token));
-    const result = data.data || data;
-    const events = (result && result.events) || [];
-
-    let cursor = null;
-    if (events.length > 0) {
-      cursor = events[events.length - 1].id || null;
-    }
-    return { events, cursor };
   }
 
   /**

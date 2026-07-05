@@ -68,11 +68,9 @@ interface ChatMessagesProps {
   hasOlder?: boolean;
   /** Whether older messages are currently being loaded. */
   loadingOlder?: boolean;
-  /** Forwarded to each ChatMessage for inline A2UI interactions. */
-  onA2UIAction?: (action: { id: string; value?: unknown }, toolCallId: string | null | undefined) => void;
 }
 
-export function ChatMessages({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onA2UIAction }: ChatMessagesProps) {
+export function ChatMessages({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder }: ChatMessagesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
@@ -327,7 +325,6 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
                   <ChatMessage
                     message={group.message}
                     agents={agents}
-                    onA2UIAction={onA2UIAction}
                   />
                 ) : (
                   <IntermediateSteps

@@ -631,30 +631,6 @@ class WorkspaceApi {
     });
   }
 
-  /**
-   * Post the result of a user interaction with an A2UI-rendered component
-   * back upstream. Mirrors the Swift app's `WorkspaceAPI.sendToolResult`.
-   * The agent runtime interprets `workspace.tool_result` as the response
-   * to the originating `render_ui` invocation.
-   */
-  async sendToolResult(opts: {
-    channel: string;
-    actionId: string;
-    toolCallId?: string | null;
-    value?: unknown;
-  }): Promise<ONMEvent> {
-    const payload: Record<string, unknown> = { action_id: opts.actionId };
-    if (opts.toolCallId) payload.tool_call_id = opts.toolCallId;
-    if (opts.value !== undefined) payload.value = opts.value;
-    return this.sendEvent({
-      type: 'workspace.tool_result',
-      source: 'human:user',
-      target: `channel/${opts.channel}`,
-      payload,
-      visibility: 'direct',
-    });
-  }
-
   /** Poll events from the network. */
   async pollEvents(opts: {
     after?: string;
