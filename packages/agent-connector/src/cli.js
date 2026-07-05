@@ -134,6 +134,18 @@ async function cmdCreate(connector, flags, positional) {
   const type = flags.type || 'openclaw';
   const role = flags.role || 'worker';
 
+  // Validate the runtime type BEFORE creating any local entry. A typo'd or
+  // otherwise unknown type (e.g. "calude") must not leave a broken agent in
+  // config — an uninstalled-but-valid type is fine and handled further down.
+  if (!connector.registry.getEntry(type)) {
+    const known = connector.registry.getCatalogSync().map((e) => e.name).sort();
+    print(`Error: unknown agent type '${type}'.`);
+    print(`Supported types: ${known.join(', ')}`);
+    print('Run `agn search` to browse available agent types.');
+    process.exitCode = 1;
+    return;
+  }
+
   try {
     connector.addAgent({ name, type, role, path: flags.path || process.cwd() });
 
