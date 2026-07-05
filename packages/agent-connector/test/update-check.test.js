@@ -2,7 +2,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { findNpmBin, runUpdate } = require('../src/update-check');
+const { findNpmBin, runUpdate, npmPrefixFromBin } = require('../src/update-check');
 
 // Capture everything written to process.stderr while `fn` runs.
 function captureStderr(fn) {
@@ -115,5 +115,61 @@ describe('runUpdate', () => {
       }));
     assert.equal(captured.cmd, '/usr/local/bin/npm');
     assert.equal(captured.args[0], 'install');
+  });
+
+  // Regression: the derived --prefix must be the npm PREFIX ROOT, not the
+  // directory containing node_modules. On Unix npm appends lib/node_modules to
+  // --prefix, so passing `{prefix}/lib` produced `{prefix}/lib/lib/node_modules`
+  // and the update silently no-op'd. When prefix is left undefined, runUpdate
+  // must derive it from the npm bin location.
+  it('derives the correct --prefix on non-Windows (parent of the bin dir)', () => {
+    let captured = null;
+    captureStderr(() =>
+      runUpdate({
+        platform: 'linux',
+        npmBin: '/home/u/.nvm/versions/node/v24.15.0/bin/npm', // prefix is undefined → derive
+        spawn: (cmd, args) => { captured = { cmd, args }; return { status: 0 }; },
+      }));
+    const i = captured.args.indexOf('--prefix');
+    assert.ok(i !== -1, 'expected a --prefix arg');
+    assert.equal(captured.args[i + 1], '/home/u/.nvm/versions/node/v24.15.0');
+  });
+
+  it('derives the correct --prefix on Windows (the bin dir itself)', () => {
+    let captured = null;
+    captureStderr(() =>
+      runUpdate({
+        platform: 'win32',
+        npmBin: 'C:\\Program Files\\nodejs\\npm.cmd',
+        spawn: (cmd, args) => { captured = { cmd, args }; return { status: 0 }; },
+      }));
+    const i = captured.args.indexOf('--prefix');
+    assert.ok(i !== -1, 'expected a --prefix arg');
+    assert.equal(captured.args[i + 1], 'C:\\Program Files\\nodejs');
+  });
+});
+
+describe('npmPrefixFromBin', () => {
+  it('returns the parent of the bin dir on Unix', () => {
+    assert.equal(
+      npmPrefixFromBin('/home/u/.nvm/versions/node/v24.15.0/bin/npm', 'linux'),
+      '/home/u/.nvm/versions/node/v24.15.0',
+    );
+  });
+
+  it('returns the bin dir itself on Windows', () => {
+    assert.equal(
+      npmPrefixFromBin('C:\\Program Files\\nodejs\\npm.cmd', 'win32'),
+      'C:\\Program Files\\nodejs',
+    );
+  });
+
+  it('returns null for a bare npm name (PATH fallback) so npm uses its default', () => {
+    assert.equal(npmPrefixFromBin('npm', 'linux'), null);
+    assert.equal(npmPrefixFromBin('npm.cmd', 'win32'), null);
+  });
+
+  it('returns null when no npm bin is given', () => {
+    assert.equal(npmPrefixFromBin(null, 'linux'), null);
   });
 });

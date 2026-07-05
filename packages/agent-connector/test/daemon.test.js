@@ -287,3 +287,84 @@ describe('Daemon', () => {
     assert.ok(elapsed < 100, `should return immediately, took ${elapsed}ms`);
   });
 });
+
+// Regression guard for the orphaned-daemon bug: a live daemon whose pid only
+// survives in the status file (stale/clobbered pid file) must still be seen by
+// `agn status` and killed by `agn down`, instead of being reported "stopped"
+// and left running to block every subsequent `agn up`.
+describe('Daemon pid resolution (dual-source)', () => {
+  const { spawn } = require('node:child_process');
+
+  // A child we can control: it ignores nothing, so SIGTERM terminates it.
+  function spawnDummy() {
+    return spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e9)'], { stdio: 'ignore' });
+  }
+  // Kill a child and wait until it is fully reaped, so process.kill(pid, 0)
+  // reports ESRCH (a reaped pid is genuinely dead, not a zombie).
+  function killAndReap(proc) {
+    return new Promise((resolve) => {
+      proc.once('exit', resolve);
+      try { proc.kill('SIGKILL'); } catch { resolve(); }
+    });
+  }
+
+  it('stopDaemon kills the live daemon from the status file when the pid file is stale', async () => {
+    const dead = spawnDummy();
+    const deadPid = dead.pid;
+    await killAndReap(dead); // deadPid is now a genuinely dead pid
+
+    const live = spawnDummy();
+    const livePid = live.pid;
+    const liveExited = new Promise((r) => live.once('exit', r));
+
+    fs.writeFileSync(path.join(tmpDir, 'daemon.pid'), String(deadPid), 'utf-8');
+    fs.writeFileSync(
+      path.join(tmpDir, 'daemon.status.json'),
+      JSON.stringify({ pid: livePid, agents: {} }),
+      'utf-8',
+    );
+
+    try {
+      const result = Daemon.stopDaemon(tmpDir);
+      await liveExited;
+      assert.equal(result, true);
+      assert.equal(Daemon._isAlive(livePid), false, 'live daemon should have been killed');
+      assert.ok(!fs.existsSync(path.join(tmpDir, 'daemon.pid')), 'pid file should be cleaned');
+      assert.ok(!fs.existsSync(path.join(tmpDir, 'daemon.status.json')), 'status file should be cleaned');
+    } finally {
+      if (Daemon._isAlive(livePid)) await killAndReap(live);
+    }
+  });
+
+  it('readDaemonPid falls back to the status file when the pid file is stale', async () => {
+    const dead = spawnDummy();
+    const deadPid = dead.pid;
+    await killAndReap(dead);
+
+    const live = spawnDummy();
+    const livePid = live.pid;
+
+    fs.writeFileSync(path.join(tmpDir, 'daemon.pid'), String(deadPid), 'utf-8');
+    fs.writeFileSync(
+      path.join(tmpDir, 'daemon.status.json'),
+      JSON.stringify({ pid: livePid, agents: {} }),
+      'utf-8',
+    );
+
+    try {
+      assert.equal(Daemon.readDaemonPid(tmpDir), livePid);
+    } finally {
+      await killAndReap(live);
+    }
+  });
+
+  it('readDaemonPid returns null and cleans up when nothing is alive', async () => {
+    const dead = spawnDummy();
+    const deadPid = dead.pid;
+    await killAndReap(dead);
+
+    fs.writeFileSync(path.join(tmpDir, 'daemon.pid'), String(deadPid), 'utf-8');
+    assert.equal(Daemon.readDaemonPid(tmpDir), null);
+    assert.ok(!fs.existsSync(path.join(tmpDir, 'daemon.pid')), 'stale pid file should be cleaned');
+  });
+});
