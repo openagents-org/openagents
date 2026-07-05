@@ -70,7 +70,6 @@ class BaseAdapter {
     this._stopRequested = false;
     this.client = new WorkspaceClient(this.endpoint);
     this._lastEventId = null;
-    this._lastToolResultId = null;
     this._running = false;
     this._sessionId = null;  // issued by server on /v1/join; used to prove liveness
     this._processedIds = new Set();
@@ -653,31 +652,6 @@ class BaseAdapter {
         idleCount++;
       }
 
-      // Sidecar poll: A2UI tool_result events. These are the user's response
-      // to a UI spec this agent (or any agent in the network) emitted. We
-      // surface each one as a synthetic user message so the LLM sees it as
-      // the next turn and can react. Failures here don't break the main
-      // message poll.
-      try {
-        const toolResult = await this.client.pollToolResults(
-          this.workspaceId, this.token,
-          { after: this._lastToolResultId }
-        );
-        if (toolResult.cursor) this._lastToolResultId = toolResult.cursor;
-        for (const event of toolResult.events || []) {
-          const msgId = event.id;
-          if (msgId && this._processedIds.has(msgId)) continue;
-          if (msgId) this._processedIds.add(msgId);
-          const synth = synthesizeToolResultMessage(event);
-          if (synth) await this._dispatchMessage(synth);
-        }
-      } catch (e) {
-        // Non-fatal — log once per poll if it fails
-        if (pollCount <= 3 || pollCount % 20 === 0) {
-          this._log(`tool_result poll #${pollCount} failed: ${e.message}`);
-        }
-      }
-
       // Adaptive polling with warm plateau:
       //   Active (messages incoming):  2s
       //   Warm (≤5 min since last msg): 5s
@@ -811,15 +785,10 @@ class BaseAdapter {
   }
 
   async sendThinking(channel, content) {
-    // Strip ```a2ui blocks if they leak into Claude's intermediate thinking
-    // trace — the real spec gets emitted via sendResponse with proper
-    // payload.spec extraction, so showing the raw block here is just noise
-    // (and a duplicate). If stripping leaves the thinking message empty,
-    // skip it entirely.
-    const { cleanContent } = extractA2UISpec(content);
-    if (!cleanContent || !cleanContent.trim()) return;
+    // Skip empty thinking traces entirely.
+    if (!content || !content.trim()) return;
     try {
-      await this.client.sendMessage(this.workspaceId, channel, this.token, cleanContent, {
+      await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
         senderName: this.agentName,
         messageType: 'thinking',
@@ -832,14 +801,11 @@ class BaseAdapter {
   }
 
   async sendResponse(channel, content) {
-    const { cleanContent, spec, specToolCallId } = extractA2UISpec(content);
     try {
-      await this.client.sendMessage(this.workspaceId, channel, this.token, cleanContent, {
+      await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
         senderType: 'agent',
         senderName: this.agentName,
         sessionId: this._sessionId,
-        spec,
-        specToolCallId,
       });
     } catch (e) {
       if (e instanceof SessionRevokedError) {
@@ -966,74 +932,4 @@ class BaseAdapter {
   }
 }
 
-// ------------------------------------------------------------------
-// A2UI helpers
-// ------------------------------------------------------------------
-
-/**
- * Pull the first ```a2ui ... ``` fenced block out of LLM-produced content.
- * Returns the content with the block stripped, the parsed spec, and a
- * tool-call id derived from `spec.tool_call_id` (if present) or a new one.
- * If no block is present or parsing fails, returns the content unchanged
- * with null spec — the message still goes out as plain markdown.
- */
-/**
- * Convert a workspace.tool_result event into a synthetic user-message
- * shape that the agent's _handleMessage can dispatch. The LLM sees this
- * as the next user turn — the content is a short, machine-readable line
- * the LLM can parse without ambiguity. The original spec it emitted is
- * already in the LLM's conversation history; the tool_call_id lets the
- * LLM correlate this back.
- */
-function synthesizeToolResultMessage(event) {
-  if (!event || !event.payload) return null;
-  const p = event.payload;
-  const actionId = p.action_id || '';
-  const toolCallId = p.tool_call_id || '';
-  let valueStr = '';
-  if (p.value !== undefined && p.value !== null) {
-    try { valueStr = JSON.stringify(p.value); } catch (_) { valueStr = String(p.value); }
-  }
-  const lines = [
-    '[ui_action]',
-    `action=${actionId}`,
-    toolCallId ? `tool_call_id=${toolCallId}` : null,
-    valueStr ? `value=${valueStr}` : null,
-  ].filter(Boolean);
-  const content = lines.join(' ');
-  const target = event.target || '';
-  return {
-    messageId: event.id || '',
-    sessionId: target.startsWith('channel/') ? target.replace('channel/', '') : target,
-    senderType: 'human',
-    senderName: 'user',
-    content,
-    mentions: [],
-    messageType: 'chat',
-    metadata: event.metadata || {},
-  };
-}
-
-function extractA2UISpec(content) {
-  if (!content || typeof content !== 'string') {
-    return { cleanContent: content, spec: null, specToolCallId: null };
-  }
-  const match = content.match(/```a2ui\s*\n([\s\S]*?)\n```/);
-  if (!match) return { cleanContent: content, spec: null, specToolCallId: null };
-
-  let spec;
-  try {
-    spec = JSON.parse(match[1]);
-  } catch (_) {
-    return { cleanContent: content, spec: null, specToolCallId: null };
-  }
-
-  const specToolCallId = (spec && spec.tool_call_id) || `tc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  if (spec && spec.tool_call_id) delete spec.tool_call_id;
-
-  const cleanContent = content.replace(match[0], '').trim();
-  return { cleanContent, spec, specToolCallId };
-}
-
 module.exports = BaseAdapter;
-module.exports.extractA2UISpec = extractA2UISpec;

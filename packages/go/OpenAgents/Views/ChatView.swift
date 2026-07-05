@@ -511,16 +511,6 @@ struct ChatView: View {
                             MessageBubble(
                                 message: message,
                                 showSenderLabel: shouldShowSenderLabel(for: message, groupIndex: index, in: groups),
-                                onAttachmentAction: { action in
-                                    Task {
-                                        await store.sendToolResult(
-                                            channel: message.sessionId,
-                                            toolCallId: message.attachment?.toolCallId,
-                                            actionId: action.id,
-                                            value: action.value,
-                                        )
-                                    }
-                                },
                             )
                             .id(message.id)
                         case .steps(let stepMessages):
@@ -1590,10 +1580,6 @@ private struct ErrorBanner: View {
 private struct MessageBubble: View {
     let message: Message
     var showSenderLabel: Bool = true
-    /// Fired when the user interacts with an A2UI-rendered component. Caller
-    /// is responsible for routing this back to the agent (typically via
-    /// `WorkspaceStore.sendToolResult`).
-    var onAttachmentAction: ((A2UIAction) -> Void)? = nil
 
     /// Opposite-side gap between the bubble and the chat edge.
     private static let sideGap: CGFloat = 60
@@ -1610,8 +1596,7 @@ private struct MessageBubble: View {
 
     var body: some View {
         let segments = MarkdownSegmenter.segments(in: message.content)
-        let hasAttachment = message.attachment != nil
-        let hasWideContent = hasAttachment || segments.contains { segment in
+        let hasWideContent = segments.contains { segment in
             switch segment {
             case .prose, .fileChip: return false
             case .code, .table, .htmlBlock: return true
@@ -1668,9 +1653,6 @@ private struct MessageBubble: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             // Text bubble — rendered only when there are non-empty segments.
-            // The A2UI attachment lives OUTSIDE this bubble's chrome (see below)
-            // so a spec doesn't get visually merged with narration / error text
-            // into one big container.
             let hasVisibleSegments = segments.contains { seg in
                 switch seg {
                 case .prose(let t): return !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1733,20 +1715,6 @@ private struct MessageBubble: View {
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                         .stroke(.black.opacity(message.isFromUser ? 0 : 0.06), lineWidth: 0.5),
                 )
-            }
-
-            // A2UI attachment renders as its own standalone element, NOT inside
-            // the text bubble. Lets the spec own its visual identity instead
-            // of being swallowed by the surrounding chat-bubble chrome. Capped
-            // at 420pt so primary buttons (which explicitly request maxWidth=
-            // .infinity inside SwiftUIJSONRender) don't stretch across the
-            // whole chat panel — matches iMessage app-card sizing.
-            if let attachment = message.attachment {
-                A2UIRendererView(json: attachment.json) { action in
-                    onAttachmentAction?(action)
-                }
-                .frame(maxWidth: 420, alignment: .leading)
-                .padding(.top, hasVisibleSegments ? 6 : 0)
             }
 
             if !message.isFromUser {

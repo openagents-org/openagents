@@ -53,21 +53,6 @@ export interface WorkspaceMessage {
   messageType: string;
   metadata: Record<string, unknown>;
   createdAt: string | null;
-  /**
-   * Optional A2UI spec emitted by the agent — a JSON tree of
-   * `{ type, props, children?, action? }` nodes. When present, the chat
-   * bubble renders it inline below the markdown content (mirrors the
-   * Swift `A2UIRendererView` placement). Lives on `payload.spec` in the
-   * source ONM event.
-   */
-  spec?: Record<string, unknown> | null;
-  /**
-   * Tool-call id correlating an A2UI spec back to the originating
-   * `render_ui` invocation. Sent back upstream as part of the
-   * workspace.tool_result event when the user interacts with the spec.
-   * Lives on `payload.spec_tool_call_id` in the source event.
-   */
-  specToolCallId?: string | null;
 }
 
 export interface WorkspaceCollaborator {
@@ -293,22 +278,6 @@ export function eventToMessage(event: ONMEvent): WorkspaceMessage {
   const senderName = event.source.replace(/^(openagents:|human:)/, '');
   const payload = (event.payload || {}) as Record<string, unknown>;
 
-  // Pull the A2UI spec off the payload when present — agents can include
-  // an inline JSON object (preferred) or a pre-serialized string. Accept
-  // both so the backend isn't pinned to one encoding.
-  let spec: Record<string, unknown> | null = null;
-  const rawSpec = payload.spec;
-  if (rawSpec && typeof rawSpec === 'object') {
-    spec = rawSpec as Record<string, unknown>;
-  } else if (typeof rawSpec === 'string' && rawSpec.trim().startsWith('{')) {
-    try {
-      const parsed = JSON.parse(rawSpec);
-      if (parsed && typeof parsed === 'object') spec = parsed as Record<string, unknown>;
-    } catch {
-      // Malformed spec — leave null, renderer falls back to plain content.
-    }
-  }
-
   return {
     messageId: event.id,
     sessionId: event.target.replace(/^channel\//, ''),
@@ -324,8 +293,6 @@ export function eventToMessage(event: ONMEvent): WorkspaceMessage {
       ...(payload.todos ? { todos: payload.todos } : {}),
     },
     createdAt: new Date(event.timestamp).toISOString(),
-    spec,
-    specToolCallId: (payload.spec_tool_call_id as string) ?? null,
   };
 }
 

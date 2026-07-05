@@ -339,35 +339,6 @@ actor WorkspaceAPI {
         return try JSONEncoder().encode(body)
     }
 
-    /// Post the result of a user interaction with an A2UI-rendered component
-    /// back upstream. Emits a `workspace.tool_result` event addressed to the
-    /// channel; the agent runtime is expected to interpret it as the response
-    /// to the originating `render_ui` invocation.
-    ///
-    /// - Parameter channel: chat channel id (no `channel/` prefix; this method adds it).
-    /// - Parameter toolCallId: the id from the originating render_ui invocation.
-    ///   May be nil — the result still posts but cannot be correlated.
-    /// - Parameter actionId: opaque id the agent attached to the action; round-tripped verbatim.
-    /// - Parameter value: payload the agent receives alongside the interaction
-    ///   (e.g. selected option, filled form values). Optional.
-    func sendToolResult(
-        channel: String,
-        toolCallId: String?,
-        actionId: String,
-        value: JSONValue?,
-    ) async throws -> ONMEvent {
-        var payload: [String: any Encodable & Sendable] = ["action_id": actionId]
-        if let toolCallId { payload["tool_call_id"] = toolCallId }
-        if let value { payload["value"] = value }
-        return try await sendEvent(
-            type: "workspace.tool_result",
-            source: "human:user",
-            target: "channel/\(channel)",
-            payload: payload,
-            visibility: "direct",
-        )
-    }
-
     /// Send a control event to an agent (e.g. "stop"). Mirrors the React app's
     /// `sendAgentControl` — posts a `workspace.agent.control` event addressed to
     /// `openagents:<agentName>` with `action` (and optional extra params) in the payload.

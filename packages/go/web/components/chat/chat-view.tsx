@@ -455,19 +455,6 @@ export function ChatView() {
             hasOlder={hasOlder}
             loadingOlder={loadingOlder}
             className="flex-1 overflow-y-auto px-3 lg:px-5 py-3"
-            onA2UIAction={async (action, toolCallId) => {
-              if (!currentSessionId) return;
-              try {
-                await workspaceApi.sendToolResult({
-                  channel: currentSessionId,
-                  actionId: action.id,
-                  toolCallId,
-                  value: action.value,
-                });
-              } catch (err) {
-                toast.error(err instanceof Error ? err.message : 'Failed to send action');
-              }
-            }}
           />
         )}
 
