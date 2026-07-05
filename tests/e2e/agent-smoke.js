@@ -31,26 +31,39 @@ const AGENTS = {
     create: (name) => ["agn", "create", name, "--type", "hermes"],
     update: ["agn", "update"],
   },
+  claude: {
+    type: "claude",
+    install: ["agn", "install", "claude"],
+    create: (name) => ["agn", "create", name, "--type", "claude"],
+    update: ["agn", "update"],
+  },
 };
 
 // ---------------------------------------------------------------------------
 // Environment
 // ---------------------------------------------------------------------------
 
-const AGENT_TYPE = process.env.AGENT_TYPE || "hermes";
+const AGENT_TYPE = process.env.AGENT_TYPE || "claude";
 const LLM_API_KEY = process.env.LLM_API_KEY;
 const LLM_BASE_URL = process.env.LLM_BASE_URL || "";
 const LLM_MODEL = process.env.LLM_MODEL || "";
+// Claude (dual-auth) uses ANTHROPIC_* rather than the generic LLM_* vars.
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || "";
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "";
 const E2E_WS_TOKEN = process.env.E2E_WS_TOKEN;
 const E2E_WS_SLUG = process.env.E2E_WS_SLUG;
 const WORKSPACE_API_BASE_URL =
   process.env.WORKSPACE_API_BASE_URL ||
   "https://workspace-endpoint.openagents.org";
 
-// Redacted from all console/file output. LLM_BASE_URL/LLM_MODEL are included
-// because dumpDaemonLogs() now echoes the daemon log, which can contain the
-// configured endpoint/model.
-const SECRETS = [LLM_API_KEY, E2E_WS_TOKEN, LLM_BASE_URL, LLM_MODEL].filter(Boolean);
+// Redacted from all console/file output. Base URLs/models are included because
+// dumpDaemonLogs() echoes the daemon log, which can contain endpoint/model.
+const SECRETS = [
+  LLM_API_KEY, LLM_BASE_URL, LLM_MODEL,
+  ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL,
+  E2E_WS_TOKEN,
+].filter(Boolean);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -338,9 +351,26 @@ function configureHermes() {
 // Agent-type dispatch
 // ---------------------------------------------------------------------------
 
+// Claude authenticates via ANTHROPIC_* env, saved as the agent type's env. The
+// claude adapter promotes the key to ANTHROPIC_AUTH_TOKEN when a relay base URL
+// is set, so ANTHROPIC_API_KEY + ANTHROPIC_BASE_URL is enough.
+function configureClaude() {
+  if (!ANTHROPIC_API_KEY) fatal("ANTHROPIC_API_KEY not set for claude");
+  runCommand(["agn", "env", "claude", "--set", `ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}`]);
+  if (ANTHROPIC_BASE_URL) {
+    runCommand(["agn", "env", "claude", "--set", `ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL}`]);
+  }
+  if (ANTHROPIC_MODEL) {
+    runCommand(["agn", "env", "claude", "--set", `ANTHROPIC_MODEL=${ANTHROPIC_MODEL}`]);
+  }
+  logRun("Configured claude env (ANTHROPIC_API_KEY/BASE_URL/MODEL)");
+}
+
 function configureLLM() {
   if (AGENT_TYPE === "hermes") {
     configureHermes();
+  } else if (AGENT_TYPE === "claude") {
+    configureClaude();
   } else {
     fatal(`No LLM configuration handler for agent type: ${AGENT_TYPE}`);
   }
@@ -352,9 +382,16 @@ function configureLLM() {
 
 async function main() {
   // -- 1. Validate env -------------------------------------------------------
-  const required = { AGENT_TYPE, LLM_API_KEY, E2E_WS_TOKEN, E2E_WS_SLUG };
+  const required = { AGENT_TYPE, E2E_WS_TOKEN, E2E_WS_SLUG };
   for (const [k, v] of Object.entries(required)) {
     if (!v) fatal(`Missing required env: ${k}`);
+  }
+  // Credential requirement is agent-specific: claude → ANTHROPIC_API_KEY,
+  // everything else → LLM_API_KEY.
+  if (AGENT_TYPE === "claude") {
+    if (!ANTHROPIC_API_KEY) fatal("Missing required env: ANTHROPIC_API_KEY (claude)");
+  } else if (!LLM_API_KEY) {
+    fatal(`Missing required env: LLM_API_KEY (${AGENT_TYPE})`);
   }
   const agentDef = AGENTS[AGENT_TYPE];
   if (!agentDef) fatal(`Unknown AGENT_TYPE: ${AGENT_TYPE}`);
