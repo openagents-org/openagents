@@ -202,19 +202,46 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
     },
   });
 
+  // A settle-to-bottom pass is in progress. Any real user scroll gesture
+  // cancels it (see the wheel/touch/mousedown listeners below) so we never
+  // fight the user, and it self-terminates once the height stabilizes.
+  const settlingRef = useRef(false);
+
   const scrollToBottom = useCallback(() => {
     if (totalCount === 0) return;
-    // Single corrective pin instead of scrollToIndex (estimate-based) followed
-    // by an immediate scrollTop: those two land a frame apart at different
-    // offsets, which is the visible "flash + jump". Wait two frames so the
-    // virtualizer has measured the (possibly tall) newly-appended rows, then
-    // pin to the true bottom once.
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        const el = containerRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
-      });
-    });
+    // Why a loop and not a single scrollTop=scrollHeight: the virtualizer
+    // estimates every unmeasured row at 80px, so one corrective pin lands at
+    // the *estimated* bottom. The real bottom rows (tall markdown, tables) are
+    // then measured, the total height grows, and the view is left ABOVE the
+    // true bottom — the visible "flash then not at the bottom". Two frames
+    // isn't enough for tall rows to finish measuring. So re-pin every frame
+    // until scrollHeight stops changing (measurement done), with a safety cap
+    // to guarantee termination.
+    settlingRef.current = true;
+    let lastHeight = -1;
+    let stableFrames = 0;
+    let frames = 0;
+    const step = () => {
+      const el = containerRef.current;
+      if (!el || !settlingRef.current) return;
+      el.scrollTop = el.scrollHeight;
+      if (el.scrollHeight === lastHeight) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+        lastHeight = el.scrollHeight;
+      }
+      frames += 1;
+      // Done once the height has held steady for a few frames, or after a
+      // ~1s cap (60 frames) as an unconditional backstop.
+      if (stableFrames >= 3 || frames >= 60) {
+        settlingRef.current = false;
+        scrollDebug('scroll-settled', el, { frames, scrollHeight: el.scrollHeight });
+        return;
+      }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }, [totalCount]);
 
   // Derive the current session + first/last message identity from messages.
@@ -310,8 +337,21 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
       }
     };
 
+    // A real user scroll gesture cancels any in-flight settle-to-bottom so we
+    // never yank them back while they're reading. Measurement-driven reflows
+    // (which are what the settle loop exists to absorb) don't fire these.
+    const cancelSettle = () => { settlingRef.current = false; };
+
     el.addEventListener('scroll', onScroll);
-    return () => el.removeEventListener('scroll', onScroll);
+    el.addEventListener('wheel', cancelSettle, { passive: true });
+    el.addEventListener('touchmove', cancelSettle, { passive: true });
+    el.addEventListener('mousedown', cancelSettle);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      el.removeEventListener('wheel', cancelSettle);
+      el.removeEventListener('touchmove', cancelSettle);
+      el.removeEventListener('mousedown', cancelSettle);
+    };
   }, [hasOlder, loadingOlder, loadOlder]);
 
   return (
