@@ -3,6 +3,7 @@
 import { cn } from '@/lib/utils';
 import { ChatMessage } from './chat-message';
 import { IntermediateSteps } from './intermediate-steps';
+import { WorkingIndicator } from './working-indicator';
 import { Button } from '@/components/ui/button';
 import { ArrowDown } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -412,8 +413,7 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
                   <div className="flex items-start gap-3 py-1">
                     <div className="size-8 shrink-0" />
                     <div className="py-1.5">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src="/breathing-dots.gif" alt="Agent is working" width={44} height={14} className="opacity-90" />
+                      <WorkingIndicator />
                     </div>
                   </div>
                 </div>
