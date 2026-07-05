@@ -40,6 +40,11 @@ interface LayoutState {
   /** Whether the browser live preview panel is currently showing */
   showBrowserPreview: boolean;
   setShowBrowserPreview: (v: boolean) => void;
+  /** Whether the New Thread dialog (agent picker) is open */
+  newThreadOpen: boolean;
+  setNewThreadOpen: (v: boolean) => void;
+  /** Open the New Thread dialog so the user can pick agents for a new session */
+  openNewThread: () => void;
 }
 
 const LayoutContext = createContext<LayoutState | undefined>(undefined);
@@ -62,6 +67,8 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   };
 
   const [showBrowserPreview, setShowBrowserPreview] = useState(false);
+  const [newThreadOpen, setNewThreadOpen] = useState(false);
+  const openNewThread = () => setNewThreadOpen(true);
 
   const isAgentPanelOpen = selectedAgentName !== null;
   const openMobileDetail = () => setMobilePane('detail');
@@ -113,6 +120,9 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       setSplitBrowser: handleSetSplitBrowser,
       showBrowserPreview,
       setShowBrowserPreview,
+      newThreadOpen,
+      setNewThreadOpen,
+      openNewThread,
     }}>
       <div data-slot="layout-wrapper" className="flex grow">
         <TooltipProvider delayDuration={0}>

@@ -31,7 +31,6 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { toast } from 'sonner';
 import type { WorkspaceCollaborator } from '@/lib/types';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { NewThreadDialog } from '@/components/threads/new-thread-dialog';
 
 // ── Navigation button helper ──
 
@@ -70,14 +69,13 @@ function NavButton({
 // ── Main SidebarContent ──
 
 export function SidebarContent() {
-  const { isSidebarOpen, sidebarToggle, viewMode, setViewMode, setSelectedAgentName } = useLayout();
-  const { agents, sessions, files, browserTabs, createSession, workspace, token, refreshWorkspace, todos, routines, knowledge, currentUser, onlineUsers, unreadNotificationCount } = useWorkspace();
+  const { isSidebarOpen, sidebarToggle, viewMode, setViewMode, setSelectedAgentName, openNewThread } = useLayout();
+  const { agents, sessions, files, browserTabs, workspace, token, refreshWorkspace, todos, routines, knowledge, currentUser, onlineUsers, unreadNotificationCount } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [claiming, setClaiming] = useState(false);
-  const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [tokenCopied, setTokenCopied] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
@@ -96,14 +94,9 @@ export function SidebarContent() {
     setTimeout(() => setTokenCopied(false), 2000);
   };
 
-  const handleNewThread = () => {
-    if (agents.length >= 2) {
-      setNewThreadOpen(true);
-    } else {
-      createSession();
-      setViewMode('threads');
-    }
-  };
+  // Always open the agent picker so the user chooses which agents join the
+  // new session (mirrors the empty-state "New Thread" prompt).
+  const handleNewThread = () => openNewThread();
 
   // Filter sidebar to only show online + recently-seen agents
   const recentAgents = useMemo(() => agents.filter(isRecentAgent), [agents]);
@@ -377,20 +370,6 @@ export function SidebarContent() {
 
       {/* Settings Dialog */}
       <SettingsDialogPortal open={settingsOpen} onOpenChange={setSettingsOpen} workspace={workspace} refreshWorkspace={refreshWorkspace} />
-
-
-
-      {/* New Thread Dialog (agent picker) */}
-      <NewThreadDialog
-        open={newThreadOpen}
-        onOpenChange={setNewThreadOpen}
-        agents={agents}
-        sessions={sessions}
-        onCreateThread={({ master, participants, resumeFrom }) => {
-          createSession({ master, participants, resumeFrom });
-          setViewMode('threads');
-        }}
-      />
     </>
   );
 }

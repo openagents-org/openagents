@@ -20,6 +20,7 @@ import { KnowledgeView } from '@/components/knowledge/knowledge-view';
 import { BenchmarksView } from '@/components/benchmarks/benchmarks-view';
 import { useWorkspace } from '@/lib/workspace-context';
 import { EmptyState } from '@/components/chat/empty-state';
+import { NewThreadDialogHost } from '@/components/threads/new-thread-dialog-host';
 
 function WorkspaceLoadingScreen() {
   return (
@@ -120,6 +121,7 @@ export function Wrapper() {
             </div>
           )}
         </div>
+        <NewThreadDialogHost />
       </div>
     );
   }
@@ -205,6 +207,7 @@ export function Wrapper() {
           )}
         </div>
       </div>
+      <NewThreadDialogHost />
     </div>
   );
 }

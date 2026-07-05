@@ -221,25 +221,28 @@ def create_workspace(
         )
         db.add(member)
 
-    # Create default channel (Session 1)
-    channel = Channel(
-        workspace_id=workspace.id,
-        name=f"session-{secrets.token_hex(4)}",
-        title="Session 1",
-        created_by=body.agent_name or body.creator_email,
-        master_agent=body.agent_name,  # None if no agent provided
-        status="active",
-    )
-    db.add(channel)
-    db.flush()
-
-    # Add creator as channel participant if provided
+    # Seed a default "Session 1" channel ONLY when we know which agent to put in
+    # it. An empty channel (no participants) would surface as a thread with no
+    # agent — instead, an agent-less workspace starts with zero threads and the
+    # user creates their first session via the New Thread dialog (which selects
+    # agents). When agent_name is provided (e.g. tests, TUI), the starter
+    # channel is created with that agent as master + participant.
+    channel = None
     if body.agent_name:
-        participant = ChannelMember(
+        channel = Channel(
+            workspace_id=workspace.id,
+            name=f"session-{secrets.token_hex(4)}",
+            title="Session 1",
+            created_by=body.agent_name,
+            master_agent=body.agent_name,
+            status="active",
+        )
+        db.add(channel)
+        db.flush()
+        db.add(ChannelMember(
             channel_id=channel.id,
             agent_name=body.agent_name,
-        )
-        db.add(participant)
+        ))
 
     db.commit()
     db.refresh(workspace)
@@ -249,7 +252,7 @@ def create_workspace(
         "slug": workspace.slug,
         "name": workspace.name,
         "token": token,
-        "channel": _format_channel(channel),
+        "channel": _format_channel(channel) if channel else None,
     })
 
 

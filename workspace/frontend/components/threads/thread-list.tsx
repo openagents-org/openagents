@@ -136,7 +136,7 @@ function DMSection({
 
 export function ThreadList() {
   const { sessions, currentSessionId, setCurrentSessionId, agents, lastMessageBySession, activeSessionIds, completedSessionIds, updateSession, renameSession, dmConversations } = useWorkspace();
-  const { sidebarToggle, isMobile, openMobileDetail } = useLayout();
+  const { sidebarToggle, isMobile, openMobileDetail, openNewThread } = useLayout();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
   const [searching, setSearching] = useState(false);
@@ -467,6 +467,13 @@ export function ThreadList() {
                 <>
                   <p className="text-sm">No threads yet</p>
                   <p className="text-xs mt-1">Create a thread to start chatting</p>
+                  <button
+                    onClick={openNewThread}
+                    className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors"
+                  >
+                    <MessageCircle className="size-3.5" />
+                    New Thread
+                  </button>
                 </>
               )}
             </div>

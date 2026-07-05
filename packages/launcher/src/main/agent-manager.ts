@@ -3069,6 +3069,11 @@ export class AgentManager extends EventEmitter {
         name?: string
         endpoint?: string
       }>
+      // Create the workspace WITHOUT an agent_name so the backend does not seed
+      // a default "Session 1" channel. The agent joins the workspace via the
+      // network bind below; the user then creates their first session through
+      // the New Thread dialog (which selects agents). See create_workspace in
+      // workspace/backend/app/routers/workspaces.py.
       const ws = await createWorkspace.call(this._connector, { name: wsName })
       const slug = ws?.slug
       if (!slug) throw new Error("workspace service returned no slug")

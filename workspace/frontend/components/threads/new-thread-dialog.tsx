@@ -45,14 +45,20 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
     }
   };
 
-  // Reset state when dialog opens
+  // Reset state when dialog opens. When there's exactly one online agent,
+  // pre-select it so the common single-agent case is a one-click "Start Thread".
   useEffect(() => {
     if (open) {
-      setSelected(new Set());
-      setMaster('');
+      if (onlineAgents.length === 1) {
+        setSelected(new Set([onlineAgents[0].agentName]));
+        setMaster(onlineAgents[0].agentName);
+      } else {
+        setSelected(new Set());
+        setMaster('');
+      }
       setResumeFrom('');
     }
-  }, [open]);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleAgent = (name: string) => {
     setSelected((prev) => {

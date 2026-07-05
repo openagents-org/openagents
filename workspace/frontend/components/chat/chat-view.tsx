@@ -126,6 +126,7 @@ export function ChatView() {
     setSplitBrowser,
     showBrowserPreview,
     setShowBrowserPreview,
+    openNewThread,
   } = useLayout();
 
   // Continuously refresh message caches for top recent sessions in the background.
@@ -453,12 +454,32 @@ export function ChatView() {
   if (!currentSessionId) {
     const isRoutinesView = viewMode === 'routines';
     return (
-      <div className="flex flex-col h-full items-center justify-center text-muted-foreground">
-        <div className="opacity-20 mb-3">
-          {isRoutinesView ? <CalendarClock className="size-10" /> : <MessageSquare className="size-10" />}
-        </div>
-        <p className="text-sm font-medium">{isRoutinesView ? 'No routines yet' : 'Select a thread'}</p>
-        <p className="text-xs mt-1">{isRoutinesView ? 'Create a routine to get started.' : 'Choose a thread from the list or create a new one.'}</p>
+      <div className="flex flex-col h-full items-center justify-center text-center text-muted-foreground px-8">
+        {isRoutinesView ? (
+          <>
+            <div className="opacity-20 mb-3">
+              <CalendarClock className="size-10" />
+            </div>
+            <p className="text-sm font-medium">No routines yet</p>
+            <p className="text-xs mt-1">Create a routine to get started.</p>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center p-4 rounded-full bg-primary/10 mb-4">
+              <MessageSquare className="size-8 text-primary" />
+            </div>
+            <p className="text-lg font-semibold text-foreground">Start a new session</p>
+            <p className="text-sm mt-1 max-w-xs">
+              Create a session and pick which agents join to start collaborating.
+            </p>
+            {agents.length > 0 && (
+              <Button className="mt-5 gap-1.5" onClick={openNewThread}>
+                <Plus className="size-4" />
+                New Thread
+              </Button>
+            )}
+          </>
+        )}
       </div>
     );
   }
