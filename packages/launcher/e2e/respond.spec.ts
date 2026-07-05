@@ -133,6 +133,44 @@ test.describe("launcher full flow", () => {
       })
     }).toPass({ timeout: 30_000 })
 
+    // Diagnostic: after install, list what the installer actually produced for
+    // this agent under the isolated HOME (helps see whether a CLI binary landed
+    // and where — esp. hermes on Windows, whose PowerShell installer can exit 0
+    // without leaving a findable binary).
+    {
+      const fs = await import("node:fs")
+      const p = await import("node:path")
+      const hits: string[] = []
+      const walk = (d: string, depth: number): void => {
+        if (depth > 5) return
+        let ents: import("node:fs").Dirent[] = []
+        try {
+          ents = fs.readdirSync(d, { withFileTypes: true })
+        } catch {
+          return
+        }
+        for (const e of ents) {
+          const fp = p.join(d, e.name)
+          if (new RegExp(SLUG, "i").test(e.name)) hits.push(fp)
+          if (e.isDirectory() && e.name !== "node_modules") walk(fp, depth + 1)
+        }
+      }
+      for (const r of [
+        p.join(homeDir, "AppData", "Local"),
+        p.join(homeDir, ".openagents", "runtimes"),
+        p.join(homeDir, ".local", "bin"),
+        p.join(homeDir, `.${SLUG}`),
+      ]) {
+        walk(r, 0)
+      }
+      await test
+        .info()
+        .attach(`install-fs-${SLUG}.txt`, {
+          body: hits.join("\n") || `(no '${SLUG}' files found under HOME)`,
+          contentType: "text/plain",
+        })
+    }
+
     // 2. Create an agent instance. The working directory is normally async-
     //    prefilled from listPaths(); fill it explicitly so Create never rejects
     //    on an empty path (the prefill can lose the race, esp. on Windows).
