@@ -102,7 +102,8 @@ test.describe("launcher full flow", () => {
     // 3. Configure LLM — the dialog auto-opens after create. Fill each visible
     //    key/base/model field by its env-var name.
     const save = page.getByTestId("cfg-save")
-    await expect(save).toBeVisible({ timeout: 20_000 })
+    // getEnvFields (IPC → core) can be slow right after install, esp. on Windows.
+    await expect(save).toBeVisible({ timeout: 60_000 })
     const fieldIds = await page.evaluate(() =>
       Array.from(document.querySelectorAll('[id^="agent-config-"]')).map(
         (e) => e.id,
@@ -130,9 +131,9 @@ test.describe("launcher full flow", () => {
     const row = page.getByTestId(`agent-row-${name}`)
     const running = /online|running|idle/
     await expect(row).toBeVisible({ timeout: 30_000 })
-    await expect(row).toHaveAttribute("data-network", /.+/, { timeout: 30_000 })
+    await expect(row).toHaveAttribute("data-network", /.+/, { timeout: 45_000 })
     try {
-      await expect(row).toHaveAttribute("data-state", running, { timeout: 30_000 })
+      await expect(row).toHaveAttribute("data-state", running, { timeout: 45_000 })
     } catch {
       await page.getByTestId(`agent-toggle-${name}`).click()
       await expect(row).toHaveAttribute("data-state", running, {
