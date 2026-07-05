@@ -802,6 +802,14 @@ class WorkspaceClient {
         method: 'GET',
         headers,
         timeout,
+        // Hard end-to-end deadline. The `timeout` option above is only a SOCKET
+        // inactivity timeout — it is NOT armed until a socket exists, so it does
+        // not bound DNS resolution or TCP connect. During a network partition a
+        // request stuck in getaddrinfo/connect never fires 'timeout', so the
+        // await never settles and the caller's single poll loop wedges forever
+        // (the agent stays "online" via its separate heartbeat but stops
+        // consuming messages). AbortSignal.timeout fires in ANY phase.
+        signal: AbortSignal.timeout(timeout),
       }, (res) => {
         let data = '';
         res.on('data', (chunk) => { data += chunk; });
@@ -836,6 +844,7 @@ class WorkspaceClient {
         method: 'GET',
         headers,
         timeout,
+        signal: AbortSignal.timeout(timeout), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         const chunks = [];
         res.on('data', (chunk) => { chunks.push(chunk); });
@@ -868,6 +877,7 @@ class WorkspaceClient {
         method: 'POST',
         headers: { ...headers, 'Content-Length': Buffer.byteLength(jsonBody) },
         timeout,
+        signal: AbortSignal.timeout(timeout), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         let data = '';
         res.on('data', (chunk) => { data += chunk; });
@@ -910,6 +920,7 @@ class WorkspaceClient {
         method: 'PUT',
         headers: { ...headers, 'Content-Length': Buffer.byteLength(jsonBody) },
         timeout,
+        signal: AbortSignal.timeout(timeout), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         let data = '';
         res.on('data', (chunk) => { data += chunk; });
@@ -952,6 +963,7 @@ class WorkspaceClient {
         method: 'PATCH',
         headers: { ...headers, 'Content-Length': Buffer.byteLength(jsonBody) },
         timeout,
+        signal: AbortSignal.timeout(timeout), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         let data = '';
         res.on('data', (chunk) => { data += chunk; });
@@ -987,6 +999,7 @@ class WorkspaceClient {
         method: 'DELETE',
         headers,
         timeout: 15000,
+        signal: AbortSignal.timeout(15000), // hard deadline (covers DNS/connect); see _get
       }, (res) => {
         let data = '';
         res.on('data', (chunk) => { data += chunk; });
