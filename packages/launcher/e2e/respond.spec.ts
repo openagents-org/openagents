@@ -123,14 +123,22 @@ test.describe("launcher full flow", () => {
     await page.locator("#workspace-url-or-token").fill(process.env.E2E_WS_TOKEN!)
     await page.getByTestId("ws-join").click()
 
-    // 5. Start the agent and wait until it's running + connected.
+    // 5. Ensure the agent is running + connected. Connecting triggers a daemon
+    //    reload that AUTO-STARTS the agent, so clicking Start on an already-
+    //    running agent would toggle it OFF. Wait for auto-start first; only click
+    //    Start if it hasn't come up on its own.
     const row = page.getByTestId(`agent-row-${name}`)
+    const running = /online|running|idle/
     await expect(row).toBeVisible({ timeout: 30_000 })
     await expect(row).toHaveAttribute("data-network", /.+/, { timeout: 30_000 })
-    await page.getByTestId(`agent-toggle-${name}`).click()
-    await expect(row).toHaveAttribute("data-state", /online|running|idle/, {
-      timeout: START_TIMEOUT,
-    })
+    try {
+      await expect(row).toHaveAttribute("data-state", running, { timeout: 30_000 })
+    } catch {
+      await page.getByTestId(`agent-toggle-${name}`).click()
+      await expect(row).toHaveAttribute("data-state", running, {
+        timeout: START_TIMEOUT,
+      })
+    }
 
     // 6. Send a message and confirm a meaningful reply via the workspace API.
     await new Promise((r) => setTimeout(r, 25_000)) // let it join + start polling
