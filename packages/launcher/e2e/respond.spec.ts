@@ -169,6 +169,23 @@ test.describe("launcher full flow", () => {
           body: hits.join("\n") || `(no '${SLUG}' files found under HOME)`,
           contentType: "text/plain",
         })
+      // The launcher's streamed install output (what installStreaming produced).
+      const installLog = await page.evaluate((slug) => {
+        const s = (
+          window as unknown as {
+            __oaInstallStore?: {
+              getState: () => { jobs: Record<string, { log?: string }> }
+            }
+          }
+        ).__oaInstallStore
+        return s?.getState().jobs[slug]?.log || "(no install log)"
+      }, SLUG)
+      await test
+        .info()
+        .attach(`install-log-${SLUG}.txt`, {
+          body: installLog,
+          contentType: "text/plain",
+        })
     }
 
     // 2. Create an agent instance. The working directory is normally async-
