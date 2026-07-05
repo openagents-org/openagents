@@ -68,6 +68,12 @@ function injectionEnv(): Record<string, string> {
     if (cred.model) e.CURSOR_MODEL = cred.model
     return e
   }
+  if (SLUG === "gemini") {
+    if (cred.key) e.GEMINI_API_KEY = cred.key
+    if (cred.base) e.GOOGLE_GEMINI_BASE_URL = cred.base
+    if (cred.model) e.GEMINI_MODEL = cred.model
+    return e
+  }
   // hermes + generic fallback
   if (cred.key) e.LLM_API_KEY = cred.key
   if (cred.base) e.LLM_BASE_URL = cred.base
