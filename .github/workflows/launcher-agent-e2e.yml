@@ -48,9 +48,9 @@ jobs:
         run: |
           AGENTS_IN="${{ github.event.inputs.agents }}"
           OS_IN="${{ github.event.inputs.os }}"
-          # TEMP: opencode-only to validate the GPT-model switch.
+          # TEMP: hermes-only to validate ~/.hermes config-file auth.
           # Restore full matrix: codex,claude,hermes,openclaw,opencode,gemini,cursor
-          AGENTS="${AGENTS_IN:-opencode}"
+          AGENTS="${AGENTS_IN:-hermes}"
           OS="${OS_IN:-both}"
 
           case "$OS" in

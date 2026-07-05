@@ -199,6 +199,21 @@ test.describe("launcher full flow", () => {
       }).toPass({ timeout: 30_000 })
     }
 
+    // hermes authenticates via ~/.hermes/{.env,config.yaml} (what `hermes setup`
+    // writes), not env vars — write them here (headless equivalent of setup). The
+    // adapter runs the default profile, so it reads these files directly.
+    if (SLUG === "hermes") {
+      const fs = await import("node:fs")
+      const p = await import("node:path")
+      const dir = p.join(homeDir, ".hermes")
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(p.join(dir, ".env"), `OPENAI_API_KEY=${cred.key}\n`)
+      fs.writeFileSync(
+        p.join(dir, "config.yaml"),
+        `model:\n  default: ${cred.model}\n  provider: custom\n  base_url: ${cred.base}\n  api_key: ${cred.key}\n`,
+      )
+    }
+
     // 4. Connect to the workspace (dialog auto-opens for a new agent).
     await page.getByTestId("ws-join-toggle").click()
     await page.locator("#workspace-url-or-token").fill(process.env.E2E_WS_TOKEN!)
