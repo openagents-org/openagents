@@ -68,7 +68,6 @@ export function EmptyState() {
           <h3 className="text-lg font-semibold">You&apos;re all set!</h3>
           <p className="text-sm text-muted-foreground max-w-sm">
             Your agent is online. Send a message below to start collaborating.
-            Use <span className="font-medium text-foreground">@agent-name</span> to delegate tasks.
           </p>
         </div>
       </div>
