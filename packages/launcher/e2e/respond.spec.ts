@@ -93,10 +93,13 @@ test.describe("launcher full flow", () => {
       })
     }).toPass({ timeout: 30_000 })
 
-    // 2. Create an agent instance.
+    // 2. Create an agent instance. The working directory is normally async-
+    //    prefilled from listPaths(); fill it explicitly so Create never rejects
+    //    on an empty path (the prefill can lose the race, esp. on Windows).
     await page.getByTestId("new-agent-open").click()
     await page.locator("#agent-type").selectOption(SLUG)
     await page.locator("#agent-name").fill(name)
+    await page.locator("#agent-working-directory").fill(homeDir)
     await page.getByTestId("new-agent-create").click()
 
     // 3. Configure LLM — the dialog auto-opens after create. Fill each visible
