@@ -103,4 +103,38 @@ describe('WorkspaceClient', () => {
         assert.equal(capturedBody.session_id, 'sess-abc');
       });
   });
+
+  describe('pollPending server-side targeting', () => {
+    it('sends target_agents so the server pre-filters, and still client-filters', async () => {
+      const client = new WorkspaceClient('http://127.0.0.1:19999');
+      let capturedPath = null;
+      client._get = async (path) => {
+        capturedPath = path;
+        return { data: { events: [
+          // targeted at this agent → kept
+          { id: 'e1', source: 'human:user', target: 'channel/c', payload: { content: 'hi', message_type: 'chat' }, metadata: { target_agents: ['bary-bot'] } },
+          // targeted at someone else → dropped by client filter (server would
+          // normally exclude it too; included here to prove the safety net)
+          { id: 'e2', source: 'human:user', target: 'channel/c', payload: { content: 'other', message_type: 'chat' }, metadata: { target_agents: ['other'] } },
+        ], next_cursor: 'HEAD' } };
+      };
+
+      const { messages, cursor } = await client.pollPending('ws-1', 'bary-bot', 'tok', { after: 'x' });
+
+      assert.ok(capturedPath.includes('target_agents=bary-bot'), `expected target_agents in ${capturedPath}`);
+      assert.equal(cursor, 'HEAD');                       // uses server next_cursor
+      assert.equal(messages.length, 1);                   // client filter kept only ours
+      assert.equal(messages[0].messageId, 'e1');
+    });
+
+    it('falls back to last event id when the backend sends no next_cursor', async () => {
+      const client = new WorkspaceClient('http://127.0.0.1:19999');
+      client._get = async () => ({ data: { events: [
+        { id: 'e9', source: 'human:user', target: 'channel/c', payload: { content: 'hi', message_type: 'chat' }, metadata: { target_agents: ['bary-bot'] } },
+      ] } });  // no next_cursor (older backend)
+
+      const { cursor } = await client.pollPending('ws-1', 'bary-bot', 'tok', {});
+      assert.equal(cursor, 'e9');
+    });
+  });
 });

@@ -324,3 +324,89 @@ class TestPollEvents:
         """Polling nonexistent network returns 404."""
         resp = client.get("/v1/events", params={"network": "nonexistent"})
         assert resp.status_code == 404
+
+
+class TestPollTargetAgents:
+    """GET /v1/events?target_agents= — server-side per-agent filtering.
+
+    The adapter's `pollPending` sends this so agents stop pulling the whole
+    network's traffic. The filter is a safe superset: matching + untargeted
+    events are returned; events for *other* agents and the `__no_response__`
+    sentinel are excluded.
+    """
+
+    def _seed(self, db, workspace):
+        """Insert message events with assorted target_agents into a channel."""
+        from app.models import EventRecord
+
+        net = workspace["id"]
+        ch = f"channel/{workspace['channel']['name']}"
+        rows = [
+            ("ev-a", ["alpha"]),                 # for alpha
+            ("ev-b", ["beta"]),                  # for beta only
+            ("ev-ab", ["alpha", "beta"]),        # for both
+            ("ev-none", None),                   # untargeted (no key)
+            ("ev-noresp", ["__no_response__"]),  # routed-to-nobody sentinel
+        ]
+        for i, (eid, targets) in enumerate(rows):
+            meta = {} if targets is None else {"target_agents": targets}
+            db.add(EventRecord(
+                id=eid,
+                network_id=net,
+                type="workspace.message.posted",
+                source="human:user1",
+                target=ch,
+                payload={"content": eid, "message_type": "chat"},
+                metadata_=meta,
+                timestamp=1_000 + i,
+            ))
+        db.commit()
+
+    def test_filters_to_targeted_plus_untargeted(self, client, workspace, db):
+        self._seed(db, workspace)
+
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"],
+            "type": "workspace.message.posted",
+            "target_agents": "alpha",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        ids = {e["id"] for e in resp.json()["data"]["events"]}
+
+        # alpha's events + untargeted broadcast, never beta-only or the sentinel
+        assert "ev-a" in ids
+        assert "ev-ab" in ids
+        assert "ev-none" in ids
+        assert "ev-b" not in ids
+        assert "ev-noresp" not in ids
+
+    def test_next_cursor_skips_ahead_to_stream_tip(self, client, workspace, db):
+        """When an agent has drained its own events, next_cursor jumps to the
+        stream tip so it doesn't re-scan other agents' traffic each poll."""
+        self._seed(db, workspace)
+
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"],
+            "type": "workspace.message.posted",
+            "target_agents": "alpha",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        data = resp.json()["data"]
+
+        # ev-noresp is the newest event in the stream even though it wasn't
+        # returned; next_cursor must point there so the next poll starts past it.
+        assert data["has_more"] is False
+        assert data["next_cursor"] == "ev-noresp"
+
+    def test_absent_param_is_unchanged_broadcast(self, client, workspace, db):
+        """No target_agents param → legacy behavior: every event returned,
+        no next_cursor field (backward compatible)."""
+        self._seed(db, workspace)
+
+        resp = client.get("/v1/events", params={
+            "network": workspace["id"],
+            "type": "workspace.message.posted",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        data = resp.json()["data"]
+        ids = {e["id"] for e in data["events"]}
+        assert {"ev-a", "ev-b", "ev-ab", "ev-none", "ev-noresp"} <= ids
+        assert "next_cursor" not in data
