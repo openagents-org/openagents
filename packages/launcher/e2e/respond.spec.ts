@@ -25,6 +25,9 @@ const START_TIMEOUT = 90_000
 // Per-agent credentials (keys from E2E_* secrets; all via one gateway). claude
 // speaks Anthropic (own base); the rest are OpenAI-compatible on E2E_OPENAI_BASE.
 const GW = process.env.E2E_OPENAI_BASE || "https://api.openai.com/v1"
+// Gemini CLI speaks the NATIVE Gemini API (…/v1beta/models/…), so it needs the
+// gateway root without the OpenAI-style /v1 suffix.
+const GEMINI_BASE = process.env.E2E_GEMINI_BASE || GW.replace(/\/v1\/?$/, "")
 interface Cred {
   key?: string
   base?: string
@@ -37,7 +40,7 @@ const CREDS: Record<string, Cred> = {
     model: "claude-sonnet-4-6",
   },
   codex: { key: process.env.E2E_CODEX_API_KEY, base: GW, model: "gpt-5-mini" },
-  gemini: { key: process.env.E2E_GEMINI_API_KEY, base: GW, model: "gemini-3.5-flash" },
+  gemini: { key: process.env.E2E_GEMINI_API_KEY, base: GEMINI_BASE, model: "gemini-3.5-flash" },
   openclaw: { key: process.env.E2E_DEEPSEEK_API_KEY, base: GW, model: "deepseek-v4-flash" },
   opencode: { key: process.env.E2E_DEEPSEEK_API_KEY, base: GW, model: "deepseek-v4-flash" },
   hermes: { key: process.env.E2E_DEEPSEEK_API_KEY, base: GW, model: "deepseek-v4-flash" },

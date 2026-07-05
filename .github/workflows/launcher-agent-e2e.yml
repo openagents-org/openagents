@@ -48,8 +48,9 @@ jobs:
         run: |
           AGENTS_IN="${{ github.event.inputs.agents }}"
           OS_IN="${{ github.event.inputs.os }}"
-          # Default (nightly / push): full 7-agent matrix, each with its own key.
-          AGENTS="${AGENTS_IN:-codex,claude,hermes,openclaw,opencode,gemini,cursor}"
+          # TEMP: gemini-only to validate the CLI API-key auth + native base-URL fix.
+          # Restore full matrix: codex,claude,hermes,openclaw,opencode,gemini,cursor
+          AGENTS="${AGENTS_IN:-gemini}"
           OS="${OS_IN:-both}"
 
           case "$OS" in
