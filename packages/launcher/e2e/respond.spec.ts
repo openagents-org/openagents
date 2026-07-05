@@ -19,9 +19,6 @@ import {
 const SLUG = process.env.E2E_AGENT || "openclaw"
 const spec = agentBySlug(SLUG)
 
-// GUI login-only agents (no API-key field) — keyed flow needs env-injection; TODO.
-const LOGIN_ONLY = new Set(["cursor", "hermes"])
-
 const INSTALL_TIMEOUT = 15 * 60 * 1000
 const START_TIMEOUT = 90_000
 
@@ -42,10 +39,34 @@ function haveAgentKey(): boolean {
   return !!process.env.LLM_API_KEY
 }
 
+// Env to inject for agents WITHOUT a GUI key field (claude = no-config,
+// cursor/hermes = login-only). Written to the instance env via IPC so the
+// adapter authenticates without a CLI login.
+function injectionEnv(): Record<string, string> {
+  const e: Record<string, string> = {}
+  const key = process.env.LLM_API_KEY || ""
+  const base = process.env.LLM_BASE_URL || ""
+  const model = spec?.model || ""
+  if (SLUG === "claude") {
+    if (process.env.ANTHROPIC_API_KEY) e.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
+    if (process.env.ANTHROPIC_BASE_URL) e.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL
+    return e
+  }
+  if (SLUG === "cursor") {
+    if (key) e.CURSOR_API_KEY = key
+    if (model) e.CURSOR_MODEL = model
+    return e
+  }
+  // hermes + generic fallback
+  if (key) e.LLM_API_KEY = key
+  if (base) e.LLM_BASE_URL = base
+  if (model) e.LLM_MODEL = model
+  return e
+}
+
 test.describe("launcher full flow", () => {
   test(`${SLUG} installs, connects, and replies`, async ({ page, homeDir }) => {
     test.skip(!haveWorkspaceCreds(), "E2E_WS_TOKEN / E2E_WS_SLUG not set")
-    test.skip(LOGIN_ONLY.has(SLUG), `${SLUG} is login-only (env-injection TODO)`)
     test.skip(!haveAgentKey(), `no provider API key for ${SLUG}`)
     test.setTimeout(INSTALL_TIMEOUT + 12 * 60 * 1000)
 
@@ -102,25 +123,48 @@ test.describe("launcher full flow", () => {
     await page.locator("#agent-working-directory").fill(homeDir)
     await page.getByTestId("new-agent-create").click()
 
-    // 3. Configure LLM — the dialog auto-opens after create. Fill each visible
-    //    key/base/model field by its env-var name.
+    // 3. Configure LLM — the dialog auto-opens after create. Agents with GUI key
+    //    fields (openclaw/opencode/codex/gemini) get filled + Saved. Agents with
+    //    no key field (claude no-config; cursor/hermes login-only) get their env
+    //    injected via IPC, then the dialog is closed (→ Connect dialog opens).
     const save = page.getByTestId("cfg-save")
     // getEnvFields (IPC → core) can be slow right after install, esp. on Windows.
-    await expect(save).toBeVisible({ timeout: 60_000 })
-    const fieldIds = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('[id^="agent-config-"]')).map(
-        (e) => e.id,
-      ),
-    )
-    for (const id of fieldIds) {
-      const varName = id.replace("agent-config-", "")
-      let val: string | undefined
-      if (varName.endsWith("_API_KEY")) val = apiKeyFor(varName)
-      else if (varName.endsWith("_BASE_URL")) val = baseUrlFor(varName)
-      else if (varName.endsWith("_MODEL")) val = spec?.model
-      if (val) await page.locator(`[id="${id}"]`).fill(val)
+    const hasKeyFields = await save
+      .isVisible({ timeout: 60_000 })
+      .catch(() => false)
+    if (hasKeyFields) {
+      const fieldIds = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('[id^="agent-config-"]')).map(
+          (e) => e.id,
+        ),
+      )
+      for (const id of fieldIds) {
+        const varName = id.replace("agent-config-", "")
+        let val: string | undefined
+        if (varName.endsWith("_API_KEY")) val = apiKeyFor(varName)
+        else if (varName.endsWith("_BASE_URL")) val = baseUrlFor(varName)
+        else if (varName.endsWith("_MODEL")) val = spec?.model
+        if (val) await page.locator(`[id="${id}"]`).fill(val)
+      }
+      await save.click()
+    } else {
+      await page.evaluate(
+        async ({ n, env }) => {
+          await (
+            window as unknown as {
+              api: {
+                saveAgentInstanceEnv: (
+                  name: string,
+                  env: Record<string, string>,
+                ) => Promise<void>
+              }
+            }
+          ).api.saveAgentInstanceEnv(n, env)
+        },
+        { n: name, env: injectionEnv() },
+      )
+      await page.keyboard.press("Escape")
     }
-    await save.click()
 
     // 4. Connect to the workspace (dialog auto-opens for a new agent).
     await page.getByTestId("ws-join-toggle").click()

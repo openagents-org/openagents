@@ -48,10 +48,10 @@ jobs:
         run: |
           AGENTS_IN="${{ github.event.inputs.agents }}"
           OS_IN="${{ github.event.inputs.os }}"
-          # TEMP: openclaw-only while validating the keyed (connect+respond) flow.
-          # Restore to the full 7-agent matrix once green:
-          # codex,claude,hermes,openclaw,opencode,gemini,cursor
-          AGENTS="${AGENTS_IN:-openclaw}"
+          # Default (nightly / push): full 7-agent matrix. install.spec runs for
+          # all (no keys); respond.spec runs the keyed flow for agents whose keys
+          # are present (gemini skips until GEMINI_API_KEY is added).
+          AGENTS="${AGENTS_IN:-codex,claude,hermes,openclaw,opencode,gemini,cursor}"
           OS="${OS_IN:-both}"
 
           case "$OS" in
