@@ -16,9 +16,11 @@ import { SidebarContent } from './sidebar-content';
 import { useLayout, type ViewMode } from './layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { cn } from '@/lib/utils';
+import { NewThreadDialog } from '@/components/threads/new-thread-dialog';
 
 export function MobileHeader() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [newThreadOpen, setNewThreadOpen] = useState(false);
   const { viewMode, setViewMode, openMobileList, openMobileDetail } = useLayout();
   const { workspace, createSession, sessions, agents } = useWorkspace();
 
@@ -40,9 +42,14 @@ export function MobileHeader() {
   };
 
   const handleNewThread = () => {
-    createSession();
-    setViewMode('threads');
-    openMobileDetail();
+    // With 2+ agents, let the user pick who joins instead of auto-adding everyone.
+    if (agents.length >= 2) {
+      setNewThreadOpen(true);
+    } else {
+      createSession();
+      setViewMode('threads');
+      openMobileDetail();
+    }
   };
 
   const tabs: { mode: ViewMode; icon: typeof MessageSquare; label: string }[] = [
@@ -114,6 +121,19 @@ export function MobileHeader() {
           ))}
         </div>
       </nav>
+
+      {/* New Thread Dialog (agent picker) */}
+      <NewThreadDialog
+        open={newThreadOpen}
+        onOpenChange={setNewThreadOpen}
+        agents={agents}
+        sessions={sessions}
+        onCreateThread={({ master, participants, resumeFrom }) => {
+          createSession({ master, participants, resumeFrom });
+          setViewMode('threads');
+          openMobileDetail();
+        }}
+      />
     </>
   );
 }
