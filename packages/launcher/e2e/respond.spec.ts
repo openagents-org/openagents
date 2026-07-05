@@ -133,20 +133,27 @@ test.describe("launcher full flow", () => {
       .isVisible({ timeout: 60_000 })
       .catch(() => false)
     if (hasKeyFields) {
-      const fieldIds = await page.evaluate(() =>
-        Array.from(document.querySelectorAll('[id^="agent-config-"]')).map(
-          (e) => e.id,
-        ),
-      )
-      for (const id of fieldIds) {
-        const varName = id.replace("agent-config-", "")
-        let val: string | undefined
-        if (varName.endsWith("_API_KEY")) val = apiKeyFor(varName)
-        else if (varName.endsWith("_BASE_URL")) val = baseUrlFor(varName)
-        else if (varName.endsWith("_MODEL")) val = spec?.model
-        if (val) await page.locator(`[id="${id}"]`).fill(val)
-      }
-      await save.click()
+      // Retry fill+Save until the dialog closes. save() only closes when no
+      // required field is blank; on some agents (dual-auth codex on Windows) a
+      // late getAgentInstanceEnv re-init can blank a field right at click time,
+      // so Save is rejected and the dialog stays open — re-fill and try again.
+      await expect(async () => {
+        const fieldIds = await page.evaluate(() =>
+          Array.from(document.querySelectorAll('[id^="agent-config-"]')).map(
+            (e) => e.id,
+          ),
+        )
+        for (const id of fieldIds) {
+          const varName = id.replace("agent-config-", "")
+          let val: string | undefined
+          if (varName.endsWith("_API_KEY")) val = apiKeyFor(varName)
+          else if (varName.endsWith("_BASE_URL")) val = baseUrlFor(varName)
+          else if (varName.endsWith("_MODEL")) val = spec?.model
+          if (val) await page.locator(`[id="${id}"]`).fill(val)
+        }
+        await save.click()
+        await expect(save).toBeHidden({ timeout: 4_000 })
+      }).toPass({ timeout: 40_000 })
     } else {
       await page.evaluate(
         async ({ n, env }) => {
