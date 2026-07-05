@@ -87,6 +87,22 @@ jobs:
         # lockfile is intentionally loose in this repo.
         run: npm install
 
+      - name: "Diag: hermes Windows installer output"
+        if: matrix.os == 'windows-latest' && matrix.agent == 'hermes'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          Write-Host "=== python/py/uv presence ==="
+          Get-Command python,python3,py,uv -ErrorAction SilentlyContinue | Select-Object Name,Source | Format-Table -AutoSize
+          Write-Host "=== running NousResearch hermes install.ps1 ==="
+          try { Invoke-RestMethod -UseBasicParsing 'https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1' | Invoke-Expression }
+          catch { Write-Host "INSTALL EXCEPTION: $_" }
+          Write-Host "=== LASTEXITCODE: $LASTEXITCODE ==="
+          Write-Host "=== tree: LOCALAPPDATA\hermes ==="
+          Get-ChildItem -Recurse "$env:LOCALAPPDATA\hermes" -ErrorAction SilentlyContinue | Select-Object FullName | Format-Table -AutoSize -Wrap
+          Write-Host "=== ~/.local/bin ==="
+          Get-ChildItem "$env:USERPROFILE\.local\bin" -ErrorAction SilentlyContinue | Select-Object FullName
+
       - name: Build launcher (from source)
         run: npm run build
 
