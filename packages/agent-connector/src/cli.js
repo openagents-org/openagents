@@ -103,6 +103,19 @@ async function cmdDown(connector) {
   }
 }
 
+async function cmdRestart(connector, flags) {
+  // Stop then start. stopDaemon() already SIGTERM/SIGKILLs and waits for the
+  // process to die, but poll getDaemonPid() (which checks liveness) until the
+  // pid clears so the singleton guard in cmdUp can't trip on a not-yet-gone
+  // daemon and refuse to start.
+  const stopped = connector.stopDaemon();
+  print(stopped ? 'Daemon stopped' : 'Daemon was not running');
+  for (let i = 0; i < 25 && connector.getDaemonPid(); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  await cmdUp(connector, flags);
+}
+
 async function cmdStatus(connector) {
   const pid = connector.getDaemonPid();
   if (!pid) {
@@ -720,6 +733,7 @@ async function cmdHelp() {
 Commands:
   up [--foreground]           Start daemon (background by default)
   down                        Stop daemon
+  restart [--foreground]      Restart daemon (down + up)
   status                      Show agent status
   list                        List configured agents
   create <name> [--type T]    Create a new agent
@@ -804,6 +818,7 @@ async function main() {
     tui: () => { const { run } = require('./tui'); run(); },
     up: () => cmdUp(connector, flags),
     down: () => cmdDown(connector),
+    restart: () => cmdRestart(connector, flags),
     status: () => cmdStatus(connector),
     list: () => cmdList(connector),
     create: () => cmdCreate(connector, flags, positional),
