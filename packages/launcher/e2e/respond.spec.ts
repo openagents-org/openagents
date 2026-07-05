@@ -22,21 +22,31 @@ const spec = agentBySlug(SLUG)
 const INSTALL_TIMEOUT = 15 * 60 * 1000
 const START_TIMEOUT = 90_000
 
-function apiKeyFor(varName: string): string | undefined {
-  if (varName.includes("ANTHROPIC")) return process.env.ANTHROPIC_API_KEY
-  if (varName.includes("GEMINI") || varName.includes("GOOGLE"))
-    return process.env.GEMINI_API_KEY
-  return process.env.LLM_API_KEY
+// Per-agent credentials (keys from E2E_* secrets; all via one gateway). claude
+// speaks Anthropic (own base); the rest are OpenAI-compatible on E2E_OPENAI_BASE.
+const GW = process.env.E2E_OPENAI_BASE || "https://api.openai.com/v1"
+interface Cred {
+  key?: string
+  base?: string
+  model: string
 }
-function baseUrlFor(varName: string): string | undefined {
-  if (varName.includes("ANTHROPIC")) return process.env.ANTHROPIC_BASE_URL
-  if (varName.includes("GEMINI") || varName.includes("GOOGLE")) return undefined
-  return process.env.LLM_BASE_URL
+const CREDS: Record<string, Cred> = {
+  claude: {
+    key: process.env.E2E_ANTHROPIC_API_KEY,
+    base: process.env.E2E_ANTHROPIC_BASE_URL,
+    model: "claude-sonnet-4-6",
+  },
+  codex: { key: process.env.E2E_CODEX_API_KEY, base: GW, model: "gpt-5-mini" },
+  gemini: { key: process.env.E2E_GEMINI_API_KEY, base: GW, model: "gemini-3.5-flash" },
+  openclaw: { key: process.env.E2E_DEEPSEEK_API_KEY, base: GW, model: "deepseek-v4-flash" },
+  opencode: { key: process.env.E2E_DEEPSEEK_API_KEY, base: GW, model: "deepseek-v4-flash" },
+  hermes: { key: process.env.E2E_DEEPSEEK_API_KEY, base: GW, model: "deepseek-v4-flash" },
+  cursor: { key: process.env.E2E_DEEPSEEK_API_KEY, base: GW, model: "deepseek-v4-flash" },
 }
+const cred: Cred = CREDS[SLUG] || { model: spec?.model || "" }
+
 function haveAgentKey(): boolean {
-  if (SLUG === "claude") return !!process.env.ANTHROPIC_API_KEY
-  if (SLUG === "gemini") return !!process.env.GEMINI_API_KEY
-  return !!process.env.LLM_API_KEY
+  return !!cred.key
 }
 
 // Env to inject for agents WITHOUT a GUI key field (claude = no-config,
@@ -44,23 +54,21 @@ function haveAgentKey(): boolean {
 // adapter authenticates without a CLI login.
 function injectionEnv(): Record<string, string> {
   const e: Record<string, string> = {}
-  const key = process.env.LLM_API_KEY || ""
-  const base = process.env.LLM_BASE_URL || ""
-  const model = spec?.model || ""
   if (SLUG === "claude") {
-    if (process.env.ANTHROPIC_API_KEY) e.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
-    if (process.env.ANTHROPIC_BASE_URL) e.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL
+    if (cred.key) e.ANTHROPIC_API_KEY = cred.key
+    if (cred.base) e.ANTHROPIC_BASE_URL = cred.base
     return e
   }
   if (SLUG === "cursor") {
-    if (key) e.CURSOR_API_KEY = key
-    if (model) e.CURSOR_MODEL = model
+    if (cred.key) e.CURSOR_API_KEY = cred.key
+    if (cred.base) e.CURSOR_BASE_URL = cred.base
+    if (cred.model) e.CURSOR_MODEL = cred.model
     return e
   }
   // hermes + generic fallback
-  if (key) e.LLM_API_KEY = key
-  if (base) e.LLM_BASE_URL = base
-  if (model) e.LLM_MODEL = model
+  if (cred.key) e.LLM_API_KEY = cred.key
+  if (cred.base) e.LLM_BASE_URL = cred.base
+  if (cred.model) e.LLM_MODEL = cred.model
   return e
 }
 
@@ -149,9 +157,9 @@ test.describe("launcher full flow", () => {
         for (const id of fieldIds) {
           const varName = id.replace("agent-config-", "")
           let val: string | undefined
-          if (varName.endsWith("_API_KEY")) val = apiKeyFor(varName)
-          else if (varName.endsWith("_BASE_URL")) val = baseUrlFor(varName)
-          else if (varName.endsWith("_MODEL")) val = spec?.model
+          if (varName.endsWith("_API_KEY")) val = cred.key
+          else if (varName.endsWith("_BASE_URL")) val = cred.base
+          else if (varName.endsWith("_MODEL")) val = cred.model
           if (val) await page.locator(`[id="${id}"]`).fill(val)
         }
         await save.click().catch(() => {})

@@ -48,10 +48,8 @@ jobs:
         run: |
           AGENTS_IN="${{ github.event.inputs.agents }}"
           OS_IN="${{ github.event.inputs.os }}"
-          # TEMP: codex-only to validate the dialog-close retry fix on Windows.
-          # Restore full matrix once green:
-          # codex,claude,hermes,openclaw,opencode,gemini,cursor
-          AGENTS="${AGENTS_IN:-codex}"
+          # Default (nightly / push): full 7-agent matrix, each with its own key.
+          AGENTS="${AGENTS_IN:-codex,claude,hermes,openclaw,opencode,gemini,cursor}"
           OS="${OS_IN:-both}"
 
           case "$OS" in
@@ -95,14 +93,16 @@ jobs:
         id: run
         env:
           E2E_AGENT: ${{ matrix.agent }}
-          # Keys (added later for the keyed flow):
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Per-agent credentials (isolated E2E_* secrets; all via one gateway).
+          E2E_ANTHROPIC_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}
+          E2E_ANTHROPIC_BASE_URL: ${{ secrets.E2E_ANTHROPIC_BASE_URL }}
+          E2E_CODEX_API_KEY: ${{ secrets.E2E_CODEX_API_KEY }}
+          E2E_GEMINI_API_KEY: ${{ secrets.E2E_GEMINI_API_KEY }}
+          E2E_DEEPSEEK_API_KEY: ${{ secrets.E2E_DEEPSEEK_API_KEY }}
+          E2E_OPENAI_BASE: ${{ secrets.E2E_OPENAI_BASE }}
           E2E_WS_TOKEN: ${{ secrets.E2E_WS_TOKEN }}
           E2E_WS_SLUG: ${{ secrets.E2E_WS_SLUG }}
+          WORKSPACE_API_BASE_URL: https://workspace-endpoint.openagents.org
         run: npx playwright test
 
       - name: Record result row
