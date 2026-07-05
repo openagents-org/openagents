@@ -356,6 +356,57 @@ class Installer {
     );
   }
 
+  // Hermes's install.ps1 can print "[X] Installation failed" (e.g. its bundled
+  // `uv` step fails) yet still exit 0, so exit-code-only success is unreliable.
+  // Confirm a real hermes binary exists before recording the install. Mirrors
+  // the paths the HermesAdapter._findHermesBinary() searches.
+  _verifyHermesBinary() {
+    try { clearBinaryLookupCache(); } catch {}
+    const isWin = process.platform === 'win32';
+    const home = os.homedir();
+    const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
+    const candidates = [];
+    const resolved = this._whichBinary('hermes');
+    if (resolved) candidates.push(resolved);
+    if (isWin) {
+      candidates.push(
+        path.join(localAppData, 'hermes', 'hermes-agent', 'venv', 'Scripts', 'hermes.exe'),
+        path.join(localAppData, 'hermes', 'hermes-agent', 'venv', 'Scripts', 'hermes.cmd'),
+        path.join(localAppData, 'hermes', 'bin', 'hermes.exe'),
+        path.join(localAppData, 'hermes', 'bin', 'hermes.cmd'),
+        path.join(home, '.hermes', 'bin', 'hermes.exe'),
+        path.join(home, '.hermes', 'bin', 'hermes.cmd'),
+        path.join(home, '.local', 'bin', 'hermes.exe'),
+        path.join(home, '.local', 'bin', 'hermes.cmd'),
+      );
+    } else {
+      candidates.push(
+        path.join(home, '.hermes', 'bin', 'hermes'),
+        path.join(home, '.local', 'bin', 'hermes'),
+        '/opt/homebrew/bin/hermes',
+        '/usr/local/bin/hermes',
+      );
+    }
+    let found = null;
+    for (const c of candidates) {
+      try { if (c && fs.existsSync(c)) { found = c; break; } } catch {}
+    }
+    return found ? { path: found } : null;
+  }
+
+  _hermesBinaryNotFoundMessage() {
+    const isWin = process.platform === 'win32';
+    const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    const expected = isWin
+      ? path.join(localAppData, 'hermes', 'hermes-agent', 'venv', 'Scripts', 'hermes.exe')
+      : path.join(os.homedir(), '.hermes', 'bin', 'hermes');
+    return (
+      'Hermes install command completed, but the Hermes CLI binary could not be found\n' +
+      "(its installer can report a uv/setup failure yet still exit 0).\n\n" +
+      `Expected path:\n${expected}`
+    );
+  }
+
   /**
    * Find the binary path for an agent type.
    */
@@ -952,6 +1003,18 @@ class Installer {
               return;
             }
             if (onData) onData(`\nAmp CLI resolved: ${amp.path}${amp.version ? ` (${amp.version})` : ''}\n`);
+          }
+          // Hermes-only: its install.ps1 can exit 0 after a failed uv/setup step,
+          // so verify a real binary exists before recording the install.
+          if (agentType === 'hermes') {
+            const hermes = this._verifyHermesBinary();
+            if (!hermes) {
+              const msg = this._hermesBinaryNotFoundMessage();
+              if (onData) onData(`\n${msg}\n`);
+              reject(new Error(msg));
+              return;
+            }
+            if (onData) onData(`\nHermes CLI resolved: ${hermes.path}\n`);
           }
           this._markInstalled(agentType);
           if (onData) onData(`\nDone! ${agentType} is now installed.\n`);

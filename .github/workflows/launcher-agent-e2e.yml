@@ -48,9 +48,10 @@ jobs:
         run: |
           AGENTS_IN="${{ github.event.inputs.agents }}"
           OS_IN="${{ github.event.inputs.os }}"
-          # TEMP: hermes-only to validate ~/.hermes config-file auth.
-          # Restore full matrix: codex,claude,hermes,openclaw,opencode,gemini,cursor
-          AGENTS="${AGENTS_IN:-hermes}"
+          # Default (nightly / push): full 7-agent matrix. cursor's keyed flow
+          # self-skips (no gateway support); hermes/win install self-fails until
+          # its upstream uv-install issue is resolved.
+          AGENTS="${AGENTS_IN:-codex,claude,hermes,openclaw,opencode,gemini,cursor}"
           OS="${OS_IN:-both}"
 
           case "$OS" in

@@ -86,6 +86,10 @@ function injectionEnv(): Record<string, string> {
 test.describe("launcher full flow", () => {
   test(`${SLUG} installs, connects, and replies`, async ({ page, homeDir }) => {
     test.skip(!haveWorkspaceCreds(), "E2E_WS_TOKEN / E2E_WS_SLUG not set")
+    // cursor-agent has no custom base-URL support and authenticates only against
+    // Cursor's own cloud (browser login or a real cursor.com key) — the gateway
+    // keys can't drive it, so its keyed flow stays install-smoke-only for now.
+    test.skip(SLUG === "cursor", "cursor: needs a real cursor.com API key (no gateway support)")
     test.skip(!haveAgentKey(), `no provider API key for ${SLUG}`)
     test.setTimeout(INSTALL_TIMEOUT + 12 * 60 * 1000)
 
