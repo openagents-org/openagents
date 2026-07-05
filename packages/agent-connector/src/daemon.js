@@ -235,15 +235,17 @@ class Daemon {
     // Refuse to start if an existing daemon is already running.
     // Without this check, repeated `agn up` invocations would spawn
     // multiple daemons that each process the same message → duplicate
-    // bot replies.
-    const existingPid = Daemon._readPid(pidFile);
-    if (existingPid && Daemon._isAlive(existingPid)) {
+    // bot replies. Check BOTH the pid file and the status file (a live daemon
+    // rewrites the latter every 5s with its own pid): a clobbered/stale pid
+    // file must not let a duplicate slip past this guard.
+    const existingPid = Daemon.runningDaemonPid(configDir);
+    if (existingPid) {
       console.error(`Daemon already running (PID ${existingPid}).`);
       console.error(`Run 'agn down' first, or 'agn status' to check.`);
       process.exit(1);
     }
     // Stale pid file — clean up before spawning fresh
-    if (existingPid) {
+    if (Daemon._readPid(pidFile)) {
       try { fs.unlinkSync(pidFile); } catch {}
     }
 
@@ -287,41 +289,53 @@ class Daemon {
     const pidFile = path.join(configDir, 'daemon.pid');
     const statusFile = path.join(configDir, 'daemon.status.json');
 
-    const pid = Daemon._readPid(pidFile);
-    if (!pid) return false;
+    // Resolve the REAL running daemon(s) from BOTH the pid file and the status
+    // file. A live daemon rewrites the status file every 5s with its own pid,
+    // so when the pid file is stale/clobbered the status file is the only
+    // record of the actual process. The old code trusted only the pid file:
+    // `agn down` would signal a dead pid, delete the files, report "Daemon
+    // stopped", and leave the real daemon orphaned — which then blocked every
+    // subsequent `agn up` ("already running") and kept its agents wedged.
+    const pids = Daemon._liveDaemonPids(configDir);
 
-    try {
-      if (IS_WINDOWS) {
-        execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore', timeout: 5000 });
-      } else {
-        process.kill(pid, 'SIGTERM');
-      }
-    } catch {}
-
-    // Always clean up PID and status files after kill attempt
-    try { fs.unlinkSync(pidFile); } catch {}
-    try { fs.unlinkSync(statusFile); } catch {}
-
-    // Wait briefly for process to die
-    for (let i = 0; i < 5; i++) {
-      if (!Daemon._isAlive(pid)) return true;
-      execSync(IS_WINDOWS ? 'ping -n 2 127.0.0.1 >nul' : 'sleep 0.5', {
-        stdio: 'ignore', timeout: 5000,
-      });
+    // SIGTERM every distinct live pid.
+    for (const pid of pids) {
+      try {
+        if (IS_WINDOWS) {
+          execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore', timeout: 5000 });
+        } else {
+          process.kill(pid, 'SIGTERM');
+        }
+      } catch {}
     }
 
-    // Force kill
-    try {
-      if (IS_WINDOWS) {
-        execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore', timeout: 5000 });
-      } else {
-        process.kill(pid, 'SIGKILL');
+    // Wait briefly, then SIGKILL any survivor that ignored SIGTERM (this is
+    // what today's zombie required — a foreground daemon that didn't exit on
+    // SIGTERM).
+    for (const pid of pids) {
+      let alive = Daemon._isAlive(pid);
+      for (let i = 0; alive && i < 5; i++) {
+        execSync(IS_WINDOWS ? 'ping -n 2 127.0.0.1 >nul' : 'sleep 0.5', {
+          stdio: 'ignore', timeout: 5000,
+        });
+        alive = Daemon._isAlive(pid);
       }
-    } catch {}
+      if (alive) {
+        try {
+          if (IS_WINDOWS) {
+            execSync(`taskkill /F /PID ${pid}`, { stdio: 'ignore', timeout: 5000 });
+          } else {
+            process.kill(pid, 'SIGKILL');
+          }
+        } catch {}
+      }
+    }
 
+    // Always clear BOTH sources of truth so a fresh `agn up` starts clean.
     try { fs.unlinkSync(pidFile); } catch {}
     try { fs.unlinkSync(statusFile); } catch {}
-    return true;
+
+    return pids.length > 0;
   }
 
   /**
@@ -331,14 +345,18 @@ class Daemon {
     const pidFile = path.join(configDir, 'daemon.pid');
     const statusFile = path.join(configDir, 'daemon.status.json');
     const pid = Daemon._readPid(pidFile);
-    if (!pid) return null;
+    if (pid && Daemon._isAlive(pid)) return pid;
 
-    if (!Daemon._isAlive(pid)) {
-      Daemon._cleanupStaleDaemonFiles(pidFile, statusFile);
-      return null;
-    }
+    // pid file missing or stale — fall back to the status file so `agn status`
+    // reports the SAME live daemon the `agn up` singleton guard detects.
+    // Otherwise status says "not running" (dead pid file) while up refuses
+    // ("already running", from the status file) — the exact contradiction that
+    // hid today's orphaned daemon.
+    const live = Daemon.runningDaemonPid(configDir);
+    if (live) return live;
 
-    return pid;
+    Daemon._cleanupStaleDaemonFiles(pidFile, statusFile);
+    return null;
   }
 
   // ---------------------------------------------------------------------------
@@ -997,12 +1015,27 @@ class Daemon {
    * stopped for a legitimate restart doesn't block the replacement.
    */
   static runningDaemonPid(configDir) {
-    const self = process.pid;
-    const isOtherAlive = (pid) =>
-      pid && pid !== self && Daemon._isAlive(pid);
+    return Daemon._liveDaemonPids(configDir)[0] || null;
+  }
 
-    const pidFromFile = Daemon._readPid(path.join(configDir, 'daemon.pid'));
-    if (isOtherAlive(pidFromFile)) return pidFromFile;
+  /**
+   * Return all distinct live daemon PIDs for this configDir (never including
+   * the calling process), gathered from BOTH the pid file and the status file.
+   * The pid file is considered first so its PID sorts ahead of the status
+   * file's. Used by the singleton guard, `agn status`, and `agn down` so every
+   * command agrees on which process(es) are the daemon — the divergence that
+   * let a stale pid file orphan a running daemon.
+   */
+  static _liveDaemonPids(configDir) {
+    const self = process.pid;
+    const pids = [];
+    const consider = (pid) => {
+      if (pid && pid !== self && Daemon._isAlive(pid) && !pids.includes(pid)) {
+        pids.push(pid);
+      }
+    };
+
+    consider(Daemon._readPid(path.join(configDir, 'daemon.pid')));
 
     try {
       const statusFile = path.join(configDir, 'daemon.status.json');
@@ -1011,11 +1044,11 @@ class Daemon {
       // unrelated process can't masquerade as a live daemon.
       if (age < 30000) {
         const raw = JSON.parse(fs.readFileSync(statusFile, 'utf-8'));
-        const pid = raw && raw.pid;
-        if (isOtherAlive(pid)) return pid;
+        consider(raw && raw.pid);
       }
     } catch {}
-    return null;
+
+    return pids;
   }
 }
 
