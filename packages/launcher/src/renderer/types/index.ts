@@ -246,6 +246,7 @@ export interface UpdaterState {
   releaseNotes: string | null
   error: string | null
   supported: boolean
+  downloadUrl: string
 }
 
 // ── Chat ──

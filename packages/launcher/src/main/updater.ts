@@ -40,6 +40,27 @@ export interface UpdaterState {
   // false when self-update can't run (dev build, no update metadata, etc.) —
   // the renderer falls back to a "download from website" hint.
   supported: boolean
+  // Platform-specific "get the latest build" link, used by the renderer's
+  // download-page fallback. Resolved in main where process.platform/arch are
+  // authoritative (the renderer can't reliably tell Apple Silicon from Intel).
+  downloadUrl: string
+}
+
+// Where the download-page fallback points, per OS/arch. Linux has no dedicated
+// endpoint yet, so it keeps the GitHub Releases page.
+const GITHUB_RELEASES_URL =
+  "https://github.com/openagents-org/openagents/releases"
+
+function resolveDownloadUrl(): string {
+  if (process.platform === "win32") {
+    return "https://openagents.org/api/download/launcher/windows"
+  }
+  if (process.platform === "darwin") {
+    return process.arch === "arm64"
+      ? "https://openagents.org/api/download/launcher/mac"
+      : "https://openagents.org/api/download/launcher/mac-intel"
+  }
+  return GITHUB_RELEASES_URL
 }
 
 let _state: UpdaterState = {
@@ -51,6 +72,7 @@ let _state: UpdaterState = {
   releaseNotes: null,
   error: null,
   supported: false,
+  downloadUrl: resolveDownloadUrl(),
 }
 
 let _getWindow: () => BrowserWindow | null = () => null
