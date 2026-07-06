@@ -2,7 +2,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { findNpmBin, runUpdate, npmPrefixFromBin } = require('../src/update-check');
+const { findNpmBin, runUpdate, npmPrefixFromBin, isolatedRuntimeDir } = require('../src/update-check');
 
 // Capture everything written to process.stderr while `fn` runs.
 function captureStderr(fn) {
@@ -171,5 +171,58 @@ describe('npmPrefixFromBin', () => {
 
   it('returns null when no npm bin is given', () => {
     assert.equal(npmPrefixFromBin(null, 'linux'), null);
+  });
+});
+
+describe('isolatedRuntimeDir', () => {
+  const posix = require('node:path').posix; // force POSIX semantics on any host (incl. Windows CI)
+  const A = '/@openagents-org/agent-launcher/src';
+
+  it('detects the isolated ~/.openagents/nodejs local project', () => {
+    // package at <dir>/node_modules/@openagents-org/agent-launcher, <dir> has package.json
+    const dir = '/home/u/.openagents/nodejs/node_modules' + A;
+    const got = isolatedRuntimeDir({ dir, path: posix, exists: (p) => p === '/home/u/.openagents/nodejs/package.json' });
+    assert.equal(got, '/home/u/.openagents/nodejs');
+  });
+
+  it('returns null for a global/nvm layout (…/lib/node_modules)', () => {
+    const dir = '/home/u/.nvm/versions/node/v24.15.0/lib/node_modules' + A;
+    assert.equal(isolatedRuntimeDir({ dir, path: posix, exists: () => true }), null);
+  });
+
+  it('returns null when the prefix root has no package.json (bare global prefix)', () => {
+    const dir = '/usr/local/node_modules' + A;
+    assert.equal(isolatedRuntimeDir({ dir, path: posix, exists: () => false }), null);
+  });
+});
+
+describe('runUpdate isolated runtime', () => {
+  it('does a LOCAL install into the runtime dir (no -g) when isolated', () => {
+    let captured = null;
+    captureStderr(() =>
+      runUpdate({
+        platform: 'linux',
+        npmBin: '/home/u/.openagents/nodejs/bin/npm',
+        isolatedDir: '/home/u/.openagents/nodejs',
+        spawn: (cmd, args) => { captured = { cmd, args }; return { status: 0 }; },
+      }));
+    assert.ok(!captured.args.includes('-g'), 'must NOT be a global install for an isolated runtime');
+    const i = captured.args.indexOf('--prefix');
+    assert.ok(i !== -1, 'expected --prefix');
+    assert.equal(captured.args[i + 1], '/home/u/.openagents/nodejs'); // → <dir>/node_modules
+    assert.ok(captured.args.includes('--no-save'));
+  });
+
+  it('still does a GLOBAL install when not isolated', () => {
+    let captured = null;
+    captureStderr(() =>
+      runUpdate({
+        platform: 'linux',
+        npmBin: '/usr/local/bin/npm',
+        isolatedDir: null,
+        prefix: '/usr/local',
+        spawn: (cmd, args) => { captured = { cmd, args }; return { status: 0 }; },
+      }));
+    assert.ok(captured.args.includes('-g'), 'non-isolated install must stay global');
   });
 });
