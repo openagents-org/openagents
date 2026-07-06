@@ -404,29 +404,17 @@ class ClaudeAdapter extends BaseAdapter {
       throw new Error('claude CLI not found. Install with: curl -fsSL https://claude.ai/install.sh | bash');
     }
 
-    let systemPrompt = '\n' + buildClaudeSystemPrompt({
+    // The builder emits the correct tool-reference block for toolMode directly
+    // (mcp → workspace_* tools, skills → openagents-workspace skill), so there
+    // is no post-hoc string replacement to drift out of sync.
+    const systemPrompt = '\n' + buildClaudeSystemPrompt({
       agentName: this.agentName,
       workspaceId: this.workspaceId,
       channelName,
       mode: this._mode,
       browserEnabled,
+      toolMode: this.toolMode,
     });
-
-    // In skills mode, replace MCP tool references with curl-based instructions
-    if (this.toolMode === 'skills') {
-      systemPrompt = systemPrompt
-        .replace(
-          'Use workspace_get_history to read previous messages.\n' +
-          'Use workspace_get_agents to see other agents.\n' +
-          'Use workspace_put_todos to track your progress. ALWAYS create a to-do list when given multiple tasks or multi-step work.\n' +
-          'Use workspace_create_timer to set a reminder that wakes you up later.\n' +
-          'Use workspace_create_routine to set up recurring scheduled tasks (e.g. daily reviews).\n',
-          'Use the openagents-workspace skill (Bash + curl) for workspace operations:\n' +
-          'reading message history, discovering agents, sharing files, browsing,\n' +
-          'managing to-do lists, setting timers, and creating routines.\n' +
-          'Refer to the skill instructions for the exact curl commands.\n'
-        );
-    }
 
     const cmd = [claudeBin, '-p', prompt, '--output-format', 'stream-json', '--verbose'];
 
