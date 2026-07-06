@@ -3,6 +3,7 @@
 import { cn } from '@/lib/utils';
 import { ChatMessage } from './chat-message';
 import { IntermediateSteps } from './intermediate-steps';
+import { ThinkingMessage } from './thinking-message';
 import { WorkingIndicator } from './working-indicator';
 import { Button } from '@/components/ui/button';
 import { ArrowDown } from 'lucide-react';
@@ -14,6 +15,7 @@ import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 
 type MessageGroup =
   | { type: 'chat'; message: WorkspaceMessage }
+  | { type: 'thinking'; sender: string; messages: WorkspaceMessage[] }
   | { type: 'steps'; messages: WorkspaceMessage[] };
 
 function groupMessages(messages: WorkspaceMessage[]): MessageGroup[] {
@@ -28,7 +30,19 @@ function groupMessages(messages: WorkspaceMessage[]): MessageGroup[] {
   };
 
   messages.forEach((msg) => {
-    if (msg.messageType === 'status' || msg.messageType === 'thinking' || msg.messageType === 'todos') {
+    if (msg.messageType === 'thinking') {
+      // Thinking is a first-level block (shown with its author), so flush any
+      // pending sub-level steps first to keep ordering. Consecutive thinking
+      // chunks from the same sender collapse into one block.
+      flushSteps();
+      const last = groups[groups.length - 1];
+      if (last && last.type === 'thinking' && last.sender === msg.senderName) {
+        last.messages.push(msg);
+      } else {
+        groups.push({ type: 'thinking', sender: msg.senderName, messages: [msg] });
+      }
+    } else if (msg.messageType === 'status' || msg.messageType === 'todos') {
+      // Tool calls / status / todos stay clustered at the sub level.
       currentSteps.push(msg);
     } else {
       flushSteps();
@@ -42,9 +56,9 @@ function groupMessages(messages: WorkspaceMessage[]): MessageGroup[] {
 
 // Stable key for a group
 function groupKey(group: MessageGroup): string {
-  return group.type === 'chat'
-    ? group.message.messageId
-    : `steps-${group.messages[0].messageId}`;
+  if (group.type === 'chat') return group.message.messageId;
+  if (group.type === 'thinking') return `thinking-${group.messages[0].messageId}`;
+  return `steps-${group.messages[0].messageId}`;
 }
 
 function isTerminalStatus(msg: WorkspaceMessage) {
@@ -437,6 +451,12 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
                 {group.type === 'chat' ? (
                   <ChatMessage
                     message={group.message}
+                    agents={agents}
+                  />
+                ) : group.type === 'thinking' ? (
+                  <ThinkingMessage
+                    sender={group.sender}
+                    messages={group.messages}
                     agents={agents}
                   />
                 ) : (
