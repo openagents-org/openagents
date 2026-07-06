@@ -939,17 +939,13 @@ function createPlaceholderIcon(): Electron.NativeImage {
 }
 
 function createTray(): void {
+  // Always use the white ("light") glyph on both platforms. It's 22×22
+  // (menu-bar point size) and Electron auto-loads tray-icon-light@2x.png
+  // (44×44) as the Retina representation, so no resize is needed.
   const assetsDir = path.join(__dirname, "../../assets")
-  let trayIcon: Electron.NativeImage
-
-  if (process.platform === "darwin") {
-    trayIcon = nativeImage.createFromPath(
-      path.join(assetsDir, "tray-iconTemplate.png"),
-    )
-  } else {
-    trayIcon = nativeImage.createFromPath(path.join(assetsDir, "tray-icon.png"))
-  }
-
+  let trayIcon = nativeImage.createFromPath(
+    path.join(assetsDir, "tray-icon-light.png"),
+  )
   if (!trayIcon || trayIcon.isEmpty()) trayIcon = createPlaceholderIcon()
 
   tray = new Tray(trayIcon)
