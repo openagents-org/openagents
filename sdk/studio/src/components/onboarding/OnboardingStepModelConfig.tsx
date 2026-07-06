@@ -27,6 +27,7 @@ const MODEL_PROVIDERS = [
   { id: "azure", name: "Azure OpenAI", models: ["gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"] },
   { id: "bedrock", name: "Amazon Bedrock", models: ["us.anthropic.claude-sonnet-4-5-20250514-v1:0", "us.anthropic.claude-haiku-4-5-20250514-v1:0", "anthropic.claude-3-5-sonnet-20241022-v2:0", "anthropic.claude-3-5-haiku-20241022-v1:0", "anthropic.claude-3-opus-20240229-v1:0"] },
   { id: "openrouter", name: "OpenRouter", models: [] },
+  { id: "orcarouter", name: "OrcaRouter", models: [] },
   { id: "openai-compatible", name: "Custom OpenAI Compatible", models: [] },
 ];
 

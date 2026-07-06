@@ -151,6 +151,13 @@ const MODEL_PROVIDERS: ProviderInfo[] = [
     apiKeyName: "OPENROUTER_API_KEY",
   },
   {
+    id: "orcarouter",
+    name: "OrcaRouter",
+    models: [],
+    apiKeyUrl: "https://www.orcarouter.ai/console",
+    apiKeyName: "ORCAROUTER_API_KEY",
+  },
+  {
     id: "openai-compatible",
     name: "Custom OpenAI Compatible",
     models: [],
