@@ -175,23 +175,24 @@ describe('npmPrefixFromBin', () => {
 });
 
 describe('isolatedRuntimeDir', () => {
+  const posix = require('node:path').posix; // force POSIX semantics on any host (incl. Windows CI)
   const A = '/@openagents-org/agent-launcher/src';
 
   it('detects the isolated ~/.openagents/nodejs local project', () => {
     // package at <dir>/node_modules/@openagents-org/agent-launcher, <dir> has package.json
     const dir = '/home/u/.openagents/nodejs/node_modules' + A;
-    const got = isolatedRuntimeDir({ dir, exists: (p) => p === '/home/u/.openagents/nodejs/package.json' });
+    const got = isolatedRuntimeDir({ dir, path: posix, exists: (p) => p === '/home/u/.openagents/nodejs/package.json' });
     assert.equal(got, '/home/u/.openagents/nodejs');
   });
 
   it('returns null for a global/nvm layout (…/lib/node_modules)', () => {
     const dir = '/home/u/.nvm/versions/node/v24.15.0/lib/node_modules' + A;
-    assert.equal(isolatedRuntimeDir({ dir, exists: () => true }), null);
+    assert.equal(isolatedRuntimeDir({ dir, path: posix, exists: () => true }), null);
   });
 
   it('returns null when the prefix root has no package.json (bare global prefix)', () => {
     const dir = '/usr/local/node_modules' + A;
-    assert.equal(isolatedRuntimeDir({ dir, exists: () => false }), null);
+    assert.equal(isolatedRuntimeDir({ dir, path: posix, exists: () => false }), null);
   });
 });
 

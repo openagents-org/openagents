@@ -135,15 +135,18 @@ function npmPrefixFromBin(npmBin, platform = process.platform) {
 function isolatedRuntimeDir(opts = {}) {
   const dir = opts.dir || __dirname; // <pkgRoot>/src
   const exists = opts.exists || fs.existsSync;
+  // Path impl is injectable so tests can force POSIX/Windows semantics
+  // regardless of the host OS (mirrors npmPrefixFromBin's `platform`).
+  const p = opts.path || path;
   try {
-    const pkgRoot = path.resolve(dir, '..');              // .../agent-launcher
-    const nodeModules = path.resolve(pkgRoot, '..', '..'); // .../node_modules
-    if (path.basename(nodeModules) !== 'node_modules') return null;
-    const projectDir = path.resolve(nodeModules, '..');    // dir containing node_modules
+    const pkgRoot = p.resolve(dir, '..');              // .../agent-launcher
+    const nodeModules = p.resolve(pkgRoot, '..', '..'); // .../node_modules
+    if (p.basename(nodeModules) !== 'node_modules') return null;
+    const projectDir = p.resolve(nodeModules, '..');    // dir containing node_modules
     // Global npm layout is <prefix>/lib/node_modules — not an isolated project.
-    if (path.basename(projectDir) === 'lib') return null;
+    if (p.basename(projectDir) === 'lib') return null;
     // A real local project has its own package.json; a global prefix does not.
-    if (!exists(path.join(projectDir, 'package.json'))) return null;
+    if (!exists(p.join(projectDir, 'package.json'))) return null;
     return projectDir;
   } catch {
     return null;
