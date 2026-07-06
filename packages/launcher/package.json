@@ -168,9 +168,9 @@
       "category": "Development"
     },
     "publish": {
-      "provider": "github",
-      "owner": "openagents-org",
-      "repo": "openagents"
+      "provider": "generic",
+      "url": "https://dl.openagents.org/launcher/stable",
+      "channel": "latest"
     }
   }
 }
