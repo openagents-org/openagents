@@ -31,7 +31,7 @@
     "dist": "npm run build && electron-builder --publish always"
   },
   "dependencies": {
-    "@openagents-org/agent-launcher": "0.2.148",
+    "@openagents-org/agent-launcher": "0.2.149",
     "clsx": "^2.1.1",
     "electron-updater": "^6.8.9",
     "i18next": "^25.10.10",
