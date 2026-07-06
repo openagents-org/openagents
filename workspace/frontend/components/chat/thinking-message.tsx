@@ -60,9 +60,23 @@ export const ThinkingMessage = memo(function ThinkingMessage({ sender, messages,
             )}
           </div>
           <div className="mt-0.5 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap">
-            {texts.map((t, i) => (
-              <div key={i} className={i > 0 ? 'mt-2' : undefined}>{t}</div>
-            ))}
+            {texts.length === 1 ? (
+              <div>{texts[0]}</div>
+            ) : (
+              // Multiple thinking chunks stream in over time; mark each with a
+              // bullet so distinct reasoning lines are visually separable.
+              <div className="space-y-2">
+                {texts.map((t, i) => (
+                  <div key={i} className="flex items-start gap-2.5">
+                    <span
+                      aria-hidden
+                      className="mt-[7px] size-1.5 rounded-full bg-amber-500/50 shrink-0"
+                    />
+                    <div className="flex-1 min-w-0 whitespace-pre-wrap">{t}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
