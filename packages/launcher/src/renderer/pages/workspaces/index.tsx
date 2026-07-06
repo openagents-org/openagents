@@ -246,12 +246,15 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
     const ws = removeTarget
     if (!ws) return
     const slug = ws.slug || ws.id
+    // Same display name the confirm dialog shows.
+    const name = aliases[ws.id] || ws.name || ws.slug || ws.id
     setRemoving(true)
     try {
-      showToast(t("workspaces.toast.removing"), "info")
+      // No "removing…" progress toast — a single success toast (below) is the
+      // only feedback, so a quick remove doesn't stack two notifications.
       await window.api.removeWorkspace(slug)
       await reload()
-      showToast(t("workspaces.toast.removed"), "success")
+      showToast(t("workspaces.toast.removed", { name }), "success")
       setRemoveTarget(null)
     } catch (err) {
       showToast(t("workspaces.toast.error", { message: (err as Error).message }), "error")
