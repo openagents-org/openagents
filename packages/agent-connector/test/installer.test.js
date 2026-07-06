@@ -136,6 +136,26 @@ describe('Installer', () => {
     assert.equal(inst.isInstalled('nonexistent-xyz'), false);
   });
 
+  // Regression: a resolved binary that is a JS entry (OpenClaw's package bin is
+  // openclaw.mjs) must be probed via `node <file> --version`, NEVER as a bare
+  // `"<file>.mjs" --version`. On Windows the latter goes through cmd.exe, which
+  // has no PATHEXT association for .mjs and ShellExecutes it → the OS "choose an
+  // app to open this .mjs file" dialog, popped repeatedly by the periodic health
+  // poll. Non-JS binaries (.cmd/.exe/native) stay unprefixed.
+  it('_versionProbeCommand runs JS entries via node, leaves others bare', () => {
+    const inst = new Installer(mockRegistry, tmpDir);
+    const node = inst._nodeBinary();
+    for (const ext of ['mjs', 'cjs', 'js']) {
+      const p = `/home/u/.openagents/runtimes/openclaw/node_modules/openclaw/openclaw.${ext}`;
+      assert.equal(inst._versionProbeCommand(p), `"${node}" "${p}" --version`);
+    }
+    assert.equal(
+      inst._versionProbeCommand('C:\\Users\\u\\AppData\\Roaming\\npm\\openclaw.cmd'),
+      '"C:\\Users\\u\\AppData\\Roaming\\npm\\openclaw.cmd" --version',
+    );
+    assert.equal(inst._versionProbeCommand('/usr/local/bin/opencode'), '"/usr/local/bin/opencode" --version');
+  });
+
   it('marker write and read', () => {
     const inst = new Installer(mockRegistry, tmpDir);
     inst._markInstalled('testpkg');
