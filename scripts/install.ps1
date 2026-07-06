@@ -270,8 +270,14 @@ if ($latestVer -and ($latestVer -ne $installedVer)) {
     $shimDir = Join-Path $prefixDir "node_modules\.bin"
     New-Item -ItemType Directory -Force -Path $shimDir | Out-Null
     foreach ($name in @("agn", "openagents", "agent-connector")) {
+        # We write a distinct "$name.cmd" (not the package's .js bin), so unlike
+        # the POSIX shim we can't clobber the real entrypoint. Remove any
+        # pre-existing file first anyway, so a stale/read-only shim from an older
+        # install can't block the overwrite.
+        $shimPath = Join-Path $shimDir "$name.cmd"
+        Remove-Item -Force -ErrorAction SilentlyContinue -Path $shimPath
         $shimContent = "@echo off`r`n`"%~dp0..\..\node.exe`" `"%~dp0..\@openagents-org\agent-launcher\bin\agent-connector.js`" %*`r`n"
-        Set-Content -Path (Join-Path $shimDir "$name.cmd") -Value $shimContent -NoNewline
+        Set-Content -Path $shimPath -Value $shimContent -NoNewline
     }
     Ok "$NPM_PACKAGE v$latestVer installed"
 } elseif ($installedVer) {

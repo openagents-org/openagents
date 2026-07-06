@@ -116,6 +116,41 @@ function npmPrefixFromBin(npmBin, platform = process.platform) {
 }
 
 /**
+ * Detect when the running launcher lives in an *isolated runtime* — the local
+ * npm project install.sh creates at `~/.openagents/nodejs`, where the package
+ * is at `<dir>/node_modules/@openagents-org/agent-launcher` and `<dir>` has its
+ * own `package.json`.
+ *
+ * This matters because a `-g` install (what a normal global/nvm install needs)
+ * lands in `<dir>/lib/node_modules`, but the isolated runtime's daemon loads
+ * from `<dir>/node_modules` — so `agn update` would report success while the
+ * running code never changed (the acen "update no-op" incident). For an
+ * isolated runtime we must do a *local* install into `<dir>` instead.
+ *
+ * Returns the project dir (`<dir>`) for an isolated runtime, else null (caller
+ * falls back to the global `-g` path). Global/nvm layouts are excluded: their
+ * package sits under `.../lib/node_modules` (basename 'lib') and the prefix
+ * root has no package.json.
+ */
+function isolatedRuntimeDir(opts = {}) {
+  const dir = opts.dir || __dirname; // <pkgRoot>/src
+  const exists = opts.exists || fs.existsSync;
+  try {
+    const pkgRoot = path.resolve(dir, '..');              // .../agent-launcher
+    const nodeModules = path.resolve(pkgRoot, '..', '..'); // .../node_modules
+    if (path.basename(nodeModules) !== 'node_modules') return null;
+    const projectDir = path.resolve(nodeModules, '..');    // dir containing node_modules
+    // Global npm layout is <prefix>/lib/node_modules — not an isolated project.
+    if (path.basename(projectDir) === 'lib') return null;
+    // A real local project has its own package.json; a global prefix does not.
+    if (!exists(path.join(projectDir, 'package.json'))) return null;
+    return projectDir;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Locate the npm executable next to the running node binary, falling back to
  * a PATH lookup. On Windows the runnable file is `npm.cmd`; the extensionless
  * `npm` shipped alongside it is a Unix shell script that cmd.exe / PowerShell
@@ -150,15 +185,28 @@ function runUpdate(opts = {}) {
   const platform = opts.platform || process.platform;
   const spawn = opts.spawn || spawnSync;
   const npmBin = opts.npmBin || findNpmBin({ platform });
-  const prefix = opts.prefix !== undefined ? opts.prefix : npmPrefixFromBin(npmBin, platform);
-  // Use a GLOBAL install (-g). A LOCAL install (`npm install <pkg> --prefix
-  // <dir>`) treats <dir> as a project root and prunes every node_modules entry
-  // not reachable from its package.json. When the prefix is the portable node
-  // dir, that deletes node's own bundled npm/corepack (and other agent runtimes),
-  // breaking every subsequent `agn` command. A global install only adds/updates
-  // the named package into <prefix>/node_modules and never prunes its siblings.
-  const args = ['install', '-g', `${PKG_NAME}@latest`];
-  if (prefix) args.push('--prefix', prefix);
+  const isoDir = opts.isolatedDir !== undefined ? opts.isolatedDir : isolatedRuntimeDir();
+
+  let args;
+  if (isoDir) {
+    // Isolated runtime (install.sh's ~/.openagents/nodejs): a LOCAL npm project
+    // whose package lives in <dir>/node_modules — NOT <dir>/lib/node_modules.
+    // A `-g` install lands in lib/node_modules and silently no-ops the running
+    // launcher/daemon (which loads from node_modules). Install locally into the
+    // project dir instead. `--no-save` leaves package.json untouched (install.sh
+    // owns it), and because <dir>'s package.json already lists our deps npm has
+    // nothing extraneous to prune.
+    args = ['install', '--no-save', `${PKG_NAME}@latest`, '--prefix', isoDir];
+  } else {
+    // Global / nvm install. A LOCAL install (`npm install <pkg> --prefix <dir>`)
+    // here would treat <dir> as a project root and prune every node_modules
+    // entry not reachable from its package.json — deleting node's own bundled
+    // npm/corepack. A global install only adds/updates the named package into
+    // <prefix>/node_modules and never prunes its siblings.
+    const prefix = opts.prefix !== undefined ? opts.prefix : npmPrefixFromBin(npmBin, platform);
+    args = ['install', '-g', `${PKG_NAME}@latest`];
+    if (prefix) args.push('--prefix', prefix);
+  }
 
   // On Windows, npm.cmd is a batch file and must be invoked through cmd.exe.
   // Passing the args via cmd.exe with shell:false lets Node quote paths that
@@ -240,5 +288,6 @@ module.exports = {
   runUpdate,
   findNpmBin,
   npmPrefixFromBin,
+  isolatedRuntimeDir,
   currentVersion,
 };
