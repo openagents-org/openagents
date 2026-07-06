@@ -66,6 +66,21 @@ describe('OpenCode — version pin & install (8.1)', () => {
     assert.equal(OpenCodeAdapter._classifyVersion(null), 'unknown');
     assert.equal(OpenCodeAdapter._classifyVersion('opencode-dev'), 'unknown');
   });
+
+  // Regression: _detectCliVersion uses getEnhancedEnv() for the `--version`
+  // probe. It must be imported from ../paths — a missing import throws a
+  // ReferenceError that the method's own try/catch swallows, silently degrading
+  // EVERY probe to { version: null, executable: true } and disabling the
+  // version/executability preflight. The other preflight tests stub
+  // _detectCliVersion, so only a real spawn (against node as a stand-in binary)
+  // exercises this path.
+  it('_detectCliVersion actually spawns and parses a version (getEnhancedEnv wired)', () => {
+    const adapter = Object.create(OpenCodeAdapter.prototype);
+    adapter._log = () => {};
+    const probe = adapter._detectCliVersion(process.execPath); // `node --version`
+    assert.equal(probe.executable, true);
+    assert.match(probe.version, /^\d+\.\d+\.\d+$/, 'a real version was parsed, not null');
+  });
 });
 
 // ---------------------------------------------------------------------------
