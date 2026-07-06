@@ -58,8 +58,26 @@ function buildBrowserDirective(browserEnabled) {
 
 /**
  * Build the identity section common to all adapters.
+ *
+ * `toolMode` controls how the "read prior context" hint is phrased:
+ * - `'mcp'`    → names the native `workspace_get_history` MCP tool.
+ * - `'skills'` → points at the openagents-workspace skill (Bash + curl),
+ *   since no MCP server is spawned and that tool would not exist.
  */
-function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'execute') {
+function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'execute', toolMode = 'mcp') {
+  const priorContext = toolMode === 'skills'
+    ? (
+      'When you need prior context, use the openagents-workspace skill to ' +
+      `read this channel's recent messages (with \`channel="${channelName}"\`). ` +
+      'Always specify the channel — the default may be different from where ' +
+      'you are.\n'
+    )
+    : (
+      'When you need prior context, call `workspace_get_history` with ' +
+      `\`channel="${channelName}"\` (the current channel). Without the ` +
+      'channel argument the tool falls back to a default channel that may ' +
+      'be different from where you are.\n'
+    );
   return (
     `You are agent '${agentName}' connected to an OpenAgents workspace.\n` +
     'Your text responses are automatically posted to the workspace chat ' +
@@ -68,17 +86,29 @@ function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'exe
     `- Workspace ID: ${workspaceId}\n` +
     `- Channel: ${channelName}  (this is the channel you are currently speaking in)\n` +
     `- Mode: ${mode}\n\n` +
-    'When you need prior context, call `workspace_get_history` with ' +
-    `\`channel="${channelName}"\` (the current channel). Without the ` +
-    'channel argument the tool falls back to a default channel that may ' +
-    'be different from where you are.\n'
+    priorContext
   );
 }
 
 /**
  * Build the multi-agent collaboration instructions.
+ *
+ * `toolMode` tailors the discovery pointer: `skills` mode sends the agent to
+ * the skill's "Discover Agents" section (Bash + curl), `mcp` mode names the
+ * native tool.
  */
-function buildCollaborationPrompt() {
+function buildCollaborationPrompt(toolMode = 'mcp') {
+  const discover = toolMode === 'skills'
+    ? (
+      'Before delegating, use the openagents-workspace skill (see its ' +
+      '"Discover Agents" section) to list the agents in this channel and read ' +
+      'each one\'s description, then @mention the best-matched agent.\n'
+    )
+    : (
+      'Before delegating, discover who is available and what they do: call ' +
+      '`workspace_get_agents`, or the discover endpoint for full descriptions, ' +
+      'and match the task to an agent\'s description before @mentioning it.\n'
+    );
   return (
     '\n## Multi-Agent Collaboration\n' +
     'To delegate work to another agent, @mention them in your response. ' +
@@ -87,8 +117,7 @@ function buildCollaborationPrompt() {
     '— that wakes them up for nothing. Only @mention when you need them ' +
     'to do work. When the task is complete, report results to the user ' +
     'without @mentioning other agents.\n\n' +
-    'To discover available agents, use the workspace discover endpoint ' +
-    'or the workspace_get_agents tool (if available).\n'
+    discover
   );
 }
 
@@ -219,6 +248,17 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
   if (!disabled.has('browser')) {
     let s = '\n### Shared Browser\n\n';
 
+    s += (
+      'The shared browser is a real cloud browser (backed by BrowserFabric) ' +
+      'that all users and agents in the workspace share and can watch live. ' +
+      'Drive it ONLY through these `/v1/browser` endpoints — never a local ' +
+      'browser. Every tab is server-side; you interact by tab id.\n\n' +
+      'When you open a tab, the JSON response includes an `id` (use it in every ' +
+      'later call) and, in the cloud, a `live_url` — a link to the live, ' +
+      'interactive view of that tab. Share the `live_url` with the user when ' +
+      'they may want to watch or take over (e.g. a login or a CAPTCHA).\n\n'
+    );
+
     if (!isPlan) {
       s += (
         '**To browse a website**, exec these steps (use exec for each):\n' +
@@ -231,7 +271,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         `${curl} -s -H "${h}" ${baseUrl}/v1/browser/tabs/TAB_ID/snapshot\n` +
         `Step 3 — close tab: ` +
         `${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/browser/tabs/TAB_ID\n` +
-        '(Replace TAB_ID with the id from step 1 response)\n\n'
+        '(Replace TAB_ID with the `id` from the step 1 response)\n\n'
       );
     }
 
@@ -262,9 +302,31 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         '**Type text:**\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/type` +
-        ` -d '{"selector":"CSS_SELECTOR","text":"TEXT"}'\`\n\n` +
+        ` -d '{"selector":"CSS_SELECTOR","text":"TEXT"}'\`\n` +
+        '(add `"append":true` to keep existing text instead of replacing it)\n\n' +
+        '**Press a key** (e.g. submit a form with Enter):\n' +
+        `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
+        ` ${baseUrl}/v1/browser/tabs/{tab_id}/press_key` +
+        ` -d '{"key":"Enter"}'\`\n\n` +
+        '**Run JavaScript** in the page (returns the result):\n' +
+        `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
+        ` ${baseUrl}/v1/browser/tabs/{tab_id}/evaluate` +
+        ` -d '{"expression":"document.title"}'\`\n\n` +
         '**Close tab:**\n' +
-        `\`${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/browser/tabs/{tab_id}\`\n`
+        `\`${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/browser/tabs/{tab_id}\`\n\n` +
+        '**Clicks/typing use CSS selectors only** (no pixel coordinates). If a ' +
+        'selector is hard to find, use `evaluate` to inspect the DOM first.\n\n' +
+        '**Persistent logins (contexts):** to reuse cookies/login across tabs ' +
+        'and sessions, save the current tab as a named context, then open ' +
+        'future tabs with that `context_id`:\n' +
+        `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
+        ` ${baseUrl}/v1/browser/tabs/{tab_id}/persist -d '{"name":"my-login"}'\`\n` +
+        `\`${curl} -s -H "${h}" ${baseUrl}/v1/browser/contexts?network=${workspaceId}\`` +
+        ` (list saved contexts and their ids)\n` +
+        `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
+        ` ${baseUrl}/v1/browser/tabs -d '{"url":"URL","context_id":"CONTEXT_ID",` +
+        `"network":"${workspaceId}","source":"openagents:${agentName}"}'\`` +
+        ' (open a tab already logged in)\n'
       );
     }
 
@@ -416,8 +478,24 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
   // Discovery
   sections.push(
     '\n### Discover Agents\n\n' +
-    '**List all agents in the workspace (with status and role):**\n' +
-    `\`${curl} -s -H "${h}" ${baseUrl}/v1/discover?network=${workspaceId}\`\n`
+    'Before delegating, look up who is available and what they do — match the ' +
+    'task to an agent by its `description`.\n\n' +
+    '**List all agents in the workspace (with descriptions, roles, status):**\n' +
+    `\`${curl} -s -H "${h}" ${baseUrl}/v1/discover?network=${workspaceId}\`\n` +
+    'The response has `agents[]` (each with `address` `openagents:<name>`, ' +
+    '`description`, `role`, `status`, `agent_type`) and `channels[]` (each with ' +
+    'an `address` `channel/<name>` and a `participants` list of agent names).\n\n' +
+    '**To list the agents in THIS channel with their descriptions:** call ' +
+    'discover, find the entry in `channels[]` whose `address` is ' +
+    `\`channel/${channelName}\`, then keep the \`agents[]\` whose name is in ` +
+    'that channel\'s `participants`. Example:\n' +
+    `\`${curl} -s -H "${h}" ${baseUrl}/v1/discover?network=${workspaceId} | ` +
+    'jq --arg ch "channel/' + channelName + '" \'' +
+    '(.data.channels[]|select(.address==$ch).participants) as $p | ' +
+    '.data.agents[]|select((.address|sub("openagents:";"")) as $n|$p|index($n))|' +
+    '{name:(.address|sub("openagents:";"")),description,role,status}\'`\n' +
+    '(Discovery is workspace-wide — there is no per-channel discover endpoint, ' +
+    'so cross-reference `participants` yourself as shown.)\n'
   );
 
   return sections.join('\n');
@@ -444,13 +522,11 @@ function buildGuardrails() {
 }
 
 /**
- * Build the system prompt for Claude adapter (MCP-based).
- * Claude gets identity + collaboration instructions but NOT API skills.
+ * The MCP tool-reference block for Claude in `mcp` tool mode. Each line names
+ * a native `workspace_*` MCP tool the agent can call directly.
  */
-function buildClaudeSystemPrompt({ agentName, workspaceId, channelName, mode = 'execute', browserEnabled = false }) {
-  const parts = [];
-  parts.push(buildWorkspaceIdentity(agentName, workspaceId, channelName, mode));
-  parts.push(
+function buildClaudeMcpToolBlock() {
+  return (
     'Use workspace_get_history to read previous messages.\n' +
     'Use workspace_get_agents to see other agents.\n' +
     'Use workspace_put_todos to track your progress. ALWAYS create a to-do list when given multiple tasks or multi-step work.\n' +
@@ -460,8 +536,45 @@ function buildClaudeSystemPrompt({ agentName, workspaceId, channelName, mode = '
     'Use workspace_write_knowledge to create or update shared knowledge base entries that persist across conversations.\n' +
     'Use workspace_read_knowledge to read knowledge entries by ID or slug (from @knowledge:slug mentions).\n'
   );
+}
+
+/**
+ * The skills tool-reference block for Claude in `skills` tool mode. In this
+ * mode there is no MCP server — every workspace operation goes through the
+ * openagents-workspace skill (Bash + curl), so we must NOT name any
+ * `workspace_*` MCP tool here.
+ */
+function buildClaudeSkillsToolBlock() {
+  return (
+    'IMPORTANT: READ the openagents-workspace skill FIRST, before any workspace\n' +
+    'action. It is your ONLY interface to the workspace — every operation goes\n' +
+    'through the exact Bash + curl commands documented there. Do not guess\n' +
+    'endpoints or improvise; open and follow the skill instructions.\n' +
+    'The openagents-workspace skill (Bash + curl) covers all workspace operations:\n' +
+    'reading message history, discovering agents (and who is in this channel),\n' +
+    'sharing files, browsing the shared browser, managing to-do lists, setting\n' +
+    'timers, creating routines, sending inbox notifications, and reading/writing\n' +
+    'the shared knowledge base.\n'
+  );
+}
+
+/**
+ * Build the system prompt for the Claude adapter.
+ *
+ * `toolMode` selects how the agent reaches workspace resources:
+ * - `'mcp'`    → native `workspace_*` MCP tools (an MCP server is spawned).
+ * - `'skills'` → the openagents-workspace skill (Bash + curl); no MCP server.
+ *
+ * The tool-reference block is emitted directly for the chosen mode so it can
+ * never drift out of sync (previously the adapter string-replaced the MCP
+ * block, which silently leaked stale MCP tool names when the list changed).
+ */
+function buildClaudeSystemPrompt({ agentName, workspaceId, channelName, mode = 'execute', browserEnabled = false, toolMode = 'mcp' }) {
+  const parts = [];
+  parts.push(buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, toolMode));
+  parts.push(toolMode === 'skills' ? buildClaudeSkillsToolBlock() : buildClaudeMcpToolBlock());
   parts.push(buildBrowserDirective(browserEnabled));
-  parts.push(buildCollaborationPrompt());
+  parts.push(buildCollaborationPrompt(toolMode));
 
   if (mode === 'plan') {
     parts.push(
@@ -480,9 +593,9 @@ function buildClaudeSystemPrompt({ agentName, workspaceId, channelName, mode = '
  */
 function buildOpenclawSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false }) {
   const parts = [];
-  parts.push(buildWorkspaceIdentity(agentName, workspaceId, channelName, mode));
+  parts.push(buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills'));
   parts.push(buildBrowserDirective(browserEnabled));
-  parts.push(buildCollaborationPrompt());
+  parts.push(buildCollaborationPrompt('skills'));
   parts.push(buildModePrompt(mode));
   parts.push(buildApiSkillsPrompt({
     endpoint, workspaceId, token, agentName, channelName, disabledModules, mode,
@@ -499,9 +612,9 @@ function buildOpenclawSkillMd({ endpoint, workspaceId, token, agentName, channel
     endpoint, workspaceId, token, agentName, channelName, disabledModules, mode: 'execute',
   });
 
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute');
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills');
   const directive = buildBrowserDirective(browserEnabled);
-  const collab = buildCollaborationPrompt();
+  const collab = buildCollaborationPrompt('skills');
 
   const frontmatter = (
     '---\n' +
@@ -524,9 +637,9 @@ function buildOpenclawSkillMd({ endpoint, workspaceId, token, agentName, channel
  * Build system prompt for OpenCode adapter.
  */
 function buildOpenCodeSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false }) {
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode);
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills');
   const directive = buildBrowserDirective(browserEnabled);
-  const collab = buildCollaborationPrompt();
+  const collab = buildCollaborationPrompt('skills');
   const modePrompt = buildModePrompt(mode);
   const api = buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channelName, disabledModules, mode });
   return identity + directive + '\n' + collab + '\n' + modePrompt + '\n' + api + '\n' + buildGuardrails();
@@ -571,9 +684,9 @@ function buildClaudeSkillMd({ endpoint, workspaceId, token, agentName, channelNa
     mode: 'execute',
   });
 
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute');
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills');
   const directive = buildBrowserDirective(browserEnabled);
-  const collab = buildCollaborationPrompt();
+  const collab = buildCollaborationPrompt('skills');
 
   const frontmatter =
     '---\n' +
@@ -602,9 +715,9 @@ function buildCursorSkillMd({ endpoint, workspaceId, token, agentName, channelNa
     mode: 'execute',
   });
 
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute');
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills');
   const directive = buildBrowserDirective(browserEnabled);
-  const collab = buildCollaborationPrompt();
+  const collab = buildCollaborationPrompt('skills');
 
   const frontmatter =
     '---\n' +
@@ -626,6 +739,8 @@ module.exports = {
   buildModePrompt,
   buildGuardrails,
   buildApiSkillsPrompt,
+  buildClaudeMcpToolBlock,
+  buildClaudeSkillsToolBlock,
   buildClaudeSystemPrompt,
   buildOpenclawSystemPrompt,
   buildOpenclawSkillMd,
