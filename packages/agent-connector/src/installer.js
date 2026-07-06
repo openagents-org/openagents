@@ -471,7 +471,7 @@ class Installer {
     // Prefer the resolved absolute binary path (quoted) over the bare name:
     // it's unambiguous and lets `--version` succeed for binaries resolved via
     // the package-bin fallback (which are not on PATH).
-    const versionCmd = checkCmd || `"${binary}" --version`;
+    const versionCmd = checkCmd || this._versionProbeCommand(binary);
 
     const version = this._detectVersion(binary, versionCmd);
     const readiness = this._evaluateReadiness(agentType, entry, binary);
@@ -502,6 +502,56 @@ class Installer {
           : readinessReason(true, readiness.ready),
       ...readiness,
     };
+  }
+
+  /**
+   * Build the `<binary> --version` probe command for a resolved binary path.
+   *
+   * When the resolved binary is a JS entry (`.mjs`/`.cjs`/`.js` — e.g. OpenClaw,
+   * whose package `bin` is `openclaw.mjs` and is what `_resolvePackageBin`
+   * returns when the `.cmd` shim isn't on PATH), it MUST be run through node.
+   * execSync goes through a shell; on Windows `cmd.exe "C:\…\openclaw.mjs"
+   * --version` finds no PATHEXT association for `.mjs`, so it ShellExecutes the
+   * file and the OS pops the "choose an app to open this .mjs file" dialog. The
+   * launcher polls health/version on a timer, so that dialog reappears over and
+   * over — even at idle, and stacked (one per poll). Prefixing node makes the
+   * probe run headless. Harmless on Unix (node runs a .mjs regardless of any
+   * shebang), so it's applied on every platform for consistency.
+   */
+  _versionProbeCommand(binary) {
+    if (/\.(mjs|cjs|js)$/i.test(binary)) {
+      return `"${this._nodeBinary()}" "${binary}" --version`;
+    }
+    return `"${binary}" --version`;
+  }
+
+  /**
+   * Resolve a node executable to run JS-entry CLIs with. Prefers the launcher's
+   * portable node, then a PATH lookup, then the bare name. Deliberately does NOT
+   * use process.execPath: when the core runs inside the Electron main process
+   * that path is the Electron binary, and `electron foo.mjs` would launch the
+   * app instead of running the script.
+   */
+  _nodeBinary() {
+    const isWin = process.platform === 'win32';
+    const nodeName = isWin ? 'node.exe' : 'node';
+    const portableDir = path.join(os.homedir(), '.openagents', 'nodejs');
+    for (const candidate of [
+      path.join(portableDir, nodeName),
+      path.join(portableDir, 'bin', nodeName),
+    ]) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    try {
+      const found = execSync(isWin ? 'where node.exe' : 'which node', {
+        encoding: 'utf-8',
+        timeout: 5000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: getEnhancedEnv(),
+      }).split(/\r?\n/)[0].trim();
+      if (found) return found;
+    } catch {}
+    return 'node';
   }
 
   /**
