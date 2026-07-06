@@ -142,6 +142,19 @@ function getStepIcon(parsed: ParsedStep) {
   return TOOL_ICONS[parsed.toolDisplay || ''] || Wrench;
 }
 
+// A bare "thinking..." placeholder carries no reasoning text — the working
+// indicator already shows the agent is active, so it should not render as its
+// own sub-step. Real thinking (with content) still renders.
+function isPlaceholderThinking(message: WorkspaceMessage): boolean {
+  if (message.messageType === 'todos') return false;
+  const parsed = message.messageType === 'thinking'
+    ? { type: 'thinking' as const, text: message.content }
+    : parseStepContent(message.content);
+  if (parsed.type !== 'thinking') return false;
+  const t = (parsed.text || '').trim().toLowerCase();
+  return t === '' || t === 'thinking...' || t === 'thinking';
+}
+
 // ── Step Item ──
 
 const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage }) {
@@ -173,6 +186,9 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
       </div>
     );
   }
+
+  // Skip bare "thinking..." placeholders — the working indicator conveys this.
+  if (isPlaceholderThinking(message)) return null;
 
   // Messages with messageType 'thinking' are already typed — parse as thinking directly
   const parsed = message.messageType === 'thinking'
@@ -220,10 +236,6 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
             parsed.type === 'status' && 'text-emerald-500'
           )}
         />
-
-        {parsed.type === 'thinking' && (
-          <span className="italic animate-pulse">thinking...</span>
-        )}
 
         {parsed.type === 'compacting' && (
           <span className="italic text-violet-500/80 animate-pulse">Vibing ...</span>
@@ -295,6 +307,11 @@ interface IntermediateStepsProps {
 
 export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents, isActive = false }: IntermediateStepsProps) {
   if (steps.length === 0) return null;
+  // A group whose only content is "thinking..." placeholders shows nothing on
+  // its own; render it only while the agent is active (the working indicator
+  // then appears). This also hides stale placeholder-only groups in history.
+  const renderableSteps = steps.filter((s) => !isPlaceholderThinking(s));
+  if (renderableSteps.length === 0 && !isActive) return null;
   const hasTerminalStatus = steps.some(isTerminalStatus);
 
   // Group consecutive steps by sender
