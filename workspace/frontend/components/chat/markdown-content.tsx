@@ -183,4 +183,18 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
       </ReactMarkdown>
     </div>
   );
-});
+}, arePropsEqual);
+
+// Compare props by VALUE, not identity. The `agentNames` array is rebuilt on
+// every discovery poll (every ~5s while an agent is active) even when the set
+// of names is unchanged; the default shallow memo would then re-render and make
+// ReactMarkdown re-parse + rehype-highlight rebuild the whole code-block DOM,
+// which reads as a flash. Skipping the re-render when content and names are
+// value-equal keeps rendered messages static between polls.
+function arePropsEqual(prev: MarkdownContentProps, next: MarkdownContentProps): boolean {
+  return (
+    prev.content === next.content &&
+    prev.agentNames.length === next.agentNames.length &&
+    prev.agentNames.every((name, i) => name === next.agentNames[i])
+  );
+}

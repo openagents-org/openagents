@@ -156,15 +156,12 @@ class WorkspaceClient {
    */
   async sendMessage(workspaceId, channelName, token, content, {
     senderType = 'agent', senderName, messageType = 'chat', metadata, attachments, sessionId,
-    spec, specToolCallId,
   } = {}) {
     const sourcePrefix = senderType === 'agent' ? 'openagents' : 'human';
     const source = senderName ? `${sourcePrefix}:${senderName}` : `${sourcePrefix}:unknown`;
 
     const payload = { content, message_type: messageType };
     if (attachments && attachments.length) payload.attachments = attachments;
-    if (spec) payload.spec = spec;
-    if (specToolCallId) payload.spec_tool_call_id = specToolCallId;
 
     return this.sendEvent(workspaceId, {
       type: 'workspace.message.posted',
@@ -173,30 +170,6 @@ class WorkspaceClient {
       payload,
       metadata: metadata || {},
     }, token, sessionId);
-  }
-
-  /**
-   * Poll workspace.tool_result events — the client's response to an agent's
-   * render_ui invocation. Returns events directly (no message normalization)
-   * because the caller treats them differently than chat messages.
-   */
-  async pollToolResults(workspaceId, token, { after, limit = 50 } = {}) {
-    const params = new URLSearchParams({
-      network: workspaceId,
-      type: 'workspace.tool_result',
-      limit: String(limit),
-    });
-    if (after) params.set('after', after);
-
-    const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token));
-    const result = data.data || data;
-    const events = (result && result.events) || [];
-
-    let cursor = null;
-    if (events.length > 0) {
-      cursor = events[events.length - 1].id || null;
-    }
-    return { events, cursor };
   }
 
   /**
@@ -275,6 +248,11 @@ class WorkspaceClient {
     const params = new URLSearchParams({
       network: workspaceId,
       type: 'workspace.message.posted',
+      // Server-side pre-filter: only return events routed to this agent (plus
+      // untargeted ones) instead of the whole network's traffic. Backward
+      // compatible — older backends ignore the unknown param and return
+      // everything, so the client-side filter below stays as the safety net.
+      target_agents: agentName,
       limit: String(limit),
     });
     if (after) params.set('after', after);
@@ -283,12 +261,23 @@ class WorkspaceClient {
     const result = data.data || data;
     const events = (result && result.events) || [];
 
+    // Prefer the server's next_cursor: with server-side target filtering the
+    // last returned event lags the stream tip, so advancing by it alone would
+    // re-scan the same range every poll. next_cursor jumps past other agents'
+    // events once ours are drained. Older backends don't send it — fall back
+    // to the last returned event id (they return the full stream, so that IS
+    // the tip).
     let cursor = null;
-    if (events.length > 0) {
+    if (result && result.next_cursor) {
+      cursor = result.next_cursor;
+    } else if (events.length > 0) {
       cursor = events[events.length - 1].id || null;
     }
 
-    // Filter for messages targeted at this agent.
+    // Filter for messages targeted at this agent. With a targeting-aware
+    // backend this is mostly a no-op (server already narrowed the set); it
+    // remains authoritative for older backends and for the untargeted events
+    // the server includes as a safe superset.
     //
     // target_agents semantics:
     //   • absent            → legacy server with no routing decision

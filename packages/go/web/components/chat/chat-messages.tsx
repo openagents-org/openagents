@@ -68,11 +68,9 @@ interface ChatMessagesProps {
   hasOlder?: boolean;
   /** Whether older messages are currently being loaded. */
   loadingOlder?: boolean;
-  /** Forwarded to each ChatMessage for inline A2UI interactions. */
-  onA2UIAction?: (action: { id: string; value?: unknown }, toolCallId: string | null | undefined) => void;
 }
 
-export function ChatMessages({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onA2UIAction }: ChatMessagesProps) {
+export function ChatMessages({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder }: ChatMessagesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
@@ -167,17 +165,42 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
     },
   });
 
+  // A settle-to-bottom pass is in progress. Any real user scroll gesture
+  // cancels it (see the wheel/touch/mousedown listeners below), and it
+  // self-terminates once the height stabilizes.
+  const settlingRef = useRef(false);
+
   const scrollToBottom = useCallback(() => {
-    if (totalCount > 0) {
-      virtualizer.scrollToIndex(totalCount - 1, { align: 'end' });
-      // Also nudge the native scroll in case the virtualizer hasn't measured the last item yet
-      requestAnimationFrame(() => {
-        if (containerRef.current) {
-          containerRef.current.scrollTop = containerRef.current.scrollHeight;
-        }
-      });
-    }
-  }, [totalCount, virtualizer]);
+    if (totalCount === 0) return;
+    // The virtualizer estimates every unmeasured row at 80px, so a single pin
+    // lands at the *estimated* bottom; the real bottom rows (tall markdown,
+    // tables) are then measured, the total height grows, and the view is left
+    // ABOVE the true bottom — the visible "flash then not at the bottom".
+    // Re-pin every frame until scrollHeight stops changing (measurement done),
+    // with a safety cap to guarantee termination.
+    settlingRef.current = true;
+    let lastHeight = -1;
+    let stableFrames = 0;
+    let frames = 0;
+    const step = () => {
+      const el = containerRef.current;
+      if (!el || !settlingRef.current) return;
+      el.scrollTop = el.scrollHeight;
+      if (el.scrollHeight === lastHeight) {
+        stableFrames += 1;
+      } else {
+        stableFrames = 0;
+        lastHeight = el.scrollHeight;
+      }
+      frames += 1;
+      if (stableFrames >= 3 || frames >= 60) {
+        settlingRef.current = false;
+        return;
+      }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }, [totalCount]);
 
   // Derive the current session from messages for thread-switch detection
   const currentSessionId = messages.length > 0 ? messages[0].sessionId : null;
@@ -242,8 +265,21 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
       }
     };
 
+    // A real user scroll gesture cancels any in-flight settle-to-bottom so we
+    // never yank them back while reading. Measurement-driven reflows don't
+    // fire these.
+    const cancelSettle = () => { settlingRef.current = false; };
+
     el.addEventListener('scroll', onScroll);
-    return () => el.removeEventListener('scroll', onScroll);
+    el.addEventListener('wheel', cancelSettle, { passive: true });
+    el.addEventListener('touchmove', cancelSettle, { passive: true });
+    el.addEventListener('mousedown', cancelSettle);
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      el.removeEventListener('wheel', cancelSettle);
+      el.removeEventListener('touchmove', cancelSettle);
+      el.removeEventListener('mousedown', cancelSettle);
+    };
   }, [hasOlder, loadingOlder, loadOlder]);
 
   return (
@@ -327,7 +363,6 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
                   <ChatMessage
                     message={group.message}
                     agents={agents}
-                    onA2UIAction={onA2UIAction}
                   />
                 ) : (
                   <IntermediateSteps

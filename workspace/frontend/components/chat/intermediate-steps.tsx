@@ -17,6 +17,7 @@ import {
   ListTodo,
 } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { WorkingIndicator } from './working-indicator';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 
 // ── Content Parsing ──
@@ -272,8 +273,7 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
 function ActivityIndicator() {
   return (
     <div className="py-1.5">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/breathing-dots.gif" alt="" width={44} height={14} className="opacity-90" />
+      <WorkingIndicator />
     </div>
   );
 }

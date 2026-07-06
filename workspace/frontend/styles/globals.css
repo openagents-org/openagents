@@ -166,6 +166,18 @@
     0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
     40% { opacity: 1; transform: scale(1); }
   }
+
+  /** Agent "working" indicator — thin ticker bars (slow) **/
+  @keyframes working-bar {
+    0%, 100% { transform: scaleY(0.35); opacity: 0.55; }
+    50%      { transform: scaleY(1);    opacity: 1; }
+  }
+  .working-bar {
+    animation: working-bar 1.6s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .working-bar { animation: none; opacity: 0.7; transform: scaleY(0.8); }
+  }
 }
 
 /** Custom Scrollbar **/

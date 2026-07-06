@@ -271,6 +271,7 @@ def poll_events(
     target: Optional[str] = Query(None, description="Filter by target address"),
     channel: Optional[str] = Query(None, description="Filter by channel name"),
     type: Optional[str] = Query(None, description="Filter by event type prefix"),
+    target_agents: Optional[str] = Query(None, description="Filter to events routed to this agent (metadata.target_agents contains it, plus untargeted events). Server-side counterpart of the adapter's client-side target filter."),
     conversation: Optional[str] = Query(None, description="Filter to DM conversation between two agents (comma-separated addresses)"),
     search: Optional[str] = Query(None, description="Search message content (case-insensitive)"),
     member: Optional[str] = Query(None, description="Filter to channels where this agent is a member"),
@@ -318,7 +319,11 @@ def poll_events(
     at_head_key = None
     head_tracker_key = None
     incoming_after = after or ""
-    if not search and not member:
+    # `target_agents` is a per-agent filter — every agent sends a distinct
+    # value, which would explode the head-tracker key space (invalidation
+    # enumerates a fixed set of filter combos, not agent names). Skip the
+    # cache for these polls, same as `member`; the filtered query is cheap.
+    if not search and not member and not target_agents:
         key_parts = [
             str(workspace.id), target or "", channel or "",
             type or "", conversation or "",
@@ -433,11 +438,76 @@ def poll_events(
     if type:
         query = query.where(EventRecord.type.startswith(type))
 
+    if target_agents:
+        # Return only events routed to this agent — mirrors the adapter's
+        # client-side `target_agents` filter so agents stop pulling the whole
+        # network's traffic and discarding ~(N-1)/N of it.
+        #
+        # The set matches exactly what the adapter keeps (verified against live
+        # traffic — this filter == the client filter for every agent):
+        #   • events whose metadata.target_agents contains this agent, PLUS
+        #   • *untargeted human* messages (no target_agents key) — the adapter
+        #     broadcasts those.
+        # Untargeted *agent/system* messages are the bulk of a busy workspace's
+        # traffic (agent-to-agent chatter) and the adapter always discards them
+        # when they carry no target list, so returning them was the difference
+        # between "filter is correct" and "filter actually reduces load". They
+        # are excluded here. Events targeted at *other* agents and the
+        # `["__no_response__"]` sentinel are excluded too.
+        if db.bind.dialect.name == "postgresql":
+            # `@>` array containment (GIN-friendly); `? 'target_agents'` detects
+            # the untargeted case, scoped to human senders.
+            query = query.where(
+                or_(
+                    EventRecord.metadata_.contains({"target_agents": [target_agents]}),
+                    and_(
+                        EventRecord.source.startswith("human:"),
+                        ~EventRecord.metadata_.has_key("target_agents"),
+                    ),
+                )
+            )
+        else:
+            # SQLite (tests): no JSONB operators — fall back to a text match.
+            # Over-inclusive on the containment side but safe; the adapter
+            # re-filters client-side.
+            meta_text = cast(EventRecord.metadata_, Text)
+            query = query.where(
+                or_(
+                    meta_text.like(f'%"{target_agents}"%'),
+                    and_(
+                        EventRecord.source.startswith("human:"),
+                        meta_text.notlike('%target_agents%'),
+                    ),
+                )
+            )
+
     if search:
         # Search within payload JSON for content field (works with both JSONB and JSON)
         query = query.where(
             cast(EventRecord.payload, Text).ilike(f"%{search}%")
         )
+
+    # Head-cursor snapshot for target_agents polls. When we filter to one
+    # agent's events, the last *returned* event can lag far behind the stream
+    # tip (most traffic is for other agents), so a naive "cursor = last event"
+    # would make the agent re-scan the same range every poll — reintroducing
+    # the O(traffic) scan we're trying to remove. Capture the tip of the
+    # *unfiltered* (network+type[+channel/target]) stream BEFORE running the
+    # main query so the client can skip past other agents' events once it has
+    # drained its own. Snapshotting first guarantees we never advance past an
+    # event the main query didn't get to see (at worst a harmless re-scan).
+    head_id_snapshot = None
+    if target_agents:
+        head_q = select(EventRecord.id).where(EventRecord.network_id == workspace.id)
+        if type:
+            head_q = head_q.where(EventRecord.type.startswith(type))
+        if channel:
+            head_q = head_q.where(EventRecord.target == f"channel/{channel}")
+        elif target:
+            head_q = head_q.where(EventRecord.target == target)
+        head_id_snapshot = db.execute(
+            head_q.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc()).limit(1)
+        ).scalar()
 
     if sort == "desc":
         query = query.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc()).limit(limit + 1)
@@ -471,6 +541,16 @@ def poll_events(
         "oldest_id": (events[-1].id if sort == "desc" else events[0].id) if events else None,
         "newest_id": (events[0].id if sort == "desc" else events[-1].id) if events else None,
     }
+    if target_agents:
+        # Cursor the agent should resume from. If more of *its own* events
+        # remain (has_more), continue from the last one returned; otherwise
+        # jump to the stream tip so it skips past other agents' traffic
+        # instead of re-scanning it next poll. Additive field — older clients
+        # ignore it and fall back to newest_id.
+        next_cursor = response_data["newest_id"]
+        if not has_more and head_id_snapshot:
+            next_cursor = head_id_snapshot
+        response_data["next_cursor"] = next_cursor
     if composing:
         response_data["composing"] = True
 

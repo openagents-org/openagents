@@ -57,6 +57,7 @@ describe('CLI', () => {
     assert.ok(out.includes('Usage: agn'));
     assert.ok(out.includes('up'));
     assert.ok(out.includes('down'));
+    assert.ok(out.includes('restart'));
     assert.ok(out.includes('search'));
   });
 

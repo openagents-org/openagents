@@ -8,7 +8,6 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { MarkdownContent } from './markdown-content';
-import { A2UIRenderer } from '@/components/a2ui/a2ui-renderer';
 import { workspaceApi } from '@/lib/api';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -106,15 +105,9 @@ function Attachments({ items }: { items: Attachment[] }) {
 interface ChatMessageProps {
   message: WorkspaceMessage;
   agents?: WorkspaceAgent[];
-  /**
-   * Fired when the user interacts with an A2UI-rendered component inside
-   * this bubble (button, choice list, confirm dialog). Caller routes the
-   * action back to the agent via `workspace.tool_result`.
-   */
-  onA2UIAction?: (action: { id: string; value?: unknown }, toolCallId: string | null | undefined) => void;
 }
 
-export const ChatMessage = memo(function ChatMessage({ message, agents = [], onA2UIAction }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: ChatMessageProps) {
   const isHuman = message.senderType === 'human';
   const isSystem = message.messageType === 'status';
   const [copied, setCopied] = useState(false);
@@ -172,11 +165,6 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], onA
             <div className="text-sm leading-relaxed mt-0.5">
               <MarkdownContent content={message.content} agentNames={agentNames} />
               <Attachments items={attachments} />
-              {message.spec && (
-                <div className="mt-2">
-                  <A2UIRenderer spec={message.spec} onAction={(a) => onA2UIAction?.(a, message.specToolCallId)} />
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -211,11 +199,6 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], onA
           <div className="text-sm leading-relaxed mt-0.5">
             <MarkdownContent content={message.content} agentNames={agentNames} />
             <Attachments items={attachments} />
-            {message.spec && (
-              <div className="mt-2">
-                <A2UIRenderer spec={message.spec} onAction={(a) => onA2UIAction?.(a, message.specToolCallId)} />
-              </div>
-            )}
 
             {/* Copy button */}
             <div className="flex items-center gap-1 mt-1">
