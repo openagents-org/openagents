@@ -415,3 +415,38 @@ class TestPollTargetAgents:
         ids = {e["id"] for e in data["events"]}
         assert {"ev-a", "ev-b", "ev-ab", "ev-human-none", "ev-agent-none", "ev-noresp"} <= ids
         assert "next_cursor" not in data
+
+
+class TestPollResolveCache:
+    """The workspace resolve+auth is served from Redis so at-head polls don't
+    hit Postgres. The cache must never bypass auth.
+    """
+
+    def _use_memory_cache(self, monkeypatch):
+        """Swap the Redis helpers for an in-memory dict so the cache-hit path
+        (normally a no-op in tests, where Redis is disabled) is exercised."""
+        from app import cache as _cache
+        store = {}
+        monkeypatch.setattr(_cache, "get_bytes", lambda k: store.get(k))
+        monkeypatch.setattr(_cache, "set_bytes", lambda k, v, ttl_seconds=0.0: store.__setitem__(k, v))
+        monkeypatch.setattr(_cache, "delete_key", lambda k: store.pop(k, None))
+        return store
+
+    def test_cache_hit_still_enforces_token(self, client, workspace, monkeypatch):
+        store = self._use_memory_cache(monkeypatch)
+        params = {"network": workspace["id"], "type": "workspace.message.posted"}
+        good = {"X-Workspace-Token": workspace["token"]}
+
+        # 1) first poll resolves via DB and populates the resolve cache
+        r1 = client.get("/v1/events", params=params, headers=good)
+        assert r1.status_code == 200
+        assert any(k.startswith("v1ws:resolve:") for k in store), "resolve cache should be populated"
+
+        # 2) second poll is served with the cache warm — still authorized
+        r2 = client.get("/v1/events", params=params, headers=good)
+        assert r2.status_code == 200
+
+        # 3) a wrong token with the cache warm is STILL rejected — the cached
+        # token-hash must not let a bad token through (it falls through to DB auth)
+        r3 = client.get("/v1/events", params=params, headers={"X-Workspace-Token": "wrong-token"})
+        assert r3.status_code == 401

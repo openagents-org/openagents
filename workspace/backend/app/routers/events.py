@@ -119,6 +119,57 @@ def _invalidate_poll_cache(workspace_id: str, event_type: str = ""):
             pass
 
 
+def _resolve_and_auth_cached(db, network, token, authorization):
+    """Resolve a workspace id and authorize the caller, serving the
+    workspace-token path from Redis so the hot poll path never touches
+    Postgres when the client is already at head.
+
+    Returns ``(workspace_id, error_response)`` — exactly one is non-None.
+
+    Only the workspace-token path (the one agents use, `token ==
+    password_hash`) is cache-served. Bearer/collaborator auth, cache misses,
+    and token mismatches fall through to the DB and repopulate the cache.
+    We store a SHA-256 of the token (not the token itself) and a short TTL so
+    a rotated/revoked token is honored within the window; freshness of *events*
+    is unaffected because the head/at-head caches are still invalidated on every
+    post.
+    """
+    ck = "v1ws:resolve:" + hashlib.sha1(network.encode("utf-8")).hexdigest()
+    cached = cache.get_bytes(ck)
+    if cached is not None:
+        try:
+            meta = _json.loads(cached)
+        except Exception:
+            meta = None
+        if meta and meta.get("id"):
+            ph_sha = meta.get("ph_sha")
+            if ph_sha is None:
+                # Public workspace (no password) — token path grants access.
+                return meta["id"], None
+            if token and hashlib.sha256(token.encode("utf-8")).hexdigest() == ph_sha:
+                return meta["id"], None
+            # token missing/mismatch → fall through for bearer/collaborator auth
+
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(network))
+    ).scalar_one_or_none()
+    if not workspace:
+        return None, json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, token, authorization):
+        return None, json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    ph = workspace.password_hash
+    meta = {
+        "id": str(workspace.id),
+        "ph_sha": hashlib.sha256(ph.encode("utf-8")).hexdigest() if ph else None,
+    }
+    try:
+        cache.set_bytes(ck, _json.dumps(meta).encode("utf-8"), ttl_seconds=30.0)
+    except Exception:
+        pass
+    return str(workspace.id), None
+
+
 # ---------------------------------------------------------------------------
 # POST /v1/events — send an event through the pipeline
 # ---------------------------------------------------------------------------
@@ -287,16 +338,13 @@ def poll_events(
     Supports filtering by target, channel, type, and cursor-based pagination
     using the `after` parameter (event ID — events are sorted by timestamp).
     """
-    # Resolve workspace
-    workspace = db.execute(
-        select(Workspace).where(_workspace_filter(network))
-    ).scalar_one_or_none()
-
-    if not workspace:
-        return json_response(ResponseCode.NOT_FOUND, "Network not found")
-
-    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
-        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    # Resolve workspace + authorize. Served from Redis for the workspace-token
+    # path so an at-head poll (the common idle case) never checks out a Postgres
+    # connection — the DB `SELECT workspace` used to run on every poll, before
+    # the cache, so even a cached-empty response cost a pooled connection.
+    workspace_id, err = _resolve_and_auth_cached(db, network, x_workspace_token, authorization)
+    if err is not None:
+        return err
 
     # Two-level read-through cache for poll traffic.
     #
@@ -325,7 +373,7 @@ def poll_events(
     # cache for these polls, same as `member`; the filtered query is cheap.
     if not search and not member and not target_agents:
         key_parts = [
-            str(workspace.id), target or "", channel or "",
+            workspace_id, target or "", channel or "",
             type or "", conversation or "",
             after or "", before or "",
             sort or "asc", str(limit),
@@ -337,7 +385,7 @@ def poll_events(
         # Per-filter head cursor marker (what the newest event id was for
         # this filter the last time we saw any events). Cursor-free.
         filter_parts = [
-            str(workspace.id), target or "", channel or "",
+            workspace_id, target or "", channel or "",
             type or "", conversation or "",
             sort or "asc", str(limit),
         ]
@@ -371,13 +419,13 @@ def poll_events(
                         except Exception:
                             pass
 
-    query = select(EventRecord).where(EventRecord.network_id == workspace.id)
+    query = select(EventRecord).where(EventRecord.network_id == workspace_id)
 
     # Filter events to only channels where the agent is a member
     if member:
         member_channel_names = db.execute(
             select(Channel.name).where(
-                Channel.workspace_id == workspace.id,
+                Channel.workspace_id == workspace_id,
                 Channel.id.in_(
                     select(ChannelMember.channel_id).where(ChannelMember.agent_name == member)
                 ),
@@ -498,7 +546,7 @@ def poll_events(
     # event the main query didn't get to see (at worst a harmless re-scan).
     head_id_snapshot = None
     if target_agents:
-        head_q = select(EventRecord.id).where(EventRecord.network_id == workspace.id)
+        head_q = select(EventRecord.id).where(EventRecord.network_id == workspace_id)
         if type:
             head_q = head_q.where(EventRecord.type.startswith(type))
         if channel:
@@ -521,7 +569,7 @@ def poll_events(
     composing = False
     if not search and not conversation:
         from app.composing import has_any_composing
-        composing = has_any_composing(str(workspace.id))
+        composing = has_any_composing(workspace_id)
 
     response_data = {
         "events": [
