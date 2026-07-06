@@ -115,12 +115,12 @@ export function OnboardingFlow({
   const [homeDir, setHomeDir] = useState("")
   const [creatingAgent, setCreatingAgent] = useState(false)
 
-  // Step 4 (connect workspace): create a new one or paste an invite to an
-  // existing one. Both are optional.
-  const [wsMode, setWsMode] = useState<"create" | "existing">("create")
-  const [workspaceName, setWorkspaceName] = useState(() =>
-    t("onboarding.flow.workspace.defaultName"),
-  )
+  // Step 4 (connect workspace): default to linking an EXISTING workspace (the
+  // common case) with paste-an-invite; creating a new one is the alternative.
+  // Both are optional.
+  const [wsMode, setWsMode] = useState<"create" | "existing">("existing")
+  // No default/i18n name — a new workspace is fully user-named (placeholder only).
+  const [workspaceName, setWorkspaceName] = useState("")
   const [wsInvite, setWsInvite] = useState("")
   const [provisioning, setProvisioning] = useState(false)
 
@@ -277,11 +277,9 @@ export function OnboardingFlow({
       .catch(() => {})
   }, [open, step, homeDir])
 
-  // Suggest "<type>-1" as the editable agent name (the user can rename it).
-  useEffect(() => {
-    if (!open || step !== 3 || !selectedAgent) return
-    if (!agentName) setAgentName(`${selectedAgent}-1`)
-  }, [open, step, selectedAgent, agentName])
+  // No default agent name — the user types their own. (Auto-filling "<type>-1"
+  // whenever the field was empty made it impossible to clear: the effect
+  // re-populated it on the very next render.)
 
   // Prefill the folder with the default until the user picks/edits their own.
   useEffect(() => {
@@ -824,8 +822,12 @@ export function OnboardingFlow({
     <div className="fixed inset-0 z-1500 flex flex-col bg-(--bg-primary)">
       <ProgressBar step={step} />
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="w-full max-w-180 mx-auto px-8 py-10 sm:py-12">
+      {/* flex column + my-auto centers the step vertically when the viewport
+          has spare height (large displays), and gracefully falls back to
+          top-aligned scrolling when a step's content is taller than the
+          viewport — margins collapse to 0, so the top is never clipped. */}
+      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
+        <div className="w-full max-w-180 mx-auto my-auto px-8 py-10 sm:py-12">
           {renderBody()}
         </div>
       </div>
@@ -1483,16 +1485,16 @@ function ConnectWorkspaceStep({
     desc: string
   }> = [
     {
-      id: "create",
-      icon: <Plus className="w-4 h-4" />,
-      title: t("onboarding.flow.connectWorkspace.createTitle"),
-      desc: t("onboarding.flow.connectWorkspace.createDesc"),
-    },
-    {
       id: "existing",
       icon: <Link2 className="w-4 h-4" />,
       title: t("onboarding.flow.connectWorkspace.existingTitle"),
       desc: t("onboarding.flow.connectWorkspace.existingDesc"),
+    },
+    {
+      id: "create",
+      icon: <Plus className="w-4 h-4" />,
+      title: t("onboarding.flow.connectWorkspace.createTitle"),
+      desc: t("onboarding.flow.connectWorkspace.createDesc"),
     },
   ]
   return (

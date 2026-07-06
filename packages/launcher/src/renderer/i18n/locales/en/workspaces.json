@@ -21,8 +21,7 @@
   "toast": {
     "urlCopied": "URL copied",
     "copyFailed": "Failed to copy",
-    "removing": "Removing workspace...",
-    "removed": "Workspace removed",
+    "removed": "Workspace “{{name}}” removed",
     "renamed": "Workspace renamed",
     "error": "Error: {{message}}"
   },

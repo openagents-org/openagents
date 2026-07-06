@@ -1669,10 +1669,15 @@ export class AgentManager extends EventEmitter {
     const cliLoggedIn = DUAL_LOGIN_AGENTS[type]
       ? this._hostedLoginIsAuthed(type) === true
       : false
-    const hasCreds =
-      cliLoggedIn ||
-      this._envHasApiKey(instanceEnv) ||
-      this._hasConfiguredCredentials(type)
+    // A configured API key — instance-level, or the type's saved env — is what
+    // the adapter actually injects and runs with, and it overrides any CLI
+    // sign-in session (see the DUAL_LOGIN_AGENTS/codex note). So the auth_mode
+    // LABEL must follow the key FIRST: an instance the user gave a key to reads
+    // "API key", not "CLI login", even when `claude auth status` also reports a
+    // signed-in session. Only fall back to "cli_login" when no key is set.
+    const hasKey =
+      this._envHasApiKey(instanceEnv) || this._hasConfiguredCredentials(type)
+    const hasCreds = cliLoggedIn || hasKey
     // The type-level health is populated asynchronously (see
     // _scheduleHealthRefresh), so right after onboarding it is still null. Don't
     // fall back to a misleading "Not configured" when the agent actually has a
@@ -1683,7 +1688,7 @@ export class AgentManager extends EventEmitter {
           installed: true,
           ready: true,
           reason: READY_REASON.READY,
-          auth_mode: cliLoggedIn ? "cli_login" : "api_key",
+          auth_mode: hasKey ? "api_key" : "cli_login",
           execution_mode: "direct",
           message: "Ready",
         }
@@ -1698,7 +1703,7 @@ export class AgentManager extends EventEmitter {
         installed: true,
         ready: true,
         reason: READY_REASON.READY,
-        auth_mode: cliLoggedIn ? "cli_login" : "api_key",
+        auth_mode: hasKey ? "api_key" : "cli_login",
         execution_mode:
           h.execution_mode && h.execution_mode !== "unavailable"
             ? h.execution_mode
