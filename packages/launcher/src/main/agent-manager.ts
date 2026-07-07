@@ -451,20 +451,14 @@ function launcherAuthFields(
 const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>(["gemini"])
 
 /**
- * Agents hidden from the onboarding picker (Step 1). They remain fully
- * installable and configurable from the Install tab — we just don't surface
- * them to first-time users. Cursor and Hermes need an external CLI install +
- * an API key, so they're a rougher first-run experience than the key-only
- * agents; keep onboarding to the smoother options.
- */
-const ONBOARDING_HIDDEN = new Set<string>(["cursor", "hermes", "amp", "nanoclaw"])
-
-/**
  * The agents the launcher/workspace core officially supports today, in the
- * order product wants them surfaced (the "8 核心 agent" list). Anything NOT in
- * this set is shown as "coming soon" in the Install marketplace — visible but
- * not installable, sorted to the bottom — and omitted from onboarding, so users
- * stay on the supported set. Kept in launcher code (not the shared registry) so
+ * order product wants them surfaced. Anything NOT in this set is shown as
+ * "coming soon" in the Install marketplace — visible but not installable,
+ * sorted to the bottom — and omitted from onboarding, so users stay on the
+ * supported set. The onboarding picker (Step 1) offers exactly this set,
+ * intersected with the runnable ADAPTER_MAP, so the first-run choices line up
+ * one-for-one with the marketplace's installable agents. Kept in launcher code
+ * (not the shared registry) so
  * the supported list can move independently of the catalog, and `coreOrder`
  * gives a single display order regardless of the registry's own
  * featured/order (which is inconsistent for e.g. gemini).
@@ -479,16 +473,15 @@ const CORE_AGENTS: readonly string[] = [
   "kimi",
   "gemini",
   // Amp (Sourcegraph): external curl install + `amp login`/AMP_API_KEY auth.
-  // Installable from the Install tab but kept out of first-run onboarding via
-  // ONBOARDING_HIDDEN (like cursor/hermes). aider/goose/copilot/cline are
-  // intentionally NOT in this set — they stay "coming soon" (visible but not
-  // installable) so the supported download list is the 8 core agents + amp.
+  // aider/goose/copilot/cline are intentionally NOT in this set — they stay
+  // "coming soon" (visible but not installable) so the supported download list
+  // is the core agents + amp.
   "amp",
-  // NanoClaw is a creatable Workspace agent but BETA: it's an external
-  // containerized runtime bridged via a native NanoClaw `openagents` channel.
-  // Kept out of first-run onboarding via ONBOARDING_HIDDEN; installable/creatable
-  // from the Install tab. See docs/agents/nanoclaw.md.
-  "nanoclaw",
+  // NanoClaw is intentionally NOT in this set: it's a BETA external
+  // containerized runtime bridged via a native NanoClaw `openagents` channel,
+  // so it stays "coming soon" (visible but not installable) and out of
+  // onboarding rather than being surfaced as a supported download. It remains
+  // in the runnable ADAPTER_MAP for existing workspaces. See docs/agents/nanoclaw.md.
 ]
 const CORE_AGENT_ORDER = new Map<string, number>(
   CORE_AGENTS.map((name, i) => [name, i]),
@@ -2887,7 +2880,7 @@ export class AgentManager extends EventEmitter {
     )
 
     const result: OnboardingAgent[] = supported
-      .filter((type) => CORE_AGENTS.includes(type) && !ONBOARDING_HIDDEN.has(type))
+      .filter((type) => CORE_AGENTS.includes(type))
       .map((type) => {
       const cat = catalogByName.get(type)
       const reg = bundledByName.get(type)
