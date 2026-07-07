@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ListTree, UserPlus, MessageSquare, CalendarClock, Zap, Eye, Square, ChevronLeft, X, Plus, Globe, Share2, Crown } from 'lucide-react';
+import { ListTree, UserPlus, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, Globe, Share2, Crown } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
 import { useLayout } from '@/components/layout/layout-context';
 import { cn } from '@/lib/utils';
@@ -125,7 +125,7 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, agentModes, updateAgentMode, toggleAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
+  const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
   const {
     isMobile,
@@ -569,41 +569,6 @@ export function ChatView() {
                     +{sessionAgents.length - 3}
                   </div>
                 )}
-              </div>
-            );
-          })()}
-
-          {/* Agent mode toggle — only for Claude agents */}
-          {agents.length > 0 && agents[0].agentType === 'claude' && (() => {
-            const agent = agents[0];
-            const mode = agentModes[agent.agentName] || 'execute';
-            const isExecute = mode === 'execute';
-            return (
-              <div className="flex items-center rounded-lg border border-zinc-200 dark:border-zinc-700 p-0.5 shrink-0">
-                <button
-                  onClick={() => !isExecute && toggleAgentMode(agent.agentName)}
-                  className={cn(
-                    'flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors',
-                    isExecute
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                      : 'text-muted-foreground hover:text-foreground'
-                  )}
-                >
-                  <Zap className="size-3" />
-                  Execute
-                </button>
-                <button
-                  onClick={() => isExecute && toggleAgentMode(agent.agentName)}
-                  className={cn(
-                    'flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors',
-                    !isExecute
-                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                      : 'text-muted-foreground hover:text-foreground'
-                  )}
-                >
-                  <Eye className="size-3" />
-                  Plan
-                </button>
               </div>
             );
           })()}

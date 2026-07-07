@@ -59,20 +59,24 @@ export const ThinkingMessage = memo(function ThinkingMessage({ sender, messages,
               <span className="text-xs text-muted-foreground">{timestamp}</span>
             )}
           </div>
-          <div className="mt-0.5 text-sm leading-relaxed text-foreground/60 whitespace-pre-wrap">
+          <div className="mt-0.5 text-sm leading-relaxed text-foreground/60">
             {texts.length === 1 ? (
-              <div>{texts[0]}</div>
+              <div className="whitespace-pre-wrap">{texts[0]}</div>
             ) : (
-              // Multiple thinking chunks stream in over time; mark each with a
-              // bullet so distinct reasoning lines are visually separable.
+              // Multiple thinking chunks stream in over time; mark distinct
+              // reasoning lines with a bullet. The bullet hangs in the left
+              // gutter (absolute) so the text stays aligned with the agent
+              // name above; the first line needs no bullet.
               <div className="space-y-2">
                 {texts.map((t, i) => (
-                  <div key={i} className="flex items-start gap-2.5">
-                    <span
-                      aria-hidden
-                      className="mt-[7px] size-1.5 rounded-full bg-amber-500/50 shrink-0"
-                    />
-                    <div className="flex-1 min-w-0 whitespace-pre-wrap">{t}</div>
+                  <div key={i} className="relative whitespace-pre-wrap">
+                    {i > 0 && (
+                      <span
+                        aria-hidden
+                        className="absolute -left-3 top-[11px] size-1.5 -translate-y-1/2 rounded-full bg-amber-500/50"
+                      />
+                    )}
+                    {t}
                   </div>
                 ))}
               </div>

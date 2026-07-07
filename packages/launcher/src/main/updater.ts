@@ -40,6 +40,27 @@ export interface UpdaterState {
   // false when self-update can't run (dev build, no update metadata, etc.) —
   // the renderer falls back to a "download from website" hint.
   supported: boolean
+  // Platform-specific "get the latest build" link, used by the renderer's
+  // download-page fallback. Resolved in main where process.platform/arch are
+  // authoritative (the renderer can't reliably tell Apple Silicon from Intel).
+  downloadUrl: string
+}
+
+// Where the download-page fallback points, per OS/arch. Linux has no dedicated
+// endpoint yet, so it keeps the GitHub Releases page.
+const GITHUB_RELEASES_URL =
+  "https://github.com/openagents-org/openagents/releases"
+
+function resolveDownloadUrl(): string {
+  if (process.platform === "win32") {
+    return "https://openagents.org/api/download/launcher/windows"
+  }
+  if (process.platform === "darwin") {
+    return process.arch === "arm64"
+      ? "https://openagents.org/api/download/launcher/mac"
+      : "https://openagents.org/api/download/launcher/mac-intel"
+  }
+  return GITHUB_RELEASES_URL
 }
 
 let _state: UpdaterState = {
@@ -51,6 +72,7 @@ let _state: UpdaterState = {
   releaseNotes: null,
   error: null,
   supported: false,
+  downloadUrl: resolveDownloadUrl(),
 }
 
 let _getWindow: () => BrowserWindow | null = () => null
@@ -62,6 +84,12 @@ let _isAutoUpdateEnabled: () => boolean = () => false
 // Fired once a background auto-download finishes, so the main process can notify
 // the user and offer a "restart to update now" affordance (tray + banner).
 let _onDownloaded: (version: string) => void = () => {}
+// Runs right before quitAndInstall so the daemon + agent subprocesses are torn
+// down first. On Windows the NSIS installer can't overwrite the app while a
+// child process (the daemon) still holds a lock on files under the install dir —
+// the overwrite silently fails and the relaunch comes back on the OLD version.
+// Must be awaited before handing off to the installer.
+let _beforeInstall: () => Promise<void> = async () => {}
 
 function emit(patch: Partial<UpdaterState>): void {
   _state = { ..._state, ...patch }
@@ -127,6 +155,23 @@ function wireEvents(): void {
   })
 }
 
+// Tear down agents/daemon, then hand off to the installer. Shared by the
+// Settings "Restart to install" button and the tray item so BOTH paths release
+// the file locks that would otherwise make the Windows overwrite install fail.
+async function quitAndInstallSafely(): Promise<void> {
+  // Mark quitting so the window `close` handler really quits (instead of hiding
+  // to tray) and the before-quit teardown runs.
+  ;(app as typeof app & { isQuitting: boolean }).isQuitting = true
+  try {
+    await _beforeInstall()
+  } catch (err) {
+    _log(`[updater] beforeInstall failed: ${(err as Error).message}`)
+  }
+  // Give the OS a tick to release the just-killed child processes' handles
+  // before the installer tries to overwrite the app directory.
+  setImmediate(() => autoUpdater.quitAndInstall(false, true))
+}
+
 function registerIpc(): void {
   if (_ipcRegistered) return
   _ipcRegistered = true
@@ -160,12 +205,9 @@ function registerIpc(): void {
     return _state
   })
 
-  ipcMain.handle("updater:install", () => {
+  ipcMain.handle("updater:install", async () => {
     if (!_state.supported || _state.status !== "downloaded") return false
-    // Mark quitting so the app's before-quit teardown (stop agents / polling)
-    // still runs before electron-updater relaunches into the installer.
-    ;(app as typeof app & { isQuitting: boolean }).isQuitting = true
-    setImmediate(() => autoUpdater.quitAndInstall(false, true))
+    await quitAndInstallSafely()
     return true
   })
 }
@@ -175,11 +217,13 @@ export function setupAutoUpdater(opts: {
   log: (msg: string) => void
   isAutoUpdateEnabled: () => boolean
   onDownloaded: (version: string) => void
+  beforeInstall: () => Promise<void>
 }): void {
   _getWindow = opts.getWindow
   _log = opts.log
   _isAutoUpdateEnabled = opts.isAutoUpdateEnabled
   _onDownloaded = opts.onDownloaded
+  _beforeInstall = opts.beforeInstall
   _state.currentVersion = app.getVersion()
 
   // Dev builds have no app-update.yml — calling autoUpdater would throw. Still
@@ -239,7 +283,6 @@ export function getUpdaterState(): UpdaterState {
 // now"). No-op unless a package is actually downloaded and ready.
 export function installDownloadedUpdate(): boolean {
   if (!_state.supported || _state.status !== "downloaded") return false
-  ;(app as typeof app & { isQuitting: boolean }).isQuitting = true
-  setImmediate(() => autoUpdater.quitAndInstall(false, true))
+  void quitAndInstallSafely()
   return true
 }

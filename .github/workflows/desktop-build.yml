@@ -525,6 +525,41 @@ jobs:
           files: artifacts/*
           generate_release_notes: true
 
+      - name: Mirror release assets to Cloudflare R2
+        # Best-effort CDN mirror. GitHub Releases stays canonical; the website's
+        # /api/download/launcher/[platform] route HEAD-checks the mirror and
+        # falls back to the GitHub asset if it's missing, so a skip/failure here
+        # never breaks downloads. Also syncs the "stable" channel dir that the
+        # in-app updater (electron-updater generic provider) points at.
+        # Runs only when the R2 secrets are configured.
+        continue-on-error: true
+        env:
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          GH_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${R2_S3_ENDPOINT:-}" ] || [ -z "${R2_BUCKET:-}" ]; then
+            echo "::notice::R2 secrets not set — skipping mirror (downloads will use GitHub)."
+            exit 0
+          fi
+          # aws CLI is preinstalled on ubuntu-latest runners. R2 is S3-compatible.
+          # Mirror every release asset (installers + latest*.yml + blockmaps) under
+          # launcher/<tag>/ so the download route can address them by tag+filename.
+          aws s3 cp artifacts/ "s3://${R2_BUCKET}/launcher/${GH_TAG}/" \
+            --recursive --no-progress --endpoint-url "$R2_S3_ENDPOINT"
+          echo "Mirrored $(ls artifacts | wc -l) file(s) to s3://${R2_BUCKET}/launcher/${GH_TAG}/"
+          # Update the "stable" channel dir the in-app updater reads
+          # (electron-updater generic provider url = .../launcher/stable). --delete
+          # keeps only the current release's installers + latest*.yml so the
+          # updater always resolves exactly this build.
+          aws s3 sync artifacts/ "s3://${R2_BUCKET}/launcher/stable/" \
+            --delete --no-progress --endpoint-url "$R2_S3_ENDPOINT"
+          echo "Synced stable channel -> s3://${R2_BUCKET}/launcher/stable/"
+
       - name: Verify published release assets match update metadata (post-upload)
         # The actual bug behind "sha512 checksum mismatch" we hit on win-x64
         # v0.8.8: the .exe upload to the Release was TRUNCATED (114046048 bytes

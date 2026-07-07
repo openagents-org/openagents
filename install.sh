@@ -228,6 +228,13 @@ if [ -n "$LATEST_VER" ] && [ "$LATEST_VER" != "$INSTALLED_VER" ]; then
     BIN_SHIM_DIR="$PREFIX_DIR/node_modules/.bin"
     mkdir -p "$BIN_SHIM_DIR"
     for name in agn openagents agent-connector; do
+        # rm first: `npm install` may have created "$name" as a SYMLINK into the
+        # package's bin (…/agent-launcher/bin/agent-connector.js). A bare `>`
+        # redirect follows that symlink and overwrites the real JS entrypoint
+        # with this shell shim — which then fails to parse as JS ("SyntaxError:
+        # Unexpected string") and breaks every `agn` invocation. Removing it
+        # first makes the redirect create a fresh regular file (the shim).
+        rm -f "$BIN_SHIM_DIR/$name"
         printf '#!/bin/sh\nexec "$(dirname "$0")/../../bin/node" "$(dirname "$0")/../@openagents-org/agent-launcher/bin/agent-connector.js" "$@"\n' > "$BIN_SHIM_DIR/$name"
         chmod +x "$BIN_SHIM_DIR/$name"
     done

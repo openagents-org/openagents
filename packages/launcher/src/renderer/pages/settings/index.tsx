@@ -762,7 +762,8 @@ function LauncherUpdate({
           size="sm"
           onClick={() =>
             window.api.openExternal(
-              "https://github.com/openagents-org/openagents/releases",
+              state.downloadUrl ||
+                "https://github.com/openagents-org/openagents/releases",
             )
           }
         >

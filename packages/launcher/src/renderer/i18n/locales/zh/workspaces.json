@@ -21,8 +21,7 @@
   "toast": {
     "urlCopied": "已复制链接",
     "copyFailed": "复制失败",
-    "removing": "正在移除工作区…",
-    "removed": "已移除工作区",
+    "removed": "移除工作区“{{name}}”成功",
     "renamed": "已重命名工作区",
     "error": "错误：{{message}}"
   },

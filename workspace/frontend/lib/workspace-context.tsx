@@ -71,7 +71,6 @@ interface WorkspaceContextValue {
   updateLastMessage: (sessionId: string, senderName: string, content: string, isStatus?: boolean) => void;
   setSessionActive: (sessionId: string, active: boolean) => void;
   updateAgentMode: (agentName: string, mode: string) => void;
-  toggleAgentMode: (agentName: string) => void;
   stopAllAgents: (sessionId?: string) => Promise<void>;
   setCurrentSessionId: (id: string | null, options?: { skipFocus?: boolean }) => void;
   /** Read-and-clear: was the most recent setCurrentSessionId asked to skip auto-focus? */
@@ -373,19 +372,6 @@ export function WorkspaceProvider({
       return { ...prev, [agentName]: mode };
     });
   }, []);
-
-  const toggleAgentMode = useCallback(async (agentName: string) => {
-    const current = agentModes[agentName] || 'execute';
-    const next = current === 'execute' ? 'plan' : 'execute';
-    // Optimistic update
-    setAgentModes((prev) => ({ ...prev, [agentName]: next }));
-    try {
-      await workspaceApi.sendAgentControl(agentName, 'set_mode', { mode: next });
-    } catch {
-      // Revert on failure
-      setAgentModes((prev) => ({ ...prev, [agentName]: current }));
-    }
-  }, [agentModes]);
 
   const stopAllAgents = useCallback(async (targetSessionId?: string) => {
     const sessionIds = targetSessionId
@@ -1177,7 +1163,6 @@ export function WorkspaceProvider({
         updateLastMessage,
         setSessionActive,
         updateAgentMode,
-        toggleAgentMode,
         stopAllAgents,
         setCurrentSessionId,
         consumeSkipFocus,
