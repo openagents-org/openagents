@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { Rocket, Copy, Check, ChevronRight, Key, Cloud, ExternalLink, Loader2 } from 'lucide-react';
+import { Rocket, Copy, Check, ChevronRight, Key, Cloud, ExternalLink, Loader2, ArrowLeft } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { capture } from '@/lib/analytics';
 import { useLayout } from '@/components/layout/layout-context';
@@ -77,16 +77,30 @@ export function EmptyState() {
   return (
     <div className="flex flex-col items-center h-full overflow-y-auto p-6 sm:p-8">
       <div className="w-full max-w-2xl space-y-6 py-8">
+        {/* Back to the agent picker — shown once an agent is selected so the
+            install instructions can take over the view without scrolling. */}
+        {selectedEntry && (
+          <button
+            onClick={() => setSelectedAgent(null)}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="size-4" />
+            Back to agents
+          </button>
+        )}
+
         {/* Header */}
-        <div className="text-center space-y-2">
-          <h2 className="text-2xl font-bold tracking-tight">Connect your first agent</h2>
-          <p className="text-sm text-muted-foreground max-w-md mx-auto">
-            Pick an agent you already have installed, or choose one to set up.
-          </p>
-        </div>
+        {!selectedEntry && (
+          <div className="text-center space-y-2">
+            <h2 className="text-2xl font-bold tracking-tight">Connect your first agent</h2>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">
+              Pick an agent you already have installed, or choose one to set up.
+            </p>
+          </div>
+        )}
 
         {/* Agent catalog grid */}
-        {loading ? (
+        {!selectedEntry && (loading ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
             <Loader2 className="size-4 animate-spin mr-2" />
             <span className="text-sm">Loading agents...</span>
@@ -119,7 +133,7 @@ export function EmptyState() {
               );
             })}
           </div>
-        )}
+        ))}
 
         {/* Selected agent — connection instructions */}
         {selectedEntry && (
@@ -198,13 +212,27 @@ export function EmptyState() {
                 <div className="space-y-3">
                   <CliStep
                     step="1"
-                    label="Install the OpenAgents CLI"
+                    label="Install the OpenAgents CLI — macOS / Linux"
                     command="curl -fsSL https://openagents.org/install.sh | bash"
                     isCopied={isCopied}
                     onCopy={(cmd) => {
                       capture('cli_install_copied', {
                         source: 'workspace_onboarding',
                         agent_type: selectedEntry.name,
+                        os: 'unix',
+                      });
+                      copyToClipboard(cmd);
+                    }}
+                  />
+                  <CliStep
+                    label="Windows (PowerShell)"
+                    command="irm https://openagents.org/install.ps1 | iex"
+                    isCopied={isCopied}
+                    onCopy={(cmd) => {
+                      capture('cli_install_copied', {
+                        source: 'workspace_onboarding',
+                        agent_type: selectedEntry.name,
+                        os: 'windows',
                       });
                       copyToClipboard(cmd);
                     }}
@@ -258,6 +286,7 @@ export function EmptyState() {
         )}
 
         {/* Cloud agents fallback */}
+        {!selectedEntry && (
         <div className="text-center space-y-2 pt-2">
           <div className="flex items-center gap-3 justify-center">
             <div className="w-16 border-t" />
@@ -274,6 +303,7 @@ export function EmptyState() {
             <ChevronRight className="size-3.5 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
           </button>
         </div>
+        )}
       </div>
     </div>
   );
@@ -287,7 +317,7 @@ function CliStep({
   isCopied,
   onCopy,
 }: {
-  step: string;
+  step?: string;
   label: string;
   command: string;
   copyCommand?: string;
@@ -296,7 +326,7 @@ function CliStep({
 }) {
   return (
     <div>
-      <span className="text-[11px] text-muted-foreground">{step}. {label}</span>
+      <span className="text-[11px] text-muted-foreground">{step ? `${step}. ` : ''}{label}</span>
       <div className="relative group mt-1">
         <pre className="bg-zinc-900 text-zinc-100 rounded-lg px-3.5 py-2.5 text-xs font-mono leading-relaxed overflow-x-auto">
           <span className="text-zinc-500">$ </span>
