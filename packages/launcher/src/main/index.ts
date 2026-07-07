@@ -2421,6 +2421,19 @@ app.whenReady().then(async () => {
     // "Automatic updates" ON (default) = background checks auto-download and
     // electron-updater installs on the next quit. OFF = no check at all.
     isAutoUpdateEnabled: () => store.get("autoUpdate") !== false,
+    // Stop chat polling + the daemon/agent subprocesses before the installer
+    // runs. On Windows a live daemon holds locks under the install dir, so the
+    // NSIS overwrite silently fails and the relaunch comes back on the old
+    // version. before-quit also calls stopAll, but that fires without being
+    // awaited during quit — here we await it so teardown completes first.
+    beforeInstall: async () => {
+      try {
+        if (agentManager) agentManager.stopAllChatPolling()
+      } catch {}
+      try {
+        if (agentManager) await agentManager.stopAll()
+      } catch {}
+    },
     onDownloaded: (version) => {
       // A background auto-download finished. Make it discoverable: notify the
       // user and refresh the tray so "Restart to update" appears. The install
@@ -2687,15 +2700,29 @@ app.whenReady().then(async () => {
   setInterval(() => checkCoreUpdate().catch(() => {}), FOUR_HOURS)
   setTimeout(() => checkCoreUpdate().catch(() => {}), 30000)
 
-  // Launcher self-update: check shortly after launch and every few hours, but
-  // only when the user hasn't turned automatic updates off. Surfaces a banner
-  // in the renderer; the actual download/install is user-driven.
-  const launcherUpdateCheck = (): void => {
+  // Launcher self-update: check shortly after launch and every half hour
+  // thereafter, but only when the user hasn't turned automatic updates off.
+  // Surfaces a banner in the renderer; the actual download/install is
+  // user-driven. Also throttled so the window-focus trigger below can't spam
+  // the update server.
+  const THIRTY_MIN = 30 * 60 * 1000
+  let _lastLauncherUpdateCheck = 0
+  const launcherUpdateCheck = (minGapMs = 0): void => {
     if (store.get("autoUpdate") === false) return
+    const now = Date.now()
+    if (minGapMs > 0 && now - _lastLauncherUpdateCheck < minGapMs) return
+    _lastLauncherUpdateCheck = now
     checkForUpdatesOnStartup().catch(() => {})
   }
-  setTimeout(launcherUpdateCheck, 20000)
-  setInterval(launcherUpdateCheck, FOUR_HOURS)
+  setTimeout(() => launcherUpdateCheck(), 20000)
+  // Every 30 min (was every 4h — too long for a tray-resident app to ever
+  // surface a fresh release while it stays open).
+  setInterval(() => launcherUpdateCheck(), THIRTY_MIN)
+  // Also check whenever the user brings the window back to the foreground, so a
+  // release published while they had it in the tray is discovered the moment
+  // they look, not up to half an hour later. Throttled to at most once per 10 min.
+  const onWindowForeground = (): void => launcherUpdateCheck(10 * 60 * 1000)
+  app.on("browser-window-focus", onWindowForeground)
 
   setTimeout(() => refreshAgentUpdates(), 45000)
   setInterval(() => refreshAgentUpdates(), ONE_HOUR)
