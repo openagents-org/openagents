@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   Plus, MessageSquare, FileText, Globe, PlusSquare, Sparkles, BookOpen,
   Settings, Copy, Check, ListTodo, CalendarClock, Inbox,
-  LogIn, LogOut, Shield, Moon, Sun, KeyRound, X, Crown, Users, FlaskConical,
+  LogIn, LogOut, Shield, Moon, Sun, KeyRound, X, Crown, Users,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -269,7 +269,6 @@ export function SidebarContent() {
                   <NavButton active={viewMode === 'routines'} icon={<CalendarClock className="size-[15px]" />} label="Routines" count={routines.filter((r) => r.status === 'active').length} onClick={() => setViewMode('routines')} />
                   <NavButton active={viewMode === 'knowledge'} icon={<BookOpen className="size-[15px]" />} label="Knowledge" count={knowledge.length} onClick={() => setViewMode('knowledge')} />
                   <NavButton active={viewMode === 'tasks'} icon={<ListTodo className="size-[15px]" />} label="Tasks" count={todos.filter((t) => t.status === 'pending' || t.status === 'in_progress').length} onClick={() => setViewMode('tasks')} />
-                  <NavButton active={viewMode === 'benchmarks'} icon={<FlaskConical className="size-[15px]" />} label="Benchmarks" onClick={() => setViewMode('benchmarks')} />
                   <NavButton active={viewMode === 'inbox'} icon={<Inbox className="size-[15px]" />} label="Inbox" count={unreadNotificationCount > 0 ? unreadNotificationCount : undefined} onClick={() => setViewMode('inbox')} />
                   <NavButton active={viewMode === 'skills'} icon={<Sparkles className="size-[15px]" />} label="Skill Hub" onClick={() => setViewMode('skills')} />
                 </>
