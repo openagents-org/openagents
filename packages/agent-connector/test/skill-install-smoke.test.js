@@ -31,10 +31,40 @@ function fixtureFetcher({ skill, destDir }) {
   );
 }
 
+/** Minimal store-only .zip with a single root SKILL.md (no external deps). */
+function makeSkillZip(skillMd) {
+  const raw = Buffer.from(skillMd, 'utf8');
+  const nameBuf = Buffer.from('SKILL.md', 'utf8');
+  const lh = Buffer.alloc(30);
+  lh.writeUInt32LE(0x04034b50, 0);
+  lh.writeUInt16LE(20, 4);
+  lh.writeUInt32LE(raw.length, 18);
+  lh.writeUInt32LE(raw.length, 22);
+  lh.writeUInt16LE(nameBuf.length, 26);
+  const ch = Buffer.alloc(46);
+  ch.writeUInt32LE(0x02014b50, 0);
+  ch.writeUInt16LE(20, 4);
+  ch.writeUInt16LE(20, 6);
+  ch.writeUInt32LE(raw.length, 20);
+  ch.writeUInt32LE(raw.length, 24);
+  ch.writeUInt16LE(nameBuf.length, 28);
+  ch.writeUInt32LE(0, 42);
+  const localBuf = Buffer.concat([lh, nameBuf, raw]);
+  const centralBuf = Buffer.concat([ch, nameBuf]);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(1, 8);
+  eocd.writeUInt16LE(1, 10);
+  eocd.writeUInt32LE(centralBuf.length, 12);
+  eocd.writeUInt32LE(localBuf.length, 16);
+  return Buffer.concat([localBuf, centralBuf, eocd]);
+}
+
 function startStubBackend() {
   const state = {
     controlEvents: [],   // events pollControl will return
     statusPosts: [],     // bodies POSTed to /skills/status
+    files: {},           // fileId → Buffer, served by GET /v1/files/{id}
   };
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -45,6 +75,19 @@ function startStubBackend() {
       if (req.method === 'GET' && url.pathname === '/v1/events') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ data: { events: state.controlEvents } }));
+        return;
+      }
+      // GET /v1/files/{fileId} → download uploaded skill package bytes
+      const fileMatch = url.pathname.match(/^\/v1\/files\/([^/]+)$/);
+      if (req.method === 'GET' && fileMatch) {
+        const buf = state.files[fileMatch[1]];
+        if (!buf) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ message: 'file not found' }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+        res.end(buf);
         return;
       }
       // POST /v1/workspaces/{id}/members/{name}/skills/status
@@ -113,6 +156,37 @@ describe('skill install smoke (real WorkspaceClient + stub backend)', () => {
     assert.deepEqual(states, ['installing', 'installed']);
     assert.equal(backend.state.statusPosts[1].skill_id, 'claude-api');
     assert.match(backend.state.statusPosts[1].path, /claude-api$/);
+  });
+
+  it('downloads an uploaded custom skill via /v1/files and installs it', async () => {
+    // Restore the real installer for this case — we want the actual zip
+    // extraction path, not the fixture fetcher.
+    skillInstaller.installSkill = realInstall;
+    const skillMd = '---\nname: Uploaded\ndescription: custom\n---\n# Uploaded\n';
+    backend.state.files['file-abc'] = makeSkillZip(skillMd);
+    backend.state.controlEvents = [{
+      id: 'evt-3', timestamp: 3,
+      payload: {
+        action: 'skill.install',
+        skill: {
+          id: 'my-upload', name: 'My Upload',
+          source_type: 'workspace_file', file_id: 'file-abc',
+          filename: 'my-upload.zip', package_type: 'zip',
+        },
+      },
+    }];
+
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws1', channelName: 'main', token: 'tok', agentName: 'claude',
+      agentType: 'claude', workingDir: workDir, endpoint: backend.endpoint,
+    });
+    await adapter._pollControl();
+
+    const skillMdPath = path.join(workDir, '.claude', 'skills', 'my-upload', 'SKILL.md');
+    assert.ok(fs.existsSync(skillMdPath), 'uploaded SKILL.md installed on disk');
+    assert.equal(fs.readFileSync(skillMdPath, 'utf8'), skillMd);
+    const states = backend.state.statusPosts.map((p) => p.state);
+    assert.deepEqual(states, ['installing', 'installed']);
   });
 
   it('reports failed back to the backend when the install errors', async () => {

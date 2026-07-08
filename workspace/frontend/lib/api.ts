@@ -23,6 +23,7 @@ import type {
   Workspace,
   WorkspaceAgent,
   WorkspaceCollaborator,
+  WorkspaceCustomSkill,
   WorkspaceFile,
   WorkspaceInvitation,
   WorkspaceSession,
@@ -30,6 +31,24 @@ import type {
 import { eventToMessage } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org';
+
+/** Map a snake_case custom-skill entry from the backend to camelCase. */
+function mapCustomSkill(raw: Record<string, unknown>): WorkspaceCustomSkill {
+  return {
+    id: raw.id as string,
+    name: (raw.name || raw.id) as string,
+    description: (raw.description as string) || '',
+    category: 'custom',
+    tags: (raw.tags as string[]) || [],
+    author: (raw.author as string) || 'Workspace user',
+    sourceType: 'workspace_file',
+    fileId: (raw.file_id || raw.fileId) as string,
+    filename: (raw.filename as string) || '',
+    contentType: (raw.content_type || raw.contentType) as string | undefined,
+    packageType: (raw.package_type || raw.packageType || 'md') as 'md' | 'zip',
+    createdAt: (raw.created_at || raw.createdAt) as string | undefined,
+  };
+}
 
 /** Map snake_case file response from backend to camelCase WorkspaceFile. */
 function mapFileResponse(raw: Record<string, unknown>): WorkspaceFile {
@@ -160,6 +179,55 @@ class WorkspaceApi {
     return this.request(`/v1/workspaces/${this.workspaceId}/members/${agentName}/skills/uninstall`, {
       method: 'POST',
       body: JSON.stringify({ skill_id: skillId }),
+    });
+  }
+
+  // ── Custom (user-uploaded) skills ──
+
+  /** List this workspace's custom skills. */
+  async getCustomSkills(): Promise<WorkspaceCustomSkill[]> {
+    const raw = await this.request<{ skills: Record<string, unknown>[] }>(
+      `/v1/workspaces/${this.workspaceId}/skills/custom`,
+    );
+    return (raw.skills || []).map(mapCustomSkill);
+  }
+
+  /** Register an already-uploaded file (by file_id) as a custom skill. */
+  async registerCustomSkill(meta: {
+    fileId: string;
+    id?: string;
+    name?: string;
+    description?: string;
+    filename?: string;
+  }): Promise<WorkspaceCustomSkill> {
+    const raw = await this.request<Record<string, unknown>>(
+      `/v1/workspaces/${this.workspaceId}/skills/custom`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          file_id: meta.fileId,
+          id: meta.id,
+          name: meta.name,
+          description: meta.description,
+          filename: meta.filename,
+        }),
+      },
+    );
+    return mapCustomSkill(raw);
+  }
+
+  /** Upload a .md/.zip file and register it as a custom skill in one call. */
+  async uploadCustomSkill(
+    file: File,
+    meta: { id?: string; name?: string; description?: string },
+  ): Promise<WorkspaceCustomSkill> {
+    const uploaded = await this.uploadFile(file);
+    return this.registerCustomSkill({
+      fileId: uploaded.id,
+      id: meta.id,
+      name: meta.name,
+      description: meta.description,
+      filename: file.name,
     });
   }
 

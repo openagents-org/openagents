@@ -370,12 +370,31 @@ class BaseAdapter {
     }
 
     try {
-      const result = installer.installSkill({
-        skill,
-        agentType: this.agentType,
-        workingDir: this.workingDir,
-        log: (m) => this._log(`skill.install: ${m}`),
-      });
+      // Custom (uploaded) skills carry source_type=workspace_file + a file_id.
+      // Download the package bytes here (async), then hand them to the sync
+      // installer. Catalog skills keep their existing fetch-by-source path.
+      const sourceType = skill && (skill.source_type || skill.sourceType);
+      let result;
+      if (sourceType === 'workspace_file') {
+        const fileId = skill.file_id || skill.fileId;
+        if (!fileId) throw new Error('workspace_file skill is missing file_id');
+        this._log(`skill.install: downloading uploaded package (file_id=${fileId})`);
+        const buffer = await this.client.readFile(this.workspaceId, this.token, fileId);
+        if (!buffer || buffer.length === 0) throw new Error('uploaded skill file is empty');
+        result = installer.installUploadedSkill({
+          skill, buffer,
+          agentType: this.agentType,
+          workingDir: this.workingDir,
+          log: (m) => this._log(`skill.install: ${m}`),
+        });
+      } else {
+        result = installer.installSkill({
+          skill,
+          agentType: this.agentType,
+          workingDir: this.workingDir,
+          log: (m) => this._log(`skill.install: ${m}`),
+        });
+      }
       try {
         await this.client.reportSkillStatus(this.workspaceId, this.agentName, this.token, {
           skillId, state: 'installed', path: result.path, partial: result.partial === true,
