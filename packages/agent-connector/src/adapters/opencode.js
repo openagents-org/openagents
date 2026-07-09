@@ -13,6 +13,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { execSync, spawn } = require('child_process');
 
 const BaseAdapter = require('./base');
@@ -64,7 +65,7 @@ const FAILURE_MESSAGES = {
   stream_parse_error: 'OpenCode produced output this version could not parse. Update to a supported OpenCode version, or open diagnostics.',
   empty_response: 'OpenCode finished without producing a final reply. Retry; if it persists, open diagnostics.',
   process_crashed: 'OpenCode exited unexpectedly. Open diagnostics or retry.',
-  cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent home directory's permissions.",
+  cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
   unknown_error: 'OpenCode failed for an undetermined reason. Open diagnostics or retry.',
 };
 
@@ -78,12 +79,15 @@ class OpenCodeAdapter extends BaseAdapter {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
 
-    // Agent home directory: ~/.openagents/agents/{agentName}/
+    // Agent home directory: ~/.openagents/agents/{agentName}/ — scratch storage
+    // for sessions, skills, and opencode config. This is NOT the directory
+    // opencode runs in; opencode runs in the configured workingDir (see
+    // _resolveCwd) so it can actually reach the project's files. (issue #435)
     this.agentHome = path.join(os.homedir(), '.openagents', 'agents', this.agentName);
     fs.mkdirSync(this.agentHome, { recursive: true });
 
     this._channelSessions = {};
-    this._sessionsFile = path.join(this.agentHome, 'sessions.json');
+    this._sessionsFile = this._sessionsFileFor();
     this._migrateSessionsFile();
     this._loadSessions();
 
@@ -103,6 +107,11 @@ class OpenCodeAdapter extends BaseAdapter {
    * Migrate sessions file from old location to agent home.
    */
   _migrateSessionsFile() {
+    // Only the legacy sessions.json (no workingDir → opencode still runs in
+    // agentHome) inherits sessions from the pre-agentHome location. A scoped
+    // file belongs to a different --dir, so seeding it with IDs created under
+    // agentHome would make every later resume 404.
+    if (path.basename(this._sessionsFile) !== 'sessions.json') return;
     const oldPath = path.join(
       os.homedir(), '.openagents', 'sessions',
       `${this.workspaceId}_${this.agentName}_opencode.json`
@@ -135,6 +144,38 @@ class OpenCodeAdapter extends BaseAdapter {
       fs.mkdirSync(path.dirname(this._sessionsFile), { recursive: true });
       fs.writeFileSync(this._sessionsFile, JSON.stringify(this._channelSessions));
     } catch {}
+  }
+
+  /**
+   * Effective working directory for `opencode run --dir` and the spawn cwd.
+   *
+   * opencode confines an agent's file access to its --dir worktree root; in
+   * headless mode a tool call that reaches outside it is auto-rejected with
+   * "user rejected permission". So opencode must run in the agent's configured
+   * project path (workingDir), not the per-agent scratch dir (agentHome). With
+   * no path configured, fall back to agentHome so pre-existing agents keep
+   * running where they always did. (issue #435)
+   */
+  _resolveCwd() {
+    return this.workingDir || this.agentHome;
+  }
+
+  /**
+   * Persisted-session-store path, scoped per working directory.
+   *
+   * An opencode session ID is only resumable against the --dir it was created
+   * under. If an agent's workingDir changes (or an agent that previously ran in
+   * agentHome gets a path configured), resuming a stored ID under the new --dir
+   * 404s with a confusing error. Scope the store by working dir so each project
+   * keeps its own IDs; the default (no workingDir) keeps the legacy
+   * sessions.json so existing agents retain their context. Files always live
+   * under agentHome — never inside the project tree. Mirrors the sha256[:16]
+   * per-cwd idiom used by the goose and nanoclaw adapters.
+   */
+  _sessionsFileFor() {
+    if (!this.workingDir) return path.join(this.agentHome, 'sessions.json');
+    const slug = crypto.createHash('sha256').update(this.workingDir).digest('hex').slice(0, 16);
+    return path.join(this.agentHome, `sessions-${slug}.json`);
   }
 
   async _onControlAction(action, payload) {
@@ -642,7 +683,8 @@ class OpenCodeAdapter extends BaseAdapter {
     }
 
     const binary = this._opencodeBinary;
-    const cmd = [binary, 'run', '--format', 'json', '--dir', this.agentHome];
+    const runCwd = this._resolveCwd();
+    const cmd = [binary, 'run', '--format', 'json', '--dir', runCwd];
 
     // Preflight guarantees a resolvable model; pin it explicitly — without it
     // opencode hangs waiting for interactive provider/model selection.
@@ -660,7 +702,7 @@ class OpenCodeAdapter extends BaseAdapter {
       fullPrompt = `${context}\n\n---\n\n${content}`;
     }
 
-    this._log(`CLI: ${binary} run --format json --dir … --model ${model || '(none)'}`);
+    this._log(`CLI: ${binary} run --format json --dir ${runCwd} --model ${model || '(none)'}`);
 
     const spawnEnv = { ...(this.agentEnv || process.env) };
 
@@ -677,7 +719,7 @@ class OpenCodeAdapter extends BaseAdapter {
       const proc = spawn(spawnBinary, spawnArgs, {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: spawnEnv,
-        cwd: this.agentHome,
+        cwd: runCwd,
         timeout: TIMEOUT_MS,
         detached: !IS_WINDOWS,
         // Never let a console window appear. Besides being ugly, an attached
@@ -825,10 +867,11 @@ class OpenCodeAdapter extends BaseAdapter {
     const cred = this._credentialState();
     if (cred === 'missing') return { ok: false, category: 'credential_missing' };
 
+    const runCwd = this._resolveCwd();
     try {
-      fs.accessSync(this.agentHome, fs.constants.R_OK | fs.constants.W_OK);
+      fs.accessSync(runCwd, fs.constants.R_OK | fs.constants.W_OK);
     } catch {
-      return { ok: false, category: 'cwd_unavailable', diagnostic: `cannot access ${this.agentHome}` };
+      return { ok: false, category: 'cwd_unavailable', diagnostic: `cannot access ${runCwd}` };
     }
 
     return { ok: true, version: probe.version, versionClass: vclass, model, credential: cred };
