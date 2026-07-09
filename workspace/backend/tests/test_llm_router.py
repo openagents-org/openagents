@@ -10,8 +10,9 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from app.models import Channel, ChannelMember, WorkspaceMember, Workspace
-from app.mods.workspace_mod import _route_with_llm
+from app.mods.workspace_mod import _route_with_llm, _master_targets, _handle_message_posted
 from openagents.core.onm_events import Event
+from openagents.core.onm_mods import PipelineContext
 
 
 def _make_event(source: str, target: str, content: str, message_type: str = "chat") -> Event:
@@ -210,6 +211,133 @@ class TestRouteWithLLM:
 
         result = _run(_route_with_llm(ch, event, db, ws))
         assert result == [], "self-loop must be rejected"
+
+
+class TestMasterMode:
+    """Deterministic 'master' orchestration mode — no LLM. Star topology:
+    humans and sub-agents route to the master; the master delegates via
+    @mention."""
+
+    def test_human_routes_to_master(self, db, multi_agent_workspace):
+        ch = multi_agent_workspace["channel"]
+        event = _make_event("human:user", "channel/session-test", "please do the thing")
+        assert _master_targets(event, ch, []) == ["agent-master"]
+
+    def test_sub_agent_returns_to_master(self, db, multi_agent_workspace):
+        ch = multi_agent_workspace["channel"]
+        # agent-worker (a sub-agent) reports back → routes to the master hub
+        event = _make_event("openagents:agent-worker", "channel/session-test", "here are my results")
+        assert _master_targets(event, ch, []) == ["agent-master"]
+
+    def test_master_delegates_via_mention(self, db, multi_agent_workspace):
+        ch = multi_agent_workspace["channel"]
+        event = _make_event("openagents:agent-master", "channel/session-test",
+                            "@agent-worker please handle this")
+        assert _master_targets(event, ch, ["agent-worker"]) == ["agent-worker"]
+
+    def test_master_no_mention_stops(self, db, multi_agent_workspace):
+        ch = multi_agent_workspace["channel"]
+        # Master answered the human directly (no delegation) → stop
+        event = _make_event("openagents:agent-master", "channel/session-test",
+                            "Here is the answer directly.")
+        assert _master_targets(event, ch, []) == []
+
+    def test_master_self_mention_excluded(self, db, multi_agent_workspace):
+        ch = multi_agent_workspace["channel"]
+        event = _make_event("openagents:agent-master", "channel/session-test",
+                            "@agent-master note to self")
+        assert _master_targets(event, ch, ["agent-master"]) == []
+
+    def test_no_master_returns_empty(self, db, multi_agent_workspace):
+        ch = multi_agent_workspace["channel"]
+        ch.master_agent = None
+        db.flush()
+        event = _make_event("human:user", "channel/session-test", "hello")
+        assert _master_targets(event, ch, []) == []
+
+    def test_handle_message_posted_master_mode_human(self, db, multi_agent_workspace):
+        """End-to-end: mode='master', human message → target the master,
+        with no LLM call involved."""
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        event = _make_event("human:user", "channel/session-test", "kick things off")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-master"]
+
+    def test_handle_message_posted_master_mode_subagent_returns(self, db, multi_agent_workspace):
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        event = _make_event("openagents:agent-worker", "channel/session-test", "done, results attached")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="openagents:agent-worker", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-master"]
+
+
+class TestWorkflowMode:
+    """'workflow' mode reuses the LLM router but injects a user-authored
+    natural-language collaboration plan into the prompt."""
+
+    @patch("app.mods.workspace_mod._get_llm_client")
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    @patch("app.mods.workspace_mod._get_router_model", return_value="claude-haiku-4-5-20251001")
+    def test_plan_injected_into_prompt(self, _m, _k, mock_get_client, db, multi_agent_workspace):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_anthropic_response("next:agent-worker")
+        mock_get_client.return_value = (mock_client, "anthropic")
+
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        plan = "First @agent-worker writes tests, then @agent-master reviews."
+        event = _make_event("human:user", "channel/session-test", "start the task")
+
+        result = _run(_route_with_llm(ch, event, db, ws, workflow_instruction=plan))
+        assert result == ["agent-worker"]
+        # The plan must appear in the prompt sent to the model.
+        sent_prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert plan in sent_prompt
+        assert "COLLABORATION PLAN" in sent_prompt
+
+    @patch("app.mods.workspace_mod._get_llm_client")
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    @patch("app.mods.workspace_mod._get_router_model", return_value="claude-haiku-4-5-20251001")
+    def test_dynamic_mode_has_no_plan_block(self, _m, _k, mock_get_client, db, multi_agent_workspace):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_anthropic_response("stop")
+        mock_get_client.return_value = (mock_client, "anthropic")
+
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        event = _make_event("openagents:agent-master", "channel/session-test", "some update")
+
+        _run(_route_with_llm(ch, event, db, ws))  # no workflow_instruction
+        sent_prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert "COLLABORATION PLAN" not in sent_prompt
+
+    @patch("app.mods.workspace_mod._get_llm_client")
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    @patch("app.mods.workspace_mod._get_router_model", return_value="claude-haiku-4-5-20251001")
+    def test_handle_message_posted_workflow_passes_instruction(self, _m, _k, mock_get_client, db, multi_agent_workspace):
+        """mode='workflow' → the channel's stored instruction reaches the prompt."""
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_anthropic_response("next:agent-worker")
+        mock_get_client.return_value = (mock_client, "anthropic")
+
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "workflow"
+        ch.orchestration_instruction = "Have @agent-worker do the coding first."
+        db.flush()
+        event = _make_event("human:user", "channel/session-test", "go")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-worker"]
+        sent_prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert "Have @agent-worker do the coding first." in sent_prompt
 
 
 class TestRouteWithOpenAI:

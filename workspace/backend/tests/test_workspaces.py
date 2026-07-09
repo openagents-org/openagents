@@ -182,6 +182,55 @@ class TestDeleteWorkspace:
         resp = client.delete(f"/v1/workspaces/{workspace['id']}")
         assert resp.status_code == 401
 
+
+class TestChannelOrchestrationMode:
+    """PATCH /v1/workspaces/{id}/channels/{name} — orchestration mode."""
+
+    def _patch(self, client, workspace, body):
+        return client.patch(
+            f"/v1/workspaces/{workspace['id']}/channels/{workspace['channel']['name']}",
+            json=body,
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+
+    def test_default_mode_is_dynamic(self, client, workspace):
+        assert workspace["channel"].get("orchestrationMode") == "dynamic"
+
+    def test_set_master_mode(self, client, workspace):
+        resp = self._patch(client, workspace, {"orchestration_mode": "master"})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["orchestrationMode"] == "master"
+
+    def test_set_workflow_mode_with_instruction_round_trips(self, client, workspace):
+        plan = "First @agent-alpha writes tests, then reviews."
+        resp = self._patch(client, workspace, {
+            "orchestration_mode": "workflow",
+            "orchestration_instruction": plan,
+        })
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["orchestrationMode"] == "workflow"
+        assert data["orchestrationInstruction"] == plan
+        # Round-trip via GET
+        got = client.get(
+            f"/v1/workspaces/{workspace['id']}/channels/{workspace['channel']['name']}",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        assert got.json()["data"]["orchestrationInstruction"] == plan
+
+    def test_invalid_mode_rejected(self, client, workspace):
+        resp = self._patch(client, workspace, {"orchestration_mode": "bogus"})
+        assert resp.status_code == 400
+
+    def test_empty_instruction_clears_plan(self, client, workspace):
+        self._patch(client, workspace, {
+            "orchestration_mode": "workflow",
+            "orchestration_instruction": "some plan",
+        })
+        resp = self._patch(client, workspace, {"orchestration_instruction": "   "})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["orchestrationInstruction"] is None
+
         # Workspace must still exist
         get = client.get(
             f"/v1/workspaces/{workspace['id']}",

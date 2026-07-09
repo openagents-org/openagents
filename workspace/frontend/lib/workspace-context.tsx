@@ -83,6 +83,7 @@ interface WorkspaceContextValue {
   addParticipant: (sessionId: string, agentName: string) => Promise<void>;
   removeParticipant: (sessionId: string, agentName: string) => Promise<void>;
   setSessionMaster: (sessionId: string, agentName: string) => Promise<void>;
+  setSessionOrchestration: (sessionId: string, updates: { mode?: string; instruction?: string | null }) => Promise<void>;
   renameWorkspace: (name: string) => Promise<void>;
   refreshWorkspace: () => Promise<void>;
   refreshAgents: () => Promise<void>;
@@ -482,6 +483,8 @@ export function WorkspaceProvider({
               title: keepLocalTitle ? s.title : remote.title,
               participants: remote.participants,
               master: remote.master,
+              orchestrationMode: remote.orchestrationMode,
+              orchestrationInstruction: remote.orchestrationInstruction,
               lastEventAt: remote.lastEventAt,
               createdAt: remote.createdAt || s.createdAt,
               status: remote.status,
@@ -1029,6 +1032,42 @@ export function WorkspaceProvider({
     }
   }, []);
 
+  const setSessionOrchestration = useCallback(async (
+    sessionId: string,
+    updates: { mode?: string; instruction?: string | null },
+  ) => {
+    // Optimistic: apply the mode/instruction locally, roll back on failure.
+    // Snapshot the pre-update session inside the state updater so we read
+    // fresh state (this callback is memoized with no deps). Held on an
+    // object property so the rollback branch narrows cleanly.
+    const rollback: { prev: WorkspaceSession | null } = { prev: null };
+    setSessions((prev) =>
+      prev.map((s) => {
+        if (s.sessionId !== sessionId) return s;
+        rollback.prev = s;
+        return {
+          ...s,
+          orchestrationMode: updates.mode ?? s.orchestrationMode,
+          orchestrationInstruction:
+            updates.instruction !== undefined ? updates.instruction : s.orchestrationInstruction,
+        };
+      })
+    );
+    try {
+      await workspaceApi.updateChannel(sessionId, {
+        ...(updates.mode !== undefined && { orchestrationMode: updates.mode }),
+        ...(updates.instruction !== undefined && { orchestrationInstruction: updates.instruction }),
+      });
+    } catch {
+      if (rollback.prev) {
+        const restored = rollback.prev;
+        setSessions((prev) =>
+          prev.map((s) => (s.sessionId === sessionId ? restored : s))
+        );
+      }
+    }
+  }, []);
+
   const updateSession = useCallback(async (sessionId: string, updates: { starred?: boolean; status?: string }) => {
     // Capture previous state for rollback
     const previousSession = sessions.find((s) => s.sessionId === sessionId);
@@ -1175,6 +1214,7 @@ export function WorkspaceProvider({
         addParticipant,
         removeParticipant,
         setSessionMaster,
+        setSessionOrchestration,
         renameWorkspace,
         refreshWorkspace,
         refreshAgents,

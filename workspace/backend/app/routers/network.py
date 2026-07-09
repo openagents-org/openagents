@@ -429,6 +429,8 @@ def discover(
             "address": target_key,
             "title": c.title,
             "master": c.master_agent,
+            "orchestration_mode": c.orchestration_mode or "dynamic",
+            "orchestration_instruction": c.orchestration_instruction,
             "participants": [p.agent_name for p in (c.participants or [])],
             "created_at": created_at_ts,
             "last_event_at": c.last_event_at,

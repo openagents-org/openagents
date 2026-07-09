@@ -572,6 +572,42 @@ def _fallback_targets(event, channel, mentions: List[str], online_names: set = N
     return [participants[0]] if participants else []
 
 
+def _master_targets(event, channel, mentions: List[str]) -> List[str]:
+    """Deterministic routing for "master" orchestration mode (star topology).
+
+    The channel master is the single hub:
+      • human message      → the master (the master owns the request and
+        decides whether to answer or delegate)
+      • sub-agent message  → back to the master (results always return to
+        the hub, which decides the next hop)
+      • master's message   → if it @mentions sub-agents, delegate to them;
+        otherwise stop (the master answered the human directly)
+
+    Falls back to nothing (empty → sentinel) when the channel has no master;
+    callers may substitute the generic fallback in that case.
+    """
+    master = channel.master_agent
+    if not master:
+        return []
+
+    source = event.source or ""
+    if source.startswith("openagents:"):
+        sender = source[len("openagents:"):]
+        if sender == master:
+            # Master is delegating. Route to any mentioned sub-agents
+            # (never itself); no mention → the master answered, so stop.
+            participants = {p.agent_name for p in (channel.participants or [])}
+            delegated = [
+                m for m in mentions if m != master and m in participants
+            ]
+            return delegated
+        # A sub-agent spoke → return control to the master hub.
+        return [master]
+
+    # Human (or system) message → always the master.
+    return [master]
+
+
 _ROUTER_PROMPT = """\
 You are a conversation router for a multi-agent workspace. Decide which \
 agent should respond next to the LATEST message. Use judgment — read the \
@@ -580,7 +616,7 @@ message carefully and think about who is actually being addressed.
 Channel participants:
 {participants}
 Master agent: {master}
-
+{plan}
 Recent conversation (oldest → newest):
 {history}
 
@@ -676,11 +712,19 @@ def _get_llm_client():
     return _llm_client, provider
 
 
-async def _route_with_llm(channel, new_event: Event, db, workspace) -> List[str]:
+async def _route_with_llm(
+    channel, new_event: Event, db, workspace, workflow_instruction: Optional[str] = None
+) -> List[str]:
     """Use a small LLM to decide which agent(s) should respond next.
 
     Returns a list of agent names to target, or an empty list (stop).
     Falls back to empty list on any error.
+
+    ``workflow_instruction`` (set in "workflow" orchestration mode) is a
+    user-authored natural-language collaboration plan. When present it is
+    injected into the prompt as the authoritative routing policy, so the
+    same router engine steers the thread according to the user's plan
+    instead of the generic heuristics.
     """
     from app.config import config
     from app.models import EventRecord
@@ -761,9 +805,22 @@ async def _route_with_llm(channel, new_event: Event, db, workspace) -> List[str]
 
     content = (new_event.payload or {}).get("content", "")[:500]
 
+    # In "workflow" mode, the user-authored plan is the authoritative routing
+    # policy. Injected as its own block so the model weighs it above the
+    # generic heuristics below.
+    plan = ""
+    if workflow_instruction and workflow_instruction.strip():
+        plan = (
+            "\nCOLLABORATION PLAN (authoritative — follow this exactly when "
+            "deciding who speaks next; it overrides the generic guidance "
+            "below):\n"
+            f"{workflow_instruction.strip()}\n"
+        )
+
     prompt = _ROUTER_PROMPT.format(
         participants=participants_str,
         master=master,
+        plan=plan,
         history=history,
         sender=sender,
         content=content,
@@ -1025,17 +1082,34 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # daemon is down (an offline target just strands the message).
     online_names = _online_participant_names(db, workspace, channel)
 
-    # ── Multi-agent channel: always use LLM router ──────────────────
+    # ── Multi-agent channel: route per the thread's orchestration mode ──
     real_participants = [
         p for p in (channel.participants or [])
         if p.agent_name != "__no_response__"
     ]
     if len(real_participants) >= 2:
         from app.config import config
-        if config.ROUTER_LLM_ENABLED and _get_router_api_key():
+        mode = (getattr(channel, "orchestration_mode", None) or "dynamic").lower()
+
+        if mode == "master":
+            # Deterministic star topology — no LLM. If the channel somehow
+            # has no master, fall back to the generic mention/online logic
+            # so messages aren't stranded.
+            if channel.master_agent:
+                targets = _master_targets(event, channel, mentions)
+            else:
+                targets = _fallback_targets(event, channel, mentions, online_names)
+        elif mode == "workflow" and config.ROUTER_LLM_ENABLED and _get_router_api_key():
+            # LLM router steered by the user's natural-language plan.
+            targets = await _route_with_llm(
+                channel, event, db, workspace,
+                workflow_instruction=getattr(channel, "orchestration_instruction", None),
+            )
+        elif config.ROUTER_LLM_ENABLED and _get_router_api_key():
+            # "dynamic" (default) — generic LLM router.
             targets = await _route_with_llm(channel, event, db, workspace)
         else:
-            # LLM router not available — fallback to mention or master
+            # LLM router not available — fallback to mention or master.
             targets = _fallback_targets(event, channel, mentions, online_names)
     # ── Single-agent channel ────────────────────────────────────────
     else:

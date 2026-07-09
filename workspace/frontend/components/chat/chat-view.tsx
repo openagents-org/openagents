@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ListTree, UserPlus, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, Globe, Share2, Crown } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
+import { OrchestrationControl } from './orchestration-control';
 import { useLayout } from '@/components/layout/layout-context';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
@@ -125,7 +126,7 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
+  const { agents, currentUser, currentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, addParticipant, removeParticipant, setSessionMaster, setSessionOrchestration, consumeSkipFocus, createRoutine, knowledge } = useWorkspace();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
   const {
     isMobile,
@@ -619,6 +620,20 @@ export function ChatView() {
               <Globe className="size-3.5" />
             </Button>
           )}
+
+          {/* Orchestration mode picker — only for multi-agent threads */}
+          {!isDM && currentSession && (() => {
+            const participants = currentSession.participants || [];
+            const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
+            if (sessionAgents.length < 2) return null;
+            return (
+              <OrchestrationControl
+                session={currentSession}
+                agents={sessionAgents}
+                onChange={(updates) => setSessionOrchestration(currentSessionId!, updates)}
+              />
+            );
+          })()}
 
           {/* Share conversation */}
           <Button

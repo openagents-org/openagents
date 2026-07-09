@@ -134,6 +134,16 @@ class Channel(Base):
     created_by = Column(Text, nullable=True)
     master_agent = Column(Text, nullable=True)       # per-channel master
     resume_from = Column(Text, nullable=True)         # channel name to resume context from
+    # Multi-agent collaboration mode for this thread:
+    #   "dynamic"  → LLM router picks next speaker (generic prompt) [default]
+    #   "master"   → deterministic star: humans + sub-agents route to the
+    #                master; the master delegates via @mention
+    #   "workflow" → LLM router steered by a user-authored natural-language
+    #                collaboration plan (see orchestration_instruction)
+    orchestration_mode = Column(Text, nullable=False, server_default=text("'dynamic'"))
+    # Free-text collaboration plan (with @agent mentions) used only in
+    # "workflow" mode; injected into the router prompt as the routing policy.
+    orchestration_instruction = Column(Text, nullable=True)
     status = Column(Text, default="active")           # active | archived | deleted
     starred = Column(Boolean, default=False, server_default=text("FALSE"))
     last_event_at = Column(BigInteger, nullable=True)

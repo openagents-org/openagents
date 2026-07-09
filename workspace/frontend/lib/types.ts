@@ -75,6 +75,10 @@ export interface WorkspaceSession {
   starred: boolean;
   participants: string[];
   master: string | null;
+  // Multi-agent collaboration mode: 'dynamic' | 'master' | 'workflow'
+  orchestrationMode: string;
+  // Free-text collaboration plan used only in 'workflow' mode
+  orchestrationInstruction: string | null;
   createdAt: string | null;
   lastEventAt: number | null; // unix ms timestamp of last message
 }
@@ -350,6 +354,8 @@ export interface NetworkChannel {
   address: string;
   title: string | null;
   master: string | null;
+  orchestration_mode?: string;
+  orchestration_instruction?: string | null;
   participants: string[];
   created_at: number | null;
   last_event_at: number | null;
@@ -466,6 +472,8 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     starred: ch.starred || false,
     participants: ch.participants,
     master: ch.master,
+    orchestrationMode: ch.orchestration_mode || 'dynamic',
+    orchestrationInstruction: ch.orchestration_instruction ?? null,
     createdAt: ch.created_at ? new Date(ch.created_at).toISOString() : null,
     lastEventAt: ch.last_event_at,
   };

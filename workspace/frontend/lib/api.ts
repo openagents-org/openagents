@@ -227,11 +227,13 @@ class WorkspaceApi {
     });
   }
 
-  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean; masterAgent?: string }): Promise<unknown> {
-    // Map camelCase masterAgent → snake_case master_agent for the backend.
-    const { masterAgent, ...rest } = updates;
+  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean; masterAgent?: string; orchestrationMode?: string; orchestrationInstruction?: string | null }): Promise<unknown> {
+    // Map camelCase fields → snake_case for the backend.
+    const { masterAgent, orchestrationMode, orchestrationInstruction, ...rest } = updates;
     const body: Record<string, unknown> = { ...rest };
     if (masterAgent !== undefined) body.master_agent = masterAgent;
+    if (orchestrationMode !== undefined) body.orchestration_mode = orchestrationMode;
+    if (orchestrationInstruction !== undefined) body.orchestration_instruction = orchestrationInstruction;
     return this.request(`/v1/workspaces/${this.workspaceId}/channels/${channelName}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
@@ -286,6 +288,8 @@ class WorkspaceApi {
       starred: false,
       participants: opts.participants || [],
       master: opts.master || null,
+      orchestrationMode: 'dynamic',
+      orchestrationInstruction: null,
       createdAt: new Date(event.timestamp).toISOString(),
       lastEventAt: null,
     };
