@@ -111,7 +111,7 @@ async def add_cloud_agent(
             WorkspaceMember.agent_name == body.agent_name,
         )
     ).scalar_one_or_none()
-    if existing:
+    if existing and existing.status != "removed":
         return json_response(
             ResponseCode.BAD_REQUEST,
             f"Agent '{body.agent_name}' already exists in this workspace",
@@ -122,6 +122,36 @@ async def add_cloud_agent(
             ResponseCode.BAD_REQUEST,
             "Custom provider requires a base_url",
         )
+
+    # Re-adding a previously-removed cloud agent: reactivate the soft-deleted
+    # member and refresh its retained CloudAgentConfig rather than failing with
+    # "already exists". (issue #347)
+    if existing and existing.status == "removed":
+        existing.status = "online"
+        existing.last_heartbeat = None
+        existing.agent_type = f"cloud:{body.provider}"
+        existing.description = f"Cloud agent: {model_info.label} ({body.provider})"
+        cfg = db.execute(
+            select(CloudAgentConfig).where(
+                CloudAgentConfig.workspace_id == str(workspace.id),
+                CloudAgentConfig.agent_name == body.agent_name,
+            )
+        ).scalar_one_or_none()
+        if cfg is not None:
+            cfg.provider = body.provider
+            cfg.model = body.model
+            cfg.category = model_info.category
+            cfg.api_key = body.api_key
+            cfg.base_url = body.base_url
+            cfg.system_prompt = body.system_prompt
+            cfg.max_tokens = body.max_tokens
+            cfg.status = "active"
+        db.commit()
+        logger.info(
+            "cloud_agents: reactivated %s (%s/%s) in workspace %s",
+            body.agent_name, body.provider, body.model, workspace.id,
+        )
+        return success_response(_format_cloud_agent(cfg))
 
     cfg = CloudAgentConfig(
         workspace_id=str(workspace.id),

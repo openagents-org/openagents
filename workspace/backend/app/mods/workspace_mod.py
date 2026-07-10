@@ -67,6 +67,19 @@ async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Eve
         )
     ).scalar_one_or_none()
 
+    # A removed agent must not resurrect itself by re-joining. Its daemon
+    # reconnects and re-POSTs /v1/join, which would otherwise upsert the row
+    # back to status='online' — exactly the "removed agent still appears" bug.
+    # Re-adding is a human action (POST /v1/cloud-agents reactivates the row).
+    # Raising EventRejected makes _emit_event return None → /v1/join 401s.
+    # (issue #347)
+    if existing and existing.status == "removed":
+        logger.info(
+            "workspace_mod: refused re-join of removed agent %s in %s",
+            agent_name, workspace.id,
+        )
+        raise EventRejected("workspace_mod", "agent_removed")
+
     now = datetime.now(timezone.utc)
 
     agent_type = event.payload.get("agent_type") if event.payload else None
@@ -198,16 +211,22 @@ async def _handle_agent_remove(event: Event, ctx: PipelineContext) -> Optional[E
         return None
 
     was_master = member.role == "master"
-    db.delete(member)
+    # Soft-delete: keep the row (status='removed') so a re-add can reactivate
+    # the agent and so _handle_agent_join can refuse to resurrect it. Hard-
+    # deleting left nothing to stop a still-running daemon from re-joining and
+    # upserting the membership back to online — the removed agent reappeared.
+    # (issue #347)
+    member.status = "removed"
     db.flush()
 
     new_master_name = None
 
-    # If removed agent was master, promote the next available agent
+    # If removed agent was master, promote the next available (non-removed) agent
     if was_master:
         next_master = db.execute(
             select(WorkspaceMember).where(
                 WorkspaceMember.workspace_id == workspace.id,
+                WorkspaceMember.status != "removed",
             ).order_by(WorkspaceMember.joined_at.asc())
         ).scalar_one_or_none()
 
@@ -269,6 +288,17 @@ async def _handle_ping(event: Event, ctx: PipelineContext) -> Optional[Event]:
 
     if not member:
         return None
+
+    # A removed agent's still-running daemon keeps heartbeating; without this
+    # guard the line below would flip it back to status='online'. Surface
+    # session_revoked so the caller stops its adapter for this agent. (issue #347)
+    if member.status == "removed":
+        event.metadata["session_error"] = "session_revoked"
+        logger.info(
+            "workspace_mod: rejected heartbeat for removed agent %s in %s",
+            agent_name, workspace.id,
+        )
+        return event
 
     now = datetime.now(timezone.utc)
     member.status = "online"
