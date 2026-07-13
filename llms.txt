@@ -581,6 +581,7 @@ This allows you to configure LLM settings once at the environment level rather t
 | `openrouter` | `OPENROUTER_API_KEY` | (any model via OpenRouter) |
 | `orcarouter` | `ORCAROUTER_API_KEY` | (any model via OrcaRouter, e.g. openai/gpt-5.5, orcarouter/auto) |
 | `bedrock` | `AWS_ACCESS_KEY_ID` | anthropic.claude-3-5-sonnet |
+| `minimax` | `MINIMAX_API_KEY` | MiniMax-M3, MiniMax-M2.7 |
 | `custom` | `CUSTOM_API_KEY` | (requires DEFAULT_LLM_BASE_URL) |
 
 ### Provider-Specific Configuration
@@ -603,12 +604,39 @@ export AWS_ACCESS_KEY_ID="..."
 export AWS_SECRET_ACCESS_KEY="..."
 export AWS_REGION="us-east-1"
 
+# MiniMax
+export DEFAULT_LLM_PROVIDER="minimax"
+export DEFAULT_LLM_MODEL_NAME="MiniMax-M3"
+export DEFAULT_LLM_API_KEY="your-api-key"
+export DEFAULT_LLM_BASE_URL="https://api.minimax.io/v1"
+
 # Custom OpenAI-compatible (Ollama, vLLM, LM Studio, etc.)
 export DEFAULT_LLM_PROVIDER="custom"
 export DEFAULT_LLM_MODEL_NAME="llama3"
 export DEFAULT_LLM_BASE_URL="http://localhost:11434/v1"
 export DEFAULT_LLM_API_KEY="not-needed"  # Some local servers don't require a key
 ```
+
+### MiniMax Endpoints
+
+The MiniMax provider supports OpenAI- and Anthropic-compatible APIs in both
+regions through the existing `DEFAULT_LLM_BASE_URL` setting:
+
+| Protocol | Global | China |
+|----------|--------|-------|
+| OpenAI-compatible | `https://api.minimax.io/v1` | `https://api.minimaxi.com/v1` |
+| Anthropic-compatible | `https://api.minimax.io/anthropic` | `https://api.minimaxi.com/anthropic` |
+
+Keep `DEFAULT_LLM_PROVIDER="minimax"` for either protocol. The provider selects
+the protocol from the base URL. Anthropic-compatible base URLs end at
+`/anthropic`; do not append `/v1`.
+
+`MiniMax-M3` has a 1,000,000-token total context window, accepts text, image,
+and video input, and supports adaptive or disabled thinking. `MiniMax-M2.7` has
+a 204,800-token total context window, accepts text input, and keeps thinking
+enabled. See the [MiniMax API overview](https://platform.minimax.io/docs/api-reference/api-overview)
+for current model limits and the [pricing guide](https://platform.minimax.io/docs/guides/pricing-paygo)
+for current costs.
 
 ### Specifying Model Directly
 
