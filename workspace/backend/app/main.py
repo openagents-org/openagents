@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 TIMER_LOOP_INTERVAL_SECONDS = 10
 MAINTENANCE_EVERY_N_CYCLES = 30  # ~5 minutes
 
+# A routine whose previous fire hasn't produced an answer within this window
+# is treated as stuck (e.g. crashed adapter) and allowed to re-fire so the
+# routine can recover, rather than being skipped forever.
+ROUTINE_STUCK_MS = 30 * 60 * 1000  # 30 minutes
+
 
 def _run_maintenance():
     """Expire stale todos/notifications and auto-archive stale threads.
@@ -173,26 +178,57 @@ async def _fire_due():
                 continue
             agent_name = routine.created_by.replace("openagents:", "")
 
-            # Skip if the agent hasn't responded to the previous fire yet
-            last_msg = db.execute(
+            # Skip if the previous run of this routine is still in progress.
+            #
+            # A routine fires into the agent's dedicated routine channel and the
+            # agent works the task as a single turn, ending with a final `chat`
+            # answer. Firing again before that answer lands makes the adapter
+            # queue the new fire behind the running one, and on a short interval
+            # a long-running task snowballs into a backlog of duplicate runs.
+            # (The old guard only checked whether the *last* channel message was
+            # the fire itself; once the agent posted any intermediate
+            # status/thinking message it broke and re-fired.)
+            #
+            # So: find the most recent fire in this channel and, if the agent
+            # hasn't posted a `chat` reply since, skip this tick and just
+            # advance the schedule — the next due tick re-checks. A run that
+            # produces no answer within ROUTINE_STUCK_MS (crashed adapter, etc.)
+            # is allowed to re-fire so the routine can recover.
+            last_fire = db.execute(
                 select(EventRecord)
                 .where(
                     EventRecord.network_id == workspace.id,
                     EventRecord.target == f"channel/{routine.channel_name}",
                     EventRecord.type == "workspace.message.posted",
+                    EventRecord.source == "system:routine",
                 )
                 .order_by(EventRecord.timestamp.desc())
                 .limit(1)
             ).scalar_one_or_none()
-            if last_msg and last_msg.source == "system:routine":
-                # Previous fire still pending — skip, just advance schedule
-                routine.next_fires_at = _compute_next_fires_at(
-                    routine.schedule_hour,
-                    routine.schedule_minute,
-                    routine.schedule_days,
-                    routine.schedule_interval_minutes,
-                )
-                continue
+            if last_fire is not None:
+                answered = db.execute(
+                    select(EventRecord.id)
+                    .where(
+                        EventRecord.network_id == workspace.id,
+                        EventRecord.target == f"channel/{routine.channel_name}",
+                        EventRecord.type == "workspace.message.posted",
+                        EventRecord.source == f"openagents:{agent_name}",
+                        EventRecord.timestamp > last_fire.timestamp,
+                        EventRecord.payload["message_type"].astext == "chat",
+                    )
+                    .limit(1)
+                ).scalar_one_or_none()
+                now_ms = int(now.timestamp() * 1000)
+                run_age_ms = now_ms - int(last_fire.timestamp or 0)
+                if answered is None and run_age_ms < ROUTINE_STUCK_MS:
+                    # Previous run still working — skip, just advance schedule.
+                    routine.next_fires_at = _compute_next_fires_at(
+                        routine.schedule_hour,
+                        routine.schedule_minute,
+                        routine.schedule_days,
+                        routine.schedule_interval_minutes,
+                    )
+                    continue
 
             ctx = PipelineContext(
                 network_id=str(workspace.id),

@@ -707,6 +707,15 @@ class BaseAdapter {
     }
 
     if (this._channelBusy.has(channel)) {
+      // A routine that's already running must not stack up. Routine fires are
+      // periodic, so a fire that arrives while the previous run is still going
+      // is simply dropped — the next scheduled tick re-fires once the agent is
+      // free. (The backend guard normally prevents this from even being sent;
+      // this is the last line of defense against a queue backlog.)
+      if (msg.senderName === 'system:routine') {
+        this._log(`Skipping routine fire in ${channel} — previous run still in progress`);
+        return;
+      }
       if (!this._channelQueues[channel]) this._channelQueues[channel] = [];
       const queueId = `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       msg._queueId = queueId;
