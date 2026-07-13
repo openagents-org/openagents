@@ -423,19 +423,21 @@ class BaseAdapter {
   async _runConnectedSession(gen) {
     // Skill sync (best-effort) — only meaningful right after a join.
     await this._syncSkillsFromWorkspace();
-    // Skip stale control events each session so /restart etc. don't replay.
-    await this._skipExistingControlEvents();
-    // Jump the message cursor to head ONLY on the first connect. On reconnect
-    // we resume from _lastEventId so messages queued during the outage are
-    // still delivered (and _processedIds guards against double-dispatch).
+    // Jump both cursors to head ONLY on the first connect after a fresh
+    // process start: control events, so a pre-existing /restart doesn't
+    // replay into a daemon-bounce loop; message events, so old history isn't
+    // re-dispatched. On reconnect BOTH cursors are preserved — control
+    // actions (/stop, /restart, set_mode) and messages issued during the
+    // outage are delivered once the session is re-established.
     if (this._firstConnect) {
+      await this._skipExistingControlEvents();
       try { await this._skipExistingEvents(); } catch (e) {
         this._log(`skip existing events failed (non-fatal): ${this._errLabel(e)}`);
       }
     }
 
     const heartbeatLoop = this._heartbeatLoop(gen);
-    const controlPoller = this._controlPollerLoop();
+    const controlPoller = this._controlPollerLoop(gen);
     this._log('Starting poll loop...');
     try {
       await this._pollLoop(gen);
@@ -961,10 +963,17 @@ class BaseAdapter {
     this._controlWake = null;
   }
 
-  async _controlPollerLoop() {
-    while (this._running) {
+  /**
+   * Control poller. Legacy (gen === undefined) loops on _running only, exactly
+   * as before. Supervised passes its session generation so the loop exits as
+   * soon as the session is invalidated (reconnect/stop) instead of issuing
+   * another _pollControl — otherwise a slow control endpoint would stall the
+   * `await controlPoller` teardown in _runConnectedSession and delay re-join.
+   */
+  async _controlPollerLoop(gen) {
+    while (this._running && (gen === undefined || gen === this._activeGen)) {
       await this._pollControl();
-      if (!this._running) break;
+      if (!this._running || (gen !== undefined && gen !== this._activeGen)) break;
       await this._sleepUntilControlPollDue(this._controlPollDelayMs());
     }
   }
@@ -1359,13 +1368,18 @@ class BaseAdapter {
    *   'revoked'    → SessionRevokedError (terminal, no auto-reconnect)
    *   'terminal'   → 401/403 (bad credentials; retrying is pointless)
    *   'ambiguous'  → 404 / unknown (bounded retry, then terminal)
-   *   'retryable'  → 5xx / network errors (timeout, conn refused, DNS, reset)
+   *   'retryable'  → 5xx / 429 / 408 / network errors (timeout, conn refused,
+   *                  DNS, reset). 429 matters during a mass fleet reconnect
+   *                  after a server restart: rate-limited agents must keep
+   *                  backing off and retrying, not burn the ambiguous budget
+   *                  and get permanently dropped.
    */
   _classifyError(err) {
     if (!err) return 'retryable';
     if (err instanceof SessionRevokedError || err.code === 'session_revoked') return 'revoked';
     const sc = err.statusCode;
     if (sc === 401 || sc === 403) return 'terminal';
+    if (sc === 429 || sc === 408) return 'retryable';
     if (sc === 404) return 'ambiguous';
     if (typeof sc === 'number' && sc >= 500) return 'retryable';
     const code = err.code;

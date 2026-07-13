@@ -53,7 +53,7 @@ class TestAdapter extends BaseAdapter {
  * Build an adapter with all external I/O mocked and all time/sleeps under
  * test control. Returns helpers to drive the supervised lifecycle step by step.
  */
-function makeHarness({ pollPending } = {}) {
+function makeHarness({ pollPending, pollControl, realControlPoller } = {}) {
   const h = {
     now: 0,
     joinQueue: [],     // each: deferred-like {result} or {error}
@@ -82,7 +82,10 @@ function makeHarness({ pollPending } = {}) {
       if (pollPending) return pollPending(...args);
       return { messages: [], cursor: null, composing: false };
     },
-    async pollControl() { return []; },
+    async pollControl(...args) {
+      if (pollControl) return pollControl(...args);
+      return [];
+    },
     async pollToolResults() { return { events: [], cursor: null }; },
     async getHeadEventId() { return null; },
     async getAgents() { return []; },
@@ -98,7 +101,9 @@ function makeHarness({ pollPending } = {}) {
   adapter._clock = () => h.now;
   adapter._jitter = () => 0;                 // deterministic backoff
   adapter._syncSkillsFromWorkspace = async () => {};   // avoid skill-sync timer
-  adapter._controlPollerLoop = async () => {};         // not under test
+  // Control poller is stubbed by default (most tests exercise join/heartbeat/
+  // poll). Pass realControlPoller: true to keep the real loop under test.
+  if (!realControlPoller) adapter._controlPollerLoop = async () => {};
   // Controllable sleep: registers a waiter (so real _wakeAll wakes it) but does
   // NOT auto-fire on a timer — the test advances it explicitly via fireSleeps().
   adapter._interruptibleSleep = function (_ms) {
@@ -725,4 +730,156 @@ test('heartbeat 404 → counts as failure, reconnects under AND only, no leave',
   assert.strictEqual(h.adapter._lastLivenessOkAt, livenessBefore, 'stale-gen hb did not refresh liveness');
 
   h.adapter.stop(); h.settleHeartbeat('ok'); h.fireSleeps(); await h.runPromise;
+});
+
+// ---------------------------------------------------------------------------
+// 22. Control events issued DURING an outage are delivered after reconnect.
+//     The control cursor is only skipped-to-head on the FIRST connect (so a
+//     pre-existing /restart can't replay into a daemon-bounce loop); on
+//     reconnect the cursor is preserved and pending control actions execute.
+//     Runs the REAL control poller loop.
+// ---------------------------------------------------------------------------
+test('control events during outage are executed after reconnect (first-connect-only skip)', async () => {
+  const h = makeHarness({
+    realControlPoller: true,
+    pollControl: async (_ws, _agent, _tok, opts) => {
+      h.controlPolls.push(opts.after);
+      // First-connect skip call (after: null) sees one stale pre-existing
+      // event — it must be skipped, never dispatched.
+      if (opts.after === null) return [{ id: 'c1', payload: { action: 'restart' } }];
+      const evs = h.pendingControl;
+      h.pendingControl = [];
+      return evs;
+    },
+  });
+  h.controlPolls = [];
+  h.pendingControl = [];
+  const actions = [];
+  h.adapter._onControlAction = async (action) => { actions.push(action); };
+  let skipCalls = 0;
+  const origSkip = h.adapter._skipExistingControlEvents.bind(h.adapter);
+  h.adapter._skipExistingControlEvents = async () => { skipCalls++; return origSkip(); };
+
+  h.queueJoinSuccess('s1');
+  h.queueJoinSuccess('s2');
+  h.start();
+  await h.flush();
+
+  // First connect: stale event skipped (cursor at head), nothing dispatched.
+  assert.strictEqual(skipCalls, 1, 'cursor skip runs on first connect');
+  assert.strictEqual(h.adapter._lastControlId, 'c1', 'cursor advanced past stale event');
+  assert.deepStrictEqual(actions, [], 'stale pre-existing control event never dispatched');
+
+  // User issues /restart while the agent is disconnected (during the outage).
+  h.pendingControl.push({ id: 'c2', payload: { action: 'restart' } });
+
+  // Drive an outage: freshness window elapsed + consecutive failures → reconnect.
+  h.now = 200000;
+  let guard = 0;
+  while (h.adapter._sessionId !== 's2' && guard++ < 10) {
+    h.settleHeartbeat('fail', netErr('ETIMEDOUT'));
+    await h.flush(); h.fireSleeps(); await h.flush();
+  }
+  assert.strictEqual(h.adapter._sessionId, 's2', 'reconnected');
+  await h.flush(10);
+
+  // Reconnect must NOT re-skip the control cursor; the outage-time /restart
+  // is picked up by the new session's poller and executed exactly once.
+  assert.strictEqual(skipCalls, 1, 'cursor skip must NOT run again on reconnect');
+  assert.deepStrictEqual(actions, ['restart'], 'outage-time control event executed after reconnect');
+  assert.strictEqual(h.adapter._lastControlId, 'c2', 'control cursor advanced past delivered event');
+
+  h.adapter.stop();
+  while (h.settleHeartbeat('ok')) { /* drain */ }
+  h.fireSleeps();
+  await h.runPromise;
+});
+
+// ---------------------------------------------------------------------------
+// 23. HTTP 429 / 408 are retryable, NOT ambiguous: a mass fleet reconnect that
+//     gets rate-limited must keep backing off past the ambiguous cap instead
+//     of going terminal join_failed.
+// ---------------------------------------------------------------------------
+test('join survives sustained 429 rate-limiting beyond the ambiguous cap', async () => {
+  const h = makeHarness();
+
+  // Structured classification: rate-limit / request-timeout are retryable.
+  assert.strictEqual(h.adapter._classifyError(httpErr(429, 'Too Many Requests')), 'retryable');
+  assert.strictEqual(h.adapter._classifyError(httpErr(408, 'Request Timeout')), 'retryable');
+  // Unchanged neighbors: 404 stays ambiguous, 401 stays terminal.
+  assert.strictEqual(h.adapter._classifyError(httpErr(404)), 'ambiguous');
+  assert.strictEqual(h.adapter._classifyError(httpErr(401)), 'terminal');
+
+  // 6 consecutive 429s — one PAST the ambiguous cap (5) — then success.
+  for (let i = 0; i < 6; i++) h.queueJoinError(httpErr(429, 'Too Many Requests'));
+  h.queueJoinSuccess('s1');
+  h.start();
+  for (let i = 0; i < 6; i++) {
+    await h.flush();
+    h.fireSleeps();   // release the join backoff sleep
+  }
+  await h.flush();
+
+  assert.strictEqual(h.adapter._connState, 'connected', '429s must not exhaust the ambiguous budget');
+  assert.strictEqual(h.adapter._sessionId, 's1');
+  assert.strictEqual(h.adapter._terminalReason, null);
+  assert.strictEqual(h.joinCalls, 7, 'kept retrying through all six 429s');
+
+  h.adapter.stop(); h.settleHeartbeat('ok'); h.fireSleeps(); await h.runPromise;
+});
+
+// ---------------------------------------------------------------------------
+// 24. The control poller is generation-scoped: once reconnect invalidates the
+//     session, the old poller exits WITHOUT issuing another _pollControl — a
+//     slow/hung control endpoint cannot stall the re-join (the teardown in
+//     _runConnectedSession awaits the poller). Runs the REAL poller loop.
+// ---------------------------------------------------------------------------
+test('gen-scoped control poller: slow control endpoint cannot stall reconnect', async () => {
+  const h = makeHarness({
+    realControlPoller: true,
+    pollControl: (_ws, _agent, _tok, _opts) => {
+      h.controlCalls++;
+      if (h.hangControl) {
+        const d = deferred();
+        h.hungControl.push(d);
+        return d.promise;   // never resolves until the test releases it
+      }
+      return Promise.resolve([]);
+    },
+  });
+  h.controlCalls = 0;
+  h.hangControl = false;
+  h.hungControl = [];
+
+  h.queueJoinSuccess('s1');
+  h.queueJoinSuccess('s2');
+  h.start();
+  await h.flush();
+  assert.ok(h.controlCalls >= 2, 'first-connect skip + first poller iteration ran');
+
+  // From now on any control poll HANGS. The old poller is currently parked in
+  // its pacing sleep; when reconnect wakes it, a non-gen-scoped loop would
+  // issue one more poll, hang, and stall the session teardown forever.
+  h.hangControl = true;
+  const callsBeforeReconnect = h.controlCalls;
+
+  h.now = 200000;
+  let guard = 0;
+  while (h.adapter._sessionId !== 's2' && guard++ < 10) {
+    h.settleHeartbeat('fail', netErr('ETIMEDOUT'));
+    await h.flush(); h.fireSleeps(); await h.flush();
+  }
+  assert.strictEqual(h.adapter._sessionId, 's2', 're-join completed despite hung control endpoint');
+  assert.strictEqual(h.joinCalls, 2);
+  // The only new poll is the NEW session's first iteration; the invalidated
+  // poller exited on wake without polling again.
+  assert.strictEqual(h.controlCalls, callsBeforeReconnect + 1,
+    'old-generation poller must not issue another poll after invalidation');
+
+  // Cleanup: release the hung poll so the new session's poller can exit.
+  h.adapter.stop();
+  for (const d of h.hungControl) d.resolve([]);
+  while (h.settleHeartbeat('ok')) { /* drain */ }
+  h.fireSleeps();
+  await h.runPromise;
 });
