@@ -143,7 +143,7 @@ from collections import namedtuple  # noqa: E402
 ProviderResolution = namedtuple("ProviderResolution", ["env", "model", "error"])
 
 _VALID_PROVIDERS = (
-    "auto", "openai", "anthropic", "openrouter", "gemini", "deepseek",
+    "auto", "openai", "anthropic", "openrouter", "requesty", "gemini", "deepseek",
     "openai-compatible",
 )
 # provider -> the API-key env var aider/LiteLLM reads for it.
@@ -151,6 +151,7 @@ _PROVIDER_KEY_VAR = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
+    "requesty": "REQUESTY_API_KEY",
     "gemini": "GEMINI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "openai-compatible": "OPENAI_API_KEY",
@@ -163,6 +164,8 @@ def _explicit_prefix_provider(model: str):
     m = (model or "").strip().lower()
     if m.startswith("openrouter/"):
         return "openrouter"
+    if m.startswith("requesty/"):
+        return "requesty"
     if m.startswith("anthropic/"):
         return "anthropic"
     if m.startswith("openai/"):
@@ -225,7 +228,7 @@ def resolve_aider_provider(provider: str, model: str, api_key: str,
         return ProviderResolution(
             {}, model,
             f"Unknown AIDER_PROVIDER '{provider}'. Valid values: "
-            "auto, openai, anthropic, openrouter, gemini, deepseek, "
+            "auto, openai, anthropic, openrouter, requesty, gemini, deepseek, "
             "openai-compatible.",
         )
     if not provider:
@@ -256,7 +259,7 @@ def resolve_aider_provider(provider: str, model: str, api_key: str,
             return ProviderResolution(
                 {}, model,
                 "Could not determine the model provider for LLM_API_KEY. Set "
-                "AIDER_PROVIDER (openai, anthropic, openrouter, gemini, deepseek, "
+                "AIDER_PROVIDER (openai, anthropic, openrouter, requesty, gemini, deepseek, "
                 "or openai-compatible), use an AIDER_MODEL whose name identifies "
                 "the provider, or set the native provider key directly.",
             )

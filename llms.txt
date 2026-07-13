@@ -580,6 +580,7 @@ This allows you to configure LLM settings once at the environment level rather t
 | `perplexity` | `PERPLEXITY_API_KEY` | llama-3.1-sonar-huge-128k-online |
 | `openrouter` | `OPENROUTER_API_KEY` | (any model via OpenRouter) |
 | `orcarouter` | `ORCAROUTER_API_KEY` | (any model via OrcaRouter, e.g. openai/gpt-5.5, orcarouter/auto) |
+| `requesty` | `REQUESTY_API_KEY` | (any model via Requesty) |
 | `bedrock` | `AWS_ACCESS_KEY_ID` | anthropic.claude-3-5-sonnet |
 | `minimax` | `MINIMAX_API_KEY` | MiniMax-M3, MiniMax-M2.7 |
 | `custom` | `CUSTOM_API_KEY` | (requires DEFAULT_LLM_BASE_URL) |

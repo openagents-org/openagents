@@ -107,13 +107,14 @@ function classifyError(stderr, stdout) {
 // ---------------------------------------------------------------------------
 
 const VALID_PROVIDERS = [
-  'auto', 'openai', 'anthropic', 'openrouter', 'gemini', 'deepseek',
+  'auto', 'openai', 'anthropic', 'openrouter', 'requesty', 'gemini', 'deepseek',
   'openai-compatible',
 ];
 const PROVIDER_KEY_VAR = {
   openai: 'OPENAI_API_KEY',
   anthropic: 'ANTHROPIC_API_KEY',
   openrouter: 'OPENROUTER_API_KEY',
+  requesty: 'REQUESTY_API_KEY',
   gemini: 'GEMINI_API_KEY',
   deepseek: 'DEEPSEEK_API_KEY',
   'openai-compatible': 'OPENAI_API_KEY',
@@ -122,6 +123,7 @@ const PROVIDER_KEY_VAR = {
 function explicitPrefixProvider(model) {
   const m = String(model || '').trim().toLowerCase();
   if (m.startsWith('openrouter/')) return 'openrouter';
+  if (m.startsWith('requesty/')) return 'requesty';
   if (m.startsWith('anthropic/')) return 'anthropic';
   if (m.startsWith('openai/')) return 'openai';
   if (m.startsWith('gemini/') || m.startsWith('google/')) return 'gemini';
@@ -167,7 +169,7 @@ function resolveAiderProvider(provider, model, apiKey, baseUrl) {
     return {
       env: {}, model,
       error: `Unknown AIDER_PROVIDER '${provider}'. Valid values: auto, openai, `
-        + 'anthropic, openrouter, gemini, deepseek, openai-compatible.',
+        + 'anthropic, openrouter, requesty, gemini, deepseek, openai-compatible.',
     };
   }
   if (!provider) provider = 'auto';
@@ -191,7 +193,7 @@ function resolveAiderProvider(provider, model, apiKey, baseUrl) {
       return {
         env: {}, model,
         error: 'Could not determine the model provider for LLM_API_KEY. Set '
-          + 'AIDER_PROVIDER (openai, anthropic, openrouter, gemini, deepseek, or '
+          + 'AIDER_PROVIDER (openai, anthropic, openrouter, requesty, gemini, deepseek, or '
           + 'openai-compatible), use an AIDER_MODEL whose name identifies the '
           + 'provider, or set the native provider key directly.',
       };

@@ -28,6 +28,7 @@ class LLMProviderType(str, Enum):
     GROQ = "groq"
     OPENROUTER = "openrouter"
     ORCAROUTER = "orcarouter"
+    REQUESTY = "requesty"
     MINIMAX = "minimax"
     LITELLM = "litellm"
     CUSTOM = "custom"  # Custom OpenAI-compatible endpoint
@@ -193,6 +194,13 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         "api_base": "https://api.orcarouter.ai/v1",
         "models": [],  # User specifies model name (e.g., "openai/gpt-5.5", "orcarouter/auto")
         "API_KEY_ENV_VAR": "ORCAROUTER_API_KEY",
+    },
+    # Requesty (OpenAI-compatible LLM gateway)
+    "requesty": {
+        "provider": "generic",
+        "api_base": "https://router.requesty.ai/v1",
+        "models": [],  # User specifies model name (e.g., "openai/gpt-4o-mini")
+        "API_KEY_ENV_VAR": "REQUESTY_API_KEY",
     },
     # MiniMax
     "minimax": {
@@ -509,6 +517,7 @@ def create_model_provider(
         "groq",
         "openrouter",
         "orcarouter",
+        "requesty",
     ]:
         # Use predefined API base if not provided
         if not api_base and provider in MODEL_CONFIGS:
