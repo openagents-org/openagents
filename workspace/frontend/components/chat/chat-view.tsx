@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, Globe, Share2, Crown } from 'lucide-react';
+import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, Globe, Share2, Crown, AlertTriangle, Sparkles } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
 import { OrchestrationControl } from './orchestration-control';
 import { useLayout } from '@/components/layout/layout-context';
@@ -137,6 +137,7 @@ export function ChatView() {
     showBrowserPreview,
     setShowBrowserPreview,
     openNewThread,
+    setSelectedAgentName,
   } = useLayout();
 
   // Continuously refresh message caches for top recent sessions in the background.
@@ -763,6 +764,37 @@ export function ChatView() {
                 </div>
               );
             })}
+          </div>
+        );
+      })()}
+
+      {/* Missing-description warning — routing accuracy (dynamic/workflow router
+          and the master's own delegation) depends on agent descriptions. Nudge
+          the user to fill any that are blank; each chip opens that agent's
+          profile, where a one-click auto-generate button drafts one. */}
+      {!isDM && (() => {
+        const participants = currentSession?.participants || [];
+        const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
+        if (sessionAgents.length <= 1) return null;
+        const missing = sessionAgents.filter((a) => !a.description || !a.description.trim());
+        if (missing.length === 0) return null;
+        return (
+          <div className="flex items-center gap-2 px-2 lg:px-4 py-1.5 border-b shrink-0 overflow-x-auto bg-amber-50 dark:bg-amber-900/15 text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="size-3.5 shrink-0" />
+            <span className="text-[11px] leading-snug shrink-0">
+              Routing may be less accurate — no description for:
+            </span>
+            {missing.map((a) => (
+              <button
+                key={a.agentName}
+                onClick={() => setSelectedAgentName(a.agentName)}
+                className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors shrink-0"
+                title={`Add a description for ${a.agentName}`}
+              >
+                <Sparkles className="size-2.5" />
+                {a.agentName}
+              </button>
+            ))}
           </div>
         );
       })()}

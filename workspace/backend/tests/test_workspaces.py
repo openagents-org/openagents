@@ -4,6 +4,7 @@ Tests for workspace CRUD endpoints.
 """
 
 import pytest
+from unittest.mock import patch, MagicMock
 
 
 class TestCreateWorkspace:
@@ -230,6 +231,40 @@ class TestChannelOrchestrationMode:
         resp = self._patch(client, workspace, {"orchestration_instruction": "   "})
         assert resp.status_code == 200
         assert resp.json()["data"]["orchestrationInstruction"] is None
+
+
+class TestGenerateMemberDescription:
+    """POST /v1/workspaces/{id}/members/{name}/generate-description."""
+
+    def _url(self, workspace, name="agent-alpha"):
+        return f"/v1/workspaces/{workspace['id']}/members/{name}/generate-description"
+
+    @patch("app.mods.workspace_mod._get_llm_client")
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    @patch("app.mods.workspace_mod._get_router_model", return_value="claude-haiku-4-5-20251001")
+    def test_generate_returns_suggestion(self, _m, _k, mock_get_client, client, workspace):
+        content = MagicMock()
+        content.text = '"Backend engineer that builds APIs and fixes bugs."'
+        resp = MagicMock()
+        resp.content = [content]
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = resp
+        mock_get_client.return_value = (mock_client, "anthropic")
+
+        r = client.post(self._url(workspace), headers={"X-Workspace-Token": workspace["token"]})
+        assert r.status_code == 200
+        desc = r.json()["data"]["description"]
+        # Wrapping quotes and trailing period are stripped.
+        assert desc == "Backend engineer that builds APIs and fixes bugs"
+
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="")
+    def test_generate_without_key_returns_400(self, _k, client, workspace):
+        r = client.post(self._url(workspace), headers={"X-Workspace-Token": workspace["token"]})
+        assert r.status_code == 400
+
+    def test_generate_unknown_member_returns_404(self, client, workspace):
+        r = client.post(self._url(workspace, "nope-bot"), headers={"X-Workspace-Token": workspace["token"]})
+        assert r.status_code == 404
 
         # Workspace must still exist
         get = client.get(

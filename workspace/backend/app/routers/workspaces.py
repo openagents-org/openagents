@@ -568,6 +568,129 @@ def update_member(
 
 
 # ---------------------------------------------------------------------------
+# POST /v1/workspaces/{workspace_id}/members/{agent_name}/generate-description
+# ---------------------------------------------------------------------------
+
+_DESCRIPTION_PROMPT = """\
+Write a ONE-LINE role description for an AI agent in a multi-agent workspace, \
+so a router can decide when to delegate tasks to it.
+
+Agent name: {name}
+Type: {agent_type}
+Working directory: {working_dir}
+Installed skills: {skills}
+
+Recent messages this agent has posted (newest last):
+{history}
+
+Write ONE concise sentence (max ~16 words), third person, describing this \
+agent's specialty/role and the kinds of tasks it handles. No name prefix, no \
+quotes, no trailing period needed. If signal is thin, infer from the name, \
+type, working directory, and skills. Output ONLY the sentence."""
+
+
+@router.post("/{workspace_id}/members/{agent_name}/generate-description")
+def generate_member_description(
+    workspace_id: str,
+    agent_name: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Draft a one-line role description for an agent using the router LLM.
+
+    Uses the agent's recent activity + metadata (type, working dir, skills) to
+    infer a specialty. Returns the suggestion WITHOUT saving — the client shows
+    it for review and persists via PATCH /members/{name} if the user accepts.
+    """
+    from app.models import EventRecord
+    from app.mods.workspace_mod import (
+        _get_llm_client, _get_router_model, _get_router_api_key,
+    )
+
+    workspace = db.execute(
+        select(Workspace).where(_workspace_filter(workspace_id))
+    ).scalar_one_or_none()
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+
+    member = db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.agent_name == agent_name,
+        )
+    ).scalar_one_or_none()
+    if not member:
+        return json_response(ResponseCode.NOT_FOUND, "Member not found")
+
+    if not _get_router_api_key():
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            "Description generation is unavailable (no router LLM key configured)",
+        )
+
+    # Gather up to 15 of the agent's own recent chat messages for signal.
+    recent = db.execute(
+        select(EventRecord)
+        .where(
+            EventRecord.network_id == workspace.id,
+            EventRecord.source == f"openagents:{agent_name}",
+            EventRecord.type == "workspace.message.posted",
+        )
+        .order_by(EventRecord.timestamp.desc())
+        .limit(15)
+    ).scalars().all()
+    recent.reverse()
+    snippets = []
+    for evt in recent:
+        payload = evt.payload or {}
+        if payload.get("message_type", "chat") != "chat":
+            continue
+        text = (payload.get("content") or "").strip().replace("\n", " ")
+        if text:
+            snippets.append(f"- {text[:200]}")
+    history = "\n".join(snippets[-15:]) if snippets else "(no recent messages)"
+
+    installed = []
+    if isinstance(member.enabled_skills, dict):
+        installed = member.enabled_skills.get("installed") or []
+    skills = ", ".join(installed) if installed else "(none listed)"
+
+    prompt = _DESCRIPTION_PROMPT.format(
+        name=agent_name,
+        agent_type=member.agent_type or "unknown",
+        working_dir=member.working_dir or "(unknown)",
+        skills=skills,
+        history=history,
+    )
+
+    try:
+        client, provider = _get_llm_client()
+        model = _get_router_model()
+        if provider == "openai":
+            resp = client.chat.completions.create(
+                model=model, max_tokens=60,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = resp.choices[0].message.content.strip()
+        else:
+            resp = client.messages.create(
+                model=model, max_tokens=60,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = resp.content[0].text.strip()
+    except Exception as e:
+        logger.error("generate-description failed for %s: %s", agent_name, e)
+        return json_response(ResponseCode.INTERNAL_ERROR, "Failed to generate description")
+
+    # Strip stray wrapping quotes / trailing period the model sometimes adds.
+    text = text.strip().strip('"').strip("'").rstrip(".").strip()
+    return success_response({"agentName": agent_name, "description": text})
+
+
+# ---------------------------------------------------------------------------
 # POST /v1/workspaces/{workspace_id}/members/{agent_name}/skills/install
 # DELETE /v1/workspaces/{workspace_id}/members/{agent_name}/skills/uninstall
 # ---------------------------------------------------------------------------

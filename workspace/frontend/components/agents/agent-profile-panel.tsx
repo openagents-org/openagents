@@ -70,6 +70,7 @@ export function AgentProfilePanel() {
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
   const [descDirty, setDescDirty] = useState(false);
+  const [generatingDesc, setGeneratingDesc] = useState(false);
 
   // Sync description when agent changes
   useEffect(() => {
@@ -93,6 +94,25 @@ export function AgentProfilePanel() {
       setSaving(false);
     }
   }, [agent, description, descDirty, refreshWorkspace]);
+
+  const handleGenerateDescription = useCallback(async () => {
+    if (!agent) return;
+    setGeneratingDesc(true);
+    try {
+      const suggestion = await workspaceApi.generateMemberDescription(agent.agentName);
+      if (suggestion) {
+        setDescription(suggestion);
+        setDescDirty(true);
+        toast.success('Draft generated — review and save');
+      } else {
+        toast.error('Could not generate a description');
+      }
+    } catch {
+      toast.error('Failed to generate description');
+    } finally {
+      setGeneratingDesc(false);
+    }
+  }, [agent]);
 
   const handleStartThread = useCallback(async () => {
     if (!agent) return;
@@ -173,8 +193,19 @@ export function AgentProfilePanel() {
         <div className="flex-1 overflow-y-auto px-3.5 space-y-3">
           {/* Description */}
           <div className="rounded-lg border overflow-hidden">
-            <div className="px-3.5 py-2.5 border-b">
+            <div className="px-3.5 py-2.5 border-b flex items-center justify-between gap-2">
               <span className="text-xs font-medium">Description</span>
+              <button
+                onClick={handleGenerateDescription}
+                disabled={generatingDesc}
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors shrink-0"
+                title="Auto-generate a description from this agent's activity and skills"
+              >
+                {generatingDesc
+                  ? <RefreshCw className="size-3 animate-spin" />
+                  : <Sparkles className="size-3 text-amber-500" />}
+                {generatingDesc ? 'Generating…' : 'Auto-generate'}
+              </button>
             </div>
             <div className="p-3">
               <textarea

@@ -160,6 +160,16 @@ class WorkspaceApi {
     });
   }
 
+  /** Draft a one-line role description for an agent via the router LLM.
+   * Returns the suggestion — the caller reviews and saves via updateMember. */
+  async generateMemberDescription(agentName: string): Promise<string> {
+    const raw = await this.request<{ agentName: string; description: string }>(
+      `/v1/workspaces/${this.workspaceId}/members/${agentName}/generate-description`,
+      { method: 'POST' },
+    );
+    return raw.description || '';
+  }
+
   async getSkillCatalog(): Promise<import('./types').SkillCatalogEntry[]> {
     return this.request<import('./types').SkillCatalogEntry[]>('/v1/workspaces/skill-catalog');
   }
