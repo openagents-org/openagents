@@ -1,17 +1,30 @@
 """Unit tests for the MiniMax provider."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from openagents.lms.providers import MiniMaxProvider
+import pytest
+
 from openagents.config.llm_configs import (
     MODEL_CONFIGS,
     LLMProviderType,
+    create_model_provider,
     determine_provider,
     get_supported_models,
     get_provider_type,
     is_supported_provider,
 )
+from openagents.lms.providers import AnthropicProvider, MiniMaxProvider
+from openagents.models.agent_config import AgentConfig
+
+
+MINIMAX_OPENAI_BASE_URLS = [
+    "https://api.minimax.io/v1",
+    "https://api.minimaxi.com/v1",
+]
+MINIMAX_ANTHROPIC_BASE_URLS = [
+    "https://api.minimax.io/anthropic",
+    "https://api.minimaxi.com/anthropic",
+]
 
 
 class TestMiniMaxProvider:
@@ -35,6 +48,46 @@ class TestMiniMaxProvider:
             model_name="MiniMax-M2.7", api_key="test-key", api_base=custom_url
         )
         assert provider.api_base == custom_url
+
+    @pytest.mark.parametrize("api_base", MINIMAX_OPENAI_BASE_URLS)
+    def test_uses_openai_compatible_endpoints(self, api_base):
+        """Test that both OpenAI-compatible regional endpoints are usable."""
+        with patch("openai.AsyncOpenAI") as mock_client:
+            provider = MiniMaxProvider(
+                model_name="MiniMax-M3", api_key="test-key", api_base=api_base
+            )
+
+        assert provider.protocol == "openai"
+        mock_client.assert_called_once_with(base_url=api_base, api_key="test-key")
+
+    @pytest.mark.parametrize("api_base", MINIMAX_ANTHROPIC_BASE_URLS)
+    def test_uses_anthropic_compatible_endpoints(self, api_base):
+        """Test that both Anthropic-compatible regional endpoints are usable."""
+        with patch("openagents.lms.providers.AnthropicProvider") as provider_class:
+            provider = MiniMaxProvider(
+                model_name="MiniMax-M3", api_key="test-key", api_base=api_base
+            )
+
+        assert provider.protocol == "anthropic"
+        provider_class.assert_called_once_with(
+            model_name="MiniMax-M3", api_base=api_base, api_key="test-key"
+        )
+        assert provider.client is provider_class.return_value.client
+
+    def test_anthropic_provider_passes_custom_base_url_to_sdk(self):
+        """Test that AnthropicProvider preserves a custom API base URL."""
+        anthropic_module = MagicMock()
+        api_base = "https://api.minimax.io/anthropic"
+
+        with patch.dict("sys.modules", {"anthropic": anthropic_module}):
+            provider = AnthropicProvider(
+                model_name="MiniMax-M3", api_key="test-key", api_base=api_base
+            )
+
+        assert provider.api_base == api_base
+        anthropic_module.AsyncAnthropic.assert_called_once_with(
+            api_key="test-key", base_url=api_base
+        )
 
     def test_uses_env_api_key(self, monkeypatch):
         """Test that MiniMaxProvider reads API key from MINIMAX_API_KEY env var."""
@@ -85,7 +138,7 @@ class TestMiniMaxProvider:
             return_value=mock_response,
         ) as mock_create:
             messages = [{"role": "user", "content": "Hi"}]
-            result = await provider.chat_completion(messages)
+            await provider.chat_completion(messages)
 
             call_kwargs = mock_create.call_args[1]
             assert call_kwargs["temperature"] == 1.0
@@ -159,6 +212,25 @@ class TestMiniMaxProvider:
             assert "tools" in call_kwargs
             assert call_kwargs["tool_choice"] == "auto"
 
+    @pytest.mark.asyncio
+    async def test_chat_completion_delegates_anthropic_protocol(self):
+        """Test that Anthropic-compatible requests use AnthropicProvider."""
+        messages = [{"role": "user", "content": "Hello"}]
+        expected = {"content": "Hi", "tool_calls": []}
+
+        with patch("openagents.lms.providers.AnthropicProvider") as provider_class:
+            delegate = provider_class.return_value
+            delegate.chat_completion = AsyncMock(return_value=expected)
+            provider = MiniMaxProvider(
+                model_name="MiniMax-M3",
+                api_key="test-key",
+                api_base="https://api.minimax.io/anthropic",
+            )
+            result = await provider.chat_completion(messages)
+
+        assert result == expected
+        delegate.chat_completion.assert_awaited_once_with(messages, None)
+
 
 class TestMiniMaxConfig:
     """Tests for MiniMax configuration entries."""
@@ -170,8 +242,7 @@ class TestMiniMaxConfig:
     def test_minimax_has_correct_models(self):
         """Test that minimax config has the correct models."""
         models = MODEL_CONFIGS["minimax"]["models"]
-        assert "MiniMax-M3" in models
-        assert "MiniMax-M2.7" in models
+        assert models[:2] == ["MiniMax-M3", "MiniMax-M2.7"]
         assert "MiniMax-M2.7-highspeed" in models
         assert len(models) == 3
 
@@ -200,6 +271,7 @@ class TestMiniMaxConfig:
     def test_get_supported_models(self):
         """Test get_supported_models for minimax."""
         models = get_supported_models("minimax")
+        assert "MiniMax-M3" in models
         assert "MiniMax-M2.7" in models
         assert "MiniMax-M2.7-highspeed" in models
 
@@ -216,6 +288,11 @@ class TestDetermineProvider:
         provider = determine_provider(None, "MiniMax-M2.7", None)
         assert provider == "minimax"
 
+    def test_detects_minimax_m3(self):
+        """Test that MiniMax-M3 is auto-detected as minimax provider."""
+        provider = determine_provider(None, "MiniMax-M3", None)
+        assert provider == "minimax"
+
     def test_detects_minimax_m2_7_highspeed(self):
         """Test that MiniMax-M2.7-highspeed is auto-detected as minimax provider."""
         provider = determine_provider(None, "MiniMax-M2.7-highspeed", None)
@@ -225,3 +302,45 @@ class TestDetermineProvider:
         """Test that explicit 'minimax' provider is respected."""
         provider = determine_provider("minimax", "MiniMax-M2.7", None)
         assert provider == "minimax"
+
+    @pytest.mark.parametrize(
+        "api_base", MINIMAX_OPENAI_BASE_URLS + MINIMAX_ANTHROPIC_BASE_URLS
+    )
+    def test_detects_minimax_endpoints(self, api_base):
+        """Test that all MiniMax endpoints are auto-detected."""
+        provider = determine_provider(None, "custom-model", api_base)
+        assert provider == "minimax"
+
+    def test_agent_config_detects_minimax_m3(self):
+        """Test that AgentConfig detects MiniMax-M3 consistently."""
+        config = AgentConfig(instruction="Be helpful.", model_name="MiniMax-M3")
+        assert config.determine_provider() == "minimax"
+
+    @pytest.mark.parametrize(
+        "api_base", MINIMAX_OPENAI_BASE_URLS + MINIMAX_ANTHROPIC_BASE_URLS
+    )
+    def test_agent_config_detects_minimax_endpoints(self, api_base):
+        """Test that AgentConfig detects all MiniMax endpoint variants."""
+        config = AgentConfig(
+            instruction="Be helpful.", model_name="custom-model", api_base=api_base
+        )
+        assert config.determine_provider() == "minimax"
+
+
+class TestMiniMaxFactory:
+    """Tests for MiniMax provider construction."""
+
+    @pytest.mark.parametrize("api_base", MINIMAX_ANTHROPIC_BASE_URLS)
+    def test_factory_preserves_anthropic_base_url(self, api_base):
+        """Test that the provider factory preserves Anthropic base URLs."""
+        with patch("openagents.lms.MiniMaxProvider") as provider_class:
+            create_model_provider(
+                provider="minimax",
+                model_name="MiniMax-M3",
+                api_base=api_base,
+                api_key="test-key",
+            )
+
+        provider_class.assert_called_once_with(
+            model_name="MiniMax-M3", api_base=api_base, api_key="test-key"
+        )

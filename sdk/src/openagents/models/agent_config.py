@@ -176,6 +176,11 @@ class AgentConfig(BaseModel):
                 return "qwen"
             elif "x.ai" in self.api_base:
                 return "grok"
+            elif (
+                "api.minimax.io" in self.api_base
+                or "api.minimaxi.com" in self.api_base
+            ):
+                return "minimax"
             elif "anthropic.com" in self.api_base:
                 return "claude"
             elif "googleapis.com" in self.api_base:
@@ -203,6 +208,8 @@ class AgentConfig(BaseModel):
             return "together"
         elif "sonar" in model_lower:
             return "perplexity"
+        elif "minimax" in model_lower:
+            return "minimax"
         elif "anthropic." in self.model_name:
             return "bedrock"
 

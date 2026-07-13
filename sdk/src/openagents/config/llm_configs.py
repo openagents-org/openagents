@@ -397,6 +397,8 @@ def determine_provider(
             return "qwen"
         elif "x.ai" in api_base:
             return "grok"
+        elif "api.minimax.io" in api_base or "api.minimaxi.com" in api_base:
+            return "minimax"
         elif "anthropic.com" in api_base:
             return "claude"
         elif "googleapis.com" in api_base:
@@ -463,7 +465,9 @@ def create_model_provider(
             model_name=model_name, api_base=api_base, api_key=api_key, **kwargs
         )
     elif provider == "claude" or provider == "anthropic":
-        return AnthropicProvider(model_name=model_name, api_key=api_key, **kwargs)
+        return AnthropicProvider(
+            model_name=model_name, api_base=api_base, api_key=api_key, **kwargs
+        )
     elif provider == "bedrock":
         return BedrockProvider(model_name=model_name, **kwargs)
     elif provider == "gemini":

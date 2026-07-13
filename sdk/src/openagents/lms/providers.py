@@ -141,8 +141,15 @@ class OpenAIProvider(BaseModelProvider):
 class AnthropicProvider(BaseModelProvider):
     """Anthropic Claude provider."""
 
-    def __init__(self, model_name: str, api_key: Optional[str] = None, **kwargs):
+    def __init__(
+        self,
+        model_name: str,
+        api_base: Optional[str] = None,
+        api_key: Optional[str] = None,
+        **kwargs,
+    ):
         self.model_name = model_name
+        self.api_base = api_base.rstrip("/") if api_base else None
 
         try:
             import anthropic
@@ -152,7 +159,12 @@ class AnthropicProvider(BaseModelProvider):
             )
 
         api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        self.client = anthropic.AsyncAnthropic(api_key=api_key)
+        if self.api_base:
+            self.client = anthropic.AsyncAnthropic(
+                api_key=api_key, base_url=self.api_base
+            )
+        else:
+            self.client = anthropic.AsyncAnthropic(api_key=api_key)
 
     async def chat_completion(
         self,
@@ -587,7 +599,7 @@ class GeminiProvider(BaseModelProvider):
 
 
 class MiniMaxProvider(BaseModelProvider):
-    """MiniMax provider using OpenAI-compatible API."""
+    """MiniMax provider using OpenAI- or Anthropic-compatible APIs."""
 
     def __init__(
         self,
@@ -597,7 +609,24 @@ class MiniMaxProvider(BaseModelProvider):
         **kwargs,
     ):
         self.model_name = model_name
-        self.api_base = api_base or "https://api.minimax.io/v1"
+        self.api_base = (api_base or "https://api.minimax.io/v1").rstrip("/")
+        self.protocol = (
+            "anthropic" if self.api_base.endswith("/anthropic") else "openai"
+        )
+
+        effective_api_key = api_key or os.getenv("MINIMAX_API_KEY")
+        if not effective_api_key:
+            logger.warning("No MINIMAX_API_KEY provided for MiniMax provider")
+
+        self._anthropic_provider = None
+        if self.protocol == "anthropic":
+            self._anthropic_provider = AnthropicProvider(
+                model_name=model_name,
+                api_base=self.api_base,
+                api_key=effective_api_key or "dummy",
+            )
+            self.client = self._anthropic_provider.client
+            return
 
         try:
             from openai import AsyncOpenAI
@@ -606,17 +635,19 @@ class MiniMaxProvider(BaseModelProvider):
                 "openai package is required for MiniMax provider. Install with: pip install openai"
             )
 
-        effective_api_key = api_key or os.getenv("MINIMAX_API_KEY")
-        if not effective_api_key:
-            logger.warning("No MINIMAX_API_KEY provided for MiniMax provider")
-        self.client = AsyncOpenAI(base_url=self.api_base, api_key=effective_api_key or "dummy")
+        self.client = AsyncOpenAI(
+            base_url=self.api_base, api_key=effective_api_key or "dummy"
+        )
 
     async def chat_completion(
         self,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """Generate chat completion using MiniMax OpenAI-compatible API."""
+        """Generate a chat completion using the configured MiniMax protocol."""
+        if self._anthropic_provider:
+            return await self._anthropic_provider.chat_completion(messages, tools)
+
         kwargs = {
             "model": self.model_name,
             "messages": messages,
@@ -655,6 +686,8 @@ class MiniMaxProvider(BaseModelProvider):
 
     def format_tools(self, tools: List[Any]) -> List[Dict[str, Any]]:
         """Format tools for MiniMax function calling."""
+        if self._anthropic_provider:
+            return self._anthropic_provider.format_tools(tools)
         return [tool.to_openai_function() for tool in tools]
 
 
