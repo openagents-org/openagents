@@ -163,6 +163,21 @@ PROVIDERS: dict[str, ProviderInfo] = {
             ModelInfo("x-ai/grok-4.3", "chat", "Grok 4.3"),
         ],
     ),
+    "orcarouter": ProviderInfo(
+        name="orcarouter",
+        label="OrcaRouter",
+        base_url="https://api.orcarouter.ai/v1",
+        models=[
+            ModelInfo("orcarouter/auto", "chat", "Auto (smart routing)"),
+            ModelInfo("openai/gpt-5.5", "chat", "GPT-5.5"),
+            ModelInfo("google/gemini-3.5-flash", "chat", "Gemini 3.5 Flash"),
+            ModelInfo("anthropic/claude-opus-4.8", "chat", "Claude Opus 4.8"),
+            ModelInfo("grok/grok-4.3", "chat", "Grok 4.3"),
+            ModelInfo("deepseek/deepseek-v4-pro", "chat", "DeepSeek V4 Pro"),
+            ModelInfo("minimax/minimax-m2.7", "chat", "MiniMax M2.7"),
+            ModelInfo("qwen/qwen3.7-max", "chat", "Qwen3.7 Max"),
+        ],
+    ),
     "sambanova": ProviderInfo(
         name="sambanova",
         label="SambaNova",

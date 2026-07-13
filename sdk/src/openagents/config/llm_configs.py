@@ -27,6 +27,7 @@ class LLMProviderType(str, Enum):
     PERPLEXITY = "perplexity"
     GROQ = "groq"
     OPENROUTER = "openrouter"
+    ORCAROUTER = "orcarouter"
     MINIMAX = "minimax"
     LITELLM = "litellm"
     CUSTOM = "custom"  # Custom OpenAI-compatible endpoint
@@ -185,6 +186,13 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         "api_base": "https://openrouter.ai/api/v1",
         "models": [],  # User specifies model name (e.g., "anthropic/claude-3-opus")
         "API_KEY_ENV_VAR": "OPENROUTER_API_KEY",
+    },
+    # OrcaRouter (OpenAI-compatible aggregator / routing gateway)
+    "orcarouter": {
+        "provider": "generic",
+        "api_base": "https://api.orcarouter.ai/v1",
+        "models": [],  # User specifies model name (e.g., "openai/gpt-5.5", "orcarouter/auto")
+        "API_KEY_ENV_VAR": "ORCAROUTER_API_KEY",
     },
     # MiniMax
     "minimax": {
@@ -495,6 +503,7 @@ def create_model_provider(
         "perplexity",
         "groq",
         "openrouter",
+        "orcarouter",
     ]:
         # Use predefined API base if not provided
         if not api_base and provider in MODEL_CONFIGS:
