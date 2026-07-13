@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { ListTree, UserPlus, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, Globe, Share2, Crown } from 'lucide-react';
+import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, Globe, Share2, Crown } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
 import { OrchestrationControl } from './orchestration-control';
 import { useLayout } from '@/components/layout/layout-context';
@@ -553,24 +553,107 @@ export function ChatView() {
           })()}
         </div>
         <div className="flex items-center gap-1 lg:gap-1.5 shrink-0">
-          {/* Compact avatar stack — shown on both desktop and mobile, not shown for DMs */}
+          {/* Compact avatar stack — click to manage thread agents (add / remove /
+              set leader). Replaces the old standalone manage-agents button. Not
+              shown for DMs. */}
           {!isDM && (() => {
             const participants = currentSession?.participants || [];
             const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
             if (sessionAgents.length === 0) return null;
+            // In-thread list must include OFFLINE participants too — otherwise an
+            // agent whose daemon is down can never be removed from the thread.
+            const agentByName = new Map(agents.map((a) => [a.agentName, a]));
+            const inThread = participants.map(
+              (name) => agentByName.get(name) || { agentName: name, status: 'offline' }
+            );
+            // The "Add to thread" picker still only offers online agents.
+            const notInThread = agents.filter(
+              (a) => a.status === 'online' && !participants.includes(a.agentName)
+            );
             return (
-              <div className="flex -space-x-1.5 shrink-0 mr-1">
-                {sessionAgents.slice(0, 3).map((agent) => (
-                  <div key={agent.agentName} className="border-2 border-background rounded-full" title={agent.agentName}>
-                    <AgentAvatar name={agent.agentName} size={18} />
-                  </div>
-                ))}
-                {sessionAgents.length > 3 && (
-                  <div className="size-5 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[7px] font-medium text-zinc-600 dark:text-zinc-400 border-2 border-background" title={sessionAgents.map((agent) => agent.agentName).join(', ')}>
-                    +{sessionAgents.length - 3}
-                  </div>
-                )}
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="flex -space-x-1.5 shrink-0 mr-1 items-center rounded-full outline-none hover:opacity-80 transition-opacity cursor-pointer"
+                    title="Manage thread agents"
+                  >
+                    {sessionAgents.slice(0, 3).map((agent) => (
+                      <div key={agent.agentName} className="border-2 border-background rounded-full" title={agent.agentName}>
+                        <AgentAvatar name={agent.agentName} size={18} />
+                      </div>
+                    ))}
+                    {sessionAgents.length > 3 && (
+                      <div className="size-5 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center text-[7px] font-medium text-zinc-600 dark:text-zinc-400 border-2 border-background" title={sessionAgents.map((agent) => agent.agentName).join(', ')}>
+                        +{sessionAgents.length - 3}
+                      </div>
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56">
+                  {inThread.length > 0 && (
+                    <>
+                      <DropdownMenuLabel>In this thread</DropdownMenuLabel>
+                      {inThread.map((agent) => (
+                        <div
+                          key={agent.agentName}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded-md group"
+                        >
+                          <AgentAvatar name={agent.agentName} size={20} />
+                          <span className="text-sm flex-1 truncate">{agent.agentName}</span>
+                          {agent.status !== 'online' && (
+                            <span className="text-[10px] text-muted-foreground shrink-0">offline</span>
+                          )}
+                          {currentSession?.master === agent.agentName ? (
+                            <span
+                              className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 shrink-0"
+                              title="Thread leader — receives messages that don't @mention anyone"
+                            >
+                              <Crown className="size-3" /> leader
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => currentSessionId && setSessionMaster(currentSessionId, agent.agentName)}
+                              className="size-5 flex items-center justify-center rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 text-muted-foreground hover:text-amber-600 dark:hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                              title="Set as thread leader"
+                            >
+                              <Crown className="size-3" />
+                            </button>
+                          )}
+                          {inThread.length > 1 && (
+                            <button
+                              onClick={() => currentSessionId && removeParticipant(currentSessionId, agent.agentName)}
+                              className="size-5 flex items-center justify-center rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                              title="Remove from thread"
+                            >
+                              <X className="size-3" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  {notInThread.length > 0 && (
+                    <>
+                      {inThread.length > 0 && <DropdownMenuSeparator />}
+                      <DropdownMenuLabel>Add to thread</DropdownMenuLabel>
+                      {notInThread.map((agent) => (
+                        <button
+                          key={agent.agentName}
+                          onClick={() => currentSessionId && addParticipant(currentSessionId, agent.agentName)}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors"
+                        >
+                          <AgentAvatar name={agent.agentName} size={20} />
+                          <span className="text-sm flex-1 truncate text-left">{agent.agentName}</span>
+                          <Plus className="size-3 text-muted-foreground shrink-0" />
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {inThread.length === 0 && notInThread.length === 0 && (
+                    <p className="text-sm text-muted-foreground px-2 py-3 text-center">No agents online</p>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             );
           })()}
 
@@ -645,102 +728,6 @@ export function ChatView() {
           >
             <Share2 className="size-3.5" />
           </Button>
-
-          {/* Manage agents dropdown */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="size-7 flex items-center justify-center rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground hover:text-foreground transition-colors"
-                title="Manage thread agents"
-              >
-                <UserPlus className="size-3.5" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              {(() => {
-                const participants = currentSession?.participants || [];
-                // In-thread list must include OFFLINE participants too —
-                // otherwise an agent whose daemon is down (e.g. a dead bot)
-                // can never be removed from the thread. Resolve each
-                // participant to its agent record, or synthesize a minimal
-                // offline entry when it's not in the discover list.
-                const agentByName = new Map(agents.map((a) => [a.agentName, a]));
-                const inThread = participants.map(
-                  (name) => agentByName.get(name) || { agentName: name, status: 'offline' }
-                );
-                // The "Add to thread" picker still only offers online agents.
-                const notInThread = agents.filter(
-                  (a) => a.status === 'online' && !participants.includes(a.agentName)
-                );
-                return (
-                  <>
-                    {inThread.length > 0 && (
-                      <>
-                        <DropdownMenuLabel>In this thread</DropdownMenuLabel>
-                        {inThread.map((agent) => (
-                            <div
-                              key={agent.agentName}
-                              className="flex items-center gap-2 px-2 py-1.5 rounded-md group"
-                            >
-                              <AgentAvatar name={agent.agentName} size={20} />
-                              <span className="text-sm flex-1 truncate">{agent.agentName}</span>
-                              {agent.status !== 'online' && (
-                                <span className="text-[10px] text-muted-foreground shrink-0">offline</span>
-                              )}
-                              {currentSession?.master === agent.agentName ? (
-                                <span
-                                  className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 shrink-0"
-                                  title="Thread leader — receives messages that don't @mention anyone"
-                                >
-                                  <Crown className="size-3" /> leader
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => currentSessionId && setSessionMaster(currentSessionId, agent.agentName)}
-                                  className="size-5 flex items-center justify-center rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 text-muted-foreground hover:text-amber-600 dark:hover:text-amber-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                                  title="Set as thread leader"
-                                >
-                                  <Crown className="size-3" />
-                                </button>
-                              )}
-                              {inThread.length > 1 && (
-                                <button
-                                  onClick={() => currentSessionId && removeParticipant(currentSessionId, agent.agentName)}
-                                  className="size-5 flex items-center justify-center rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                                  title="Remove from thread"
-                                >
-                                  <X className="size-3" />
-                                </button>
-                              )}
-                            </div>
-                        ))}
-                      </>
-                    )}
-                    {notInThread.length > 0 && (
-                      <>
-                        {inThread.length > 0 && <DropdownMenuSeparator />}
-                        <DropdownMenuLabel>Add to thread</DropdownMenuLabel>
-                        {notInThread.map((agent) => (
-                            <button
-                              key={agent.agentName}
-                              onClick={() => currentSessionId && addParticipant(currentSessionId, agent.agentName)}
-                              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors"
-                            >
-                              <AgentAvatar name={agent.agentName} size={20} />
-                              <span className="text-sm flex-1 truncate text-left">{agent.agentName}</span>
-                              <Plus className="size-3 text-muted-foreground shrink-0" />
-                            </button>
-                        ))}
-                      </>
-                    )}
-                    {inThread.length === 0 && notInThread.length === 0 && (
-                      <p className="text-sm text-muted-foreground px-2 py-3 text-center">No agents online</p>
-                    )}
-                  </>
-                );
-              })()}
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </div>
 
