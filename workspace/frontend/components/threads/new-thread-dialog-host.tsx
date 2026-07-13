@@ -20,8 +20,8 @@ export function NewThreadDialogHost() {
       onOpenChange={setNewThreadOpen}
       agents={agents}
       sessions={sessions}
-      onCreateThread={({ master, participants, resumeFrom }) => {
-        createSession({ master, participants, resumeFrom });
+      onCreateThread={({ participants, resumeFrom }) => {
+        createSession({ participants, resumeFrom });
         setViewMode('threads');
         // On mobile, jump to the detail pane so the new thread is visible.
         if (isMobile) openMobileDetail();

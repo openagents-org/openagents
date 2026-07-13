@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { History, Check, Star, Minus } from 'lucide-react';
+import { History, Check, Minus } from 'lucide-react';
 import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 
@@ -18,7 +18,7 @@ interface NewThreadDialogProps {
   onOpenChange: (open: boolean) => void;
   agents: WorkspaceAgent[];
   sessions?: WorkspaceSession[];
-  onCreateThread: (opts: { master: string; participants: string[]; resumeFrom?: string }) => void;
+  onCreateThread: (opts: { participants: string[]; resumeFrom?: string }) => void;
 }
 
 export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreateThread }: NewThreadDialogProps) {
@@ -26,36 +26,22 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
   const onlineAgents = agents.filter((a) => a.status === 'online');
   const offlineAgentCount = agents.length - onlineAgents.length;
   const agentNames = onlineAgents.map((a) => a.agentName);
-  const defaultMaster = onlineAgents.find((a) => a.role === 'master')?.agentName || onlineAgents[0]?.agentName || '';
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [master, setMaster] = useState('');
   const [resumeFrom, setResumeFrom] = useState<string>('');
 
   const isAllSelected = onlineAgents.length > 0 && selected.size === onlineAgents.length;
   const isPartiallySelected = selected.size > 0 && selected.size < onlineAgents.length;
 
   const toggleAll = () => {
-    if (isAllSelected) {
-      setSelected(new Set());
-      setMaster('');
-    } else {
-      setSelected(new Set(agentNames));
-      setMaster(defaultMaster);
-    }
+    setSelected(isAllSelected ? new Set() : new Set(agentNames));
   };
 
   // Reset state when dialog opens. When there's exactly one online agent,
   // pre-select it so the common single-agent case is a one-click "Start Thread".
   useEffect(() => {
     if (open) {
-      if (onlineAgents.length === 1) {
-        setSelected(new Set([onlineAgents[0].agentName]));
-        setMaster(onlineAgents[0].agentName);
-      } else {
-        setSelected(new Set());
-        setMaster('');
-      }
+      setSelected(onlineAgents.length === 1 ? new Set([onlineAgents[0].agentName]) : new Set());
       setResumeFrom('');
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -64,51 +50,20 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(name)) {
-        if (name === master) {
-          // Deselecting the lead — pick another selected agent as lead, or clear
-          next.delete(name);
-          const remaining = Array.from(next);
-          setMaster(remaining.length > 0 ? remaining[0] : '');
-        } else {
-          next.delete(name);
-        }
+        next.delete(name);
       } else {
         next.add(name);
-        // First agent selected becomes the lead automatically
-        if (next.size === 1 || !master) {
-          setMaster(name);
-        }
       }
-      return next;
-    });
-  };
-
-  const setAsMaster = (name: string) => {
-    setMaster(name);
-    // Ensure master is selected
-    setSelected((prev) => {
-      if (prev.has(name)) return prev;
-      const next = new Set(prev);
-      next.add(name);
       return next;
     });
   };
 
   const handleCreate = () => {
+    // No leader is assigned at creation — the default "dynamic" mode doesn't
+    // need one. A leader can be set later from the thread's agent menu (and is
+    // only required by "master" orchestration mode).
     const participants = agentNames.filter((n) => selected.has(n));
-
-    let finalMaster = master;
-    if (!participants.includes(finalMaster)) {
-      if (participants.includes(defaultMaster)) {
-        finalMaster = defaultMaster;
-      } else if (participants.length > 0) {
-        finalMaster = participants[0];
-      } else {
-        finalMaster = '';
-      }
-    }
-
-    onCreateThread({ master: finalMaster, participants, resumeFrom: resumeFrom || undefined });
+    onCreateThread({ participants, resumeFrom: resumeFrom || undefined });
     onOpenChange(false);
   };
 
@@ -178,7 +133,6 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
           )}
           {onlineAgents.map((agent) => {
             const isSelected = selected.has(agent.agentName);
-            const isMaster = agent.agentName === master;
 
             return (
               <div
@@ -208,34 +162,10 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-medium truncate">{agent.agentName}</span>
                 </div>
-
-                {/* Lead badge / set-as-lead button — only show when multiple agents */}
-                {multipleAgents && isSelected && (
-                  isMaster ? (
-                    <span className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 font-medium shrink-0">
-                      <Star className="size-3 fill-current" />
-                      lead
-                    </span>
-                  ) : (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setAsMaster(agent.agentName); }}
-                      className="text-[11px] px-2 py-0.5 rounded-full text-muted-foreground hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors shrink-0"
-                    >
-                      set lead
-                    </button>
-                  )
-                )}
               </div>
             );
           })}
         </div>
-
-        {/* Lead explanation — only when multiple agents are selected */}
-        {multipleAgents && selected.size > 1 && (
-          <p className="text-[11px] text-muted-foreground/70 mt-2 px-1">
-            The <Star className="size-2.5 inline fill-amber-500 text-amber-500 -mt-px" /> lead agent coordinates the others and responds to your messages first.
-          </p>
-        )}
 
         {/* Resume from past session — show when there are resumable sessions */}
         {hasClaudeAgent && resumableSessions.length > 0 && (

@@ -977,7 +977,11 @@ export function WorkspaceProvider({
   }, [refreshDiscovery]);
 
   const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; resumeFrom?: string }) => {
-    const masterAgent = opts?.master || agents.find((a) => a.role === 'master')?.agentName;
+    // Only set a channel leader when one is explicitly requested (e.g. the
+    // single-agent DM path). The default "dynamic" orchestration mode needs no
+    // leader, so threads created from the picker start with none — a leader can
+    // be assigned later from the thread's agent menu.
+    const masterAgent = opts?.master;
     const participants = opts?.participants || agents.map((a) => a.agentName);
 
     const session = await workspaceApi.createChannel({
