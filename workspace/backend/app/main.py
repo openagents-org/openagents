@@ -112,7 +112,7 @@ async def _fire_due():
     async), so firing runs on the event loop — but only when something is
     actually due, which is rare.
     """
-    from sqlalchemy import select
+    from sqlalchemy import select, update
     from app.database import SessionLocal
     from app.models import EventRecord, RoutineRecord, TimerRecord, Workspace
     from app.pipeline_factory import pipeline
@@ -170,13 +170,69 @@ async def _fire_due():
             ).limit(50)
         ).scalars().all()
 
-        for routine in due_routines:
+        # Materialize fields now — the per-routine commit below would otherwise
+        # expire these ORM rows and force a re-query on every iteration.
+        pending_routines = [
+            {
+                "id": r.id,
+                "channel_name": r.channel_name,
+                "name": r.name,
+                "message": r.message,
+                "context": r.context,
+                "created_by": r.created_by,
+                "workspace_id": r.workspace_id,
+                "next_fire": _compute_next_fires_at(
+                    r.schedule_hour,
+                    r.schedule_minute,
+                    r.schedule_days,
+                    r.schedule_interval_minutes,
+                ),
+            }
+            for r in due_routines
+        ]
+
+        now_ms = int(now.timestamp() * 1000)
+        for rt in pending_routines:
+            routine_id = rt["id"]
+            channel_name = rt["channel_name"]
+            r_name = rt["name"]
+            r_message = rt["message"]
+            r_context = rt["context"]
+            created_by = rt["created_by"]
+            workspace_id = rt["workspace_id"]
+            next_fire = rt["next_fire"]
+
+            # ── Atomically claim this tick so only one replica fires it ──
+            #
+            # The backend runs multiple replicas, each with its own scheduler
+            # loop. Without a claim, every replica sees the same due routine
+            # (next_fires_at <= now) and fires it, double-posting the routine
+            # context into the channel. This conditional UPDATE advances
+            # next_fires_at only while the row is still due, so under Postgres
+            # READ COMMITTED exactly one replica's UPDATE matches a row — the
+            # losers block on the row lock, then re-check the predicate after
+            # the winner commits, see a future time, and match nothing. We fire
+            # only if we claimed a row; committing straight away releases the
+            # lock so a losing replica isn't stalled for the whole cycle.
+            claimed = db.execute(
+                update(RoutineRecord)
+                .where(
+                    RoutineRecord.id == routine_id,
+                    RoutineRecord.status == "active",
+                    RoutineRecord.next_fires_at <= now,
+                )
+                .values(next_fires_at=next_fire)
+            )
+            db.commit()
+            if claimed.rowcount == 0:
+                continue  # another replica already claimed this tick
+
             workspace = db.execute(
-                select(Workspace).where(Workspace.id == routine.workspace_id)
+                select(Workspace).where(Workspace.id == workspace_id)
             ).scalar_one_or_none()
             if not workspace:
                 continue
-            agent_name = routine.created_by.replace("openagents:", "")
+            agent_name = created_by.replace("openagents:", "")
 
             # Skip if the previous run of this routine is still in progress.
             #
@@ -185,20 +241,17 @@ async def _fire_due():
             # answer. Firing again before that answer lands makes the adapter
             # queue the new fire behind the running one, and on a short interval
             # a long-running task snowballs into a backlog of duplicate runs.
-            # (The old guard only checked whether the *last* channel message was
-            # the fire itself; once the agent posted any intermediate
-            # status/thinking message it broke and re-fired.)
             #
             # So: find the most recent fire in this channel and, if the agent
-            # hasn't posted a `chat` reply since, skip this tick and just
-            # advance the schedule — the next due tick re-checks. A run that
-            # produces no answer within ROUTINE_STUCK_MS (crashed adapter, etc.)
-            # is allowed to re-fire so the routine can recover.
+            # hasn't posted a `chat` reply since, skip this tick — the claim
+            # above already advanced the schedule, so the next due tick
+            # re-checks. A run that produces no answer within ROUTINE_STUCK_MS
+            # (crashed adapter, etc.) is allowed to re-fire so it can recover.
             last_fire = db.execute(
                 select(EventRecord)
                 .where(
                     EventRecord.network_id == workspace.id,
-                    EventRecord.target == f"channel/{routine.channel_name}",
+                    EventRecord.target == f"channel/{channel_name}",
                     EventRecord.type == "workspace.message.posted",
                     EventRecord.source == "system:routine",
                 )
@@ -210,7 +263,7 @@ async def _fire_due():
                     select(EventRecord.id)
                     .where(
                         EventRecord.network_id == workspace.id,
-                        EventRecord.target == f"channel/{routine.channel_name}",
+                        EventRecord.target == f"channel/{channel_name}",
                         EventRecord.type == "workspace.message.posted",
                         EventRecord.source == f"openagents:{agent_name}",
                         EventRecord.timestamp > last_fire.timestamp,
@@ -218,34 +271,27 @@ async def _fire_due():
                     )
                     .limit(1)
                 ).scalar_one_or_none()
-                now_ms = int(now.timestamp() * 1000)
                 run_age_ms = now_ms - int(last_fire.timestamp or 0)
                 if answered is None and run_age_ms < ROUTINE_STUCK_MS:
-                    # Previous run still working — skip, just advance schedule.
-                    routine.next_fires_at = _compute_next_fires_at(
-                        routine.schedule_hour,
-                        routine.schedule_minute,
-                        routine.schedule_days,
-                        routine.schedule_interval_minutes,
-                    )
+                    # Previous run still working — skip (schedule already advanced).
                     continue
 
             ctx = PipelineContext(
                 network_id=str(workspace.id),
-                agent_address=routine.created_by,
+                agent_address=created_by,
                 db=db,
                 workspace=workspace,
                 token=workspace.password_hash,
             )
             try:
-                content = f"Routine \"{routine.name}\" fired: {routine.message}"
-                if routine.context:
-                    content = f"**Routine Context for \"{routine.name}\"**\n\n{routine.context}\n\n---\n\n{content}"
+                content = f"Routine \"{r_name}\" fired: {r_message}"
+                if r_context:
+                    content = f"**Routine Context for \"{r_name}\"**\n\n{r_context}\n\n---\n\n{content}"
 
                 fire_event = Event(
                     type="workspace.message.posted",
                     source="system:routine",
-                    target=f"channel/{routine.channel_name}",
+                    target=f"channel/{channel_name}",
                     payload={
                         "content": content,
                         "message_type": "chat",
@@ -254,15 +300,15 @@ async def _fire_due():
                 )
                 await pipeline.process(fire_event, ctx)
             except Exception:
-                logger.exception("Routine fire failed for %s", routine.id)
+                logger.exception("Routine fire failed for %s", routine_id)
 
-            routine.last_fired_at = now
-            routine.next_fires_at = _compute_next_fires_at(
-                routine.schedule_hour,
-                routine.schedule_minute,
-                routine.schedule_days,
-                routine.schedule_interval_minutes,
+            # Record the actual fire time (schedule already advanced by the claim).
+            db.execute(
+                update(RoutineRecord)
+                .where(RoutineRecord.id == routine_id)
+                .values(last_fired_at=now)
             )
+            db.commit()
 
         db.commit()
     finally:
