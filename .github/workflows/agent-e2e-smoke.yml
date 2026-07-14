@@ -39,11 +39,10 @@ env:
 
 jobs:
   agent-smoke:
-    # macOS: claude's full adapter path (MCP + workspace tools) is proven green
-    # here in the nightly launcher matrix. On ubuntu CI it hangs before emitting
-    # any output (adapter/MCP issue, tracked separately) — basic claude inference
-    # works on Linux, but the full flow does not.
-    runs-on: macos-latest
+    # ubuntu: the fast per-PR gate. The earlier claude hang was MCP-mode's
+    # MCP-server subprocess (not a platform issue) — the smoke now runs the agent
+    # in skills mode (no MCP), which works on Linux.
+    runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4

@@ -452,6 +452,17 @@ async function main() {
       fatal(`Failed to create agent: ${agentName} — ${sanitize(err.message)}`);
     }
 
+    // -- 6b. Tool mode: skills (no MCP server) ---------------------------------
+    // The launcher creates agents in skills mode; `agn create` defaults claude to
+    // MCP mode, whose MCP-server subprocess hangs the claude CLI in CI (no reply,
+    // no output). Skills mode skips MCP entirely — basic inference works fine.
+    logRun("--- Step: set tool mode (skills) ---");
+    try {
+      runCommand(["agn", "tool-mode", agentName, "skills"]);
+    } catch (err) {
+      logRun(`tool-mode skills not applied: ${sanitize(err.message)}`);
+    }
+
     // -- 7. Connect workspace --------------------------------------------------
     logRun("--- Step: connect workspace ---");
     try {
