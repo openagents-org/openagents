@@ -306,6 +306,16 @@ class BrowserTab(Base):
     context_id = Column(Text, ForeignKey("browser_contexts.id", ondelete="SET NULL"), nullable=True)  # persistent context
     session_id = Column(Text, nullable=True)                       # Browserbase session ID
     live_url = Column(Text, nullable=True)                         # Browserbase live view URL
+    # --- BF credential reference (never the key itself; see app/browser_creds.py) ---
+    bf_key_source = Column(Text, nullable=True)                    # 'workspace' | 'global' | NULL (local/legacy)
+    bf_key_fingerprint = Column(Text, nullable=True)               # SHA-256 hex of the creating key
+    # --- Remote session release tracking ---
+    session_closed = Column(Boolean, nullable=False, default=False, server_default=text("FALSE"))  # BF session confirmed released
+    close_status = Column(Text, nullable=False, default="none", server_default=text("'none'"))  # none|open|closing|closed|close_failed|retry_exhausted
+    close_attempts = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    last_close_attempt_at = Column(DateTime(timezone=True), nullable=True)
+    last_close_error = Column(Text, nullable=True)                 # redacted — never contains key material
+    last_error = Column(Text, nullable=True)                       # last init/navigation error (redacted)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     last_active_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 

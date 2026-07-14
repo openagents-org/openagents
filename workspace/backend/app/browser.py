@@ -15,6 +15,8 @@ from typing import Optional
 
 import httpx
 
+from app.browser_creds import redact
+
 logger = logging.getLogger(__name__)
 
 MAX_BROWSER_TABS = int(os.environ.get("MAX_BROWSER_TABS", "20"))
@@ -52,6 +54,12 @@ class BrowserManager:
     def is_cloud_for(self, api_key: str = None) -> bool:
         return bool(api_key or BROWSERFABRIC_API_KEY)
 
+    def _is_cloud_tab(self, tab_id: str) -> bool:
+        """A tab is a cloud tab iff it has a BF session. Dispatching on this
+        (rather than the global env key) keeps per-workspace-key tabs working
+        even when no global BROWSERFABRIC_API_KEY is configured."""
+        return tab_id in self._sessions
+
     # ------------------------------------------------------------------
     # Browser Fabric REST helpers
     # ------------------------------------------------------------------
@@ -61,6 +69,15 @@ class BrowserManager:
         if tab_id and tab_id in self._tab_keys:
             return self._tab_keys[tab_id]
         return BROWSERFABRIC_API_KEY
+
+    def bind_tab_key(self, tab_id: str, api_key: Optional[str]) -> None:
+        """Refresh the in-process key cache from the router's credential
+        resolver, so per-tab ops use the verified key even when the tab was
+        opened by another process/before a restart."""
+        if api_key:
+            self._tab_keys[tab_id] = api_key
+        else:
+            self._tab_keys.pop(tab_id, None)
 
     async def _bf_call(self, tool_name: str, arguments: dict = None, session_id: str = None, api_key: str = None, tab_id: str = None) -> dict:
         """Call a Browser Fabric tool via REST API."""
@@ -130,12 +147,13 @@ class BrowserManager:
         dead: list[str] = []
         for tab_id, session_id in list(self._sessions.items()):
             try:
-                await self._bf_call("get_page_info", {}, session_id)
+                await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
             except Exception:
                 dead.append(tab_id)
         for tab_id in dead:
-            self._sessions.pop(tab_id, None)
-            self._live_urls.pop(tab_id, None)
+            # close_tab (not a bare pop) so a session that merely errored on
+            # the liveness probe still gets a best-effort release on BF.
+            await self.close_tab(tab_id)
             logger.info("Pruned dead BF session for tab %s", tab_id)
         return len(dead)
 
@@ -144,36 +162,52 @@ class BrowserManager:
         if api_key:
             self._tab_keys[tab_id] = api_key
         async with self._global_lock:
-            active_count = len(self._sessions) if self.is_cloud else len(self._pages)
+            active_count = self.active_tab_count()
             if active_count >= MAX_BROWSER_TABS:
-                if self.is_cloud:
+                if self.is_cloud_for(api_key):
                     await self._prune_dead_sessions()
                     active_count = len(self._sessions)
                 if active_count >= MAX_BROWSER_TABS:
                     raise RuntimeError(f"Maximum browser tabs ({MAX_BROWSER_TABS}) reached")
 
-        if self.is_cloud:
+        if self.is_cloud_for(api_key):
             args: dict = {"headless": True}
             if bb_context_id:
                 args["context_id"] = bb_context_id
                 args["persist"] = True
 
-            result = await self._bf_call("create_session", args, tab_id=tab_id)
+            try:
+                result = await self._bf_call("create_session", args, tab_id=tab_id)
+            except Exception:
+                self._tab_keys.pop(tab_id, None)
+                raise
             session_data = result["result"]
             session_id = session_data["session_id"]
             self._sessions[tab_id] = session_id
             if session_data.get("share_url"):
                 self._live_urls[tab_id] = session_data["share_url"]
 
+            # From here on the BF session exists and counts against the
+            # per-key quota — nothing below may raise, or the caller never
+            # records the session and it leaks. Failures are surfaced as
+            # warnings so the caller knows init didn't fully succeed.
+            warnings: list = []
+            key_used = self._key_for_tab(tab_id)
             if url and url != "about:blank":
                 try:
                     await self._bf_call("navigate", {"url": url, "wait_until": "domcontentloaded"}, session_id, tab_id=tab_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    warnings.append(f"navigation_failed: {redact(str(e), key_used)}")
 
-            info = await self._bf_call("get_page_info", {}, session_id)
-            page_info = info.get("result", {})
-            return {"url": page_info.get("url", url), "title": page_info.get("title", "")}
+            try:
+                info = await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
+                page_info = info.get("result", {})
+            except Exception as e:
+                logger.warning("get_page_info failed for new tab %s (session kept): %s",
+                               tab_id, redact(str(e), key_used))
+                warnings.append(f"page_info_failed: {redact(str(e), key_used)}")
+                page_info = {}
+            return {"url": page_info.get("url", url), "title": page_info.get("title", ""), "warnings": warnings}
         else:
             # Local mode
             async with self._global_lock:
@@ -181,24 +215,25 @@ class BrowserManager:
                 page = await self._browser.new_page()
                 self._pages[tab_id] = page
 
+            warnings = []
             if url and url != "about:blank":
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                except Exception:
-                    pass
+                except Exception as e:
+                    warnings.append(f"navigation_failed: {e}")
 
             title = await page.title()
-            return {"url": page.url, "title": title}
+            return {"url": page.url, "title": title, "warnings": warnings}
 
     async def navigate(self, tab_id: str, url: str) -> dict:
         """Navigate a tab to a URL. Returns {url, title}."""
-        if self.is_cloud:
+        if self._is_cloud_tab(tab_id):
             session_id = self._get_session(tab_id)
             try:
-                await self._bf_call("navigate", {"url": url, "wait_until": "domcontentloaded"}, session_id)
+                await self._bf_call("navigate", {"url": url, "wait_until": "domcontentloaded"}, session_id, tab_id=tab_id)
             except Exception:
                 pass
-            info = await self._bf_call("get_page_info", {}, session_id)
+            info = await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
             page_info = info.get("result", {})
             return {"url": page_info.get("url", url), "title": page_info.get("title", "")}
         else:
@@ -213,10 +248,10 @@ class BrowserManager:
 
     async def click(self, tab_id: str, selector: str) -> dict:
         """Click an element by CSS selector."""
-        if self.is_cloud:
+        if self._is_cloud_tab(tab_id):
             session_id = self._get_session(tab_id)
-            await self._bf_call("click_element", {"selector": selector}, session_id)
-            info = await self._bf_call("get_page_info", {}, session_id)
+            await self._bf_call("click_element", {"selector": selector}, session_id, tab_id=tab_id)
+            info = await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
             page_info = info.get("result", {})
             return {"clicked": selector, "url": page_info.get("url", ""), "title": page_info.get("title", "")}
         else:
@@ -228,9 +263,9 @@ class BrowserManager:
 
     async def type_text(self, tab_id: str, selector: str, text: str, append: bool = False) -> dict:
         """Type text into an element."""
-        if self.is_cloud:
+        if self._is_cloud_tab(tab_id):
             session_id = self._get_session(tab_id)
-            await self._bf_call("type_text", {"selector": selector, "text": text}, session_id)
+            await self._bf_call("type_text", {"selector": selector, "text": text}, session_id, tab_id=tab_id)
             return {"filled": selector, "text": text}
         else:
             page = self._get_page(tab_id)
@@ -253,9 +288,9 @@ class BrowserManager:
 
     async def press_key(self, tab_id: str, key: str) -> dict:
         """Press a keyboard key."""
-        if self.is_cloud:
+        if self._is_cloud_tab(tab_id):
             session_id = self._get_session(tab_id)
-            await self._bf_call("press_key", {"key": key}, session_id)
+            await self._bf_call("press_key", {"key": key}, session_id, tab_id=tab_id)
             return {"pressed": key}
         else:
             page = self._get_page(tab_id)
@@ -265,9 +300,9 @@ class BrowserManager:
 
     async def evaluate(self, tab_id: str, expression: str) -> dict:
         """Execute JavaScript in the page context."""
-        if self.is_cloud:
+        if self._is_cloud_tab(tab_id):
             session_id = self._get_session(tab_id)
-            result = await self._bf_call("evaluate_js", {"expression": expression}, session_id)
+            result = await self._bf_call("evaluate_js", {"expression": expression}, session_id, tab_id=tab_id)
             return {"result": result.get("result", {}).get("result")}
         else:
             page = self._get_page(tab_id)
@@ -277,9 +312,9 @@ class BrowserManager:
 
     async def screenshot(self, tab_id: str) -> bytes:
         """Take a PNG screenshot of the tab."""
-        if self.is_cloud:
+        if self._is_cloud_tab(tab_id):
             session_id = self._get_session(tab_id)
-            result = await self._bf_call("take_screenshot", {"full_page": False}, session_id)
+            result = await self._bf_call("take_screenshot", {"full_page": False}, session_id, tab_id=tab_id)
             b64_data = result.get("result", {}).get("screenshot", "")
             if b64_data.startswith("data:"):
                 b64_data = b64_data.split(",", 1)[1]
@@ -291,9 +326,9 @@ class BrowserManager:
 
     async def snapshot(self, tab_id: str) -> str:
         """Get page content as a readable text snapshot."""
-        if self.is_cloud:
+        if self._is_cloud_tab(tab_id):
             session_id = self._get_session(tab_id)
-            result = await self._bf_call("snapshot", {}, session_id)
+            result = await self._bf_call("snapshot", {}, session_id, tab_id=tab_id)
             return result.get("result", {}).get("snapshot", "(empty page)")
         else:
             page = self._get_page(tab_id)
@@ -311,25 +346,55 @@ class BrowserManager:
                 except Exception:
                     return "(empty page)"
 
-    async def close_tab(self, tab_id: str, session_id_hint: str = None) -> None:
-        """Close a browser tab."""
-        if self.is_cloud:
-            session_id = self._sessions.pop(tab_id, None) or session_id_hint
-            self._live_urls.pop(tab_id, None)
-            tab_key = self._tab_keys.pop(tab_id, None)
-            if session_id:
-                try:
-                    await self._bf_call("close_session", {}, session_id, api_key=tab_key)
-                except Exception as e:
-                    logger.warning("Failed to close BF session %s: %s", session_id, e)
-        else:
-            page = self._pages.pop(tab_id, None)
-            self._locks.pop(tab_id, None)
-            if page:
-                try:
-                    await page.close()
-                except Exception:
-                    pass
+    async def close_tab(self, tab_id: str, session_id_hint: str = None, api_key: str = None) -> tuple:
+        """Close a browser tab.
+
+        Returns (released, error):
+          - (True, None)   — BF session confirmed released: 2xx close success,
+                             a typed HTTP 404 (session no longer exists), or
+                             nothing to release.
+          - (False, error) — close failed / outcome unknown (timeout, network
+                             error, non-404 HTTP error, success=false body).
+                             The caller must keep the session marked open so
+                             the maintenance sweeper retries. `error` is
+                             redacted — safe to store and log.
+
+        `api_key` is the key resolved from the tab's credential reference;
+        required for cross-restart closes where the in-memory `_tab_keys`
+        mapping is gone.
+        """
+        session_id = self._sessions.pop(tab_id, None) or session_id_hint
+        tab_key = api_key or self._tab_keys.pop(tab_id, None)
+        if api_key:
+            self._tab_keys.pop(tab_id, None)
+        self._live_urls.pop(tab_id, None)
+        if session_id and self.is_cloud_for(tab_key):
+            try:
+                await self._bf_call("close_session", {}, session_id, api_key=tab_key)
+            except httpx.HTTPStatusError as e:
+                # Only a typed 404 reliably means "session no longer exists".
+                # Any other status is an unknown outcome — do NOT report
+                # released, the remote session may still hold quota.
+                if e.response is not None and e.response.status_code == 404:
+                    logger.info("BF session %s already gone (404) — treating as released", session_id)
+                    return True, None
+                err = redact(f"HTTP {e.response.status_code if e.response is not None else '?'} closing session", tab_key)
+                logger.warning("Failed to close BF session %s: %s", session_id, err)
+                return False, err
+            except Exception as e:
+                err = redact(str(e), tab_key)
+                logger.warning("Failed to close BF session %s: %s", session_id, err)
+                return False, err
+            return True, None
+
+        page = self._pages.pop(tab_id, None)
+        self._locks.pop(tab_id, None)
+        if page:
+            try:
+                await page.close()
+            except Exception:
+                pass
+        return True, None
 
     async def shutdown(self) -> None:
         """Close all tabs and the browser."""
@@ -352,34 +417,38 @@ class BrowserManager:
     # Reconnection (serverless / cold-start recovery)
     # ------------------------------------------------------------------
 
-    async def reconnect(self, tab_id: str, session_id: str) -> None:
+    async def reconnect(self, tab_id: str, session_id: str, api_key: str = None) -> None:
         """Reconnect to an existing Browser Fabric session.
 
-        In REST-only mode, we just store the session_id mapping.
-        The next operation will use it to call the BF API.
+        In REST-only mode, we just store the session_id mapping (and the
+        API key the session was created with, so subsequent calls don't
+        fall back to the global key). The next operation will use it to
+        call the BF API.
         """
-        if self.is_cloud:
-            if tab_id in self._sessions:
-                return
-            self._sessions[tab_id] = session_id
-        else:
+        if not self.is_cloud_for(api_key):
             raise KeyError(f"Cannot reconnect to local tab: {tab_id}")
+        if api_key:
+            self._tab_keys[tab_id] = api_key
+        if tab_id in self._sessions:
+            return
+        self._sessions[tab_id] = session_id
 
     # ------------------------------------------------------------------
     # Persistent contexts
     # ------------------------------------------------------------------
 
-    async def create_bb_context(self, session_id: str = None) -> str:
+    async def create_bb_context(self, session_id: str = None, tab_id: str = None) -> str:
         """Save the current session's state and return a Browser Fabric context ID.
 
         If session_id is provided, calls save_context on the active session
         so cookies/localStorage are captured before the session is closed.
         """
-        if self.is_cloud and session_id:
+        if self.is_cloud_for(self._key_for_tab(tab_id) if tab_id else None) and session_id:
             result = await self._bf_call(
                 "save_context",
                 {"context_name": f"persist-{session_id[:8]}"},
                 session_id,
+                tab_id=tab_id,
             )
             return result.get("result", {}).get("context_id", str(__import__("uuid").uuid4()))
         import uuid
@@ -429,12 +498,10 @@ class BrowserManager:
 
     async def get_current_url(self, tab_id: str) -> Optional[dict]:
         """Return the current {url, title} from the live page."""
-        if self.is_cloud:
-            session_id = self._sessions.get(tab_id)
-            if not session_id:
-                return None
+        if self._is_cloud_tab(tab_id):
+            session_id = self._sessions[tab_id]
             try:
-                info = await self._bf_call("get_page_info", {}, session_id)
+                info = await self._bf_call("get_page_info", {}, session_id, tab_id=tab_id)
                 page_info = info.get("result", {})
                 return {"url": page_info.get("url", ""), "title": page_info.get("title", "")}
             except Exception:
@@ -451,6 +518,4 @@ class BrowserManager:
                 return None
 
     def active_tab_count(self) -> int:
-        if self.is_cloud:
-            return len(self._sessions)
-        return len(self._pages)
+        return len(self._sessions) + len(self._pages)
