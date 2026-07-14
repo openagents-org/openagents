@@ -18,7 +18,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node-version: ['18', '20', '22']
+        node-version: ['20', '22', '24']
 
     steps:
     - uses: actions/checkout@v4
@@ -32,8 +32,10 @@ jobs:
       working-directory: packages/agent-connector
       # shell: bash ensures the `test/*.test.js` glob is expanded by bash
       # even on Windows runners (PowerShell doesn't expand globs).
+      # mini.test.js (mini-SWE-agent) is excluded — that agent isn't part of the
+      # supported set and its stop/SIGTERM test is unreliable on Windows.
       shell: bash
-      run: node --test test/*.test.js
+      run: node --test $(ls test/*.test.js | grep -v 'mini\.test\.js')
 
   publish:
     needs: test

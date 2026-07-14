@@ -26,9 +26,10 @@ env:
   AGENT_TYPE: ${{ inputs.agent_type || 'claude' }}
   # Claude (default) authenticates via ANTHROPIC_* — reuse the isolated E2E_*
   # gateway creds the launcher matrix uses. LLM_* stay for the hermes path.
+  # No ANTHROPIC_MODEL: let Claude Code use its default (matches the green
+  # nightly matrix; pinning claude-sonnet-4-6 here correlated with reply hangs).
   ANTHROPIC_API_KEY: ${{ secrets.E2E_ANTHROPIC_API_KEY }}
   ANTHROPIC_BASE_URL: ${{ secrets.E2E_ANTHROPIC_BASE_URL }}
-  ANTHROPIC_MODEL: claude-sonnet-4-6
   LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
   LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
   LLM_MODEL: ${{ secrets.LLM_MODEL }}

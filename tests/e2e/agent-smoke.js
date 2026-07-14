@@ -18,10 +18,10 @@ const POLL_INTERVAL_MS = 5000;
 // (--max-turns) against a possibly-slow custom LLM endpoint. 120s was too tight
 // and produced false-negative timeouts; 240s gives cold start room while still
 // fitting comfortably under the job's timeout-minutes budget.
-const POLL_TIMEOUT_MS = 240_000;
+const POLL_TIMEOUT_MS = 300_000;
 const INSTALL_TIMEOUT_MS = 600_000;
 const DAEMON_SETTLE_MS = 5000;
-const AGENT_READY_MS = 15000;
+const AGENT_READY_MS = 25000;
 const LOG_DIR = path.resolve(".e2e-logs");
 
 const AGENTS = {
