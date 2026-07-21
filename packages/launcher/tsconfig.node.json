@@ -12,5 +12,9 @@
     "composite": true,
     "types": ["electron-vite/node", "node"]
   },
-  "include": ["electron.vite.config.*", "src/main/**/*", "src/preload/**/*"]
+  // electron.vite.config.ts is deliberately excluded: it is an ESM build config
+  // that imports ESM-only plugins (@tailwindcss/vite ships .mts types), which
+  // cannot resolve under the commonjs/node settings the main process needs.
+  // electron-vite transpiles it with esbuild at build time, so tsc never has to.
+  "include": ["src/shared/**/*", "src/main/**/*", "src/preload/**/*"]
 }

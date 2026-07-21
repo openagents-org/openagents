@@ -1,6 +1,7 @@
 import * as React from "react"
 import { useEffect, useState } from "react"
 import ReactDOM from "react-dom"
+import { useTranslation } from "react-i18next"
 import { create } from "zustand"
 
 // ─── internal store ────────────────────────────────────────────────────────
@@ -22,16 +23,29 @@ const useToastStore = create<{
     set((s) => ({ toasts: s.toasts.map((t) => (t.id === id ? { ...t, visible: false } : t)) })),
 }))
 
+// Errors and warnings tend to carry detail worth reading (a wrapped npm failure,
+// a reason a connection was refused); four seconds is not enough to finish one.
+// Successes are acknowledgements and can leave quickly.
+const DISMISS_AFTER_MS: Record<ToastItem["type"], number> = {
+  success: 4000,
+  info: 4000,
+  warning: 8000,
+  error: 10000,
+}
+
+/** Run the exit transition, then drop the toast from the store. */
+function beginDismiss(id: string): void {
+  useToastStore.getState().dismiss(id)
+  setTimeout(
+    () => useToastStore.setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+    300,
+  )
+}
+
 function addToast(message: string, type: ToastItem["type"]): void {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
   useToastStore.getState().add({ id, message, type, visible: true })
-  setTimeout(() => {
-    useToastStore.getState().dismiss(id)
-    setTimeout(
-      () => useToastStore.setState((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
-      300,
-    )
-  }, 4000)
+  setTimeout(() => beginDismiss(id), DISMISS_AFTER_MS[type])
 }
 
 // ─── public API ────────────────────────────────────────────────────────────
@@ -80,6 +94,7 @@ const TYPE_CLASSES: Record<
 
 // ─── single toast card ─────────────────────────────────────────────────────
 function ToastCard({ toast: t }: { toast: ToastItem }): React.JSX.Element {
+  const { t: translate } = useTranslation()
   const [mounted, setMounted] = useState(false)
   useEffect(() => {
     requestAnimationFrame(() => setMounted(true))
@@ -101,8 +116,20 @@ function ToastCard({ toast: t }: { toast: ToastItem }): React.JSX.Element {
         show ? "translate-x-0 opacity-100" : "translate-x-[calc(100%+20px)] opacity-0",
       ].join(" ")}
     >
-      <span className="text-[13px] font-bold leading-none shrink-0">{icon}</span>
+      <span aria-hidden="true" className="text-[13px] font-bold leading-none shrink-0">{icon}</span>
       <span className="text-[12px] font-medium leading-[1.4] flex-1">{t.message}</span>
+      <button
+        type="button"
+        onClick={() => beginDismiss(t.id)}
+        aria-label={translate("ui.toast.dismiss")}
+        className={[
+          "shrink-0 -mr-1 px-1 rounded-(--radius-sm)",
+          "text-[13px] leading-none opacity-50 hover:opacity-100",
+          "transition-opacity duration-150 cursor-pointer",
+        ].join(" ")}
+      >
+        ✕
+      </button>
     </div>
   )
 }
@@ -111,7 +138,16 @@ function ToastCard({ toast: t }: { toast: ToastItem }): React.JSX.Element {
 export function ToastContainer(): React.JSX.Element {
   const toasts = useToastStore((s) => s.toasts)
   return ReactDOM.createPortal(
-    <div className="fixed top-5 right-5 z-9999 flex flex-col gap-2 pointer-events-none">
+    // The live region has to be this always-mounted container, not the toast
+    // cards themselves: assistive tech only announces changes *inside* a region
+    // that already existed, so a card that arrives carrying its own role="status"
+    // is announced inconsistently. `polite` (rather than `assertive`) keeps
+    // background results from cutting off whatever the user is reading.
+    <div
+      aria-live="polite"
+      aria-atomic="false"
+      className="fixed top-5 right-5 z-9999 flex flex-col gap-2 pointer-events-none"
+    >
       {toasts.map((t) => (
         <ToastCard key={t.id} toast={t} />
       ))}

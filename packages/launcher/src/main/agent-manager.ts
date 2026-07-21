@@ -7,6 +7,7 @@ import { net } from "electron"
 import { spawn, spawnSync } from "child_process"
 import { withPathEnv, readPathEnv } from "./env"
 import { npmRegistryBase } from "./mirror"
+import { parseNpmInstallCommand } from "../shared/npm-install-spec"
 import { EventEmitter } from "events"
 // Bundled fallback registry. When the agent-launcher core hasn't installed
 // yet (slow network, antivirus interference on Windows, etc) the connector's
@@ -1173,11 +1174,19 @@ function loadCore(): Record<string, unknown> | null {
   if (fs.existsSync(path.join(GLOBAL_CORE, "package.json"))) {
     try {
       return require(GLOBAL_CORE)
-    } catch {}
+    } catch (e) {
+      console.error("Failed to load global core:", e)
+    }
   }
   try {
     return require("@openagents-org/agent-launcher")
-  } catch {}
+  } catch (e) {
+    console.error("Failed to load bundled core:", e)
+  }
+  // All three tiers failed. Callers surface this as "core not ready", but
+  // without the errors above that state is impossible to diagnose from a user's
+  // log — this is the single most common failure mode on Windows.
+  console.error("loadCore: no core package could be loaded")
   return null
 }
 
@@ -2492,7 +2501,13 @@ export class AgentManager extends EventEmitter {
         const OpenClawAdapter = require("@openagents-org/agent-launcher/src/adapters/openclaw")
         OpenClawAdapter.configureNativeAuth(env)
       }
-    } catch {}
+    } catch (e) {
+      // Swallowed on purpose: the env itself saved fine, so we still report
+      // success. But a failure here means OpenClaw's native auth was NOT
+      // configured and the agent will fail to authenticate later with no
+      // obvious cause — log it so that later failure is traceable.
+      console.error("Failed to configure OpenClaw native auth:", e)
+    }
 
     this.signalReload()
     return { success: true }
@@ -3243,6 +3258,59 @@ export class AgentManager extends EventEmitter {
     return (install.binary as string | undefined) || null
   }
 
+  /**
+   * The version/dist-tag the registry pins in its npm install command, if any.
+   *
+   * `_resolveNpmPackage` deliberately strips this suffix, but updating needs to
+   * know the difference between the three shapes:
+   *   `npm install -g pkg`            → null      (no spec — see updateAgentTypeStreaming)
+   *   `npm install -g pkg@latest`     → "latest"  (already floats)
+   *   `npm install -g pkg@1.17.11`    → "1.17.11" (pinned on purpose)
+   */
+  private _resolveNpmVersionSpec(
+    entry: Record<string, unknown> | null,
+  ): string | null {
+    if (!entry) return null
+    const install = entry.install as Record<string, unknown> | undefined
+    if (!install) return null
+    const cmd = (install[Installer.platformKey()] ||
+      install.command ||
+      install.npm) as string | undefined
+    return parseNpmInstallCommand(cmd).spec
+  }
+
+  /**
+   * Bring an installed agent up to the newest published version.
+   *
+   * This must NOT reuse `installAgentTypeStreaming` for npm agents whose
+   * registry command carries no version spec (claude, codex, gemini are all
+   * plain `npm install -g <pkg>`). npm treats a bare `npm install <pkg>` as
+   * "make sure this is installed" rather than "upgrade it": once package.json
+   * holds a satisfied range — `--save` writes `^0.46.0` on first install — npm
+   * prints "up to date" and changes nothing. The user clicks Update, the job
+   * reports success, and the version never moves, so the update prompt comes
+   * straight back. Pinning `@latest` is what actually advances the version.
+   *
+   * Two cases keep the original pipeline:
+   *   - Non-npm installers (curl / pip / echo). They have no version spec to
+   *     pin, and their scripts already fetch the newest build.
+   *   - Registry commands that specify a version themselves. `pkg@latest`
+   *     already floats correctly, and `pkg@1.17.11` (opencode) is pinned
+   *     deliberately — forcing @latest there would override that intent.
+   */
+  async updateAgentTypeStreaming(
+    agentType: string,
+    onData: (data: string) => void,
+  ): Promise<unknown> {
+    const entry = this._getRegistryEntry(agentType)
+    const npmPkg = this._resolveNpmPackage(entry)
+    const pinned = this._resolveNpmVersionSpec(entry)
+    if (npmPkg && !pinned) {
+      return this._installAtVersionTag(agentType, "latest", onData)
+    }
+    return this.installAgentTypeStreaming(agentType, onData)
+  }
+
   getInstalledHistory(): Record<string, InstalledAgentRecord> {
     try {
       if (fs.existsSync(INSTALLED_HISTORY_FILE)) {
@@ -3910,7 +3978,12 @@ export class AgentManager extends EventEmitter {
       if (p.includes("app.asar") && !p.includes("app.asar.unpacked"))
         p = p.replace("app.asar", "app.asar.unpacked")
       bundledCli = p
-    } catch {}
+    } catch (e) {
+      // Not fatal — the LOCAL/portable candidates below may still resolve. But
+      // if none do, knowing the bundled copy was unresolvable is what explains
+      // the "CLI not found" that follows.
+      appendDaemonLog(`bundled agent-launcher CLI unresolvable: ${String(e)}`)
+    }
 
     let cliPath: string | null = null
     const cliCandidates = [

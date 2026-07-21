@@ -17,5 +17,8 @@
   "errorBoundary": {
     "title": "The launcher hit a rendering error",
     "tryAgain": "Try again"
+  },
+  "toast": {
+    "dismiss": "Dismiss notification"
   }
 }

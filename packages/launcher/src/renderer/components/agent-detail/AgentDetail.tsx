@@ -174,7 +174,8 @@ export default function AgentDetail({
         // Stage.md §2.5 — when the user picked a non-stable channel, route
         // the install through the version-tag IPC so npm pulls from that
         // dist-tag (`@beta`, `@nightly`). Stable goes through the regular
-        // pipeline which already follows `@latest`.
+        // pipeline, which pins `@latest` itself when the agent is an npm
+        // package with no version in its registry command.
         const tag = channelToDistTag(channel)
         // The install IPC resolves with { success:false, error } on failure
         // (it doesn't reject), so an unchecked await would fall through to the

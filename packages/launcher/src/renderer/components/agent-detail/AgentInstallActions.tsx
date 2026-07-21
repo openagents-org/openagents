@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "../ui/Button"
 import type { CatalogEntry, InstalledAgentRecord } from "../../types"
 import type { InstallJob } from "../../store/install"
+import { isUpgradeAvailable } from "../../../shared/version-compare"
 
 interface AgentInstallActionsProps {
   entry: CatalogEntry
@@ -54,8 +55,7 @@ export function AgentInstallActions({
   const isManaged = entry.managed !== false
   const isBusy =
     !!job && job.phase !== "done" && job.phase !== "error"
-  const hasUpdate =
-    !!(currentVersion && latestVersion && currentVersion !== latestVersion)
+  const hasUpdate = isUpgradeAvailable(currentVersion, latestVersion)
   // A valid rollback target must actually be a DIFFERENT version than what's
   // installed right now. Without that guard, a stale `previousVersion`
   // pointer (or a history entry equal to current) keeps the Roll back button

@@ -89,6 +89,15 @@ export function CommandPalette(): React.JSX.Element | null {
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
 
+  // Stable ids so the input's aria-controls / aria-activedescendant can point
+  // at the listbox and the currently highlighted option.
+  const baseId = React.useId()
+  const listId = `${baseId}-list`
+  const optionId = useCallback(
+    (index: number): string => `${baseId}-opt-${index}`,
+    [baseId],
+  )
+
   // Global hotkey (Cmd/Ctrl+K)
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
@@ -314,12 +323,23 @@ export function CommandPalette(): React.JSX.Element | null {
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-(--border)">
           <Search className="w-4 h-4 text-(--text-tertiary)" />
+          {/* Focus stays in the input while the arrow keys move a virtual
+              cursor through the list, so the combobox pattern (rather than
+              roving tabindex) is what screen readers need here:
+              `aria-activedescendant` tells them which option is current. */}
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={t("commandPalette.placeholder")}
+            role="combobox"
+            aria-expanded="true"
+            aria-controls={listId}
+            aria-activedescendant={grouped.length > 0 ? optionId(activeIdx) : undefined}
+            aria-autocomplete="list"
+            aria-label={t("commandPalette.placeholder")}
+            autoComplete="off"
             className="flex-1 bg-transparent border-0 outline-none text-[14px] text-(--text-primary) placeholder:text-(--text-tertiary)"
           />
           <kbd className="text-[10px] text-(--text-tertiary) bg-(--bg-input) px-1.5 py-0.5 rounded-sm">
@@ -329,10 +349,13 @@ export function CommandPalette(): React.JSX.Element | null {
 
         <ul
           ref={listRef}
+          id={listId}
+          role="listbox"
+          aria-label={t("commandPalette.placeholder")}
           className="m-0 p-1 list-none flex-1 overflow-y-auto"
         >
           {grouped.length === 0 && (
-            <li className="px-4 py-6 text-center text-[12px] text-(--text-tertiary)">
+            <li role="presentation" className="px-4 py-6 text-center text-[12px] text-(--text-tertiary)">
               {t("commandPalette.empty")}
             </li>
           )}
@@ -340,6 +363,7 @@ export function CommandPalette(): React.JSX.Element | null {
             entry.type === "header" ? (
               <li
                 key={`h:${entry.group}:${i}`}
+                role="presentation"
                 className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-(--text-tertiary) font-semibold"
               >
                 {entry.group}
@@ -347,6 +371,9 @@ export function CommandPalette(): React.JSX.Element | null {
             ) : (
               <li
                 key={entry.cmd.id}
+                id={optionId(entry.index)}
+                role="option"
+                aria-selected={entry.index === activeIdx}
                 data-cmd-idx={entry.index}
                 onClick={() => execute(entry.cmd)}
                 onMouseMove={() => setActiveIdx(entry.index)}

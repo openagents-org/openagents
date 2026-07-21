@@ -3,6 +3,7 @@ import { Sparkles } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 import { SearchInput } from "../../components/ui/SearchInput"
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/Tabs"
 import { TopBar } from "../../components/TopBar"
 import { useConnectionsStore } from "../../store/connections"
 import { useCredentialsStore } from "../../store/credentials"
@@ -128,22 +129,19 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
           placeholder={t("connections.search.placeholder")}
           className="flex-1 max-w-[280px]"
         />
-        <div className="inline-flex items-center gap-1 rounded-(--radius-sm) bg-(--bg-input) p-1">
-          {(["all", "connected", "disconnected"] as const).map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setFilter(k)}
-              className={`px-2.5 py-1 text-[11px] font-medium rounded-sm cursor-pointer border-0 transition-all duration-150 ${
-                filter === k
-                  ? "bg-(--bg-card) text-(--text-primary) shadow-sm"
-                  : "bg-transparent text-(--text-secondary)"
-              }`}
-            >
-              {t(`connections.filters.${k}`)}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          mode="filter"
+          value={filter}
+          onValueChange={(v) => setFilter(v as typeof filter)}
+        >
+          <TabsList>
+            {(["all", "connected", "disconnected"] as const).map((k) => (
+              <TabsTrigger key={k} value={k} className="px-2.5 py-1 text-[11px]">
+                {t(`connections.filters.${k}`)}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
 
       <div className="card-grid">

@@ -4,6 +4,7 @@ import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 import { Button } from "../../components/ui/Button"
 import { SearchInput } from "../../components/ui/SearchInput"
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/Tabs"
 import { TopBar } from "../../components/TopBar"
 import { CredentialCard } from "../../components/credentials/CredentialCard"
 import { CredentialEditor } from "../../components/credentials/CredentialEditor"
@@ -167,33 +168,18 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
           placeholder={t("credentials.searchPlaceholder")}
           className="flex-1 min-w-[200px] max-w-[300px]"
         />
-        <div className="inline-flex items-center gap-1 rounded-(--radius-sm) bg-(--bg-input) p-1 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setProviderFilter("all")}
-            className={`px-2.5 py-1 text-[11px] font-medium rounded-sm cursor-pointer border-0 transition-all duration-150 ${
-              providerFilter === "all"
-                ? "bg-(--bg-card) text-(--text-primary) shadow-sm"
-                : "bg-transparent text-(--text-secondary)"
-            }`}
-          >
-            {t("credentials.filterAll")}
-          </button>
-          {providers.map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setProviderFilter(p)}
-              className={`px-2.5 py-1 text-[11px] font-medium rounded-sm cursor-pointer border-0 transition-all duration-150 ${
-                providerFilter === p
-                  ? "bg-(--bg-card) text-(--text-primary) shadow-sm"
-                  : "bg-transparent text-(--text-secondary)"
-              }`}
-            >
-              {getPlatform(p)?.label || p}
-            </button>
-          ))}
-        </div>
+        <Tabs mode="filter" value={providerFilter} onValueChange={setProviderFilter}>
+          <TabsList className="flex-wrap">
+            <TabsTrigger value="all" className="px-2.5 py-1 text-[11px]">
+              {t("credentials.filterAll")}
+            </TabsTrigger>
+            {providers.map((p) => (
+              <TabsTrigger key={p} value={p} className="px-2.5 py-1 text-[11px]">
+                {getPlatform(p)?.label || p}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
 
       {visible.length === 0 ? (

@@ -8,6 +8,7 @@ import { useInstallStore } from "../../store/install"
 import { useConnectionsStore } from "../../store/connections"
 import { useNotificationsStore } from "../../store/notifications"
 import { Button } from "../../components/ui/Button"
+import { Skeleton } from "../../components/ui/Skeleton"
 import { TopBar } from "../../components/TopBar"
 import { StatsOverview } from "../../components/dashboard/StatsOverview"
 import { HealthMonitor } from "../../components/dashboard/HealthMonitor"
@@ -17,6 +18,7 @@ import { QuickActions } from "../../components/dashboard/QuickActions"
 import type { Agent, AgentUpdateInfo } from "../../types"
 import { useUpdateDismissals } from "../../hooks/useUpdateDismissals"
 import type { ToastType } from "../../hooks/useToast"
+import { isUpgradeAvailable } from "../../../shared/version-compare"
 
 interface DashboardProps {
   showToast: (message: string, type?: ToastType) => void
@@ -27,9 +29,9 @@ interface DashboardProps {
 function SkeletonCard(): React.JSX.Element {
   return (
     <div className="flex flex-col h-full p-4 bg-(--bg-card) border border-(--border) rounded-(--radius)">
-      <div className="skeleton-shimmer rounded-full h-2.5 w-[62%] mb-2.5" />
-      <div className="skeleton-shimmer rounded-full h-2.5 w-[42%] mb-2.5" />
-      <div className="skeleton-shimmer rounded-full h-2.5 w-[26%]" />
+      <Skeleton className="w-[62%] mb-2.5" />
+      <Skeleton className="w-[42%] mb-2.5" />
+      <Skeleton className="w-[26%]" />
     </div>
   )
 }
@@ -93,10 +95,8 @@ export default function Dashboard({
 
   const pendingUpdates = updates.filter(
     (u: AgentUpdateInfo) =>
-      u.current &&
-      u.latest &&
-      u.current !== u.latest &&
-      !isDismissed(u.name, u.latest),
+      isUpgradeAvailable(u.current, u.latest) &&
+      !isDismissed(u.name, u.latest!),
   )
 
   useEffect(() => {

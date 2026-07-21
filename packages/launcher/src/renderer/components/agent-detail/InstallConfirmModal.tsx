@@ -3,6 +3,7 @@ import { Trans, useTranslation } from "react-i18next"
 import { Modal, ModalTitle } from "../ui/Modal"
 import { Button } from "../ui/Button"
 import AgentIcon from "../AgentIcon"
+import { displayInstallCommand } from "../../../shared/npm-install-spec"
 import type { CatalogEntry } from "../../types"
 
 interface InstallConfirmModalProps {
@@ -42,7 +43,14 @@ export function InstallConfirmModal({
   if (!entry) return null
 
   const platformKey = detectPlatform()
-  const installCmd = entry.install?.[platformKey]
+  // Show what will actually run, not what the registry literally says. An
+  // update of a bare `npm install -g <pkg>` agent is dispatched with `@latest`
+  // pinned (see AgentManager.updateAgentTypeStreaming) — without mirroring
+  // that here, this dialog promises a command the launcher does not run.
+  const installCmd = displayInstallCommand(
+    entry.install?.[platformKey],
+    verb,
+  )
   const verbLabel = verb === "update"
     ? t("agents.installConfirm.update")
     : t("agents.installConfirm.install")

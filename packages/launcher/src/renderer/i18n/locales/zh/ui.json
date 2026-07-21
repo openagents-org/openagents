@@ -17,5 +17,8 @@
   "errorBoundary": {
     "title": "启动器遇到渲染错误",
     "tryAgain": "重试"
+  },
+  "toast": {
+    "dismiss": "关闭通知"
   }
 }

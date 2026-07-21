@@ -5,6 +5,7 @@ import { ExternalLink, Globe } from "lucide-react"
 import { Modal, ModalActions } from "../ui/Modal"
 import { Button } from "../ui/Button"
 import { Input } from "../ui/Input"
+import { Tabs, TabsList, TabsTrigger } from "../ui/Tabs"
 import { Label } from "../ui/Label"
 import type { ToastType } from "../../hooks/useToast"
 import { capture } from "../../lib/analytics"
@@ -140,26 +141,23 @@ export function WorkspaceQuickConnect({
 
   return (
     <Modal open={open} onClose={onClose} title={t("workspaces.quickConnect.title")}>
-      <div className="flex gap-1 p-1 rounded-(--radius-sm) bg-(--bg-input) mb-4 w-fit">
-        {(["paste", "create", "browser"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            className={`px-3 py-1 text-[11px] font-medium rounded-sm cursor-pointer border-0 ${
-              mode === m
-                ? "bg-(--bg-card) text-(--text-primary) shadow-sm"
-                : "bg-transparent text-(--text-secondary)"
-            }`}
-          >
-            {m === "paste"
-              ? t("workspaces.quickConnect.tabPaste")
-              : m === "create"
-                ? t("workspaces.quickConnect.tabCreate")
-                : t("workspaces.quickConnect.tabBrowser")}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        value={mode}
+        onValueChange={(v) => setMode(v as typeof mode)}
+        className="mb-4 w-fit"
+      >
+        <TabsList>
+          {(["paste", "create", "browser"] as const).map((m) => (
+            <TabsTrigger key={m} value={m} className="px-3 py-1 text-[11px]">
+              {m === "paste"
+                ? t("workspaces.quickConnect.tabPaste")
+                : m === "create"
+                  ? t("workspaces.quickConnect.tabCreate")
+                  : t("workspaces.quickConnect.tabBrowser")}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {mode === "paste" && (
         <div className="flex flex-col gap-3">

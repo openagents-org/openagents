@@ -16,6 +16,7 @@ import { pipeline } from "stream/promises"
 import { Transform } from "stream"
 import { execSync, execFile, execFileSync, spawnSync } from "child_process"
 import { Store } from "./store"
+import { isUpgradeAvailable } from "../shared/version-compare"
 import { readPathEnv, writePathEnv, withPathEnv } from "./env"
 import { AgentManager, type ChatStreamEvent } from "./agent-manager"
 import {
@@ -1054,8 +1055,8 @@ async function refreshAgentUpdates(): Promise<void> {
   if (!agentManager) return
   try {
     const all = await agentManager.checkAgentUpdates({ force: true })
-    _pendingAgentUpdates = all.filter(
-      (u) => u.current && u.latest && u.current !== u.latest,
+    _pendingAgentUpdates = all.filter((u) =>
+      isUpgradeAvailable(u.current, u.latest),
     )
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("agent-updates-changed", _pendingAgentUpdates)
@@ -1471,7 +1472,13 @@ function setupIPC(): void {
       : "install"
     try {
       const result = await runInstallWithPhases(agentType, verb, (cb) =>
-        requireManager().installAgentTypeStreaming(agentType, cb),
+        // Updating and installing are not the same npm operation — a bare
+        // `npm install <pkg>` no-ops ("up to date") once package.json holds a
+        // satisfied range, so updates have to pin @latest. See
+        // AgentManager.updateAgentTypeStreaming.
+        verb === "update"
+          ? requireManager().updateAgentTypeStreaming(agentType, cb)
+          : requireManager().installAgentTypeStreaming(agentType, cb),
       )
       // installAgentTypeStreaming clears the updates cache. Re-fetch now so
       // the next `checkAgentUpdates()` call (from the post-job refresh) gets
@@ -2191,7 +2198,24 @@ function setupIPC(): void {
     }
   })
 
-  ipcMain.handle("shell:open-external", (_e, url) => shell.openExternal(url))
+  // Only ever hand web URLs to the OS. Without this guard the renderer could
+  // pass `file:///…` to open arbitrary local paths, or a registered custom
+  // scheme to launch another installed app — neither is something any caller
+  // here needs (every call site passes an https docs/repo/release link).
+  ipcMain.handle("shell:open-external", (_e, url) => {
+    let parsed: URL
+    try {
+      parsed = new URL(String(url))
+    } catch {
+      console.warn("[shell] refusing to open malformed URL:", url)
+      return
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      console.warn("[shell] refusing to open non-web URL:", parsed.protocol)
+      return
+    }
+    return shell.openExternal(parsed.href)
+  })
   // Open a terminal running `cmd`, optionally cd'd into `cwd` first. Shared by
   // the CLI-login flow (no cwd) and the per-agent "Chat" button, which opens an
   // interactive CLI session inside the agent's working folder.
@@ -2353,13 +2377,6 @@ function setupIPC(): void {
     } catch {}
     // Quote the binary so a space in its path survives the shell.
     runTerminal(/\s/.test(binary) ? `"${binary}"` : binary, cwd)
-  })
-
-  ipcMain.handle("shell:exec", (_e, cmd) => {
-    const { execSync: exec } = require("child_process")
-    const sh =
-      process.platform === "win32" ? process.env.ComSpec || "cmd.exe" : true
-    return exec(cmd, { encoding: "utf-8", timeout: 30000, shell: sh })
   })
 
   ipcMain.handle("icons:get-dir", () => {

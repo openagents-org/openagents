@@ -61,7 +61,7 @@
     "stop": "Stop",
     "starting": "Starting…",
     "start": "Start",
-    "openChat": "Open Chat"
+    "openChat": "Open terminal"
   },
   "health": {
     "title": "Agent health",

@@ -61,7 +61,7 @@
     "stop": "停止",
     "starting": "正在启动…",
     "start": "启动",
-    "openChat": "打开聊天"
+    "openChat": "打开终端"
   },
   "health": {
     "title": "智能体健康状况",
