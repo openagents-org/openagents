@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import platform
+import re
 import shutil
 import time
 from typing import Optional
@@ -38,6 +39,29 @@ logger = logging.getLogger(__name__)
 
 # Max conversation history entries to keep in memory
 MAX_HISTORY_ENTRIES = 50
+
+_REDACT_PATTERNS = [
+    (re.compile(r"\bsk-[A-Za-z0-9_-]{6,}"), "sk-[REDACTED]"),
+    (re.compile(r"\b(?:github_pat|gh[pousr])_[A-Za-z0-9_]{10,}"), "[REDACTED_TOKEN]"),
+    (re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{8,}"), "[REDACTED_TOKEN]"),
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}"), "[REDACTED_JWT]"),
+    (
+        re.compile(
+            r"(authorization|api[_-]?key|x-api-key|token|bearer|secret|password)"
+            r"([\"'\s:=]+)([^\s\"',}]+)",
+            re.IGNORECASE,
+        ),
+        r"\1\2[REDACTED]",
+    ),
+]
+
+
+def _redact(text: str) -> str:
+    """Redact secrets (keys, tokens, authorization values) from diagnostics."""
+    out = str(text or "")
+    for pattern, repl in _REDACT_PATTERNS:
+        out = pattern.sub(repl, out)
+    return out
 
 
 class CodexAdapter(BaseAdapter):
@@ -128,12 +152,17 @@ class CodexAdapter(BaseAdapter):
                 await self._send_response(msg_channel, response_text)
             else:
                 await self._send_response(
-                    msg_channel, "No response generated. Please try again.",
+                    msg_channel,
+                    "⚠️ **Codex couldn't run** — Codex finished without "
+                    "producing a reply. Please try again.",
                 )
 
         except Exception as e:
             logger.exception(f"Error handling message: {e}")
-            await self._send_error(msg_channel, f"Error processing message: {e}")
+            await self._send_error(
+                msg_channel,
+                f"⚠️ **Codex couldn't run** — {_redact(str(e))}",
+            )
 
     # ------------------------------------------------------------------
     # Direct HTTP mode (OpenAI chat completions API)
@@ -291,20 +320,16 @@ class CodexAdapter(BaseAdapter):
 
     async def _run_codex_subprocess(self, content: str, msg_channel: str) -> str:
         """Run a Codex CLI subprocess and collect the response."""
-        try:
-            browser_enabled = await self.get_browser_enabled()
-            cmd = self._build_codex_cmd(content, msg_channel, browser_enabled=browser_enabled)
-        except FileNotFoundError as e:
-            await self._send_error(msg_channel, str(e))
-            return ""
+        browser_enabled = await self.get_browser_enabled()
+        # FileNotFoundError (codex CLI missing) propagates to _handle_message,
+        # which posts it as a single "Codex couldn't run" error.
+        cmd = self._build_codex_cmd(content, msg_channel, browser_enabled=browser_enabled)
 
         if not self._direct_mode:
             if not await self._check_codex_login():
-                await self._send_error(
-                    msg_channel,
-                    "Codex CLI is not logged in. Run `codex login`, or configure OPENAI_API_KEY + OPENAI_BASE_URL.",
+                raise RuntimeError(
+                    "Codex CLI is not logged in. Run `codex login`, or configure OPENAI_API_KEY + OPENAI_BASE_URL."
                 )
-                return ""
 
         # On Windows, .cmd files need cmd.exe to interpret them
         if platform.system() == "Windows" and cmd[0].lower().endswith(".cmd"):
@@ -318,6 +343,7 @@ class CodexAdapter(BaseAdapter):
         )
 
         response_texts = []
+        error_message = ""
 
         # Read JSONL output line by line
         while True:
@@ -380,19 +406,19 @@ class CodexAdapter(BaseAdapter):
 
             elif event_type == "turn.failed":
                 error = event.get("error", {})
-                logger.warning(
-                    f"Codex turn failed: "
-                    f"{error.get('message', str(error))}"
-                )
+                error_message = error.get("message") or str(error)
+                logger.warning(f"Codex turn failed: {error_message}")
 
             elif event_type == "error":
-                logger.warning(f"Codex error: {event}")
+                error_message = event.get("message") or str(event)
+                logger.warning(f"Codex error: {error_message}")
 
             else:
                 logger.debug(f"Skipping event type: {event_type}")
 
         await process.wait()
 
+        stderr_text = ""
         if process.returncode != 0:
             stderr = await process.stderr.read()
             stderr_text = stderr.decode(
@@ -403,4 +429,13 @@ class CodexAdapter(BaseAdapter):
 
         if response_texts:
             return "\n".join(response_texts).strip()
+
+        # No reply — surface the actual reason (turn.failed / error event,
+        # stderr, exit code) instead of letting the caller post a generic
+        # "No response generated".
+        detail = error_message.strip() or stderr_text
+        if not detail and process.returncode:
+            detail = f"codex exited with code {process.returncode}"
+        if detail:
+            raise RuntimeError(_redact(detail)[:500])
         return ""
