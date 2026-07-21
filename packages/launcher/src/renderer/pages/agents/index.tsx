@@ -24,6 +24,7 @@ import {
   ModalTitle,
 } from "../../components/ui/Modal"
 import { PasswordInput } from "../../components/ui/PasswordInput"
+import { Skeleton } from "../../components/ui/Skeleton"
 import { TopBar } from "../../components/TopBar"
 import type { Agent, CatalogEntry, EnvField, HealthCheck } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
@@ -69,8 +70,8 @@ const LIST_ITEM =
 function SkeletonListItem(): React.JSX.Element {
   return (
     <div className={LIST_ITEM}>
-      <div className="skeleton-shimmer rounded-full h-2.5 w-[62%] mb-2.5" />
-      <div className="skeleton-shimmer rounded-full h-2.5 w-[42%]" />
+      <Skeleton className="w-[62%] mb-2.5" />
+      <Skeleton className="w-[42%]" />
     </div>
   )
 }

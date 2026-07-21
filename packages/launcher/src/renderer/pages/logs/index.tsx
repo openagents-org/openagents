@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "../../components/ui/Button"
 import { TopBar } from "../../components/TopBar"
 import { Modal, ModalTitle } from "../../components/ui/Modal"
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/Tabs"
 import { useAgentsStore } from "../../store/agents"
 import { LogLevelBadge } from "../../components/logs/LogLevelBadge"
 import { JsonViewer } from "../../components/logs/JsonViewer"
@@ -234,23 +235,15 @@ export default function Logs({ showToast }: LogsProps): React.JSX.Element {
         title={t("logs.title")}
         subtitle={t("logs.subtitle")}
         actions={
-          <div className="flex gap-1 p-1 rounded-(--radius-sm) bg-(--bg-input)">
-            {(["list", "timeline"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => setView(v)}
-                className={cn(
-                  "px-3 py-1 text-[11px] font-medium rounded-sm cursor-pointer border-0",
-                  view === v
-                    ? "bg-(--bg-card) text-(--text-primary) shadow-sm"
-                    : "bg-transparent text-(--text-secondary)",
-                )}
-              >
-                {v === "list" ? t("logs.view.list") : t("logs.view.timeline")}
-              </button>
-            ))}
-          </div>
+          <Tabs value={view} onValueChange={(v) => setView(v as typeof view)}>
+            <TabsList>
+              {(["list", "timeline"] as const).map((v) => (
+                <TabsTrigger key={v} value={v} className="px-3 py-1 text-[11px]">
+                  {v === "list" ? t("logs.view.list") : t("logs.view.timeline")}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
         }
       />
 

@@ -14,11 +14,15 @@ const variantClass: Record<BadgeVariant, string> = {
   "success":    "bg-(--success-bg) text-(--success-text) text-[10px] font-semibold uppercase tracking-[0.03em] px-[10px] py-[3px] rounded-full",
   "warning":    "bg-(--warning-bg) text-(--warning-text) text-[10px] font-semibold uppercase tracking-[0.03em] px-[10px] py-[3px] rounded-full",
   "danger":     "bg-(--danger-bg) text-(--danger-text) text-[10px] font-semibold uppercase tracking-[0.03em] px-[10px] py-[3px] rounded-full",
-  "info":       "bg-[#e0e7ff] text-[#3730a3] text-[10px] font-semibold uppercase tracking-[0.03em] px-[10px] py-[3px] rounded-full",
+  // Themed rather than hard-coded: the old #e0e7ff/#3730a3 pair was a light
+  // lavender chip that kept its light colours in dark mode, where it turned
+  // into a bright block of near-unreadable text. --accent-bg/--accent is the
+  // same pairing the info toast uses, and both themes define it.
+  "info":       "bg-(--accent-bg) text-(--accent) text-[10px] font-semibold uppercase tracking-[0.03em] px-[10px] py-[3px] rounded-full",
   "success-sm": "bg-(--success-bg) text-(--success-text) text-[10px] font-medium px-[6px] py-[2px] rounded",
   "warning-sm": "bg-(--warning-bg) text-(--warning-text) text-[10px] font-medium px-[6px] py-[2px] rounded",
   "danger-sm":  "bg-(--danger-bg) text-(--danger-text) text-[10px] font-medium px-[6px] py-[2px] rounded",
-  "muted-sm":   "bg-[#f0f0f0] text-[#888] text-[10px] font-medium px-[6px] py-[2px] rounded",
+  "muted-sm":   "bg-(--bg-input) text-(--text-secondary) text-[10px] font-medium px-[6px] py-[2px] rounded",
 }
 
 function Badge({ className, variant = "default", ...props }: BadgeProps): React.JSX.Element {

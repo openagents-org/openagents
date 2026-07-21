@@ -17,6 +17,7 @@ import { TopBar } from "../../components/TopBar"
 import { Button } from "../../components/ui/Button"
 import { Card } from "../../components/ui/Card"
 import { Input } from "../../components/ui/Input"
+import { Tabs, TabsList, TabsTrigger } from "../../components/ui/Tabs"
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog"
 import { GitHubBindDialog } from "../../components/github/GitHubBindDialog"
 import { useAgentsStore } from "../../store/agents"
@@ -315,30 +316,32 @@ export default function GitHubPage({ showToast }: Props): React.JSX.Element {
                 </div>
               </div>
 
-              <div className="flex gap-1 p-1 rounded-(--radius-sm) bg-(--bg-input) mb-3 w-fit">
-                {(["issues", "pulls"] as const).map((tabId) => (
-                  <button
-                    key={tabId}
-                    type="button"
-                    onClick={() => setTabs((prev) => ({ ...prev, [b.agentName]: tabId }))}
-                    className={cn(
-                      "px-3 py-1 text-[11px] font-medium rounded-sm cursor-pointer border-0 flex items-center gap-1.5",
-                      tab === tabId
-                        ? "bg-(--bg-card) text-(--text-primary) shadow-sm"
-                        : "bg-transparent text-(--text-secondary)",
-                    )}
-                  >
-                    {tabId === "issues" ? (
-                      <CircleDot className="w-3 h-3" />
-                    ) : (
-                      <GitPullRequest className="w-3 h-3" />
-                    )}
-                    {tabId === "issues"
-                      ? t("github.tabs.issues", { count: feed.issues.length })
-                      : t("github.tabs.pulls", { count: feed.pulls.length })}
-                  </button>
-                ))}
-              </div>
+              <Tabs
+                value={tab}
+                onValueChange={(v) =>
+                  setTabs((prev) => ({ ...prev, [b.agentName]: v as "issues" | "pulls" }))
+                }
+                className="mb-3 w-fit"
+              >
+                <TabsList>
+                  {(["issues", "pulls"] as const).map((tabId) => (
+                    <TabsTrigger
+                      key={tabId}
+                      value={tabId}
+                      className="px-3 py-1 text-[11px] gap-1.5"
+                    >
+                      {tabId === "issues" ? (
+                        <CircleDot className="w-3 h-3" />
+                      ) : (
+                        <GitPullRequest className="w-3 h-3" />
+                      )}
+                      {tabId === "issues"
+                        ? t("github.tabs.issues", { count: feed.issues.length })
+                        : t("github.tabs.pulls", { count: feed.pulls.length })}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
 
               {feed.error && (
                 <div className="px-3 py-2 rounded-sm bg-(--danger-bg) text-(--danger-text) text-[11px] mb-2 break-words">

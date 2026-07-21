@@ -22,6 +22,7 @@ import type { ToastType } from "../../hooks/useToast"
 import { Button } from "../../components/ui/Button"
 import { Checkbox } from "../../components/ui/Checkbox"
 import { Modal, ModalTitle } from "../../components/ui/Modal"
+import { Skeleton } from "../../components/ui/Skeleton"
 import { InstallConfirmModal } from "../../components/agent-detail/InstallConfirmModal"
 import { TopBar } from "../../components/TopBar"
 import { FeaturedBanner } from "../../components/install/FeaturedBanner"
@@ -36,10 +37,10 @@ function SkeletonCard(): React.JSX.Element {
   // Purely decorative shimmer placeholders — no user-facing text.
   return (
     <div className="flex flex-col gap-2 px-4.5 py-4 min-h-[170px] bg-(--bg-card) border border-(--border) rounded-(--radius) shadow-sm">
-      <div className="skeleton-shimmer rounded-full h-3 w-[60%] mb-2" />
-      <div className="skeleton-shimmer rounded-full h-2 w-[80%]" />
-      <div className="skeleton-shimmer rounded-full h-2 w-[40%]" />
-      <div className="skeleton-shimmer rounded-full h-2 w-[60%] mt-auto" />
+      <Skeleton className="h-3 w-[60%] mb-2" />
+      <Skeleton className="h-2 w-[80%]" />
+      <Skeleton className="h-2 w-[40%]" />
+      <Skeleton className="h-2 w-[60%] mt-auto" />
     </div>
   )
 }
@@ -366,7 +367,7 @@ export default function Install({
             {t("install.allAgents")}
           </h2>
           {loading ? (
-            <span className="skeleton-shimmer rounded-full h-3 w-30" />
+            <Skeleton className="h-3 w-30" />
           ) : (
             <span className="hint m-0">
               {t("install.stats", {
