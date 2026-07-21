@@ -437,7 +437,6 @@ declare global {
       refreshLogin(type: string): Promise<HealthCheck>
       clearLoginKey(type: string, agentName?: string): Promise<{ success: boolean }>
       openExternal(url: string): Promise<void>
-      shellExec(cmd: string): Promise<string>
       openTerminal(cmd: string): Promise<void>
       openAgentTerminal(agentName: string): Promise<void>
       updateCore(): Promise<{ success: boolean; version?: string; error?: string }>

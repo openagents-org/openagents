@@ -76,7 +76,6 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('agents:login-clear-key', type, agentName),
 
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
-  shellExec: (cmd: string) => ipcRenderer.invoke('shell:exec', cmd),
   openTerminal: (cmd: string) => ipcRenderer.invoke('shell:open-terminal', cmd),
   openAgentTerminal: (agentName: string) => ipcRenderer.invoke('shell:open-agent-terminal', agentName),
   updateCore: () => ipcRenderer.invoke('core:update'),

@@ -25,7 +25,12 @@ export class Store {
         const raw = fs.readFileSync(this._path, 'utf-8')
         this._data = { ...this._data, ...JSON.parse(raw) }
       }
-    } catch {}
+    } catch (err) {
+      // Falling back to defaults is intentional (a corrupt settings.json must
+      // not block startup), but doing it silently means the user's settings
+      // appear to reset themselves for no reason.
+      console.error('Failed to load settings, falling back to defaults:', err)
+    }
   }
 
   private _save(): void {
