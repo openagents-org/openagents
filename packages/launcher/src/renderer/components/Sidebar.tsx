@@ -23,6 +23,7 @@ import { useInstallStore } from "../store/install"
 import { useNotificationsStore } from "../store/notifications"
 import { useThemeStore, type ThemeMode } from "../store/theme"
 import { useUpdateDismissals } from "../hooks/useUpdateDismissals"
+import { isUpgradeAvailable } from "../../shared/version-compare"
 
 type SectionId = "overview" | "manage" | "system"
 
@@ -60,10 +61,8 @@ export default function Sidebar(): React.JSX.Element {
 
   const updateCount = updates.filter(
     (u) =>
-      u.current &&
-      u.latest &&
-      u.current !== u.latest &&
-      !isDismissed(u.name, u.latest),
+      isUpgradeAvailable(u.current, u.latest) &&
+      !isDismissed(u.name, u.latest!),
   ).length
 
   const badges: Record<string, number | undefined> = {

@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { isUpgradeAvailable } from '../../shared/version-compare'
 import type { AgentUpdateInfo, InstallPhase, InstalledAgentRecord } from '../types'
 
 export interface InstallJob {
@@ -81,6 +82,6 @@ if (typeof window !== "undefined") {
 
 export function hasPendingUpdate(updates: AgentUpdateInfo[], name: string): boolean {
   const info = updates.find((u) => u.name === name)
-  if (!info || !info.current || !info.latest) return false
-  return info.current !== info.latest
+  if (!info) return false
+  return isUpgradeAvailable(info.current, info.latest)
 }

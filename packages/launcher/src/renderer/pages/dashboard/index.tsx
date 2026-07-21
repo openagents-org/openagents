@@ -18,6 +18,7 @@ import { QuickActions } from "../../components/dashboard/QuickActions"
 import type { Agent, AgentUpdateInfo } from "../../types"
 import { useUpdateDismissals } from "../../hooks/useUpdateDismissals"
 import type { ToastType } from "../../hooks/useToast"
+import { isUpgradeAvailable } from "../../../shared/version-compare"
 
 interface DashboardProps {
   showToast: (message: string, type?: ToastType) => void
@@ -94,10 +95,8 @@ export default function Dashboard({
 
   const pendingUpdates = updates.filter(
     (u: AgentUpdateInfo) =>
-      u.current &&
-      u.latest &&
-      u.current !== u.latest &&
-      !isDismissed(u.name, u.latest),
+      isUpgradeAvailable(u.current, u.latest) &&
+      !isDismissed(u.name, u.latest!),
   )
 
   useEffect(() => {

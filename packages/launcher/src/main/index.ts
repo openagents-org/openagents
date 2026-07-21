@@ -16,6 +16,7 @@ import { pipeline } from "stream/promises"
 import { Transform } from "stream"
 import { execSync, execFile, execFileSync, spawnSync } from "child_process"
 import { Store } from "./store"
+import { isUpgradeAvailable } from "../shared/version-compare"
 import { readPathEnv, writePathEnv, withPathEnv } from "./env"
 import { AgentManager, type ChatStreamEvent } from "./agent-manager"
 import {
@@ -1054,8 +1055,8 @@ async function refreshAgentUpdates(): Promise<void> {
   if (!agentManager) return
   try {
     const all = await agentManager.checkAgentUpdates({ force: true })
-    _pendingAgentUpdates = all.filter(
-      (u) => u.current && u.latest && u.current !== u.latest,
+    _pendingAgentUpdates = all.filter((u) =>
+      isUpgradeAvailable(u.current, u.latest),
     )
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("agent-updates-changed", _pendingAgentUpdates)
