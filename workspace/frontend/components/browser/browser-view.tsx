@@ -7,8 +7,11 @@ import { useLayout } from '@/components/layout/layout-context';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 
 export function BrowserView() {
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const {
     browserTabs, selectedBrowserTabId, setSelectedBrowserTabId,
     closeBrowserTab, navigateBrowserTab, reconnectBrowserTab, persistBrowserTab, unpersistBrowserTab, browserContexts,
@@ -166,7 +169,12 @@ export function BrowserView() {
 
   const handlePersist = async () => {
     if (!tab || tab.contextId) return;
-    const name = prompt('Give this session a name (e.g. "LinkedIn Account", "Google Search Console"):');
+    const name = await prompt({
+      title: 'Save this session',
+      description: 'Give it a name so you can reuse the saved login later.',
+      placeholder: 'e.g. LinkedIn Account, Google Search Console',
+      confirmText: 'Save',
+    });
     if (!name?.trim()) return;
     try {
       await persistBrowserTab(tab.id, name.trim());
@@ -180,7 +188,13 @@ export function BrowserView() {
     if (!tab || !tab.contextId) return;
     const ctx = browserContexts.find((c) => c.id === tab.contextId);
     const label = ctx?.name || 'this tab';
-    if (!confirm(`Remove persistent state from "${label}"? The saved cookies and login state will be deleted.`)) return;
+    const ok = await confirm({
+      title: 'Remove persistent state?',
+      description: `The saved cookies and login state for "${label}" will be deleted.`,
+      confirmText: 'Remove',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await unpersistBrowserTab(tab.id);
       toast.success('Tab is now temporal');

@@ -14,8 +14,17 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogBody,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerBody,
+  DrawerFooter,
+} from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
 
 import { Label } from '@/components/ui/label';
@@ -83,15 +92,32 @@ export function SidebarContent() {
   const isDark = mounted && theme === 'dark';
   const toggleTheme = () => setTheme(isDark ? 'light' : 'dark');
 
-  const handleCopyToken = () => {
+  const handleCopyToken = async () => {
     if (!token) {
       toast.error('No management token available');
       return;
     }
-    navigator.clipboard.writeText(token);
-    setTokenCopied(true);
-    toast.success('Management token copied');
-    setTimeout(() => setTokenCopied(false), 2000);
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(token);
+      } else {
+        // Fallback for in-app browsers / insecure contexts without the Clipboard API
+        const ta = document.createElement('textarea');
+        ta.value = token;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setTokenCopied(true);
+      toast.success('Management token copied');
+      setTimeout(() => setTokenCopied(false), 2000);
+    } catch {
+      toast.error('Failed to copy token');
+    }
   };
 
   // Always open the agent picker so the user chooses which agents join the
@@ -297,7 +323,7 @@ export function SidebarContent() {
             <NavButton active={viewMode === 'connect'} icon={<PlusSquare className="size-[15px]" />} label="Connect Agent" onClick={() => setViewMode('connect')} />
           )}
         </div>
-        <div className="shrink-0 border-t border-border px-2.5 py-2.5 space-y-1">
+        <div className="shrink-0 border-t border-border px-2.5 pt-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))] space-y-1">
           {/* Logged-in user details */}
           {isOpenAgentsDomain && user && (
             <div className="px-2 py-1.5 space-y-2">
@@ -388,7 +414,7 @@ function SettingsDialogPortal({ open, onOpenChange, workspace, refreshWorkspace 
   const { isCopied: urlCopied, copyToClipboard: copyUrl } = useCopyToClipboard();
   const { isCopied: tokenCopied, copyToClipboard: copyToken } = useCopyToClipboard();
   const { notificationSound, setNotificationSound } = useWorkspace();
-  const { splitBrowser, setSplitBrowser } = useLayout();
+  const { splitBrowser, setSplitBrowser, isMobile } = useLayout();
   const [collabEmail, setCollabEmail] = useState('');
   const [collabAdding, setCollabAdding] = useState(false);
   const [collaborators, setCollaborators] = useState<WorkspaceCollaborator[]>([]);
@@ -430,11 +456,8 @@ function SettingsDialogPortal({ open, onOpenChange, workspace, refreshWorkspace 
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>Workspace Settings</DialogTitle></DialogHeader>
-        <div className="space-y-6 py-4">
+  const formBody = (
+        <div className="space-y-6 py-1">
           <div className="space-y-2">
             <Label>Workspace Name</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My Workspace" />
@@ -598,6 +621,32 @@ function SettingsDialogPortal({ open, onOpenChange, workspace, refreshWorkspace 
           </div>
 
         </div>
+  );
+
+  // ── Mobile: bottom drawer with pull-down-to-close (vaul) ──
+  if (isMobile) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent className="max-h-[90vh] pb-[env(safe-area-inset-bottom)]">
+          <DrawerHeader>
+            <DrawerTitle>Workspace Settings</DrawerTitle>
+          </DrawerHeader>
+          <DrawerBody>{formBody}</DrawerBody>
+          <DrawerFooter className="flex-row pt-4 pb-2">
+            <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button className="flex-1" onClick={handleSave} disabled={saving || !name.trim()}>{saving ? 'Saving...' : 'Save'}</Button>
+          </DrawerFooter>
+        </DrawerContent>
+      </Drawer>
+    );
+  }
+
+  // ── Desktop: centered dialog ──
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader><DialogTitle>Workspace Settings</DialogTitle></DialogHeader>
+        <DialogBody>{formBody}</DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSave} disabled={saving || !name.trim()}>{saving ? 'Saving...' : 'Save'}</Button>

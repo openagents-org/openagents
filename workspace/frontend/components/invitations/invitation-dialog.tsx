@@ -5,9 +5,10 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
+  DialogBody,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog';
+} from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -94,7 +95,7 @@ export function InvitationDialog() {
           <DialogTitle>Invite Agent</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <DialogBody className="space-y-4 py-1">
           {/* Create invitation */}
           <div className="space-y-2">
             <Label>Agent Name</Label>
@@ -152,7 +153,7 @@ export function InvitationDialog() {
               </div>
             </div>
           )}
-        </div>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   );

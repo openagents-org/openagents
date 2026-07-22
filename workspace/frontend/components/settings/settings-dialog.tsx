@@ -6,6 +6,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogBody,
   DialogFooter,
   DialogTrigger,
 } from '@/components/ui/dialog';
@@ -90,12 +91,12 @@ export function SettingsDialog({ workspace }: SettingsDialogProps) {
           <Settings className="size-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Workspace Settings</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
+        <DialogBody className="space-y-6 py-1">
           {/* Workspace name */}
           <div className="space-y-2">
             <Label>Workspace Name</Label>
@@ -189,7 +190,7 @@ export function SettingsDialog({ workspace }: SettingsDialogProps) {
             </div>
           )}
 
-        </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>

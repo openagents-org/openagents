@@ -7,12 +7,16 @@ import { Dialog as DialogPrimitive } from 'radix-ui';
 import { cn } from '@/lib/utils';
 
 const dialogContentVariants = cva(
-  'flex flex-col fixed outline-0 z-50 border border-border bg-background p-6 shadow-lg shadow-black/5 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg',
+  // Standard dialog layout: the content box itself never scrolls (overflow-hidden) —
+  // it's a flex column so <DialogHeader> and <DialogFooter> stay pinned while the
+  // scrollable middle lives in <DialogBody>. This keeps the title/footer fixed and
+  // avoids the white overscroll strip you get when the whole padded box scrolls.
+  'flex flex-col fixed outline-0 z-60 overflow-hidden border border-border bg-background shadow-lg shadow-black/5 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg',
   {
     variants: {
       variant: {
         default:
-          'left-[50%] top-[50%] max-w-lg translate-x-[-50%] translate-y-[-50%] w-full',
+          'left-[50%] top-[50%] max-w-lg max-h-[85vh] translate-x-[-50%] translate-y-[-50%] w-full',
         fullscreen: 'inset-5',
       },
     },
@@ -54,7 +58,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        'fixed inset-0 z-50 bg-black/30 [backdrop-filter:blur(4px)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+        'fixed inset-0 z-60 bg-black/30 [backdrop-filter:blur(4px)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         className,
       )}
       {...props}
@@ -103,7 +107,9 @@ const DialogHeader = ({
   <div
     data-slot="dialog-header"
     className={cn(
-      'flex flex-col space-y-1 text-center sm:text-start mb-5',
+      // shrink-0 keeps the header pinned; padding lives here (not on DialogContent)
+      // so the scrollable DialogBody can sit flush beneath it.
+      'flex flex-col space-y-1 text-center sm:text-start shrink-0 px-6 pt-6 pb-4',
       className,
     )}
     {...props}
@@ -117,7 +123,8 @@ const DialogFooter = ({
   <div
     data-slot="dialog-footer"
     className={cn(
-      'flex flex-col-reverse sm:flex-row sm:justify-end pt-5 sm:space-x-2.5',
+      // shrink-0 pins the footer to the bottom while DialogBody scrolls.
+      'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-0 sm:space-x-2.5 shrink-0 px-6 pt-4 pb-6',
       className,
     )}
     {...props}
@@ -144,7 +151,16 @@ const DialogBody = ({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div data-slot="dialog-body" className={cn('grow', className)} {...props} />
+  <div
+    data-slot="dialog-body"
+    className={cn(
+      // The only scrollable region. min-h-0 lets it shrink inside the flex column;
+      // the scrollbar is hidden (design spec) but scrolling/overscroll still works.
+      'grow min-h-0 overflow-y-auto overscroll-contain px-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+      className,
+    )}
+    {...props}
+  />
 );
 
 function DialogDescription({
