@@ -95,7 +95,7 @@ class GeminiAdapter extends BaseAdapter {
     for (const [channel, proc] of entries) {
       await this._stopProcess(proc);
       delete this._channelProcesses[channel];
-      delete this._channelQueues[channel];
+      this._clearChannelQueue(channel, 'cancelled');
       try {
         await this.sendStatus(channel, 'Execution stopped by user');
       } catch {}

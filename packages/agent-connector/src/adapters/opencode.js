@@ -149,7 +149,7 @@ class OpenCodeAdapter extends BaseAdapter {
           await this._stopProcess(proc);
           delete this._channelProcesses[channel];
         }
-        delete this._channelQueues[channel];
+        this._clearChannelQueue(channel, 'cancelled');
         if (proc || hadQueuedWork) {
           try {
             await this.sendResponse(channel, 'Execution stopped by user.');
@@ -594,7 +594,7 @@ class OpenCodeAdapter extends BaseAdapter {
       this._stoppingChannels.add(channel);
       await this._stopProcess(proc);
       delete this._channelProcesses[channel];
-      delete this._channelQueues[channel];
+      this._clearChannelQueue(channel, 'cancelled');
       try {
         await this.sendResponse(channel, completionMessage);
       } catch {}

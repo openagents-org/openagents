@@ -21,6 +21,14 @@ interface QueuedMessage {
   content: string;
 }
 
+// Any of these means the queue entry reached a terminal state and must not be
+// rendered as pending anymore (see agent-connector BaseAdapter, issue #492).
+const TERMINAL_QUEUE_STATUSES = new Set(['processed', 'expired', 'cancelled', 'dropped']);
+// Queue entries are inferred from durable message history, which can contain
+// orphans (agent crashed before emitting a terminal event). Anything older
+// than the connector-side queue TTL cannot still be live — hide it.
+const QUEUE_ENTRY_MAX_AGE_MS = 15 * 60 * 1000;
+
 export function ThreadStatusBar({ channelName, messages = [] }: { channelName: string; messages?: WorkspaceMessage[] }) {
   const { todos, refreshTodos } = useWorkspace();
   const [timers, setTimers] = useState<TimerItem[]>([]);
@@ -58,16 +66,17 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
 
   // Extract queued messages from status messages with queue metadata
   const queuedMessages = useMemo(() => {
-    // First pass: collect queue IDs that have been processed
-    const processedIds = new Set<string>();
+    // First pass: collect queue IDs that reached any terminal state
+    const resolvedIds = new Set<string>();
     for (const msg of messages) {
       if (msg.messageType !== 'status') continue;
       const meta = msg.metadata as Record<string, unknown> | undefined;
-      if (meta?.queue_id && meta?.queue_status === 'processed') {
-        processedIds.add(meta.queue_id as string);
+      if (meta?.queue_id && TERMINAL_QUEUE_STATUSES.has(meta.queue_status as string)) {
+        resolvedIds.add(meta.queue_id as string);
       }
     }
 
+    const now = Date.now();
     const queued: QueuedMessage[] = [];
     const seen = new Set<string>();
     // Walk messages in reverse to get latest state per queue_id
@@ -77,8 +86,9 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
       const meta = msg.metadata as Record<string, unknown> | undefined;
       if (!meta?.queue_id || !meta?.queued_message) continue;
       const qid = meta.queue_id as string;
-      if (seen.has(qid) || cancelledQueueIds.has(qid) || processedIds.has(qid)) continue;
+      if (seen.has(qid) || cancelledQueueIds.has(qid) || resolvedIds.has(qid)) continue;
       seen.add(qid);
+      if (msg.createdAt && now - new Date(msg.createdAt).getTime() > QUEUE_ENTRY_MAX_AGE_MS) continue;
       queued.push({ queueId: qid, content: meta.queued_message as string });
     }
     return queued.reverse();

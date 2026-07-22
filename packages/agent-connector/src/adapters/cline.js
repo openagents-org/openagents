@@ -138,7 +138,7 @@ class ClineAdapter extends BaseAdapter {
         this._stoppingChannels.add(channel);
         await this._stopProcess(this._channelProcesses[channel]);
         delete this._channelProcesses[channel];
-        delete this._channelQueues[channel];
+        this._clearChannelQueue(channel, 'cancelled');
         try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
       } else {
         await this._stopAllProcesses('Execution stopped by user.');
@@ -186,7 +186,7 @@ class ClineAdapter extends BaseAdapter {
       this._stoppingChannels.add(channel);
       await this._stopProcess(proc);
       delete this._channelProcesses[channel];
-      delete this._channelQueues[channel];
+      this._clearChannelQueue(channel, 'cancelled');
       try { await this.sendResponse(channel, message); } catch {}
     }
   }

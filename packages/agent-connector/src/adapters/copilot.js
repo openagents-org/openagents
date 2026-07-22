@@ -339,7 +339,7 @@ class CopilotAdapter extends BaseAdapter {
         this._stoppingChannels.add(channel);
         await this._stopProcess(this._channelProcesses[channel]);
         delete this._channelProcesses[channel];
-        delete this._channelQueues[channel];
+        this._clearChannelQueue(channel, 'cancelled');
         try { await this.sendStatus(channel, 'Execution stopped by user'); } catch {}
       } else {
         for (const [ch, proc] of Object.entries(this._channelProcesses)) {

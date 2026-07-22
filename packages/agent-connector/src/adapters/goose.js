@@ -294,7 +294,7 @@ class GooseAdapter extends BaseAdapter {
       await this._stopProcess(proc);
       delete this._channelProcesses[channel];
     }
-    delete this._channelQueues[channel];
+    this._clearChannelQueue(channel, 'cancelled');
     if (proc || hadQueue) {
       try { await this.sendStatus(channel, message); } catch {}
     }

@@ -64,7 +64,7 @@ class CursorAdapter extends BaseAdapter {
         this._stoppingChannels.add(channel);
         await this._stopProcess(this._channelProcesses[channel]);
         delete this._channelProcesses[channel];
-        delete this._channelQueues[channel];
+        this._clearChannelQueue(channel, 'cancelled');
         try { await this.sendResponse(channel, 'Execution stopped.'); } catch {}
       } else {
         await this._stopAllProcesses('Execution stopped.');
@@ -76,7 +76,7 @@ class CursorAdapter extends BaseAdapter {
           this._stoppingChannels.add(channel);
           await this._stopProcess(this._channelProcesses[channel]);
           delete this._channelProcesses[channel];
-          delete this._channelQueues[channel];
+          this._clearChannelQueue(channel, 'cancelled');
         }
         delete this._channelSessions[channel];
         this._saveSessions();
@@ -162,7 +162,7 @@ class CursorAdapter extends BaseAdapter {
       this._stoppingChannels.add(channel);
       await this._stopProcess(proc);
       delete this._channelProcesses[channel];
-      delete this._channelQueues[channel];
+      this._clearChannelQueue(channel, 'cancelled');
       try { await this.sendResponse(channel, completionMessage); } catch {}
     }
   }

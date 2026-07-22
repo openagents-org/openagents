@@ -35,6 +35,16 @@ const DEFAULT_ENDPOINT = 'https://workspace-endpoint.openagents.org';
 // heartbeat_failed up to the daemon. A success resets the streak immediately.
 const HEARTBEAT_ERROR_THRESHOLD = 2;
 
+// Per-channel queue guards (issue #492). A hung channel (e.g. the model behind
+// an agent stops answering) plus a chatty orchestrator used to grow the
+// in-memory queue without bound, and every enqueue posted a durable status
+// event — so one stuck agent turned into an event storm that survived restarts
+// (orphaned "queued" events with no terminal state). Bound the queue, expire
+// stale entries, and always emit a terminal queue_status so viewers can stop
+// rendering an entry as pending.
+const MAX_QUEUE_PER_CHANNEL = 20;
+const QUEUE_TTL_MS = 10 * 60 * 1000;
+
 class BaseAdapter {
   /**
    * @param {object} opts
@@ -80,6 +90,9 @@ class BaseAdapter {
     // Per-channel task tracking for parallel execution
     this._channelBusy = new Set();
     this._channelQueues = {};
+    // Channels that already posted a "queue full" notice this overflow episode,
+    // so a message storm produces one durable event, not one per dropped message.
+    this._queueOverflowNotified = new Set();
     // Cached workspace.browser_enabled. Populated lazily on first read so we
     // don't pay an HTTP roundtrip per message — adapters that toggle the
     // workspace flag must reconnect/restart to pick up the change (matches
@@ -217,6 +230,7 @@ class BaseAdapter {
       this._wakeControlPoller();
       clearInterval(heartbeatInterval);
       try { await controlPoller; } catch {}
+      try { await this._flushQueues('cancelled'); } catch {}
       try {
         await this.client.disconnect(this.workspaceId, this.agentName, this.token);
       } catch {}
@@ -717,9 +731,27 @@ class BaseAdapter {
         return;
       }
       if (!this._channelQueues[channel]) this._channelQueues[channel] = [];
+      const queue = this._channelQueues[channel];
+      if (queue.length >= MAX_QUEUE_PER_CHANNEL) {
+        // Drop the overflow instead of queueing it: each queued entry costs a
+        // durable status event, so an unbounded queue is what amplifies a stuck
+        // channel into an event storm. Entries already in the queue keep their
+        // slot (TTL prunes stale ones at drain time).
+        this._log(`Queue full (${queue.length}) in ${channel} — dropping message from ${msg.senderName || 'unknown'}`);
+        if (!this._queueOverflowNotified.has(channel)) {
+          this._queueOverflowNotified.add(channel);
+          try {
+            await this.sendStatus(channel, `queue full (${MAX_QUEUE_PER_CHANNEL}) — dropping new messages until the current task finishes`, {
+              queue_status: 'overflow',
+            });
+          } catch {}
+        }
+        return;
+      }
       const queueId = `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       msg._queueId = queueId;
-      this._channelQueues[channel].push(msg);
+      msg._queuedAt = Date.now();
+      queue.push(msg);
       try {
         await this.sendStatus(channel, 'message queued — will process after current task', {
           queued_message: (msg.content || '').slice(0, 200),
@@ -741,7 +773,46 @@ class BaseAdapter {
     if (idx === -1) return false;
     queue.splice(idx, 1);
     this._log(`Cancelled queued message ${queueId} in ${channel}`);
+    // Terminal event so every viewer — not just the client that cancelled —
+    // stops rendering the entry as pending.
+    this.sendStatus(channel, 'queued message cancelled', { queue_id: queueId, queue_status: 'cancelled' }).catch(() => {});
     return true;
+  }
+
+  /**
+   * Drop all queued messages for a channel, emitting a terminal status event
+   * for each advertised entry (#492). Fire-and-forget so sync stop paths can
+   * call it in place of `delete this._channelQueues[channel]`.
+   */
+  _clearChannelQueue(channel, reason = 'cancelled') {
+    const queue = this._channelQueues[channel];
+    delete this._channelQueues[channel];
+    this._queueOverflowNotified.delete(channel);
+    if (!queue) return;
+    for (const m of queue) {
+      if (!m._queueId) continue;
+      this.sendStatus(channel, `queued message ${reason}`, { queue_id: m._queueId, queue_status: reason }).catch(() => {});
+    }
+  }
+
+  /**
+   * Drain every channel queue with a terminal status per entry. Awaited during
+   * shutdown so queued work gets an explicit terminal state instead of
+   * vanishing with the process and leaving orphaned "queued" events behind.
+   */
+  async _flushQueues(reason = 'cancelled') {
+    for (const channel of Object.keys(this._channelQueues)) {
+      const queue = this._channelQueues[channel];
+      delete this._channelQueues[channel];
+      if (!queue) continue;
+      for (const m of queue) {
+        if (!m._queueId) continue;
+        try {
+          await this.sendStatus(channel, `queued message ${reason}`, { queue_id: m._queueId, queue_status: reason });
+        } catch {}
+      }
+    }
+    this._queueOverflowNotified.clear();
   }
 
   async _channelWorker(channel, msg) {
@@ -758,6 +829,13 @@ class BaseAdapter {
       const queue = this._channelQueues[channel];
       if (!queue || queue.length === 0) break;
       const nextMsg = queue.shift();
+      if (nextMsg._queuedAt && Date.now() - nextMsg._queuedAt > QUEUE_TTL_MS) {
+        this._log(`Dropping expired queued message in ${channel} (queued ${Math.round((Date.now() - nextMsg._queuedAt) / 1000)}s ago)`);
+        if (nextMsg._queueId) {
+          try { await this.sendStatus(channel, 'queued message expired — dropped without processing', { queue_id: nextMsg._queueId, queue_status: 'expired' }); } catch {}
+        }
+        continue;
+      }
       if (nextMsg._queueId) {
         try { await this.sendStatus(channel, 'processing queued message', { queue_id: nextMsg._queueId, queue_status: 'processed' }); } catch {}
       }
@@ -769,6 +847,7 @@ class BaseAdapter {
       }
     }
     this._channelBusy.delete(channel);
+    this._queueOverflowNotified.delete(channel);
   }
 
   // ------------------------------------------------------------------

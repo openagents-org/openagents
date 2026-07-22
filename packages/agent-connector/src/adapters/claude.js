@@ -89,7 +89,7 @@ class ClaudeAdapter extends BaseAdapter {
         const proc = this._channelProcesses[channel];
         await this._stopProcess(proc);
         delete this._channelProcesses[channel];
-        delete this._channelQueues[channel];
+        this._clearChannelQueue(channel, 'cancelled');
         await this._postStopNotice(channel);
       } else {
         for (const pp of Object.values(this._persistentProcs)) pp.userStopped = true;
@@ -285,7 +285,7 @@ class ClaudeAdapter extends BaseAdapter {
       this._stoppingChannels.add(channel);
       await this._stopProcess(proc);
       delete this._channelProcesses[channel];
-      delete this._channelQueues[channel];
+      this._clearChannelQueue(channel, 'cancelled');
       try {
         await this.sendResponse(channel, completionMessage);
       } catch {}
