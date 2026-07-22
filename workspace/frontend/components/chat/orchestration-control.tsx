@@ -17,8 +17,9 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
+  DialogBody,
   DialogFooter,
-} from '@/components/ui/dialog';
+} from '@/components/ui/responsive-dialog';
 import { cn } from '@/lib/utils';
 import type { WorkspaceSession, WorkspaceAgent } from '@/lib/types';
 
@@ -241,7 +242,7 @@ function WorkflowPlanDialog({ open, onOpenChange, agents, initialValue, onSave }
           </DialogDescription>
         </DialogHeader>
 
-        <div className="relative">
+        <DialogBody className="relative py-1 overflow-visible">
           <textarea
             ref={textareaRef}
             value={value}
@@ -282,13 +283,13 @@ function WorkflowPlanDialog({ open, onOpenChange, agents, initialValue, onSave }
               ))}
             </div>
           )}
-        </div>
+        </DialogBody>
 
         <DialogFooter>
-          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button size="sm" onClick={save}>
+          <Button onClick={save}>
             Save plan
           </Button>
         </DialogFooter>

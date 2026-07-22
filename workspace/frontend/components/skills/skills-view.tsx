@@ -10,10 +10,11 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import {
   Dialog,
   DialogContent,
+  DialogBody,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
+} from '@/components/ui/responsive-dialog';
 import { toast } from 'sonner';
 
 // ---------------------------------------------------------------------------
@@ -711,7 +712,7 @@ function UploadSkillDialog({
           <DialogTitle>Upload custom skill</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <DialogBody className="space-y-3 py-1">
           {/* File picker */}
           <div>
             <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
@@ -789,7 +790,7 @@ function UploadSkillDialog({
               <p className="text-[11px] text-red-600 dark:text-red-400">{error}</p>
             </div>
           )}
-        </div>
+        </DialogBody>
 
         <DialogFooter>
           <button

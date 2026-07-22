@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Check, Copy, Link, Loader2 } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogBody, DialogTitle, DialogDescription } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
@@ -52,7 +52,7 @@ export function ShareDialog({ open, onOpenChange, sessionId }: ShareDialogProps)
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <DialogBody className="space-y-4 py-1">
           {!shareUrl && !loading && !error && (
             <Button onClick={handleCreateShare} className="w-full">
               <Link className="size-4 mr-2" />
@@ -109,7 +109,7 @@ export function ShareDialog({ open, onOpenChange, sessionId }: ShareDialogProps)
               </p>
             </div>
           )}
-        </div>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   );

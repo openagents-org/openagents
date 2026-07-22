@@ -6,6 +6,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -35,6 +36,8 @@ export function BrowserTabList() {
     browserContexts, openBrowserTabWithContext, deleteBrowserContext,
   } = useWorkspace();
   const { isMobile, openMobileDetail } = useLayout();
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const [opening, setOpening] = useState(false);
 
   // Split tabs into persistent (on top) and regular
@@ -46,7 +49,13 @@ export function BrowserTabList() {
   const idleContexts = browserContexts.filter((c) => !activeContextIds.has(c.id));
 
   const handleOpen = async () => {
-    const url = prompt('Enter URL (or leave blank for about:blank):', 'https://');
+    const url = await prompt({
+      title: 'Open a browser tab',
+      description: 'Enter a URL, or leave blank for about:blank.',
+      placeholder: 'https://',
+      defaultValue: 'https://',
+      confirmText: 'Open',
+    });
     if (url === null) return;
     setOpening(true);
     try {
@@ -87,7 +96,13 @@ export function BrowserTabList() {
 
   const handleDeleteContext = async (e: React.MouseEvent, contextId: string, name: string) => {
     e.stopPropagation();
-    if (!confirm(`Delete saved session "${name}"? This will permanently remove the stored cookies and login state.`)) return;
+    const ok = await confirm({
+      title: 'Delete saved session?',
+      description: `"${name}" will be permanently removed, including its stored cookies and login state.`,
+      confirmText: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await deleteBrowserContext(contextId);
       toast.success('Saved session deleted');

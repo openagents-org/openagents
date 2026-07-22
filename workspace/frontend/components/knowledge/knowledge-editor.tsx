@@ -6,8 +6,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogBody,
   DialogFooter,
-} from '@/components/ui/dialog';
+} from '@/components/ui/responsive-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -71,12 +72,12 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved }: KnowledgeEdit
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEditing ? 'Edit Knowledge Entry' : 'New Knowledge Entry'}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 flex-1 overflow-y-auto py-2">
+        <DialogBody className="space-y-4 py-1">
           <div className="space-y-2">
             <Label htmlFor="kb-title">Title</Label>
             <Input
@@ -107,7 +108,7 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved }: KnowledgeEdit
               className="w-full min-h-[300px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
           </div>
-        </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>

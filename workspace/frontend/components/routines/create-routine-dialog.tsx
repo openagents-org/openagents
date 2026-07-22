@@ -4,9 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
+  DialogHeader,
+  DialogBody,
+  DialogFooter,
   DialogTitle,
   DialogDescription,
-} from '@/components/ui/dialog';
+} from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
@@ -121,13 +124,15 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
-        <DialogTitle>Create Routine</DialogTitle>
-        <DialogDescription className="text-sm text-muted-foreground">
-          Set up a recurring task for an agent.
-        </DialogDescription>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Create Routine</DialogTitle>
+          <DialogDescription>
+            Set up a recurring task for an agent.
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="mt-3 space-y-4">
+        <DialogBody className="space-y-4 py-1">
           {/* Task description */}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">What should the agent do?</label>
@@ -295,13 +300,13 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
           {error && (
             <p className="text-xs text-red-500">{error}</p>
           )}
-        </div>
+        </DialogBody>
 
-        <div className="flex justify-end gap-2 mt-4">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={submitting}>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancel
           </Button>
-          <Button size="sm" onClick={handleSubmit} disabled={!isValid || submitting}>
+          <Button onClick={handleSubmit} disabled={!isValid || submitting}>
             {submitting ? (
               <>
                 <Loader2 className="size-3.5 animate-spin mr-1.5" />
@@ -311,7 +316,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
               'Create Routine'
             )}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

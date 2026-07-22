@@ -5,6 +5,7 @@ import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
 import { AuthProvider } from '@/lib/auth-context';
 import { OpenAgentsAuthProvider } from '@/lib/openagents-auth-context';
+import { DialogsProvider } from '@/components/ui/dialogs-provider';
 import '@/styles/globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -75,7 +76,9 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
           <AuthProvider>
             <OpenAgentsAuthProvider>
-              {children}
+              <DialogsProvider>
+                {children}
+              </DialogsProvider>
             </OpenAgentsAuthProvider>
           </AuthProvider>
           <Toaster />
