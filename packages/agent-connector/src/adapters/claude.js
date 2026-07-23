@@ -971,6 +971,15 @@ class ClaudeAdapter extends BaseAdapter {
           try { await this.sendResponse(msgChannel, fullResponse); } catch {}
         } else if (existingPP.lastErrorText) {
           try { await this.sendError(msgChannel, this._formatClaudeError(existingPP.lastErrorText)); } catch {}
+        } else if (!existingPP.everPostedAnything) {
+          // Error with no text and no error message — don't leave the UI stuck
+          // on "thinking…". Reset the (possibly corrupt) session and tell the user.
+          if (this._channelSessions[msgChannel]) {
+            delete this._channelSessions[msgChannel];
+            try { this._saveSessions(); } catch {}
+            this._log(`Empty-error result — cleared session for ${msgChannel}`);
+          }
+          try { await this.sendError(msgChannel, 'The agent hit an error and could not respond. The session was reset — please send the message again.'); } catch {}
         }
         this._resetIdleTimer(msgChannel);
         if (!msg._todoNudge) {
@@ -1145,6 +1154,19 @@ class ClaudeAdapter extends BaseAdapter {
           // Claude finished with an error and no assistant text (e.g. 401 invalid
           // token). Surface it instead of silently dropping the turn.
           try { await this.sendError(msgChannel, this._formatClaudeError(pp.lastErrorText)); } catch {}
+        } else if (!pp.everPostedAnything) {
+          // Claude ended in error with NO assistant text AND an empty error
+          // message (e.g. a fast code=1 crash while resuming a corrupt session).
+          // Without this the turn is silently dropped and the UI hangs forever on
+          // "thinking…". Clear the (possibly bad) session so the next message
+          // starts fresh instead of re-resuming the same broken state, and tell
+          // the user rather than leaving a dead spinner.
+          if (this._channelSessions[msgChannel]) {
+            delete this._channelSessions[msgChannel];
+            try { this._saveSessions(); } catch {}
+            this._log(`Empty-error result — cleared session for ${msgChannel}`);
+          }
+          try { await this.sendError(msgChannel, 'The agent hit an error and could not respond. The session was reset — please send the message again.'); } catch {}
         }
 
         this._resetIdleTimer(msgChannel);
