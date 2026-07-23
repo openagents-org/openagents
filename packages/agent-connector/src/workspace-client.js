@@ -19,6 +19,29 @@ class SessionRevokedError extends Error {
 }
 
 /**
+ * Build a transport error for an HTTP >= 400 response. The message text is
+ * left byte-for-byte identical to the legacy `new Error(message)`; this only
+ * ATTACHES a structured `statusCode` so callers can classify by status code
+ * instead of parsing message strings. No change to return shape or behavior.
+ */
+function httpError(message, statusCode) {
+  const e = new Error(message);
+  if (typeof statusCode === 'number') e.statusCode = statusCode;
+  return e;
+}
+
+/**
+ * Build a request-timeout error. Message text identical to the legacy
+ * `new Error('Request timed out')`; only ATTACHES `code = 'ETIMEDOUT'` so
+ * callers can classify it as a retryable network error.
+ */
+function timeoutError() {
+  const e = new Error('Request timed out');
+  e.code = 'ETIMEDOUT';
+  return e;
+}
+
+/**
  * HTTP client for workspace API operations.
  *
  * Mirrors the Python SDK's WorkspaceClient — same endpoints, same
@@ -806,7 +829,7 @@ class WorkspaceClient {
           try {
             const parsed = JSON.parse(data);
             if (res.statusCode >= 400) {
-              reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+              reject(httpError(parsed.message || `HTTP ${res.statusCode}`, res.statusCode));
             } else {
               resolve(parsed);
             }
@@ -817,7 +840,7 @@ class WorkspaceClient {
       });
 
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('timeout', () => { req.destroy(); reject(timeoutError()); });
       req.end();
     });
   }
@@ -840,7 +863,7 @@ class WorkspaceClient {
         res.on('end', () => {
           const buf = Buffer.concat(chunks);
           if (res.statusCode >= 400) {
-            reject(new Error(`HTTP ${res.statusCode}: ${buf.toString('utf-8').slice(0, 200)}`));
+            reject(httpError(`HTTP ${res.statusCode}: ${buf.toString('utf-8').slice(0, 200)}`, res.statusCode));
           } else {
             resolve(buf);
           }
@@ -848,7 +871,7 @@ class WorkspaceClient {
       });
 
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('timeout', () => { req.destroy(); reject(timeoutError()); });
       req.end();
     });
   }
@@ -878,7 +901,7 @@ class WorkspaceClient {
               if (typeof msg === 'string' && msg.toLowerCase().includes('session_revoked')) {
                 reject(new SessionRevokedError(msg));
               } else {
-                reject(new Error(msg));
+                reject(httpError(msg, res.statusCode));
               }
             } else {
               resolve(parsed);
@@ -890,7 +913,7 @@ class WorkspaceClient {
       });
 
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('timeout', () => { req.destroy(); reject(timeoutError()); });
       req.write(jsonBody);
       req.end();
     });
@@ -921,7 +944,7 @@ class WorkspaceClient {
               if (typeof msg === 'string' && msg.toLowerCase().includes('session_revoked')) {
                 reject(new SessionRevokedError(msg));
               } else {
-                reject(new Error(msg));
+                reject(httpError(msg, res.statusCode));
               }
             } else {
               resolve(parsed);
@@ -933,7 +956,7 @@ class WorkspaceClient {
       });
 
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('timeout', () => { req.destroy(); reject(timeoutError()); });
       req.write(jsonBody);
       req.end();
     });
@@ -960,7 +983,7 @@ class WorkspaceClient {
           try {
             const parsed = JSON.parse(data);
             if (res.statusCode >= 400) {
-              reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+              reject(httpError(parsed.message || `HTTP ${res.statusCode}`, res.statusCode));
             } else {
               resolve(parsed);
             }
@@ -971,7 +994,7 @@ class WorkspaceClient {
       });
 
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('timeout', () => { req.destroy(); reject(timeoutError()); });
       req.write(jsonBody);
       req.end();
     });
@@ -996,7 +1019,7 @@ class WorkspaceClient {
           try {
             const parsed = JSON.parse(data);
             if (res.statusCode >= 400) {
-              reject(new Error(parsed.message || `HTTP ${res.statusCode}`));
+              reject(httpError(parsed.message || `HTTP ${res.statusCode}`, res.statusCode));
             } else {
               resolve(parsed);
             }
@@ -1007,7 +1030,7 @@ class WorkspaceClient {
       });
 
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Request timed out')); });
+      req.on('timeout', () => { req.destroy(); reject(timeoutError()); });
       req.end();
     });
   }
