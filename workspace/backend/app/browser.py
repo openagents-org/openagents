@@ -25,6 +25,12 @@ BROWSERFABRIC_PROVISION_SECRET = os.environ.get("BROWSERFABRIC_PROVISION_SECRET"
 
 CLOSE_SESSION_RETRIES = 3
 
+# render_page_text: how long to let a JS page settle before snapshotting, and
+# how many times to retry while it still looks like an empty shell.
+RENDER_SETTLE_SECONDS = float(os.environ.get("RENDER_SETTLE_SECONDS", "1.5"))
+RENDER_SETTLE_ATTEMPTS = int(os.environ.get("RENDER_SETTLE_ATTEMPTS", "3"))
+RENDER_MIN_TEXT_CHARS = int(os.environ.get("RENDER_MIN_TEXT_CHARS", "50"))
+
 
 class BrowserNavigationError(RuntimeError):
     """Navigation failure with a machine-readable code the agent can act on."""
@@ -493,13 +499,22 @@ class BrowserManager:
                     )
                 except Exception as e:
                     raise BrowserNavigationError(classify_navigation_error(e), str(e)[:500]) from e
-                snap = await self._bf_call("snapshot", {}, session_id, api_key=key)
+                # domcontentloaded fires before client-side frameworks (Notion,
+                # SPAs) paint. Snapshot after a short settle and retry while the
+                # page is still an empty shell, bounded by RENDER_SETTLE_ATTEMPTS.
+                text = ""
+                for attempt in range(RENDER_SETTLE_ATTEMPTS):
+                    await asyncio.sleep(RENDER_SETTLE_SECONDS)
+                    snap = await self._bf_call("snapshot", {}, session_id, api_key=key)
+                    text = snap.get("result", {}).get("snapshot", "") or ""
+                    if len(text.strip()) >= RENDER_MIN_TEXT_CHARS:
+                        break
                 info = await self._bf_call("get_page_info", {}, session_id, api_key=key)
                 page_info = info.get("result", {})
                 return {
                     "url": page_info.get("url", url),
                     "title": page_info.get("title", ""),
-                    "text": snap.get("result", {}).get("snapshot", ""),
+                    "text": text,
                 }
             finally:
                 try:

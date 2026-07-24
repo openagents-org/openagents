@@ -8,6 +8,8 @@ Static HTTP and browser rendering are mocked; the chain logic
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.browser import BrowserNavigationError
 from app.routers.fetch import _detect_wall, _extract_text, _looks_like_js_shell
 
@@ -50,6 +52,13 @@ JS_SHELL_HTML = (
 
 
 class TestFetchChain:
+
+    @pytest.fixture(autouse=True)
+    def _skip_ssrf_dns(self):
+        # These tests use example hostnames and mock the fetch tiers; the SSRF
+        # guard's real DNS lookup is exercised separately in TestFetchSSRF.
+        with patch("app.routers.fetch.validate_public_url", new=AsyncMock()):
+            yield
 
     @patch("app.routers.fetch._static_fetch")
     def test_static_page_served_without_browser(self, mock_static, client):
@@ -144,11 +153,6 @@ class TestFetchChain:
         assert resp.status_code == 400
         assert resp.json()["data"]["error_code"] == "JS_RENDER_TIMEOUT"
 
-    def test_rejects_non_http_urls(self, client):
-        workspace = _create_workspace(client)
-        resp = _fetch(client, workspace, "file:///etc/passwd")
-        assert resp.status_code == 400
-
     def test_truncates_to_max_chars(self, client):
         workspace = _create_workspace(client)
         with patch("app.routers.fetch._static_fetch") as mock_static:
@@ -157,6 +161,46 @@ class TestFetchChain:
         data = resp.json()["data"]
         assert len(data["content"]) <= 1000
         assert data["truncated"] is True
+
+    @patch("app.routers.fetch._static_fetch")
+    def test_static_mode_reports_upstream_http_error(self, mock_static, client):
+        # A 404 in static mode must surface as an error, not a success body.
+        mock_static.return_value = {"html": "<html><body>Not found</body></html>",
+                                    "final_url": "https://example.com/missing", "status_code": 404}
+        workspace = _create_workspace(client)
+        resp = _fetch(client, workspace, "https://example.com/missing", mode="static")
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["data"]["error_code"] == "UPSTREAM_HTTP_ERROR"
+        assert body["data"]["status"] == 404
+
+
+class TestFetchSSRF:
+    """The SSRF guard runs for real here (IP literals need no DNS)."""
+
+    def test_rejects_non_http_scheme(self, client):
+        workspace = _create_workspace(client)
+        resp = _fetch(client, workspace, "file:///etc/passwd")
+        assert resp.status_code == 400
+        assert resp.json()["data"]["error_code"] == "UNSUPPORTED_SCHEME"
+
+    def test_blocks_loopback(self, client):
+        workspace = _create_workspace(client)
+        resp = _fetch(client, workspace, "http://127.0.0.1/admin")
+        assert resp.status_code == 400
+        assert resp.json()["data"]["error_code"] == "BLOCKED_PRIVATE_ADDRESS"
+
+    def test_blocks_cloud_metadata(self, client):
+        workspace = _create_workspace(client)
+        resp = _fetch(client, workspace, "http://169.254.169.254/latest/meta-data/")
+        assert resp.status_code == 400
+        assert resp.json()["data"]["error_code"] == "BLOCKED_PRIVATE_ADDRESS"
+
+    def test_blocks_url_credentials(self, client):
+        workspace = _create_workspace(client)
+        resp = _fetch(client, workspace, "http://user:pw@10.0.0.1/")
+        assert resp.status_code == 400
+        assert resp.json()["data"]["error_code"] in ("URL_CREDENTIALS_NOT_ALLOWED", "BLOCKED_PRIVATE_ADDRESS")
 
 
 class TestHeuristics:

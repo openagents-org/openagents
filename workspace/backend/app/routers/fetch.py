@@ -21,7 +21,6 @@ import logging
 import re
 from html.parser import HTMLParser
 from typing import Optional
-from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Header
@@ -30,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.browser import BrowserManager, BrowserNavigationError, classify_navigation_error
 from app.database import get_db
+from app.net_security import UnsafeURLError, safe_fetch, validate_public_url
 from app.response import ResponseCode, json_response, success_response
 from app.routers.browser import _resolve_bf_key
 from app.routers.network import _resolve_workspace, _verify_workspace_access
@@ -184,25 +184,29 @@ def _success(content: str, source: str, url: str, title: str, max_chars: int) ->
 
 
 async def _static_fetch(url: str) -> dict:
-    """Tier 1: plain HTTP GET. Returns {html, final_url} or raises."""
-    async with httpx.AsyncClient(
+    """Tier 1: SSRF-safe streamed HTTP GET. Returns {html, final_url,
+    status_code} or raises UnsafeURLError / BrowserNavigationError."""
+    result = await safe_fetch(
+        url,
+        max_bytes=MAX_RESPONSE_BYTES,
         timeout=STATIC_TIMEOUT_SECONDS,
-        follow_redirects=True,
         headers={"User-Agent": USER_AGENT, "Accept-Language": "en,zh;q=0.8"},
-    ) as client:
-        resp = await client.get(url)
-        content_type = resp.headers.get("content-type", "").lower()
-        if not any(t in content_type for t in ("text/html", "text/plain", "application/xhtml", "application/xml", "application/json", "")):
-            raise BrowserNavigationError(
-                "UNSUPPORTED_CONTENT",
-                f"Content-type '{content_type}' is not text; download it via the files API instead",
-            )
-        body = resp.content[:MAX_RESPONSE_BYTES]
-        return {
-            "html": body.decode(resp.encoding or "utf-8", errors="replace"),
-            "final_url": str(resp.url),
-            "status_code": resp.status_code,
-        }
+        truncate=True,  # a partial page is fine for a text read
+    )
+    content_type = result.content_type
+    if content_type and not any(
+        t in content_type
+        for t in ("text/html", "text/plain", "application/xhtml", "application/xml", "application/json")
+    ):
+        raise BrowserNavigationError(
+            "UNSUPPORTED_CONTENT",
+            f"Content-type '{content_type}' is not text; download it via the files API instead",
+        )
+    return {
+        "html": result.content.decode("utf-8", errors="replace"),
+        "final_url": result.final_url,
+        "status_code": result.status_code,
+    }
 
 
 @router.post("/fetch")
@@ -218,9 +222,12 @@ async def fetch_url(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    parsed = urlparse(body.url)
-    if parsed.scheme not in ("http", "https"):
-        return _error(ResponseCode.BAD_REQUEST, "Only http(s) URLs are supported", "NAVIGATION_FAILED")
+    # SSRF guard — reject internal/metadata targets before any outbound call
+    # (covers both the static tier and the browser-render tier below).
+    try:
+        await validate_public_url(body.url)
+    except UnsafeURLError as e:
+        return _error(ResponseCode.BAD_REQUEST, str(e), e.code)
 
     max_chars = max(1000, min(body.max_chars, 100000))
     manager = BrowserManager.get()
@@ -231,6 +238,9 @@ async def fetch_url(
     if body.mode in ("auto", "static"):
         try:
             static_result = await _static_fetch(body.url)
+        except UnsafeURLError as e:
+            # A redirect hop pointed at an internal address — never fall back.
+            return _error(ResponseCode.BAD_REQUEST, str(e), e.code)
         except BrowserNavigationError as e:
             return _error(ResponseCode.BAD_REQUEST, str(e), e.code)
         except httpx.TimeoutException as e:
@@ -241,8 +251,9 @@ async def fetch_url(
     if static_result is not None:
         extracted = _extract_text(static_result["html"])
         wall = _detect_wall(extracted["text"], extracted["title"])
+        upstream_error = static_result["status_code"] >= 400
         needs_render = (
-            static_result["status_code"] >= 400
+            upstream_error
             or _looks_like_js_shell(static_result["html"], extracted)
             or wall is not None
         )
@@ -253,6 +264,15 @@ async def fetch_url(
                     "The page is behind a login wall or bot challenge",
                     wall,
                     hint="Open the URL in the shared browser (workspace_browser_open) and ask a human to complete the login there.",
+                )
+            # In static mode we don't escalate to a browser, so an upstream
+            # 4xx/5xx must be reported as an error, not returned as success.
+            if body.mode == "static" and upstream_error:
+                return _error(
+                    ResponseCode.BAD_REQUEST,
+                    f"Upstream returned HTTP {static_result['status_code']}",
+                    "UPSTREAM_HTTP_ERROR",
+                    status=static_result["status_code"],
                 )
             return _success(extracted["text"], "static", static_result["final_url"], extracted["title"], max_chars)
     elif body.mode == "static":
