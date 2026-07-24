@@ -171,6 +171,81 @@ class TestIdleReaper:
         assert closed == 0
         manager.close_tab.assert_not_awaited()
 
+    @patch("app.routers.browser.BrowserManager")
+    def test_reaper_leaves_tab_claimable_when_remote_close_fails(self, mock_bm, client):
+        manager = _mock_manager()
+        manager.close_tab = AsyncMock(side_effect=RuntimeError("BF unreachable"))
+        mock_bm.get.return_value = manager
+        mock_bm.provision_workspace_key = AsyncMock(return_value=None)
+        workspace = _create_workspace(client)
+
+        tab = _open_tab(client, workspace, "https://idle.example.com").json()["data"]
+        db = TestingSessionLocal()
+        db.get(BrowserTab, tab["id"]).last_active_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.commit()
+        db.close()
+
+        closed = asyncio.run(reap_idle_tabs(session_factory=TestingSessionLocal))
+        assert closed == 0
+        # Remote close failed → the tab is claimed as "closing", not "closed",
+        # so a later pass can retry it (never a spurious "closed").
+        db = TestingSessionLocal()
+        assert db.get(BrowserTab, tab["id"]).status == "closing"
+        db.close()
+
+    @patch("app.routers.browser.BrowserManager")
+    def test_reaper_claim_frees_quota_slot(self, mock_bm, client):
+        # A tab mid-close ("closing") must not count against the workspace quota.
+        manager = _mock_manager()
+        manager.close_tab = AsyncMock(side_effect=RuntimeError("BF slow"))
+        mock_bm.get.return_value = manager
+        mock_bm.provision_workspace_key = AsyncMock(return_value=None)
+        with patch("app.routers.browser.MAX_TABS_PER_WORKSPACE", 1):
+            workspace = _create_workspace(client)
+            tab = _open_tab(client, workspace, "https://idle.example.com").json()["data"]
+            assert _open_tab(client, workspace).status_code == 400  # quota full
+
+            db = TestingSessionLocal()
+            db.get(BrowserTab, tab["id"]).last_active_at = datetime.now(timezone.utc) - timedelta(hours=1)
+            db.commit()
+            db.close()
+            asyncio.run(reap_idle_tabs(session_factory=TestingSessionLocal))
+
+            # Tab is now "closing" (remote close failed) → slot is free again
+            assert _open_tab(client, workspace).status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Reads refresh idle time (so the reaper doesn't close an actively-read tab)
+# ---------------------------------------------------------------------------
+
+class TestReadRefreshesIdle:
+
+    @patch("app.routers.browser.BrowserManager")
+    def test_snapshot_touches_last_active(self, mock_bm, client):
+        manager = _mock_manager()
+        manager.snapshot = AsyncMock(return_value="<page snapshot>")
+        manager.get_current_url = AsyncMock(return_value=None)
+        mock_bm.get.return_value = manager
+        mock_bm.provision_workspace_key = AsyncMock(return_value=None)
+        workspace = _create_workspace(client)
+        tab = _open_tab(client, workspace).json()["data"]
+
+        # Backdate to just under the TTL, then read
+        db = TestingSessionLocal()
+        db.get(BrowserTab, tab["id"]).last_active_at = datetime.now(timezone.utc) - timedelta(minutes=9)
+        db.commit()
+        db.close()
+
+        resp = client.get(f"/v1/browser/tabs/{tab['id']}/snapshot",
+                          headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+
+        db = TestingSessionLocal()
+        idle = datetime.now(timezone.utc) - db.get(BrowserTab, tab["id"]).last_active_at.replace(tzinfo=timezone.utc)
+        db.close()
+        assert idle.total_seconds() < 60  # refreshed by the read
+
 
 # ---------------------------------------------------------------------------
 # Navigation error transparency

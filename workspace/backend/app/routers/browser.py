@@ -26,10 +26,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.browser import BROWSERFABRIC_API_KEY, BrowserManager, BrowserNavigationError
+from app.browser import BROWSERFABRIC_API_KEY, BrowserCapacityError, BrowserManager, BrowserNavigationError
 from app.database import get_db
 from app.models import BrowserContext, BrowserTab, BrowserUsage, Workspace
 from app.response import ResponseCode, json_response, success_response
@@ -53,6 +53,11 @@ MAX_TABS_PER_WORKSPACE = int(os.environ.get("MAX_TABS_PER_WORKSPACE", "5"))
 # Tabs idle longer than this are closed by the background reaper.
 BROWSER_TAB_IDLE_TTL_SECONDS = int(os.environ.get("BROWSER_TAB_IDLE_TTL_SECONDS", "600"))
 BROWSER_REAPER_INTERVAL_SECONDS = int(os.environ.get("BROWSER_REAPER_INTERVAL_SECONDS", "60"))
+# A tab claimed for closing (status "closing") whose remote close did not
+# complete is retried by a later reaper pass once it has been stuck this long.
+BROWSER_CLOSING_RETRY_AFTER_SECONDS = int(os.environ.get("BROWSER_CLOSING_RETRY_AFTER_SECONDS", "120"))
+# Max tabs a single reaper pass claims, so one pass can't stall on a huge batch.
+BROWSER_REAPER_BATCH = int(os.environ.get("BROWSER_REAPER_BATCH", "50"))
 
 
 # ---------------------------------------------------------------------------
@@ -370,6 +375,16 @@ async def open_tab(
 
     try:
         result = await manager.open_tab(tab_id, body.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
+    except BrowserCapacityError as e:
+        # Global per-process backstop, distinct from the workspace quota above.
+        record.status = "closed"
+        db.commit()
+        return json_response(
+            ResponseCode.INTERNAL_ERROR,
+            str(e),
+            data={"error_code": "BROWSER_CAPACITY", "retryable": True},
+            status_code=503,
+        )
     except RuntimeError as e:
         record.status = "closed"
         db.commit()
@@ -799,19 +814,17 @@ async def get_screenshot(
         logger.error("Screenshot failed: %s", e)
         return json_response(ResponseCode.INTERNAL_ERROR, "Screenshot failed")
 
+    # A successful read is activity — refresh idle time so the reaper does
+    # not close a tab an agent (or a human via live_url) is actively reading.
+    _touch(tab)
     # Sync current URL/title from live page back to DB (catches in-iframe navigation)
     live = await manager.get_current_url(tab_id)
     if live:
-        changed = False
         if live["url"] and live["url"] != tab.url:
             tab.url = live["url"]
-            changed = True
         if live["title"] and live["title"] != tab.title:
             tab.title = live["title"]
-            changed = True
-        if changed:
-            _touch(tab)
-            db.commit()
+    db.commit()
 
     return Response(
         content=data,
@@ -850,6 +863,11 @@ async def get_snapshot(
     except Exception as e:
         logger.error("Snapshot failed: %s", e)
         return json_response(ResponseCode.INTERNAL_ERROR, "Snapshot failed")
+
+    # Reading the page is activity — refresh idle time so the reaper does not
+    # close a tab that is being actively read (snapshot is the main read op).
+    _touch(tab)
+    db.commit()
 
     return Response(content=tree, media_type="text/plain")
 
@@ -1283,10 +1301,21 @@ def get_usage(
 async def reap_idle_tabs(session_factory=None) -> int:
     """Close tabs idle past BROWSER_TAB_IDLE_TTL_SECONDS.
 
-    Runs on every worker; closing is idempotent (a tab reaped twice just
-    no-ops on the second worker because status is already 'closed').
-    Persistent-context tabs are reaped too — their cookies survive in the
-    BF context, only the session slot is released.
+    Runs on every worker. To stay correct with several workers hitting the
+    same rows, it claims each tab atomically before doing any remote work:
+
+      1. SELECT ... FOR UPDATE SKIP LOCKED the eligible rows (idle-active, or
+         a "closing" tab whose remote close stalled) so no two workers grab
+         the same row.
+      2. Flip status active/closing → "closing" and bump last_active_at, then
+         COMMIT. The claim is now visible and the row lock is released, so a
+         sibling worker's query skips it for BROWSER_CLOSING_RETRY_AFTER_SECONDS.
+      3. Only then perform the remote BF close + emit the closed event + finalize
+         usage. If that fails the row stays "closing" and a later pass retries
+         it — nothing is marked "closed" until the remote close succeeds.
+
+    SKIP LOCKED / FOR UPDATE are no-ops on SQLite (single writer), which is
+    fine for tests.
     """
     if session_factory is None:
         from app.database import SessionLocal
@@ -1295,13 +1324,35 @@ async def reap_idle_tabs(session_factory=None) -> int:
     db = session_factory()
     closed = 0
     try:
+        now = datetime.now(timezone.utc)
+        idle_cutoff = now - timedelta(seconds=BROWSER_TAB_IDLE_TTL_SECONDS)
+        closing_retry_cutoff = now - timedelta(seconds=BROWSER_CLOSING_RETRY_AFTER_SECONDS)
+
         rows = db.execute(
-            select(BrowserTab).where(BrowserTab.status == "active")
+            select(BrowserTab)
+            .where(
+                or_(
+                    and_(BrowserTab.status == "active", BrowserTab.last_active_at < idle_cutoff),
+                    and_(BrowserTab.status == "closing", BrowserTab.last_active_at < closing_retry_cutoff),
+                )
+            )
+            .order_by(BrowserTab.last_active_at.asc())
+            .limit(BROWSER_REAPER_BATCH)
+            .with_for_update(skip_locked=True)
         ).scalars().all()
+
+        # Claim the batch first (status → "closing"), then release the lock so
+        # remote calls don't hold DB row locks across the network.
+        claimed = []
         for tab in rows:
-            idle = _tab_idle_seconds(tab)
-            if idle is None or idle < BROWSER_TAB_IDLE_TTL_SECONDS:
-                continue
+            tab.status = "closing"
+            tab.last_active_at = now  # reset the retry clock for this claim
+            claimed.append(tab)
+        if not claimed:
+            return 0
+        db.commit()
+
+        for tab in claimed:
             workspace = db.get(Workspace, tab.workspace_id)
             if not workspace:
                 tab.status = "closed"
@@ -1311,10 +1362,12 @@ async def reap_idle_tabs(session_factory=None) -> int:
                 await _finalize_close(db, workspace, tab, reason="idle_timeout")
                 db.commit()
                 closed += 1
-                logger.info("Reaped idle browser tab %s (idle %ds, created_by=%s)", tab.id, idle, tab.created_by)
+                logger.info("Reaped idle browser tab %s (created_by=%s)", tab.id, tab.created_by)
             except Exception:
+                # Leave the row "closing"; a later pass retries the remote close
+                # after BROWSER_CLOSING_RETRY_AFTER_SECONDS.
                 db.rollback()
-                logger.exception("Failed to reap idle tab %s", tab.id)
+                logger.exception("Failed to reap idle tab %s (will retry)", tab.id)
     finally:
         db.close()
     return closed

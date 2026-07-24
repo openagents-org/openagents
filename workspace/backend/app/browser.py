@@ -34,6 +34,15 @@ class BrowserNavigationError(RuntimeError):
         super().__init__(message)
 
 
+class BrowserCapacityError(RuntimeError):
+    """Raised when this process's global browser-session backstop is hit.
+
+    This is NOT the per-workspace tab quota (that is enforced in the router
+    against the DB). It is a coarse per-process safety limit on live sessions
+    so a single worker can't spawn unbounded Chromium pages / BF sessions.
+    """
+
+
 def classify_navigation_error(exc: Exception) -> str:
     """Map a raw navigation exception to a stable error code."""
     low = str(exc).lower()
@@ -176,7 +185,11 @@ class BrowserManager:
                     await self._prune_dead_sessions()
                     active_count = len(self._sessions)
                 if active_count >= MAX_BROWSER_TABS:
-                    raise RuntimeError(f"Maximum browser tabs ({MAX_BROWSER_TABS}) reached")
+                    # Per-process safety backstop, not the workspace quota.
+                    raise BrowserCapacityError(
+                        f"Global browser capacity ({MAX_BROWSER_TABS} live sessions) "
+                        f"reached on this worker"
+                    )
 
         if self.is_cloud:
             args: dict = {"headless": True}
