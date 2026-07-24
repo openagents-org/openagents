@@ -40,7 +40,7 @@ def _mock_manager():
     manager.get_session_id.return_value = None
     manager.get_live_url.return_value = None
     manager.open_tab = AsyncMock(return_value={"url": "https://example.com", "title": "Example"})
-    manager.close_tab = AsyncMock()
+    manager.close_tab = AsyncMock(return_value=True)  # remote close succeeded
     manager.navigate = AsyncMock(return_value={"url": "https://example.com", "title": "Example"})
     manager.prune_dead_sessions = AsyncMock(return_value=0)
     return manager
@@ -160,6 +160,24 @@ class TestIdleReaper:
         manager.close_tab.assert_awaited()
 
     @patch("app.routers.browser.BrowserManager")
+    def test_delete_is_best_effort_when_remote_close_fails(self, mock_bm, client):
+        # An interactive DELETE must still remove the tab from the user's list
+        # even if the remote close fails (best-effort, unlike the reaper).
+        manager = _mock_manager()
+        manager.close_tab = AsyncMock(return_value=False)
+        mock_bm.get.return_value = manager
+        mock_bm.provision_workspace_key = AsyncMock(return_value=None)
+        workspace = _create_workspace(client)
+        tab = _open_tab(client, workspace).json()["data"]
+
+        resp = client.delete(f"/v1/browser/tabs/{tab['id']}",
+                             headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        db = TestingSessionLocal()
+        assert db.get(BrowserTab, tab["id"]).status == "closed"
+        db.close()
+
+    @patch("app.routers.browser.BrowserManager")
     def test_reaper_noop_when_nothing_idle(self, mock_bm, client):
         manager = _mock_manager()
         mock_bm.get.return_value = manager
@@ -174,7 +192,9 @@ class TestIdleReaper:
     @patch("app.routers.browser.BrowserManager")
     def test_reaper_leaves_tab_claimable_when_remote_close_fails(self, mock_bm, client):
         manager = _mock_manager()
-        manager.close_tab = AsyncMock(side_effect=RuntimeError("BF unreachable"))
+        # Real close_tab RETURNS False on failure (it never raises); the reaper
+        # must still leave the tab retryable, not mark it closed.
+        manager.close_tab = AsyncMock(return_value=False)
         mock_bm.get.return_value = manager
         mock_bm.provision_workspace_key = AsyncMock(return_value=None)
         workspace = _create_workspace(client)
@@ -197,7 +217,7 @@ class TestIdleReaper:
     def test_reaper_claim_frees_quota_slot(self, mock_bm, client):
         # A tab mid-close ("closing") must not count against the workspace quota.
         manager = _mock_manager()
-        manager.close_tab = AsyncMock(side_effect=RuntimeError("BF slow"))
+        manager.close_tab = AsyncMock(return_value=False)  # remote close fails
         mock_bm.get.return_value = manager
         mock_bm.provision_workspace_key = AsyncMock(return_value=None)
         with patch("app.routers.browser.MAX_TABS_PER_WORKSPACE", 1):

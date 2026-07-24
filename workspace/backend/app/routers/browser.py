@@ -1145,16 +1145,45 @@ async def delete_context(
 # DELETE /v1/browser/tabs/{tab_id} — close tab
 # ---------------------------------------------------------------------------
 
+class RemoteCloseError(RuntimeError):
+    """The browser session's remote close failed; the tab must not be marked
+    closed so a later reaper pass can retry it."""
+
+
+def _stored_bf_key(workspace: Workspace) -> Optional[str]:
+    """Resolve the workspace's BF key WITHOUT auto-provisioning (read-only).
+
+    Used when closing a session, possibly from a worker that did not open it,
+    so the close uses the same key the session was created with rather than
+    falling back to the global key (which would fail for provisioned keys).
+    """
+    settings = workspace.settings or {}
+    return settings.get("browserfabric_api_key") or BROWSERFABRIC_API_KEY or None
+
+
 async def _finalize_close(
     db: Session,
     workspace: Workspace,
     tab: BrowserTab,
     token: Optional[str] = None,
     reason: Optional[str] = None,
+    require_remote: bool = False,
 ) -> bool:
-    """Close a tab: mark record, finalize usage, release the browser session,
-    emit the closed event. Shared by the DELETE route and the idle reaper.
-    Returns whether the tab had a persistent context."""
+    """Close a tab: release the browser session, then mark record, finalize
+    usage, emit the closed event. Shared by the DELETE route and the idle reaper.
+    Returns whether the tab had a persistent context.
+
+    If `require_remote` and the remote close fails, raises RemoteCloseError
+    BEFORE any DB change, so the caller can leave the row for retry instead of
+    recording a close that did not actually happen (the reaper needs this; the
+    interactive DELETE is best-effort so a user's tab always leaves their list).
+    """
+    manager = BrowserManager.get()
+    bf_key = _stored_bf_key(workspace)
+    remote_ok = await manager.close_tab(tab.id, session_id_hint=tab.session_id, api_key=bf_key)
+    if not remote_ok and require_remote:
+        raise RemoteCloseError(f"remote close failed for tab {tab.id}")
+
     tab.status = "closed"
 
     # Finalize usage record
@@ -1177,9 +1206,6 @@ async def _finalize_close(
     # cookies/storage back to the context when the session ends (persist=True).
     # The context itself survives — only the session is released.
     is_persistent = bool(tab.context_id)
-
-    manager = BrowserManager.get()
-    await manager.close_tab(tab.id, session_id_hint=tab.session_id)
 
     payload = {"tab_id": tab.id}
     if reason:
@@ -1359,13 +1385,17 @@ async def reap_idle_tabs(session_factory=None) -> int:
                 db.commit()
                 continue
             try:
-                await _finalize_close(db, workspace, tab, reason="idle_timeout")
+                await _finalize_close(db, workspace, tab, reason="idle_timeout", require_remote=True)
                 db.commit()
                 closed += 1
                 logger.info("Reaped idle browser tab %s (created_by=%s)", tab.id, tab.created_by)
+            except RemoteCloseError:
+                # Remote close genuinely failed — leave the row "closing" so a
+                # later pass retries after BROWSER_CLOSING_RETRY_AFTER_SECONDS.
+                # (Never mark it "closed" on a failed close.)
+                db.rollback()
+                logger.warning("Idle tab %s remote close failed; will retry later", tab.id)
             except Exception:
-                # Leave the row "closing"; a later pass retries the remote close
-                # after BROWSER_CLOSING_RETRY_AFTER_SECONDS.
                 db.rollback()
                 logger.exception("Failed to reap idle tab %s (will retry)", tab.id)
     finally:

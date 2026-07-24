@@ -367,30 +367,38 @@ class BrowserManager:
                 except Exception:
                     return "(empty page)"
 
-    async def close_tab(self, tab_id: str, session_id_hint: str = None) -> None:
-        """Close a browser tab."""
+    async def close_tab(self, tab_id: str, session_id_hint: str = None, api_key: str = None) -> bool:
+        """Close a browser tab. Returns True if the remote session was closed
+        (or there was nothing to close), False if the remote close failed after
+        retries — the caller can then decide whether to retry rather than
+        assuming success.
+
+        `api_key` lets a caller close a session it did not open in this process
+        (e.g. the reaper on another worker), where the per-tab key is not in
+        this process's memory; it falls back to the per-tab key then the global.
+        """
         if self.is_cloud:
             session_id = self._sessions.pop(tab_id, None) or session_id_hint
             self._live_urls.pop(tab_id, None)
-            tab_key = self._tab_keys.pop(tab_id, None)
-            if session_id:
-                # A leaked BF session keeps consuming the concurrency quota
-                # until BF expires it, so retry before giving up.
-                last_err = None
-                for attempt in range(CLOSE_SESSION_RETRIES):
-                    try:
-                        await self._bf_call("close_session", {}, session_id, api_key=tab_key)
-                        last_err = None
-                        break
-                    except Exception as e:
-                        last_err = e
-                        if attempt < CLOSE_SESSION_RETRIES - 1:
-                            await asyncio.sleep(1.0 * (attempt + 1))
-                if last_err:
-                    logger.error(
-                        "Failed to close BF session %s after %d attempts (session may leak until BF expiry): %s",
-                        session_id, CLOSE_SESSION_RETRIES, last_err,
-                    )
+            tab_key = api_key or self._tab_keys.pop(tab_id, None)
+            if not session_id:
+                return True
+            # A leaked BF session keeps consuming the concurrency quota
+            # until BF expires it, so retry before giving up.
+            last_err = None
+            for attempt in range(CLOSE_SESSION_RETRIES):
+                try:
+                    await self._bf_call("close_session", {}, session_id, api_key=tab_key)
+                    return True
+                except Exception as e:
+                    last_err = e
+                    if attempt < CLOSE_SESSION_RETRIES - 1:
+                        await asyncio.sleep(1.0 * (attempt + 1))
+            logger.error(
+                "Failed to close BF session %s after %d attempts (session may leak until BF expiry): %s",
+                session_id, CLOSE_SESSION_RETRIES, last_err,
+            )
+            return False
         else:
             page = self._pages.pop(tab_id, None)
             self._locks.pop(tab_id, None)
@@ -398,7 +406,8 @@ class BrowserManager:
                 try:
                     await page.close()
                 except Exception:
-                    pass
+                    return False
+            return True
 
     async def shutdown(self) -> None:
         """Close all tabs and the browser."""
