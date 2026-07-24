@@ -100,6 +100,42 @@ function buildToolDefs(disabledModules) {
     );
   }
 
+  // -- Search module --
+  if (!disabledModules.has('search')) {
+    tools.push(
+      {
+        name: 'workspace_image_search',
+        description:
+          'Search the web for images. Returns image URLs you can show in chat directly by embedding ' +
+          'markdown — ![title](image_url) — in your reply, or persist with workspace_image_save.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Image search query' },
+            count: { type: 'number', description: 'Number of results (default 10, max 20)' },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'workspace_image_save',
+        description:
+          'Download an image (or any file) URL into workspace storage. By default it is also posted ' +
+          'into the current channel as an inline image attachment (set post_to_channel=false to only save).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'Direct image/file URL (e.g. image_url from workspace_image_search)' },
+            filename: { type: 'string', description: 'Filename to store as (derived from URL if omitted)' },
+            caption: { type: 'string', description: 'Message text to accompany the posted image' },
+            post_to_channel: { type: 'boolean', description: 'Post into the chat as an attachment (default true)' },
+          },
+          required: ['url'],
+        },
+      },
+    );
+  }
+
   // -- Browser module --
   if (!disabledModules.has('browser')) {
     tools.push(
@@ -670,6 +706,39 @@ class McpServer {
           if (detail.hint) parts.push(`Hint: ${detail.hint}`);
           return text(parts.join('\n'));
         }
+      }
+
+      case 'workspace_image_search': {
+        const data = await this.ws.searchImages(this.workspaceId, this.token, args.query, {
+          count: args.count || 10,
+        });
+        const results = (data && data.results) || [];
+        if (!results.length) return text(`No image results for "${args.query}".`);
+        const lines = results.map((r, i) => {
+          const dims = r.width && r.height ? ` (${r.width}x${r.height})` : '';
+          return `${i + 1}. ${r.title || 'untitled'}${dims}\n` +
+            `   image_url: ${r.image_url}\n` +
+            `   source: ${r.page_url || r.source || 'unknown'}`;
+        });
+        return text(
+          `Found ${results.length} images for "${args.query}":\n\n${lines.join('\n')}\n\n` +
+          'To show one in chat, embed it in your reply as markdown: ![title](image_url). ' +
+          'To keep a copy in the workspace (and post it as an attachment), call workspace_image_save with the image_url.'
+        );
+      }
+
+      case 'workspace_image_save': {
+        const result = await this.ws.uploadFileFromUrl(this.workspaceId, this.token, args.url, {
+          filename: args.filename,
+          channelName: this.channelName,
+          source: `openagents:${this.agentName}`,
+          postToChannel: args.post_to_channel !== false,
+          caption: args.caption,
+        });
+        const posted = result.posted_to_channel
+          ? ' and posted to the channel'
+          : '';
+        return text(`Saved ${result.filename} (${result.content_type}, ${result.size} bytes, id: ${result.id})${posted}.`);
       }
 
       case 'workspace_browser_open': {

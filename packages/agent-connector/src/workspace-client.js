@@ -472,6 +472,31 @@ class WorkspaceClient {
   }
 
   /**
+   * Search the web for images via POST /v1/search/images.
+   */
+  async searchImages(workspaceId, token, query, { count = 10 } = {}) {
+    const body = { query, network: workspaceId, count };
+    const data = await this._post('/v1/search/images', body, this._wsHeaders(token), 30000);
+    return data.data || data;
+  }
+
+  /**
+   * Download a URL into workspace storage via POST /v1/files/from_url.
+   * With postToChannel, the file is also posted into the chat as an
+   * inline attachment.
+   */
+  async uploadFileFromUrl(workspaceId, token, url, {
+    filename, channelName, source = 'human:user', postToChannel = false, caption,
+  } = {}) {
+    const body = { url, network: workspaceId, source, post_to_channel: postToChannel };
+    if (filename) body.filename = filename;
+    if (channelName) body.channel_name = channelName;
+    if (caption) body.caption = caption;
+    const data = await this._post('/v1/files/from_url', body, this._wsHeaders(token), 90000);
+    return data.data || data;
+  }
+
+  /**
    * List files via GET /v1/files.
    */
   async listFiles(workspaceId, token, { limit = 50, offset = 0 } = {}) {

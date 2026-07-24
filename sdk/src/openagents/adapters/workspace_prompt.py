@@ -151,6 +151,8 @@ def build_api_skills_prompt(
     caps = []
     if "files" not in _disabled:
         caps.append("share and read files with other agents and users")
+    if "search" not in _disabled:
+        caps.append("search the web for images and post them into the chat")
     if "browser" not in _disabled:
         caps.append("browse websites in a shared browser")
     caps.append("discover other agents in the workspace")
@@ -207,6 +209,32 @@ def build_api_skills_prompt(
                 f"`curl -s -X DELETE -H \"{h}\" {base_url}/v1/files/{{file_id}}`\n"
             )
 
+        sections.append(s)
+
+    # ── Image search ──
+    if "search" not in _disabled:
+        s = "\n### Image Search\n\n"
+        s += (
+            "You CAN find images on the web and show them in the chat.\n\n"
+            "**Search images:**\n"
+            f"curl -s -X POST {base_url}/v1/search/images "
+            f'-H "{h}" -H "Content-Type: application/json" '
+            f'-d \'{{"query":"golden gate bridge","network":"{workspace_id}","count":10}}\'\n\n'
+            "**To show an image in chat**, embed the result's `image_url` in your reply "
+            "as markdown: `![title](image_url)` — it renders inline.\n\n"
+        )
+        if not is_plan:
+            s += (
+                "**To keep a copy in the workspace AND post it as an attachment** "
+                "(survives external links going dead):\n"
+                f"curl -s -X POST {base_url}/v1/files/from_url "
+                f'-H "{h}" -H "Content-Type: application/json" '
+                f'-d \'{{"url":"IMAGE_URL","network":"{workspace_id}",'
+                f'"channel_name":"{channel_name}","source":"openagents:{agent_name}",'
+                f'"post_to_channel":true,"caption":"optional message text"}}\'\n\n'
+                "Mention the source page when you share images, and never present a "
+                "search result as license-free.\n"
+            )
         sections.append(s)
 
     # ── Browser ──
@@ -415,6 +443,8 @@ def _build_opencode_api_skills_prompt(
     caps = []
     if "files" not in _disabled:
         caps.append("share and read files with other agents and users")
+    if "search" not in _disabled:
+        caps.append("search the web for images and post them into the chat")
     if "browser" not in _disabled:
         caps.append("browse websites in a shared browser")
     caps.append("discover other agents in the workspace")
@@ -469,6 +499,31 @@ def _build_opencode_api_skills_prompt(
                 f'`curl -s -X DELETE -H "{h}" {base_url}/v1/files/{{file_id}}`\n'
             )
 
+        sections.append(s)
+
+    # ── Image search ──
+    if "search" not in _disabled:
+        s = "\n### Image Search\n\n"
+        s += (
+            "You CAN find images on the web and show them in the chat.\n\n"
+            "**Search images:**\n"
+            f"curl -s -X POST {base_url}/v1/search/images "
+            f'-H "{h}" -H "Content-Type: application/json" '
+            f'-d \'{{"query":"golden gate bridge","network":"{workspace_id}","count":10}}\'\n\n'
+            "**To show an image in chat**, embed the result's `image_url` in your reply "
+            "as markdown: `![title](image_url)` — it renders inline.\n\n"
+        )
+        if not is_plan:
+            s += (
+                "**To keep a copy in the workspace AND post it as an attachment:**\n"
+                f"curl -s -X POST {base_url}/v1/files/from_url "
+                f'-H "{h}" -H "Content-Type: application/json" '
+                f'-d \'{{"url":"IMAGE_URL","network":"{workspace_id}",'
+                f'"channel_name":"{channel_name}","source":"openagents:{agent_name}",'
+                f'"post_to_channel":true,"caption":"optional message text"}}\'\n\n'
+                "Mention the source page when you share images, and never present a "
+                "search result as license-free.\n"
+            )
         sections.append(s)
 
     # ── Browser ──

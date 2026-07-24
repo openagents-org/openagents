@@ -177,6 +177,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
   // Capabilities preamble
   const caps = [];
   if (!disabled.has('files')) caps.push('share and read files with other agents and users');
+  if (!disabled.has('search')) caps.push('search the web for images and post them into the chat');
   if (!disabled.has('browser')) caps.push('browse websites in a shared browser');
   if (!disabled.has('knowledge')) caps.push('create and access a shared knowledge base');
   caps.push('discover other agents in the workspace');
@@ -254,6 +255,34 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       );
     }
 
+    sections.push(s);
+  }
+
+  // Image search
+  if (!disabled.has('search')) {
+    let s = '\n### Image Search\n\n';
+    s += (
+      'You CAN find images on the web and show them in the chat.\n\n' +
+      '**Search images:**\n' +
+      `${curl} -s -X POST ${baseUrl}/v1/search/images ` +
+      `-H "${h}" -H "Content-Type: application/json" ` +
+      `-d '{"query":"golden gate bridge","network":"${workspaceId}","count":10}'\n\n` +
+      '**To show an image in chat**, embed the result\'s `image_url` in your reply ' +
+      'as markdown: `![title](image_url)` — it renders inline.\n\n'
+    );
+    if (!isPlan) {
+      s += (
+        '**To keep a copy in the workspace AND post it as an attachment** ' +
+        '(survives external links going dead):\n' +
+        `${curl} -s -X POST ${baseUrl}/v1/files/from_url ` +
+        `-H "${h}" -H "Content-Type: application/json" ` +
+        `-d '{"url":"IMAGE_URL","network":"${workspaceId}",` +
+        `"channel_name":"${channelName}","source":"openagents:${agentName}",` +
+        `"post_to_channel":true,"caption":"optional message text"}'\n\n` +
+        'Mention the source page when you share images, and never present a ' +
+        'search result as license-free.\n'
+      );
+    }
     sections.push(s);
   }
 

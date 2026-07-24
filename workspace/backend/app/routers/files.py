@@ -15,7 +15,9 @@ import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
+
+import httpx
 
 from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
 from fastapi.responses import Response
@@ -76,6 +78,24 @@ class Base64UploadRequest(BaseModel):
     channel_name: Optional[str] = None
     network: str
     source: Optional[str] = "human:user"
+    post_to_channel: bool = False       # also post a chat message with the file attached
+    caption: Optional[str] = None       # message text when post_to_channel is set
+
+
+class FromUrlUploadRequest(BaseModel):
+    """Download a file from a URL into workspace storage (for agents).
+
+    Lets agents persist an image found via /v1/search/images (or any direct
+    file URL) and, with post_to_channel, share it in the chat as an inline
+    attachment in one call.
+    """
+    url: str
+    network: str
+    filename: Optional[str] = None
+    channel_name: Optional[str] = None
+    source: Optional[str] = "human:user"
+    post_to_channel: bool = False
+    caption: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +194,40 @@ async def upload_file(
     })
 
 
+async def _post_attachment_message(
+    db: Session,
+    workspace: Workspace,
+    record: FileRecord,
+    caption: Optional[str],
+    token: Optional[str],
+) -> bool:
+    """Post a chat message carrying the file as an inline attachment.
+
+    Same payload shape as the cloud image agents (services/cloud_agent.py),
+    which the frontend already renders inline. Returns False when the file
+    has no channel to post into.
+    """
+    if not record.channel_name:
+        return False
+    event = Event(
+        type="workspace.message.posted",
+        source=record.uploaded_by,
+        target=f"channel/{record.channel_name}",
+        payload={
+            "content": caption or record.filename.rsplit("/", 1)[-1],
+            "message_type": "chat",
+            "attachments": [{
+                "file_id": record.id,
+                "filename": record.filename,
+                "content_type": record.content_type,
+                "size": record.size,
+            }],
+        },
+    )
+    await _emit_event(event, workspace, db, token=token or workspace.password_hash)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # POST /v1/files/base64 — JSON base64 upload (for agents)
 # ---------------------------------------------------------------------------
@@ -242,6 +296,10 @@ async def upload_file_base64(
     )
     await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
 
+    posted = False
+    if body.post_to_channel:
+        posted = await _post_attachment_message(db, workspace, record, body.caption, x_workspace_token)
+
     return success_response({
         "id": file_id,
         "filename": organized_filename,
@@ -249,6 +307,131 @@ async def upload_file_base64(
         "size": len(data),
         "uploaded_by": body.source or "human:user",
         "created_at": record.created_at.isoformat() if record.created_at else None,
+        "posted_to_channel": posted,
+    })
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/files/from_url — download a URL into workspace storage (for agents)
+# ---------------------------------------------------------------------------
+
+DOWNLOAD_TIMEOUT_SECONDS = 30.0
+_DOWNLOAD_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0.0.0 Safari/537.36 OpenAgentsFetch/1.0"
+)
+
+
+@router.post("/files/from_url")
+async def upload_file_from_url(
+    body: FromUrlUploadRequest,
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    """Download a file (typically an image search result) into workspace
+    storage; with post_to_channel it is also shared in the chat as an
+    inline attachment."""
+    workspace = _resolve_workspace(db, body.network)
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    parsed = urlparse(body.url)
+    if parsed.scheme not in ("http", "https"):
+        return json_response(ResponseCode.BAD_REQUEST, "Only http(s) URLs are supported")
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=DOWNLOAD_TIMEOUT_SECONDS,
+            follow_redirects=True,
+            headers={"User-Agent": _DOWNLOAD_UA},
+        ) as client:
+            resp = await client.get(body.url)
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            f"Download failed with HTTP {e.response.status_code}",
+            data={"error_code": "DOWNLOAD_FAILED", "status": e.response.status_code},
+        )
+    except httpx.HTTPError as e:
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            f"Download failed: {e}",
+            data={"error_code": "DOWNLOAD_FAILED"},
+        )
+
+    data = resp.content
+    if len(data) > config.MAX_FILE_SIZE:
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            f"File too large. Maximum size: {config.MAX_FILE_SIZE // (1024*1024)}MB",
+        )
+
+    content_type = (resp.headers.get("content-type") or "application/octet-stream").split(";")[0].strip()
+    if content_type.startswith("text/html"):
+        # An HTML response means the URL is a web page, not a file — saving
+        # it as an "image" would just produce a broken attachment.
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            "URL returned a web page, not a downloadable file",
+            data={"error_code": "NOT_A_FILE", "hint": "Use the page's direct image/file URL."},
+        )
+
+    filename = body.filename or (parsed.path.rsplit("/", 1)[-1] or "download")
+    organized_filename = _organize_filename(filename, content_type)
+
+    file_id = str(uuid.uuid4())
+    store = get_file_store()
+    storage_name = organized_filename.rsplit("/", 1)[-1] if "/" in organized_filename else organized_filename
+    loop = asyncio.get_event_loop()
+    try:
+        storage_key = await loop.run_in_executor(
+            None, store.save, str(workspace.id), file_id, storage_name, data,
+        )
+    except ValueError as exc:
+        return json_response(ResponseCode.BAD_REQUEST, str(exc))
+
+    record = FileRecord(
+        id=file_id,
+        workspace_id=str(workspace.id),
+        filename=organized_filename,
+        content_type=content_type,
+        size=len(data),
+        storage_key=storage_key,
+        uploaded_by=body.source or "human:user",
+        channel_name=body.channel_name,
+    )
+    db.add(record)
+
+    event = Event(
+        type="workspace.file.uploaded",
+        source=body.source or "human:user",
+        target=f"channel/{body.channel_name}" if body.channel_name else "core",
+        payload={
+            "file_id": file_id,
+            "filename": organized_filename,
+            "content_type": content_type,
+            "size": len(data),
+            "source_url": body.url,
+        },
+    )
+    await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
+
+    posted = False
+    if body.post_to_channel:
+        posted = await _post_attachment_message(db, workspace, record, body.caption, x_workspace_token)
+
+    return success_response({
+        "id": file_id,
+        "filename": organized_filename,
+        "content_type": content_type,
+        "size": len(data),
+        "uploaded_by": body.source or "human:user",
+        "source_url": body.url,
+        "posted_to_channel": posted,
     })
 
 

@@ -495,6 +495,10 @@ class ClaudeAdapter extends BaseAdapter {
       mcpTools.push(`${pfx}workspace_list_files`, `${pfx}workspace_read_file`);
       mcpWriteTools.push(`${pfx}workspace_write_file`, `${pfx}workspace_delete_file`);
     }
+    if (!this.disabledModules.has('search')) {
+      mcpTools.push(`${pfx}workspace_image_search`);
+      mcpWriteTools.push(`${pfx}workspace_image_save`);
+    }
     if (!this.disabledModules.has('browser')) {
       mcpTools.push(
         `${pfx}workspace_fetch_url`,
