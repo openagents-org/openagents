@@ -367,13 +367,16 @@ async def lifespan(app: FastAPI):
 
     logger.info("LIFESPAN: creating timer task")
     timer_task = asyncio.create_task(_timer_loop())
+    from app.routers.browser import browser_reaper_loop
+    reaper_task = asyncio.create_task(browser_reaper_loop())
     logger.info("LIFESPAN: yielding (startup complete)")
     yield
-    timer_task.cancel()
-    try:
-        await timer_task
-    except asyncio.CancelledError:
-        pass
+    for task in (timer_task, reaper_task):
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
     # Shutdown: close Playwright browser
     from app.browser import BrowserManager
     await BrowserManager.get().shutdown()

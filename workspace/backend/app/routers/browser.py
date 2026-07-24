@@ -16,7 +16,9 @@ POST   /v1/browser/tabs/{tab_id}/share        Share with agent
 DELETE /v1/browser/tabs/{tab_id}              Close tab
 """
 
+import asyncio
 import logging
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -27,7 +29,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.browser import BROWSERFABRIC_API_KEY, BrowserManager
+from app.browser import BROWSERFABRIC_API_KEY, BrowserManager, BrowserNavigationError
 from app.database import get_db
 from app.models import BrowserContext, BrowserTab, BrowserUsage, Workspace
 from app.response import ResponseCode, json_response, success_response
@@ -41,6 +43,16 @@ from openagents.core.onm_events import Event
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/browser", tags=["Browser"])
+
+# Per-workspace cap on concurrently open tabs. The process-wide
+# MAX_BROWSER_TABS in app.browser remains as a server capacity backstop;
+# this one is the quota agents actually hit, and it is enforced against the
+# DB so it holds across workers/replicas.
+MAX_TABS_PER_WORKSPACE = int(os.environ.get("MAX_TABS_PER_WORKSPACE", "5"))
+
+# Tabs idle longer than this are closed by the background reaper.
+BROWSER_TAB_IDLE_TTL_SECONDS = int(os.environ.get("BROWSER_TAB_IDLE_TTL_SECONDS", "600"))
+BROWSER_REAPER_INTERVAL_SECONDS = int(os.environ.get("BROWSER_REAPER_INTERVAL_SECONDS", "60"))
 
 
 # ---------------------------------------------------------------------------
@@ -168,6 +180,15 @@ def _get_tab(db: Session, tab_id: str) -> Optional[BrowserTab]:
 
 def _touch(tab: BrowserTab):
     tab.last_active_at = datetime.now(timezone.utc)
+
+
+def _tab_idle_seconds(tab: BrowserTab) -> Optional[int]:
+    last = tab.last_active_at or tab.created_at
+    if not last:
+        return None
+    if last.tzinfo is None:  # SQLite stores naive datetimes
+        last = last.replace(tzinfo=timezone.utc)
+    return max(0, int((datetime.now(timezone.utc) - last).total_seconds()))
 
 
 async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Workspace = None) -> None:
@@ -299,30 +320,74 @@ async def open_tab(
     manager = BrowserManager.get()
 
     bf_key = await _resolve_bf_key(workspace, db)
+
+    # Per-workspace quota. The workspace row lock serializes concurrent opens
+    # (across workers too — the DB is shared), and inserting the tab record
+    # before the slow session creation reserves the slot, so the check can't
+    # be raced past. with_for_update is a no-op on SQLite (single writer).
+    db.execute(
+        select(Workspace.id).where(Workspace.id == workspace.id).with_for_update()
+    ).scalar_one()
+    active_tabs = db.execute(
+        select(BrowserTab)
+        .where(BrowserTab.workspace_id == str(workspace.id))
+        .where(BrowserTab.status == "active")
+    ).scalars().all()
+    if len(active_tabs) >= MAX_TABS_PER_WORKSPACE:
+        occupancy = [
+            {
+                "tab_id": t.id,
+                "url": t.url,
+                "created_by": t.created_by,
+                "idle_seconds": _tab_idle_seconds(t),
+            }
+            for t in active_tabs
+        ]
+        db.rollback()
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            f"Workspace browser tab limit ({MAX_TABS_PER_WORKSPACE}) reached",
+            data={
+                "error_code": "BROWSER_QUOTA_EXCEEDED",
+                "open_tabs": occupancy,
+                "hint": (
+                    "Close a tab you no longer need (DELETE /v1/browser/tabs/{tab_id}) and retry. "
+                    f"Idle tabs are auto-closed after {BROWSER_TAB_IDLE_TTL_SECONDS // 60} minutes."
+                ),
+            },
+        )
+
+    record = BrowserTab(
+        id=tab_id,
+        workspace_id=str(workspace.id),
+        url=body.url or "about:blank",
+        created_by=body.source or "human:user",
+        shared_with=[],
+        context_id=body.context_id,
+    )
+    db.add(record)
+    db.commit()  # releases the lock; this row now holds the quota slot
+
     try:
         result = await manager.open_tab(tab_id, body.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
     except RuntimeError as e:
+        record.status = "closed"
+        db.commit()
         return json_response(ResponseCode.BAD_REQUEST, str(e))
     except Exception as e:
         logger.error("Failed to open browser tab: %s", e)
+        record.status = "closed"
+        db.commit()
         return json_response(ResponseCode.INTERNAL_ERROR, "Failed to open browser tab")
 
     # Update context last_used_at
     if context_record:
         context_record.last_used_at = datetime.now(timezone.utc)
 
-    record = BrowserTab(
-        id=tab_id,
-        workspace_id=str(workspace.id),
-        url=result.get("url", body.url or "about:blank"),
-        title=result.get("title"),
-        created_by=body.source or "human:user",
-        shared_with=[],
-        context_id=body.context_id,
-        session_id=manager.get_session_id(tab_id),
-        live_url=manager.get_live_url(tab_id),
-    )
-    db.add(record)
+    record.url = result.get("url", body.url or "about:blank")
+    record.title = result.get("title")
+    record.session_id = manager.get_session_id(tab_id)
+    record.live_url = manager.get_live_url(tab_id)
 
     # Track usage
     usage = BrowserUsage(
@@ -332,6 +397,7 @@ async def open_tab(
         opened_by=body.source or "human:user",
     )
     db.add(usage)
+    db.commit()
 
     event = Event(
         type="workspace.browser.tab.opened",
@@ -341,7 +407,10 @@ async def open_tab(
     )
     await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
 
-    return success_response(_tab_to_dict(record))
+    data = _tab_to_dict(record)
+    if result.get("navigation_error"):
+        data["navigation_error"] = result["navigation_error"]
+    return success_response(data)
 
 
 # ---------------------------------------------------------------------------
@@ -460,6 +529,13 @@ async def navigate_tab(
         result = await manager.navigate(tab_id, body.url)
     except KeyError:
         return json_response(ResponseCode.NOT_FOUND, "Browser tab not found in browser")
+    except BrowserNavigationError as e:
+        db.commit()  # keep any reconnect bookkeeping from _ensure_connected
+        return json_response(
+            ResponseCode.BAD_REQUEST,
+            f"Navigation failed ({e.code}): {e}",
+            data={"error_code": e.code, "url": body.url},
+        )
     except Exception as e:
         logger.error("Navigate failed: %s", e)
         return json_response(ResponseCode.INTERNAL_ERROR, "Navigation failed")
@@ -1051,29 +1127,22 @@ async def delete_context(
 # DELETE /v1/browser/tabs/{tab_id} — close tab
 # ---------------------------------------------------------------------------
 
-@router.delete("/tabs/{tab_id}")
-async def close_tab(
-    tab_id: str,
-    x_workspace_token: Optional[str] = Header(None),
-    authorization: Optional[str] = Header(None),
-    db: Session = Depends(get_db),
-):
-    tab = _get_tab(db, tab_id)
-    if not tab or tab.status != "active":
-        return json_response(ResponseCode.NOT_FOUND, "Tab not found")
-
-    workspace = _resolve_workspace(db, str(tab.workspace_id))
-    if not workspace:
-        return json_response(ResponseCode.NOT_FOUND, "Network not found")
-    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
-        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
-
+async def _finalize_close(
+    db: Session,
+    workspace: Workspace,
+    tab: BrowserTab,
+    token: Optional[str] = None,
+    reason: Optional[str] = None,
+) -> bool:
+    """Close a tab: mark record, finalize usage, release the browser session,
+    emit the closed event. Shared by the DELETE route and the idle reaper.
+    Returns whether the tab had a persistent context."""
     tab.status = "closed"
 
     # Finalize usage record
     usage = db.execute(
         select(BrowserUsage)
-        .where(BrowserUsage.tab_id == tab_id)
+        .where(BrowserUsage.tab_id == tab.id)
         .where(BrowserUsage.ended_at.is_(None))
     ).scalar_one_or_none()
     if usage:
@@ -1092,9 +1161,11 @@ async def close_tab(
     is_persistent = bool(tab.context_id)
 
     manager = BrowserManager.get()
-    await manager.close_tab(tab_id, session_id_hint=tab.session_id)
+    await manager.close_tab(tab.id, session_id_hint=tab.session_id)
 
-    payload = {"tab_id": tab_id}
+    payload = {"tab_id": tab.id}
+    if reason:
+        payload["reason"] = reason
     if is_persistent:
         payload["context_id"] = tab.context_id
         payload["persistent"] = True
@@ -1105,7 +1176,28 @@ async def close_tab(
         target="core",
         payload=payload,
     )
-    await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
+    await _emit_event(event, workspace, db, token=token or workspace.password_hash)
+    return is_persistent
+
+
+@router.delete("/tabs/{tab_id}")
+async def close_tab(
+    tab_id: str,
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    tab = _get_tab(db, tab_id)
+    if not tab or tab.status != "active":
+        return json_response(ResponseCode.NOT_FOUND, "Tab not found")
+
+    workspace = _resolve_workspace(db, str(tab.workspace_id))
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+
+    is_persistent = await _finalize_close(db, workspace, tab, token=x_workspace_token)
 
     return success_response({"id": tab_id, "status": "closed", "context_preserved": is_persistent})
 
@@ -1181,3 +1273,59 @@ def get_usage(
         "estimated_cost_usd": estimated_cost,
         "breakdown": breakdown,
     })
+
+
+# ---------------------------------------------------------------------------
+# Idle-tab reaper — abandoned tabs used to hold quota slots (and BF sessions)
+# forever; dead sessions were only pruned lazily once the cap was hit.
+# ---------------------------------------------------------------------------
+
+async def reap_idle_tabs(session_factory=None) -> int:
+    """Close tabs idle past BROWSER_TAB_IDLE_TTL_SECONDS.
+
+    Runs on every worker; closing is idempotent (a tab reaped twice just
+    no-ops on the second worker because status is already 'closed').
+    Persistent-context tabs are reaped too — their cookies survive in the
+    BF context, only the session slot is released.
+    """
+    if session_factory is None:
+        from app.database import SessionLocal
+        session_factory = SessionLocal
+
+    db = session_factory()
+    closed = 0
+    try:
+        rows = db.execute(
+            select(BrowserTab).where(BrowserTab.status == "active")
+        ).scalars().all()
+        for tab in rows:
+            idle = _tab_idle_seconds(tab)
+            if idle is None or idle < BROWSER_TAB_IDLE_TTL_SECONDS:
+                continue
+            workspace = db.get(Workspace, tab.workspace_id)
+            if not workspace:
+                tab.status = "closed"
+                db.commit()
+                continue
+            try:
+                await _finalize_close(db, workspace, tab, reason="idle_timeout")
+                db.commit()
+                closed += 1
+                logger.info("Reaped idle browser tab %s (idle %ds, created_by=%s)", tab.id, idle, tab.created_by)
+            except Exception:
+                db.rollback()
+                logger.exception("Failed to reap idle tab %s", tab.id)
+    finally:
+        db.close()
+    return closed
+
+
+async def browser_reaper_loop():
+    """Background loop: close idle tabs and prune dead BF sessions."""
+    while True:
+        try:
+            await reap_idle_tabs()
+            await BrowserManager.get().prune_dead_sessions()
+        except Exception:
+            logger.exception("Browser reaper error")
+        await asyncio.sleep(BROWSER_REAPER_INTERVAL_SECONDS)

@@ -23,6 +23,28 @@ BROWSERFABRIC_API_KEY = os.environ.get("BROWSERFABRIC_API_KEY", "")
 BROWSERFABRIC_URL = os.environ.get("BROWSERFABRIC_URL", "https://api.browserfabric.com")
 BROWSERFABRIC_PROVISION_SECRET = os.environ.get("BROWSERFABRIC_PROVISION_SECRET", "")
 
+CLOSE_SESSION_RETRIES = 3
+
+
+class BrowserNavigationError(RuntimeError):
+    """Navigation failure with a machine-readable code the agent can act on."""
+
+    def __init__(self, code: str, message: str):
+        self.code = code
+        super().__init__(message)
+
+
+def classify_navigation_error(exc: Exception) -> str:
+    """Map a raw navigation exception to a stable error code."""
+    low = str(exc).lower()
+    if "err_name_not_resolved" in low or "err_cert" in low or "ssl" in low or "tls" in low or "dns" in low:
+        return "DNS_OR_TLS_ERROR"
+    if "timeout" in low or "timed out" in low:
+        return "NAV_TIMEOUT"
+    if "err_blocked" in low or "err_connection_refused" in low or "403" in low:
+        return "CONTENT_BLOCKED"
+    return "NAVIGATION_FAILED"
+
 
 class BrowserManager:
     """Singleton managing shared browser tabs via Browser Fabric or local Playwright."""
@@ -123,6 +145,10 @@ class BrowserManager:
     # Public API
     # ------------------------------------------------------------------
 
+    async def prune_dead_sessions(self) -> int:
+        """Remove BF sessions that are no longer alive (public, for the reaper)."""
+        return await self._prune_dead_sessions()
+
     async def _prune_dead_sessions(self) -> int:
         """Remove BF sessions that are no longer alive. Returns number pruned."""
         if not self.is_cloud or not self._sessions:
@@ -165,15 +191,23 @@ class BrowserManager:
             if session_data.get("share_url"):
                 self._live_urls[tab_id] = session_data["share_url"]
 
+            nav_error = None
             if url and url != "about:blank":
                 try:
                     await self._bf_call("navigate", {"url": url, "wait_until": "domcontentloaded"}, session_id, tab_id=tab_id)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Keep the session alive (the tab is still usable) but tell
+                    # the caller the initial navigation failed instead of
+                    # silently handing back a blank page.
+                    nav_error = {"code": classify_navigation_error(e), "message": str(e)[:500]}
+                    logger.warning("Initial navigation to %s failed for tab %s: %s", url, tab_id, e)
 
             info = await self._bf_call("get_page_info", {}, session_id)
             page_info = info.get("result", {})
-            return {"url": page_info.get("url", url), "title": page_info.get("title", "")}
+            result = {"url": page_info.get("url", url), "title": page_info.get("title", "")}
+            if nav_error:
+                result["navigation_error"] = nav_error
+            return result
         else:
             # Local mode
             async with self._global_lock:
@@ -181,23 +215,32 @@ class BrowserManager:
                 page = await self._browser.new_page()
                 self._pages[tab_id] = page
 
+            nav_error = None
             if url and url != "about:blank":
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                except Exception:
-                    pass
+                except Exception as e:
+                    nav_error = {"code": classify_navigation_error(e), "message": str(e)[:500]}
+                    logger.warning("Initial navigation to %s failed for tab %s: %s", url, tab_id, e)
 
             title = await page.title()
-            return {"url": page.url, "title": title}
+            result = {"url": page.url, "title": title}
+            if nav_error:
+                result["navigation_error"] = nav_error
+            return result
 
     async def navigate(self, tab_id: str, url: str) -> dict:
-        """Navigate a tab to a URL. Returns {url, title}."""
+        """Navigate a tab to a URL. Returns {url, title}.
+
+        Raises BrowserNavigationError on failure instead of silently leaving
+        the page wherever it was (which agents used to see as a blank page).
+        """
         if self.is_cloud:
             session_id = self._get_session(tab_id)
             try:
                 await self._bf_call("navigate", {"url": url, "wait_until": "domcontentloaded"}, session_id)
-            except Exception:
-                pass
+            except Exception as e:
+                raise BrowserNavigationError(classify_navigation_error(e), str(e)[:500]) from e
             info = await self._bf_call("get_page_info", {}, session_id)
             page_info = info.get("result", {})
             return {"url": page_info.get("url", url), "title": page_info.get("title", "")}
@@ -206,8 +249,8 @@ class BrowserManager:
             async with self._get_lock(tab_id):
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                except Exception:
-                    pass
+                except Exception as e:
+                    raise BrowserNavigationError(classify_navigation_error(e), str(e)[:500]) from e
                 title = await page.title()
                 return {"url": page.url, "title": title}
 
@@ -318,10 +361,23 @@ class BrowserManager:
             self._live_urls.pop(tab_id, None)
             tab_key = self._tab_keys.pop(tab_id, None)
             if session_id:
-                try:
-                    await self._bf_call("close_session", {}, session_id, api_key=tab_key)
-                except Exception as e:
-                    logger.warning("Failed to close BF session %s: %s", session_id, e)
+                # A leaked BF session keeps consuming the concurrency quota
+                # until BF expires it, so retry before giving up.
+                last_err = None
+                for attempt in range(CLOSE_SESSION_RETRIES):
+                    try:
+                        await self._bf_call("close_session", {}, session_id, api_key=tab_key)
+                        last_err = None
+                        break
+                    except Exception as e:
+                        last_err = e
+                        if attempt < CLOSE_SESSION_RETRIES - 1:
+                            await asyncio.sleep(1.0 * (attempt + 1))
+                if last_err:
+                    logger.error(
+                        "Failed to close BF session %s after %d attempts (session may leak until BF expiry): %s",
+                        session_id, CLOSE_SESSION_RETRIES, last_err,
+                    )
         else:
             page = self._pages.pop(tab_id, None)
             self._locks.pop(tab_id, None)
