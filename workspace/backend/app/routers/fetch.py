@@ -183,6 +183,38 @@ def _success(content: str, source: str, url: str, title: str, max_chars: int) ->
     })
 
 
+def _charset_from_content_type(raw_content_type: str) -> Optional[str]:
+    """Pull the charset out of a Content-Type header, if declared."""
+    for part in raw_content_type.split(";")[1:]:
+        part = part.strip()
+        if part.lower().startswith("charset="):
+            cs = part.split("=", 1)[1].strip().strip('"\'')
+            return cs or None
+    return None
+
+
+def _decode_body(content: bytes, raw_content_type: str, html: str = "") -> str:
+    """Decode bytes to text using the declared charset (Content-Type, then an
+    HTML <meta charset>), falling back to UTF-8. Fixes mojibake on GBK/GB18030
+    (and other non-UTF-8) sites that a hardcoded UTF-8 decode would garble."""
+    charset = _charset_from_content_type(raw_content_type)
+    if not charset:
+        # Sniff a leading <meta charset=...> from the raw bytes (common on
+        # Chinese sites that only declare the encoding in the document).
+        head = content[:2048].decode("ascii", errors="ignore").lower()
+        m = re.search(r'charset=["\']?\s*([a-z0-9_\-]+)', head)
+        if m:
+            charset = m.group(1)
+    for enc in (charset, "utf-8"):
+        if not enc:
+            continue
+        try:
+            return content.decode(enc)
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return content.decode("utf-8", errors="replace")
+
+
 async def _static_fetch(url: str) -> dict:
     """Tier 1: SSRF-safe streamed HTTP GET. Returns {html, final_url,
     status_code} or raises UnsafeURLError / BrowserNavigationError."""
@@ -202,8 +234,9 @@ async def _static_fetch(url: str) -> dict:
             "UNSUPPORTED_CONTENT",
             f"Content-type '{content_type}' is not text; download it via the files API instead",
         )
+    raw_ct = result.headers.get("content-type", "") or ""
     return {
-        "html": result.content.decode("utf-8", errors="replace"),
+        "html": _decode_body(result.content, raw_ct),
         "final_url": result.final_url,
         "status_code": result.status_code,
     }

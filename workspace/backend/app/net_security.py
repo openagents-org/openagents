@@ -68,9 +68,13 @@ async def _resolve_ips(host: str, port: int) -> set:
     return {info[4][0] for info in infos}
 
 
-async def validate_public_url(url: str) -> None:
-    """Raise UnsafeURLError unless `url` is an http(s) URL that resolves only
-    to public IP addresses and carries no embedded credentials."""
+async def validate_public_url(url: str) -> set:
+    """Validate `url` and return the set of resolved public IPs.
+
+    Raises UnsafeURLError unless it is an http(s) URL with no embedded
+    credentials that resolves only to public IP addresses. The returned IPs
+    are used to pin the connection (see safe_fetch), so the socket connects to
+    an address we actually validated rather than re-resolving (rebinding)."""
     parsed = urlparse(url)
     if parsed.scheme not in ALLOWED_SCHEMES:
         raise UnsafeURLError("UNSUPPORTED_SCHEME", "Only http(s) URLs are supported")
@@ -79,13 +83,17 @@ async def validate_public_url(url: str) -> None:
     host = parsed.hostname
     if not host:
         raise UnsafeURLError("INVALID_URL", "URL has no host")
+    # An out-of-range / non-numeric port makes urlparse raise on .port access.
+    try:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    except ValueError:
+        raise UnsafeURLError("INVALID_URL", "URL has an invalid port")
 
     # An IP literal is validated directly; a hostname is resolved first.
     try:
         literal = ipaddress.ip_address(host)
         ips = {str(literal)}
     except ValueError:
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
         ips = await _resolve_ips(host, port)
 
     if not ips:
@@ -96,6 +104,36 @@ async def validate_public_url(url: str) -> None:
                 "BLOCKED_PRIVATE_ADDRESS",
                 f"Host '{host}' resolves to a non-public address ({ip_str})",
             )
+    return ips
+
+
+class _PinnedTransport(httpx.AsyncHTTPTransport):
+    """Transport that connects to a pre-validated IP while keeping the original
+    hostname for the Host header and TLS (SNI + certificate verification).
+
+    This closes the DNS-rebinding window: validate_public_url resolves and
+    checks the IPs, and the socket connects to exactly one of those IPs instead
+    of re-resolving the hostname at connect time. httpcore honors the
+    `sni_hostname` request extension as the TLS server_hostname, so certificate
+    verification still runs against the real hostname.
+    """
+
+    def __init__(self, pin_map: dict, **kwargs):
+        super().__init__(**kwargs)
+        self._pin_map = pin_map  # hostname -> validated IP, updated per hop
+
+    async def handle_async_request(self, request):
+        host = request.url.host
+        ip = self._pin_map.get(host)
+        if ip and ip != host:
+            request.extensions = dict(request.extensions or {})
+            request.extensions.setdefault("sni_hostname", host)
+            # Preserve the Host header (virtual hosting + cert name) before the
+            # URL host is swapped for the IP we connect to.
+            netloc = host if request.url.port is None else f"{host}:{request.url.port}"
+            request.headers["Host"] = netloc
+            request.url = request.url.copy_with(host=ip)
+        return await super().handle_async_request(request)
 
 
 class SafeFetchResult:
@@ -130,14 +168,22 @@ async def safe_fetch(
                       exceeds max_bytes (for file downloads).
     """
     request_headers = dict(headers or {})
+    pin_map: dict = {}
+    transport = _PinnedTransport(pin_map, trust_env=False)
     async with httpx.AsyncClient(
         follow_redirects=False,
         trust_env=False,
         timeout=timeout,
+        transport=transport,
     ) as client:
         current = url
         for _ in range(max_redirects + 1):
-            await validate_public_url(current)
+            ips = await validate_public_url(current)
+            # Pin this hop's hostname to a validated IP so the socket connects
+            # to an address we checked, not a possibly-rebound re-resolution.
+            host = urlparse(current).hostname
+            if host:
+                pin_map[host] = sorted(ips)[0]
             async with client.stream("GET", current, headers=request_headers) as resp:
                 if resp.is_redirect:
                     location = resp.headers.get("location")

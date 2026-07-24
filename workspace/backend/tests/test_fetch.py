@@ -203,6 +203,28 @@ class TestFetchSSRF:
         assert resp.json()["data"]["error_code"] in ("URL_CREDENTIALS_NOT_ALLOWED", "BLOCKED_PRIVATE_ADDRESS")
 
 
+class TestCharsetDecoding:
+
+    def test_decodes_gbk_from_content_type(self):
+        from app.routers.fetch import _decode_body
+        text = "中文内容测试"
+        body = text.encode("gbk")
+        # A hardcoded UTF-8 decode would mojibake this; the declared charset fixes it.
+        assert _decode_body(body, "text/html; charset=gbk") == text
+
+    def test_decodes_gbk_from_meta_tag_when_header_missing(self):
+        from app.routers.fetch import _decode_body
+        html = '<meta charset="gb2312"><body>中文</body>'
+        body = html.encode("gbk")
+        out = _decode_body(body, "text/html")
+        assert "中文" in out
+
+    def test_defaults_to_utf8(self):
+        from app.routers.fetch import _decode_body
+        body = "résumé café".encode("utf-8")
+        assert _decode_body(body, "text/html") == "résumé café"
+
+
 class TestHeuristics:
 
     def test_extract_text_strips_scripts_and_keeps_title(self):

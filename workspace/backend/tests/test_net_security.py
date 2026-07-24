@@ -55,9 +55,57 @@ class TestValidatePublicUrl:
                 _run(validate_public_url("http://sneaky.internal.example/"))
         assert ei.value.code == "BLOCKED_PRIVATE_ADDRESS"
 
-    def test_allows_public_hostname(self):
+    def test_allows_public_hostname_returns_ips(self):
         with patch.object(net_security, "_resolve_ips", new=AsyncMock(return_value={"93.184.216.34"})):
-            _run(validate_public_url("https://example.com/page"))  # no raise
+            ips = _run(validate_public_url("https://example.com/page"))
+        assert ips == {"93.184.216.34"}
+
+    def test_invalid_port_raises_invalid_url(self):
+        with pytest.raises(UnsafeURLError) as ei:
+            _run(validate_public_url("http://example.com:99999/"))
+        assert ei.value.code == "INVALID_URL"
+
+
+class TestPinnedTransport:
+
+    def test_rewrites_host_to_validated_ip_and_keeps_hostname_for_tls(self):
+        import httpx
+
+        transport = net_security._PinnedTransport({"example.com": "93.184.216.34"})
+        request = httpx.Request("GET", "https://example.com/path")
+        captured = {}
+
+        async def fake_super(self, req):
+            captured["host"] = req.url.host
+            captured["host_header"] = req.headers.get("host")
+            captured["sni"] = req.extensions.get("sni_hostname")
+            return MagicMock()
+
+        with patch.object(net_security.httpx.AsyncHTTPTransport, "handle_async_request", fake_super):
+            _run(transport.handle_async_request(request))
+
+        # Connects to the validated IP, but TLS/Host still use the real hostname.
+        assert captured["host"] == "93.184.216.34"
+        assert captured["host_header"] == "example.com"
+        assert captured["sni"] == "example.com"
+
+    def test_ip_literal_host_is_not_rewritten(self):
+        import httpx
+
+        transport = net_security._PinnedTransport({"93.184.216.34": "93.184.216.34"})
+        request = httpx.Request("GET", "http://93.184.216.34/x")
+        captured = {}
+
+        async def fake_super(self, req):
+            captured["host"] = req.url.host
+            captured["sni"] = req.extensions.get("sni_hostname")
+            return MagicMock()
+
+        with patch.object(net_security.httpx.AsyncHTTPTransport, "handle_async_request", fake_super):
+            _run(transport.handle_async_request(request))
+
+        assert captured["host"] == "93.184.216.34"
+        assert captured["sni"] is None  # no rewrite → no SNI override
 
 
 def _stream_response(*, status=200, headers=None, chunks=(b"hello",), is_redirect=False):
@@ -90,7 +138,7 @@ class TestSafeFetch:
 
     def test_reads_body_up_to_limit_and_truncates(self):
         client = self._client_with([_stream_response(chunks=[b"a" * 100, b"b" * 100])])
-        with patch.object(net_security, "validate_public_url", new=AsyncMock()), \
+        with patch.object(net_security, "validate_public_url", new=AsyncMock(return_value={"93.184.216.34"})), \
              patch.object(net_security.httpx, "AsyncClient", return_value=client):
             result = _run(safe_fetch("https://example.com", max_bytes=150, timeout=5, truncate=True))
         assert result.truncated is True
@@ -98,7 +146,7 @@ class TestSafeFetch:
 
     def test_raises_when_over_limit_and_not_truncating(self):
         client = self._client_with([_stream_response(chunks=[b"a" * 100, b"b" * 100])])
-        with patch.object(net_security, "validate_public_url", new=AsyncMock()), \
+        with patch.object(net_security, "validate_public_url", new=AsyncMock(return_value={"93.184.216.34"})), \
              patch.object(net_security.httpx, "AsyncClient", return_value=client):
             with pytest.raises(UnsafeURLError) as ei:
                 _run(safe_fetch("https://example.com", max_bytes=150, timeout=5, truncate=False))
@@ -108,7 +156,7 @@ class TestSafeFetch:
         client = self._client_with([
             _stream_response(headers={"content-type": "image/png", "content-length": "99999"}),
         ])
-        with patch.object(net_security, "validate_public_url", new=AsyncMock()), \
+        with patch.object(net_security, "validate_public_url", new=AsyncMock(return_value={"93.184.216.34"})), \
              patch.object(net_security.httpx, "AsyncClient", return_value=client):
             with pytest.raises(UnsafeURLError) as ei:
                 _run(safe_fetch("https://example.com/big.png", max_bytes=1000, timeout=5, truncate=False))
@@ -125,6 +173,7 @@ class TestSafeFetch:
             calls.append(url)
             if "169.254" in url:
                 raise UnsafeURLError("BLOCKED_PRIVATE_ADDRESS", "blocked")
+            return {"93.184.216.34"}
 
         with patch.object(net_security, "validate_public_url", new=fake_validate), \
              patch.object(net_security.httpx, "AsyncClient", return_value=client):
