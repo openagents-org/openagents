@@ -42,6 +42,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1", tags=["Files"])
 
+# Content types safe to render inline in the workspace origin. Raster images
+# only — NOT image/svg+xml (scriptable) and NOT text/html.
+INLINE_SAFE_CONTENT_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+    "image/x-icon",
+}
+
 
 def _organize_filename(filename: str, content_type: str) -> str:
     """Put uploaded files into uploaded_files/ with a timestamped name."""
@@ -573,9 +584,13 @@ async def download_file(
     except FileNotFoundError:
         return json_response(ResponseCode.NOT_FOUND, "File data not found in storage")
 
-    # Use inline disposition for images and HTML so browsers can render them
-    ct = record.content_type or ""
-    disposition = "inline" if ct.startswith("image/") or ct == "text/html" else "attachment"
+    # Only render a narrow allowlist of raster image types inline. SVG (which
+    # can carry <script>) and HTML are served as downloads, not inline, so a
+    # stored file can't execute script in the workspace origin (stored XSS).
+    # Combined with X-Content-Type-Options: nosniff below, this closes the
+    # inline-SVG / MIME-sniff XSS vector for agent-ingested files.
+    ct = (record.content_type or "").split(";")[0].strip().lower()
+    disposition = "inline" if ct in INLINE_SAFE_CONTENT_TYPES else "attachment"
 
     # RFC 6266 / RFC 5987: HTTP headers are Latin-1 only, so non-ASCII
     # filenames (e.g. "多媒体文件.txt") have to go through the
@@ -598,6 +613,9 @@ async def download_file(
         headers={
             "Content-Disposition": disposition_header,
             "Content-Length": str(len(data)),
+            # Never let the browser MIME-sniff a download into an executable
+            # type (e.g. sniff a "text/plain" file as HTML).
+            "X-Content-Type-Options": "nosniff",
         },
     )
 

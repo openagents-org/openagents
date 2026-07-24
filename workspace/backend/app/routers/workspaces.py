@@ -127,6 +127,31 @@ def _mask_bf_key(key: str | None) -> str | None:
     return key[:4] + "..."
 
 
+# Settings keys that hold secrets and must never be returned in an API
+# response (any workspace member holds the token that reaches these
+# endpoints). Matched case-insensitively, plus a suffix heuristic.
+_SECRET_SETTINGS_KEYS = {
+    "browserfabric_api_key",
+    "brave_search_api_key",
+}
+_SECRET_SETTINGS_SUFFIXES = ("_api_key", "_secret", "_token", "_password")
+
+
+def _redact_settings(settings: dict) -> dict:
+    """Return a copy of settings with secret values removed.
+
+    The masked BF key is still surfaced separately as `browserfabricApiKey`;
+    the raw values must not leak through the `settings` dict.
+    """
+    redacted = {}
+    for k, v in (settings or {}).items():
+        lk = k.lower()
+        if lk in _SECRET_SETTINGS_KEYS or lk.endswith(_SECRET_SETTINGS_SUFFIXES):
+            continue
+        redacted[k] = v
+    return redacted
+
+
 def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
     agents = []
     for m in members:
@@ -156,7 +181,9 @@ def _format_workspace(ws: Workspace, members: list, now: datetime) -> dict:
         "slug": ws.slug,
         "name": ws.name,
         "creatorEmail": ws.creator_email,
-        "settings": settings,
+        # Secrets (BF/Brave keys, *_token/_secret/_password) are stripped — any
+        # workspace member holds the token that reaches this endpoint.
+        "settings": _redact_settings(settings),
         # Surface browser_enabled at the top level for clients that don't
         # want to dig into the settings dict. Mirrors what's inside settings.
         "browserEnabled": bool(settings.get("browser_enabled", False)),

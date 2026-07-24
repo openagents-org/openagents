@@ -219,3 +219,81 @@ class TestBase64PostToChannel:
         }, headers={"X-Workspace-Token": workspace["token"]})
         assert resp.status_code == 200, resp.json()
         assert resp.json()["data"]["posted_to_channel"] is True
+
+
+# ---------------------------------------------------------------------------
+# Download hardening: no inline SVG/HTML (stored XSS), nosniff always set
+# ---------------------------------------------------------------------------
+
+class TestDownloadDisposition:
+
+    def _upload(self, client, workspace, filename, content_type, data=PNG_BYTES):
+        import base64
+        resp = client.post("/v1/files/base64", json={
+            "filename": filename,
+            "content_base64": base64.b64encode(data).decode(),
+            "content_type": content_type,
+            "network": workspace["id"],
+            "source": "openagents:agent-image",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200, resp.json()
+        return resp.json()["data"]["id"]
+
+    def _download(self, client, workspace, file_id):
+        return client.get(f"/v1/files/{file_id}",
+                          headers={"X-Workspace-Token": workspace["token"]})
+
+    def test_png_served_inline_with_nosniff(self, client):
+        workspace = _create_workspace(client)
+        fid = self._upload(client, workspace, "pic.png", "image/png")
+        resp = self._download(client, workspace, fid)
+        assert resp.status_code == 200
+        assert resp.headers["content-disposition"].startswith("inline")
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    def test_svg_forced_to_attachment(self, client):
+        workspace = _create_workspace(client)
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+        fid = self._upload(client, workspace, "x.svg", "image/svg+xml", data=svg)
+        resp = self._download(client, workspace, fid)
+        assert resp.status_code == 200
+        # SVG must NOT render inline (scriptable) — served as a download.
+        assert resp.headers["content-disposition"].startswith("attachment")
+        assert resp.headers["x-content-type-options"] == "nosniff"
+
+    def test_html_forced_to_attachment(self, client):
+        workspace = _create_workspace(client)
+        html = b"<html><body><script>alert(1)</script></body></html>"
+        fid = self._upload(client, workspace, "x.html", "text/html", data=html)
+        resp = self._download(client, workspace, fid)
+        assert resp.status_code == 200
+        assert resp.headers["content-disposition"].startswith("attachment")
+
+
+# ---------------------------------------------------------------------------
+# Secrets must not leak through the workspace settings response
+# ---------------------------------------------------------------------------
+
+class TestSettingsRedaction:
+
+    def test_secret_keys_stripped_from_settings(self, client):
+        workspace = _create_workspace(client)
+        # Store secrets in settings via PATCH
+        resp = client.patch(f"/v1/workspaces/{workspace['id']}", json={
+            "settings": {
+                "browser_enabled": True,
+                "browserfabric_api_key": "bf-secret-123456789",
+                "brave_search_api_key": "brave-secret-abc",
+                "some_token": "tok-xyz",
+                "public_pref": "keep-me",
+            },
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200, resp.json()
+        settings = resp.json()["data"]["settings"]
+        assert "browserfabric_api_key" not in settings
+        assert "brave_search_api_key" not in settings
+        assert "some_token" not in settings
+        assert settings.get("public_pref") == "keep-me"
+        assert settings.get("browser_enabled") is True
+        # The masked BF key is still surfaced as its own field (not raw)
+        assert "..." in (resp.json()["data"]["browserfabricApiKey"] or "")
