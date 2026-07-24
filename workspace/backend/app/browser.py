@@ -475,6 +475,56 @@ class BrowserManager:
                     return False
             return True
 
+    async def render_page_text(self, url: str, api_key: str = None) -> dict:
+        """One-shot render for the fetch chain: create a session/page, navigate,
+        snapshot, close. Never registers a tab, so it doesn't consume the
+        workspace tab quota. Returns {url, title, text}.
+
+        Raises BrowserNavigationError on navigation failure.
+        """
+        if self.is_cloud_for(api_key):
+            key = api_key or BROWSERFABRIC_API_KEY
+            result = await self._bf_call("create_session", {"headless": True}, api_key=key)
+            session_id = result["result"]["session_id"]
+            try:
+                try:
+                    await self._bf_call(
+                        "navigate", {"url": url, "wait_until": "domcontentloaded"}, session_id, api_key=key
+                    )
+                except Exception as e:
+                    raise BrowserNavigationError(classify_navigation_error(e), str(e)[:500]) from e
+                snap = await self._bf_call("snapshot", {}, session_id, api_key=key)
+                info = await self._bf_call("get_page_info", {}, session_id, api_key=key)
+                page_info = info.get("result", {})
+                return {
+                    "url": page_info.get("url", url),
+                    "title": page_info.get("title", ""),
+                    "text": snap.get("result", {}).get("snapshot", ""),
+                }
+            finally:
+                try:
+                    await self._bf_call("close_session", {}, session_id, api_key=key)
+                except Exception as e:
+                    logger.warning("Failed to close ephemeral BF session %s: %s", session_id, e)
+        else:
+            async with self._global_lock:
+                await self._ensure_local_browser()
+                page = await self._browser.new_page()
+            try:
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                except Exception as e:
+                    raise BrowserNavigationError(classify_navigation_error(e), str(e)[:500]) from e
+                # Give client-side rendering a moment to settle
+                await page.wait_for_timeout(1500)
+                text = await page.inner_text("body")
+                return {"url": page.url, "title": await page.title(), "text": text}
+            finally:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+
     async def shutdown(self) -> None:
         """Close all tabs and the browser."""
         for tab_id in list(self._sessions.keys()) + list(self._pages.keys()):

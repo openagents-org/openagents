@@ -104,6 +104,27 @@ function buildToolDefs(disabledModules) {
   if (!disabledModules.has('browser')) {
     tools.push(
       {
+        name: 'workspace_fetch_url',
+        description:
+          'Read a web page as text WITHOUT opening a shared browser tab. Preferred way to read any URL: ' +
+          'tries a fast static fetch first, and automatically renders JavaScript-heavy pages (Notion, SPAs) ' +
+          'in a temporary browser session. Only open a shared browser tab (workspace_browser_open) when you ' +
+          'need to interact with the page (click/type/login) or the result says AUTH_REQUIRED.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'URL to fetch (http/https)' },
+            mode: {
+              type: 'string',
+              enum: ['auto', 'static', 'render'],
+              description: 'auto (default): static first, browser render if needed. static: never use a browser. render: force browser rendering.',
+            },
+            max_chars: { type: 'number', description: 'Max characters of content to return (default 20000)' },
+          },
+          required: ['url'],
+        },
+      },
+      {
         name: 'workspace_browser_open',
         description:
           'Open a new shared browser tab. Use context_name to open in a persistent browser context ' +
@@ -628,6 +649,28 @@ class McpServer {
       }
 
       // ── Browser ──
+
+      case 'workspace_fetch_url': {
+        try {
+          const result = await this.ws.fetchUrl(this.workspaceId, this.token, args.url, {
+            mode: args.mode || 'auto',
+            maxChars: args.max_chars,
+            source: `openagents:${this.agentName}`,
+          });
+          const header = [
+            `URL: ${result.url}`,
+            result.title ? `Title: ${result.title}` : null,
+            `Source: ${result.content_source}${result.truncated ? ' (truncated)' : ''}`,
+          ].filter(Boolean).join('\n');
+          return text(`${header}\n\n${result.content || '(empty page)'}`);
+        } catch (e) {
+          const detail = e.data || {};
+          const parts = [`Fetch failed: ${e.message}`];
+          if (detail.error_code) parts.push(`Code: ${detail.error_code}`);
+          if (detail.hint) parts.push(`Hint: ${detail.hint}`);
+          return text(parts.join('\n'));
+        }
+      }
 
       case 'workspace_browser_open': {
         const opts = {

@@ -584,6 +584,19 @@ class WorkspaceClient {
   }
 
   /**
+   * Server-side fetch chain via POST /v1/fetch — reads a page WITHOUT
+   * holding a shared browser tab. Static HTTP first; JS-heavy pages are
+   * rendered in an ephemeral browser session that is closed immediately.
+   */
+  async fetchUrl(workspaceId, token, url, { mode = 'auto', maxChars, source } = {}) {
+    const body = { url, network: workspaceId, mode };
+    if (maxChars) body.max_chars = maxChars;
+    if (source) body.source = source;
+    const data = await this._post('/v1/fetch', body, this._wsHeaders(token), 90000);
+    return data.data || data;
+  }
+
+  /**
    * List persistent browser contexts via GET /v1/browser/contexts.
    */
   async browserListContexts(workspaceId, token) {
@@ -878,7 +891,11 @@ class WorkspaceClient {
               if (typeof msg === 'string' && msg.toLowerCase().includes('session_revoked')) {
                 reject(new SessionRevokedError(msg));
               } else {
-                reject(new Error(msg));
+                const err = new Error(msg);
+                // Preserve structured error details (error_code, hint,
+                // quota occupancy, ...) so tool handlers can surface them.
+                if (parsed.data && typeof parsed.data === 'object') err.data = parsed.data;
+                reject(err);
               }
             } else {
               resolve(parsed);
