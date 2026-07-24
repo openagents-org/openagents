@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.config import config
 from app.database import get_db
+from app.net_security import UnsafeURLError, safe_fetch
 from app.models import FileRecord, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import (
@@ -339,23 +340,26 @@ async def upload_file_from_url(
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
     parsed = urlparse(body.url)
-    if parsed.scheme not in ("http", "https"):
-        return json_response(ResponseCode.BAD_REQUEST, "Only http(s) URLs are supported")
 
+    # SSRF-safe streamed download: validates the URL (and every redirect hop)
+    # against internal/metadata addresses and caps the body size while reading.
     try:
-        async with httpx.AsyncClient(
+        result = await safe_fetch(
+            body.url,
+            max_bytes=config.MAX_FILE_SIZE,
             timeout=DOWNLOAD_TIMEOUT_SECONDS,
-            follow_redirects=True,
             headers={"User-Agent": _DOWNLOAD_UA},
-        ) as client:
-            resp = await client.get(body.url)
-            resp.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        return json_response(
-            ResponseCode.BAD_REQUEST,
-            f"Download failed with HTTP {e.response.status_code}",
-            data={"error_code": "DOWNLOAD_FAILED", "status": e.response.status_code},
+            truncate=False,  # a file download must be complete, not truncated
         )
+    except UnsafeURLError as e:
+        code = e.code
+        if code == "RESPONSE_TOO_LARGE":
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                f"File too large. Maximum size: {config.MAX_FILE_SIZE // (1024*1024)}MB",
+                data={"error_code": code},
+            )
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": code})
     except httpx.HTTPError as e:
         return json_response(
             ResponseCode.BAD_REQUEST,
@@ -363,14 +367,15 @@ async def upload_file_from_url(
             data={"error_code": "DOWNLOAD_FAILED"},
         )
 
-    data = resp.content
-    if len(data) > config.MAX_FILE_SIZE:
+    if result.status_code >= 400:
         return json_response(
             ResponseCode.BAD_REQUEST,
-            f"File too large. Maximum size: {config.MAX_FILE_SIZE // (1024*1024)}MB",
+            f"Download failed with HTTP {result.status_code}",
+            data={"error_code": "DOWNLOAD_FAILED", "status": result.status_code},
         )
 
-    content_type = (resp.headers.get("content-type") or "application/octet-stream").split(";")[0].strip()
+    data = result.content
+    content_type = result.content_type or "application/octet-stream"
     if content_type.startswith("text/html"):
         # An HTML response means the URL is a web page, not a file — saving
         # it as an "image" would just produce a broken attachment.

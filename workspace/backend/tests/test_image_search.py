@@ -107,25 +107,27 @@ class TestImageSearch:
         assert results[0]["width"] == 1920
 
 
-def _mock_download(content=PNG_BYTES, content_type="image/png", status=200):
-    response = MagicMock()
-    response.content = content
-    response.headers = {"content-type": content_type}
-    response.raise_for_status.return_value = None
+def _fake_result(content=PNG_BYTES, content_type="image/png", status=200, final_url="https://images.example.com/pic.png"):
+    from app.net_security import SafeFetchResult
+    return SafeFetchResult(
+        content=content,
+        status_code=status,
+        headers={"content-type": content_type},
+        final_url=final_url,
+        truncated=False,
+    )
 
-    client_cm = MagicMock()
-    client_cm.__aenter__ = AsyncMock(return_value=client_cm)
-    client_cm.__aexit__ = AsyncMock(return_value=False)
-    client_cm.get = AsyncMock(return_value=response)
-    return client_cm
+
+def _patch_safe_fetch(result):
+    from app.routers import files as files_mod
+    return patch.object(files_mod, "safe_fetch", new=AsyncMock(return_value=result))
 
 
 class TestFromUrl:
 
     def test_from_url_saves_file(self, client):
         workspace = _create_workspace(client)
-        from app.routers import files as files_mod
-        with patch.object(files_mod.httpx, "AsyncClient", return_value=_mock_download()):
+        with _patch_safe_fetch(_fake_result()):
             resp = client.post("/v1/files/from_url", json={
                 "url": "https://images.example.com/pic.png",
                 "network": workspace["id"],
@@ -144,8 +146,7 @@ class TestFromUrl:
 
     def test_from_url_post_to_channel_emits_attachment_message(self, client):
         workspace = _create_workspace(client)
-        from app.routers import files as files_mod
-        with patch.object(files_mod.httpx, "AsyncClient", return_value=_mock_download()):
+        with _patch_safe_fetch(_fake_result()):
             resp = client.post("/v1/files/from_url", json={
                 "url": "https://images.example.com/pic.png",
                 "network": workspace["id"],
@@ -172,15 +173,25 @@ class TestFromUrl:
 
     def test_from_url_rejects_html_pages(self, client):
         workspace = _create_workspace(client)
-        from app.routers import files as files_mod
-        mock = _mock_download(content=b"<html>a page</html>", content_type="text/html; charset=utf-8")
-        with patch.object(files_mod.httpx, "AsyncClient", return_value=mock):
+        result = _fake_result(content=b"<html>a page</html>", content_type="text/html; charset=utf-8")
+        with _patch_safe_fetch(result):
             resp = client.post("/v1/files/from_url", json={
                 "url": "https://example.com/page",
                 "network": workspace["id"],
             }, headers={"X-Workspace-Token": workspace["token"]})
         assert resp.status_code == 400
         assert resp.json()["data"]["error_code"] == "NOT_A_FILE"
+
+    def test_from_url_blocks_ssrf_without_mock(self, client):
+        # safe_fetch runs for real; an internal IP literal is blocked before
+        # any socket is opened (no DNS, no network).
+        workspace = _create_workspace(client)
+        resp = client.post("/v1/files/from_url", json={
+            "url": "http://169.254.169.254/latest/meta-data/",
+            "network": workspace["id"],
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 400
+        assert resp.json()["data"]["error_code"] == "BLOCKED_PRIVATE_ADDRESS"
 
     def test_from_url_rejects_non_http(self, client):
         workspace = _create_workspace(client)
@@ -189,6 +200,7 @@ class TestFromUrl:
             "network": workspace["id"],
         }, headers={"X-Workspace-Token": workspace["token"]})
         assert resp.status_code == 400
+        assert resp.json()["data"]["error_code"] == "UNSUPPORTED_SCHEME"
 
 
 class TestBase64PostToChannel:
