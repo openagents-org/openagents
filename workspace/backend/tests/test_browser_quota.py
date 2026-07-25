@@ -357,3 +357,101 @@ def test_close_tab_pops_tab_key_even_with_explicit_key():
         # The explicit key won over the stored one.
         _, kwargs = mgr._bf_call.call_args
         assert kwargs.get("api_key") == "explicit-key"
+
+
+# ---------------------------------------------------------------------------
+# #3: per-tab cloud detection + BF key threading
+# ---------------------------------------------------------------------------
+
+def test_is_cloud_tab_uses_where_the_tab_lives():
+    from app.browser import BrowserManager
+    mgr = BrowserManager()
+    mgr._sessions["cloud-tab"] = "sess-1"
+    mgr._pages["local-tab"] = object()
+    assert mgr._is_cloud_tab("cloud-tab") is True
+    assert mgr._is_cloud_tab("local-tab") is False
+
+
+def test_navigate_threads_tab_id_so_per_tab_key_is_used():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+    from app.browser import BrowserManager
+    mgr = BrowserManager()
+    with patch.object(BrowserManager, "is_cloud", property(lambda self: True)):
+        mgr._sessions["t1"] = "sess-1"
+        mgr._tab_keys["t1"] = "ws-key"
+        mgr._bf_call = AsyncMock(return_value={"result": {"url": "https://x", "title": "X"}})
+        asyncio.run(mgr.navigate("t1", "https://x"))
+        # Every BF call for this tab must carry tab_id so _key_for_tab resolves
+        # the workspace key instead of the global default.
+        for call in mgr._bf_call.call_args_list:
+            assert call.kwargs.get("tab_id") == "t1"
+
+
+def test_open_tab_uses_provisioned_key_without_global(monkeypatch):
+    # No global key, but a provisioned api_key is passed → must go cloud, not local.
+    import asyncio
+    from unittest.mock import AsyncMock
+    import app.browser as bmod
+    monkeypatch.setattr(bmod, "BROWSERFABRIC_API_KEY", "")
+    mgr = bmod.BrowserManager()
+    mgr._bf_call = AsyncMock(side_effect=[
+        {"result": {"session_id": "s1"}},                # create_session
+        {"result": {}},                                   # navigate
+        {"result": {"url": "https://x", "title": "X"}},  # get_page_info
+    ])
+    result = asyncio.run(mgr.open_tab("t1", "https://x", api_key="prov-key"))
+    assert mgr._sessions.get("t1") == "s1"  # a cloud session, not a local page
+    assert "t1" not in mgr._pages
+
+
+# ---------------------------------------------------------------------------
+# #4: close_tab treats an explicit BF 'session gone' as success
+# ---------------------------------------------------------------------------
+
+def test_close_tab_treats_bf_session_gone_as_success():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+    from app.browser import BrowserManager
+    mgr = BrowserManager()
+    with patch.object(BrowserManager, "is_cloud", property(lambda self: True)):
+        mgr._sessions["t1"] = "sess-1"
+        mgr._bf_call = AsyncMock(side_effect=RuntimeError("Browser Fabric error: session_not_found"))
+        ok = asyncio.run(mgr.close_tab("t1"))
+        assert ok is True  # already gone == closed
+
+
+def test_close_tab_returns_false_on_generic_failure():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+    from app.browser import BrowserManager
+    mgr = BrowserManager()
+    with patch.object(BrowserManager, "is_cloud", property(lambda self: True)):
+        mgr._sessions["t1"] = "sess-1"
+        mgr._bf_call = AsyncMock(side_effect=RuntimeError("Browser Fabric error: internal error"))
+        ok = asyncio.run(mgr.close_tab("t1"))
+        assert ok is False  # a real failure is not swallowed
+
+
+class TestDeleteIdempotency:
+
+    @patch("app.routers.browser.BrowserManager")
+    def test_delete_already_closing_is_idempotent(self, mock_bm, client):
+        manager = _mock_manager()
+        mock_bm.get.return_value = manager
+        mock_bm.provision_workspace_key = AsyncMock(return_value=None)
+        workspace = _create_workspace(client)
+        tab = _open_tab(client, workspace).json()["data"]
+
+        # Mark it already 'closing' (as if a reaper/other DELETE claimed it)
+        db = TestingSessionLocal()
+        db.get(BrowserTab, tab["id"]).status = "closing"
+        db.commit()
+        db.close()
+
+        resp = client.delete(f"/v1/browser/tabs/{tab['id']}",
+                             headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        assert resp.json()["data"].get("idempotent") is True
+        # No second remote close was attempted for an already-claimed tab.
+        manager.close_tab.assert_not_awaited()

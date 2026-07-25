@@ -26,7 +26,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.browser import BROWSERFABRIC_API_KEY, BrowserCapacityError, BrowserManager, BrowserNavigationError
@@ -227,10 +227,14 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Work
     if not tab.session_id and not manager.is_cloud:
         return  # local mode, nothing to reconnect to
 
+    # Resolve the workspace BF key (no provisioning) so reconnect/close use the
+    # key the session was created with, not the global default.
+    reconnect_key = _stored_bf_key(workspace) if workspace else None
+
     # --- Try reconnecting to the existing session first ---
     if tab.session_id:
         try:
-            await manager.reconnect(tab.id, tab.session_id)
+            await manager.reconnect(tab.id, tab.session_id, api_key=reconnect_key)
             # Sync URL/title from the live page
             live = await manager.get_current_url(tab.id)
             if live:
@@ -250,7 +254,7 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Work
     # --- Session is dead — create a fresh one ---
     # Clean up old session (best-effort)
     try:
-        await manager.close_tab(tab.id, session_id_hint=tab.session_id)
+        await manager.close_tab(tab.id, session_id_hint=tab.session_id, api_key=reconnect_key)
     except Exception:
         pass
 
@@ -595,7 +599,7 @@ async def reconnect_tab(
 
     # Close old session gracefully (ignore errors — it's likely already dead)
     try:
-        await manager.close_tab(tab_id, session_id_hint=tab.session_id)
+        await manager.close_tab(tab_id, session_id_hint=tab.session_id, api_key=_stored_bf_key(workspace))
     except Exception:
         pass
 
@@ -956,11 +960,12 @@ async def persist_tab(
 
     # Save current session state and create persistent context
     manager = BrowserManager.get()
+    bf_key = _stored_bf_key(workspace)
     bb_context_id = None
     if manager.is_cloud:
         try:
             await _ensure_connected(tab, db, workspace)
-            bb_context_id = await manager.create_bb_context(session_id=tab.session_id)
+            bb_context_id = await manager.create_bb_context(session_id=tab.session_id, api_key=bf_key)
         except Exception as e:
             logger.error("Failed to create persistent context: %s", e)
             return json_response(ResponseCode.INTERNAL_ERROR, "Failed to create persistent context")
@@ -970,8 +975,8 @@ async def persist_tab(
     if manager.is_cloud and tab.session_id:
         try:
             current_url = tab.url
-            await manager.close_tab(tab_id, session_id_hint=tab.session_id)
-            result = await manager.open_tab(tab_id, current_url, bb_context_id=bb_context_id)
+            await manager.close_tab(tab_id, session_id_hint=tab.session_id, api_key=bf_key)
+            result = await manager.open_tab(tab_id, current_url, bb_context_id=bb_context_id, api_key=bf_key)
             tab.session_id = manager.get_session_id(tab_id)
             tab.live_url = manager.get_live_url(tab_id)
             tab.url = result.get("url", current_url)
@@ -1045,7 +1050,7 @@ async def unpersist_tab(
         # Delete BrowserBase context
         if ctx.bb_context_id:
             manager = BrowserManager.get()
-            manager.delete_bb_context(ctx.bb_context_id)
+            manager.delete_bb_context(ctx.bb_context_id, api_key=_stored_bf_key(workspace))
         ctx.status = "deleted"
 
     tab.context_id = None
@@ -1119,7 +1124,7 @@ async def delete_context(
     # Delete BrowserBase context
     if ctx.bb_context_id:
         manager = BrowserManager.get()
-        manager.delete_bb_context(ctx.bb_context_id)
+        manager.delete_bb_context(ctx.bb_context_id, api_key=_stored_bf_key(workspace))
 
     # Unlink any tabs using this context
     tabs = db.execute(
@@ -1232,7 +1237,7 @@ async def close_tab(
     db: Session = Depends(get_db),
 ):
     tab = _get_tab(db, tab_id)
-    if not tab or tab.status != "active":
+    if not tab:
         return json_response(ResponseCode.NOT_FOUND, "Tab not found")
 
     workspace = _resolve_workspace(db, str(tab.workspace_id))
@@ -1241,16 +1246,33 @@ async def close_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    # Atomically claim the tab (active → closing) BEFORE any remote call, so a
+    # concurrent DELETE or the reaper can't both close the same BF session.
+    # Only the transaction that flips 'active' wins; the DB lock is released by
+    # the commit and never held across the network.
+    claimed = db.execute(
+        update(BrowserTab)
+        .where(BrowserTab.id == tab_id, BrowserTab.status == "active")
+        # Bump last_active_at too: the reaper only retries a 'closing' tab after
+        # BROWSER_CLOSING_RETRY_AFTER_SECONDS, so this stops it from racing the
+        # remote close we're about to do.
+        .values(status="closing", last_active_at=datetime.now(timezone.utc))
+    ).rowcount
+    db.commit()
+    if not claimed:
+        # Already closing/closed — someone else owns the close. Idempotent
+        # success: the tab is gone from the user's list either way.
+        return success_response({"id": tab_id, "status": "closing", "idempotent": True})
+
+    db.refresh(tab)  # reflect the committed 'closing' state
     try:
         is_persistent = await _finalize_close(db, workspace, tab, token=x_workspace_token, require_remote=True)
     except RemoteCloseError:
-        # The remote close failed. Don't mark 'closed' (that would leak the BF
-        # session forever — the reaper only retries 'active'/'closing' rows).
-        # Mark 'closing' so the reaper finishes it later; the tab is already
-        # gone from the user's list and quota (both exclude 'closing'), so from
-        # the caller's side the delete still succeeds.
-        tab.status = "closing"
-        db.commit()
+        # Remote close failed. Leave the row 'closing' (NOT 'closed') so the
+        # reaper retries later instead of leaking the BF session. The tab is
+        # already out of the user's list and quota, so the delete still
+        # succeeds from the caller's side.
+        db.rollback()
         return success_response({"id": tab_id, "status": "closing", "context_preserved": bool(tab.context_id)})
 
     return success_response({"id": tab_id, "status": "closed", "context_preserved": is_persistent})
