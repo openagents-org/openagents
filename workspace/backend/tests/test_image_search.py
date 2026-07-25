@@ -297,3 +297,37 @@ class TestSettingsRedaction:
         assert settings.get("browser_enabled") is True
         # The masked BF key is still surfaced as its own field (not raw)
         assert "..." in (resp.json()["data"]["browserfabricApiKey"] or "")
+
+    def test_settings_patch_merges_and_preserves_secrets(self, client):
+        # Redaction strips secrets from responses, so a read-modify-write of
+        # settings must NOT drop the stored BF/Brave keys — PATCH merges.
+        workspace = _create_workspace(client)
+        # 1. store a secret + a public pref
+        r1 = client.patch(f"/v1/workspaces/{workspace['id']}", json={
+            "settings": {"browserfabric_api_key": "bf-secret-123456789", "theme": "dark"},
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert r1.status_code == 200
+        assert "browserfabric_api_key" not in r1.json()["data"]["settings"]  # redacted
+
+        # 2. simulate the frontend RMW: write back redacted settings + one change
+        redacted = r1.json()["data"]["settings"]
+        r2 = client.patch(f"/v1/workspaces/{workspace['id']}", json={
+            "settings": {**redacted, "monitorMode": True},
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert r2.status_code == 200
+
+        # 3. the BF key must survive (masked field still present), plus new prefs
+        assert "..." in (r2.json()["data"]["browserfabricApiKey"] or "")
+        assert r2.json()["data"]["settings"].get("monitorMode") is True
+        assert r2.json()["data"]["settings"].get("theme") == "dark"
+
+    def test_settings_patch_can_delete_key_with_null(self, client):
+        workspace = _create_workspace(client)
+        client.patch(f"/v1/workspaces/{workspace['id']}", json={
+            "settings": {"theme": "dark"},
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        r = client.patch(f"/v1/workspaces/{workspace['id']}", json={
+            "settings": {"theme": None},
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert r.status_code == 200
+        assert "theme" not in r.json()["data"]["settings"]

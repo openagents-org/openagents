@@ -386,7 +386,17 @@ def update_workspace(
     if body.name is not None:
         workspace.name = body.name
     if body.settings is not None:
-        workspace.settings = body.settings
+        # Merge, don't replace. Responses redact secret keys (BF/Brave), so a
+        # client that read settings and writes them back would otherwise DROP
+        # those secrets. Merging preserves any key the client didn't send;
+        # to actually delete a key, set it to null.
+        merged = dict(workspace.settings or {})
+        for k, v in body.settings.items():
+            if v is None:
+                merged.pop(k, None)
+            else:
+                merged[k] = v
+        workspace.settings = merged
     if body.browser_enabled is not None:
         current = dict(workspace.settings or {})
         current["browser_enabled"] = body.browser_enabled
