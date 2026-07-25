@@ -240,3 +240,85 @@ class TestSsrfRouteGuard:
         _run(_ssrf_route_guard(route))
         route.continue_.assert_awaited_once()
         route.abort.assert_not_awaited()
+
+
+class TestRouteGuardSchemes:
+    def _route(self, url):
+        route = MagicMock()
+        route.request.url = url
+        route.abort = AsyncMock()
+        route.continue_ = AsyncMock()
+        return route
+
+    def test_allows_blob_scheme(self):
+        from app.browser import _ssrf_route_guard
+        route = self._route("blob:https://example.com/uuid")
+        _run(_ssrf_route_guard(route))
+        route.continue_.assert_awaited_once()
+
+    def test_blocks_websocket_scheme(self):
+        from app.browser import _ssrf_route_guard
+        route = self._route("ws://169.254.169.254/")
+        _run(_ssrf_route_guard(route))
+        route.abort.assert_awaited_once()
+        route.continue_.assert_not_awaited()
+
+    def test_blocks_file_scheme(self):
+        from app.browser import _ssrf_route_guard
+        route = self._route("file:///etc/passwd")
+        _run(_ssrf_route_guard(route))
+        route.abort.assert_awaited_once()
+
+
+class TestBrowserNavigationSSRF:
+    def test_assert_navigable_blocks_private(self):
+        from app.browser import _assert_navigable, BrowserNavigationError
+        with pytest.raises(BrowserNavigationError) as ei:
+            _run(_assert_navigable("http://127.0.0.1/admin"))
+        assert ei.value.code == "BLOCKED_PRIVATE_ADDRESS"
+
+    def test_assert_navigable_allows_about_blank(self):
+        from app.browser import _assert_navigable
+        _run(_assert_navigable("about:blank"))  # no raise
+
+    def test_open_tab_blocks_private_url(self):
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+        from app.browser import BrowserManager, BrowserNavigationError
+        mgr = BrowserManager()
+        with patch.object(BrowserManager, "is_cloud", property(lambda self: True)):
+            mgr._bf_call = AsyncMock()
+            with pytest.raises(BrowserNavigationError) as ei:
+                asyncio.run(mgr.open_tab("t1", "http://169.254.169.254/", api_key="k"))
+        assert ei.value.code == "BLOCKED_PRIVATE_ADDRESS"
+        mgr._bf_call.assert_not_awaited()  # never even created a session
+
+
+class TestRenderDisabled:
+    def test_render_disabled_by_default(self):
+        import asyncio
+        import app.browser as bmod
+        from app.browser import BrowserManager, RenderDisabledError
+        assert bmod.TRUSTED_BROWSER_EGRESS is False  # safe default
+        mgr = BrowserManager()
+        with pytest.raises(RenderDisabledError):
+            asyncio.run(mgr.render_page_text("https://example.com"))
+
+    def test_render_runs_when_trusted_egress_enabled(self, monkeypatch):
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+        import app.browser as bmod
+        from app.browser import BrowserManager
+        monkeypatch.setattr(bmod, "TRUSTED_BROWSER_EGRESS", True)
+        monkeypatch.setattr(bmod, "_assert_navigable", AsyncMock())
+        mgr = BrowserManager()
+        with patch.object(BrowserManager, "is_cloud_for", lambda self, k=None: True):
+            mgr._bf_call = AsyncMock(side_effect=[
+                {"result": {"session_id": "s1"}},           # create_session
+                {"result": {}},                              # navigate
+                {"result": {"snapshot": "hello world " * 20}},  # snapshot
+                {"result": {"url": "https://example.com", "title": "Example"}},  # get_page_info
+                {"result": {}},                              # close_session
+            ])
+            out = asyncio.run(mgr.render_page_text("https://example.com", api_key="k"))
+        assert "hello world" in out["text"]

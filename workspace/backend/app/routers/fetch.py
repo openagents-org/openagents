@@ -27,7 +27,13 @@ from fastapi import APIRouter, Depends, Header
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.browser import BrowserManager, BrowserNavigationError, classify_navigation_error
+from app.browser import (
+    BrowserCapacityError,
+    BrowserManager,
+    BrowserNavigationError,
+    RenderDisabledError,
+    classify_navigation_error,
+)
 from app.database import get_db
 from app.net_security import UnsafeURLError, safe_fetch, validate_public_url
 from app.response import ResponseCode, json_response, success_response
@@ -316,6 +322,17 @@ async def fetch_url(
     bf_key = await _resolve_bf_key(workspace, db)
     try:
         rendered = await manager.render_page_text(body.url, api_key=bf_key)
+    except RenderDisabledError as e:
+        # Rendering is off (no trusted egress). If static gave usable content,
+        # return it; otherwise report RENDER_DISABLED and do NOT steer the agent
+        # to the equally-unsafe shared browser.
+        if static_result is not None:
+            extracted = _extract_text(static_result["html"])
+            if extracted["text"]:
+                return _success(extracted["text"], "static", static_result["final_url"], extracted["title"], max_chars)
+        return _error(ResponseCode.BAD_REQUEST, str(e), "RENDER_DISABLED")
+    except BrowserCapacityError as e:
+        return _error(ResponseCode.INTERNAL_ERROR, str(e), "RENDER_BUSY", status=503)
     except BrowserNavigationError as e:
         code = "JS_RENDER_TIMEOUT" if e.code == "NAV_TIMEOUT" else e.code
         return _error(ResponseCode.BAD_REQUEST, f"Browser render failed: {e}", code)

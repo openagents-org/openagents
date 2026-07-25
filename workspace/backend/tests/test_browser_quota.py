@@ -377,7 +377,8 @@ def test_navigate_threads_tab_id_so_per_tab_key_is_used():
     from unittest.mock import AsyncMock, patch
     from app.browser import BrowserManager
     mgr = BrowserManager()
-    with patch.object(BrowserManager, "is_cloud", property(lambda self: True)):
+    with patch.object(BrowserManager, "is_cloud", property(lambda self: True)), \
+         patch("app.browser._assert_navigable", new=AsyncMock()):
         mgr._sessions["t1"] = "sess-1"
         mgr._tab_keys["t1"] = "ws-key"
         mgr._bf_call = AsyncMock(return_value={"result": {"url": "https://x", "title": "X"}})
@@ -394,6 +395,7 @@ def test_open_tab_uses_provisioned_key_without_global(monkeypatch):
     from unittest.mock import AsyncMock
     import app.browser as bmod
     monkeypatch.setattr(bmod, "BROWSERFABRIC_API_KEY", "")
+    monkeypatch.setattr(bmod, "_assert_navigable", AsyncMock())
     mgr = bmod.BrowserManager()
     mgr._bf_call = AsyncMock(side_effect=[
         {"result": {"session_id": "s1"}},                # create_session

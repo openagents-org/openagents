@@ -31,6 +31,25 @@ RENDER_SETTLE_SECONDS = float(os.environ.get("RENDER_SETTLE_SECONDS", "1.5"))
 RENDER_SETTLE_ATTEMPTS = int(os.environ.get("RENDER_SETTLE_ATTEMPTS", "3"))
 RENDER_MIN_TEXT_CHARS = int(os.environ.get("RENDER_MIN_TEXT_CHARS", "50"))
 
+# Per-worker cap on concurrent ephemeral render sessions, so a burst of fetches
+# can't exhaust BrowserFabric concurrency / cost on this worker. NOTE: this is
+# per-process only; cross-worker metering needs a shared store (see deployment
+# notes) — kept out of Redis per project convention.
+RENDER_MAX_CONCURRENCY = int(os.environ.get("RENDER_MAX_CONCURRENCY", "4"))
+RENDER_ACQUIRE_TIMEOUT_SECONDS = float(os.environ.get("RENDER_ACQUIRE_TIMEOUT_SECONDS", "20"))
+
+# SSRF safety gate. Browser navigation (render + shared tabs) can be pointed at
+# arbitrary agent/user URLs; application-layer guards can't fully stop DNS
+# rebinding or cover every sub-resource, so JS rendering is DISABLED by default
+# and only enabled when the operator confirms network-layer isolation
+# (container private-egress deny, or a Browser Fabric isolation guarantee).
+TRUSTED_BROWSER_EGRESS = os.environ.get("TRUSTED_BROWSER_EGRESS", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+class RenderDisabledError(RuntimeError):
+    """Raised when JS rendering is requested but the deployment has not been
+    marked as having trusted (private-egress-denied) browser networking."""
+
 
 class BrowserNavigationError(RuntimeError):
     """Navigation failure with a machine-readable code the agent can act on."""
@@ -127,6 +146,24 @@ async def _ssrf_route_guard(route) -> None:
         await route.continue_()
     except Exception:
         pass
+
+
+async def _assert_navigable(url: str) -> None:
+    """Block navigation to internal/metadata/private addresses (defense-in-depth
+    for the shared browser and render paths). Skips non-http(s) and about:blank.
+    Raises BrowserNavigationError('BLOCKED_PRIVATE_ADDRESS') on a private host."""
+    if not url or url == "about:blank":
+        return
+    from urllib.parse import urlparse
+
+    from app.net_security import UnsafeURLError, validate_public_url
+
+    if urlparse(url).scheme.lower() not in ("http", "https"):
+        return
+    try:
+        await validate_public_url(url)
+    except UnsafeURLError as e:
+        raise BrowserNavigationError("BLOCKED_PRIVATE_ADDRESS", str(e)) from e
 
 
 def classify_navigation_error(exc: Exception) -> str:
@@ -306,6 +343,9 @@ class BrowserManager:
                         f"reached on this worker"
                     )
 
+        # SSRF: never open a tab straight onto an internal address.
+        await _assert_navigable(url)
+
         if use_cloud:
             args: dict = {"headless": True}
             if bb_context_id:
@@ -343,6 +383,9 @@ class BrowserManager:
                 page = await self._browser.new_page()
                 self._pages[tab_id] = page
 
+            # Guard sub-resources / redirects to internal addresses.
+            await page.route("**/*", _ssrf_route_guard)
+
             nav_error = None
             if url and url != "about:blank":
                 try:
@@ -363,6 +406,8 @@ class BrowserManager:
         Raises BrowserNavigationError on failure instead of silently leaving
         the page wherever it was (which agents used to see as a blank page).
         """
+        # SSRF: block navigation to internal addresses.
+        await _assert_navigable(url)
         if self._is_cloud_tab(tab_id):
             session_id = self._get_session(tab_id)
             try:
@@ -532,13 +577,44 @@ class BrowserManager:
                     return False
             return True
 
+    def _get_render_semaphore(self) -> "asyncio.Semaphore":
+        # Created lazily inside the event loop (a module-level Semaphore would
+        # bind to the import-time loop). Singleton manager → one semaphore.
+        if getattr(self, "_render_sem", None) is None:
+            self._render_sem = asyncio.Semaphore(RENDER_MAX_CONCURRENCY)
+        return self._render_sem
+
     async def render_page_text(self, url: str, api_key: str = None) -> dict:
         """One-shot render for the fetch chain: create a session/page, navigate,
         snapshot, close. Never registers a tab, so it doesn't consume the
         workspace tab quota. Returns {url, title, text}.
 
-        Raises BrowserNavigationError on navigation failure.
+        Raises BrowserNavigationError on navigation failure, RenderDisabledError
+        when trusted egress isn't configured, or BrowserCapacityError when the
+        per-worker render concurrency cap is saturated.
         """
+        if not TRUSTED_BROWSER_EGRESS:
+            raise RenderDisabledError(
+                "JS rendering is disabled on this deployment. It can reach "
+                "internal/metadata endpoints without network-layer isolation; "
+                "set TRUSTED_BROWSER_EGRESS=1 once private egress is denied."
+            )
+        # SSRF: validate the entry URL up front (sub-resources are guarded below
+        # for local; BF sub-resources are the provider's boundary).
+        await _assert_navigable(url)
+
+        # Bound per-worker concurrent renders so a burst can't exhaust BF.
+        sem = self._get_render_semaphore()
+        try:
+            await asyncio.wait_for(sem.acquire(), timeout=RENDER_ACQUIRE_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            raise BrowserCapacityError("Render concurrency limit reached; try again shortly")
+        try:
+            return await self._render_page_text_inner(url, api_key)
+        finally:
+            sem.release()
+
+    async def _render_page_text_inner(self, url: str, api_key: str = None) -> dict:
         if self.is_cloud_for(api_key):
             key = api_key or BROWSERFABRIC_API_KEY
             result = await self._bf_call("create_session", {"headless": True}, api_key=key)
