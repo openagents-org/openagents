@@ -30,10 +30,17 @@ def build_browser_directive(browser_enabled: bool) -> str:
     return (
         "\n## Browser Use (MANDATORY)\n"
         "This workspace has the **shared Browser Fabric session** enabled. "
-        "All web browsing MUST go through it so the user can watch the "
-        "session live in their right-side panel and so cookies / state "
-        "persist across agents.\n\n"
-        "**Use ONLY these tools for any web browsing:**\n"
+        "All web browsing MUST go through the workspace tools so the user can "
+        "watch the session live in their right-side panel and so cookies / "
+        "state persist across agents.\n\n"
+        "**To READ a web page, ALWAYS use `mcp__openagents-workspace__workspace_fetch_url` first.** "
+        "It handles JavaScript-heavy pages (Notion, SPAs) automatically and does "
+        "not consume a shared browser tab. Only open a shared browser tab when "
+        "you need to interact with the page (click, type, log in) or when "
+        "workspace_fetch_url reports AUTH_REQUIRED / BOT_CHALLENGE — in that "
+        "case open the URL in a tab and ask a human to complete the login in "
+        "the live view.\n\n"
+        "**Tools for interactive browsing:**\n"
         "- `mcp__openagents-workspace__workspace_browser_open`\n"
         "- `mcp__openagents-workspace__workspace_browser_navigate`\n"
         "- `mcp__openagents-workspace__workspace_browser_click`\n"
@@ -43,13 +50,19 @@ def build_browser_directive(browser_enabled: bool) -> str:
         "- `mcp__openagents-workspace__workspace_browser_list_tabs`\n"
         "- `mcp__openagents-workspace__workspace_browser_close`\n"
         "\n"
+        "Shared browser tabs are a limited per-workspace resource: close your "
+        "tab (`workspace_browser_close`) as soon as you are done with it. Idle "
+        "tabs are auto-closed after a few minutes.\n\n"
         "If you don't have these MCP tools, use `Bash` + `curl` against "
-        "`/v1/browser/tabs` (documented below in Shared Browser).\n\n"
+        "`/v1/fetch` and `/v1/browser/tabs` (documented below in Shared Browser).\n\n"
         "**FORBIDDEN — do NOT call any of these:**\n"
         "- `mcp__browsermcp__*` (any local Browser MCP extension tool)\n"
         "- `mcp__playwright__*`, `mcp__puppeteer__*`, `mcp__chrome-devtools__*`, or any other local-browser MCP\n"
-        "- `WebFetch`, `WebSearch`, `web_fetch`, `web_search`, or any built-in network/browser tool\n"
+        "- `WebFetch` / `web_fetch` — it cannot render JavaScript and fails on "
+        "many pages; use `workspace_fetch_url` instead\n"
         "\n"
+        "`WebSearch` / `web_search` (pure search, no page fetching) IS allowed — "
+        "but read the result URLs with `workspace_fetch_url`, not WebFetch.\n\n"
         "If a local browser tool errors with \"extension isn't connected\" or "
         "\"connect your browser\", do NOT ask the user to connect anything — "
         "the local extension is irrelevant here. Immediately switch to the "
@@ -138,6 +151,8 @@ def build_api_skills_prompt(
     caps = []
     if "files" not in _disabled:
         caps.append("share and read files with other agents and users")
+    if "search" not in _disabled:
+        caps.append("search the web for images and post them into the chat")
     if "browser" not in _disabled:
         caps.append("browse websites in a shared browser")
     caps.append("discover other agents in the workspace")
@@ -194,6 +209,32 @@ def build_api_skills_prompt(
                 f"`curl -s -X DELETE -H \"{h}\" {base_url}/v1/files/{{file_id}}`\n"
             )
 
+        sections.append(s)
+
+    # ── Image search ──
+    if "search" not in _disabled:
+        s = "\n### Image Search\n\n"
+        s += (
+            "You CAN find images on the web and show them in the chat.\n\n"
+            "**Search images:**\n"
+            f"curl -s -X POST {base_url}/v1/search/images "
+            f'-H "{h}" -H "Content-Type: application/json" '
+            f'-d \'{{"query":"golden gate bridge","network":"{workspace_id}","count":10}}\'\n\n'
+            "**To show an image in chat**, embed the result's `image_url` in your reply "
+            "as markdown: `![title](image_url)` — it renders inline.\n\n"
+        )
+        if not is_plan:
+            s += (
+                "**To keep a copy in the workspace AND post it as an attachment** "
+                "(survives external links going dead):\n"
+                f"curl -s -X POST {base_url}/v1/files/from_url "
+                f'-H "{h}" -H "Content-Type: application/json" '
+                f'-d \'{{"url":"IMAGE_URL","network":"{workspace_id}",'
+                f'"channel_name":"{channel_name}","source":"openagents:{agent_name}",'
+                f'"post_to_channel":true,"caption":"optional message text"}}\'\n\n'
+                "Mention the source page when you share images, and never present a "
+                "search result as license-free.\n"
+            )
         sections.append(s)
 
     # ── Browser ──
@@ -402,6 +443,8 @@ def _build_opencode_api_skills_prompt(
     caps = []
     if "files" not in _disabled:
         caps.append("share and read files with other agents and users")
+    if "search" not in _disabled:
+        caps.append("search the web for images and post them into the chat")
     if "browser" not in _disabled:
         caps.append("browse websites in a shared browser")
     caps.append("discover other agents in the workspace")
@@ -458,13 +501,45 @@ def _build_opencode_api_skills_prompt(
 
         sections.append(s)
 
+    # ── Image search ──
+    if "search" not in _disabled:
+        s = "\n### Image Search\n\n"
+        s += (
+            "You CAN find images on the web and show them in the chat.\n\n"
+            "**Search images:**\n"
+            f"curl -s -X POST {base_url}/v1/search/images "
+            f'-H "{h}" -H "Content-Type: application/json" '
+            f'-d \'{{"query":"golden gate bridge","network":"{workspace_id}","count":10}}\'\n\n'
+            "**To show an image in chat**, embed the result's `image_url` in your reply "
+            "as markdown: `![title](image_url)` — it renders inline.\n\n"
+        )
+        if not is_plan:
+            s += (
+                "**To keep a copy in the workspace AND post it as an attachment:**\n"
+                f"curl -s -X POST {base_url}/v1/files/from_url "
+                f'-H "{h}" -H "Content-Type: application/json" '
+                f'-d \'{{"url":"IMAGE_URL","network":"{workspace_id}",'
+                f'"channel_name":"{channel_name}","source":"openagents:{agent_name}",'
+                f'"post_to_channel":true,"caption":"optional message text"}}\'\n\n'
+                "Mention the source page when you share images, and never present a "
+                "search result as license-free.\n"
+            )
+        sections.append(s)
+
     # ── Browser ──
     if "browser" not in _disabled:
         s = "\n### Shared Browser\n\n"
 
         if not is_plan:
             s += (
-                "**To browse a website**, run these steps in bash:\n"
+                "**To just READ a page (preferred — no tab needed, handles JS pages):**\n"
+                f"curl -s -X POST {base_url}/v1/fetch "
+                f'-H "{h}" -H "Content-Type: application/json" '
+                f'-d \'{{"url":"https://example.com","network":"{workspace_id}",'
+                f'"source":"openagents:{agent_name}"}}\'\n'
+                "If it returns error_code AUTH_REQUIRED or BOT_CHALLENGE, open the URL "
+                "in a shared tab (below) and share its `live_url` so a human can log in.\n\n"
+                "**To browse interactively** (click/type/login), run these steps in bash:\n"
                 f"Step 1 — open tab: "
                 f"curl -s -X POST {base_url}/v1/browser/tabs "
                 f'-H "{h}" -H "Content-Type: application/json" '
@@ -474,7 +549,9 @@ def _build_opencode_api_skills_prompt(
                 f'curl -s -H "{h}" {base_url}/v1/browser/tabs/TAB_ID/snapshot\n'
                 f"Step 3 — close tab: "
                 f'curl -s -X DELETE -H "{h}" {base_url}/v1/browser/tabs/TAB_ID\n'
-                f"(Replace TAB_ID with the id from step 1 response)\n\n"
+                f"(Replace TAB_ID with the id from step 1 response)\n"
+                "Tabs are a limited per-workspace resource — always close yours when done; "
+                "idle tabs are auto-closed after a few minutes.\n\n"
             )
 
         s += (

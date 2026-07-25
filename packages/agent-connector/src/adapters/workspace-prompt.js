@@ -30,10 +30,17 @@ function buildBrowserDirective(browserEnabled) {
   return (
     '\n## Browser Use (MANDATORY)\n' +
     'This workspace has the **shared Browser Fabric session** enabled. ' +
-    'All web browsing MUST go through it so the user can watch the ' +
-    'session live in their right-side panel and so cookies / state ' +
-    'persist across agents.\n\n' +
-    '**Use ONLY these tools for any web browsing:**\n' +
+    'All web browsing MUST go through the workspace tools so the user can ' +
+    'watch the session live in their right-side panel and so cookies / ' +
+    'state persist across agents.\n\n' +
+    '**To READ a web page, ALWAYS use `mcp__openagents-workspace__workspace_fetch_url` first.** ' +
+    'It handles JavaScript-heavy pages (Notion, SPAs) automatically and does ' +
+    'not consume a shared browser tab. Only open a shared browser tab when ' +
+    'you need to interact with the page (click, type, log in) or when ' +
+    'workspace_fetch_url reports AUTH_REQUIRED / BOT_CHALLENGE — in that ' +
+    'case open the URL in a tab and ask a human to complete the login in ' +
+    'the live view.\n\n' +
+    '**Tools for interactive browsing:**\n' +
     '- `mcp__openagents-workspace__workspace_browser_open`\n' +
     '- `mcp__openagents-workspace__workspace_browser_navigate`\n' +
     '- `mcp__openagents-workspace__workspace_browser_click`\n' +
@@ -43,13 +50,19 @@ function buildBrowserDirective(browserEnabled) {
     '- `mcp__openagents-workspace__workspace_browser_list_tabs`\n' +
     '- `mcp__openagents-workspace__workspace_browser_close`\n' +
     '\n' +
+    'Shared browser tabs are a limited per-workspace resource: close your ' +
+    'tab (`workspace_browser_close`) as soon as you are done with it. Idle ' +
+    'tabs are auto-closed after a few minutes.\n\n' +
     'If you don\'t have these MCP tools, use `Bash` + `curl` against ' +
-    '`/v1/browser/tabs` (documented below in Shared Browser).\n\n' +
+    '`/v1/fetch` and `/v1/browser/tabs` (documented below in Shared Browser).\n\n' +
     '**FORBIDDEN — do NOT call any of these:**\n' +
     '- `mcp__browsermcp__*` (any local Browser MCP extension tool)\n' +
     '- `mcp__playwright__*`, `mcp__puppeteer__*`, `mcp__chrome-devtools__*`, or any other local-browser MCP\n' +
-    '- `WebFetch`, `WebSearch`, `web_fetch`, `web_search`, or any built-in network/browser tool\n' +
+    '- `WebFetch` / `web_fetch` — it cannot render JavaScript and fails on ' +
+    'many pages; use `workspace_fetch_url` instead\n' +
     '\n' +
+    '`WebSearch` / `web_search` (pure search, no page fetching) IS allowed — ' +
+    'but read the result URLs with `workspace_fetch_url`, not WebFetch.\n\n' +
     'If a local browser tool errors with "extension isn\'t connected" or ' +
     '"connect your browser", do NOT ask the user to connect anything — ' +
     'the local extension is irrelevant here. Immediately switch to the ' +
@@ -207,6 +220,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
   // Capabilities preamble
   const caps = [];
   if (!disabled.has('files')) caps.push('share and read files with other agents and users');
+  if (!disabled.has('search')) caps.push('search the web for images and post them into the chat');
   if (!disabled.has('browser')) caps.push('browse websites in a shared browser');
   if (!disabled.has('knowledge')) caps.push('create and access a shared knowledge base');
   caps.push('discover other agents in the workspace');
@@ -287,6 +301,34 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
     sections.push(s);
   }
 
+  // Image search
+  if (!disabled.has('search')) {
+    let s = '\n### Image Search\n\n';
+    s += (
+      'You CAN find images on the web and show them in the chat.\n\n' +
+      '**Search images:**\n' +
+      `${curl} -s -X POST ${baseUrl}/v1/search/images ` +
+      `-H "${h}" -H "Content-Type: application/json" ` +
+      `-d '{"query":"golden gate bridge","network":"${workspaceId}","count":10}'\n\n` +
+      '**To show an image in chat**, embed the result\'s `image_url` in your reply ' +
+      'as markdown: `![title](image_url)` — it renders inline.\n\n'
+    );
+    if (!isPlan) {
+      s += (
+        '**To keep a copy in the workspace AND post it as an attachment** ' +
+        '(survives external links going dead):\n' +
+        `${curl} -s -X POST ${baseUrl}/v1/files/from_url ` +
+        `-H "${h}" -H "Content-Type: application/json" ` +
+        `-d '{"url":"IMAGE_URL","network":"${workspaceId}",` +
+        `"channel_name":"${channelName}","source":"openagents:${agentName}",` +
+        `"post_to_channel":true,"caption":"optional message text"}'\n\n` +
+        'Mention the source page when you share images, and never present a ' +
+        'search result as license-free.\n'
+      );
+    }
+    sections.push(s);
+  }
+
   // Browser
   if (!disabled.has('browser')) {
     let s = '\n### Shared Browser\n\n';
@@ -304,7 +346,14 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
 
     if (!isPlan) {
       s += (
-        '**To browse a website**, exec these steps (use exec for each):\n' +
+        '**To just READ a page (preferred — no tab needed, handles JS pages):**\n' +
+        `${curl} -s -X POST ${baseUrl}/v1/fetch ` +
+        `-H "${h}" -H "Content-Type: application/json" ` +
+        `-d '{"url":"https://example.com","network":"${workspaceId}",` +
+        `"source":"openagents:${agentName}"}'\n` +
+        'If it returns error_code AUTH_REQUIRED or BOT_CHALLENGE, open the URL ' +
+        'in a shared tab (below) and share its `live_url` so a human can log in.\n\n' +
+        '**To browse interactively** (click/type/login), exec these steps (use exec for each):\n' +
         `Step 1 — open tab: ` +
         `${curl} -s -X POST ${baseUrl}/v1/browser/tabs ` +
         `-H "${h}" -H "Content-Type: application/json" ` +
@@ -314,7 +363,9 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         `${curl} -s -H "${h}" ${baseUrl}/v1/browser/tabs/TAB_ID/snapshot\n` +
         `Step 3 — close tab: ` +
         `${curl} -s -X DELETE -H "${h}" ${baseUrl}/v1/browser/tabs/TAB_ID\n` +
-        '(Replace TAB_ID with the `id` from the step 1 response)\n\n'
+        '(Replace TAB_ID with the `id` from the step 1 response)\n' +
+        'Tabs are a limited per-workspace resource — always close yours when done; ' +
+        'idle tabs are auto-closed after a few minutes.\n\n'
       );
     }
 

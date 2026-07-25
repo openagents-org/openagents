@@ -419,7 +419,14 @@ class ClaudeAdapter extends BaseAdapter {
     const cmd = [claudeBin, '-p', prompt, '--output-format', 'stream-json', '--verbose'];
 
     cmd.push('--append-system-prompt', systemPrompt);
-    cmd.push('--disallowedTools', 'AskUserQuestion', 'CronCreate', 'CronDelete', 'CronList', 'ScheduleWakeup');
+    const disallowedTools = ['AskUserQuestion', 'CronCreate', 'CronDelete', 'CronList', 'ScheduleWakeup'];
+    if (browserEnabled) {
+      // Hard-ban the native WebFetch: it can't render JS and bypasses the
+      // workspace fetch chain. Prompt-level bans proved insufficient.
+      // WebSearch stays allowed (pure search, no page fetching).
+      disallowedTools.push('WebFetch');
+    }
+    cmd.push('--disallowedTools', ...disallowedTools);
 
     // Resume existing conversation (skipped on retry after stale session)
     const sessionId = this._channelSessions[channelName];
@@ -493,8 +500,13 @@ class ClaudeAdapter extends BaseAdapter {
       mcpTools.push(`${pfx}workspace_list_files`, `${pfx}workspace_read_file`);
       mcpWriteTools.push(`${pfx}workspace_write_file`, `${pfx}workspace_delete_file`);
     }
+    if (!this.disabledModules.has('search')) {
+      mcpTools.push(`${pfx}workspace_image_search`);
+      mcpWriteTools.push(`${pfx}workspace_image_save`);
+    }
     if (!this.disabledModules.has('browser')) {
       mcpTools.push(
+        `${pfx}workspace_fetch_url`,
         `${pfx}workspace_browser_list_tabs`,
         `${pfx}workspace_browser_snapshot`,
         `${pfx}workspace_browser_screenshot`

@@ -25,6 +25,32 @@ BROWSERFABRIC_API_KEY = os.environ.get("BROWSERFABRIC_API_KEY", "")
 BROWSERFABRIC_URL = os.environ.get("BROWSERFABRIC_URL", "https://api.browserfabric.com")
 BROWSERFABRIC_PROVISION_SECRET = os.environ.get("BROWSERFABRIC_PROVISION_SECRET", "")
 
+# render_page_text: let a JS page settle before snapshotting, and retry while it
+# still looks like an empty shell.
+RENDER_SETTLE_SECONDS = float(os.environ.get("RENDER_SETTLE_SECONDS", "1.5"))
+RENDER_SETTLE_ATTEMPTS = int(os.environ.get("RENDER_SETTLE_ATTEMPTS", "3"))
+RENDER_MIN_TEXT_CHARS = int(os.environ.get("RENDER_MIN_TEXT_CHARS", "50"))
+
+
+class BrowserNavigationError(RuntimeError):
+    """Navigation failure with a machine-readable code the agent can act on."""
+
+    def __init__(self, code: str, message: str):
+        self.code = code
+        super().__init__(message)
+
+
+def classify_navigation_error(exc: Exception) -> str:
+    """Map a raw navigation exception to a stable error code."""
+    low = str(exc).lower()
+    if "err_name_not_resolved" in low or "err_cert" in low or "ssl" in low or "tls" in low or "dns" in low:
+        return "DNS_OR_TLS_ERROR"
+    if "timeout" in low or "timed out" in low:
+        return "NAV_TIMEOUT"
+    if "err_blocked" in low or "err_connection_refused" in low or "403" in low:
+        return "CONTENT_BLOCKED"
+    return "NAVIGATION_FAILED"
+
 
 class BrowserManager:
     """Singleton managing shared browser tabs via Browser Fabric or local Playwright."""
@@ -395,6 +421,61 @@ class BrowserManager:
             except Exception:
                 pass
         return True, None
+
+    async def render_page_text(self, url: str, api_key: str = None) -> dict:
+        """One-shot render for the fetch chain: create a session/page, navigate,
+        snapshot, close. Never registers a tab, so it doesn't consume the
+        workspace tab quota. Returns {url, title, text}.
+
+        Raises BrowserNavigationError on navigation failure. The caller
+        (/v1/fetch) has already validated the entry URL against private hosts.
+        """
+        if self.is_cloud_for(api_key):
+            key = api_key or BROWSERFABRIC_API_KEY
+            result = await self._bf_call("create_session", {"headless": True}, api_key=key)
+            session_id = result["result"]["session_id"]
+            try:
+                try:
+                    await self._bf_call(
+                        "navigate", {"url": url, "wait_until": "domcontentloaded"}, session_id, api_key=key
+                    )
+                except Exception as e:
+                    raise BrowserNavigationError(classify_navigation_error(e), str(e)[:500]) from e
+                # domcontentloaded fires before client-side frameworks (Notion,
+                # SPAs) paint. Snapshot after a short settle and retry while the
+                # page is still an empty shell.
+                text = ""
+                for _ in range(RENDER_SETTLE_ATTEMPTS):
+                    await asyncio.sleep(RENDER_SETTLE_SECONDS)
+                    snap = await self._bf_call("snapshot", {}, session_id, api_key=key)
+                    text = snap.get("result", {}).get("snapshot", "") or ""
+                    if len(text.strip()) >= RENDER_MIN_TEXT_CHARS:
+                        break
+                info = await self._bf_call("get_page_info", {}, session_id, api_key=key)
+                page_info = info.get("result", {})
+                return {"url": page_info.get("url", url), "title": page_info.get("title", ""), "text": text}
+            finally:
+                try:
+                    await self._bf_call("close_session", {}, session_id, api_key=key)
+                except Exception as e:
+                    logger.warning("Failed to close ephemeral BF session %s: %s", session_id, e)
+        else:
+            async with self._global_lock:
+                await self._ensure_local_browser()
+                page = await self._browser.new_page()
+            try:
+                try:
+                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                except Exception as e:
+                    raise BrowserNavigationError(classify_navigation_error(e), str(e)[:500]) from e
+                await page.wait_for_timeout(1500)  # let client-side rendering settle
+                text = await page.inner_text("body")
+                return {"url": page.url, "title": await page.title(), "text": text}
+            finally:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
 
     async def shutdown(self) -> None:
         """Close all tabs and the browser."""
