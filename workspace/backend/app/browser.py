@@ -198,9 +198,22 @@ class BrowserManager:
             return False
         return self.is_cloud
 
+    def _is_cloud_close(self, tab_id: str, session_id_hint: str = None, api_key: str = None) -> bool:
+        """Whether closing this tab should target BF. Works cross-worker: a
+        session_id_hint or an explicit api_key means it's a cloud session even
+        if this process's in-memory maps don't know the tab (and even if there
+        is no global key)."""
+        if tab_id in self._pages and tab_id not in self._sessions:
+            return False
+        if tab_id in self._sessions or session_id_hint:
+            return True
+        return self.is_cloud_for(api_key)
+
     async def _prune_dead_sessions(self) -> int:
         """Remove BF sessions that are no longer alive. Returns number pruned."""
-        if not self.is_cloud or not self._sessions:
+        # Prune whenever there are cloud sessions in memory, regardless of the
+        # global key (a provisioned-key-only workspace still has BF sessions).
+        if not self._sessions:
             return 0
         dead: list[str] = []
         for tab_id, session_id in list(self._sessions.items()):
@@ -422,7 +435,7 @@ class BrowserManager:
         (e.g. the reaper on another worker), where the per-tab key is not in
         this process's memory; it falls back to the per-tab key then the global.
         """
-        if self.is_cloud:
+        if self._is_cloud_close(tab_id, session_id_hint, api_key):
             session_id = self._sessions.pop(tab_id, None) or session_id_hint
             self._live_urls.pop(tab_id, None)
             # Pop unconditionally so the per-tab key mapping is always cleaned
@@ -589,6 +602,6 @@ class BrowserManager:
                 return None
 
     def active_tab_count(self) -> int:
-        if self.is_cloud:
-            return len(self._sessions)
-        return len(self._pages)
+        # Count whatever live tabs this worker holds, not by global mode
+        # (a worker may hold cloud sessions even without a global key).
+        return len(self._sessions) + len(self._pages)

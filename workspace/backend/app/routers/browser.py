@@ -224,12 +224,14 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Work
             manager._sessions.pop(tab.id, None)
             manager._live_urls.pop(tab.id, None)
 
-    if not tab.session_id and not manager.is_cloud:
-        return  # local mode, nothing to reconnect to
-
     # Resolve the workspace BF key (no provisioning) so reconnect/close use the
     # key the session was created with, not the global default.
     reconnect_key = _stored_bf_key(workspace) if workspace else None
+
+    # Cloud-capable if the tab already has a session, or the workspace has a BF
+    # key (provisioned or global). Only truly local when none of these hold.
+    if not tab.session_id and not manager.is_cloud_for(reconnect_key):
+        return  # local mode, nothing to reconnect to
 
     # --- Try reconnecting to the existing session first ---
     if tab.session_id:
@@ -961,8 +963,9 @@ async def persist_tab(
     # Save current session state and create persistent context
     manager = BrowserManager.get()
     bf_key = _stored_bf_key(workspace)
+    use_cloud = manager.is_cloud_for(bf_key)
     bb_context_id = None
-    if manager.is_cloud:
+    if use_cloud:
         try:
             await _ensure_connected(tab, db, workspace)
             bb_context_id = await manager.create_bb_context(session_id=tab.session_id, api_key=bf_key)
@@ -972,7 +975,7 @@ async def persist_tab(
 
     # Close the current session and reopen with the context so that
     # future sessions restore cookies/localStorage from the saved state.
-    if manager.is_cloud and tab.session_id:
+    if use_cloud and tab.session_id:
         try:
             current_url = tab.url
             await manager.close_tab(tab_id, session_id_hint=tab.session_id, api_key=bf_key)

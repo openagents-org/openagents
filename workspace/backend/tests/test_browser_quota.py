@@ -455,3 +455,49 @@ class TestDeleteIdempotency:
         assert resp.json()["data"].get("idempotent") is True
         # No second remote close was attempted for an already-claimed tab.
         manager.close_tab.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# #3 (cont): cloud detection for close works cross-worker (no global key)
+# ---------------------------------------------------------------------------
+
+def test_close_tab_uses_cloud_path_from_session_hint_without_global_key(monkeypatch):
+    # A worker with NO global key and an empty in-memory map must still close a
+    # BF session when given a session_id_hint + api_key (cross-worker reaper).
+    import asyncio
+    from unittest.mock import AsyncMock
+    import app.browser as bmod
+    monkeypatch.setattr(bmod, "BROWSERFABRIC_API_KEY", "")
+    mgr = bmod.BrowserManager()  # is_cloud is False (no global key)
+    assert mgr.is_cloud is False
+    mgr._bf_call = AsyncMock(return_value={"success": True})
+    ok = asyncio.run(mgr.close_tab("t1", session_id_hint="sess-remote", api_key="ws-key"))
+    assert ok is True
+    # It went through the cloud (BF) close path, not local.
+    called = mgr._bf_call.call_args
+    assert called.args[0] == "close_session"
+    assert called.kwargs.get("api_key") == "ws-key"
+
+
+def test_is_cloud_close_prefers_local_when_page_present():
+    from app.browser import BrowserManager
+    mgr = BrowserManager()
+    mgr._pages["t-local"] = object()
+    assert mgr._is_cloud_close("t-local") is False
+    assert mgr._is_cloud_close("t-unknown", session_id_hint="s") is True
+    assert mgr._is_cloud_close("t-unknown", api_key="k") is True
+
+
+def test_prune_dead_sessions_runs_without_global_key(monkeypatch):
+    import asyncio
+    from unittest.mock import AsyncMock
+    import app.browser as bmod
+    monkeypatch.setattr(bmod, "BROWSERFABRIC_API_KEY", "")
+    mgr = bmod.BrowserManager()
+    mgr._sessions["t1"] = "sess-1"
+    mgr._tab_keys["t1"] = "ws-key"
+    # get_page_info raises → session considered dead → pruned
+    mgr._bf_call = AsyncMock(side_effect=RuntimeError("boom"))
+    pruned = asyncio.run(mgr.prune_dead_sessions())
+    assert pruned == 1
+    assert "t1" not in mgr._sessions
