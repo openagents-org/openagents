@@ -107,6 +107,14 @@ async def validate_public_url(url: str) -> set:
     return ips
 
 
+def _order_ips(ips) -> list:
+    """Deterministic connect order: IPv4 first (more reliably routable in most
+    deployments), then IPv6, each sorted."""
+    v4 = sorted(ip for ip in ips if ":" not in ip)
+    v6 = sorted(ip for ip in ips if ":" in ip)
+    return v4 + v6
+
+
 class _PinnedTransport(httpx.AsyncHTTPTransport):
     """Transport that connects to a pre-validated IP while keeping the original
     hostname for the Host header and TLS (SNI + certificate verification).
@@ -116,24 +124,41 @@ class _PinnedTransport(httpx.AsyncHTTPTransport):
     of re-resolving the hostname at connect time. httpcore honors the
     `sni_hostname` request extension as the TLS server_hostname, so certificate
     verification still runs against the real hostname.
+
+    When a host has several validated IPs, they are tried in order so a first
+    IP that happens to be unreachable (e.g. an unroutable IPv6) fails over to
+    the next validated address rather than failing the whole fetch.
     """
 
     def __init__(self, pin_map: dict, **kwargs):
         super().__init__(**kwargs)
-        self._pin_map = pin_map  # hostname -> validated IP, updated per hop
+        self._pin_map = pin_map  # hostname -> [validated IPs], updated per hop
 
     async def handle_async_request(self, request):
         host = request.url.host
-        ip = self._pin_map.get(host)
-        if ip and ip != host:
-            request.extensions = dict(request.extensions or {})
-            request.extensions.setdefault("sni_hostname", host)
-            # Preserve the Host header (virtual hosting + cert name) before the
-            # URL host is swapped for the IP we connect to.
-            netloc = host if request.url.port is None else f"{host}:{request.url.port}"
-            request.headers["Host"] = netloc
-            request.url = request.url.copy_with(host=ip)
-        return await super().handle_async_request(request)
+        candidates = self._pin_map.get(host)
+        if not candidates:
+            return await super().handle_async_request(request)
+
+        original_url = request.url
+        netloc = host if original_url.port is None else f"{host}:{original_url.port}"
+        base_extensions = dict(request.extensions or {})
+        last_exc = None
+        for ip in candidates:
+            if ip != host:
+                request.url = original_url.copy_with(host=ip)
+                request.headers["Host"] = netloc
+                request.extensions = {**base_extensions, "sni_hostname": base_extensions.get("sni_hostname", host)}
+            else:
+                request.url = original_url
+                request.extensions = dict(base_extensions)
+            try:
+                return await super().handle_async_request(request)
+            except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+                last_exc = e
+                continue
+        # All validated IPs failed to connect — re-raise the last error.
+        raise last_exc
 
 
 class SafeFetchResult:
@@ -179,11 +204,12 @@ async def safe_fetch(
         current = url
         for _ in range(max_redirects + 1):
             ips = await validate_public_url(current)
-            # Pin this hop's hostname to a validated IP so the socket connects
+            # Pin this hop's hostname to the validated IPs so the socket connects
             # to an address we checked, not a possibly-rebound re-resolution.
+            # The transport tries them in order (v4 first) with failover.
             host = urlparse(current).hostname
             if host:
-                pin_map[host] = sorted(ips)[0]
+                pin_map[host] = _order_ips(ips)
             async with client.stream("GET", current, headers=request_headers) as resp:
                 if resp.is_redirect:
                     location = resp.headers.get("location")
@@ -221,7 +247,10 @@ async def safe_fetch(
                     content=b"".join(chunks),
                     status_code=resp.status_code,
                     headers=resp.headers,
-                    final_url=str(resp.url),
+                    # Use the hostname URL we followed, NOT resp.url — the pinned
+                    # transport rewrites the request host to the IP, so resp.url
+                    # would report http://<ip>/... and lose the domain.
+                    final_url=current,
                     truncated=truncated,
                 )
 

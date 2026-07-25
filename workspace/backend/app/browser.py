@@ -78,6 +78,57 @@ def _is_session_gone_error(exc: Exception) -> bool:
     )
 
 
+# Only these in-page, non-network schemes are allowed through the SSRF route
+# guard. Everything else (ws/wss/ftp/file/…) is blocked so an internal service
+# can't be reached over a non-http scheme.
+_ROUTE_GUARD_ALLOWED_SCHEMES = {"data", "blob", "about"}
+
+
+async def _ssrf_route_guard(route) -> None:
+    """Playwright route handler for the local render path. Aborts any request
+    that could reach an internal address:
+
+    - http/https: the host must resolve only to public IPs (covers the main
+      navigation, redirects, XHR and sub-resources — not just the entry URL).
+    - data/blob/about: allowed (in-page, no network).
+    - anything else (ws/wss/ftp/file/…): blocked.
+
+    This is defense-in-depth only. Playwright's page.route does not intercept
+    every Service Worker request and WebSockets need a separate routing API, so
+    the real boundary is a container/process-level private-egress deny (see the
+    deployment notes). The cloud Browser Fabric path runs in the provider's
+    network; its sub-resource isolation is BF's boundary and we still
+    pre-validate the entry URL before navigating there.
+    """
+    from urllib.parse import urlparse
+
+    from app.net_security import UnsafeURLError, validate_public_url
+
+    url = route.request.url
+    scheme = urlparse(url).scheme.lower()
+
+    async def _abort():
+        try:
+            await route.abort()
+        except Exception:
+            pass
+
+    if scheme in ("http", "https"):
+        try:
+            await validate_public_url(url)
+        except Exception:
+            # UnsafeURLError or anything unexpected → never fail open.
+            await _abort()
+            return
+    elif scheme not in _ROUTE_GUARD_ALLOWED_SCHEMES:
+        await _abort()
+        return
+    try:
+        await route.continue_()
+    except Exception:
+        pass
+
+
 def classify_navigation_error(exc: Exception) -> str:
     """Map a raw navigation exception to a stable error code."""
     low = str(exc).lower()
@@ -526,6 +577,10 @@ class BrowserManager:
                 await self._ensure_local_browser()
                 page = await self._browser.new_page()
             try:
+                # Block sub-resources / redirects that target internal addresses
+                # (the entry URL is validated by the caller, but the page can
+                # then fetch or redirect to a private host).
+                await page.route("**/*", _ssrf_route_guard)
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 except Exception as e:

@@ -71,7 +71,7 @@ class TestPinnedTransport:
     def test_rewrites_host_to_validated_ip_and_keeps_hostname_for_tls(self):
         import httpx
 
-        transport = net_security._PinnedTransport({"example.com": "93.184.216.34"})
+        transport = net_security._PinnedTransport({"example.com": ["93.184.216.34"]})
         request = httpx.Request("GET", "https://example.com/path")
         captured = {}
 
@@ -92,7 +92,7 @@ class TestPinnedTransport:
     def test_ip_literal_host_is_not_rewritten(self):
         import httpx
 
-        transport = net_security._PinnedTransport({"93.184.216.34": "93.184.216.34"})
+        transport = net_security._PinnedTransport({"93.184.216.34": ["93.184.216.34"]})
         request = httpx.Request("GET", "http://93.184.216.34/x")
         captured = {}
 
@@ -106,6 +106,31 @@ class TestPinnedTransport:
 
         assert captured["host"] == "93.184.216.34"
         assert captured["sni"] is None  # no rewrite → no SNI override
+
+    def test_fails_over_to_next_ip_on_connect_error(self):
+        import httpx
+
+        # First candidate is an (unroutable) IPv6, second is a good IPv4.
+        transport = net_security._PinnedTransport({"example.com": ["2001:db8::1", "93.184.216.34"]})
+        request = httpx.Request("GET", "https://example.com/x")
+        tried = []
+
+        async def fake_super(self, req):
+            tried.append(req.url.host)
+            if req.url.host == "2001:db8::1":
+                raise httpx.ConnectError("no route to host")
+            return MagicMock()
+
+        with patch.object(net_security.httpx.AsyncHTTPTransport, "handle_async_request", fake_super):
+            _run(transport.handle_async_request(request))
+
+        # It tried the first, failed, then succeeded on the second validated IP.
+        assert tried == ["2001:db8::1", "93.184.216.34"]
+
+    def test_order_ips_puts_v4_first(self):
+        assert net_security._order_ips({"2001:db8::1", "1.2.3.4", "1.1.1.1"}) == [
+            "1.1.1.1", "1.2.3.4", "2001:db8::1",
+        ]
 
 
 def _stream_response(*, status=200, headers=None, chunks=(b"hello",), is_redirect=False):
@@ -181,3 +206,37 @@ class TestSafeFetch:
                 _run(safe_fetch("https://example.com/redir", max_bytes=1000, timeout=5, truncate=True))
         assert ei.value.code == "BLOCKED_PRIVATE_ADDRESS"
         assert any("169.254" in c for c in calls)
+
+
+class TestSsrfRouteGuard:
+    """The Playwright route guard used on the local render path."""
+
+    def _route(self, url):
+        route = MagicMock()
+        route.request.url = url
+        route.abort = AsyncMock()
+        route.continue_ = AsyncMock()
+        return route
+
+    def test_blocks_private_host_subresource(self):
+        from app.browser import _ssrf_route_guard
+        route = self._route("http://169.254.169.254/latest/meta-data/")
+        _run(_ssrf_route_guard(route))
+        route.abort.assert_awaited_once()
+        route.continue_.assert_not_awaited()
+
+    def test_allows_public_host(self):
+        from app.browser import _ssrf_route_guard
+        from app import net_security
+        route = self._route("https://example.com/app.js")
+        with patch.object(net_security, "_resolve_ips", new=AsyncMock(return_value={"93.184.216.34"})):
+            _run(_ssrf_route_guard(route))
+        route.continue_.assert_awaited_once()
+        route.abort.assert_not_awaited()
+
+    def test_allows_data_uri(self):
+        from app.browser import _ssrf_route_guard
+        route = self._route("data:image/png;base64,iVBORw0KGgo=")
+        _run(_ssrf_route_guard(route))
+        route.continue_.assert_awaited_once()
+        route.abort.assert_not_awaited()
