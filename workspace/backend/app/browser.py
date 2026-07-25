@@ -38,17 +38,32 @@ RENDER_MIN_TEXT_CHARS = int(os.environ.get("RENDER_MIN_TEXT_CHARS", "50"))
 RENDER_MAX_CONCURRENCY = int(os.environ.get("RENDER_MAX_CONCURRENCY", "4"))
 RENDER_ACQUIRE_TIMEOUT_SECONDS = float(os.environ.get("RENDER_ACQUIRE_TIMEOUT_SECONDS", "20"))
 
-# SSRF safety gate. Browser navigation (render + shared tabs) can be pointed at
+# SSRF safety gates. Browser navigation (render + shared tabs) can be pointed at
 # arbitrary agent/user URLs; application-layer guards can't fully stop DNS
-# rebinding or cover every sub-resource, so JS rendering is DISABLED by default
-# and only enabled when the operator confirms network-layer isolation
-# (container private-egress deny, or a Browser Fabric isolation guarantee).
-TRUSTED_BROWSER_EGRESS = os.environ.get("TRUSTED_BROWSER_EGRESS", "").strip().lower() in ("1", "true", "yes", "on")
+# rebinding or cover every sub-resource, so browsing is DISABLED by default and
+# only enabled when the operator confirms network-layer isolation. The two
+# execution surfaces have different networks, so they have separate gates:
+#   - local Playwright runs on THIS host → needs container private-egress deny
+#   - Browser Fabric runs in BF's network → needs a BF isolation guarantee
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+# Back-compat umbrella flag: enables both surfaces if set.
+_TRUSTED_ALL = _env_flag("TRUSTED_BROWSER_EGRESS")
+TRUSTED_LOCAL_BROWSER_EGRESS = _TRUSTED_ALL or _env_flag("TRUSTED_LOCAL_BROWSER_EGRESS")
+TRUSTED_BF_EGRESS = _TRUSTED_ALL or _env_flag("TRUSTED_BF_EGRESS")
+
+
+def _egress_trusted(use_cloud: bool) -> bool:
+    """Whether the execution surface that will actually run the navigation has a
+    confirmed private-egress isolation guarantee."""
+    return TRUSTED_BF_EGRESS if use_cloud else TRUSTED_LOCAL_BROWSER_EGRESS
 
 
 class RenderDisabledError(RuntimeError):
-    """Raised when JS rendering is requested but the deployment has not been
-    marked as having trusted (private-egress-denied) browser networking."""
+    """Raised when browsing is requested but the deployment has not been marked
+    as having trusted (private-egress-denied) networking for that surface."""
 
 
 class BrowserNavigationError(RuntimeError):
@@ -149,9 +164,11 @@ async def _ssrf_route_guard(route) -> None:
 
 
 async def _assert_navigable(url: str) -> None:
-    """Block navigation to internal/metadata/private addresses (defense-in-depth
-    for the shared browser and render paths). Skips non-http(s) and about:blank.
-    Raises BrowserNavigationError('BLOCKED_PRIVATE_ADDRESS') on a private host."""
+    """Guard navigation for the shared browser and render paths. Allows only
+    http(s) (validated to resolve to public IPs) and about:blank. Any other
+    scheme — file://, ftp://, ws://, … — is rejected (a file:// on the local
+    browser would read this host's filesystem). Raises BrowserNavigationError
+    with UNSUPPORTED_SCHEME or BLOCKED_PRIVATE_ADDRESS."""
     if not url or url == "about:blank":
         return
     from urllib.parse import urlparse
@@ -159,7 +176,9 @@ async def _assert_navigable(url: str) -> None:
     from app.net_security import UnsafeURLError, validate_public_url
 
     if urlparse(url).scheme.lower() not in ("http", "https"):
-        return
+        raise BrowserNavigationError(
+            "UNSUPPORTED_SCHEME", f"Only http(s) and about:blank are allowed, got: {url[:80]}"
+        )
     try:
         await validate_public_url(url)
     except UnsafeURLError as e:
@@ -292,6 +311,18 @@ class BrowserManager:
             return False
         return self.is_cloud
 
+    def _require_egress(self, use_cloud: bool) -> None:
+        """Fail closed unless the execution surface has a confirmed egress
+        isolation guarantee. Applies to both render and the shared browser."""
+        if not _egress_trusted(use_cloud):
+            surface = "Browser Fabric" if use_cloud else "local browser"
+            flag = "TRUSTED_BF_EGRESS" if use_cloud else "TRUSTED_LOCAL_BROWSER_EGRESS"
+            raise RenderDisabledError(
+                f"Browsing via the {surface} is disabled on this deployment "
+                f"(no confirmed private-egress isolation). Set {flag}=1 once "
+                f"egress is locked down."
+            )
+
     def _is_cloud_close(self, tab_id: str, session_id_hint: str = None, api_key: str = None) -> bool:
         """Whether closing this tab should target BF. Works cross-worker: a
         session_id_hint or an explicit api_key means it's a cloud session even
@@ -324,12 +355,18 @@ class BrowserManager:
 
     async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None) -> dict:
         """Create a new browser tab. Returns {url, title}."""
-        if api_key:
-            self._tab_keys[tab_id] = api_key
         # Use is_cloud_for(api_key): a workspace with only a provisioned key
         # (no global env key) must still open a cloud session, not fall through
         # to local Playwright.
         use_cloud = self.is_cloud_for(api_key)
+        # Fail closed on the actual execution surface's egress trust, and
+        # validate the URL BEFORE storing the per-tab key (a rejected open must
+        # not leave a _tab_keys entry behind).
+        if url and url != "about:blank":
+            self._require_egress(use_cloud)
+        await _assert_navigable(url)
+        if api_key:
+            self._tab_keys[tab_id] = api_key
         async with self._global_lock:
             active_count = len(self._sessions) if use_cloud else len(self._pages)
             if active_count >= MAX_BROWSER_TABS:
@@ -342,9 +379,6 @@ class BrowserManager:
                         f"Global browser capacity ({MAX_BROWSER_TABS} live sessions) "
                         f"reached on this worker"
                     )
-
-        # SSRF: never open a tab straight onto an internal address.
-        await _assert_navigable(url)
 
         if use_cloud:
             args: dict = {"headless": True}
@@ -406,7 +440,9 @@ class BrowserManager:
         Raises BrowserNavigationError on failure instead of silently leaving
         the page wherever it was (which agents used to see as a blank page).
         """
-        # SSRF: block navigation to internal addresses.
+        # Fail closed on egress trust for the surface this tab runs on, then
+        # block navigation to internal addresses / disallowed schemes.
+        self._require_egress(self._is_cloud_tab(tab_id))
         await _assert_navigable(url)
         if self._is_cloud_tab(tab_id):
             session_id = self._get_session(tab_id)
@@ -593,11 +629,14 @@ class BrowserManager:
         when trusted egress isn't configured, or BrowserCapacityError when the
         per-worker render concurrency cap is saturated.
         """
-        if not TRUSTED_BROWSER_EGRESS:
+        use_cloud = self.is_cloud_for(api_key)
+        if not _egress_trusted(use_cloud):
+            surface = "Browser Fabric" if use_cloud else "local browser"
+            flag = "TRUSTED_BF_EGRESS" if use_cloud else "TRUSTED_LOCAL_BROWSER_EGRESS"
             raise RenderDisabledError(
-                "JS rendering is disabled on this deployment. It can reach "
-                "internal/metadata endpoints without network-layer isolation; "
-                "set TRUSTED_BROWSER_EGRESS=1 once private egress is denied."
+                f"JS rendering via the {surface} is disabled on this deployment. "
+                f"It can reach internal/metadata endpoints without network-layer "
+                f"isolation; set {flag}=1 once private egress is denied."
             )
         # SSRF: validate the entry URL up front (sub-resources are guarded below
         # for local; BF sub-resources are the provider's boundary).

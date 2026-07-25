@@ -29,7 +29,13 @@ from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
-from app.browser import BROWSERFABRIC_API_KEY, BrowserCapacityError, BrowserManager, BrowserNavigationError
+from app.browser import (
+    BROWSERFABRIC_API_KEY,
+    BrowserCapacityError,
+    BrowserManager,
+    BrowserNavigationError,
+    RenderDisabledError,
+)
 from app.database import get_db
 from app.models import BrowserContext, BrowserTab, BrowserUsage, Workspace
 from app.response import ResponseCode, json_response, success_response
@@ -391,6 +397,15 @@ async def open_tab(
             data={"error_code": "BROWSER_CAPACITY", "retryable": True},
             status_code=503,
         )
+    except RenderDisabledError as e:
+        record.status = "closed"
+        db.commit()
+        return json_response(ResponseCode.FORBIDDEN, str(e), data={"error_code": "BROWSER_DISABLED"})
+    except BrowserNavigationError as e:
+        # Blocked scheme / private address on the initial URL.
+        record.status = "closed"
+        db.commit()
+        return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     except RuntimeError as e:
         record.status = "closed"
         db.commit()
@@ -550,6 +565,8 @@ async def navigate_tab(
         result = await manager.navigate(tab_id, body.url)
     except KeyError:
         return json_response(ResponseCode.NOT_FOUND, "Browser tab not found in browser")
+    except RenderDisabledError as e:
+        return json_response(ResponseCode.FORBIDDEN, str(e), data={"error_code": "BROWSER_DISABLED"})
     except BrowserNavigationError as e:
         db.commit()  # keep any reconnect bookkeeping from _ensure_connected
         return json_response(

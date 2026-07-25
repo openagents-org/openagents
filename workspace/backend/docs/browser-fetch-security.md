@@ -20,10 +20,19 @@ before enabling rendering in an untrusted deployment.
   Local Playwright pages install a `page.route` guard that aborts any request
   (main navigation, redirects, XHR, sub-resources) to a non-public host and
   allows only `data:`/`blob:`/`about:` non-http schemes.
-- **Rendering is off by default**: JS rendering returns `RENDER_DISABLED` unless
-  `TRUSTED_BROWSER_EGRESS=1` is set. When disabled, `/v1/fetch` serves static
-  content if it has it and otherwise reports `RENDER_DISABLED` — it does **not**
-  steer the agent to the (equally unsafe) shared browser.
+- **Browsing is off by default, per surface**: both JS rendering AND the shared
+  browser (`open_tab`/`navigate`) fail closed unless the surface that actually
+  runs the navigation is trusted. The two surfaces have separate gates because
+  they run in different networks:
+  - `TRUSTED_LOCAL_BROWSER_EGRESS=1` — local Playwright runs on this host.
+  - `TRUSTED_BF_EGRESS=1` — Browser Fabric runs in BF's network.
+  - `TRUSTED_BROWSER_EGRESS=1` — umbrella flag enabling both (back-compat).
+
+  When rendering is disabled, `/v1/fetch` reports `RENDER_DISABLED` (with the
+  partial static text clearly labeled, never masqueraded as a successful fetch)
+  and does **not** steer the agent to the shared browser. The shared-browser
+  routes return `BROWSER_DISABLED` (HTTP 403). Only `http(s)` and `about:blank`
+  are accepted; `file://`/`ftp://`/`ws://` etc. are rejected (`UNSUPPORTED_SCHEME`).
 - **Per-worker render concurrency cap** (`RENDER_MAX_CONCURRENCY`) so a burst of
   fetches can't exhaust BrowserFabric concurrency/cost on one worker.
 
@@ -45,7 +54,10 @@ application layer can't fully see. The real boundary is the network.
    cannot reach BF's own internal network / metadata / localhost. Until then,
    treat cloud render as untrusted and keep it disabled (or behind a per-workspace
    allowlist) for untrusted URLs.
-3. Only then set `TRUSTED_BROWSER_EGRESS=1`.
+3. Only then set the matching flag(s): `TRUSTED_LOCAL_BROWSER_EGRESS=1` once (1)
+   is done for this host, `TRUSTED_BF_EGRESS=1` once (2) is confirmed. Enabling a
+   surface is a security decision and a behavior change (the shared browser is
+   off until enabled) — it needs explicit sign-off, not a silent default.
 
 ## Follow-ups tracked for launch (not blocking the code changes here)
 

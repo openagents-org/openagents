@@ -162,6 +162,24 @@ class TestFetchChain:
         assert len(data["content"]) <= 1000
         assert data["truncated"] is True
 
+    @patch("app.routers.fetch._resolve_bf_key", new_callable=AsyncMock, return_value=None)
+    @patch("app.routers.fetch._static_fetch")
+    def test_render_disabled_returns_render_disabled_not_fake_success(self, mock_static, _key, client):
+        # JS shell + render disabled → RENDER_DISABLED with partial content,
+        # never a static "success" masquerading as a real fetch.
+        from app.browser import RenderDisabledError
+        mock_static.return_value = {"html": JS_SHELL_HTML, "final_url": "https://notion.site/x", "status_code": 200}
+        workspace = _create_workspace(client)
+        with patch("app.routers.fetch.BrowserManager") as mock_bm:
+            manager = MagicMock()
+            manager.render_page_text = AsyncMock(side_effect=RenderDisabledError("rendering disabled"))
+            mock_bm.get.return_value = manager
+            resp = _fetch(client, workspace, "https://notion.site/x")
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["data"]["error_code"] == "RENDER_DISABLED"
+        assert body["data"].get("content_source") is None  # not masqueraded as success
+
     @patch("app.routers.fetch._static_fetch")
     def test_static_mode_reports_upstream_http_error(self, mock_static, client):
         # A 404 in static mode must surface as an error, not a success body.

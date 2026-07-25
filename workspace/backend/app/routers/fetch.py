@@ -323,16 +323,25 @@ async def fetch_url(
     try:
         rendered = await manager.render_page_text(body.url, api_key=bf_key)
     except RenderDisabledError as e:
-        # Rendering is off (no trusted egress). If static gave usable content,
-        # return it; otherwise report RENDER_DISABLED and do NOT steer the agent
-        # to the equally-unsafe shared browser.
+        # Rendering is off (no trusted egress). We reached this tier because the
+        # static content was insufficient (JS shell / wall / 4xx), so returning
+        # it as a success would masquerade. Report RENDER_DISABLED, attach the
+        # partial static text as clearly-labeled partial content, and do NOT
+        # steer the agent to the equally-unsafe shared browser.
+        extra = {}
         if static_result is not None:
-            extracted = _extract_text(static_result["html"])
-            if extracted["text"]:
-                return _success(extracted["text"], "static", static_result["final_url"], extracted["title"], max_chars)
-        return _error(ResponseCode.BAD_REQUEST, str(e), "RENDER_DISABLED")
+            partial = _extract_text(static_result["html"])["text"]
+            if partial:
+                extra = {"partial_content": partial[:max_chars], "partial_source": "static"}
+        return _error(ResponseCode.BAD_REQUEST, str(e), "RENDER_DISABLED", **extra)
     except BrowserCapacityError as e:
-        return _error(ResponseCode.INTERNAL_ERROR, str(e), "RENDER_BUSY", status=503)
+        # Real 503 (retryable), not a 500 with status buried in the body.
+        return json_response(
+            ResponseCode.INTERNAL_ERROR,
+            str(e),
+            data={"error_code": "RENDER_BUSY", "retryable": True},
+            status_code=503,
+        )
     except BrowserNavigationError as e:
         code = "JS_RENDER_TIMEOUT" if e.code == "NAV_TIMEOUT" else e.code
         return _error(ResponseCode.BAD_REQUEST, f"Browser render failed: {e}", code)

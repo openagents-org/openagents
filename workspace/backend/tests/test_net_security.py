@@ -281,10 +281,14 @@ class TestBrowserNavigationSSRF:
         from app.browser import _assert_navigable
         _run(_assert_navigable("about:blank"))  # no raise
 
-    def test_open_tab_blocks_private_url(self):
+    def test_open_tab_blocks_private_url(self, monkeypatch):
         import asyncio
+        import app.browser as bmod
         from unittest.mock import AsyncMock, patch
         from app.browser import BrowserManager, BrowserNavigationError
+        # Enable egress so the test isolates the private-address block (not the
+        # egress gate).
+        monkeypatch.setattr(bmod, "TRUSTED_BF_EGRESS", True)
         mgr = BrowserManager()
         with patch.object(BrowserManager, "is_cloud", property(lambda self: True)):
             mgr._bf_call = AsyncMock()
@@ -293,23 +297,51 @@ class TestBrowserNavigationSSRF:
         assert ei.value.code == "BLOCKED_PRIVATE_ADDRESS"
         mgr._bf_call.assert_not_awaited()  # never even created a session
 
+    def test_open_tab_blocks_non_http_scheme(self, monkeypatch):
+        import asyncio
+        import app.browser as bmod
+        from unittest.mock import AsyncMock, patch
+        from app.browser import BrowserManager, BrowserNavigationError
+        monkeypatch.setattr(bmod, "TRUSTED_BF_EGRESS", True)
+        mgr = BrowserManager()
+        with patch.object(BrowserManager, "is_cloud", property(lambda self: True)):
+            mgr._bf_call = AsyncMock()
+            with pytest.raises(BrowserNavigationError) as ei:
+                asyncio.run(mgr.open_tab("t1", "file:///etc/passwd", api_key="k"))
+        assert ei.value.code == "UNSUPPORTED_SCHEME"
+        mgr._bf_call.assert_not_awaited()
+
 
 class TestRenderDisabled:
     def test_render_disabled_by_default(self):
         import asyncio
         import app.browser as bmod
         from app.browser import BrowserManager, RenderDisabledError
-        assert bmod.TRUSTED_BROWSER_EGRESS is False  # safe default
+        # Both surfaces off by default (safe).
+        assert bmod.TRUSTED_BF_EGRESS is False
+        assert bmod.TRUSTED_LOCAL_BROWSER_EGRESS is False
         mgr = BrowserManager()
         with pytest.raises(RenderDisabledError):
             asyncio.run(mgr.render_page_text("https://example.com"))
+
+    def test_shared_open_disabled_without_egress(self):
+        # The shared browser is gated too, not just render.
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+        from app.browser import BrowserManager, RenderDisabledError
+        mgr = BrowserManager()
+        with patch.object(BrowserManager, "is_cloud", property(lambda self: True)):
+            mgr._bf_call = AsyncMock()
+            with pytest.raises(RenderDisabledError):
+                asyncio.run(mgr.open_tab("t1", "https://example.com", api_key="k"))
+        mgr._bf_call.assert_not_awaited()
 
     def test_render_runs_when_trusted_egress_enabled(self, monkeypatch):
         import asyncio
         from unittest.mock import AsyncMock, patch
         import app.browser as bmod
         from app.browser import BrowserManager
-        monkeypatch.setattr(bmod, "TRUSTED_BROWSER_EGRESS", True)
+        monkeypatch.setattr(bmod, "TRUSTED_BF_EGRESS", True)
         monkeypatch.setattr(bmod, "_assert_navigable", AsyncMock())
         mgr = BrowserManager()
         with patch.object(BrowserManager, "is_cloud_for", lambda self, k=None: True):
@@ -322,3 +354,44 @@ class TestRenderDisabled:
             ])
             out = asyncio.run(mgr.render_page_text("https://example.com", api_key="k"))
         assert "hello world" in out["text"]
+
+
+class TestRenderSemaphore:
+    def test_concurrency_limit_serializes_and_releases(self, monkeypatch):
+        # With RENDER_MAX_CONCURRENCY=1, two concurrent renders must not overlap,
+        # and the semaphore must be released after each (even the second runs).
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+        import app.browser as bmod
+        from app.browser import BrowserManager
+
+        monkeypatch.setattr(bmod, "TRUSTED_BF_EGRESS", True)
+        monkeypatch.setattr(bmod, "RENDER_MAX_CONCURRENCY", 1)
+        monkeypatch.setattr(bmod, "_assert_navigable", AsyncMock())
+
+        mgr = BrowserManager()
+        overlap = {"active": 0, "max": 0}
+
+        async def fake_inner(self, url, api_key=None):
+            overlap["active"] += 1
+            overlap["max"] = max(overlap["max"], overlap["active"])
+            await asyncio.sleep(0.02)
+            overlap["active"] -= 1
+            return {"url": url, "title": "", "text": "ok"}
+
+        async def _run():
+            with patch.object(BrowserManager, "_render_page_text_inner", fake_inner):
+                r1, r2 = await asyncio.gather(
+                    mgr.render_page_text("https://a.example", api_key="k"),
+                    mgr.render_page_text("https://b.example", api_key="k"),
+                )
+            return r1, r2
+
+        r1, r2 = _run_asyncio(_run())
+        assert overlap["max"] == 1          # never ran concurrently
+        assert r1["text"] == "ok" and r2["text"] == "ok"  # both completed (released)
+
+
+def _run_asyncio(coro):
+    import asyncio
+    return asyncio.run(coro)
