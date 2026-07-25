@@ -383,6 +383,15 @@ def update_workspace(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    # Re-read the row under a row lock so the settings merge below operates on
+    # the LATEST committed value, not the copy loaded above. Without this, two
+    # concurrent PATCHes could each merge into their own stale snapshot and the
+    # second commit would lose the first's change. On Postgres this takes
+    # FOR UPDATE; on SQLite it is a plain refresh (writes are already
+    # serialized). NOTE: SQLite can't exercise the concurrent-lock semantics —
+    # that needs a Postgres dual-session test in CI.
+    db.refresh(workspace, with_for_update=True)
+
     if body.name is not None:
         workspace.name = body.name
     if body.settings is not None:
