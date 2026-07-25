@@ -380,7 +380,11 @@ class BrowserManager:
         if self.is_cloud:
             session_id = self._sessions.pop(tab_id, None) or session_id_hint
             self._live_urls.pop(tab_id, None)
-            tab_key = api_key or self._tab_keys.pop(tab_id, None)
+            # Pop unconditionally so the per-tab key mapping is always cleaned
+            # up, even when an explicit api_key is passed (the `or` used to
+            # short-circuit the pop and leak the entry).
+            stored_key = self._tab_keys.pop(tab_id, None)
+            tab_key = api_key or stored_key
             if not session_id:
                 return True
             # A leaked BF session keeps consuming the concurrency quota

@@ -1241,7 +1241,17 @@ async def close_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    is_persistent = await _finalize_close(db, workspace, tab, token=x_workspace_token)
+    try:
+        is_persistent = await _finalize_close(db, workspace, tab, token=x_workspace_token, require_remote=True)
+    except RemoteCloseError:
+        # The remote close failed. Don't mark 'closed' (that would leak the BF
+        # session forever — the reaper only retries 'active'/'closing' rows).
+        # Mark 'closing' so the reaper finishes it later; the tab is already
+        # gone from the user's list and quota (both exclude 'closing'), so from
+        # the caller's side the delete still succeeds.
+        tab.status = "closing"
+        db.commit()
+        return success_response({"id": tab_id, "status": "closing", "context_preserved": bool(tab.context_id)})
 
     return success_response({"id": tab_id, "status": "closed", "context_preserved": is_persistent})
 

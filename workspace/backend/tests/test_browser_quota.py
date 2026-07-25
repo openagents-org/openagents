@@ -160,11 +160,28 @@ class TestIdleReaper:
         manager.close_tab.assert_awaited()
 
     @patch("app.routers.browser.BrowserManager")
-    def test_delete_is_best_effort_when_remote_close_fails(self, mock_bm, client):
-        # An interactive DELETE must still remove the tab from the user's list
-        # even if the remote close fails (best-effort, unlike the reaper).
+    def test_delete_marks_closing_when_remote_close_fails(self, mock_bm, client):
+        # DELETE returns success (tab gone from the user's list) but leaves the
+        # row 'closing' — NOT 'closed' — so the reaper retries the remote close
+        # instead of the BF session leaking forever.
         manager = _mock_manager()
         manager.close_tab = AsyncMock(return_value=False)
+        mock_bm.get.return_value = manager
+        mock_bm.provision_workspace_key = AsyncMock(return_value=None)
+        workspace = _create_workspace(client)
+        tab = _open_tab(client, workspace).json()["data"]
+
+        resp = client.delete(f"/v1/browser/tabs/{tab['id']}",
+                             headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["status"] == "closing"
+        db = TestingSessionLocal()
+        assert db.get(BrowserTab, tab["id"]).status == "closing"
+        db.close()
+
+    @patch("app.routers.browser.BrowserManager")
+    def test_delete_marks_closed_when_remote_close_succeeds(self, mock_bm, client):
+        manager = _mock_manager()  # close_tab returns True by default
         mock_bm.get.return_value = manager
         mock_bm.provision_workspace_key = AsyncMock(return_value=None)
         workspace = _create_workspace(client)
@@ -315,3 +332,28 @@ def test_classify_navigation_error():
     assert classify_navigation_error(Exception("Timeout 30000ms exceeded")) == "NAV_TIMEOUT"
     assert classify_navigation_error(Exception("net::ERR_BLOCKED_BY_CLIENT")) == "CONTENT_BLOCKED"
     assert classify_navigation_error(Exception("something odd")) == "NAVIGATION_FAILED"
+
+
+# ---------------------------------------------------------------------------
+# close_tab cleans up its per-tab BF key mapping even with an explicit key
+# ---------------------------------------------------------------------------
+
+def test_close_tab_pops_tab_key_even_with_explicit_key():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+    from app.browser import BrowserManager
+
+    mgr = BrowserManager()
+    # Simulate cloud mode with a live session + stored per-tab key.
+    with patch.object(BrowserManager, "is_cloud", property(lambda self: True)):
+        mgr._sessions["tab-1"] = "sess-1"
+        mgr._tab_keys["tab-1"] = "stored-key"
+        mgr._bf_call = AsyncMock(return_value={"success": True})
+
+        ok = asyncio.run(mgr.close_tab("tab-1", api_key="explicit-key"))
+        assert ok is True
+        # The mapping must be cleaned up (was leaking when api_key short-circuited).
+        assert "tab-1" not in mgr._tab_keys
+        # The explicit key won over the stored one.
+        _, kwargs = mgr._bf_call.call_args
+        assert kwargs.get("api_key") == "explicit-key"
