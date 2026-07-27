@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import ReactDOM from "react-dom"
 import { cn } from "../../lib/utils"
 
@@ -51,9 +51,15 @@ export function Modal({
   if (idRef.current === null) idRef.current = Symbol("modal")
   const titleId = React.useId()
 
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
   useEffect(() => {
     if (!open) return
     const id = idRef.current as symbol
+    // Avoid pushing duplicates when the effect re-runs
+    const existingIdx = modalStack.indexOf(id)
+    if (existingIdx !== -1) modalStack.splice(existingIdx, 1)
     modalStack.push(id)
 
     // Remember where focus came from so it can be handed back on close —
@@ -71,7 +77,7 @@ export function Modal({
       if (modalStack[modalStack.length - 1] !== id) return
       if (e.key === "Escape") {
         e.stopPropagation()
-        onClose()
+        onCloseRef.current()
         return
       }
       if (e.key !== "Tab") return
@@ -101,7 +107,7 @@ export function Modal({
       if (i !== -1) modalStack.splice(i, 1)
       previouslyFocused?.focus?.()
     }
-  }, [open, onClose])
+  }, [open])
 
   if (!open) return null
 
