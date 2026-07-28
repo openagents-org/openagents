@@ -89,7 +89,7 @@ export function KnowledgeView() {
   // List component
   const EntryList = (
     <div className="h-full flex flex-col">
-      <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between">
+      <div className="shrink-0 h-12 px-4 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <BookOpen className="size-4 text-amber-500" />
           <h2 className="text-sm font-semibold">Knowledge</h2>
@@ -191,7 +191,7 @@ export function KnowledgeView() {
   // Detail component
   const EntryDetail = selectedEntry ? (
     <div className="h-full flex flex-col">
-      <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between">
+      <div className="shrink-0 h-12 px-4 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
           {isMobile && (
             <button type="button" onClick={() => setMobileDetail(false)} className="p-1 -ml-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800">

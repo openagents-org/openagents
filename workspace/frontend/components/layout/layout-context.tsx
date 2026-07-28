@@ -75,9 +75,8 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   const openMobileList = () => setMobilePane('list');
   const toggleDetailExpanded = () => setIsDetailExpanded((v) => !v);
 
+  // Sidebar widths now come from <SidebarProvider> (components/ui/sidebar).
   const cssVariables = useMemo(() => ({
-    '--sidebar-width': '240px',
-    '--sidebar-width-collapsed': '52px',
     '--header-height-mobile': '60px',
   } as React.CSSProperties), []);
 
@@ -99,6 +98,8 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       });
       body.removeAttribute('data-sidebar-open');
     };
+    // `data-sidebar-open` is kept on <body> so page-level styles can react to
+    // the rail state even though the sidebar itself owns the widths now.
   }, [cssVariables, isSidebarOpen]);
 
   return (

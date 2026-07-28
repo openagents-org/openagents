@@ -75,7 +75,7 @@ export function RoutineList() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="shrink-0 px-3 py-2.5 border-b border-border flex items-center justify-between">
+      <div className="shrink-0 h-12 px-2 lg:px-3 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <CalendarClock className="size-3.5 text-violet-500" />
           <h2 className="text-sm font-semibold">Routines</h2>

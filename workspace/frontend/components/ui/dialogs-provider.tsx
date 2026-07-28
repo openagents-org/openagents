@@ -71,6 +71,20 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
   const [pending, setPending] = React.useState<Pending | null>(null);
   const [value, setValue] = React.useState('');
   const resolverRef = React.useRef<((result: boolean | string | null) => void) | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  // Focus (and pre-select, so typing replaces the old value) once the dialog is
+  // up. Deferring a frame lets Radix finish its own focus management first —
+  // a dropdown menu that triggered this prompt restores focus to its trigger as
+  // it closes, which would otherwise steal focus straight back from the input.
+  React.useEffect(() => {
+    if (pending?.kind !== 'prompt') return;
+    const raf = requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [pending]);
 
   const settle = React.useCallback((result: boolean | string | null) => {
     resolverRef.current?.(result);
@@ -127,7 +141,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
             {pending.kind === 'prompt' && (
               <DialogBody className="py-1">
                 <Input
-                  autoFocus
+                  ref={inputRef}
                   value={value}
                   placeholder={pending.placeholder}
                   onChange={(e) => setValue(e.target.value)}

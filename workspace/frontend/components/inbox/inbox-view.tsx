@@ -33,7 +33,7 @@ function PriorityDot({ priority }: { priority: NotificationItem['priority'] }) {
   );
 }
 
-function NotificationCard({
+export function NotificationCard({
   notification,
   onRead,
   onDismiss,
@@ -199,7 +199,7 @@ export function InboxView() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between">
+      <div className="shrink-0 h-12 px-4 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Inbox className="size-4 text-blue-500" />
           <h2 className="text-sm font-semibold">Inbox</h2>

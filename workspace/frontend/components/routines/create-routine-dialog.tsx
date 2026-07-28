@@ -11,10 +11,12 @@ import {
   DialogDescription,
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 import type { WorkspaceAgent } from '@/lib/types';
-import { AgentAvatar } from '@/components/agents/agent-avatar';
 
 interface CreateRoutineDialogProps {
   open: boolean;
@@ -40,6 +42,20 @@ const INTERVAL_PRESETS = [
   { label: '1h', value: 60 },
   { label: '4h', value: 240 },
 ];
+
+// No Select primitive in this UI kit yet — keep the native element but give it
+// the same tokens/focus ring as <Input>.
+const selectClass =
+  'w-full h-8.5 rounded-md border border-input bg-background px-3 text-[0.8125rem] text-foreground shadow-xs shadow-black/5 outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60';
+
+/** Segmented / toggle chips share one active-vs-idle treatment. */
+const chipClass = (active: boolean) =>
+  cn(
+    'flex-1 rounded-md border py-1.5 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-60',
+    active
+      ? 'border-primary bg-primary text-primary-foreground'
+      : 'border-input text-muted-foreground hover:bg-muted hover:text-foreground',
+  );
 
 export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHistory, onCreateRoutine }: CreateRoutineDialogProps) {
   const onlineAgents = agents.filter((a) => a.status === 'online');
@@ -124,7 +140,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Create Routine</DialogTitle>
           <DialogDescription>
@@ -134,39 +150,38 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
 
         <DialogBody className="space-y-4 py-1">
           {/* Task description */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">What should the agent do?</label>
-            <textarea
+          <div className="space-y-2">
+            <Label variant="secondary">What should the agent do?</Label>
+            <Textarea
               value={message}
               onChange={(e) => handleMessageChange(e.target.value)}
               placeholder="e.g. Check the deployment status and report any issues"
               rows={3}
               disabled={submitting}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              className="resize-none"
             />
           </div>
 
           {/* Routine name */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Routine name</label>
-            <input
+          <div className="space-y-2">
+            <Label variant="secondary">Routine name</Label>
+            <Input
               value={name}
               onChange={(e) => { setName(e.target.value); setNameManual(true); }}
               placeholder="Short label for this routine"
               disabled={submitting}
-              className="w-full px-3 py-1.5 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           {/* Agent selector */}
           {onlineAgents.length > 1 && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Agent</label>
+            <div className="space-y-2">
+              <Label variant="secondary">Agent</Label>
               <select
                 value={source}
                 onChange={(e) => setSource(e.target.value)}
                 disabled={submitting}
-                className="w-full text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className={selectClass}
               >
                 {onlineAgents.map((a) => (
                   <option key={a.agentName} value={a.agentName}>{a.agentName}</option>
@@ -176,33 +191,25 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
           )}
 
           {/* Schedule type toggle */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Schedule</label>
-            <div className="flex gap-1 p-0.5 rounded-lg bg-zinc-100 dark:bg-zinc-800">
-              <button
-                onClick={() => setScheduleType('daily')}
-                disabled={submitting}
-                className={cn(
-                  'flex-1 text-xs font-medium py-1.5 rounded-md transition-colors',
-                  scheduleType === 'daily'
-                    ? 'bg-white dark:bg-zinc-700 shadow-sm text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                Daily
-              </button>
-              <button
-                onClick={() => setScheduleType('interval')}
-                disabled={submitting}
-                className={cn(
-                  'flex-1 text-xs font-medium py-1.5 rounded-md transition-colors',
-                  scheduleType === 'interval'
-                    ? 'bg-white dark:bg-zinc-700 shadow-sm text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                Interval
-              </button>
+          <div className="space-y-2">
+            <Label variant="secondary">Schedule</Label>
+            <div className="flex gap-1 rounded-md bg-muted p-0.5">
+              {(['daily', 'interval'] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setScheduleType(type)}
+                  disabled={submitting}
+                  className={cn(
+                    'flex-1 rounded-md py-1.5 text-xs font-medium capitalize transition-colors disabled:pointer-events-none disabled:opacity-60',
+                    scheduleType === type
+                      ? 'bg-background text-foreground shadow-xs shadow-black/5'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {type}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -210,26 +217,26 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
           {scheduleType === 'daily' && (
             <div className="space-y-3">
               <div className="flex gap-2">
-                <div className="flex-1 space-y-1">
-                  <label className="text-[11px] text-muted-foreground">Hour (UTC)</label>
+                <div className="flex-1 space-y-1.5">
+                  <Label variant="secondary" className="text-xs">Hour (UTC)</Label>
                   <select
                     value={hour}
                     onChange={(e) => setHour(Number(e.target.value))}
                     disabled={submitting}
-                    className="w-full text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={selectClass}
                   >
                     {Array.from({ length: 24 }, (_, i) => (
                       <option key={i} value={i}>{String(i).padStart(2, '0')}</option>
                     ))}
                   </select>
                 </div>
-                <div className="flex-1 space-y-1">
-                  <label className="text-[11px] text-muted-foreground">Minute</label>
+                <div className="flex-1 space-y-1.5">
+                  <Label variant="secondary" className="text-xs">Minute</Label>
                   <select
                     value={minute}
                     onChange={(e) => setMinute(Number(e.target.value))}
                     disabled={submitting}
-                    className="w-full text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={selectClass}
                   >
                     {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => (
                       <option key={m} value={m}>{String(m).padStart(2, '0')}</option>
@@ -237,20 +244,16 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                   </select>
                 </div>
               </div>
-              <div className="space-y-1">
-                <label className="text-[11px] text-muted-foreground">Days</label>
+              <div className="space-y-1.5">
+                <Label variant="secondary" className="text-xs">Days</Label>
                 <div className="flex gap-1">
                   {DAY_LABELS.map((label, i) => (
                     <button
                       key={i}
+                      type="button"
                       onClick={() => toggleDay(i)}
                       disabled={submitting}
-                      className={cn(
-                        'flex-1 text-[10px] font-medium py-1.5 rounded-md transition-colors border',
-                        days.has(i)
-                          ? 'bg-blue-500 border-blue-500 text-white'
-                          : 'border-zinc-200 dark:border-zinc-700 text-muted-foreground hover:bg-zinc-50 dark:hover:bg-zinc-800'
-                      )}
+                      className={cn(chipClass(days.has(i)), 'px-0 text-[10px]')}
                     >
                       {label}
                     </button>
@@ -262,19 +265,15 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
 
           {/* Interval schedule config */}
           {scheduleType === 'interval' && (
-            <div className="space-y-2">
+            <div className="space-y-3">
               <div className="flex gap-1.5">
                 {INTERVAL_PRESETS.map((preset) => (
                   <button
                     key={preset.value}
+                    type="button"
                     onClick={() => setIntervalMinutes(preset.value)}
                     disabled={submitting}
-                    className={cn(
-                      'flex-1 text-xs font-medium py-1.5 rounded-md transition-colors border',
-                      intervalMinutes === preset.value
-                        ? 'bg-blue-500 border-blue-500 text-white'
-                        : 'border-zinc-200 dark:border-zinc-700 text-muted-foreground hover:bg-zinc-50 dark:hover:bg-zinc-800'
-                    )}
+                    className={chipClass(intervalMinutes === preset.value)}
                   >
                     {preset.label}
                   </button>
@@ -282,14 +281,14 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">Every</span>
-                <input
+                <Input
                   type="number"
                   min={1}
                   max={1440}
                   value={intervalMinutes}
                   onChange={(e) => setIntervalMinutes(Math.max(1, Math.min(1440, Number(e.target.value) || 1)))}
                   disabled={submitting}
-                  className="w-20 px-2 py-1.5 text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-20"
                 />
                 <span className="text-xs text-muted-foreground">minutes</span>
               </div>
@@ -297,9 +296,7 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
           )}
 
           {/* Error display */}
-          {error && (
-            <p className="text-xs text-red-500">{error}</p>
-          )}
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </DialogBody>
 
         <DialogFooter>
@@ -307,14 +304,8 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
             Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={!isValid || submitting}>
-            {submitting ? (
-              <>
-                <Loader2 className="size-3.5 animate-spin mr-1.5" />
-                Creating...
-              </>
-            ) : (
-              'Create Routine'
-            )}
+            {submitting && <Loader2 className="animate-spin" />}
+            {submitting ? 'Creating…' : 'Create Routine'}
           </Button>
         </DialogFooter>
       </DialogContent>

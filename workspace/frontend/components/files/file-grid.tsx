@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
+import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
@@ -38,6 +39,8 @@ export function FileGrid() {
     currentFilePath, setCurrentFilePath,
   } = useWorkspace();
   const { isMobile, openMobileDetail } = useLayout();
+  const prompt = usePrompt();
+  const confirm = useConfirm();
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -100,7 +103,11 @@ export function FileGrid() {
   };
 
   const handleCreateFolder = async () => {
-    const name = prompt('Folder name:');
+    const name = await prompt({
+      title: 'New folder',
+      placeholder: 'Folder name',
+      confirmText: 'Create',
+    });
     if (!name?.trim()) return;
     const sanitized = name.trim().replace(/[/\\]/g, '-');
     const folderPath = currentPath ? `${currentPath}/${sanitized}` : sanitized;
@@ -116,6 +123,13 @@ export function FileGrid() {
 
   const handleDelete = async (e: React.MouseEvent, fileId: string, filename: string) => {
     e.stopPropagation();
+    const ok = await confirm({
+      title: 'Delete file?',
+      description: `"${basename(filename)}" will be permanently deleted.`,
+      confirmText: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await deleteFile(fileId);
       toast.success(`Deleted ${basename(filename)}`);

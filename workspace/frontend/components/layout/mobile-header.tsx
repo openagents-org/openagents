@@ -12,7 +12,15 @@ import { Button } from '@/components/ui/button';
 import { Menu, MessageSquare, FileText, Globe, Plus } from 'lucide-react';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
-import { SidebarContent } from './sidebar-content';
+import { SidebarProvider } from '@/components/ui/sidebar';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Brand } from './brand';
+import { NewThreadButton } from './app-sidebar';
+import { NavMain } from './nav-main';
+import { NavAgents } from './nav-agents';
+import { NavSecondary } from './nav-secondary';
+import { NotificationsMenu } from './notifications-menu';
+import { UserMenu } from './user-menu';
 import { useLayout, type ViewMode } from './layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { cn } from '@/lib/utils';
@@ -65,7 +73,26 @@ export function MobileHeader() {
                   <SheetTitle className="sr-only">Navigation</SheetTitle>
                 </SheetHeader>
                 <SheetBody className="grow flex flex-col min-h-0 p-0">
-                  <SidebarContent />
+                  <SidebarProvider
+                    open
+                    onOpenChange={() => {}}
+                    className="h-full min-h-0 flex-col"
+                    style={{ '--sidebar-width': '280px' } as React.CSSProperties}
+                  >
+                    <div className="flex h-full min-h-0 flex-col">
+                      <div className="shrink-0 px-1 pt-1">
+                        <Brand />
+                        <NewThreadButton />
+                      </div>
+                      <ScrollArea className="min-h-0 flex-1">
+                        <NavMain />
+                        <NavAgents />
+                      </ScrollArea>
+                      <div className="shrink-0 border-t border-border px-1 pb-[env(safe-area-inset-bottom)]">
+                        <NavSecondary />
+                      </div>
+                    </div>
+                  </SidebarProvider>
                 </SheetBody>
               </SheetContent>
             </Sheet>
@@ -80,14 +107,18 @@ export function MobileHeader() {
             </span>
           </div>
 
-          {/* Right: new thread button */}
-          <button
-            onClick={handleNewThread}
-            className="size-8 flex items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0"
-            title="New Thread"
-          >
-            <Plus className="size-4" />
-          </button>
+          {/* Right: notifications, account and new thread */}
+          <div className="flex items-center gap-0.5 shrink-0 text-muted-foreground">
+            <NotificationsMenu />
+            <UserMenu />
+            <button
+              onClick={handleNewThread}
+              className="size-8 flex items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0"
+              title="New Thread"
+            >
+              <Plus className="size-4" />
+            </button>
+          </div>
         </div>
       </header>
 

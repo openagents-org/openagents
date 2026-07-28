@@ -4,6 +4,7 @@ import { useRef, useState, useMemo } from 'react';
 import { Search, Upload, FolderOpen, Trash2 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
+import { useConfirm } from '@/components/ui/dialogs-provider';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { formatSize, getFileIcon, timeAgo, basename } from './file-utils';
@@ -11,6 +12,7 @@ import { formatSize, getFileIcon, timeAgo, basename } from './file-utils';
 export function FileList() {
   const { files, selectedFileId, setSelectedFileId, uploadFile, deleteFile, currentFilePath } = useWorkspace();
   const { isMobile, openMobileDetail } = useLayout();
+  const confirm = useConfirm();
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,6 +57,13 @@ export function FileList() {
 
   const handleDelete = async (e: React.MouseEvent, fileId: string, filename: string) => {
     e.stopPropagation();
+    const ok = await confirm({
+      title: 'Delete file?',
+      description: `"${basename(filename)}" will be permanently deleted.`,
+      confirmText: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await deleteFile(fileId);
       toast.success(`Deleted ${basename(filename)}`);
@@ -66,7 +75,7 @@ export function FileList() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-1 px-2 py-3 shrink-0">
+      <div className="flex h-12 items-center gap-1 px-2 lg:px-3 shrink-0 border-b border-border">
         <div className="flex items-center w-full gap-1">
           <div className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-muted/50 border border-input text-muted-foreground">
             <Search className="size-3.5" />
@@ -96,7 +105,7 @@ export function FileList() {
       </div>
 
       {/* Section label */}
-      <div className="px-3 pb-1.5 shrink-0">
+      <div className="px-3 pt-2.5 pb-1.5 shrink-0">
         <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
           Recent Files
         </span>

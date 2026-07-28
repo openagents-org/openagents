@@ -2,8 +2,18 @@
 
 import { useState } from 'react';
 import { Check, Copy, Link, Loader2 } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogBody, DialogTitle, DialogDescription } from '@/components/ui/responsive-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogBody,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 
@@ -52,64 +62,44 @@ export function ShareDialog({ open, onOpenChange, sessionId }: ShareDialogProps)
           </DialogDescription>
         </DialogHeader>
 
-        <DialogBody className="space-y-4 py-1">
-          {!shareUrl && !loading && !error && (
-            <Button onClick={handleCreateShare} className="w-full">
-              <Link className="size-4 mr-2" />
-              Create share link
-            </Button>
-          )}
-
-          {loading && (
-            <div className="flex items-center justify-center py-4">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-sm text-muted-foreground">Creating snapshot...</span>
+        <DialogBody className="space-y-3 py-1">
+          {shareUrl ? (
+            <div className="space-y-2">
+              <Label variant="secondary">Share link</Label>
+              <Input
+                readOnly
+                value={shareUrl}
+                className="font-mono select-all"
+                onFocus={(e) => e.target.select()}
+              />
             </div>
-          )}
-
-          {error && (
-            <div className="space-y-3">
-              <p className="text-sm text-destructive">{error}</p>
-              <Button onClick={handleCreateShare} variant="outline" size="sm">
-                Try again
-              </Button>
-            </div>
-          )}
-
-          {shareUrl && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <input
-                  readOnly
-                  value={shareUrl}
-                  className="flex-1 rounded-md border border-input bg-muted px-3 py-2 text-sm font-mono select-all"
-                  onFocus={(e) => e.target.select()}
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => copyToClipboard(shareUrl)}
-                  className="shrink-0"
-                >
-                  {isCopied ? (
-                    <>
-                      <Check className="size-4 mr-1" />
-                      Copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="size-4 mr-1" />
-                      Copy
-                    </>
-                  )}
-                </Button>
-              </div>
+          ) : (
+            <div className="rounded-md border border-input bg-muted/40 px-3 py-2.5">
               <p className="text-xs text-muted-foreground">
-                This snapshot includes all chat messages. Internal tool use and thinking steps are excluded.
+                The snapshot includes all chat messages. Internal tool use and thinking steps are excluded.
               </p>
             </div>
           )}
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </DialogBody>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={loading}>
+            {shareUrl ? 'Done' : 'Cancel'}
+          </Button>
+          {shareUrl ? (
+            <Button onClick={() => copyToClipboard(shareUrl)}>
+              {isCopied ? <Check /> : <Copy />}
+              {isCopied ? 'Copied' : 'Copy link'}
+            </Button>
+          ) : (
+            <Button onClick={handleCreateShare} disabled={loading}>
+              {loading ? <Loader2 className="animate-spin" /> : <Link />}
+              {loading ? 'Creating snapshot…' : error ? 'Try again' : 'Create share link'}
+            </Button>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

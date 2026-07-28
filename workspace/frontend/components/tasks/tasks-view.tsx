@@ -130,7 +130,7 @@ export function TasksView() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="shrink-0 px-4 py-3 border-b border-border flex items-center justify-between">
+      <div className="shrink-0 h-12 px-4 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ListTodo className="size-4 text-indigo-500" />
           <h2 className="text-sm font-semibold">Tasks</h2>

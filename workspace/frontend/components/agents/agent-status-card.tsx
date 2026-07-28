@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import { useConfirm } from '@/components/ui/dialogs-provider';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { toast } from 'sonner';
@@ -25,6 +26,7 @@ interface AgentStatusCardProps {
 
 export function AgentStatusCard({ agents }: AgentStatusCardProps) {
   const { refreshAgents } = useWorkspace();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
 
   const handlePromote = async (agentName: string) => {
@@ -41,7 +43,13 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
   };
 
   const handleRemove = async (agentName: string) => {
-    if (!confirm(`Remove ${agentName} from workspace?`)) return;
+    const ok = await confirm({
+      title: 'Remove agent?',
+      description: `${agentName} will be removed from this workspace.`,
+      confirmText: 'Remove',
+      destructive: true,
+    });
+    if (!ok) return;
     setBusy(true);
     try {
       await workspaceApi.removeAgent(agentName);

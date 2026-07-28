@@ -35,6 +35,16 @@
   --input: var(--color-zinc-200);
   --ring: var(--color-zinc-400);
   --radius: 0.5rem;
+
+  /** Sidebar (app-shell) — translucent rail over the page background **/
+  --sidebar: color-mix(in oklab, var(--color-zinc-100) 60%, transparent);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: color-mix(in oklab, var(--primary) 5%, transparent);
+  --sidebar-accent-foreground: var(--primary);
+  --sidebar-border: transparent;
+  --sidebar-ring: var(--ring);
 }
 
 .dark {
@@ -62,6 +72,16 @@
   --border: var(--color-zinc-800);
   --input: var(--color-zinc-800);
   --ring: var(--color-zinc-600);
+
+  /** Sidebar (app-shell) **/
+  --sidebar: color-mix(in oklab, var(--color-zinc-900) 60%, transparent);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: color-mix(in oklab, var(--primary) 12%, transparent);
+  --sidebar-accent-foreground: var(--color-blue-400);
+  --sidebar-border: transparent;
+  --sidebar-ring: var(--ring);
 }
 
 /** Theme Setup **/
@@ -83,6 +103,16 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+
+  /** Sidebar **/
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
 
   /** Base Styles **/
   --color-border: var(--border);

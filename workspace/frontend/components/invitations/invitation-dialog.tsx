@@ -6,7 +6,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogBody,
+  DialogFooter,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
@@ -26,7 +28,7 @@ export function InvitationDialog() {
   const [creating, setCreating] = useState(false);
   const [invitations, setInvitations] = useState<WorkspaceInvitation[]>([]);
   const [loading, setLoading] = useState(false);
-  const { isCopied, copyToClipboard } = useCopyToClipboard();
+  const { copyToClipboard } = useCopyToClipboard();
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
   const loadInvitations = async () => {
@@ -75,9 +77,9 @@ export function InvitationDialog() {
       case 'accepted':
         return <CheckCircle className="size-3.5 text-green-500" />;
       case 'rejected':
-        return <XCircle className="size-3.5 text-red-500" />;
+        return <XCircle className="size-3.5 text-destructive" />;
       case 'expired':
-        return <Clock className="size-3.5 text-zinc-400" />;
+        return <Clock className="size-3.5 text-muted-foreground" />;
       default:
         return null;
     }
@@ -93,6 +95,9 @@ export function InvitationDialog() {
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Invite Agent</DialogTitle>
+          <DialogDescription>
+            Invite an agent that is already registered on the platform to join this workspace.
+          </DialogDescription>
         </DialogHeader>
 
         <DialogBody className="space-y-4 py-1">
@@ -113,19 +118,24 @@ export function InvitationDialog() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              The agent must be registered on the platform. After inviting, use the invite token to connect.
+              After inviting, use the invite token to connect the agent.
             </p>
           </div>
 
           {/* Invitations list */}
+          {loading && invitations.length === 0 && (
+            <p className="text-xs text-muted-foreground">Loading invitations…</p>
+          )}
+
           {invitations.length > 0 && (
             <div className="space-y-2">
               <Label variant="secondary">Invitations</Label>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
+              {/* No inner scroll region — DialogBody is the only scroll area. */}
+              <div className="space-y-2">
                 {invitations.map((inv) => (
                   <div
                     key={inv.invitationId}
-                    className="flex items-center gap-2 px-3 py-2 rounded-md border bg-muted/30"
+                    className="flex items-center gap-2 px-3 py-2 rounded-md border border-input bg-muted/30"
                   >
                     {statusIcon(inv.status)}
                     <div className="flex-1 min-w-0">
@@ -154,6 +164,12 @@ export function InvitationDialog() {
             </div>
           )}
         </DialogBody>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>
+            Done
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

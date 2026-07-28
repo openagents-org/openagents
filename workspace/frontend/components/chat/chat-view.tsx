@@ -498,7 +498,7 @@ export function ChatView() {
   return (
     <div className="flex flex-col h-full">
       {/* Thread header */}
-      <div className="flex items-center gap-2 px-2 lg:px-4 py-2 lg:py-3 border-b shrink-0">
+      <div className="flex h-12 items-center gap-2 px-2 lg:px-4 border-b border-border shrink-0">
         <div className="flex flex-1 items-center gap-2 lg:gap-3 min-w-0">
           {/* Back button — mobile only */}
           {isMobile && (

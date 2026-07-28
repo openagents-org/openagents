@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { PanelLeft, Pencil, RefreshCw, Search, Star, Archive, Trash2, MoreVertical, ArchiveRestore, Wrench, Loader2, CheckCircle2, MessageCircle } from 'lucide-react';
+import { Pencil, RefreshCw, Search, Star, Archive, Trash2, MoreVertical, ArchiveRestore, Wrench, Loader2, CheckCircle2, MessageCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 
 function AvatarStack({ agents, max = 2 }: { agents: WorkspaceAgent[]; max?: number }) {
   const shown = agents.slice(0, max);
@@ -136,7 +137,9 @@ function DMSection({
 
 export function ThreadList() {
   const { sessions, currentSessionId, setCurrentSessionId, agents, lastMessageBySession, activeSessionIds, completedSessionIds, updateSession, renameSession, dmConversations } = useWorkspace();
-  const { sidebarToggle, isMobile, openMobileDetail, openNewThread } = useLayout();
+  const { isMobile, openMobileDetail, openNewThread } = useLayout();
+  const prompt = usePrompt();
+  const confirm = useConfirm();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchHit[]>([]);
   const [searching, setSearching] = useState(false);
@@ -177,6 +180,17 @@ export function ThreadList() {
   }
 
   const [showArchived, setShowArchived] = useState(false);
+
+  // Deleted threads are filtered out of the list with no way back, so confirm first.
+  const deleteThread = async (sessionId: string, title?: string) => {
+    const ok = await confirm({
+      title: 'Delete thread?',
+      description: `"${title || 'Untitled'}" will be removed from your thread list. This can't be undone.`,
+      confirmText: 'Delete',
+      destructive: true,
+    });
+    if (ok) updateSession(sessionId, { status: 'deleted' });
+  };
 
   // Sort sessions by backend last_event_at (stable, no client-side jumping)
   const sortedSessions = [...sessions]
@@ -243,15 +257,9 @@ export function ThreadList() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-1 px-2 py-3 shrink-0">
-        {!isMobile && (
-          <button
-            onClick={sidebarToggle}
-            className="size-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-muted-foreground transition-colors shrink-0"
-          >
-            <PanelLeft className="size-4" />
-          </button>
-        )}
+      {/* Header — same height/divider as the chat pane header next to it.
+          The rail toggle lives in the site header now, so it is not repeated here. */}
+      <div className="flex h-12 items-center gap-1 px-2 lg:px-3 shrink-0 border-b border-border">
         <div className="flex items-center w-full gap-1">
           <div className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-muted/50 border border-input text-muted-foreground">
             <Search className="size-3.5" />
@@ -267,7 +275,7 @@ export function ThreadList() {
             )}
           </div>
           <button
-            className="size-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 text-muted-foreground transition-colors shrink-0"
+            className="size-8 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground transition-colors shrink-0"
             title="Refresh"
           >
             <RefreshCw className="size-3.5" />
@@ -407,9 +415,14 @@ export function ThreadList() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-44">
                     <DropdownMenuItem
-                      onClick={(e) => {
+                      onClick={async (e) => {
                         e.stopPropagation();
-                        const next = window.prompt('Rename thread', session.title || '');
+                        const next = await prompt({
+                          title: 'Rename thread',
+                          placeholder: 'Thread name',
+                          defaultValue: session.title || '',
+                          confirmText: 'Rename',
+                        });
                         const trimmed = next?.trim();
                         if (trimmed && trimmed !== session.title) {
                           renameSession(session.sessionId, trimmed);
@@ -444,7 +457,7 @@ export function ThreadList() {
                       className="text-destructive focus:text-destructive"
                       onClick={(e) => {
                         e.stopPropagation();
-                        updateSession(session.sessionId, { status: 'deleted' });
+                        deleteThread(session.sessionId, session.title);
                       }}
                     >
                       <Trash2 className="size-4" />
@@ -593,7 +606,7 @@ export function ThreadList() {
                               className="text-destructive focus:text-destructive"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                updateSession(session.sessionId, { status: 'deleted' });
+                                deleteThread(session.sessionId, session.title);
                               }}
                             >
                               <Trash2 className="size-4" />

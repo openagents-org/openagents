@@ -121,7 +121,7 @@ export function BrowserTabList() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-1 px-2 py-3 shrink-0">
+      <div className="flex h-12 items-center gap-1 px-2 lg:px-3 shrink-0 border-b border-border">
         <div className="flex items-center w-full gap-1">
           <div className="flex-1 flex items-center gap-2 px-2.5 py-1.5 text-muted-foreground">
             <Monitor className="size-3.5" />
