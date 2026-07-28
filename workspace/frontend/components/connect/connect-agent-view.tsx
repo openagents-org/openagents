@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
+import { DetailHeader } from '@/components/layout/app-header';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
@@ -62,7 +63,7 @@ function CategoryIcon({ category, className }: { category: string; className?: s
 // ---------------------------------------------------------------------------
 
 export function ConnectAgentView() {
-  const { setViewMode } = useLayout();
+  const { openView } = useLayout();
   const { workspace, token, refreshWorkspace } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
 
@@ -206,17 +207,16 @@ export function ConnectAgentView() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex h-12 items-center justify-between px-4 border-b border-border shrink-0">
-        <h2 className="text-sm font-semibold">Connect Agents</h2>
+      {/* Header — title in the app header, actions in its toolbar */}
+      <DetailHeader title={<h2 className="text-sm font-semibold">Connect Agents</h2>}>
         <button
-          onClick={() => setViewMode('threads')}
+          onClick={() => openView('threads')}
           className="size-7 flex items-center justify-center rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
           title="Close"
         >
           <X className="size-4" />
         </button>
-      </div>
+      </DetailHeader>
 
       {/* Tab bar */}
       <div className="flex border-b shrink-0">

@@ -17,7 +17,7 @@ import { useLayout } from './layout-context';
  * primary call to action, mirroring the previous sidebar behaviour.
  */
 export function NavSecondary() {
-  const { viewMode, setViewMode } = useLayout();
+  const { viewMode, openView } = useLayout();
   const { agents } = useWorkspace();
   const hasAgents = agents.filter(isRecentAgent).length > 0;
   const isActive = viewMode === 'connect';
@@ -29,7 +29,7 @@ export function NavSecondary() {
           <SidebarMenuButton
             tooltip="Connect Agent"
             isActive={isActive}
-            onClick={() => setViewMode('connect')}
+            onClick={() => openView('connect')}
             className={cn(
               !hasAgents &&
                 !isActive &&

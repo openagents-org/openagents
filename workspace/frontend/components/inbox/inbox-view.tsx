@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { Inbox, CheckCheck, RefreshCw, X, ExternalLink, ArrowRight } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
+import { DetailHeader } from '@/components/layout/app-header';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import type { NotificationItem } from '@/lib/types';
 
@@ -198,18 +199,19 @@ export function InboxView() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="shrink-0 h-12 px-4 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      {/* Header — title in the app header, actions in its toolbar */}
+      <DetailHeader
+        title={<>
           <Inbox className="size-4 text-blue-500" />
           <h2 className="text-sm font-semibold">Inbox</h2>
+        </>}
+      >
+        <div className="flex items-center gap-0.5">
           {unreadNotificationCount > 0 && (
-            <span className="text-xs text-muted-foreground">
+            <span className="mr-1 text-xs text-muted-foreground">
               {unreadNotificationCount} unread
             </span>
           )}
-        </div>
-        <div className="flex items-center gap-0.5">
           {unreadNotificationCount > 0 && (
             <button
               onClick={markAllNotificationsRead}
@@ -227,7 +229,7 @@ export function InboxView() {
             <RefreshCw className="size-3.5" />
           </button>
         </div>
-      </div>
+      </DetailHeader>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">

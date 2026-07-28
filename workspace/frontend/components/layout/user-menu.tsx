@@ -19,7 +19,12 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { SettingsDialog } from './settings-dialog';
 
-export function UserMenu() {
+interface UserMenuProps {
+  side?: 'top' | 'right' | 'bottom' | 'left';
+  align?: 'start' | 'center' | 'end';
+}
+
+export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
   const { workspace, token, refreshWorkspace } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
   const { theme, setTheme } = useTheme();
@@ -84,7 +89,7 @@ export function UserMenu() {
           <button
             type="button"
             title={user?.email || 'Account'}
-            className="flex size-8 items-center justify-center rounded-full transition-colors hover:bg-muted"
+            className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
           >
             {user ? (
               <span className="flex size-6 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
@@ -96,7 +101,7 @@ export function UserMenu() {
           </button>
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent align="end" className="w-60">
+        <DropdownMenuContent side={side} align={align} sideOffset={8} className="w-60">
           {user && (
             <>
               <DropdownMenuLabel className="flex flex-col gap-0.5">

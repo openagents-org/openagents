@@ -4,6 +4,7 @@ import { useEffect, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { ListTodo, CheckCircle2, Circle, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
+import { DetailHeader } from '@/components/layout/app-header';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import type { TodoItem } from '@/lib/types';
 
@@ -129,24 +130,25 @@ export function TasksView() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="shrink-0 h-12 px-4 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      {/* Header — title in the app header, actions in its toolbar */}
+      <DetailHeader
+        title={<>
           <ListTodo className="size-4 text-indigo-500" />
           <h2 className="text-sm font-semibold">Tasks</h2>
-          {totalActive > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {totalActive} active{inProgressItems.length > 0 && ` · ${inProgressItems.length} in progress`}
-            </span>
-          )}
-        </div>
+        </>}
+      >
+        {totalActive > 0 && (
+          <span className="text-xs text-muted-foreground">
+            {totalActive} active{inProgressItems.length > 0 && ` · ${inProgressItems.length} in progress`}
+          </span>
+        )}
         <button
           onClick={refreshTodos}
           className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
         >
           <RefreshCw className="size-3.5" />
         </button>
-      </div>
+      </DetailHeader>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">

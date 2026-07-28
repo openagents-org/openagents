@@ -12,7 +12,12 @@ import { useLayout } from './layout-context';
 
 const PRIORITY_ORDER = { high: 0, normal: 1, low: 2 } as const;
 
-export function NotificationsMenu() {
+interface NotificationsMenuProps {
+  side?: 'top' | 'right' | 'bottom' | 'left';
+  align?: 'start' | 'center' | 'end';
+}
+
+export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProps = {}) {
   const {
     notifications,
     unreadNotificationCount,
@@ -23,7 +28,7 @@ export function NotificationsMenu() {
     setCurrentSessionId,
     sessions,
   } = useWorkspace();
-  const { setViewMode } = useLayout();
+  const { openView } = useLayout();
   const [open, setOpen] = useState(false);
 
   // Unread first (by priority, then recency), then the most recent read ones.
@@ -44,7 +49,7 @@ export function NotificationsMenu() {
     if (!notification.isRead) markNotificationRead(notification.id);
     if (notification.channelName && sessions.some((s) => s.sessionId === notification.channelName)) {
       setCurrentSessionId(notification.channelName);
-      setViewMode('threads');
+      openView('threads');
     }
     setOpen(false);
   };
@@ -61,7 +66,7 @@ export function NotificationsMenu() {
         <button
           type="button"
           title="Notifications"
-          className="relative flex size-8 items-center justify-center rounded-md transition-colors hover:bg-muted"
+          className="relative flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           <Bell className="size-4" />
           {unreadNotificationCount > 0 && (
@@ -72,7 +77,7 @@ export function NotificationsMenu() {
         </button>
       </PopoverTrigger>
 
-      <PopoverContent align="end" className="w-[380px] p-0">
+      <PopoverContent side={side} align={align} sideOffset={8} className="w-[380px] p-0">
         <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold">Notifications</span>
@@ -121,7 +126,7 @@ export function NotificationsMenu() {
 
         <button
           onClick={() => {
-            setViewMode('inbox');
+            openView('inbox');
             setOpen(false);
           }}
           className="w-full shrink-0 border-t border-border px-3 py-2 text-center text-xs font-medium text-primary transition-colors hover:bg-muted"

@@ -7,6 +7,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import type { WorkspaceCustomSkill } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { DetailHeader } from '@/components/layout/app-header';
 import {
   Dialog,
   DialogContent,
@@ -548,21 +549,27 @@ export function SkillsView() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="shrink-0 px-5 pt-4 pb-3 border-b border-border space-y-3">
-        <div className="flex items-center gap-2">
+      {/* Header — title in the app header, count + upload in its toolbar */}
+      <DetailHeader
+        title={<>
           <Sparkles className="size-4 text-amber-500" />
           <h2 className="text-sm font-semibold">Skill Hub</h2>
-          <span className="text-xs text-muted-foreground">{allSkills.length} skills</span>
-          <button
-            onClick={() => setUploadOpen(true)}
-            className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-          >
-            <Upload className="size-3.5" />
-            Upload custom skill
-          </button>
-        </div>
+        </>}
+      >
+        <span className="hidden text-xs text-muted-foreground sm:inline">
+          {allSkills.length} skills
+        </span>
+        <button
+          onClick={() => setUploadOpen(true)}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+        >
+          <Upload className="size-3.5" />
+          Upload custom skill
+        </button>
+      </DetailHeader>
 
+      {/* Filters */}
+      <div className="shrink-0 px-5 py-3 border-b border-border space-y-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
           <input

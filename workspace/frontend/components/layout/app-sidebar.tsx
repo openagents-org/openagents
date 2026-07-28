@@ -1,46 +1,15 @@
 'use client';
 
-import { Plus } from 'lucide-react';
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  useSidebar,
-} from '@/components/ui/sidebar';
-import { Separator } from '@/components/ui/separator';
+import { Sidebar, useSidebar } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 import { useLayout } from './layout-context';
-import { Brand } from './brand';
-import { NavMain } from './nav-main';
-import { NavAgents } from './nav-agents';
-import { NavSecondary } from './nav-secondary';
-
-export function NewThreadButton() {
-  const { openNewThread } = useLayout();
-
-  return (
-    <SidebarMenu className="px-1 pb-1">
-      <SidebarMenuItem>
-        <SidebarMenuButton
-          tooltip="New Thread"
-          onClick={openNewThread}
-          className="h-9 justify-center gap-2 bg-primary font-medium text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground group-data-[collapsible=icon]:size-9!"
-        >
-          <Plus />
-          <span className="group-data-[collapsible=icon]:hidden">New Thread</span>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-    </SidebarMenu>
-  );
-}
+import { NavRail } from './nav-rail';
+import { ListPanel } from './list-panel';
 
 /**
- * The floating rail handle from the app-shell-12 block: two small bars that
- * splay apart on hover, with a label that fades in.
+ * The floating rail handle: two small bars that splay apart on hover, with a
+ * label that fades in. Sits on the seam between the sidebar and the detail
+ * pane and collapses the list panel.
  */
 function SidebarRailToggle() {
   const { state, toggleSidebar } = useSidebar();
@@ -49,10 +18,10 @@ function SidebarRailToggle() {
   return (
     <button
       type="button"
-      aria-label={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+      aria-label={isExpanded ? 'Collapse list' : 'Expand list'}
       onClick={toggleSidebar}
       style={{ left: isExpanded ? 'var(--sidebar-width)' : 'var(--sidebar-width-icon)' }}
-      className="group/rail fixed top-1/2 z-30 hidden h-12 w-7 -translate-y-1/2 cursor-pointer items-center pl-2 outline-none transition-[left] duration-200 ease-linear lg:flex"
+      className="group/rail fixed top-1/2 z-30 hidden h-12 w-7 -translate-y-1/2 cursor-pointer items-center pl-2 outline-none transition-[left] duration-200 ease-linear focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring lg:flex"
     >
       <span className="flex flex-col items-center">
         <span
@@ -78,27 +47,26 @@ function SidebarRailToggle() {
   );
 }
 
+/**
+ * App shell sidebar, built on the app-shell-4 pattern: one `collapsible="icon"`
+ * shell holding two inner sidebars side by side — a permanent icon rail and a
+ * wide list panel that collapses away with the shell.
+ */
 export function AppSidebar() {
+  const { isMobile } = useSidebar();
+  const { hasListPanel } = useLayout();
+
   return (
-    <Sidebar collapsible="icon">
-      <SidebarHeader className="pb-0">
-        <Brand />
-        <NewThreadButton />
-      </SidebarHeader>
+    <Sidebar
+      collapsible="icon"
+      className="overflow-hidden *:data-[sidebar=sidebar]:flex-row"
+    >
+      <div className="flex min-h-full w-full">
+        <NavRail />
+        {hasListPanel && <ListPanel />}
+      </div>
 
-      <SidebarContent>
-        <NavMain />
-        <NavAgents />
-      </SidebarContent>
-
-      <SidebarFooter className="px-1! in-data-[state=collapsed]:px-1!">
-        <div className="px-2">
-          <Separator />
-        </div>
-        <NavSecondary />
-      </SidebarFooter>
-
-      <SidebarRailToggle />
+      {!isMobile && hasListPanel && <SidebarRailToggle />}
     </Sidebar>
   );
 }

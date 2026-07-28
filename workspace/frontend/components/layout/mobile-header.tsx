@@ -12,10 +12,14 @@ import { Button } from '@/components/ui/button';
 import { Menu, MessageSquare, FileText, Globe, Plus } from 'lucide-react';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
-import { SidebarProvider } from '@/components/ui/sidebar';
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+} from '@/components/ui/sidebar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Brand } from './brand';
-import { NewThreadButton } from './app-sidebar';
 import { NavMain } from './nav-main';
 import { NavAgents } from './nav-agents';
 import { NavSecondary } from './nav-secondary';
@@ -25,9 +29,28 @@ import { useLayout, type ViewMode } from './layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { cn } from '@/lib/utils';
 
+/** Primary call to action inside the mobile navigation sheet. */
+function NewThreadButton() {
+  const { openNewThread } = useLayout();
+
+  return (
+    <SidebarMenu className="px-1 pb-1">
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          onClick={openNewThread}
+          className="h-9 justify-center gap-2 bg-primary font-medium text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground"
+        >
+          <Plus />
+          <span>New Thread</span>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  );
+}
+
 export function MobileHeader() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const { viewMode, setViewMode, openMobileList, openNewThread } = useLayout();
+  const { viewMode, openView, openMobileList, openNewThread } = useLayout();
   const { workspace } = useWorkspace();
 
   // Close sheet when clicking a session
@@ -43,7 +66,7 @@ export function MobileHeader() {
   }, [isSheetOpen]);
 
   const handleViewSwitch = (mode: ViewMode) => {
-    setViewMode(mode);
+    openView(mode);
     openMobileList();
   };
 

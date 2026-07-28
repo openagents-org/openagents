@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { FileText, Download, Trash2, Loader2, ChevronLeft } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
+import { DetailHeader } from '@/components/layout/app-header';
 import { workspaceApi } from '@/lib/api';
 import { toast } from 'sonner';
 import { MarkdownContent } from '@/components/chat/markdown-content';
@@ -150,28 +151,34 @@ export function FilePreview() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex h-12 items-center gap-2 px-2 lg:px-4 border-b border-border shrink-0">
-        <button
-          onClick={() => {
-            if (isMobile) openMobileList();
-            else setSelectedFileId(null);
-          }}
-          className="size-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0"
-          title="Back to files"
-        >
-          <ChevronLeft className="size-5" />
-        </button>
-        <FileText className="size-4 text-muted-foreground shrink-0" />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{file.filename.split('/').pop() || file.filename}</p>
-          <p className="text-xs text-muted-foreground truncate">
-            {file.filename.includes('/') && (
-              <span className="text-muted-foreground/60">{file.filename.split('/').slice(0, -1).join('/')}/ · </span>
-            )}
-            {formatSize(file.size)} · {file.contentType || 'unknown'} · {(file.uploadedBy || 'unknown').replace(/^(openagents:|human:)/, '')}
+      {/* Header — filename in the app header, actions in its toolbar */}
+      <DetailHeader
+        title={<>
+          <button
+            onClick={() => {
+              if (isMobile) openMobileList();
+              else setSelectedFileId(null);
+            }}
+            className="size-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0"
+            title="Back to files"
+          >
+            <ChevronLeft className="size-5" />
+          </button>
+          <FileText className="size-4 text-muted-foreground shrink-0" />
+          <p className="text-sm font-medium truncate">
+            {file.filename.split('/').pop() || file.filename}
           </p>
-        </div>
+        </>}
+      >
+        {/* File metadata — the single-line header keeps it beside the actions */}
+        <span className="hidden max-w-105 truncate text-xs text-muted-foreground lg:inline">
+          {file.filename.includes('/') && (
+            <span className="text-muted-foreground/60">
+              {file.filename.split('/').slice(0, -1).join('/')}/ ·{' '}
+            </span>
+          )}
+          {formatSize(file.size)} · {file.contentType || 'unknown'} · {(file.uploadedBy || 'unknown').replace(/^(openagents:|human:)/, '')}
+        </span>
         <button
           onClick={handleDownload}
           className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
@@ -186,7 +193,7 @@ export function FilePreview() {
         >
           <Trash2 className="size-4" />
         </button>
-      </div>
+      </DetailHeader>
 
       {/* Content */}
       <div className="flex-1 overflow-auto">

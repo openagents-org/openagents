@@ -22,6 +22,7 @@ import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, G
 import { ShareDialog } from './share-dialog';
 import { OrchestrationControl } from './orchestration-control';
 import { useLayout } from '@/components/layout/layout-context';
+import { DetailHeader } from '@/components/layout/app-header';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { CreateRoutineDialog } from '@/components/routines/create-routine-dialog';
@@ -497,9 +498,9 @@ export function ChatView() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Thread header */}
-      <div className="flex h-12 items-center gap-2 px-2 lg:px-4 border-b border-border shrink-0">
-        <div className="flex flex-1 items-center gap-2 lg:gap-3 min-w-0">
+      {/* Thread header — title on desktop lives in the shell's app header */}
+      <DetailHeader
+        title={<>
           {/* Back button — mobile only */}
           {isMobile && (
             <button
@@ -552,8 +553,8 @@ export function ChatView() {
               </>
             );
           })()}
-        </div>
-        <div className="flex items-center gap-1 lg:gap-1.5 shrink-0">
+        </>}
+      >
           {/* Compact avatar stack — click to manage thread agents (add / remove /
               set leader). Replaces the old standalone manage-agents button. Not
               shown for DMs. */}
@@ -729,8 +730,7 @@ export function ChatView() {
           >
             <Share2 className="size-3.5" />
           </Button>
-        </div>
-      </div>
+      </DetailHeader>
 
       {/* Agent roster bar — thin strip listing who's in the thread + a hint of
           their responsibility. Only shown for group threads (>1 agent), never DMs. */}

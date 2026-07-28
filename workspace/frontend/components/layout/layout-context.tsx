@@ -13,15 +13,54 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 
 export type ViewMode = 'threads' | 'files' | 'knowledge' | 'browser' | 'tasks' | 'routines' | 'inbox' | 'connect' | 'skills';
 
+/**
+ * Views that render a list panel beside the icon rail. Everything else takes
+ * over the full detail area, so the sidebar collapses down to the rail.
+ */
+export const VIEWS_WITH_LIST: ReadonlySet<ViewMode> = new Set<ViewMode>([
+  'threads', 'files', 'browser', 'routines', 'knowledge',
+]);
+
+/**
+ * Per-view list-panel preference, persisted in a cookie so it survives reloads
+ * and is readable during SSR. Keyed by view because the habit differs per
+ * surface — you might keep the thread list open but read files full-width.
+ */
+const LIST_PREFS_COOKIE = 'oa-list-open';
+const LIST_PREFS_MAX_AGE = 60 * 60 * 24 * 365;
+
+type ListPrefs = Partial<Record<ViewMode, boolean>>;
+
+function readListPrefs(): ListPrefs {
+  if (typeof document === 'undefined') return {};
+  const match = document.cookie.match(new RegExp(`(?:^|; )${LIST_PREFS_COOKIE}=([^;]*)`));
+  if (!match) return {};
+  try {
+    return JSON.parse(decodeURIComponent(match[1]));
+  } catch {
+    return {};
+  }
+}
+
+function writeListPrefs(prefs: ListPrefs) {
+  if (typeof document === 'undefined') return;
+  const value = encodeURIComponent(JSON.stringify(prefs));
+  document.cookie = `${LIST_PREFS_COOKIE}=${value}; path=/; max-age=${LIST_PREFS_MAX_AGE}; samesite=lax`;
+}
+
 /** On mobile, which pane is showing: the list or the detail */
 export type MobilePane = 'list' | 'detail';
 
 interface LayoutState {
   isMobile: boolean;
+  /** Whether the list panel beside the rail is showing (the sidebar's open state) */
   isSidebarOpen: boolean;
+  setSidebarOpen: (open: boolean) => void;
   sidebarToggle: () => void;
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
+  /** Switch view and open/collapse the list panel to match it */
+  openView: (mode: ViewMode) => void;
   selectedAgentName: string | null;
   setSelectedAgentName: (name: string | null) => void;
   isAgentPanelOpen: boolean;
@@ -31,9 +70,11 @@ interface LayoutState {
   openMobileDetail: () => void;
   /** Navigate back to list pane on mobile */
   openMobileList: () => void;
-  /** Whether the detail pane is expanded to full width (hides sidebar + list) */
+  /** Whether the detail pane is expanded to full width (collapses the list panel) */
   isDetailExpanded: boolean;
   toggleDetailExpanded: () => void;
+  /** Whether the current view has a list panel at all */
+  hasListPanel: boolean;
   /** Experimental: show browser tab side-by-side with chat */
   splitBrowser: boolean;
   setSplitBrowser: (v: boolean) => void;
@@ -51,11 +92,10 @@ const LayoutContext = createContext<LayoutState | undefined>(undefined);
 
 export function LayoutProvider({ children }: { children: ReactNode }) {
   const isMobile = useIsMobile();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('threads');
+  const [listPrefs, setListPrefs] = useState<ListPrefs>({});
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>('list');
-  const [isDetailExpanded, setIsDetailExpanded] = useState(false);
   const [splitBrowser, setSplitBrowser] = useState(() => {
     if (typeof window === 'undefined') return false;
     return localStorage.getItem('x-split-browser') === '1';
@@ -70,17 +110,44 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const openNewThread = () => setNewThreadOpen(true);
 
+  // Read on mount rather than in the initial state, so the server render and the
+  // first client render agree before the stored preference is applied.
+  useEffect(() => { setListPrefs(readListPrefs()); }, []);
+
   const isAgentPanelOpen = selectedAgentName !== null;
   const openMobileDetail = () => setMobilePane('detail');
   const openMobileList = () => setMobilePane('list');
-  const toggleDetailExpanded = () => setIsDetailExpanded((v) => !v);
+
+  // In the app-shell-4 layout the list lives *inside* the sidebar, so
+  // "expand the detail pane" and "collapse the sidebar" are the same gesture.
+  const hasListPanel = VIEWS_WITH_LIST.has(viewMode);
+  // Default to open the first time a view is used; after that the user's own
+  // choice for that view wins.
+  const isSidebarOpen = hasListPanel ? listPrefs[viewMode] ?? true : false;
+
+  const setSidebarOpen = (open: boolean) => {
+    if (!hasListPanel) return; // nothing to remember for full-width views
+    setListPrefs((prev) => {
+      const next = { ...prev, [viewMode]: open };
+      writeListPrefs(next);
+      return next;
+    });
+  };
+
+  const isDetailExpanded = !isSidebarOpen;
+  const toggleDetailExpanded = () => setSidebarOpen(!isSidebarOpen);
+  const sidebarToggle = () => setSidebarOpen(!isSidebarOpen);
+
+  // Switching views keeps whatever the user last chose for the target view.
+  const openView = (mode: ViewMode) => {
+    setViewMode(mode);
+    setMobilePane('list');
+  };
 
   // Sidebar widths now come from <SidebarProvider> (components/ui/sidebar).
   const cssVariables = useMemo(() => ({
     '--header-height-mobile': '60px',
   } as React.CSSProperties), []);
-
-  const sidebarToggle = () => setIsSidebarOpen((open) => !open);
 
   useEffect(() => {
     const html = document.documentElement;
@@ -106,9 +173,11 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     <LayoutContext.Provider value={{
       isMobile,
       isSidebarOpen,
+      setSidebarOpen,
       sidebarToggle,
       viewMode,
       setViewMode,
+      openView,
       selectedAgentName,
       setSelectedAgentName,
       isAgentPanelOpen,
@@ -117,6 +186,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       openMobileList,
       isDetailExpanded,
       toggleDetailExpanded,
+      hasListPanel,
       splitBrowser,
       setSplitBrowser: handleSetSplitBrowser,
       showBrowserPreview,

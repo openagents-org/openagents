@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Globe, X, RefreshCw, Users, ChevronLeft, Lock, Unlock, Maximize2, Minimize2 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
+import { DetailHeader } from '@/components/layout/app-header';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -218,43 +219,21 @@ export function BrowserView() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex h-12 items-center gap-2 px-2 lg:px-4 border-b border-border shrink-0">
-        {isMobile && (
-          <button
-            onClick={openMobileList}
-            className="size-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0"
-          >
-            <ChevronLeft className="size-5" />
-          </button>
-        )}
-        <Globe className={cn("size-4 shrink-0", navigating ? "text-amber-500 animate-pulse" : "text-blue-500")} />
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate">{tab.title || 'Untitled'}</p>
-          {editingUrl ? (
-            <input
-              ref={urlInputRef}
-              value={urlDraft}
-              onChange={(e) => setUrlDraft(e.target.value)}
-              onBlur={() => setEditingUrl(false)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleNavigate();
-                if (e.key === 'Escape') setEditingUrl(false);
-              }}
-              className="w-full text-xs bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 rounded px-1.5 py-0.5 outline-none focus:border-blue-500 font-mono"
-              autoFocus
-            />
-          ) : (
-            <p
-              className="text-xs text-muted-foreground truncate cursor-pointer hover:text-foreground transition-colors"
-              onClick={startEditingUrl}
-              title="Click to edit URL"
+      {/* Header — title in the app header, actions portalled into its toolbar */}
+      <DetailHeader
+        title={<>
+          {isMobile && (
+            <button
+              onClick={openMobileList}
+              className="size-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0"
             >
-              {tab.url}
-            </p>
+              <ChevronLeft className="size-5" />
+            </button>
           )}
-        </div>
-
+          <Globe className={cn("size-4 shrink-0", navigating ? "text-amber-500 animate-pulse" : "text-blue-500")} />
+          <p className="text-sm font-medium truncate">{tab.title || 'Untitled'}</p>
+        </>}
+      >
         {/* Shared with badges */}
         {tab.sharedWith.length > 0 && (
           <div className="flex items-center gap-1 shrink-0">
@@ -320,6 +299,34 @@ export function BrowserView() {
         >
           <X className="size-4" />
         </button>
+      </DetailHeader>
+
+      {/* Address bar — a browser needs its URL visible and editable, and the
+          single-line app header has no room for it. */}
+      <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-2 lg:px-4">
+        <Globe className="size-3 shrink-0 text-muted-foreground/60" />
+        {editingUrl ? (
+          <input
+            ref={urlInputRef}
+            value={urlDraft}
+            onChange={(e) => setUrlDraft(e.target.value)}
+            onBlur={() => setEditingUrl(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleNavigate();
+              if (e.key === 'Escape') setEditingUrl(false);
+            }}
+            className="w-full rounded border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 font-mono text-xs outline-none focus:border-blue-500 dark:border-zinc-600 dark:bg-zinc-800"
+            autoFocus
+          />
+        ) : (
+          <p
+            className="min-w-0 flex-1 cursor-pointer truncate font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
+            onClick={startEditingUrl}
+            title="Click to edit URL"
+          >
+            {tab.url}
+          </p>
+        )}
       </div>
 
       {/* Browser view area */}

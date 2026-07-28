@@ -17,10 +17,10 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from './layout-context';
 
 /** ⌘K palette over threads, files and agents. */
-export function SearchMenu() {
+export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   const { sessions, files, agents, setCurrentSessionId, setSelectedFileId } = useWorkspace();
-  const { setViewMode, setSelectedAgentName, openMobileDetail } = useLayout();
+  const { openView, setSelectedAgentName, openMobileDetail } = useLayout();
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -47,13 +47,21 @@ export function SearchMenu() {
         type="button"
         onClick={() => setOpen(true)}
         title="Search (⌘K)"
-        className="flex h-8 items-center gap-2 rounded-md px-2 text-muted-foreground transition-colors hover:bg-muted"
+        className={
+          iconOnly
+            ? 'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+            : 'flex h-8 items-center gap-2 rounded-md px-2 text-muted-foreground transition-colors hover:bg-muted'
+        }
       >
         <Search className="size-4" />
-        <span className="hidden text-xs lg:inline">Search</span>
-        <kbd className="hidden items-center gap-0.5 rounded border border-border px-1 font-mono text-[10px] lg:inline-flex">
-          <span className="text-xs">⌘</span>K
-        </kbd>
+        {!iconOnly && (
+          <>
+            <span className="hidden text-xs lg:inline">Search</span>
+            <kbd className="hidden items-center gap-0.5 rounded border border-border px-1 font-mono text-[10px] lg:inline-flex">
+              <span className="text-xs">⌘</span>K
+            </kbd>
+          </>
+        )}
       </button>
 
       <CommandDialog
@@ -76,7 +84,7 @@ export function SearchMenu() {
                     value={`thread ${session.title} ${session.sessionId}`}
                     onSelect={() =>
                       run(() => {
-                        setViewMode('threads');
+                        openView('threads');
                         setCurrentSessionId(session.sessionId);
                         openMobileDetail();
                       })
@@ -97,7 +105,7 @@ export function SearchMenu() {
                     value={`file ${file.filename}`}
                     onSelect={() =>
                       run(() => {
-                        setViewMode('files');
+                        openView('files');
                         setSelectedFileId(file.id);
                         openMobileDetail();
                       })

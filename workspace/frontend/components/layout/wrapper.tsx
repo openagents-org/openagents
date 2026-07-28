@@ -2,7 +2,7 @@
 
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
-import { SiteHeader } from './site-header';
+import { AppHeader } from './app-header';
 import { MobileHeader } from './mobile-header';
 import { useLayout } from './layout-context';
 import { ChatView } from '@/components/chat/chat-view';
@@ -19,6 +19,7 @@ import { RoutineList } from '@/components/routines/routine-list';
 import { SkillsView } from '@/components/skills/skills-view';
 import { InboxView } from '@/components/inbox/inbox-view';
 import { KnowledgeView } from '@/components/knowledge/knowledge-view';
+import { KnowledgeList } from '@/components/knowledge/knowledge-list';
 import { useWorkspace } from '@/lib/workspace-context';
 import { EmptyState } from '@/components/chat/empty-state';
 import { NewThreadDialogHost } from '@/components/threads/new-thread-dialog-host';
@@ -57,7 +58,10 @@ function WorkspaceLoadingScreen() {
 }
 
 export function Wrapper() {
-  const { isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, sidebarToggle, isDetailExpanded, mobilePane, splitBrowser, showBrowserPreview } = useLayout();
+  const {
+    isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
+    hasListPanel, mobilePane, splitBrowser, showBrowserPreview,
+  } = useLayout();
   const { monitorMode, agents, loading } = useWorkspace();
   const hasAgents = agents.length > 0;
 
@@ -92,10 +96,6 @@ export function Wrapper() {
             <div className="h-full bg-background overflow-hidden">
               <SkillsView />
             </div>
-          ) : viewMode === 'knowledge' ? (
-            <div className="h-full bg-background overflow-hidden">
-              <KnowledgeView />
-            </div>
           ) : mobilePane === 'list' ? (
             /* List pane — full width */
             <div className="flex h-full flex-col bg-background overflow-hidden">
@@ -103,17 +103,19 @@ export function Wrapper() {
               {viewMode === 'files' && <FileList />}
               {viewMode === 'browser' && <BrowserTabList />}
               {viewMode === 'routines' && <RoutineList />}
+              {viewMode === 'knowledge' && <KnowledgeList />}
             </div>
           ) : (
             /* Detail pane — full width, edge-to-edge on mobile */
             <div className="relative h-full bg-background overflow-hidden">
               {(viewMode === 'threads' || viewMode === 'routines') && (
-                <main className="h-full" role="content">
+                <div className="h-full">
                   <ChatView />
-                </main>
+                </div>
               )}
               {viewMode === 'files' && <FilePreview />}
               {viewMode === 'browser' && <BrowserView />}
+              {viewMode === 'knowledge' && <KnowledgeView />}
               {isAgentPanelOpen && <AgentProfilePanel />}
             </div>
           )}
@@ -123,82 +125,81 @@ export function Wrapper() {
     );
   }
 
-  // ── Desktop layout: app shell (rail sidebar + header) + two panes ──
+  // ── Desktop layout (app-shell-4) ──
+  // The sidebar holds both the icon rail and the list panel; SidebarInset is
+  // the detail area, and each view brings its own `--header-height` header so
+  // rail, list and detail line up on a single row.
+  //
+  // A few views take over the whole detail area, so the list collapses away:
+  // onboarding (no agents yet), monitor mode, and the split browser preview.
+  const listSuppressed =
+    (!hasAgents && viewMode === 'threads') ||
+    (viewMode === 'threads' && monitorMode) ||
+    (viewMode === 'threads' && splitBrowser && showBrowserPreview);
+  const sidebarOpen = isSidebarOpen && hasListPanel && !listSuppressed;
+
   return (
     <SidebarProvider
-      open={isSidebarOpen}
-      onOpenChange={(open) => { if (open !== isSidebarOpen) sidebarToggle(); }}
+      open={sidebarOpen}
+      onOpenChange={setSidebarOpen}
       className="h-screen min-h-0 [&_.container-fluid]:px-5"
-      style={{ '--sidebar-width': '240px', '--sidebar-width-icon': '52px' } as React.CSSProperties}
+      style={{
+        '--sidebar-width': '440px',
+        '--sidebar-width-icon': '52px',
+        '--header-height': '48px',
+      } as React.CSSProperties}
     >
-      {!isDetailExpanded && <AppSidebar />}
+      <AppSidebar />
 
       <SidebarInset className="min-w-0">
-        <SiteHeader />
-        {/* Panes sit flush against the rail and each other — separation comes from
-            1px dividers, not gaps (matches the app-shell-12 content region). */}
-        <div className="flex grow min-h-0 overflow-hidden">
-          {/* No agents + threads view: full-width onboarding (no thread list, no message input) */}
+        <AppHeader />
+        <div className="relative flex min-h-0 grow overflow-hidden">
           {!hasAgents && viewMode === 'threads' ? (
+            /* No agents yet: full-width onboarding */
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
               <EmptyState />
             </div>
           ) : viewMode === 'threads' && monitorMode ? (
-            /* Monitor mode: replace both panes with 2x3 grid */
+            /* Monitor mode: 2x3 grid over the whole detail area */
             <div className="relative flex-1 min-w-0">
               <MonitorGrid />
               {isAgentPanelOpen && <AgentProfilePanel />}
             </div>
+          ) : viewMode === 'threads' && splitBrowser && showBrowserPreview ? (
+            /* Split view: chat + browser side by side */
+            <div className="flex flex-1 min-w-0">
+              <div className="relative flex-1 min-w-0 overflow-hidden border-e border-border bg-background">
+                <div className="h-full">
+                  <ChatView />
+                </div>
+                {isAgentPanelOpen && <AgentProfilePanel />}
+              </div>
+              <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
+                <BrowserView />
+              </div>
+            </div>
           ) : (
-            <>
-              {/* Middle pane — thread list or file list
-                  Hidden for: connect view, expanded detail, or when browser preview is active */}
-              {viewMode !== 'connect' && viewMode !== 'tasks' && viewMode !== 'inbox' && viewMode !== 'knowledge' && viewMode !== 'skills' && !isDetailExpanded && !(splitBrowser && showBrowserPreview && viewMode === 'threads') && (
-                <div className="flex shrink-0 w-[300px] xl:w-[400px] flex-col overflow-hidden border-e border-border bg-background">
-                  {viewMode === 'threads' && <ThreadList />}
-                  {viewMode === 'files' && <FileList />}
-                  {viewMode === 'browser' && <BrowserTabList />}
-                  {viewMode === 'routines' && <RoutineList />}
+            <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
+              {(viewMode === 'threads' || viewMode === 'routines') && (
+                <div className="h-full">
+                  <ChatView />
                 </div>
               )}
+              {viewMode === 'files' && <FilePreview />}
+              {viewMode === 'browser' && <BrowserView />}
+              {viewMode === 'connect' && <ConnectAgentView />}
+              {viewMode === 'tasks' && <TasksView />}
+              {viewMode === 'inbox' && <InboxView />}
+              {viewMode === 'skills' && <SkillsView />}
+              {viewMode === 'knowledge' && <KnowledgeView />}
 
-              {/* Right pane — chat view, file preview, or connect agent */}
-              {viewMode === 'threads' && splitBrowser && showBrowserPreview ? (
-                /* Split view: chat + browser side by side (thread list hidden) */
-                <div className="flex flex-1 min-w-0">
-                  <div className="relative flex-1 min-w-0 overflow-hidden border-e border-border bg-background">
-                    <main className="h-full" role="content">
-                      <ChatView />
-                    </main>
-                    {isAgentPanelOpen && <AgentProfilePanel />}
-                  </div>
-                  <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-                    <BrowserView />
-                  </div>
-                </div>
-              ) : (
-                <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-                  {(viewMode === 'threads' || viewMode === 'routines') && (
-                    <main className="h-full" role="content">
-                      <ChatView />
-                    </main>
-                  )}
-                  {viewMode === 'files' && <FilePreview />}
-                  {viewMode === 'browser' && <BrowserView />}
-                  {viewMode === 'connect' && <ConnectAgentView />}
-                  {viewMode === 'tasks' && <TasksView />}
-                  {viewMode === 'inbox' && <InboxView />}
-                  {viewMode === 'skills' && <SkillsView />}
-                  {viewMode === 'knowledge' && <KnowledgeView />}
-
-                  {/* Agent profile slide-over */}
-                  {isAgentPanelOpen && <AgentProfilePanel />}
-                </div>
-              )}
-            </>
+              {/* Agent profile slide-over */}
+              {isAgentPanelOpen && <AgentProfilePanel />}
+            </div>
           )}
         </div>
       </SidebarInset>
+
       <NewThreadDialogHost />
     </SidebarProvider>
   );

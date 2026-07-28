@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
+import { DetailHeader } from '@/components/layout/app-header';
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -171,37 +172,39 @@ export function FileGrid() {
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
     >
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b shrink-0">
-        {/* Breadcrumbs */}
-        <div className="flex items-center gap-0.5 text-sm text-muted-foreground min-w-0 flex-1 overflow-x-auto">
-          <button
-            onClick={() => navigateToBreadcrumb(-1)}
-            className={cn(
-              'hover:text-foreground transition-colors shrink-0 font-medium',
-              !currentPath && 'text-foreground'
-            )}
-          >
-            Files
-          </button>
-          {breadcrumbs.map((segment, i) => (
-            <span key={i} className="flex items-center gap-0.5 shrink-0">
-              <ChevronRight className="size-3.5 opacity-40" />
-              <button
-                onClick={() => navigateToBreadcrumb(i)}
-                className={cn(
-                  'hover:text-foreground transition-colors',
-                  i === breadcrumbs.length - 1 && 'text-foreground font-medium'
-                )}
-              >
-                {segment}
-              </button>
-            </span>
-          ))}
-        </div>
-
+      {/* Toolbar — breadcrumbs as the title, the rest as header actions */}
+      <DetailHeader
+        titleInHeader
+        title={
+          <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto text-sm text-muted-foreground">
+            <button
+              onClick={() => navigateToBreadcrumb(-1)}
+              className={cn(
+                'hover:text-foreground transition-colors shrink-0 font-medium',
+                !currentPath && 'text-foreground'
+              )}
+            >
+              Files
+            </button>
+            {breadcrumbs.map((segment, i) => (
+              <span key={i} className="flex items-center gap-0.5 shrink-0">
+                <ChevronRight className="size-3.5 opacity-40" />
+                <button
+                  onClick={() => navigateToBreadcrumb(i)}
+                  className={cn(
+                    'hover:text-foreground transition-colors',
+                    i === breadcrumbs.length - 1 && 'text-foreground font-medium'
+                  )}
+                >
+                  {segment}
+                </button>
+              </span>
+            ))}
+          </div>
+        }
+      >
         {/* Search */}
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted/50 border border-input text-muted-foreground w-48">
+        <div className="flex w-48 items-center gap-1.5 rounded-lg border border-input bg-muted/50 px-2.5 py-1.5 text-muted-foreground">
           <Search className="size-3.5 shrink-0" />
           <input
             value={search}
@@ -234,7 +237,7 @@ export function FileGrid() {
           className="hidden"
           onChange={handleUpload}
         />
-      </div>
+      </DetailHeader>
 
       {/* Grid content */}
       {entries.length === 0 ? (

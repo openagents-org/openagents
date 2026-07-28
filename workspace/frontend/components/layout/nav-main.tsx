@@ -25,7 +25,7 @@ interface NavItem {
 }
 
 export function NavMain() {
-  const { viewMode, setViewMode } = useLayout();
+  const { viewMode, openView } = useLayout();
   const { agents, sessions, files, browserTabs, todos, routines, knowledge, unreadNotificationCount } = useWorkspace();
 
   const hasAgents = agents.filter(isRecentAgent).length > 0;
@@ -75,7 +75,7 @@ export function NavMain() {
               <SidebarMenuButton
                 tooltip={item.label}
                 isActive={viewMode === item.mode}
-                onClick={() => setViewMode(item.mode)}
+                onClick={() => openView(item.mode)}
               >
                 {item.icon}
                 <span>{item.label}</span>
