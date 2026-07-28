@@ -387,8 +387,15 @@ def discover(
 
     now = datetime.now(timezone.utc)
 
+    # Hide removed agents — removal is a soft-delete (status='removed') so a
+    # re-add can reactivate them. Offline members are intentionally kept: the
+    # mobile clients key the "connect an agent" prompt off membership, not
+    # online status. (issue #347)
     members = db.execute(
-        select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace.id)
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.status != "removed",
+        )
     ).scalars().all()
 
     agents = []
