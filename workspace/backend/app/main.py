@@ -325,13 +325,22 @@ async def _timer_loop():
     the 24-slot DB pool. Now the firing path uses a short-lived session and
     the heavy scans run off-loop via ``asyncio.to_thread``, far less often.
     """
+    from app.browser_maintenance import sweep_browser_tabs
+
     cycle = 0
+    browser_sweep_task = None
     while True:
         try:
             await _fire_due()
             cycle += 1
             if cycle % MAINTENANCE_EVERY_N_CYCLES == 0:
                 await asyncio.to_thread(_run_maintenance)
+                # Browser sweep is async (BF HTTP calls) and self-contained;
+                # run it as its own task so slow BF responses never delay
+                # timer firing. Overlap guard: skip if the last one is
+                # still running.
+                if browser_sweep_task is None or browser_sweep_task.done():
+                    browser_sweep_task = asyncio.create_task(sweep_browser_tabs())
         except Exception:
             logger.exception("Timer loop error")
         await asyncio.sleep(TIMER_LOOP_INTERVAL_SECONDS)
@@ -367,6 +376,13 @@ async def lifespan(app: FastAPI):
 
     logger.info("LIFESPAN: creating timer task")
     timer_task = asyncio.create_task(_timer_loop())
+
+    # One-off browser sweep at boot: sessions leaked before a restart (or
+    # closes that failed mid-deploy) get released now instead of waiting
+    # for the first periodic maintenance cycle.
+    from app.browser_maintenance import sweep_browser_tabs
+    startup_browser_sweep = asyncio.create_task(sweep_browser_tabs())  # noqa: F841 — keep ref so it isn't GC'd
+
     logger.info("LIFESPAN: yielding (startup complete)")
     yield
     timer_task.cancel()

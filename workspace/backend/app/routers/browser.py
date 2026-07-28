@@ -17,6 +17,7 @@ DELETE /v1/browser/tabs/{tab_id}              Close tab
 """
 
 import logging
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -28,6 +29,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.browser import BROWSERFABRIC_API_KEY, BrowserManager
+from app.browser_creds import (
+    SOURCE_GLOBAL,
+    SOURCE_WORKSPACE,
+    BrowserCredentialError,
+    key_fingerprint,
+    resolve_tab_key,
+)
 from app.database import get_db
 from app.models import BrowserContext, BrowserTab, BrowserUsage, Workspace
 from app.response import ResponseCode, json_response, success_response
@@ -42,15 +50,34 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/browser", tags=["Browser"])
 
+# Browser Fabric caps ephemeral (non-persistent) sessions per API key.
+# Enforce it at the DB level BEFORE calling BF so the user gets an
+# actionable error listing which tabs to close, instead of the raw BF 400.
+#
+# NOTE: this count-based pre-check is advisory only (display + early UX);
+# two workers can race past it and the BF server remains the final quota
+# arbiter (its 3/3 error is mapped to a structured 400 below).
+# Phase-2 follow-ups, deliberately NOT in this change:
+#   TODO(browser-quota): atomic DB quota slots keyed on bf_key_fingerprint
+#     (unique-constraint claim), replacing this advisory count.
+#   TODO(browser-quota): PostgreSQL test — two replicas racing the last
+#     ephemeral slot, exactly one create_session allowed.
+#   TODO(browser-bf-api): investigate BF create_session request_id /
+#     idempotent creation (would make create timeouts trackable).
+#   TODO(browser-bf-api): investigate BF list_sessions / admin cleanup API
+#     (would allow reclaiming orphans that have no DB record at all).
+BF_EPHEMERAL_TAB_LIMIT = int(os.environ.get("BF_EPHEMERAL_TAB_LIMIT", "3"))
+
 
 # ---------------------------------------------------------------------------
 # Per-workspace BF API key resolution
 # ---------------------------------------------------------------------------
 
-async def _resolve_bf_key(workspace: Workspace, db: Session) -> Optional[str]:
-    """Resolve the BF API key for a workspace.
+async def _resolve_bf_key(workspace: Workspace, db: Session) -> tuple:
+    """Resolve the BF API key for a workspace, for creating NEW sessions.
 
-    Priority:
+    Returns (key, source) where source is 'workspace' | 'global' | None.
+    Priority (unchanged from the original deployment behaviour):
       1. Custom key stored in workspace settings (user-provided)
       2. Auto-provisioned key stored in workspace settings
       3. Global BROWSERFABRIC_API_KEY env var (fallback)
@@ -59,10 +86,10 @@ async def _resolve_bf_key(workspace: Workspace, db: Session) -> Optional[str]:
     settings = workspace.settings or {}
     stored_key = settings.get("browserfabric_api_key")
     if stored_key:
-        return stored_key
+        return stored_key, SOURCE_WORKSPACE
 
     if BROWSERFABRIC_API_KEY:
-        return BROWSERFABRIC_API_KEY
+        return BROWSERFABRIC_API_KEY, SOURCE_GLOBAL
 
     # Auto-provision from BF server
     new_key = await BrowserManager.provision_workspace_key(str(workspace.id))
@@ -72,9 +99,70 @@ async def _resolve_bf_key(workspace: Workspace, db: Session) -> Optional[str]:
         workspace.settings = current
         db.commit()
         logger.info("Auto-provisioned BF API key for workspace %s", workspace.id)
-        return new_key
+        return new_key, SOURCE_WORKSPACE
 
-    return None
+    return None, None
+
+
+def _stamp_credential(tab: BrowserTab, key: Optional[str], source: Optional[str]) -> None:
+    """Record the credential reference for a freshly created session.
+    Stores source + fingerprint only — never the key itself."""
+    tab.bf_key_source = source if key else None
+    tab.bf_key_fingerprint = key_fingerprint(key)
+    tab.session_closed = False
+    tab.close_status = "open"
+    tab.close_attempts = 0
+    tab.last_close_error = None
+
+
+def _record_close_outcome(tab: BrowserTab, released: bool, error: Optional[str]) -> None:
+    """Apply the result of a BF close attempt to the tab's release state.
+    A failed/unknown outcome keeps session_closed=False so the maintenance
+    sweeper retries; only a confirmed release marks the session closed."""
+    now = datetime.now(timezone.utc)
+    if not tab.session_id:
+        tab.session_closed = True
+        tab.close_status = "none"
+        return
+    tab.close_attempts = (tab.close_attempts or 0) + 1
+    tab.last_close_attempt_at = now
+    if released:
+        tab.session_closed = True
+        tab.close_status = "closed"
+        tab.last_close_error = None
+    else:
+        tab.session_closed = False
+        tab.close_status = "close_failed"
+        tab.last_close_error = error or "unknown close failure"
+
+
+def _orphan_session_tombstone(db: Session, tab: BrowserTab, error: str) -> None:
+    """When a tab's old remote session could not be confirmed released before
+    being replaced (reconnect/persist swap), record it as a closed tab row so
+    the maintenance sweeper keeps retrying the release instead of the session
+    silently leaking against the per-key quota."""
+    if not tab.session_id:
+        return
+    now = datetime.now(timezone.utc)
+    db.add(BrowserTab(
+        id=str(uuid.uuid4()),
+        workspace_id=tab.workspace_id,
+        url=tab.url or "about:blank",
+        title=tab.title,
+        status="closed",
+        created_by="system:orphaned-session",
+        shared_with=[],
+        session_id=tab.session_id,
+        bf_key_source=tab.bf_key_source,
+        bf_key_fingerprint=tab.bf_key_fingerprint,
+        session_closed=False,
+        close_status="close_failed",
+        close_attempts=1,
+        last_close_attempt_at=now,
+        last_close_error=error,
+        last_active_at=now,
+    ))
+    logger.warning("browser.session.orphaned tab=%s session=%s: %s", tab.id, tab.session_id, error)
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +225,10 @@ def _tab_to_dict(tab: BrowserTab, context_name: str = None) -> dict:
         d["live_url"] = tab.live_url
     if tab.session_id:
         d["session_id"] = tab.session_id
+    if tab.last_error:
+        d["last_error"] = tab.last_error
+    # Deliberately NOT exposed: bf_key_source, bf_key_fingerprint and the
+    # close-retry bookkeeping — credential internals stay out of the API.
     if tab.context_id:
         d["context_id"] = tab.context_id
         d["persistent"] = True
@@ -201,10 +293,24 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Work
     if not tab.session_id and not manager.is_cloud:
         return  # local mode, nothing to reconnect to
 
-    # --- Try reconnecting to the existing session first ---
+    # --- Resolve the credential reference for the EXISTING session ---
+    session_key = None
+    credential_rotated = False
     if tab.session_id:
         try:
-            await manager.reconnect(tab.id, tab.session_id)
+            session_key = resolve_tab_key(tab, workspace)
+        except BrowserCredentialError as e:
+            if e.reason == "credential_missing":
+                raise  # no key at all — surface, don't guess
+            # credential_mismatch: the key was rotated. The old session must
+            # NOT be touched with the new key — record it for the sweeper
+            # (it will exhaust retries visibly) and recreate below.
+            credential_rotated = True
+
+    # --- Try reconnecting to the existing session first ---
+    if tab.session_id and not credential_rotated:
+        try:
+            await manager.reconnect(tab.id, tab.session_id, api_key=session_key)
             # Sync URL/title from the live page
             live = await manager.get_current_url(tab.id)
             if live:
@@ -221,12 +327,19 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Work
             logger.info("Reconnect failed for tab %s (session %s), will create new session: %s",
                         tab.id, tab.session_id, e)
 
-    # --- Session is dead — create a fresh one ---
-    # Clean up old session (best-effort)
-    try:
-        await manager.close_tab(tab.id, session_id_hint=tab.session_id)
-    except Exception:
-        pass
+    # --- Session is dead or unreachable — create a fresh one ---
+    if credential_rotated:
+        if db is not None:
+            _orphan_session_tombstone(db, tab, "credential_mismatch: key rotated before release")
+        tab.session_id = None
+    else:
+        # Clean up old session (best-effort); if the release isn't confirmed,
+        # keep it tracked so the sweeper retries instead of leaking it.
+        released, close_err = await manager.close_tab(
+            tab.id, session_id_hint=tab.session_id, api_key=session_key
+        )
+        if tab.session_id and not released and db is not None:
+            _orphan_session_tombstone(db, tab, close_err or "close failed during session recreate")
 
     # Resolve persistent context (cookies/localStorage) if available
     bb_context_id = None
@@ -239,14 +352,20 @@ async def _ensure_connected(tab: BrowserTab, db: Session = None, workspace: Work
         if ctx:
             bb_context_id = ctx.bb_context_id
 
-    bf_key = await _resolve_bf_key(workspace, db) if workspace and db else None
+    if workspace is not None and db is not None:
+        bf_key, bf_source = await _resolve_bf_key(workspace, db)
+    else:
+        bf_key, bf_source = session_key, tab.bf_key_source
     result = await manager.open_tab(tab.id, tab.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
 
     # Update the tab record with the new session info
     tab.session_id = manager.get_session_id(tab.id)
     tab.live_url = manager.get_live_url(tab.id)
+    _stamp_credential(tab, bf_key, bf_source)
     tab.url = result.get("url", tab.url)
     tab.title = result.get("title", tab.title)
+    warnings = result.get("warnings") or []
+    tab.last_error = "; ".join(warnings) if warnings else None
     _touch(tab)
     logger.info("Tab %s auto-reconnected with new session %s", tab.id, tab.session_id)
 
@@ -298,7 +417,26 @@ async def open_tab(
     tab_id = str(uuid.uuid4())
     manager = BrowserManager.get()
 
-    bf_key = await _resolve_bf_key(workspace, db)
+    bf_key, bf_source = await _resolve_bf_key(workspace, db)
+
+    # Ephemeral opens: enforce the per-key BF quota against the DB before
+    # spending a BF call, and tell the user which tabs can be closed.
+    if not body.context_id and manager.is_cloud_for(bf_key):
+        open_ephemeral = db.execute(
+            select(BrowserTab)
+            .where(BrowserTab.workspace_id == str(workspace.id))
+            .where(BrowserTab.status == "active")
+            .where(BrowserTab.context_id.is_(None))
+            .order_by(BrowserTab.last_active_at.asc())
+        ).scalars().all()
+        if len(open_ephemeral) >= BF_EPHEMERAL_TAB_LIMIT:
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                f"Temporary tab limit reached ({len(open_ephemeral)}/{BF_EPHEMERAL_TAB_LIMIT}). "
+                "Close one of the open tabs first.",
+                data={"open_tabs": [_tab_to_dict(t) for t in open_ephemeral]},
+            )
+
     try:
         result = await manager.open_tab(tab_id, body.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
     except RuntimeError as e:
@@ -311,6 +449,8 @@ async def open_tab(
     if context_record:
         context_record.last_used_at = datetime.now(timezone.utc)
 
+    session_id = manager.get_session_id(tab_id)
+    warnings = result.get("warnings") or []
     record = BrowserTab(
         id=tab_id,
         workspace_id=str(workspace.id),
@@ -319,8 +459,13 @@ async def open_tab(
         created_by=body.source or "human:user",
         shared_with=[],
         context_id=body.context_id,
-        session_id=manager.get_session_id(tab_id),
+        session_id=session_id,
         live_url=manager.get_live_url(tab_id),
+        bf_key_source=bf_source if (bf_key and session_id) else None,
+        bf_key_fingerprint=key_fingerprint(bf_key) if session_id else None,
+        session_closed=not session_id,
+        close_status="open" if session_id else "none",
+        last_error="; ".join(warnings) if warnings else None,
     )
     db.add(record)
 
@@ -333,15 +478,28 @@ async def open_tab(
     )
     db.add(usage)
 
-    event = Event(
-        type="workspace.browser.tab.opened",
-        source=body.source or "human:user",
-        target="core",
-        payload={"tab_id": tab_id, "url": record.url},
-    )
-    await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
+    # Commit BEFORE emitting the event: the BF session already exists, and a
+    # rejected/failed event pipeline must not roll back the only record of it
+    # (that's a leaked session the sweeper could never find).
+    db.commit()
 
-    return success_response(_tab_to_dict(record))
+    try:
+        event = Event(
+            type="workspace.browser.tab.opened",
+            source=body.source or "human:user",
+            target="core",
+            payload={"tab_id": tab_id, "url": record.url},
+        )
+        await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
+    except Exception as e:
+        logger.warning("tab.opened event failed for %s (tab kept): %s", tab_id, e)
+
+    # A partially failed init (session created, navigate/page-info failed) is
+    # still a created tab — the caller gets the tab plus explicit warnings.
+    data = _tab_to_dict(record)
+    if warnings:
+        data["warnings"] = warnings
+    return success_response(data)
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +612,10 @@ async def navigate_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db, workspace)
+    try:
+        await _ensure_connected(tab, db, workspace)
+    except BrowserCredentialError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e))
     manager = BrowserManager.get()
     try:
         result = await manager.navigate(tab_id, body.url)
@@ -502,11 +663,20 @@ async def reconnect_tab(
 
     manager = BrowserManager.get()
 
-    # Close old session gracefully (ignore errors — it's likely already dead)
-    try:
-        await manager.close_tab(tab_id, session_id_hint=tab.session_id)
-    except Exception:
-        pass
+    # Release the old session with ITS OWN credential; if the release can't
+    # be confirmed (failure or rotated key), leave a tombstone so the
+    # sweeper keeps the old session tracked instead of leaking it.
+    if tab.session_id:
+        try:
+            old_key = resolve_tab_key(tab, workspace)
+            released, close_err = await manager.close_tab(tab_id, session_id_hint=tab.session_id, api_key=old_key)
+        except BrowserCredentialError as e:
+            released, close_err = False, str(e)
+            manager._sessions.pop(tab_id, None)
+            manager._live_urls.pop(tab_id, None)
+            manager._tab_keys.pop(tab_id, None)
+        if not released:
+            _orphan_session_tombstone(db, tab, close_err or "close failed during reconnect")
 
     # Resolve persistent context if any
     bb_context_id = None
@@ -520,22 +690,29 @@ async def reconnect_tab(
             bb_context_id = ctx.bb_context_id
 
     # Create a new session
-    bf_key = await _resolve_bf_key(workspace, db)
+    bf_key, bf_source = await _resolve_bf_key(workspace, db)
     try:
         result = await manager.open_tab(tab_id, tab.url or "about:blank", bb_context_id=bb_context_id, api_key=bf_key)
     except Exception as e:
+        db.commit()  # keep any tombstone recorded above
         logger.error("Reconnect failed: %s", e)
         return json_response(ResponseCode.INTERNAL_ERROR, "Failed to reconnect browser tab")
 
     # Update DB record
     tab.session_id = manager.get_session_id(tab_id)
     tab.live_url = manager.get_live_url(tab_id)
+    _stamp_credential(tab, bf_key, bf_source)
     tab.url = result.get("url", tab.url)
     tab.title = result.get("title", tab.title)
+    warnings = result.get("warnings") or []
+    tab.last_error = "; ".join(warnings) if warnings else None
     _touch(tab)
     db.commit()
 
-    return success_response(_tab_to_dict(tab))
+    data = _tab_to_dict(tab)
+    if warnings:
+        data["warnings"] = warnings
+    return success_response(data)
 
 
 # ---------------------------------------------------------------------------
@@ -560,7 +737,10 @@ async def click_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db, workspace)
+    try:
+        await _ensure_connected(tab, db, workspace)
+    except BrowserCredentialError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e))
     manager = BrowserManager.get()
     try:
         result = await manager.click(tab_id, body.selector)
@@ -600,7 +780,10 @@ async def type_in_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db, workspace)
+    try:
+        await _ensure_connected(tab, db, workspace)
+    except BrowserCredentialError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e))
     manager = BrowserManager.get()
     try:
         await manager.type_text(tab_id, body.selector, body.text, append=body.append)
@@ -638,7 +821,10 @@ async def press_key_in_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db, workspace)
+    try:
+        await _ensure_connected(tab, db, workspace)
+    except BrowserCredentialError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e))
     manager = BrowserManager.get()
     try:
         await manager.press_key(tab_id, body.key)
@@ -676,7 +862,10 @@ async def evaluate_in_tab(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db, workspace)
+    try:
+        await _ensure_connected(tab, db, workspace)
+    except BrowserCredentialError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e))
     manager = BrowserManager.get()
     try:
         result = await manager.evaluate(tab_id, body.expression)
@@ -713,7 +902,10 @@ async def get_screenshot(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db, workspace)
+    try:
+        await _ensure_connected(tab, db, workspace)
+    except BrowserCredentialError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e))
     manager = BrowserManager.get()
     try:
         data = await manager.screenshot(tab_id)
@@ -765,7 +957,10 @@ async def get_snapshot(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    await _ensure_connected(tab, db, workspace)
+    try:
+        await _ensure_connected(tab, db, workspace)
+    except BrowserCredentialError as e:
+        return json_response(ResponseCode.BAD_REQUEST, str(e))
     manager = BrowserManager.get()
     try:
         tree = await manager.snapshot(tab_id)
@@ -862,24 +1057,40 @@ async def persist_tab(
 
     # Save current session state and create persistent context
     manager = BrowserManager.get()
+    bf_key, bf_source = await _resolve_bf_key(workspace, db)
     bb_context_id = None
-    if manager.is_cloud:
+    if manager.is_cloud_for(bf_key):
         try:
             await _ensure_connected(tab, db, workspace)
-            bb_context_id = await manager.create_bb_context(session_id=tab.session_id)
+            bb_context_id = await manager.create_bb_context(session_id=tab.session_id, tab_id=tab_id)
+        except BrowserCredentialError as e:
+            return json_response(ResponseCode.BAD_REQUEST, str(e))
         except Exception as e:
             logger.error("Failed to create persistent context: %s", e)
             return json_response(ResponseCode.INTERNAL_ERROR, "Failed to create persistent context")
 
     # Close the current session and reopen with the context so that
     # future sessions restore cookies/localStorage from the saved state.
-    if manager.is_cloud and tab.session_id:
+    # The old and new sessions are distinct identities: the old one is
+    # released (or tombstoned for the sweeper) BEFORE tab.session_id is
+    # overwritten with the new one.
+    if manager.is_cloud_for(bf_key) and tab.session_id:
         try:
             current_url = tab.url
-            await manager.close_tab(tab_id, session_id_hint=tab.session_id)
-            result = await manager.open_tab(tab_id, current_url, bb_context_id=bb_context_id)
+            try:
+                old_key = resolve_tab_key(tab, workspace)
+                released, close_err = await manager.close_tab(tab_id, session_id_hint=tab.session_id, api_key=old_key)
+            except BrowserCredentialError as e:
+                released, close_err = False, str(e)
+                manager._sessions.pop(tab_id, None)
+                manager._live_urls.pop(tab_id, None)
+                manager._tab_keys.pop(tab_id, None)
+            if not released:
+                _orphan_session_tombstone(db, tab, close_err or "close failed during persist swap")
+            result = await manager.open_tab(tab_id, current_url, bb_context_id=bb_context_id, api_key=bf_key)
             tab.session_id = manager.get_session_id(tab_id)
             tab.live_url = manager.get_live_url(tab_id)
+            _stamp_credential(tab, bf_key, bf_source)
             tab.url = result.get("url", current_url)
             tab.title = result.get("title", tab.title)
         except Exception as e:
@@ -1092,20 +1303,37 @@ async def close_tab(
     is_persistent = bool(tab.context_id)
 
     manager = BrowserManager.get()
-    await manager.close_tab(tab_id, session_id_hint=tab.session_id)
+    try:
+        close_key = resolve_tab_key(tab, workspace)
+        released, close_err = await manager.close_tab(tab_id, session_id_hint=tab.session_id, api_key=close_key)
+    except BrowserCredentialError as e:
+        # Never touch the old session with a wrong/rotated key. Record the
+        # failure; the sweeper will surface it as retry_exhausted.
+        released, close_err = False, str(e)
+        manager._sessions.pop(tab_id, None)
+        manager._live_urls.pop(tab_id, None)
+        manager._tab_keys.pop(tab_id, None)
+    # A failed/unknown BF close keeps session_closed=False so the maintenance
+    # sweeper retries — otherwise the session silently eats the per-key
+    # ephemeral quota while the UI shows no open tabs.
+    _record_close_outcome(tab, released, close_err)
+    db.commit()
 
     payload = {"tab_id": tab_id}
     if is_persistent:
         payload["context_id"] = tab.context_id
         payload["persistent"] = True
 
-    event = Event(
-        type="workspace.browser.tab.closed",
-        source="system",
-        target="core",
-        payload=payload,
-    )
-    await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
+    try:
+        event = Event(
+            type="workspace.browser.tab.closed",
+            source="system",
+            target="core",
+            payload=payload,
+        )
+        await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
+    except Exception as e:
+        logger.warning("tab.closed event failed for %s: %s", tab_id, e)
 
     return success_response({"id": tab_id, "status": "closed", "context_preserved": is_persistent})
 
