@@ -18,7 +18,7 @@ const { execSync, spawn } = require('child_process');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt } = require('./utils');
-const { buildOpenCodeSkillMd, buildOpenCodeSystemPrompt } = require('./workspace-prompt');
+const { buildOpenCodeSkillMd, buildOpenCodeSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -209,7 +209,12 @@ class OpenCodeAdapter extends BaseAdapter {
    */
   _ensureWorkspaceSkill(channelName) {
     const skillDir = path.join(this.agentHome, '.opencode', 'skills');
-    const skillFile = path.join(skillDir, 'openagents-workspace.md');
+    // Filename matches the per-agent frontmatter name; remove the legacy
+    // shared-name file so a stale duplicate skill is never auto-discovered.
+    const skillFile = path.join(skillDir, `${workspaceSkillName(this.agentName)}.md`);
+    try {
+      fs.unlinkSync(path.join(skillDir, 'openagents-workspace.md'));
+    } catch {}
     try {
       const content = buildOpenCodeSkillMd({
         endpoint: this.endpoint,

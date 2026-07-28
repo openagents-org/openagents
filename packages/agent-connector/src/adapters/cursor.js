@@ -16,7 +16,7 @@ const { execSync, spawn } = require('child_process');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
-const { buildCursorSkillMd } = require('./workspace-prompt');
+const { buildCursorSkillMd, workspaceSkillName } = require('./workspace-prompt');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -308,7 +308,12 @@ class CursorAdapter extends BaseAdapter {
     const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
     const skillDir = path.join(workDir, '.cursor', 'skills');
     fs.mkdirSync(skillDir, { recursive: true });
-    const skillFile = path.join(skillDir, 'openagents-workspace.md');
+    // Per-agent filename: agents sharing a working directory used to clobber
+    // one shared openagents-workspace.md, so uploads carried the identity of
+    // whichever agent wrote the file last. Drop that legacy file so a stale
+    // copy (with another agent's embedded identity) can never be read again.
+    const skillFile = path.join(skillDir, `${workspaceSkillName(this.agentName)}.md`);
+    try { fs.unlinkSync(path.join(skillDir, 'openagents-workspace.md')); } catch {}
 
     const skillContent = buildCursorSkillMd({
       endpoint: this.endpoint,
@@ -330,7 +335,20 @@ class CursorAdapter extends BaseAdapter {
       throw new Error('Cursor CLI not found. Install with: curl https://cursor.com/install -fsSL | bash');
     }
 
-    const cmd = [agentBin, '-p', prompt, '--output-format', 'stream-json', '--trust', '--force'];
+    // Cursor has no system-prompt flag, so the CLI would otherwise learn its
+    // identity ONLY from whichever workspace skill it happens to open. With a
+    // shared working directory several agents' skills coexist (same
+    // description, different embedded identity), so every spawn must pin who
+    // this agent is and exactly which skill file is its interface — otherwise
+    // it can read a sibling's skill and upload under that agent's name.
+    const identityHeader =
+      `[workspace] You are agent '${this.agentName}'. For ANY workspace ` +
+      `operation (messages, files, agents, browser) read and follow ONLY the ` +
+      `'${workspaceSkillName(this.agentName)}' skill. Other ` +
+      `openagents-workspace-* skills belong to OTHER agents and carry the ` +
+      `wrong identity — never use them.\n\n`;
+
+    const cmd = [agentBin, '-p', identityHeader + prompt, '--output-format', 'stream-json', '--trust', '--force'];
 
     // Model selection
     const model = (this.agentEnv || process.env).CURSOR_MODEL;
