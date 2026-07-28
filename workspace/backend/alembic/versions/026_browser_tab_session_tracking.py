@@ -53,25 +53,27 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("browser_tabs", sa.Column("bf_key_source", sa.Text(), nullable=True))
-    op.add_column("browser_tabs", sa.Column("bf_key_fingerprint", sa.Text(), nullable=True))
-    op.add_column(
-        "browser_tabs",
-        sa.Column("session_closed", sa.Boolean(), server_default=sa.text("FALSE"), nullable=False),
-    )
-    op.add_column(
-        "browser_tabs",
-        sa.Column("close_status", sa.Text(), server_default=sa.text("'none'"), nullable=False),
-    )
-    op.add_column(
-        "browser_tabs",
-        sa.Column("close_attempts", sa.Integer(), server_default=sa.text("0"), nullable=False),
-    )
-    op.add_column("browser_tabs", sa.Column("last_close_attempt_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("browser_tabs", sa.Column("last_close_error", sa.Text(), nullable=True))
-    op.add_column("browser_tabs", sa.Column("last_error", sa.Text(), nullable=True))
-
     bind = op.get_bind()
+
+    # Idempotent add: only create columns that don't already exist. Guards
+    # against a re-run on a partially-applied DB (this codebase has a history
+    # of stuck/partial migrations) so `alembic upgrade head` can't hard-fail
+    # with "column already exists" in production. Dialect-agnostic (works on
+    # Postgres and sqlite; avoids Postgres-only ADD COLUMN IF NOT EXISTS).
+    existing_cols = {c["name"] for c in sa.inspect(bind).get_columns("browser_tabs")}
+
+    def _add(name, column):
+        if name not in existing_cols:
+            op.add_column("browser_tabs", column)
+
+    _add("bf_key_source", sa.Column("bf_key_source", sa.Text(), nullable=True))
+    _add("bf_key_fingerprint", sa.Column("bf_key_fingerprint", sa.Text(), nullable=True))
+    _add("session_closed", sa.Column("session_closed", sa.Boolean(), server_default=sa.text("FALSE"), nullable=False))
+    _add("close_status", sa.Column("close_status", sa.Text(), server_default=sa.text("'none'"), nullable=False))
+    _add("close_attempts", sa.Column("close_attempts", sa.Integer(), server_default=sa.text("0"), nullable=False))
+    _add("last_close_attempt_at", sa.Column("last_close_attempt_at", sa.DateTime(timezone=True), nullable=True))
+    _add("last_close_error", sa.Column("last_close_error", sa.Text(), nullable=True))
+    _add("last_error", sa.Column("last_error", sa.Text(), nullable=True))
 
     # ── Release-state backfill ──
     # No remote session → nothing to release.
@@ -120,11 +122,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_column("browser_tabs", "last_error")
-    op.drop_column("browser_tabs", "last_close_error")
-    op.drop_column("browser_tabs", "last_close_attempt_at")
-    op.drop_column("browser_tabs", "close_attempts")
-    op.drop_column("browser_tabs", "close_status")
-    op.drop_column("browser_tabs", "session_closed")
-    op.drop_column("browser_tabs", "bf_key_fingerprint")
-    op.drop_column("browser_tabs", "bf_key_source")
+    bind = op.get_bind()
+    existing_cols = {c["name"] for c in sa.inspect(bind).get_columns("browser_tabs")}
+    for name in (
+        "last_error",
+        "last_close_error",
+        "last_close_attempt_at",
+        "close_attempts",
+        "close_status",
+        "session_closed",
+        "bf_key_fingerprint",
+        "bf_key_source",
+    ):
+        if name in existing_cols:
+            op.drop_column("browser_tabs", name)
