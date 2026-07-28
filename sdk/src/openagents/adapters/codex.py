@@ -44,15 +44,26 @@ _REDACT_PATTERNS = [
     (re.compile(r"\bsk-[A-Za-z0-9_-]{6,}"), "sk-[REDACTED]"),
     (re.compile(r"\b(?:github_pat|gh[pousr])_[A-Za-z0-9_]{10,}"), "[REDACTED_TOKEN]"),
     (re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{8,}"), "[REDACTED_TOKEN]"),
+    (re.compile(r"\bAKIA[0-9A-Z]{12,}"), "[REDACTED_KEY]"),
     (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}"), "[REDACTED_JWT]"),
     (
         re.compile(
-            r"(authorization|api[_-]?key|x-api-key|token|bearer|secret|password)"
+            r"(authorization|api[_-]?key|x-api-key|token|bearer|secret|password|passwd)"
             r"([\"'\s:=]+)([^\s\"',}]+)",
             re.IGNORECASE,
         ),
         r"\1\2[REDACTED]",
     ),
+    # Secrets carried in a URL query string, e.g. ?api_key=..., &token=...
+    (
+        re.compile(
+            r"([?&](?:api[_-]?key|key|token|access_token)=)[^&\s\"']+",
+            re.IGNORECASE,
+        ),
+        r"\1[REDACTED]",
+    ),
+    # Generic catch-all for long opaque tokens (kept last so labelled patterns win).
+    (re.compile(r"\b[A-Za-z0-9_-]{40,}\b"), "[REDACTED]"),
 ]
 
 
