@@ -18,7 +18,7 @@ const { spawn, execSync } = require('child_process');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt } = require('./utils');
-const { buildOpenclawSkillMd, buildOpenclawSystemPrompt } = require('./workspace-prompt');
+const { buildOpenclawSkillMd, buildOpenclawSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { getRuntimePrefix } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -151,7 +151,44 @@ class OpenClawAdapter extends BaseAdapter {
       return;
     }
 
-    const skillName = `openagents-workspace-${this.agentName}`;
+    const skillName = workspaceSkillName(this.agentName);
+    // Migration — pre-normalization versions installed the skill under the
+    // RAW agent name. For names the normalizer rewrites (uppercase,
+    // underscores, …) that leaves a stale directory with an outdated
+    // channel/token/endpoint that OpenClaw would keep auto-loading alongside
+    // the new one (`always: true` metadata). Remove the exact legacy dir when
+    // its name differs from the current one; for already-valid names the two
+    // coincide and nothing is deleted.
+    // The raw name feeds a recursive delete, so it must be provably inert
+    // first — agent names are not validated at creation, and a name carrying
+    // path separators or `..` would otherwise let the join escape the skills
+    // root (rmSync then destroys whatever it lands on). Only names the safe
+    // charset allows are considered, and the resolved target must still be a
+    // DIRECT child of the skills root. Legacy dirs from weirder names are
+    // left in place — stale beats deleting an unproven path.
+    const skillsRoot = path.join(wsDir, 'skills');
+    const legacyName = `openagents-workspace-${this.agentName}`;
+    const legacyDir = path.join(skillsRoot, legacyName);
+    if (
+      legacyName !== skillName &&
+      /^[A-Za-z0-9._-]+$/.test(String(this.agentName)) &&
+      path.dirname(path.resolve(legacyDir)) === path.resolve(skillsRoot)
+    ) {
+      // Ownership proof — the path checks above cannot see filesystem
+      // aliasing (case-insensitive lookup on Windows/macOS, trailing-dot
+      // stripping on Windows): agent Foo's legacy path can be the SAME
+      // directory as agent foo's CURRENT skill. The stored SKILL.md embeds
+      // its owner's identity in a quote-delimited phrase, so delete only
+      // when that identity is exactly this agent; otherwise leave the dir.
+      let owned = false;
+      try {
+        const stored = fs.readFileSync(path.join(legacyDir, 'SKILL.md'), 'utf-8');
+        owned = stored.includes(`agent '${this.agentName}'`);
+      } catch {}
+      if (owned) {
+        try { fs.rmSync(legacyDir, { recursive: true, force: true }); } catch {}
+      }
+    }
     const skillDir = path.join(wsDir, 'skills', skillName);
     fs.mkdirSync(skillDir, { recursive: true });
 

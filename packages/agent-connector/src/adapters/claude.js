@@ -18,7 +18,7 @@ const { execSync, spawn } = require('child_process');
 
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
-const { buildClaudeSystemPrompt, buildClaudeSkillMd } = require('./workspace-prompt');
+const { buildClaudeSystemPrompt, buildClaudeSkillMd, workspaceSkillName } = require('./workspace-prompt');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -454,7 +454,12 @@ class ClaudeAdapter extends BaseAdapter {
     const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
     const skillDir = path.join(workDir, '.claude', 'skills');
     fs.mkdirSync(skillDir, { recursive: true });
-    const skillFile = path.join(skillDir, 'openagents-workspace.md');
+    // Per-agent filename: agents sharing a working directory used to clobber
+    // one shared openagents-workspace.md, so uploads carried the identity of
+    // whichever agent wrote the file last. Drop that legacy file so a stale
+    // copy (with another agent's embedded identity) can never be read again.
+    const skillFile = path.join(skillDir, `${workspaceSkillName(this.agentName)}.md`);
+    try { fs.unlinkSync(path.join(skillDir, 'openagents-workspace.md')); } catch {}
 
     const skillContent = buildClaudeSkillMd({
       endpoint: this.endpoint,

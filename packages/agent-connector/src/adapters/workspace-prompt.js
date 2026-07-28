@@ -11,6 +11,8 @@
 
 'use strict';
 
+const crypto = require('crypto');
+
 /**
  * Strong directive forcing agents to use the workspace browser when the
  * workspace has Browser Fabric enabled. Emitted high in the system prompt
@@ -57,17 +59,58 @@ function buildBrowserDirective(browserEnabled) {
 }
 
 /**
+ * Per-agent name for the workspace skill file.
+ *
+ * The skill used to be named plain `openagents-workspace` for every agent.
+ * Two agents configured with the same working directory then wrote the SAME
+ * skill file, and the `source: openagents:<name>` identity embedded in its
+ * curl commands belonged to whichever agent wrote last — so files one agent
+ * uploaded showed up attributed to the other. Namespacing the skill by agent
+ * (as the OpenClaw adapter already does) keeps each agent reading only its
+ * own identity even when working directories are shared.
+ *
+ * The result must satisfy the Agent Skills naming rules (lowercase kebab-case,
+ * no consecutive/leading/trailing hyphens, max 64 chars) or the skill may not
+ * be discovered at all. Agent names are looser than that (uppercase,
+ * underscores, up to 64 chars), so normalization is lossy — and a lossy name
+ * gets a stable short hash of the RAW name appended, because two distinct
+ * agents converging on one normalized name (e.g. `My_Agent` and `my-agent`)
+ * would silently reintroduce the exact shared-identity bug this prevents.
+ *
+ * Known, accepted limitation — the encoding is not closed: a verbatim legal
+ * name can in principle equal another name's `<stem>-<hash8>` output (an
+ * agent literally named `my-agent-3aa88293` collides with `My_Agent`).
+ * Triggering it takes either a ~2^-32 accident or deliberately naming an
+ * agent after another's hash — and whoever edits daemon.yaml on this machine
+ * can already read every skill file and token directly, so nothing is gained.
+ * Hashing EVERY name would close the gap but make all skill names carry a
+ * hash suffix; readability of common names was chosen instead.
+ */
+function workspaceSkillName(agentName) {
+  const PREFIX = 'openagents-workspace-';
+  const budget = 64 - PREFIX.length;
+  const raw = String(agentName || 'agent');
+  let safe = raw.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (safe !== raw || safe.length > budget) {
+    const hash = crypto.createHash('sha256').update(raw, 'utf8').digest('hex').slice(0, 8);
+    safe = safe.slice(0, budget - 9).replace(/-+$/, '');
+    safe = safe ? `${safe}-${hash}` : hash;
+  }
+  return PREFIX + safe;
+}
+
+/**
  * Build the identity section common to all adapters.
  *
  * `toolMode` controls how the "read prior context" hint is phrased:
  * - `'mcp'`    → names the native `workspace_get_history` MCP tool.
- * - `'skills'` → points at the openagents-workspace skill (Bash + curl),
+ * - `'skills'` → points at the agent's workspace skill (Bash + curl),
  *   since no MCP server is spawned and that tool would not exist.
  */
 function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'execute', toolMode = 'mcp') {
   const priorContext = toolMode === 'skills'
     ? (
-      'When you need prior context, use the openagents-workspace skill to ' +
+      `When you need prior context, use the ${workspaceSkillName(agentName)} skill to ` +
       `read this channel's recent messages (with \`channel="${channelName}"\`). ` +
       'Always specify the channel — the default may be different from where ' +
       'you are.\n'
@@ -97,10 +140,10 @@ function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'exe
  * the skill's "Discover Agents" section (Bash + curl), `mcp` mode names the
  * native tool.
  */
-function buildCollaborationPrompt(toolMode = 'mcp') {
+function buildCollaborationPrompt(toolMode = 'mcp', skillName = 'openagents-workspace') {
   const discover = toolMode === 'skills'
     ? (
-      'Before delegating, use the openagents-workspace skill (see its ' +
+      `Before delegating, use the ${skillName} skill (see its ` +
       '"Discover Agents" section) to list the agents in this channel and read ' +
       'each one\'s description, then @mention the best-matched agent.\n'
     )
@@ -541,16 +584,16 @@ function buildClaudeMcpToolBlock() {
 /**
  * The skills tool-reference block for Claude in `skills` tool mode. In this
  * mode there is no MCP server — every workspace operation goes through the
- * openagents-workspace skill (Bash + curl), so we must NOT name any
+ * agent's workspace skill (Bash + curl), so we must NOT name any
  * `workspace_*` MCP tool here.
  */
-function buildClaudeSkillsToolBlock() {
+function buildClaudeSkillsToolBlock(skillName = 'openagents-workspace') {
   return (
-    'IMPORTANT: READ the openagents-workspace skill FIRST, before any workspace\n' +
+    `IMPORTANT: READ the ${skillName} skill FIRST, before any workspace\n` +
     'action. It is your ONLY interface to the workspace — every operation goes\n' +
     'through the exact Bash + curl commands documented there. Do not guess\n' +
     'endpoints or improvise; open and follow the skill instructions.\n' +
-    'The openagents-workspace skill (Bash + curl) covers all workspace operations:\n' +
+    `The ${skillName} skill (Bash + curl) covers all workspace operations:\n` +
     'reading message history, discovering agents (and who is in this channel),\n' +
     'sharing files, browsing the shared browser, managing to-do lists, setting\n' +
     'timers, creating routines, sending inbox notifications, and reading/writing\n' +
@@ -570,11 +613,12 @@ function buildClaudeSkillsToolBlock() {
  * block, which silently leaked stale MCP tool names when the list changed).
  */
 function buildClaudeSystemPrompt({ agentName, workspaceId, channelName, mode = 'execute', browserEnabled = false, toolMode = 'mcp' }) {
+  const skillName = workspaceSkillName(agentName);
   const parts = [];
   parts.push(buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, toolMode));
-  parts.push(toolMode === 'skills' ? buildClaudeSkillsToolBlock() : buildClaudeMcpToolBlock());
+  parts.push(toolMode === 'skills' ? buildClaudeSkillsToolBlock(skillName) : buildClaudeMcpToolBlock());
   parts.push(buildBrowserDirective(browserEnabled));
-  parts.push(buildCollaborationPrompt(toolMode));
+  parts.push(buildCollaborationPrompt(toolMode, skillName));
 
   if (mode === 'plan') {
     parts.push(
@@ -595,7 +639,7 @@ function buildOpenclawSystemPrompt({ agentName, workspaceId, channelName, endpoi
   const parts = [];
   parts.push(buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills'));
   parts.push(buildBrowserDirective(browserEnabled));
-  parts.push(buildCollaborationPrompt('skills'));
+  parts.push(buildCollaborationPrompt('skills', workspaceSkillName(agentName)));
   parts.push(buildModePrompt(mode));
   parts.push(buildApiSkillsPrompt({
     endpoint, workspaceId, token, agentName, channelName, disabledModules, mode,
@@ -614,11 +658,11 @@ function buildOpenclawSkillMd({ endpoint, workspaceId, token, agentName, channel
 
   const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills');
   const directive = buildBrowserDirective(browserEnabled);
-  const collab = buildCollaborationPrompt('skills');
+  const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
 
   const frontmatter = (
     '---\n' +
-    'name: openagents-workspace\n' +
+    `name: ${workspaceSkillName(agentName)}\n` +
     'description: "Share files, browse websites, and collaborate ' +
     'with other agents in an OpenAgents workspace. Use when: ' +
     '(1) sharing results or reports with the user or other agents, ' +
@@ -639,7 +683,7 @@ function buildOpenclawSkillMd({ endpoint, workspaceId, token, agentName, channel
 function buildOpenCodeSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false }) {
   const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills');
   const directive = buildBrowserDirective(browserEnabled);
-  const collab = buildCollaborationPrompt('skills');
+  const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
   const modePrompt = buildModePrompt(mode);
   const api = buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channelName, disabledModules, mode });
   return identity + directive + '\n' + collab + '\n' + modePrompt + '\n' + api + '\n' + buildGuardrails();
@@ -658,7 +702,7 @@ function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, channel
 
   const frontmatter =
     '---\n' +
-    'name: openagents-workspace\n' +
+    `name: ${workspaceSkillName(agentName)}\n` +
     'description: OpenAgents Workspace API — shared files, browser, and agent collaboration\n' +
     '---\n\n';
 
@@ -686,11 +730,11 @@ function buildClaudeSkillMd({ endpoint, workspaceId, token, agentName, channelNa
 
   const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills');
   const directive = buildBrowserDirective(browserEnabled);
-  const collab = buildCollaborationPrompt('skills');
+  const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
 
   const frontmatter =
     '---\n' +
-    'name: openagents-workspace\n' +
+    `name: ${workspaceSkillName(agentName)}\n` +
     'description: |\n' +
     '  OpenAgents Workspace collaboration tools — shared files, browser,\n' +
     '  and multi-agent coordination. Use when: sharing files or reports,\n' +
@@ -704,7 +748,7 @@ function buildClaudeSkillMd({ endpoint, workspaceId, token, agentName, channelNa
 /**
  * Build a SKILL.md file for Cursor CLI's skill auto-discovery.
  *
- * Written to .cursor/skills/openagents-workspace.md before each CLI spawn.
+ * Written to .cursor/skills/<workspaceSkillName>.md before each CLI spawn.
  * Cursor discovers skills from the .cursor/skills/ directory automatically.
  */
 function buildCursorSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules, browserEnabled = false }) {
@@ -717,11 +761,11 @@ function buildCursorSkillMd({ endpoint, workspaceId, token, agentName, channelNa
 
   const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills');
   const directive = buildBrowserDirective(browserEnabled);
-  const collab = buildCollaborationPrompt('skills');
+  const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
 
   const frontmatter =
     '---\n' +
-    'name: openagents-workspace\n' +
+    `name: ${workspaceSkillName(agentName)}\n` +
     'description: |\n' +
     '  OpenAgents Workspace collaboration tools — shared files, browser,\n' +
     '  and multi-agent coordination. Use when: sharing files or reports,\n' +
@@ -733,6 +777,7 @@ function buildCursorSkillMd({ endpoint, workspaceId, token, agentName, channelNa
 }
 
 module.exports = {
+  workspaceSkillName,
   buildWorkspaceIdentity,
   buildBrowserDirective,
   buildCollaborationPrompt,
