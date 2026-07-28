@@ -324,12 +324,15 @@ class CodexAdapter extends BaseAdapter {
           this._saveSessions();
           continue;
         } else {
-          await this.sendResponse(msgChannel, 'No response generated. Please try again.');
+          // Surface the actual reason (turn.failed message, stderr, exit code)
+          // instead of a generic "no response" — mirrors the OpenCode adapter
+          // so auth/model/network problems are actionable from the chat.
+          await this._sendRunFailure(msgChannel, result);
           return;
         }
       } catch (e) {
         this._log(`Error in subprocess: ${e.message}`);
-        await this.sendError(msgChannel, `Error: ${e.message}`);
+        await this.sendError(msgChannel, `⚠️ **Codex couldn't run** — ${CodexAdapter._redact(e.message)}`);
         return;
       }
     }
@@ -351,6 +354,7 @@ class CodexAdapter extends BaseAdapter {
       let hasToolUseSinceLastText = false;
       let lineBuffer = '';
       let stderrBuf = '';
+      let lastErrorMessage = '';
       let _pendingLines = Promise.resolve();
 
       if (proc.stderr) {
@@ -407,7 +411,12 @@ class CodexAdapter extends BaseAdapter {
         } else if (eventType === 'turn.failed') {
           const error = event.error || {};
           const errMsg = error.message || JSON.stringify(error);
+          lastErrorMessage = errMsg;
           this._log(`Turn failed: ${errMsg}`);
+        } else if (eventType === 'error') {
+          const errMsg = event.message || JSON.stringify(event);
+          lastErrorMessage = errMsg;
+          this._log(`Error event: ${errMsg}`);
         }
       };
 
@@ -442,6 +451,7 @@ class CodexAdapter extends BaseAdapter {
           responseText: responseTexts.join('\n').trim(),
           exitCode: code,
           stderr: stderrBuf,
+          errorMessage: lastErrorMessage,
         });
       });
 
@@ -450,6 +460,50 @@ class CodexAdapter extends BaseAdapter {
         reject(err);
       });
     });
+  }
+
+  // ------------------------------------------------------------------
+  // Failure reporting
+  // ------------------------------------------------------------------
+
+  /**
+   * Post a user-visible failure carrying the actual reason a run produced no
+   * reply, instead of a generic "No response generated".
+   */
+  async _sendRunFailure(msgChannel, result) {
+    const detail = CodexAdapter._failureDetail(result);
+    const body = detail
+      ? `Codex failed to complete this run.\n\n> ${detail}`
+      : 'Codex finished without producing a reply. Please try again.';
+    await this.sendError(msgChannel, `⚠️ **Codex couldn't run** — ${body}`);
+  }
+
+  /**
+   * Pick the most informative failure detail from a run result:
+   * turn.failed / error event message → stderr tail → exit code. Redacted.
+   */
+  static _failureDetail({ errorMessage, stderr, exitCode } = {}) {
+    const stderrTail = String(stderr || '').trim().split('\n').slice(-5).join('\n').trim();
+    const raw = String(errorMessage || '').trim()
+      || stderrTail
+      || (exitCode ? `codex exited with code ${exitCode}` : '');
+    return CodexAdapter._redact(raw).slice(0, 500).trim();
+  }
+
+  /** Redact secrets (keys, tokens, bearer/authorization, query secrets) from diagnostics. */
+  static _redact(s) {
+    let out = String(s == null ? '' : s);
+    out = out
+      .replace(/\bsk-[A-Za-z0-9_-]{6,}/g, 'sk-[REDACTED]')
+      .replace(/\b(?:github_pat|gh[pousr])_[A-Za-z0-9_]{10,}/g, '[REDACTED_TOKEN]')
+      .replace(/\bxox[baprs]-[A-Za-z0-9-]{8,}/g, '[REDACTED_TOKEN]')
+      .replace(/\bAKIA[0-9A-Z]{12,}/g, '[REDACTED_KEY]')
+      .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}/g, '[REDACTED_JWT]')
+      .replace(/(authorization|api[_-]?key|x-api-key|token|bearer|secret|password|passwd)(["'\s:=]+)([^\s"',}]+)/gi,
+        (m, k, sep) => `${k}${sep}[REDACTED]`)
+      .replace(/([?&](?:api[_-]?key|key|token|access_token)=)[^&\s"']+/gi, '$1[REDACTED]')
+      .replace(/\b[A-Za-z0-9_-]{40,}\b/g, '[REDACTED]');
+    return out;
   }
 
   // ------------------------------------------------------------------
@@ -467,11 +521,11 @@ class CodexAdapter extends BaseAdapter {
         }
         await this.sendResponse(msgChannel, responseText);
       } else {
-        await this.sendResponse(msgChannel, 'No response generated. Please try again.');
+        await this._sendRunFailure(msgChannel, {});
       }
     } catch (e) {
       this._log(`Error in direct API: ${e.message}`);
-      await this.sendError(msgChannel, `Error: ${e.message}`);
+      await this.sendError(msgChannel, `⚠️ **Codex couldn't run** — ${CodexAdapter._redact(e.message)}`);
     }
   }
 
