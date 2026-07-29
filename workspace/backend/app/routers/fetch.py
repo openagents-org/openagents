@@ -18,7 +18,9 @@ Errors carry a stable error_code:
 """
 
 import logging
+import os
 import re
+import time
 from html.parser import HTMLParser
 from typing import Optional
 
@@ -168,6 +170,33 @@ class FetchRequest(BaseModel):
     max_chars: int = DEFAULT_MAX_CHARS
 
 
+# Per-workspace throttle. Without one, an agent loop turns this endpoint into
+# an unmetered outbound proxy running from the deployment's IP — useful for
+# scanning or for amplifying traffic at a third party.
+#
+# The counter is per process, so with N uvicorn workers the effective ceiling
+# is N x this value. That is deliberate: a shared counter would need Redis,
+# and a loose in-process cap already removes the unbounded case.
+FETCH_RATE_LIMIT_PER_MINUTE = int(os.environ.get("FETCH_RATE_LIMIT_PER_MINUTE", "60"))
+_RATE_WINDOW_SECONDS = 60.0
+_fetch_hits: dict = {}   # workspace_id -> list[timestamp]
+
+
+def _rate_limited(workspace_id: str) -> bool:
+    now = time.monotonic()
+    cutoff = now - _RATE_WINDOW_SECONDS
+    hits = [t for t in _fetch_hits.get(workspace_id, []) if t > cutoff]
+    if len(hits) >= FETCH_RATE_LIMIT_PER_MINUTE:
+        _fetch_hits[workspace_id] = hits
+        return True
+    hits.append(now)
+    _fetch_hits[workspace_id] = hits
+    if len(_fetch_hits) > 1000:  # bound the dict on a busy multi-tenant host
+        for key in [k for k, v in _fetch_hits.items() if not any(t > cutoff for t in v)]:
+            _fetch_hits.pop(key, None)
+    return False
+
+
 def _error(code: ResponseCode, message: str, error_code: str, **extra) -> object:
     return json_response(code, message, data={"error_code": error_code, **extra})
 
@@ -222,8 +251,17 @@ async def fetch_url(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
-    # SSRF guard — reject internal/metadata targets before any outbound call
-    # (covers both the static tier and the browser-render tier below).
+    if _rate_limited(str(workspace.id)):
+        return _error(
+            ResponseCode.BAD_REQUEST,
+            f"Fetch rate limit reached ({FETCH_RATE_LIMIT_PER_MINUTE}/min for this workspace)",
+            "FETCH_RATE_LIMITED",
+            hint="Wait a moment before fetching again.",
+        )
+
+    # SSRF guard — reject internal/metadata targets before any outbound call.
+    # This is the entry check only; the static tier re-validates and pins every
+    # redirect hop, and the browser tier is bounded by the egress proxy.
     try:
         await validate_public_url(body.url)
     except UnsafeURLError as e:
@@ -280,9 +318,18 @@ async def fetch_url(
         return _error(ResponseCode.BAD_REQUEST, message, code)
 
     # ---- Tier 2: ephemeral browser render ----
+    #
+    # The entry URL was validated above, but that constrains only the first
+    # request. Where the page goes next is constrained by the egress proxy the
+    # local browser is launched behind (app.browser_egress). In Browser Fabric
+    # mode the page runs on BF's infrastructure and this process cannot
+    # intercept its navigation, so the render tier there is only as confined
+    # as BF's own egress policy.
     bf_key = await _resolve_bf_key(workspace, db)
     try:
         rendered = await manager.render_page_text(body.url, api_key=bf_key)
+    except UnsafeURLError as e:
+        return _error(ResponseCode.BAD_REQUEST, str(e), e.code)
     except BrowserNavigationError as e:
         code = "JS_RENDER_TIMEOUT" if e.code == "NAV_TIMEOUT" else e.code
         return _error(ResponseCode.BAD_REQUEST, f"Browser render failed: {e}", code)

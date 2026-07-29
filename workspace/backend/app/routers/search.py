@@ -2,10 +2,11 @@
 """
 Web image search for agents.
 
-POST /v1/search/images — proxy to Brave Image Search. The API key is
-resolved per workspace (settings.brave_search_api_key) with the
-BRAVE_SEARCH_API_KEY env var as fallback, so a single deployment key can
-serve all workspaces until they bring their own.
+POST /v1/search/images — proxy to Brave Image Search. The API key comes from
+the BRAVE_SEARCH_API_KEY env var only: one deployment-wide key serves every
+workspace. It is deliberately NOT read from workspace settings, because
+workspace settings are returned by the workspace API and the key would then
+be readable by anyone who can read them.
 
 Agents display results by embedding markdown images (![title](image_url))
 in their chat replies — the frontend renders those inline — or persist one
@@ -41,9 +42,7 @@ class ImageSearchRequest(BaseModel):
     safesearch: str = "strict"          # strict | off (Brave image search values)
 
 
-def _resolve_search_key(workspace) -> Optional[str]:
-    # Deployment-wide key via env only. Deliberately NOT read from workspace
-    # settings so the secret never round-trips through workspace API responses.
+def _resolve_search_key() -> Optional[str]:
     return os.environ.get("BRAVE_SEARCH_API_KEY") or None
 
 
@@ -94,7 +93,7 @@ async def search_images(
     if not query:
         return json_response(ResponseCode.BAD_REQUEST, "Query must not be empty")
 
-    key = _resolve_search_key(workspace)
+    key = _resolve_search_key()
     if not key:
         return json_response(
             ResponseCode.BAD_REQUEST,
