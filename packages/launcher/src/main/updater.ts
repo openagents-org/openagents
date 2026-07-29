@@ -14,7 +14,12 @@ import { app, ipcMain, type BrowserWindow } from "electron"
 import electronUpdater, {
   type UpdateInfo,
   type ProgressInfo,
+  type UpdateDownloadedEvent,
 } from "electron-updater"
+import {
+  hasNonAsciiPathSegment,
+  launchUnicodeWindowsInstaller,
+} from "./windows-update-installer"
 
 // electron-updater ships CJS; grab autoUpdater off the default export so this
 // keeps working whether the bundler emits ESM-interop or a bare require().
@@ -84,6 +89,10 @@ let _isAutoUpdateEnabled: () => boolean = () => false
 // Fired once a background auto-download finishes, so the main process can notify
 // the user and offer a "restart to update now" affordance (tray + banner).
 let _onDownloaded: (version: string) => void = () => {}
+// electron-updater exposes the verified NSIS path on update-downloaded. Keep it
+// so Windows can use a Unicode-safe handoff when %LOCALAPPDATA% contains a
+// non-ASCII username.
+let _downloadedFile: string | null = null
 // Runs right before quitAndInstall so the daemon + agent subprocesses are torn
 // down first. On Windows the NSIS installer can't overwrite the app while a
 // child process (the daemon) still holds a lock on files under the install dir —
@@ -137,7 +146,8 @@ function wireEvents(): void {
       bytesPerSecond: Math.round(p.bytesPerSecond),
     })
   })
-  autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
+  autoUpdater.on("update-downloaded", (info: UpdateDownloadedEvent) => {
+    _downloadedFile = info.downloadedFile
     _log(`[updater] update downloaded: v${info.version}`)
     emit({
       status: "downloaded",
@@ -167,6 +177,33 @@ async function quitAndInstallSafely(): Promise<void> {
   } catch (err) {
     _log(`[updater] beforeInstall failed: ${(err as Error).message}`)
   }
+
+  // electron-updater normally launches the cached NSIS executable directly.
+  // On Windows that cache is below %LOCALAPPDATA%, so a Chinese username makes
+  // the executable path non-ASCII. Some Windows handoff/elevation paths reduce
+  // it through the active OEM code page and report a successful launch even
+  // though the installer never replaces the app. Pass the path in a UTF-16
+  // environment block and use PowerShell's Unicode Start-Process path instead.
+  if (
+    process.platform === "win32" &&
+    _downloadedFile &&
+    hasNonAsciiPathSegment(_downloadedFile)
+  ) {
+    try {
+      await launchUnicodeWindowsInstaller(_downloadedFile)
+      _log("[updater] launched installer through Unicode-safe Windows handoff")
+      // Prevent BaseUpdater's on-quit hook from launching the same installer a
+      // second time through the original (failing) path.
+      autoUpdater.autoInstallOnAppQuit = false
+      app.quit()
+      return
+    } catch (err) {
+      _log(
+        `[updater] Unicode-safe Windows handoff failed, falling back: ${(err as Error).message}`,
+      )
+    }
+  }
+
   // Give the OS a tick to release the just-killed child processes' handles
   // before the installer tries to overwrite the app directory.
   setImmediate(() => autoUpdater.quitAndInstall(false, true))

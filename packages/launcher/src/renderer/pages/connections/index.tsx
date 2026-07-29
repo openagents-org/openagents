@@ -15,6 +15,10 @@ import { ConnectionTestDialog } from "../../components/connections/ConnectionTes
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog"
 import type { ConnectionRecord } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
+import {
+  getConnectionsEmptyState,
+  type ConnectionFilter,
+} from "./empty-state"
 
 interface Props {
   showToast: (msg: string, type?: ToastType) => void
@@ -29,7 +33,7 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
     useShallow((s) => ({ credentials: s.credentials, refresh: s.refresh })),
   )
   const [search, setSearch] = useState("")
-  const [filter, setFilter] = useState<"all" | "connected" | "disconnected">("all")
+  const [filter, setFilter] = useState<ConnectionFilter>("all")
   const [busyId, setBusyId] = useState<string | null>(null)
   const [dialogPlatform, setDialogPlatform] = useState<PlatformDef | null>(null)
   const [disconnectTarget, setDisconnectTarget] = useState<ConnectionRecord | null>(null)
@@ -90,6 +94,8 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
     }
     return { connected, disconnected, total: PLATFORMS.length }
   }, [connectionByPlatform])
+
+  const emptyState = getConnectionsEmptyState(search, filter)
 
   return (
     <section className="flex flex-col h-full">
@@ -164,7 +170,11 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
 
       {visible.length === 0 && (
         <div className="card-legacy empty-state">
-          <p>{t("connections.search.noResults", { query: search })}</p>
+          <p>
+            {t(emptyState.key, {
+              query: emptyState.query,
+            })}
+          </p>
         </div>
       )}
       </div>
