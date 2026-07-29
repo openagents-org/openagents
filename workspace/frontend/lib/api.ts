@@ -854,6 +854,7 @@ class WorkspaceApi {
     search?: string;
     sort?: 'asc' | 'desc';
     limit?: number;
+    excludeMessageTypes?: string[];
   } = {}): Promise<EventPollResponse> {
     const params = new URLSearchParams({ network: this.requireWorkspace() });
     if (opts.after) params.set('after', opts.after);
@@ -862,6 +863,7 @@ class WorkspaceApi {
     if (opts.channel) params.set('channel', opts.channel);
     if (opts.type) params.set('type', opts.type);
     if (opts.search) params.set('search', opts.search);
+    if (opts.excludeMessageTypes?.length) params.set('exclude_message_types', opts.excludeMessageTypes.join(','));
     if (opts.sort) params.set('sort', opts.sort);
     if (opts.limit) params.set('limit', String(opts.limit));
     return this.request<EventPollResponse>(`/v1/events?${params}`);
@@ -870,6 +872,13 @@ class WorkspaceApi {
   /**
    * Load message history for a channel (most recent first).
    * Used for initial load and infinite scroll (loading older messages).
+   *
+   * Intermediate agent output (thinking/status/todos) is excluded so the
+   * `limit` window only counts real chat messages — a busy agent can emit
+   * hundreds of status events, which would otherwise push the user's own
+   * message out of the first page on refresh. Current-step events are
+   * re-fetched by the forward poll (which starts after the newest chat
+   * message and applies no exclusion).
    */
   async loadMessageHistory(
     channelName: string,
@@ -881,6 +890,7 @@ class WorkspaceApi {
       before: options?.before,
       sort: 'desc',
       limit: options?.limit ?? 50,
+      excludeMessageTypes: ['thinking', 'status', 'todos'],
     });
   }
 
@@ -922,7 +932,7 @@ class WorkspaceApi {
   async pollConversation(
     agentA: string,
     agentB: string,
-    opts?: { after?: string; before?: string; sort?: 'asc' | 'desc'; limit?: number },
+    opts?: { after?: string; before?: string; sort?: 'asc' | 'desc'; limit?: number; excludeMessageTypes?: string[] },
   ): Promise<EventPollResponse> {
     const params = new URLSearchParams({ network: this.workspaceId });
     params.set('conversation', `${agentA},${agentB}`);
@@ -931,6 +941,7 @@ class WorkspaceApi {
     if (opts?.before) params.set('before', opts.before);
     if (opts?.sort) params.set('sort', opts.sort);
     if (opts?.limit) params.set('limit', String(opts.limit));
+    if (opts?.excludeMessageTypes?.length) params.set('exclude_message_types', opts.excludeMessageTypes.join(','));
     return this.request<EventPollResponse>(`/v1/events?${params}`);
   }
 

@@ -145,7 +145,11 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
     setLoading(true);
     try {
       const result = dmPair
-        ? await workspaceApi.pollConversation(dmPair[0], dmPair[1], { sort: 'desc', limit: 50 })
+        ? await workspaceApi.pollConversation(dmPair[0], dmPair[1], {
+            sort: 'desc',
+            limit: 50,
+            excludeMessageTypes: ['thinking', 'status', 'todos'],
+          })
         : await workspaceApi.loadMessageHistory(sessionId, { limit: 50 });
 
       // Discard if session changed
@@ -234,6 +238,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
             before: oldestIdRef.current ?? undefined,
             sort: 'desc',
             limit: 30,
+            excludeMessageTypes: ['thinking', 'status', 'todos'],
           })
         : await workspaceApi.loadMessageHistory(sessionId, {
             before: oldestIdRef.current ?? undefined,
