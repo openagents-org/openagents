@@ -268,5 +268,3 @@ class TestDownloadDisposition:
         resp = self._download(client, workspace, fid)
         assert resp.status_code == 200
         assert resp.headers["content-disposition"].startswith("attachment")
-
-
