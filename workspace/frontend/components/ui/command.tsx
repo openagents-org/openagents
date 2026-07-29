@@ -46,7 +46,9 @@ function CommandDialog({
     <Dialog {...props}>
       <DialogContent
         className={cn(
-          "top-1/4 translate-y-0 overflow-hidden rounded-xl! p-0",
+          // Wider than a standard dialog: a palette lists full thread titles and
+          // filenames, and `max-w-lg` truncates them well before it has to.
+          "top-1/4 translate-y-0 overflow-hidden rounded-xl! p-0 sm:max-w-2xl",
           className
         )}
         showCloseButton={showCloseButton}
@@ -72,13 +74,13 @@ function CommandInput({
   return (
     <div
       data-slot="command-input-wrapper"
-      className="flex h-11 shrink-0 items-center gap-2.5 border-b border-border px-3.5"
+      className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4"
     >
-      <Search className="size-4 shrink-0 text-muted-foreground" />
+      <Search className="size-4.5 shrink-0 text-muted-foreground" />
       <CommandPrimitive.Input
         data-slot="command-input"
         className={cn(
-          "w-full bg-transparent text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+          "w-full bg-transparent text-[15px] outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
           className
         )}
         {...props}
@@ -95,7 +97,7 @@ function CommandList({
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "no-scrollbar max-h-80 scroll-py-1 overflow-x-hidden overflow-y-auto p-1.5 outline-none",
+        "no-scrollbar max-h-110 scroll-py-2 overflow-x-hidden overflow-y-auto p-2 outline-none",
         className
       )}
       {...props}
@@ -110,7 +112,7 @@ function CommandEmpty({
   return (
     <CommandPrimitive.Empty
       data-slot="command-empty"
-      className={cn("py-8 text-center text-sm text-muted-foreground", className)}
+      className={cn("py-12 text-center text-sm text-muted-foreground", className)}
       {...props}
     />
   )
@@ -124,7 +126,7 @@ function CommandGroup({
     <CommandPrimitive.Group
       data-slot="command-group"
       className={cn(
-        "overflow-hidden text-foreground not-first:pt-1.5 **:[[cmdk-group-heading]]:px-2 **:[[cmdk-group-heading]]:pb-1 **:[[cmdk-group-heading]]:text-[11px] **:[[cmdk-group-heading]]:font-medium **:[[cmdk-group-heading]]:tracking-wide **:[[cmdk-group-heading]]:text-muted-foreground",
+        "overflow-hidden text-foreground not-first:pt-3 **:[[cmdk-group-heading]]:px-3 **:[[cmdk-group-heading]]:pb-2 **:[[cmdk-group-heading]]:text-xs **:[[cmdk-group-heading]]:font-medium **:[[cmdk-group-heading]]:tracking-wide **:[[cmdk-group-heading]]:text-muted-foreground",
         className
       )}
       {...props}
@@ -157,7 +159,7 @@ function CommandItem({
         // cmdk renders `data-selected="false"` on every unselected item, so the
         // bare `data-selected:` variant (attribute presence) would highlight the
         // whole list. Match the value, not the attribute.
-        "group/command-item relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground outline-hidden select-none in-data-[slot=dialog-content]:rounded-lg! data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-muted-foreground [&_svg:not([class*='size-'])]:size-4 data-[selected=true]:*:[svg]:text-foreground",
+        "group/command-item relative flex cursor-default items-center gap-3 rounded-sm px-3 py-2.5 text-[15px] text-foreground outline-hidden select-none in-data-[slot=dialog-content]:rounded-lg! data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg]:text-muted-foreground [&_svg:not([class*='size-'])]:size-4.5 data-[selected=true]:*:[svg]:text-foreground",
         className
       )}
       {...props}

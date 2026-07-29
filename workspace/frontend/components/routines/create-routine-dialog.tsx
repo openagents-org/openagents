@@ -46,15 +46,28 @@ const INTERVAL_PRESETS = [
 // No Select primitive in this UI kit yet — keep the native element but give it
 // the same tokens/focus ring as <Input>.
 const selectClass =
-  'w-full h-8.5 rounded-md border border-input bg-background px-3 text-[0.8125rem] text-foreground shadow-xs shadow-black/5 outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60';
+  'w-full h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs shadow-black/5 outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60';
 
-/** Segmented / toggle chips share one active-vs-idle treatment. */
+/** Single-choice chips (interval presets) — exactly one is ever filled. */
 const chipClass = (active: boolean) =>
   cn(
-    'flex-1 rounded-md border py-1.5 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-60',
+    'flex-1 rounded-md border py-2 text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-60',
     active
       ? 'border-primary bg-primary text-primary-foreground'
       : 'border-input text-muted-foreground hover:bg-muted hover:text-foreground',
+  );
+
+/**
+ * Multi-choice chips (weekdays) get a softer fill than `chipClass`. Days start
+ * all-selected, and seven solid `primary` blocks read as a wall of white in dark
+ * mode — louder than the dialog's own submit button.
+ */
+const dayChipClass = (active: boolean) =>
+  cn(
+    'flex-1 rounded-md border py-2 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-60',
+    active
+      ? 'border-foreground/25 bg-foreground/10 text-foreground'
+      : 'border-input text-muted-foreground/70 hover:bg-muted hover:text-foreground',
   );
 
 export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHistory, onCreateRoutine }: CreateRoutineDialogProps) {
@@ -140,15 +153,15 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Create Routine</DialogTitle>
-          <DialogDescription>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
+          <DialogTitle className="text-xl">Create Routine</DialogTitle>
+          <DialogDescription className="text-[15px] leading-relaxed">
             Set up a recurring task for an agent.
           </DialogDescription>
         </DialogHeader>
 
-        <DialogBody className="space-y-4 py-1">
+        <DialogBody className="space-y-5 px-7 py-2">
           {/* Task description */}
           <div className="space-y-2">
             <Label variant="secondary">What should the agent do?</Label>
@@ -201,9 +214,12 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                   onClick={() => setScheduleType(type)}
                   disabled={submitting}
                   className={cn(
-                    'flex-1 rounded-md py-1.5 text-xs font-medium capitalize transition-colors disabled:pointer-events-none disabled:opacity-60',
+                    'flex-1 rounded-md py-2 text-sm font-medium capitalize transition-colors disabled:pointer-events-none disabled:opacity-60',
                     scheduleType === type
-                      ? 'bg-background text-foreground shadow-xs shadow-black/5'
+                      // A ring as well as the shadow: on the near-black dark
+                      // surface a drop shadow alone doesn't separate the active
+                      // segment from the track behind it.
+                      ? 'bg-background text-foreground shadow-xs shadow-black/5 ring-1 ring-foreground/10'
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
@@ -216,9 +232,9 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
           {/* Daily schedule config */}
           {scheduleType === 'daily' && (
             <div className="space-y-3">
-              <div className="flex gap-2">
-                <div className="flex-1 space-y-1.5">
-                  <Label variant="secondary" className="text-xs">Hour (UTC)</Label>
+              <div className="flex gap-3">
+                <div className="flex-1 space-y-2">
+                  <Label variant="secondary">Hour (UTC)</Label>
                   <select
                     value={hour}
                     onChange={(e) => setHour(Number(e.target.value))}
@@ -230,8 +246,8 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                     ))}
                   </select>
                 </div>
-                <div className="flex-1 space-y-1.5">
-                  <Label variant="secondary" className="text-xs">Minute</Label>
+                <div className="flex-1 space-y-2">
+                  <Label variant="secondary">Minute</Label>
                   <select
                     value={minute}
                     onChange={(e) => setMinute(Number(e.target.value))}
@@ -244,16 +260,17 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
                   </select>
                 </div>
               </div>
-              <div className="space-y-1.5">
-                <Label variant="secondary" className="text-xs">Days</Label>
-                <div className="flex gap-1">
+              <div className="space-y-2">
+                <Label variant="secondary">Days</Label>
+                <div className="flex gap-1.5">
                   {DAY_LABELS.map((label, i) => (
                     <button
                       key={i}
                       type="button"
                       onClick={() => toggleDay(i)}
                       disabled={submitting}
-                      className={cn(chipClass(days.has(i)), 'px-0 text-[10px]')}
+                      aria-pressed={days.has(i)}
+                      className={cn(dayChipClass(days.has(i)), 'px-0')}
                     >
                       {label}
                     </button>
@@ -299,11 +316,16 @@ export function CreateRoutineDialog({ open, onOpenChange, agents, conversationHi
           {error && <p className="text-sm text-destructive">{error}</p>}
         </DialogBody>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+        <DialogFooter className="px-7 pt-7 pb-7 sm:space-x-3">
+          <Button
+            variant="outline"
+            className="min-w-24"
+            onClick={() => onOpenChange(false)}
+            disabled={submitting}
+          >
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={!isValid || submitting}>
+          <Button className="min-w-24" onClick={handleSubmit} disabled={!isValid || submitting}>
             {submitting && <Loader2 className="animate-spin" />}
             {submitting ? 'Creating…' : 'Create Routine'}
           </Button>

@@ -129,17 +129,22 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
     <DialogsContext.Provider value={api}>
       {children}
       <Dialog open={!!pending} onOpenChange={handleOpenChange}>
+        {/* Roomier than the shared dialog defaults: this box holds two short
+            lines and two buttons, so tight padding makes it read as cramped
+            rather than compact. Overrides stay local to confirm/prompt. */}
         {pending && (
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>{pending.title}</DialogTitle>
+          <DialogContent className="max-w-lg">
+            <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
+              <DialogTitle className="text-xl">{pending.title}</DialogTitle>
               {pending.description && (
-                <DialogDescription>{pending.description}</DialogDescription>
+                <DialogDescription className="text-[15px] leading-relaxed">
+                  {pending.description}
+                </DialogDescription>
               )}
             </DialogHeader>
 
             {pending.kind === 'prompt' && (
-              <DialogBody className="py-1">
+              <DialogBody className="px-7 py-2">
                 <Input
                   ref={inputRef}
                   value={value}
@@ -155,12 +160,17 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
               </DialogBody>
             )}
 
-            <DialogFooter>
-              <Button variant="outline" onClick={() => settle(cancelResult)}>
+            <DialogFooter className="px-7 pt-7 pb-7 sm:space-x-3">
+              <Button
+                variant="outline"
+                className="min-w-24"
+                onClick={() => settle(cancelResult)}
+              >
                 {pending.cancelText ?? 'Cancel'}
               </Button>
               <Button
                 variant={pending.kind === 'confirm' && pending.destructive ? 'destructive' : 'primary'}
+                className="min-w-24"
                 onClick={submit}
               >
                 {pending.confirmText ?? (pending.kind === 'prompt' ? 'OK' : 'Confirm')}

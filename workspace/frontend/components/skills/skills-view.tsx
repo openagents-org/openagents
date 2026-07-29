@@ -15,6 +15,7 @@ import {
   Dialog,
   DialogContent,
   DialogBody,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -190,56 +191,63 @@ const CATEGORIES = [
 // Skill Card
 // ---------------------------------------------------------------------------
 
+// Explicit column counts per breakpoint rather than `auto-fill,minmax(…)`:
+// auto-fill keeps packing columns as the viewport grows, so a 27" display ended
+// up with nine ~260px cards per row. Stepping the count by breakpoint holds each
+// card around 340-390px wide at every size.
+const GRID_CLASS =
+  'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 2xl:gap-5 min-[2100px]:grid-cols-6';
+
 function SkillCard({ skill, onSelect }: { skill: Skill; onSelect: (s: Skill) => void }) {
   return (
     <button
-      className="text-left rounded-xl border border-border bg-card p-4 transition-all duration-150 hover:shadow-lg hover:border-primary/30 hover:-translate-y-0.5 group focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className="text-left rounded-xl border border-border bg-card p-5 transition-all duration-150 hover:shadow-lg hover:border-primary/30 hover:-translate-y-0.5 group focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       onClick={() => onSelect(skill)}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3.5">
         {/* Logo */}
-        <div className="size-10 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
+        <div className="size-11 rounded-lg bg-muted/60 flex items-center justify-center shrink-0">
           {skill.logo ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={skill.logo} alt="" className="h-5 w-5 object-contain dark:invert" />
+            <img src={skill.logo} alt="" className="h-5.5 w-5.5 object-contain dark:invert" />
           ) : (
-            <Package className="h-5 w-5 text-muted-foreground" />
+            <Package className="h-5.5 w-5.5 text-muted-foreground" />
           )}
         </div>
 
         <div className="flex-1 min-w-0">
           {/* Name + badge */}
           <div className="flex items-center gap-1.5">
-            <h3 className="text-[13px] font-semibold leading-tight truncate">{skill.name}</h3>
+            <h3 className="text-sm font-semibold leading-tight truncate">{skill.name}</h3>
             {skill.author === 'Anthropic' && (
-              <span className="shrink-0 text-[8px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold uppercase">
+              <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold uppercase">
                 Official
               </span>
             )}
           </div>
           {/* Description */}
-          <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2 mt-0.5">
+          <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2 mt-1">
             {skill.description}
           </p>
         </div>
       </div>
 
-      {/* Tags */}
-      <div className="flex flex-wrap gap-1 mt-2.5 ml-[52px]">
+      {/* Tags — aligned with the text column, past the logo */}
+      <div className="flex flex-wrap gap-1.5 mt-3 ml-14.5">
         {skill.tags.map(tag => (
-          <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+          <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
             {tag}
           </span>
         ))}
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between mt-2.5 ml-[52px]">
-        <span className="text-[9px] text-muted-foreground">
+      <div className="flex items-center justify-between mt-3 ml-14.5">
+        <span className="text-[10px] text-muted-foreground">
           {skill.sourceRepo ? skill.sourceRepo.split('/')[0] : (skill.author || 'Custom')}
         </span>
-        <span className="text-[10px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
-          View <ArrowRight className="size-2.5" />
+        <span className="text-[11px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+          View <ArrowRight className="size-3" />
         </span>
       </div>
     </button>
@@ -317,11 +325,10 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
   const onlineAgents = agents.filter(a => a.status === 'online');
 
   return (
-    <>
-      <div className="fixed inset-0 bg-black/40 z-50" onClick={onClose} />
-      <div className="fixed inset-x-4 top-[5%] bottom-[5%] md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:w-[480px] bg-background rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden border border-border">
-        <div className="px-5 pt-5 pb-3 border-b border-border">
-          <div className="flex items-start gap-3">
+    <Dialog open onOpenChange={(next) => { if (!next) onClose(); }}>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
+          <div className="flex items-start gap-4">
             <div className="size-12 rounded-xl bg-muted/60 flex items-center justify-center shrink-0">
               {skill.logo ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -330,29 +337,31 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
                 <Package className="h-7 w-7 text-muted-foreground" />
               )}
             </div>
-            <div>
+            <div className="min-w-0 space-y-2">
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold">{skill.name}</h2>
+                <DialogTitle className="text-xl">{skill.name}</DialogTitle>
                 {skill.author === 'Anthropic' && (
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold uppercase">Official</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold uppercase">Official</span>
                 )}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">{skill.description}</p>
-              <div className="flex flex-wrap gap-1 mt-2">
+              <DialogDescription className="text-[15px] leading-relaxed">
+                {skill.description}
+              </DialogDescription>
+              <div className="flex flex-wrap gap-1.5">
                 {skill.tags.map(tag => (
-                  <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">{tag}</span>
+                  <span key={tag} className="text-[11px] px-2 py-0.5 rounded bg-muted text-muted-foreground font-medium">{tag}</span>
                 ))}
               </div>
             </div>
           </div>
-        </div>
+        </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+        <DialogBody className="space-y-3 px-7 py-2">
           {/* Add to Agent */}
-          <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
-            <div className="text-[10px] font-semibold text-primary uppercase tracking-wider mb-2">Add to Agent</div>
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-3.5">
+            <div className="text-[11px] font-semibold text-primary uppercase tracking-wider mb-2.5">Add to Agent</div>
             {onlineAgents.length === 0 ? (
-              <p className="text-xs text-muted-foreground">No online agents. Connect an agent to install skills.</p>
+              <p className="text-sm text-muted-foreground">No online agents. Connect an agent to install skills.</p>
             ) : (
               <div className="space-y-1.5">
                 {onlineAgents.map(agent => {
@@ -364,9 +373,9 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
 
                   if (state === 'installed') {
                     return (
-                      <div key={agent.agentName} className="flex items-center gap-2 rounded-md bg-background border border-border px-3 py-2">
+                      <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-border px-3.5 py-2.5">
                         <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                        <span className="flex-1 text-xs font-medium truncate">{agent.agentName}</span>
+                        <span className="flex-1 text-sm font-medium truncate">{agent.agentName}</span>
                         <button
                           onClick={() => handleUninstall(agent.agentName)}
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-red-500/10 hover:text-red-600 transition-colors"
@@ -379,9 +388,9 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
                   }
                   if (state === 'installing') {
                     return (
-                      <div key={agent.agentName} className="flex items-center gap-2 rounded-md bg-background border border-border px-3 py-2">
+                      <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-border px-3.5 py-2.5">
                         <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                        <span className="flex-1 text-xs font-medium truncate">{agent.agentName}</span>
+                        <span className="flex-1 text-sm font-medium truncate">{agent.agentName}</span>
                         <button
                           disabled
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-muted text-muted-foreground disabled:opacity-70"
@@ -394,9 +403,9 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
                   }
                   if (state === 'failed') {
                     return (
-                      <div key={agent.agentName} className="flex items-center gap-2 rounded-md bg-background border border-red-500/30 px-3 py-2">
+                      <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-red-500/30 px-3.5 py-2.5">
                         <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                        <span className="flex-1 text-xs font-medium truncate">{agent.agentName}</span>
+                        <span className="flex-1 text-sm font-medium truncate">{agent.agentName}</span>
                         <button
                           onClick={() => handleInstall(agent.agentName)}
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors"
@@ -409,9 +418,9 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
                     );
                   }
                   return (
-                    <div key={agent.agentName} className="flex items-center gap-2 rounded-md bg-background border border-border px-3 py-2">
+                    <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-border px-3.5 py-2.5">
                       <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
-                      <span className="flex-1 text-xs font-medium truncate">{agent.agentName}</span>
+                      <span className="flex-1 text-sm font-medium truncate">{agent.agentName}</span>
                       <button
                         onClick={() => handleInstall(agent.agentName)}
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
@@ -426,26 +435,26 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-lg border border-border p-2.5">
-              <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">Category</div>
-              <div className="text-xs font-medium">{CATEGORIES.find(c => c.id === skill.category)?.label}</div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-border p-3.5">
+              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Category</div>
+              <div className="text-sm font-medium">{CATEGORIES.find(c => c.id === skill.category)?.label}</div>
             </div>
-            <div className="rounded-lg border border-border p-2.5">
-              <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">Author</div>
-              <div className="text-xs font-medium">{skill.author || 'Workspace user'}</div>
+            <div className="rounded-lg border border-border p-3.5">
+              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Author</div>
+              <div className="text-sm font-medium">{skill.author || 'Workspace user'}</div>
             </div>
           </div>
 
           {/* Custom (uploaded) skills show the uploaded package instead of a
               GitHub source / CLI install command. */}
           {isCustom ? (
-            <div className="rounded-lg border border-border p-2.5">
-              <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Uploaded package</div>
+            <div className="rounded-lg border border-border p-3.5">
+              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">Uploaded package</div>
               <div className="flex items-center gap-2">
-                <Package className="size-3.5 text-muted-foreground shrink-0" />
-                <span className="text-xs font-medium truncate">{skill.filename || `${skill.id}.${skill.packageType || 'md'}`}</span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase shrink-0">
+                <Package className="size-4 text-muted-foreground shrink-0" />
+                <span className="text-sm font-medium truncate">{skill.filename || `${skill.id}.${skill.packageType || 'md'}`}</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase shrink-0">
                   {skill.packageType || 'md'}
                 </span>
               </div>
@@ -453,18 +462,18 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
           ) : (
             <>
               {skill.sourceRepo && (
-                <div className="rounded-lg border border-border p-2.5">
-                  <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">Source</div>
-                  <a href={ghUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
-                    {skill.sourceRepo}/{skill.sourcePath} <ExternalLink className="size-2.5" />
+                <div className="rounded-lg border border-border p-3.5">
+                  <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Source</div>
+                  <a href={ghUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline flex items-center gap-1.5">
+                    {skill.sourceRepo}/{skill.sourcePath} <ExternalLink className="size-3" />
                   </a>
                 </div>
               )}
 
               {skill.sourceRepo && (
-                <div className="rounded-lg border border-border p-3 bg-muted/30">
-                  <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">CLI Install</div>
-                  <code className="text-[11px] font-mono block bg-background rounded-md p-2.5 border border-border select-all break-all">
+                <div className="rounded-lg border border-border p-3.5 bg-muted/30">
+                  <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">CLI Install</div>
+                  <code className="text-xs font-mono block bg-background rounded-md p-3 border border-border select-all break-all">
                     npx @anthropic-ai/skills install {skill.sourceRepo}/{skill.sourcePath}
                   </code>
                 </div>
@@ -472,28 +481,31 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
             </>
           )}
 
-          <div className="rounded-lg border border-border p-2.5">
-            <div className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider mb-1">Compatible With</div>
+          <div className="rounded-lg border border-border p-3.5">
+            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">Compatible With</div>
             <div className="flex flex-wrap gap-1.5">
               {['Claude Code', 'Codex', 'Cursor', 'Gemini CLI', 'OpenCode', 'VS Code', 'Roo Code'].map(a => (
-                <span key={a} className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">{a}</span>
+                <span key={a} className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">{a}</span>
               ))}
-              <span className="text-[10px] text-muted-foreground">+10 more</span>
+              <span className="text-[11px] text-muted-foreground self-center">+10 more</span>
             </div>
           </div>
-        </div>
+        </DialogBody>
 
-        <div className="px-5 py-3 border-t border-border flex items-center justify-between">
-          <button onClick={onClose} className="text-xs text-muted-foreground hover:text-foreground">Close</button>
+        <DialogFooter className="px-7 pt-7 pb-7 sm:space-x-3">
+          <Button variant="outline" className="min-w-24" onClick={onClose}>
+            Close
+          </Button>
           {!isCustom && ghUrl && (
-            <a href={ghUrl} target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90">
-              View on GitHub <ExternalLink className="size-3" />
-            </a>
+            <Button asChild className="min-w-24">
+              <a href={ghUrl} target="_blank" rel="noopener noreferrer">
+                View on GitHub <ExternalLink className="size-3.5" />
+              </a>
+            </Button>
           )}
-        </div>
-      </div>
-    </>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -637,7 +649,7 @@ export function SkillsView() {
                   <Star className="size-3.5 text-amber-500 fill-amber-500" />
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Featured</h3>
                 </div>
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3">
+                <div className={GRID_CLASS}>
                   {featured.map(skill => (
                     <SkillCard key={skill.id} skill={skill} onSelect={setSelectedSkill} />
                   ))}
@@ -653,7 +665,7 @@ export function SkillsView() {
                   <span className="text-[10px] text-muted-foreground">({categoryCounts.all})</span>
                 </div>
               )}
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(250px,1fr))] gap-3">
+              <div className={GRID_CLASS}>
                 {filtered.map(skill => (
                   <SkillCard key={skill.id} skill={skill} onSelect={setSelectedSkill} />
                 ))}

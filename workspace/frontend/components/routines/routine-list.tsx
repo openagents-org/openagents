@@ -7,6 +7,9 @@ import { useLayout } from '@/components/layout/layout-context';
 import { workspaceApi } from '@/lib/api';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { CreateRoutineDialog } from './create-routine-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import type { RoutineItem } from '@/lib/types';
 
@@ -74,30 +77,48 @@ export function RoutineList() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="shrink-0 h-12 px-2 lg:px-3 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <CalendarClock className="size-3.5 text-violet-500" />
-          <h2 className="text-sm font-semibold">Routines</h2>
+      {/* ── Header ── */}
+      <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-sm leading-relaxed font-semibold">Routines</span>
           {activeRoutines.length > 0 && (
-            <span className="text-xs text-muted-foreground">{activeRoutines.length}</span>
+            <Badge variant="secondary" size="sm" className="rounded-full!">
+              {activeRoutines.length}
+            </Badge>
           )}
         </div>
-        <div className="flex items-center gap-0.5">
-          <button
-            onClick={() => setShowCreateDialog(true)}
-            className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
-            title="Create routine"
-          >
-            <Plus className="size-3.5" />
-          </button>
-          <button
-            onClick={refreshRoutines}
-            className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="size-3.5" />
-          </button>
+
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                mode="icon"
+                size="sm"
+                aria-label="Create routine"
+                onClick={() => setShowCreateDialog(true)}
+                className="text-muted-foreground"
+              >
+                <Plus className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Create routine</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                mode="icon"
+                size="sm"
+                aria-label="Refresh routines"
+                onClick={refreshRoutines}
+                className="text-muted-foreground"
+              >
+                <RefreshCw className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Refresh</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

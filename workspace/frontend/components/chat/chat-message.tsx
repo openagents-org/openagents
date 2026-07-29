@@ -173,7 +173,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
     if (isCurrentUser) {
       return (
         <div className="group flex flex-col items-end py-2">
-          <div className="max-w-[85%] rounded-3xl bg-muted px-4 py-2.5 text-sm leading-relaxed">
+          <div className="max-w-[min(85%,42rem)] rounded-3xl bg-muted px-4 py-2.5 text-sm leading-relaxed">
             <MarkdownContent content={message.content} agentNames={agentNames} />
             <Attachments items={attachments} />
           </div>

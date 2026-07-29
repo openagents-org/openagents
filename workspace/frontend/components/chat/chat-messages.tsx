@@ -424,7 +424,7 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <div className="mx-auto w-full max-w-3xl">
+                  <div className="w-full">
                     <div className="flex items-start gap-3 py-1">
                       <div className="size-7 shrink-0" />
                       <div className="py-1.5">
@@ -450,9 +450,10 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                {/* Centered conversation column, ChatGPT-style: the pane can be
-                    any width, the reading column stays the same. */}
-                <div className="mx-auto w-full max-w-3xl">
+                {/* Full-bleed conversation column, Slack/Feishu-style: the text
+                    tracks the pane width; only the gutters are fixed. Individual
+                    bubbles cap their own width (see chat-message). */}
+                <div className="w-full">
                   {group.type === 'chat' ? (
                     <ChatMessage
                       message={group.message}

@@ -84,22 +84,24 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>New Thread</DialogTitle>
-          <DialogDescription>
+      {/* Sized to match the confirm dialog's roomier spacing — this one carries a
+          scrolling agent list, so it goes a step wider again. */}
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
+          <DialogTitle className="text-xl">New Thread</DialogTitle>
+          <DialogDescription className="text-[15px] leading-relaxed">
             {multipleAgents
               ? 'Pick which agents join this conversation.'
               : 'Start a new conversation with your agent.'}
           </DialogDescription>
         </DialogHeader>
 
-        <DialogBody className="space-y-2 py-1">
+        <DialogBody className="space-y-3 px-7 py-2">
           {/* Select All Control */}
           {onlineAgents.length > 0 && (
             <button
               type="button"
-              className="flex w-full items-center gap-2.5 px-3 py-2 rounded-md cursor-pointer text-left transition-colors hover:bg-muted/60"
+              className="flex w-full items-center gap-3 px-3.5 py-2.5 rounded-md cursor-pointer text-left transition-colors hover:bg-muted/60"
               onClick={toggleAll}
             >
               <div className={cn(
@@ -111,7 +113,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
                 {isAllSelected && <Check className="size-3" strokeWidth={3} />}
                 {isPartiallySelected && <Minus className="size-3" strokeWidth={3} />}
               </div>
-              <span className="text-sm font-medium">
+              <span className="text-[15px] font-medium">
                 {isAllSelected
                   ? 'All agents selected'
                   : isPartiallySelected
@@ -135,7 +137,11 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
               <p className="text-sm text-muted-foreground">No agents are currently online.</p>
             </div>
           ) : (
-            <div className="space-y-1.5 max-h-64 overflow-y-auto">
+            /* No scroll container of its own: DialogBody is the single scroll
+               region (pinned header/footer, hidden scrollbar). A nested
+               overflow-y here would give a long agent list a second, visible
+               scrollbar inside a box that is already scrollable. */
+            <div className="space-y-1.5">
               {onlineAgents.map((agent) => {
                 const isSelected = selected.has(agent.agentName);
 
@@ -143,7 +149,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
                   <div
                     key={agent.agentName}
                     className={cn(
-                      'flex items-center gap-2.5 px-3 py-2.5 rounded-md cursor-pointer transition-all border',
+                      'flex items-center gap-3 px-3.5 py-3 rounded-md cursor-pointer transition-all border',
                       isSelected
                         ? 'bg-muted/50 border-border'
                         : 'border-transparent opacity-60 hover:opacity-100 hover:bg-muted/40'
@@ -161,11 +167,11 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
                     </div>
 
                     {/* Avatar */}
-                    <AgentAvatar name={agent.agentName} size={24} />
+                    <AgentAvatar name={agent.agentName} size={28} />
 
                     {/* Name */}
                     <div className="flex-1 min-w-0">
-                      <span className="text-sm font-medium truncate">{agent.agentName}</span>
+                      <span className="text-[15px] font-medium truncate">{agent.agentName}</span>
                     </div>
                   </div>
                 );
@@ -183,7 +189,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
               <select
                 value={resumeFrom}
                 onChange={(e) => setResumeFrom(e.target.value)}
-                className="w-full h-8.5 text-[0.8125rem] rounded-md border border-input bg-background px-3 shadow-xs shadow-black/5 transition-[color,box-shadow] focus-visible:outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30"
+                className="w-full h-10 text-sm rounded-md border border-input bg-background px-3 shadow-xs shadow-black/5 transition-[color,box-shadow] focus-visible:outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30"
               >
                 <option value="">New conversation (no context)</option>
                 {resumableSessions.map((s) => (
@@ -196,11 +202,11 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
           )}
         </DialogBody>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+        <DialogFooter className="px-7 pt-7 pb-7 sm:space-x-3">
+          <Button variant="outline" className="min-w-24" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleCreate} disabled={selected.size === 0}>
+          <Button className="min-w-24" onClick={handleCreate} disabled={selected.size === 0}>
             {resumeFrom ? 'Resume Thread' : 'Start Thread'}
           </Button>
         </DialogFooter>

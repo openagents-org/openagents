@@ -128,7 +128,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
                   >
                     <AgentAvatar
                       name={agent.agentName}
-                      size={16}
+                      size={20}
                       status={agent.status}
                       className="[&_svg]:size-full!"
                     />

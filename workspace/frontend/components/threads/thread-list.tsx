@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Loader2,
-  MessageCircle, MessageSquare, MoreVertical, Pencil, RefreshCw, Search, SquarePen,
+  MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, RefreshCw, Search,
   SlidersHorizontal, Star, Trash2, Wrench, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -135,12 +135,15 @@ function ThreadRow({
       className={cn(
         'group relative flex shrink-0 cursor-pointer items-start gap-2 border-b border-border/40 px-2 py-2.5 transition-colors md:px-3',
         'focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none',
-        // The open thread is outlined, not just tinted — the tint alone is too
-        // easy to lose track of while scrolling a long list.
+        // The open thread gets a full outline, drawn in plain black/white alpha
+        // rather than a zinc token: zinc is a cool grey and picks up a blue cast
+        // on both surfaces. The row's own divider goes transparent so it can't
+        // collide with the outline, and the fill is strong enough to read on the
+        // near-black dark surface.
         isSelected
-          ? 'bg-accent/60 ring-1 ring-foreground/20 ring-inset dark:bg-accent/20 dark:ring-foreground/25'
-          : 'hover:bg-accent/60 dark:hover:bg-accent/20',
-        'has-data-[state=open]:bg-accent/60 dark:has-data-[state=open]:bg-accent/20',
+          ? 'rounded-md border-transparent bg-black/5.5 ring-1 ring-inset ring-black/25 dark:bg-white/9 dark:ring-white/30'
+          : 'hover:bg-black/3 dark:hover:bg-white/5',
+        'has-data-[state=open]:bg-black/3 dark:has-data-[state=open]:bg-white/5',
         isRunning && 'thread-wip',
         muted && 'opacity-60',
       )}
@@ -169,7 +172,11 @@ function ThreadRow({
             <span
               className={cn(
                 'truncate text-sm leading-tight',
-                isUnread ? 'font-semibold text-foreground' : 'font-medium text-foreground/75',
+                isUnread
+                  ? 'font-semibold text-foreground'
+                  : isSelected
+                    ? 'font-medium text-foreground'
+                    : 'font-medium text-foreground/75',
               )}
             >
               {title}
@@ -566,8 +573,8 @@ export function ThreadList() {
             'flex shrink-0 cursor-pointer items-start gap-2 border-b border-border/40 px-2 py-2.5 transition-colors md:px-3',
             'focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none',
             currentSessionId === dmId
-              ? 'bg-accent/60 ring-1 ring-foreground/20 ring-inset dark:bg-accent/20 dark:ring-foreground/25'
-              : 'hover:bg-accent/60 dark:hover:bg-accent/20',
+              ? 'rounded-md border-transparent bg-black/5.5 ring-1 ring-inset ring-black/25 dark:bg-white/9 dark:ring-white/30'
+              : 'hover:bg-black/3 dark:hover:bg-white/5',
           )}
         >
           <div className="w-2 shrink-0" />
@@ -619,7 +626,7 @@ export function ThreadList() {
         <p className="mb-3 text-xs text-muted-foreground">{copy[tab]}</p>
         {tab === 'all' && (
           <Button variant="outline" size="sm" className="gap-1.5" onClick={openNewThread}>
-            <SquarePen className="size-3.5" />
+            <MessageSquarePlus className="size-3.5" />
             New Thread
           </Button>
         )}
@@ -697,7 +704,7 @@ export function ThreadList() {
                 onClick={openNewThread}
                 className="text-muted-foreground"
               >
-                <SquarePen className="size-3.5" />
+                <MessageSquarePlus className="size-3.5" />
               </Button>
             </TooltipTrigger>
             <TooltipContent>New thread</TooltipContent>
@@ -747,10 +754,12 @@ export function ThreadList() {
                   key={tab.id}
                   value={tab.id}
                   className={cn(
-                    'h-auto flex-none gap-1 rounded-full px-2.5 py-0.5 text-xs font-normal',
-                    // Neutral (foreground) fill rather than the blue primary, so the
-                    // pills read as part of the ReUI zinc palette.
-                    'data-[state=active]:bg-foreground! data-[state=active]:font-medium! data-[state=active]:text-background! data-[state=active]:shadow-none!',
+                    'group/tab h-auto flex-none gap-1 rounded-full px-2 py-0.75 text-xs font-normal md:gap-2 md:px-2.5',
+                    // app-shell-4 fills the active pill with `primary`, which this
+                    // theme defines as neutral black/white — matching it keeps the
+                    // active state identical in both schemes.
+                    'data-[state=active]:bg-primary! data-[state=active]:font-medium! data-[state=active]:text-primary-foreground! data-[state=active]:shadow-none!',
+                    'dark:data-[state=active]:bg-primary! dark:data-[state=active]:text-primary-foreground!',
                     'data-[state=active]:after:opacity-0!',
                   )}
                 >
@@ -758,10 +767,8 @@ export function ThreadList() {
                   {count !== undefined && count > 0 && (
                     <Badge
                       variant="secondary"
-                      appearance="light"
-                      size="sm"
-                      shape="circle"
-                      className="leading-none"
+                      size="xs"
+                      className="rounded-full! leading-none"
                     >
                       {count}
                     </Badge>

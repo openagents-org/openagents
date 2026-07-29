@@ -1,12 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Globe, Plus, X, Monitor, Lock, Play, Trash2 } from 'lucide-react';
+import { Globe, Plus, X, Lock, Play, Trash2 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -121,20 +123,28 @@ export function BrowserTabList() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex h-12 items-center gap-1 px-2 lg:px-3 shrink-0 border-b border-border">
-        <div className="flex items-center w-full gap-1">
-          <div className="flex-1 flex items-center gap-2 px-2.5 py-1.5 text-muted-foreground">
-            <Monitor className="size-3.5" />
-            <span className="text-xs font-medium">Browser</span>
-          </div>
-          <button
-            onClick={handleOpen}
-            disabled={opening}
-            className="size-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0 disabled:opacity-50"
-            title="Open New Tab"
-          >
-            <Plus className="size-3.5" />
-          </button>
+      <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-sm leading-relaxed font-semibold">Browser</span>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                mode="icon"
+                size="sm"
+                aria-label="Open new tab"
+                onClick={handleOpen}
+                disabled={opening}
+                className="text-muted-foreground"
+              >
+                <Plus className="size-3.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Open new tab</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 

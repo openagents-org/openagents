@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  Check, KeyRound, LogIn, LogOut, Moon, Settings, Shield, Sun, User,
+  Check, KeyRound, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
@@ -11,9 +11,16 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuPortal,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useConfirm } from '@/components/ui/dialogs-provider';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
@@ -24,10 +31,18 @@ interface UserMenuProps {
   align?: 'start' | 'center' | 'end';
 }
 
+// System first — it is the default, and the one most people leave it on.
+const THEME_OPTIONS = [
+  { value: 'system', label: 'System', icon: Monitor },
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+] as const;
+
 export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
   const { workspace, token, refreshWorkspace } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
   const { theme, setTheme } = useTheme();
+  const confirm = useConfirm();
   const [mounted, setMounted] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [claiming, setClaiming] = useState(false);
@@ -35,8 +50,14 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
 
   useEffect(() => { setMounted(true); }, []);
 
-  const isDark = mounted && theme === 'dark';
-  const toggleTheme = () => setTheme(isDark ? 'light' : 'dark');
+  // `theme` is undefined until next-themes has read localStorage on the client,
+  // so fall back to 'system' — the provider default — until then. Without the
+  // mounted guard the trigger would render one value on the server and another
+  // after hydration.
+  const activeTheme = (mounted && theme) || 'system';
+  const activeThemeOption =
+    THEME_OPTIONS.find((option) => option.value === activeTheme) ?? THEME_OPTIONS[0];
+  const ActiveThemeIcon = activeThemeOption.icon;
 
   const isUnclaimed = workspace && !workspace.creatorEmail;
   const isOwnedByUser = workspace && user && workspace.creatorEmail === user.email;
@@ -67,6 +88,21 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
     } catch {
       toast.error('Failed to copy token');
     }
+  };
+
+  // Signing out drops the session on this device — cheap to redo, but not
+  // something to trigger from a stray click on a menu item that sits one row
+  // below "Workspace settings".
+  const handleSignOut = async () => {
+    const ok = await confirm({
+      title: 'Sign out?',
+      description: user
+        ? `You'll be signed out of ${user.email} on this device. The workspace and its threads stay as they are.`
+        : "You'll be signed out on this device.",
+      confirmText: 'Sign out',
+      destructive: true,
+    });
+    if (ok) signOut();
   };
 
   const handleClaim = async () => {
@@ -116,10 +152,27 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             </>
           )}
 
-          <DropdownMenuItem onClick={toggleTheme}>
-            {isDark ? <Sun /> : <Moon />}
-            {isDark ? 'Light mode' : 'Dark mode'}
-          </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <ActiveThemeIcon />
+              Theme
+              <span className="ms-auto pe-1 text-xs text-muted-foreground">
+                {activeThemeOption.label}
+              </span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuPortal>
+              <DropdownMenuSubContent className="w-36">
+                <DropdownMenuRadioGroup value={activeTheme} onValueChange={setTheme}>
+                  {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
+                    <DropdownMenuRadioItem key={value} value={value} className="gap-2">
+                      <Icon className="size-4 opacity-60" />
+                      {label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuPortal>
+          </DropdownMenuSub>
 
           {token && (
             <DropdownMenuItem onSelect={(e) => { e.preventDefault(); handleCopyToken(); }}>
@@ -150,7 +203,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             <>
               <DropdownMenuSeparator />
               {user ? (
-                <DropdownMenuItem onClick={signOut} variant="destructive">
+                <DropdownMenuItem onClick={handleSignOut} variant="destructive">
                   <LogOut />
                   Sign out
                 </DropdownMenuItem>

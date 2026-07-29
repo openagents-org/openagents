@@ -816,15 +816,16 @@ export function ChatView() {
             loadOlder={loadOlder}
             hasOlder={hasOlder}
             loadingOlder={loadingOlder}
-            className="flex-1 overflow-y-auto px-3 lg:px-5 py-3"
+            className="flex-1 overflow-y-auto px-4 lg:px-8 py-3"
           />
         )}
 
-        {/* Input — hidden for read-only DM views. Same gutters as the message
-            list, so the composer lines up with the conversation column instead
-            of sitting in a narrower box of its own. */}
+        {/* Input — hidden for read-only DM views. Capped at a fixed reading
+            width rather than tracking the pane, but the cap steps up on large
+            displays: 768px is cramped on a 27" 4K, where the pane itself is
+            2000px+ wide. */}
         {!isDM && (
-          <div className="mx-auto w-full max-w-3xl px-3 lg:px-5 pt-1 pb-2 lg:pb-3">
+          <div className="mx-auto w-full max-w-3xl px-3 lg:px-5 pt-1 pb-2 xl:max-w-4xl 2xl:max-w-6xl lg:pb-3">
             {currentSessionId && <ThreadStatusBar channelName={currentSessionId} messages={displayMessages} />}
             <ChatInput
               onSend={handleSend}

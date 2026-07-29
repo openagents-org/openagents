@@ -73,7 +73,7 @@ export default function RootLayout({
         )}
       </head>
       <body className={`${inter.className} bg-zinc-100 dark:bg-zinc-900`}>
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <AuthProvider>
             <OpenAgentsAuthProvider>
               <DialogsProvider>
