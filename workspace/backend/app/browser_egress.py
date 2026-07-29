@@ -37,11 +37,22 @@ logger = logging.getLogger(__name__)
 _MAX_HEADER_BYTES = 64 * 1024
 _HEADER_TIMEOUT_SECONDS = 15.0
 _CONNECT_TIMEOUT_SECONDS = 15.0
+# An upstream that never closes must not be able to hold a relay task open
+# indefinitely; the plain-HTTP path is bounded even when framing is absent.
+_EXCHANGE_TIMEOUT_SECONDS = 120.0
+
+# A denial is an ordinary 403, and page.goto() does not raise on HTTP error
+# status — so without a marker the browser would simply render the refusal
+# text and the caller would report it as a successful page load. This header
+# is what lets BrowserManager tell "we refused this" apart from "the site
+# returned 403".
+DENY_MARKER_HEADER = "x-workspace-egress-blocked"
 
 _DENY_TEXT = b"Blocked by workspace egress policy: destination is not public"
 _DENY_BODY = (
     b"HTTP/1.1 403 Forbidden\r\n"
     b"Content-Type: text/plain; charset=utf-8\r\n"
+    b"X-Workspace-Egress-Blocked: 1\r\n"
     b"Content-Length: " + str(len(_DENY_TEXT)).encode() + b"\r\n"
     b"Connection: close\r\n"
     b"\r\n" + _DENY_TEXT
@@ -92,33 +103,107 @@ def _target_from_absolute_url(target: str) -> tuple:
     return host, port, (("/" + path) if slash else "/")
 
 
-# Hop-by-hop headers, plus the proxy-specific ones. These are meaningful only
-# between the browser and this proxy and must not be relayed upstream.
-_HOP_BY_HOP = {
+# Connection-management headers. These are meaningful only between two
+# adjacent HTTP peers and must not be relayed. Transfer-Encoding is
+# deliberately NOT in this set: the body framing it describes is relayed
+# verbatim, so dropping the header would leave the receiver unable to parse
+# what it is being sent.
+#
+# Upgrade is stripped on purpose. A 101 response would turn this path back
+# into an unframed tunnel, which is exactly what must not happen here.
+# Chromium tunnels ws:// through CONNECT anyway, so nothing legitimate needs
+# an in-band upgrade.
+_CONNECTION_HEADERS = {
     b"connection", b"proxy-connection", b"proxy-authorization", b"proxy-authenticate",
-    b"keep-alive", b"te", b"trailer", b"transfer-encoding", b"upgrade",
+    b"keep-alive", b"te", b"trailer", b"upgrade",
 }
 
 
-def _clean_headers(header_block: bytes) -> bytes:
-    """Drop hop-by-hop headers and force the upstream connection closed.
-
-    Connection reuse has to be suppressed: an HTTP/1.1 proxy connection can
-    carry requests for several origins, and once this proxy has spliced the
-    socket to one upstream, later requests on it would ride to that upstream
-    without going back through the policy check. One request per connection
-    keeps every request individually validated.
-    """
-    kept = []
+def _parse_headers(header_block: bytes) -> dict:
+    """Parse a raw header block into {lowercased name: value}, both bytes."""
+    parsed = {}
     for line in header_block.split(b"\r\n"):
-        if not line:
+        if not line or b":" not in line:
             continue
-        name = line.split(b":", 1)[0].strip().lower()
-        if name in _HOP_BY_HOP:
-            continue
-        kept.append(line)
+        name, _, value = line.partition(b":")
+        parsed[name.strip().lower()] = value.strip()
+    return parsed
+
+
+def _rewrite_headers(header_block: bytes) -> bytes:
+    """Strip connection-management headers and pin the connection closed.
+
+    Every request must be individually validated, which means this proxy can
+    never let a second request ride a connection it has already spliced to an
+    upstream. Closing after one exchange, in both directions, is what makes
+    that structurally true rather than a property of the upstream's manners.
+    """
+    kept = [
+        line for line in header_block.split(b"\r\n")
+        if line and line.split(b":", 1)[0].strip().lower() not in _CONNECTION_HEADERS
+    ]
     kept.append(b"Connection: close")
     return b"\r\n".join(kept) + b"\r\n"
+
+
+async def _relay_exact(src: asyncio.StreamReader, dst: asyncio.StreamWriter, count: int) -> None:
+    remaining = count
+    while remaining > 0:
+        chunk = await src.read(min(65536, remaining))
+        if not chunk:
+            return
+        dst.write(chunk)
+        await dst.drain()
+        remaining -= len(chunk)
+
+
+async def _relay_chunked(src: asyncio.StreamReader, dst: asyncio.StreamWriter) -> None:
+    """Relay a chunked body, stopping at the terminal chunk rather than at EOF."""
+    while True:
+        size_line = await src.readline()
+        if not size_line:
+            return
+        dst.write(size_line)
+        await dst.drain()
+        try:
+            size = int(size_line.split(b";")[0].strip(), 16)
+        except ValueError:
+            return
+        if size == 0:
+            while True:  # trailers, terminated by a blank line
+                trailer = await src.readline()
+                if not trailer:
+                    return
+                dst.write(trailer)
+                await dst.drain()
+                if trailer in (b"\r\n", b"\n"):
+                    return
+        await _relay_exact(src, dst, size)
+        dst.write(await src.read(2))  # chunk terminator
+        await dst.drain()
+
+
+async def _relay_until_eof(src: asyncio.StreamReader, dst: asyncio.StreamWriter) -> None:
+    while True:
+        data = await src.read(65536)
+        if not data:
+            return
+        dst.write(data)
+        await dst.drain()
+
+
+async def _relay_body(src, dst, headers: dict, *, read_to_eof_if_unframed: bool) -> None:
+    """Relay exactly one message body, using the framing its headers declare."""
+    if b"chunked" in headers.get(b"transfer-encoding", b"").lower():
+        await _relay_chunked(src, dst)
+    elif b"content-length" in headers:
+        try:
+            length = int(headers[b"content-length"])
+        except ValueError:
+            return
+        await _relay_exact(src, dst, length)
+    elif read_to_eof_if_unframed:
+        await _relay_until_eof(src, dst)
 
 
 async def _pipe(src: asyncio.StreamReader, dst: asyncio.StreamWriter) -> None:
@@ -307,13 +392,62 @@ class EgressPolicyProxy:
             return
 
         self.allowed_count += 1
+        try:
+            await asyncio.wait_for(
+                self._exchange(reader, writer, up_reader, up_writer, method, path, header_block),
+                timeout=_EXCHANGE_TIMEOUT_SECONDS,
+            )
+        except (asyncio.TimeoutError, ConnectionError, OSError):
+            pass
+        finally:
+            for w in (up_writer, writer):
+                try:
+                    w.close()
+                except Exception:
+                    pass
+
+    async def _exchange(self, reader, writer, up_reader, up_writer,
+                        method: str, path: str, header_block: bytes) -> None:
+        """Relay exactly one request and one response, then let the caller close.
+
+        Nothing is read from the browser after this request's body. A second
+        request arriving on this connection is therefore never forwarded
+        anywhere — it cannot reach the upstream this socket is already spliced
+        to, which is what would let it skip the destination check entirely.
+        """
+        request_headers = _parse_headers(header_block)
         # Re-emit in origin form. The client's Host header is preserved so
         # virtual-hosted origins still resolve correctly; only the request
-        # target is rewritten and hop-by-hop headers are dropped.
+        # target is rewritten and connection headers are replaced.
         up_writer.write(f"{method} {path} HTTP/1.1\r\n".encode("latin-1"))
-        up_writer.write(_clean_headers(header_block))
+        up_writer.write(_rewrite_headers(header_block))
         up_writer.write(b"\r\n")
         await up_writer.drain()
-        await asyncio.gather(
-            _pipe(reader, up_writer), _pipe(up_reader, writer), return_exceptions=True
-        )
+        await _relay_body(reader, up_writer, request_headers, read_to_eof_if_unframed=False)
+
+        status_line = await up_reader.readline()
+        if not status_line:
+            return
+        raw_headers = bytearray()
+        while True:
+            line = await up_reader.readline()
+            if not line or line in (b"\r\n", b"\n"):
+                break
+            raw_headers += line
+            if len(raw_headers) > _MAX_HEADER_BYTES:
+                return
+        response_headers = _parse_headers(bytes(raw_headers))
+
+        writer.write(status_line)
+        writer.write(_rewrite_headers(bytes(raw_headers)))
+        writer.write(b"\r\n")
+        await writer.drain()
+
+        try:
+            status = int(status_line.split(b" ")[1])
+        except (IndexError, ValueError):
+            status = 0
+        # A body is absent by definition for these, regardless of headers.
+        if method == "HEAD" or status in (204, 304) or 100 <= status < 200:
+            return
+        await _relay_body(up_reader, writer, response_headers, read_to_eof_if_unframed=True)

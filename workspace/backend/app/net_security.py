@@ -31,6 +31,7 @@ import asyncio
 import ipaddress
 import logging
 import os
+from http.cookiejar import CookieJar
 from typing import Optional
 from urllib.parse import urljoin, urlparse
 
@@ -227,6 +228,14 @@ async def safe_fetch(
     """
     request_headers = dict(headers or {})
     current = url
+    # Cookies have to outlive the per-hop clients below: plenty of sites set a
+    # session cookie on the redirect and expect it back on the landing page,
+    # and httpx keeps its jar on the client. This must be a raw CookieJar --
+    # handing httpx a Cookies instance makes it copy the cookies into a fresh
+    # jar per client, which would silently drop everything a later hop sets.
+    # A CookieJar is adopted by reference, and its domain and path rules still
+    # decide what actually gets sent.
+    cookie_jar = CookieJar()
     for _ in range(max_redirects + 1):
         pinned_ip = await validate_public_url(current)
         # One client (one connection pool) per hop. Sharing a pool across hops
@@ -237,6 +246,7 @@ async def safe_fetch(
             follow_redirects=False,
             trust_env=False,
             timeout=timeout,
+            cookies=cookie_jar,
         ) as client:
             async with client.stream("GET", current, headers=request_headers) as resp:
                 if resp.is_redirect:

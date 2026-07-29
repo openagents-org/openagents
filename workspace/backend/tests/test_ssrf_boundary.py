@@ -263,6 +263,124 @@ class TestEgressProxyPolicy:
     def test_non_http_port_is_refused(self):
         assert b"403 Forbidden" in self._request("CONNECT example.com:22 HTTP/1.1")
 
+    def test_denial_carries_the_marker_header(self):
+        # BrowserManager distinguishes "we refused this" from "the site said
+        # 403" by this header alone.
+        assert b"X-Workspace-Egress-Blocked" in self._request(
+            "GET http://169.254.169.254/ HTTP/1.1"
+        )
+
+
+class TestProxyConnectionIsNotReusable:
+    """A second request must never ride a connection already spliced to an
+    upstream. If it did, it would reach that upstream without its own
+    destination check — carrying whatever cookies and headers it was addressed
+    with, to a host that never validated for it."""
+
+    def test_second_request_never_reaches_the_first_upstream(self):
+        upstream_saw = []
+        policy_checks = []
+
+        async def scenario():
+            async def upstream(reader, writer):
+                while True:
+                    line = await reader.readline()
+                    if not line:
+                        break
+                    upstream_saw.append(line.decode("latin-1").strip())
+                    while True:
+                        header = await reader.readline()
+                        if not header or header in (b"\r\n", b"\n"):
+                            break
+                    body = b"FIRST"
+                    # Ignore the injected close and keep the socket open, the
+                    # way a malicious origin would.
+                    writer.write(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n"
+                        b"Connection: keep-alive\r\n\r\n%s" % (len(body), body)
+                    )
+                    await writer.drain()
+
+            server = await asyncio.start_server(upstream, "127.0.0.1", 0)
+            up_port = server.sockets[0].getsockname()[1]
+
+            async def policy(host, port):
+                policy_checks.append(host)
+                return "127.0.0.1"
+
+            with patch("app.browser_egress.resolve_and_validate", new=policy):
+                proxy = EgressPolicyProxy()
+                port = await proxy.start()
+                reader, writer = await asyncio.open_connection("127.0.0.1", port)
+                writer.write(
+                    f"GET http://attacker.test:{up_port}/one HTTP/1.1\r\n"
+                    f"Host: attacker.test\r\n\r\n".encode()
+                )
+                await writer.drain()
+                await asyncio.sleep(0.5)
+                # A different origin, on the same proxy connection.
+                writer.write(
+                    f"GET http://victim.test:{up_port}/two HTTP/1.1\r\n"
+                    f"Host: victim.test\r\nCookie: session=SECRET\r\n\r\n".encode()
+                )
+                await writer.drain()
+                await asyncio.sleep(0.7)
+                writer.close()
+                await proxy.stop()
+            server.close()
+
+        _run(scenario())
+        assert policy_checks == ["attacker.test"]
+        assert not any("victim.test" in seen or "/two" in seen for seen in upstream_saw), (
+            f"second request leaked to the first upstream: {upstream_saw}"
+        )
+        assert upstream_saw == ["GET /one HTTP/1.1"]
+
+
+class TestRedirectCookies:
+    """Per-hop clients must not mean per-hop cookie jars — sites routinely set
+    a session cookie on the redirect and require it on the landing page."""
+
+    def test_cookie_set_on_a_redirect_is_sent_on_the_next_hop(self):
+        received = []
+
+        class _CookieHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path == "/start":
+                    self.send_response(302)
+                    self.send_header("Set-Cookie", "sid=ok; Path=/")
+                    self.send_header("Location", f"http://127.0.0.1:{self.server.server_address[1]}/final")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                received.append(self.headers.get("Cookie"))
+                body = b"landed"
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), _CookieHandler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        port = server.server_address[1]
+
+        async def allow_loopback(host, prt):
+            return "127.0.0.1"
+
+        try:
+            with patch.object(net_security, "resolve_and_validate", new=allow_loopback):
+                result = _run(safe_fetch(
+                    f"http://127.0.0.1:{port}/start", max_bytes=10000, timeout=10, truncate=True
+                ))
+        finally:
+            server.shutdown()
+
+        assert result.status_code == 200
+        assert received == ["sid=ok"]
+
 
 # ---------------------------------------------------------------------------
 # Real-browser integration: the destinations Chromium actually tries to reach
@@ -296,6 +414,10 @@ PAGES = {
     "/ws": ("200", f'<script>try{{new WebSocket("ws://{INTERNAL_PRIVATE}/ws-target")}}catch(e){{}}</script>'),
     "/popup": ("200", f'<script>window.open("http://{INTERNAL}/popup-target")</script>'),
     "/public": ("200", "<html><body>public content here</body></html>"),
+    "/img-with-text": (
+        "200",
+        f'<html><body><img src="http://{INTERNAL}/blocked.png"><p>readable article body</p></body></html>',
+    ),
 }
 
 
@@ -396,6 +518,58 @@ class TestBrowserEgressIntegration:
         _attempts, _blocked, body = self._drive(origin_server, "/public", wait_ms=300)
         assert "public content here" in body
 
+    def test_blocked_render_raises_instead_of_returning_the_denial_page(self, origin_server):
+        """The end-to-end path the mocked version of this test could not see.
+
+        A real browser follows a real redirect into an internal address, the
+        real proxy refuses it with a real 403, and render_page_text has to turn
+        that into an error — page.goto does not raise on a 403, so the naive
+        version of this code scrapes the refusal text and reports success."""
+        from app.browser import BrowserManager
+
+        async def policy(host, port):
+            if host in ("127.0.0.1", "localhost") and port == origin_server:
+                return "127.0.0.1"
+            raise UnsafeURLError("BLOCKED_PRIVATE_ADDRESS", "Host resolves to a non-public address")
+
+        async def run():
+            manager = BrowserManager()
+            with patch("app.browser_egress.resolve_and_validate", new=policy):
+                with patch("app.browser.validate_public_url", new=AsyncMock(return_value="127.0.0.1")):
+                    try:
+                        return await manager.render_page_text(
+                            f"http://127.0.0.1:{origin_server}/redirect"
+                        )
+                    finally:
+                        await manager.shutdown()
+
+        with pytest.raises(UnsafeURLError) as ei:
+            _run(run())
+        assert ei.value.code == "BLOCKED_PRIVATE_ADDRESS"
+
+    def test_blocked_subresource_does_not_fail_the_whole_render(self, origin_server):
+        """A refused image must not cost the caller the page's real content."""
+        from app.browser import BrowserManager
+
+        async def policy(host, port):
+            if host in ("127.0.0.1", "localhost") and port == origin_server:
+                return "127.0.0.1"
+            raise UnsafeURLError("BLOCKED_PRIVATE_ADDRESS", "Host resolves to a non-public address")
+
+        async def run():
+            manager = BrowserManager()
+            with patch("app.browser_egress.resolve_and_validate", new=policy):
+                with patch("app.browser.validate_public_url", new=AsyncMock(return_value="127.0.0.1")):
+                    try:
+                        return await manager.render_page_text(
+                            f"http://127.0.0.1:{origin_server}/img-with-text"
+                        )
+                    finally:
+                        await manager.shutdown()
+
+        result = _run(run())
+        assert "readable article body" in result["text"]
+
     def test_loopback_is_not_bypassed_by_chromium(self, origin_server):
         # The whole design rests on --proxy-bypass-list=<-loopback>: without it
         # Chromium fetches loopback directly and never consults the policy.
@@ -414,14 +588,15 @@ class TestLocalBrowserLaunchWiring:
     still pass if BrowserManager forgot to launch Chromium behind one. This
     asserts the real launch path."""
 
-    def _captured_launch_args(self, env=None):
+    def _captured_launch(self):
         from app.browser import BrowserManager
 
         captured = {}
 
         class _FakeChromium:
-            async def launch(self, headless=True, args=None):
+            async def launch(self, headless=True, args=None, **kwargs):
                 captured["args"] = args or []
+                captured["kwargs"] = kwargs
                 return object()
 
         class _FakePlaywright:
@@ -436,22 +611,63 @@ class TestLocalBrowserLaunchWiring:
             return port
 
         port = _run(run())
-        return captured["args"], port
+        return captured, port
 
     def test_launches_behind_the_egress_proxy(self):
-        args, port = self._captured_launch_args()
-        assert f"--proxy-server=http://127.0.0.1:{port}" in args
-        assert "--proxy-bypass-list=<-loopback>" in args
+        captured, port = self._captured_launch()
+        assert f"--proxy-server=http://127.0.0.1:{port}" in captured["args"]
+        assert "--proxy-bypass-list=<-loopback>" in captured["args"]
 
-    def test_sandbox_flags_are_gated(self):
-        args, _port = self._captured_launch_args()
-        # Default keeps --no-sandbox because the image has no non-root user;
-        # the point of the assertion is that it is the gate deciding, so
-        # enabling BROWSER_SANDBOX genuinely changes the launch.
-        assert "--no-sandbox" in args
+    def test_sandbox_is_controlled_by_the_launch_option_not_the_args(self):
+        """Playwright defaults chromium_sandbox to False and adds --no-sandbox
+        itself, so asserting on args alone would pass while the sandbox stayed
+        off. The launch option is the thing that actually decides."""
+        captured, _port = self._captured_launch()
+        assert captured["kwargs"].get("chromium_sandbox") is False
+
         with patch("app.browser.BROWSER_SANDBOX", True):
-            args_sandboxed, _ = self._captured_launch_args()
-        assert "--no-sandbox" not in args_sandboxed
+            captured_on, _ = self._captured_launch()
+        assert captured_on["kwargs"].get("chromium_sandbox") is True
+
+    def test_playwright_injects_no_sandbox_itself(self):
+        """The fact the gate rests on: Playwright adds --no-sandbox on its own
+        when chromium_sandbox is false. That is why leaving the flag out of
+        `args` does not enable sandboxing, and why the launch option has to
+        carry the decision. If a future Playwright stopped doing this, the
+        comment on the launch call would be wrong and this test says so."""
+        import os
+        import sys
+
+        if not _chromium_available():
+            pytest.skip("no Chromium binary installed")
+        if not sys.platform.startswith("linux"):
+            pytest.skip("reads /proc to inspect the launched process")
+
+        async def launched_cmdline():
+            from playwright.async_api import async_playwright
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(
+                    headless=True, args=[], chromium_sandbox=False
+                )
+                found = []
+                for pid in os.listdir("/proc"):
+                    if not pid.isdigit():
+                        continue
+                    try:
+                        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                            argv = fh.read().split(b"\0")
+                    except OSError:
+                        continue
+                    if argv and b"chrome" in argv[0].lower() and b"--headless" in b" ".join(argv):
+                        found.append(argv)
+                await browser.close()
+                return found
+
+        processes = _run(launched_cmdline())
+        assert processes, "no Chromium process observed"
+        assert any(b"--no-sandbox" in b" ".join(argv) for argv in processes), (
+            "Playwright no longer injects --no-sandbox when chromium_sandbox is false"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -504,21 +720,6 @@ class TestSharedBrowserRouterRejectsInternal:
 
 
 class TestFetchRenderTierRejectsInternal:
-    def test_render_mode_propagates_unsafe_url_as_400(self, client):
-        workspace = _create_workspace(client)
-        with patch("app.browser.BrowserManager.render_page_text",
-                   new=AsyncMock(side_effect=UnsafeURLError(
-                       "BLOCKED_PRIVATE_ADDRESS", "Host resolves to a non-public address"))):
-            with patch("app.routers.fetch.validate_public_url", new=AsyncMock(return_value="93.184.216.34")):
-                resp = client.post("/v1/fetch", json={
-                    "url": "http://attacker.example/redirect-to-metadata",
-                    "network": workspace["id"],
-                    "mode": "render",
-                    "source": "openagents:agent-ssrf",
-                }, headers={"X-Workspace-Token": workspace["token"]})
-        assert resp.status_code == 400
-        assert resp.json()["data"]["error_code"] == "BLOCKED_PRIVATE_ADDRESS"
-
     def test_render_mode_blocks_internal_entry_url(self, client):
         workspace = _create_workspace(client)
         resp = client.post("/v1/fetch", json={
