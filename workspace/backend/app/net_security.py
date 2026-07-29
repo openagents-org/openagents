@@ -183,8 +183,9 @@ class _PinnedTransport(httpx.AsyncHTTPTransport):
         self._pinned_ip = pinned_ip
 
     async def handle_async_request(self, request: httpx.Request):
-        original_host = request.url.host
-        original_authority = request.headers.get("host") or request.url.netloc.decode("ascii")
+        logical_url = request.url
+        original_host = logical_url.host
+        original_authority = request.headers.get("host") or logical_url.netloc.decode("ascii")
         # Host header must survive the rewrite or virtual-hosted origins 404.
         request.headers["Host"] = original_authority
         # server_hostname for the TLS handshake: drives both SNI and the
@@ -192,8 +193,15 @@ class _PinnedTransport(httpx.AsyncHTTPTransport):
         # against the bare IP and every HTTPS fetch would fail.
         request.extensions = dict(request.extensions or {})
         request.extensions["sni_hostname"] = original_host
-        request.url = request.url.copy_with(host=self._pinned_ip, port=request.url.port)
-        return await super().handle_async_request(request)
+        request.url = logical_url.copy_with(host=self._pinned_ip, port=logical_url.port)
+        try:
+            return await super().handle_async_request(request)
+        finally:
+            # The rewrite has to be undone before httpx sees the response.
+            # Everything above this layer reads identity off the request URL --
+            # cookie ownership most of all, which would otherwise be filed
+            # under the pinned address and never sent back to the real host.
+            request.url = logical_url
 
 
 class SafeFetchResult:

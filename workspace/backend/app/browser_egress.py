@@ -28,6 +28,7 @@ the only supported way to build the flags, so the two can't drift apart.
 
 import asyncio
 import logging
+import secrets
 from typing import Optional
 
 from app.net_security import UnsafeURLError, resolve_and_validate
@@ -46,17 +47,27 @@ _EXCHANGE_TIMEOUT_SECONDS = 120.0
 # text and the caller would report it as a successful page load. This header
 # is what lets BrowserManager tell "we refused this" apart from "the site
 # returned 403".
+#
+# Its VALUE is a per-proxy random token, not a fixed constant. Any site the
+# policy allows could otherwise return this header and make an ordinary page
+# look like a blocked internal address, turning a public page into a forged
+# SSRF rejection. Over HTTPS the proxy cannot see, let alone strip, an
+# upstream's headers, so the marker has to be unforgeable rather than merely
+# stripped.
 DENY_MARKER_HEADER = "x-workspace-egress-blocked"
 
 _DENY_TEXT = b"Blocked by workspace egress policy: destination is not public"
-_DENY_BODY = (
-    b"HTTP/1.1 403 Forbidden\r\n"
-    b"Content-Type: text/plain; charset=utf-8\r\n"
-    b"X-Workspace-Egress-Blocked: 1\r\n"
-    b"Content-Length: " + str(len(_DENY_TEXT)).encode() + b"\r\n"
-    b"Connection: close\r\n"
-    b"\r\n" + _DENY_TEXT
-)
+
+
+def _deny_response(token: str) -> bytes:
+    return (
+        b"HTTP/1.1 403 Forbidden\r\n"
+        b"Content-Type: text/plain; charset=utf-8\r\n"
+        b"X-Workspace-Egress-Blocked: " + token.encode("ascii") + b"\r\n"
+        b"Content-Length: " + str(len(_DENY_TEXT)).encode() + b"\r\n"
+        b"Connection: close\r\n"
+        b"\r\n" + _DENY_TEXT
+    )
 
 
 def _bad_gateway(reason: str) -> bytes:
@@ -130,20 +141,24 @@ def _parse_headers(header_block: bytes) -> dict:
     return parsed
 
 
-def _rewrite_headers(header_block: bytes) -> bytes:
+def _rewrite_headers(header_block: bytes, *, close: bool = True) -> bytes:
     """Strip connection-management headers and pin the connection closed.
 
     Every request must be individually validated, which means this proxy can
     never let a second request ride a connection it has already spliced to an
     upstream. Closing after one exchange, in both directions, is what makes
     that structurally true rather than a property of the upstream's manners.
+
+    close=False is for interim 1xx responses, where announcing a close would
+    contradict the final response still to come on the same connection.
     """
     kept = [
         line for line in header_block.split(b"\r\n")
         if line and line.split(b":", 1)[0].strip().lower() not in _CONNECTION_HEADERS
     ]
-    kept.append(b"Connection: close")
-    return b"\r\n".join(kept) + b"\r\n"
+    if close:
+        kept.append(b"Connection: close")
+    return b"\r\n".join(kept) + b"\r\n" if kept else b""
 
 
 async def _relay_exact(src: asyncio.StreamReader, dst: asyncio.StreamWriter, count: int) -> None:
@@ -179,7 +194,16 @@ async def _relay_chunked(src: asyncio.StreamReader, dst: asyncio.StreamWriter) -
                 if trailer in (b"\r\n", b"\n"):
                     return
         await _relay_exact(src, dst, size)
-        dst.write(await src.read(2))  # chunk terminator
+        # readexactly, not read -- read(2) is free to return a single byte when
+        # the CR and LF land in different TCP segments, and the stray LF would
+        # then be consumed as the next chunk-size line and truncate the body.
+        try:
+            terminator = await src.readexactly(2)
+        except asyncio.IncompleteReadError:
+            return
+        if terminator != b"\r\n":
+            return
+        dst.write(terminator)
         await dst.drain()
 
 
@@ -229,6 +253,9 @@ class EgressPolicyProxy:
     def __init__(self):
         self._server: Optional[asyncio.AbstractServer] = None
         self._port: Optional[int] = None
+        # Proves a denial came from this proxy. Regenerated per instance so a
+        # value seen by one workspace's page is useless anywhere else.
+        self.deny_token = secrets.token_urlsafe(24)
         self.blocked_count = 0
         self.allowed_count = 0
 
@@ -277,7 +304,7 @@ class EgressPolicyProxy:
         self.blocked_count += 1
         logger.warning("Egress policy blocked browser request to %s:%s (%s)", host, port, reason)
         try:
-            writer.write(_DENY_BODY)
+            writer.write(_deny_response(self.deny_token))
             await writer.drain()
         except (ConnectionError, OSError):
             pass
@@ -423,31 +450,59 @@ class EgressPolicyProxy:
         up_writer.write(_rewrite_headers(header_block))
         up_writer.write(b"\r\n")
         await up_writer.drain()
+
+        # Expect/100-continue is answered here rather than forwarded. Waiting
+        # for a body the browser will not send until it is told to continue,
+        # while the upstream waits for that body, deadlocks the exchange.
+        if b"100-continue" in request_headers.get(b"expect", b"").lower():
+            writer.write(b"HTTP/1.1 100 Continue\r\n\r\n")
+            await writer.drain()
         await _relay_body(reader, up_writer, request_headers, read_to_eof_if_unframed=False)
 
-        status_line = await up_reader.readline()
-        if not status_line:
+        while True:
+            status_line, raw_headers, response_headers = await self._read_message_head(up_reader)
+            if status_line is None:
+                return
+            try:
+                status = int(status_line.split(b" ")[1])
+            except (IndexError, ValueError):
+                status = 0
+
+            # 101 would hand the rest of the connection to the upstream as an
+            # opaque tunnel, which is the framing this path exists to keep.
+            # Upgrade is already stripped from the request, so an upstream
+            # offering one is answering something nobody asked for.
+            if status == 101:
+                logger.warning("Egress proxy refused an unrequested protocol upgrade")
+                return
+
+            # 1xx is informational -- 103 Early Hints in particular precedes the
+            # real response. Relay it and keep reading rather than treating it
+            # as the end of the exchange.
+            interim = 100 <= status < 200
+            writer.write(status_line)
+            writer.write(_rewrite_headers(raw_headers, close=not interim))
+            writer.write(b"\r\n")
+            await writer.drain()
+            if interim:
+                continue
+
+            if method == "HEAD" or status in (204, 304):
+                return
+            await _relay_body(up_reader, writer, response_headers, read_to_eof_if_unframed=True)
             return
+
+    async def _read_message_head(self, reader) -> tuple:
+        """Read a status line plus header block. Returns (None, ...) at EOF."""
+        status_line = await reader.readline()
+        if not status_line:
+            return None, b"", {}
         raw_headers = bytearray()
         while True:
-            line = await up_reader.readline()
+            line = await reader.readline()
             if not line or line in (b"\r\n", b"\n"):
                 break
             raw_headers += line
             if len(raw_headers) > _MAX_HEADER_BYTES:
-                return
-        response_headers = _parse_headers(bytes(raw_headers))
-
-        writer.write(status_line)
-        writer.write(_rewrite_headers(bytes(raw_headers)))
-        writer.write(b"\r\n")
-        await writer.drain()
-
-        try:
-            status = int(status_line.split(b" ")[1])
-        except (IndexError, ValueError):
-            status = 0
-        # A body is absent by definition for these, regardless of headers.
-        if method == "HEAD" or status in (204, 304) or 100 <= status < 200:
-            return
-        await _relay_body(up_reader, writer, response_headers, read_to_eof_if_unframed=True)
+                return None, b"", {}
+        return status_line, bytes(raw_headers), _parse_headers(bytes(raw_headers))

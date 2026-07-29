@@ -270,6 +270,113 @@ class TestEgressProxyPolicy:
             "GET http://169.254.169.254/ HTTP/1.1"
         )
 
+    def test_deny_token_is_unguessable_and_per_proxy(self):
+        """A fixed marker value would let any allowed site forge a rejection,
+        so the value has to be a secret this proxy alone knows."""
+        first, second = EgressPolicyProxy(), EgressPolicyProxy()
+        assert first.deny_token != second.deny_token
+        assert len(first.deny_token) >= 24
+
+
+class TestProxyHttpFraming:
+    """The plain-HTTP path parses framing itself, so it has to survive the
+    ways a real network delivers bytes rather than the way a test writes them."""
+
+    def _exchange(self, upstream_script, request_line="GET http://site.test/x HTTP/1.1"):
+        async def run():
+            async def upstream(reader, writer):
+                await reader.readline()
+                while True:
+                    header = await reader.readline()
+                    if not header or header in (b"\r\n", b"\n"):
+                        break
+                await upstream_script(writer)
+
+            server = await asyncio.start_server(upstream, "127.0.0.1", 0)
+            up_port = server.sockets[0].getsockname()[1]
+
+            async def policy(host, port):
+                return "127.0.0.1"
+
+            with patch("app.browser_egress.resolve_and_validate", new=policy):
+                proxy = EgressPolicyProxy()
+                port = await proxy.start()
+                reader, writer = await asyncio.open_connection("127.0.0.1", port)
+                line = request_line.replace("site.test", f"site.test:{up_port}")
+                writer.write(f"{line}\r\nHost: site.test\r\n\r\n".encode())
+                await writer.drain()
+                try:
+                    data = await asyncio.wait_for(reader.read(-1), timeout=8)
+                except asyncio.TimeoutError:
+                    data = b"<TIMEOUT>"
+                writer.close()
+                await proxy.stop()
+            server.close()
+            return data
+
+        return _run(run())
+
+    def test_chunk_terminator_split_across_packets(self):
+        """read(2) may return one byte; the stray LF would then be read as the
+        next chunk-size line and silently truncate everything after it."""
+        async def script(writer):
+            writer.write(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+            await writer.drain()
+            writer.write(b"3\r\nabc\r")          # chunk plus a lone CR
+            await writer.drain()
+            await asyncio.sleep(0.2)             # force a separate segment
+            writer.write(b"\n")                  # the matching LF
+            await writer.drain()
+            writer.write(b"5\r\nWORLD\r\n0\r\n\r\n")
+            await writer.drain()
+            writer.close()
+
+        data = self._exchange(script)
+        assert b"WORLD" in data, f"body truncated at the split terminator: {data!r}"
+        assert data.endswith(b"0\r\n\r\n")
+
+    def test_interim_response_does_not_end_the_exchange(self):
+        """103 Early Hints is common in front of CDNs; treating it as the
+        response loses the page entirely."""
+        async def script(writer):
+            writer.write(b"HTTP/1.1 103 Early Hints\r\nLink: </s.css>; rel=preload\r\n\r\n")
+            await writer.drain()
+            await asyncio.sleep(0.1)
+            body = b"REAL-PAGE"
+            writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\n\r\n%s" % (len(body), body))
+            await writer.drain()
+            writer.close()
+
+        data = self._exchange(script)
+        assert b"REAL-PAGE" in data
+        # Announcing a close on the interim response would contradict the
+        # final response still to come on the same connection.
+        interim, _, _final = data.partition(b"HTTP/1.1 200")
+        assert b"Connection: close" not in interim
+
+    def test_upgrade_response_is_refused(self):
+        """A 101 would hand the rest of the connection to the upstream as an
+        opaque tunnel, undoing the per-request framing."""
+        async def script(writer):
+            writer.write(b"HTTP/1.1 101 Switching Protocols\r\nUpgrade: h2c\r\n\r\n")
+            await writer.drain()
+            writer.write(b"RAW-TUNNEL-BYTES")
+            await writer.drain()
+            writer.close()
+
+        data = self._exchange(script)
+        assert b"RAW-TUNNEL-BYTES" not in data
+        assert b"101" not in data
+
+    def test_head_response_has_no_body_relayed(self):
+        async def script(writer):
+            writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 9\r\n\r\n")
+            await writer.drain()
+            writer.close()
+
+        data = self._exchange(script, request_line="HEAD http://site.test/x HTTP/1.1")
+        assert data.endswith(b"\r\n\r\n")
+
 
 class TestProxyConnectionIsNotReusable:
     """A second request must never ride a connection already spliced to an
@@ -339,17 +446,23 @@ class TestProxyConnectionIsNotReusable:
 
 class TestRedirectCookies:
     """Per-hop clients must not mean per-hop cookie jars — sites routinely set
-    a session cookie on the redirect and require it on the landing page."""
+    a session cookie on the redirect and require it on the landing page.
 
-    def test_cookie_set_on_a_redirect_is_sent_on_the_next_hop(self):
+    The logical hostname here is deliberately NOT the address connected to.
+    An earlier version of this test used 127.0.0.1 for both and passed while
+    cookies were in fact being filed under the pinned IP, where the real host
+    would never be sent them.
+    """
+
+    def test_cookie_from_a_redirect_survives_under_a_pinned_address(self):
         received = []
 
         class _CookieHandler(BaseHTTPRequestHandler):
             def do_GET(self):
                 if self.path == "/start":
                     self.send_response(302)
-                    self.send_header("Set-Cookie", "sid=ok; Path=/")
-                    self.send_header("Location", f"http://127.0.0.1:{self.server.server_address[1]}/final")
+                    self.send_header("Set-Cookie", "sid=ok; Path=/")   # host-only
+                    self.send_header("Location", "/final")             # relative
                     self.send_header("Content-Length", "0")
                     self.end_headers()
                     return
@@ -367,19 +480,41 @@ class TestRedirectCookies:
         threading.Thread(target=server.serve_forever, daemon=True).start()
         port = server.server_address[1]
 
-        async def allow_loopback(host, prt):
+        async def pin_elsewhere(host, prt):
+            assert host == "cookie-host.test"   # logical name, not the address
             return "127.0.0.1"
 
         try:
-            with patch.object(net_security, "resolve_and_validate", new=allow_loopback):
+            with patch.object(net_security, "resolve_and_validate", new=pin_elsewhere):
                 result = _run(safe_fetch(
-                    f"http://127.0.0.1:{port}/start", max_bytes=10000, timeout=10, truncate=True
+                    f"http://cookie-host.test:{port}/start",
+                    max_bytes=10000, timeout=10, truncate=True,
                 ))
         finally:
             server.shutdown()
 
         assert result.status_code == 200
         assert received == ["sid=ok"]
+
+    def test_request_url_is_left_logical_after_pinning(self):
+        """Cookie ownership is only one consumer of the request URL. The
+        transport must hand the request back the way it received it."""
+        import httpx
+        from app.net_security import _PinnedTransport
+
+        seen_during_send = {}
+
+        async def fake_super(self, request):
+            seen_during_send["url"] = str(request.url)
+            return httpx.Response(200, request=request)
+
+        transport = _PinnedTransport("93.184.216.34")
+        request = httpx.Request("GET", "https://example.com/page")
+        with patch.object(httpx.AsyncHTTPTransport, "handle_async_request", new=fake_super):
+            _run(transport.handle_async_request(request))
+
+        assert seen_during_send["url"] == "https://93.184.216.34/page"
+        assert str(request.url) == "https://example.com/page"
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +553,7 @@ PAGES = {
         "200",
         f'<html><body><img src="http://{INTERNAL}/blocked.png"><p>readable article body</p></body></html>',
     ),
+    "/forged-marker": ("200", "<html><body><p>not actually blocked</p></body></html>"),
 }
 
 
@@ -434,6 +570,9 @@ class _OriginHandler(BaseHTTPRequestHandler):
         body = payload.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
+        if path == "/forged-marker":
+            # A hostile-but-allowed origin claiming to be an egress denial.
+            self.send_header("X-Workspace-Egress-Blocked", "1")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -546,6 +685,31 @@ class TestBrowserEgressIntegration:
         with pytest.raises(UnsafeURLError) as ei:
             _run(run())
         assert ei.value.code == "BLOCKED_PRIVATE_ADDRESS"
+
+    def test_a_site_cannot_forge_an_egress_denial(self, origin_server):
+        """The origin serves the marker header itself. Because the value is a
+        per-proxy secret, the page must still be returned as ordinary content
+        rather than reported as a blocked internal address."""
+        from app.browser import BrowserManager
+
+        async def policy(host, port):
+            if host in ("127.0.0.1", "localhost") and port == origin_server:
+                return "127.0.0.1"
+            raise UnsafeURLError("BLOCKED_PRIVATE_ADDRESS", "Host resolves to a non-public address")
+
+        async def run():
+            manager = BrowserManager()
+            with patch("app.browser_egress.resolve_and_validate", new=policy):
+                with patch("app.browser.validate_public_url", new=AsyncMock(return_value="127.0.0.1")):
+                    try:
+                        return await manager.render_page_text(
+                            f"http://127.0.0.1:{origin_server}/forged-marker"
+                        )
+                    finally:
+                        await manager.shutdown()
+
+        result = _run(run())
+        assert "not actually blocked" in result["text"]
 
     def test_blocked_subresource_does_not_fail_the_whole_render(self, origin_server):
         """A refused image must not cost the caller the page's real content."""
