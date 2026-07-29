@@ -179,6 +179,26 @@ export type PlatformId =
   | 'github' | 'slack' | 'discord' | 'telegram'
   | 'notion' | 'linear' | 'openai' | 'anthropic' | 'google'
 
+/** One agent whose MCP config the launcher can write. Mirrors main/mcp-config.ts. */
+export interface McpTargetState {
+  id: string
+  label: string
+  /** Absolute path to that agent's MCP config file. */
+  file: string
+  /** The agent appears to be installed. */
+  detected: boolean
+  /** This platform's server is already registered there. */
+  configured: boolean
+  /** Config file exists but couldn't be parsed — writes are refused. */
+  error?: string
+}
+
+export interface McpApplyResult {
+  ok: boolean
+  written: string[]
+  errors: string[]
+}
+
 export interface ConnectionRecord {
   id: string
   platform: PlatformId | string
@@ -502,6 +522,18 @@ declare global {
         envKey: string
         agentTypes: string[]
       }): Promise<{ ok: boolean; written?: string[]; errors?: string[]; error?: string }>
+
+      // ── MCP registration ──
+      mcpPlatforms(): Promise<string[]>
+      mcpListTargets(platform: string): Promise<McpTargetState[]>
+      mcpApply(input: {
+        connectionId: string
+        targetIds: string[]
+      }): Promise<McpApplyResult>
+      mcpRemove(input: {
+        platform: string
+        targetIds: string[]
+      }): Promise<McpApplyResult>
 
       // ── Notifications (5.4) ──
       notificationsList(): Promise<NotifRecord[]>

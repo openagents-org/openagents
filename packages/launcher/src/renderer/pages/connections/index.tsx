@@ -7,13 +7,16 @@ import { Tabs, TabsList, TabsTrigger } from "../../components/ui/Tabs"
 import { TopBar } from "../../components/TopBar"
 import { useConnectionsStore } from "../../store/connections"
 import { useCredentialsStore } from "../../store/credentials"
+import { useAgentsStore } from "../../store/agents"
 import { PLATFORMS, type PlatformDef, platformLabel } from "../../components/connections/platforms"
 import { PlatformLogo } from "../../components/connections/PlatformLogo"
 import { PlatformCard } from "../../components/connections/PlatformCard"
 import { PlatformConnectDialog } from "../../components/connections/PlatformConnectDialog"
 import { ConnectionTestDialog } from "../../components/connections/ConnectionTestDialog"
+import { McpSetupDialog } from "../../components/connections/McpSetupDialog"
+import { CredentialApplyDialog } from "../../components/credentials/CredentialApplyDialog"
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog"
-import type { ConnectionRecord } from "../../types"
+import type { ConnectionRecord, CredentialSummary } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
 import {
   getConnectionsEmptyState,
@@ -38,10 +41,19 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
   const [dialogPlatform, setDialogPlatform] = useState<PlatformDef | null>(null)
   const [disconnectTarget, setDisconnectTarget] = useState<ConnectionRecord | null>(null)
   const [testTarget, setTestTarget] = useState<ConnectionRecord | null>(null)
+  const [applyTarget, setApplyTarget] = useState<CredentialSummary | null>(null)
+  const [mcpTarget, setMcpTarget] = useState<PlatformDef | null>(null)
+  const [mcpPlatforms, setMcpPlatforms] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     refreshConnections()
     refreshCredentials()
+    // CredentialApplyDialog picks its target agent types out of useAgentsStore,
+    // so make sure it's populated even when Connections is the first page shown.
+    void window.api.listAgents().then((a) => useAgentsStore.getState().setAgents(a))
+    // Which platforms the launcher can register as an MCP server. Owned by the
+    // main process so the endpoint catalog lives in exactly one place.
+    void window.api.mcpPlatforms().then((ids) => setMcpPlatforms(new Set(ids)))
   }, [refreshConnections, refreshCredentials])
 
   const connectionByPlatform = useMemo(() => {
@@ -68,11 +80,35 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
     setTestTarget(conn)
   }
 
+  // Hand the connection's stored secret to agents by writing it into their
+  // ~/.openagents/env/<type>.env under the platform's default env key. This is
+  // what turns a "Connected" card into something an agent can actually use.
+  const handleApplyToAgents = (conn: ConnectionRecord): void => {
+    const cred = credentials.find((c) => c.id === conn.credentialId)
+    if (!cred) {
+      showToast(t("connections.toast.credentialMissing"), "error")
+      return
+    }
+    setApplyTarget(cred)
+  }
+
   const performDisconnect = async (): Promise<void> => {
     const conn = disconnectTarget
     if (!conn) return
     setBusyId(conn.id)
     try {
+      // Tear the MCP registrations down first. Leaving them behind would hand
+      // agents a server entry pointing at a credential we're about to drop —
+      // and doing it before removeConnection means a failure here leaves the
+      // connection intact to retry from.
+      if (mcpPlatforms.has(conn.platform)) {
+        const configured = (await window.api.mcpListTargets(conn.platform))
+          .filter((x) => x.configured)
+          .map((x) => x.id)
+        if (configured.length > 0) {
+          await window.api.mcpRemove({ platform: conn.platform, targetIds: configured })
+        }
+      }
       await window.api.removeConnection(conn.id)
       await refreshConnections()
       showToast(t("connections.toast.disconnected"), "success")
@@ -163,6 +199,9 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
               onReconnect={() => setDialogPlatform(p)}
               onTest={() => conn && handleTest(conn)}
               onDisconnect={() => conn && setDisconnectTarget(conn)}
+              onApplyToAgents={() => conn && handleApplyToAgents(conn)}
+              onConfigureMcp={() => setMcpTarget(p)}
+              hasMcp={mcpPlatforms.has(p.id)}
             />
           )
         })}
@@ -200,6 +239,24 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
         onClose={() => setTestTarget(null)}
         onAfterRun={() => refreshConnections()}
       />
+
+      <CredentialApplyDialog
+        open={!!applyTarget}
+        credential={applyTarget}
+        onClose={() => setApplyTarget(null)}
+        onApplied={() => refreshCredentials()}
+        showToast={showToast}
+      />
+
+      {mcpTarget && (
+        <McpSetupDialog
+          open={!!mcpTarget}
+          platform={mcpTarget}
+          connection={connectionByPlatform.get(mcpTarget.id) || null}
+          onClose={() => setMcpTarget(null)}
+          showToast={showToast}
+        />
+      )}
 
       <ConfirmDialog
         open={!!disconnectTarget}

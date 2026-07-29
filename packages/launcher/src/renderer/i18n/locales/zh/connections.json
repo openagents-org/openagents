@@ -2,8 +2,8 @@
   "title": "连接",
   "subtitle": "— 对外部平台的授权（在磁盘上加密存储）",
   "banner": {
-    "title": "连接功能即将推出",
-    "body": "该模块仍在开发中 —— 平台集成尚未完全打通。你可以先随意浏览，完整支持正在路上。"
+    "title": "连接后即可下发给智能体",
+    "body": "已支持的平台连接成功后，可一键把密钥写入智能体的环境变量。标记「即将支持」的平台仍在开发中。"
   },
   "stats": {
     "connected": "已连接",
@@ -27,7 +27,8 @@
     "pasteToken": "请粘贴令牌或 API 密钥",
     "saveCredentialFailed": "保存凭据失败",
     "connected": "已连接 {{platform}}",
-    "testFailed": "已保存，但测试失败：{{detail}}"
+    "testFailed": "已保存，但测试失败：{{detail}}",
+    "credentialMissing": "找不到该连接的凭据，请重新配置"
   },
   "disconnect": {
     "title": "断开 {{platform}} 的连接？",
@@ -45,15 +46,35 @@
     "error": "错误"
   },
   "card": {
-    "synced": "同步于 {{time}}",
+    "synced": "{{time}}同步",
     "account": "账户：",
     "connect": "连接",
     "test": "测试",
     "reconfigure": "重新配置",
-    "disconnect": "断开连接"
+    "disconnect": "断开连接",
+    "applyToAgents": "写入环境变量",
+    "configureMcp": "配置 MCP",
+    "planned": "即将支持",
+    "plannedHint": "集成开发中",
+    "more": "更多"
+  },
+  "mcp": {
+    "title": "把 {{platform}} 接入智能体",
+    "description": "把 {{platform}} 的 MCP 服务注册到下列智能体的配置里，它们就能直接调用 {{platform}} 的工具（查询、创建等），无需再手动配置。",
+    "targetsLabel": "写入哪些智能体",
+    "loading": "正在检测已安装的智能体……",
+    "alreadyConfigured": "已配置",
+    "notDetected": "未检测到",
+    "unreadable": "配置文件无法解析，已跳过：{{detail}}",
+    "secretWarning": "密钥会以明文写入这些配置文件（这是 MCP 客户端目前读取静态凭据的唯一方式）。首次修改前会自动备份为同名的 .openagents.bak 文件。",
+    "cancel": "取消",
+    "save": "保存",
+    "saving": "写入中……",
+    "toasts": {
+      "saved": "已更新 {{count}} 个智能体的 MCP 配置"
+    }
   },
   "relativeTime": {
-    "never": "从未",
     "justNow": "刚刚",
     "minutesAgo": "{{count}} 分钟前",
     "hoursAgo": "{{count}} 小时前",
