@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { workspaceApi } from '@/lib/api';
 import { eventToMessage } from '@/lib/types';
+import { compareMessages, mergeMessages } from '@/lib/message-merge';
 import type { ONMEvent, WorkspaceMessage } from '@/lib/types';
 
 interface UsePollingOptions {
@@ -63,28 +64,6 @@ function eventsToScopedMessages(
   dmPair: [string, string] | null,
 ): WorkspaceMessage[] {
   return scopeMessagesToSession(events.map(eventToMessage), sessionId, dmPair);
-}
-
-/** Chronological comparator — createdAt first, messageId as tiebreaker. */
-function compareMessages(a: WorkspaceMessage, b: WorkspaceMessage): number {
-  const ta = a.createdAt ?? '';
-  const tb = b.createdAt ?? '';
-  if (ta !== tb) return ta < tb ? -1 : 1;
-  return a.messageId < b.messageId ? -1 : a.messageId > b.messageId ? 1 : 0;
-}
-
-/**
- * Merge incoming messages into the list, deduped by id and kept in
- * chronological order. A plain append is not enough: the catch-up poll and
- * the SSE stream run concurrently, so an older status batch can arrive
- * after a newer SSE-delivered reply — appended naively it would become the
- * trailing message and make the UI report the agent as still working.
- */
-function mergeMessages(prev: WorkspaceMessage[], incoming: WorkspaceMessage[]): WorkspaceMessage[] {
-  const existingIds = new Set(prev.map((m) => m.messageId));
-  const unique = incoming.filter((m) => !existingIds.has(m.messageId));
-  if (unique.length === 0) return prev;
-  return [...prev, ...unique].sort(compareMessages);
 }
 
 export function useMessagePolling({ sessionId, enabled = true, initialMessages }: UsePollingOptions) {
@@ -194,20 +173,19 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
       if (result.events.length > 0) {
         // Events come newest-first from sort=desc, reverse for chronological display
         const historicMessages = eventsToScopedMessages(result.events, sessionId, dmPair).reverse();
-        setMessages(historicMessages);
-        newestMsgRef.current = historicMessages.length > 0
-          ? historicMessages[historicMessages.length - 1]
-          : null;
-        newestIdRef.current = newestMsgRef.current?.messageId ?? null;
-        oldestIdRef.current = historicMessages.length > 0
-          ? historicMessages[0].messageId
-          : null;
-        setHasOlder(historicMessages.length > 0 && result.has_more);
+        // Merge rather than replace — the SSE stream opens alongside the
+        // history request and may already have delivered newer messages;
+        // replacing would drop them and roll the cursor back, and a failed
+        // catch-up would never get them again (SSE does not replay).
+        setMessages((prev) => mergeMessages(prev, historicMessages));
+        bumpNewest(historicMessages[historicMessages.length - 1]);
+        // History is the oldest data we have — SSE only delivers new events.
+        oldestIdRef.current = historicMessages[0].messageId;
+        setHasOlder(result.has_more);
         setGeneration((g) => g + 1);
       } else {
-        setMessages([]);
-        newestIdRef.current = null;
-        newestMsgRef.current = null;
+        // No chat history — but keep whatever the SSE stream has already
+        // delivered, and leave the cursor wherever bumpNewest put it.
         oldestIdRef.current = null;
         setHasOlder(false);
       }
@@ -220,7 +198,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
     } finally {
       setLoading(false);
     }
-  }, [sessionId, dmPair]);
+  }, [sessionId, dmPair, bumpNewest]);
 
   // Forward poll: fetch new messages since the newest known
   const poll = useCallback(async () => {
@@ -313,12 +291,13 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
       // opens — so without an explicit catch-up poll, steps emitted before
       // the refresh would never load and an agent mid-task would look idle.
       // The forward poll is unfiltered and starts after the newest chat
-      // message, so it backfills exactly that gap. Only run it when history
-      // actually established a cursor — after a failed history request the
-      // cursor is null and the poll loop would page through the channel's
-      // entire event log from the beginning.
+      // message, so it backfills exactly that gap. Only run it when a cursor
+      // actually exists — after a failed history request, or a successful
+      // one over a channel with no chat messages at all (only excluded step
+      // events), the cursor is null and the poll loop would page through
+      // the channel's entire event log from the beginning.
       loadHistory().then((ok) => {
-        if (ok) poll();
+        if (ok && newestIdRef.current) poll();
       });
     }
 
