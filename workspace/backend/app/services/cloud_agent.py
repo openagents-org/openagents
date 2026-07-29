@@ -43,38 +43,53 @@ async def invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
         logger.warning("cloud_agent: max depth %d reached, skipping", depth)
         return
 
+    names = [n for n in target_agents if n != "__no_response__"]
+    if not names:
+        return
+
+    # Invoke all targeted cloud agents concurrently — a message like
+    # "@a task1 @b task2" must not make b wait for a's API round-trip.
+    # Each invocation gets its own DB session because SQLAlchemy sessions
+    # are not safe to share across concurrently running tasks.
+    await asyncio.gather(
+        *(_invoke_guarded(workspace_id, event_data, name, depth) for name in names)
+    )
+
+
+async def _invoke_guarded(
+    workspace_id: str, event_data: dict, agent_name: str, depth: int,
+) -> None:
+    """Look up one cloud agent's config and invoke it, posting an error
+    message to the channel on failure. Owns its DB session so concurrent
+    invocations don't share one."""
     db = SessionLocal()
     try:
-        for agent_name in target_agents:
-            if agent_name == "__no_response__":
-                continue
+        cloud_config = db.execute(
+            select(CloudAgentConfig).where(
+                CloudAgentConfig.workspace_id == workspace_id,
+                CloudAgentConfig.agent_name == agent_name,
+                CloudAgentConfig.status == "active",
+            )
+        ).scalar_one_or_none()
 
-            cloud_config = db.execute(
-                select(CloudAgentConfig).where(
-                    CloudAgentConfig.workspace_id == workspace_id,
-                    CloudAgentConfig.agent_name == agent_name,
-                    CloudAgentConfig.status == "active",
-                )
-            ).scalar_one_or_none()
+        if not cloud_config:
+            return
 
-            if not cloud_config:
-                continue
-
-            try:
-                await _invoke_single(db, workspace_id, event_data, cloud_config, depth)
-            except Exception as exc:
-                logger.exception(
-                    "cloud_agent: failed to invoke %s (%s/%s)",
-                    agent_name, cloud_config.provider, cloud_config.model,
-                )
-                error_detail = str(exc)[:200] if str(exc) else "Unknown error"
-                # Use a fresh DB session for error posting — the original
-                # session may be stale after a long async API call.
-                await _post_error_message(
-                    workspace_id, event_data, agent_name,
-                    f"Failed to get a response from {cloud_config.provider}/{cloud_config.model}: "
-                    f"{error_detail}",
-                )
+        try:
+            await _invoke_single(db, workspace_id, event_data, cloud_config, depth)
+        except Exception as exc:
+            logger.exception(
+                "cloud_agent: failed to invoke %s (%s/%s)",
+                agent_name, cloud_config.provider, cloud_config.model,
+            )
+            error_detail = str(exc)[:200] if str(exc) else "Unknown error"
+            # Use a fresh DB session for error posting — the original
+            # session may be stale after a long async API call.
+            await _post_error_message(
+                workspace_id, event_data, agent_name,
+                f"Failed to get a response from {cloud_config.provider}/{cloud_config.model}: "
+                f"{error_detail}",
+            )
     finally:
         db.close()
 

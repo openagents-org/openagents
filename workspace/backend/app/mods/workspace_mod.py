@@ -582,10 +582,19 @@ def _fallback_targets(event, channel, mentions: List[str], online_names: set = N
     Priority: explicit @mentions → master (for human/member msgs) → online
     participant → any participant. When ``online_names`` is provided, an online
     participant is chosen over an offline one so messages aren't stranded on a
-    dead agent. An explicit @mention is always honored as-is (the user chose it).
+    dead agent. Explicit @mentions are always honored as-is (the sender chose
+    them) — ALL of them, so "@a do X @b do Y" fans out and the mentioned
+    agents work in parallel instead of only the first one being targeted.
     """
     if mentions:
-        return [mentions[0]]
+        targets = list(dict.fromkeys(mentions))  # dedupe, keep order
+        if event.source.startswith("openagents:"):
+            # An agent mentioning itself must not self-trigger.
+            sender = event.source[len("openagents:"):]
+            targets = [t for t in targets if t != sender]
+        # All mentions were self-mentions → nobody should respond. Return
+        # here (not fall through) so a self-note never re-routes to master.
+        return targets
     if channel.master_agent:
         if event.source.startswith("openagents:"):
             sender = event.source[len("openagents:"):]
@@ -884,9 +893,15 @@ async def _route_with_llm(
         logger.info("LLM router decision: %s (channel=%s, sender=%s, provider=%s)", raw_result, channel.name, sender, provider)
 
         if result.startswith("next:"):
-            # Preserve the original case from the model output so we can
-            # match against participant names, which ARE case-sensitive.
-            agent_name = raw_result[len("next:"):].strip().split(",")[0].strip()
+            # The router may name several agents ("next: a, b") — honor all
+            # of them so independent tasks run in parallel. Preserve the
+            # original case from the model output so we can match against
+            # participant names, which ARE case-sensitive.
+            requested = [
+                n.strip()
+                for n in raw_result[len("next:"):].split(",")
+                if n.strip()
+            ]
             # Case-insensitive participant lookup, then canonicalize to
             # the stored case.
             # Validate against the candidate set (online participants when any
@@ -895,30 +910,32 @@ async def _route_with_llm(
             participants_by_lower = {
                 name.lower(): name for name in candidate_names
             }
-            canonical = participants_by_lower.get(agent_name.lower())
-            if canonical is None:
-                logger.warning(
-                    "LLM router returned unknown agent: %r (valid: %s)",
-                    agent_name, list(participants_by_lower.values()),
-                )
-                # For human senders, fall through to the safety net below
-                # so the user always gets a reply.
-                if not (new_event.source or "").startswith("human:"):
-                    return []
-                agent_name = None
-            else:
-                agent_name = canonical
+            sender_name = None
+            if (new_event.source or "").startswith("openagents:"):
+                sender_name = new_event.source[len("openagents:"):]
+            targets: List[str] = []
+            for name in requested:
+                canonical = participants_by_lower.get(name.lower())
+                if canonical is None:
+                    logger.warning(
+                        "LLM router returned unknown agent: %r (valid: %s)",
+                        name, list(participants_by_lower.values()),
+                    )
+                    continue
                 # Reject self-loops — router sometimes picks the agent
                 # who just spoke. Sender's adapter skips own messages but
                 # legacy clients would still see the target and retry.
-                if (new_event.source or "").startswith("openagents:"):
-                    sender = new_event.source[len("openagents:"):]
-                    if agent_name == sender:
-                        logger.info("LLM router self-loop rejected: %s", sender)
-                        return []
-                return [agent_name]
-        else:
-            agent_name = None  # "stop" or unrecognized
+                if canonical == sender_name:
+                    logger.info("LLM router self-loop rejected: %s", sender_name)
+                    continue
+                if canonical not in targets:
+                    targets.append(canonical)
+            if targets:
+                return targets
+            # No valid target survived — for human senders fall through to
+            # the safety net below so the user always gets a reply.
+            if not (new_event.source or "").startswith("human:"):
+                return []
 
         # Safety net: humans ALWAYS get a response. If the router said
         # "stop" (or returned an invalid agent) for a human message,
@@ -1129,6 +1146,13 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
                 targets = _master_targets(event, channel, mentions)
             else:
                 targets = _fallback_targets(event, channel, mentions, online_names)
+        elif mentions and event.source.startswith("human:"):
+            # A human explicitly @mentioned agents — honor the mentions
+            # as-is (all of them) without consulting the LLM router. The
+            # user already chose the targets, and the router used to pick a
+            # single agent for "@a task1 @b task2", collapsing parallel work
+            # onto one agent whose queue then serialized the tasks.
+            targets = _fallback_targets(event, channel, mentions, online_names)
         elif mode == "workflow" and config.ROUTER_LLM_ENABLED and _get_router_api_key():
             # LLM router steered by the user's natural-language plan.
             targets = await _route_with_llm(

@@ -10,7 +10,12 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 from app.models import Channel, ChannelMember, WorkspaceMember, Workspace
-from app.mods.workspace_mod import _route_with_llm, _master_targets, _handle_message_posted
+from app.mods.workspace_mod import (
+    _fallback_targets,
+    _handle_message_posted,
+    _master_targets,
+    _route_with_llm,
+)
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import PipelineContext
 
@@ -111,19 +116,37 @@ class TestRouteWithLLM:
     @patch("app.mods.workspace_mod._get_llm_client")
     @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
     @patch("app.mods.workspace_mod._get_router_model", return_value="claude-haiku-4-5-20251001")
-    def test_router_multiple_agents_picks_first(self, _mock_model, _mock_key, mock_get_client, db, multi_agent_workspace):
-        """When the LLM returns comma-separated agents, only the first is used."""
+    def test_router_multiple_agents_all_targeted(self, _mock_model, _mock_key, mock_get_client, db, multi_agent_workspace):
+        """When the LLM returns comma-separated agents, ALL of them are
+        targeted so their tasks run in parallel."""
         mock_client = MagicMock()
         mock_client.messages.create.return_value = _mock_anthropic_response("next:agent-master,agent-worker")
         mock_get_client.return_value = (mock_client, "anthropic")
 
         ws = multi_agent_workspace["workspace"]
         ch = multi_agent_workspace["channel"]
-        # Human sender so the first of the comma-list isn't a self-loop.
+        # Human sender so no name in the comma-list is a self-loop.
         event = _make_event("human:user", "channel/session-test", "Both agents need to act")
 
         result = _run(_route_with_llm(ch, event, db, ws))
-        assert result == ["agent-master"]
+        assert result == ["agent-master", "agent-worker"]
+
+    @patch("app.mods.workspace_mod._get_llm_client")
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    @patch("app.mods.workspace_mod._get_router_model", return_value="claude-haiku-4-5-20251001")
+    def test_router_multiple_agents_self_loop_dropped_others_kept(self, _mock_model, _mock_key, mock_get_client, db, multi_agent_workspace):
+        """A multi-name router answer that includes the sender keeps the
+        other agents and only drops the self-loop."""
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _mock_anthropic_response("next:agent-master,agent-worker")
+        mock_get_client.return_value = (mock_client, "anthropic")
+
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        event = _make_event("openagents:agent-master", "channel/session-test", "delegating work")
+
+        result = _run(_route_with_llm(ch, event, db, ws))
+        assert result == ["agent-worker"]
 
     @patch("app.mods.workspace_mod._get_llm_client")
     @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
@@ -372,6 +395,73 @@ class TestRouteWithOpenAI:
 
         result = _run(_route_with_llm(ch, event, db, ws))
         assert result == []
+
+
+class TestParallelMentionRouting:
+    """Explicit @mentions fan out to ALL mentioned agents so tasks assigned
+    to different agents in one channel run in parallel instead of being
+    funneled through the single-target LLM router and queued on one agent."""
+
+    def test_fallback_returns_all_mentions(self, db, multi_agent_workspace):
+        ch = multi_agent_workspace["channel"]
+        event = _make_event("human:user", "channel/session-test",
+                            "@agent-master do X and @agent-worker do Y")
+        result = _fallback_targets(event, ch, ["agent-master", "agent-worker"])
+        assert result == ["agent-master", "agent-worker"]
+
+    def test_fallback_dedupes_repeated_mentions(self, db, multi_agent_workspace):
+        ch = multi_agent_workspace["channel"]
+        event = _make_event("human:user", "channel/session-test",
+                            "@agent-worker do X, @agent-worker also do Y")
+        result = _fallback_targets(event, ch, ["agent-worker", "agent-worker"])
+        assert result == ["agent-worker"]
+
+    def test_fallback_filters_agent_self_mention(self, db, multi_agent_workspace):
+        ch = multi_agent_workspace["channel"]
+        event = _make_event("openagents:agent-master", "channel/session-test",
+                            "@agent-master note to self, @agent-worker take over")
+        result = _fallback_targets(event, ch, ["agent-master", "agent-worker"])
+        assert result == ["agent-worker"]
+
+    def test_fallback_all_self_mentions_returns_empty(self, db, multi_agent_workspace):
+        ch = multi_agent_workspace["channel"]
+        event = _make_event("openagents:agent-master", "channel/session-test",
+                            "@agent-master note to self")
+        result = _fallback_targets(event, ch, ["agent-master"])
+        assert result == []
+
+    @patch("app.mods.workspace_mod._get_llm_client")
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    @patch("app.mods.workspace_mod._get_router_model", return_value="claude-haiku-4-5-20251001")
+    def test_human_mentions_bypass_llm_router(
+        self, _mock_model, _mock_key, mock_get_client, db, multi_agent_workspace,
+    ):
+        """Dynamic mode, human message with explicit @mentions → all
+        mentioned agents targeted directly; the LLM router is never called."""
+        mock_client = MagicMock()
+        mock_get_client.return_value = (mock_client, "anthropic")
+
+        ws = multi_agent_workspace["workspace"]
+        event = _make_event("human:user", "channel/session-test",
+                            "@agent-master analyze the logs @agent-worker fix the tests")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
+
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-master", "agent-worker"]
+        mock_client.messages.create.assert_not_called()
+
+    def test_master_mode_still_routes_human_to_master(self, db, multi_agent_workspace):
+        """Master mode keeps its star topology — a human @mentioning a
+        sub-agent still goes through the master hub."""
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        ch.orchestration_mode = "master"
+        db.flush()
+        event = _make_event("human:user", "channel/session-test",
+                            "@agent-worker please handle this")
+        ctx = PipelineContext(network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws)
+        out = _run(_handle_message_posted(event, ctx))
+        assert out.metadata.get("target_agents") == ["agent-master"]
 
 
 class TestMessagePostedTargetAgents:
