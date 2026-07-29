@@ -65,6 +65,28 @@ function eventsToScopedMessages(
   return scopeMessagesToSession(events.map(eventToMessage), sessionId, dmPair);
 }
 
+/** Chronological comparator — createdAt first, messageId as tiebreaker. */
+function compareMessages(a: WorkspaceMessage, b: WorkspaceMessage): number {
+  const ta = a.createdAt ?? '';
+  const tb = b.createdAt ?? '';
+  if (ta !== tb) return ta < tb ? -1 : 1;
+  return a.messageId < b.messageId ? -1 : a.messageId > b.messageId ? 1 : 0;
+}
+
+/**
+ * Merge incoming messages into the list, deduped by id and kept in
+ * chronological order. A plain append is not enough: the catch-up poll and
+ * the SSE stream run concurrently, so an older status batch can arrive
+ * after a newer SSE-delivered reply — appended naively it would become the
+ * trailing message and make the UI report the agent as still working.
+ */
+function mergeMessages(prev: WorkspaceMessage[], incoming: WorkspaceMessage[]): WorkspaceMessage[] {
+  const existingIds = new Set(prev.map((m) => m.messageId));
+  const unique = incoming.filter((m) => !existingIds.has(m.messageId));
+  if (unique.length === 0) return prev;
+  return [...prev, ...unique].sort(compareMessages);
+}
+
 export function useMessagePolling({ sessionId, enabled = true, initialMessages }: UsePollingOptions) {
   const [messages, setMessages] = useState<WorkspaceMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -80,6 +102,10 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
 
   // Refs for cursor tracking
   const newestIdRef = useRef<string | null>(null);
+  // Newest known message, kept alongside newestIdRef so the cursor can only
+  // advance chronologically — a late catch-up batch must not roll it back
+  // behind a message the SSE stream already delivered.
+  const newestMsgRef = useRef<WorkspaceMessage | null>(null);
   const oldestIdRef = useRef<string | null>(null);
   const lastActivityRef = useRef<number>(Date.now());
   const historyLoadedRef = useRef(false);
@@ -101,7 +127,8 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
     if (scopedInitialMessages.length > 0) {
       // Seed with cached messages for instant display
       setMessages(scopedInitialMessages);
-      newestIdRef.current = scopedInitialMessages[scopedInitialMessages.length - 1].messageId;
+      newestMsgRef.current = scopedInitialMessages[scopedInitialMessages.length - 1];
+      newestIdRef.current = newestMsgRef.current.messageId;
       oldestIdRef.current = scopedInitialMessages[0].messageId;
       historyLoadedRef.current = true;
       setHasOlder(true); // assume there may be older until proven otherwise
@@ -109,12 +136,21 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
     } else {
       setMessages([]);
       newestIdRef.current = null;
+      newestMsgRef.current = null;
       oldestIdRef.current = null;
       historyLoadedRef.current = false;
       setHasOlder(false);
       setLoading(false);
     }
   }, [sessionId]); // intentionally omit initialMessages — only seed on session change
+
+  // Advance the newest-message cursor, but only forward in time.
+  const bumpNewest = useCallback((msg: WorkspaceMessage) => {
+    if (!newestMsgRef.current || compareMessages(msg, newestMsgRef.current) > 0) {
+      newestMsgRef.current = msg;
+      newestIdRef.current = msg.messageId;
+    }
+  }, []);
 
   // Keep agentWorkingRef in sync with the newest message.
   useEffect(() => {
@@ -139,8 +175,8 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
   // Load recent history (newest messages first, then reverse for display)
   const dmPair = useMemo(() => parseDMSession(sessionId), [sessionId]);
 
-  const loadHistory = useCallback(async () => {
-    if (!sessionId) return;
+  const loadHistory = useCallback(async (): Promise<boolean> => {
+    if (!sessionId) return false;
 
     setLoading(true);
     try {
@@ -153,15 +189,16 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
         : await workspaceApi.loadMessageHistory(sessionId, { limit: 50 });
 
       // Discard if session changed
-      if (sessionId !== currentSessionRef.current) return;
+      if (sessionId !== currentSessionRef.current) return false;
 
       if (result.events.length > 0) {
         // Events come newest-first from sort=desc, reverse for chronological display
         const historicMessages = eventsToScopedMessages(result.events, sessionId, dmPair).reverse();
         setMessages(historicMessages);
-        newestIdRef.current = historicMessages.length > 0
-          ? historicMessages[historicMessages.length - 1].messageId
+        newestMsgRef.current = historicMessages.length > 0
+          ? historicMessages[historicMessages.length - 1]
           : null;
+        newestIdRef.current = newestMsgRef.current?.messageId ?? null;
         oldestIdRef.current = historicMessages.length > 0
           ? historicMessages[0].messageId
           : null;
@@ -170,13 +207,16 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
       } else {
         setMessages([]);
         newestIdRef.current = null;
+        newestMsgRef.current = null;
         oldestIdRef.current = null;
         setHasOlder(false);
       }
 
       historyLoadedRef.current = true;
+      return true;
     } catch {
       historyLoadedRef.current = true;
+      return false;
     } finally {
       setLoading(false);
     }
@@ -187,13 +227,17 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
     if (!sessionId || !historyLoadedRef.current) return;
 
     try {
-      // Keep fetching while there are more events (handles bursts of status messages)
+      // Keep fetching while there are more events (handles bursts of status
+      // messages). Pagination advances a local cursor — the shared
+      // newestIdRef may concurrently jump ahead via SSE, which would skip
+      // the batches this loop is still backfilling.
+      let cursor = newestIdRef.current;
       let hasMore = true;
       while (hasMore) {
         const result = dmPair
           ? await (async () => {
               const r = await workspaceApi.pollConversation(dmPair[0], dmPair[1], {
-                after: newestIdRef.current ?? undefined,
+                after: cursor ?? undefined,
               });
               return {
                 messages: eventsToScopedMessages(r.events, sessionId, dmPair),
@@ -202,7 +246,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
             })()
           : await workspaceApi.pollMessages(
               sessionId,
-              newestIdRef.current ?? undefined,
+              cursor ?? undefined,
             );
 
         // Discard response if session changed while request was in flight
@@ -213,19 +257,15 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
 
         if (newMessages.length > 0) {
           const lastMsg = newMessages[newMessages.length - 1];
-          newestIdRef.current = lastMsg.messageId;
-
-          setMessages((prev) => {
-            const existingIds = new Set(prev.map((m) => m.messageId));
-            const unique = newMessages.filter((m) => !existingIds.has(m.messageId));
-            return unique.length > 0 ? [...prev, ...unique] : prev;
-          });
+          cursor = lastMsg.messageId;
+          bumpNewest(lastMsg);
+          setMessages((prev) => mergeMessages(prev, newMessages));
         }
       }
     } catch {
       // Polling error — will retry on next interval
     }
-  }, [sessionId, dmPair]);
+  }, [sessionId, dmPair, bumpNewest]);
 
   // Load older messages (infinite scroll upward)
   const loadOlder = useCallback(async () => {
@@ -252,11 +292,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
         oldestIdRef.current = olderMessages.length > 0 ? olderMessages[0].messageId : oldestIdRef.current;
         setHasOlder(olderMessages.length > 0 && result.has_more);
 
-        setMessages((prev) => {
-          const existingIds = new Set(prev.map((m) => m.messageId));
-          const unique = olderMessages.filter((m) => !existingIds.has(m.messageId));
-          return unique.length > 0 ? [...unique, ...prev] : prev;
-        });
+        setMessages((prev) => mergeMessages(prev, olderMessages));
       } else {
         setHasOlder(false);
       }
@@ -277,8 +313,13 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
       // opens — so without an explicit catch-up poll, steps emitted before
       // the refresh would never load and an agent mid-task would look idle.
       // The forward poll is unfiltered and starts after the newest chat
-      // message, so it backfills exactly that gap.
-      loadHistory().then(() => poll());
+      // message, so it backfills exactly that gap. Only run it when history
+      // actually established a cursor — after a failed history request the
+      // cursor is null and the poll loop would page through the channel's
+      // entire event log from the beginning.
+      loadHistory().then((ok) => {
+        if (ok) poll();
+      });
     }
 
     // Try SSE first for instant updates, fall back to polling
@@ -322,11 +363,8 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
             if (event.type && event.type !== 'workspace.message.posted') return;
             const msg = scopeMessageToSession(eventToMessage(event), sessionId, null);
             if (!msg) return;
-            newestIdRef.current = msg.messageId;
-            setMessages((prev) => {
-              if (prev.some((m) => m.messageId === msg.messageId)) return prev;
-              return [...prev, msg];
-            });
+            bumpNewest(msg);
+            setMessages((prev) => mergeMessages(prev, [msg]));
           } catch {
             // malformed event
           }
