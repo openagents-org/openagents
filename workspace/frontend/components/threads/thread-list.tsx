@@ -781,7 +781,10 @@ export function ThreadList() {
 
         {TABS.map((tab) => (
           <TabsContent key={tab.id} value={tab.id} className="min-h-0 grow">
-            <ScrollArea className="h-full" viewportClassName="[&>div]:flex! [&>div]:min-h-full [&>div]:flex-col">
+            {/* Gutters on the viewport, not the rows: the selected row is
+                outlined and rounded, and flush against the edge its ring
+                collided with the scrollbar. */}
+            <ScrollArea className="h-full" viewportClassName="px-2 [&>div]:flex! [&>div]:min-h-full [&>div]:flex-col">
               {tab.id === 'dms' && !isSearching ? (
                 visibleDMs.length === 0 ? emptyState('dms') : renderDMRows()
               ) : visibleSessions.length === 0 ? (
