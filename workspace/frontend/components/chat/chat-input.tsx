@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { SendHorizontal, Paperclip, X, FileIcon, ImageIcon, Plus, CalendarClock } from 'lucide-react';
+import { ArrowUp, Paperclip, X, FileIcon, ImageIcon, Plus, CalendarClock } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +36,9 @@ interface ChatInputProps {
 function isImageFile(file: File): boolean {
   return file.type.startsWith('image/');
 }
+
+const FILE_ACCEPT =
+  'image/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml';
 
 export function ChatInput({ onSend, disabled, className, agents = [], knowledge = [], draft, onDraftChange, onFocusChange, focusKey, onCreateRoutine }: ChatInputProps) {
   const [message, setMessage] = React.useState(draft ?? '');
@@ -297,6 +300,23 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
     }
   };
 
+  /**
+   * Opens the shared file input, optionally narrowed to one kind (images).
+   * The accept list is restored afterwards so the next "Attach file" is not
+   * stuck on the narrowed filter.
+   */
+  const openFilePicker = (accept?: string) => {
+    const input = fileInputRef.current;
+    if (!input) return;
+    input.accept = accept ?? FILE_ACCEPT;
+    input.click();
+    if (accept) {
+      setTimeout(() => {
+        if (fileInputRef.current) fileInputRef.current.accept = FILE_ACCEPT;
+      }, 100);
+    }
+  };
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       addFiles(e.target.files);
@@ -383,10 +403,13 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
         </div>
       )}
 
+      {/* ChatGPT-style composer: one rounded bar with every control on a single
+          row — the `+` menu on the left, the growing textarea in the middle and
+          the send button on the right. Attachments stack above that row. */}
       <div className={cn(
-        'relative flex flex-col gap-1 bg-background transition-all rounded-2xl border shadow-lg px-3 py-2',
+        'relative flex flex-col gap-1.5 rounded-2xl border border-input bg-background px-2.5 py-2.5 shadow-xs transition-colors',
         isDragging && 'border-primary border-dashed bg-primary/5',
-        isFocused && !isDragging && 'ring-2 ring-primary/30 border-primary/40'
+        isFocused && !isDragging && 'border-foreground/25 shadow-sm'
       )}>
         {/* Drag overlay */}
         {isDragging && (
@@ -397,7 +420,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
 
         {/* Pending file previews */}
         {pendingFiles.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 px-1 pt-1">
             {pendingFiles.map((pf, i) => (
               <div
                 key={i}
@@ -428,7 +451,46 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
           </div>
         )}
 
-        <div className="relative flex-1">
+        <div className="flex items-end gap-1">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={FILE_ACCEPT}
+            onChange={handleFileSelect}
+            className="hidden"
+          />
+
+          {/* Everything that isn't typing or sending lives behind the `+` */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="mb-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                title="Add attachments and more"
+                aria-label="Add attachments and more"
+              >
+                <Plus className="size-5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="top" className="min-w-50">
+              <DropdownMenuItem onSelect={() => openFilePicker()}>
+                <Paperclip className="size-4" />
+                Attach file
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => openFilePicker('image/*')}>
+                <ImageIcon className="size-4" />
+                Attach image
+              </DropdownMenuItem>
+              {onCreateRoutine && (
+                <DropdownMenuItem onSelect={() => onCreateRoutine()}>
+                  <CalendarClock className="size-4" />
+                  Create Routine
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <textarea
             ref={textareaRef}
             value={message}
@@ -441,90 +503,38 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
             rows={1}
             disabled={disabled}
             data-chat-input
-            className="w-full border-0 bg-transparent shadow-none focus:outline-none placeholder:text-muted-foreground h-auto px-0 text-sm py-1.5 resize-none"
+            className="min-w-0 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-sm shadow-none placeholder:text-muted-foreground focus:outline-none"
           />
-          {/* Shortcut hint: always show 'esc' when focused, show 'i' when not focused and empty */}
+
+          {/* Keyboard affordance for the global 'type anywhere' shortcut */}
           {isFocused ? (
             <kbd
-              className="pointer-events-none absolute right-1 top-2 flex items-center justify-center rounded text-[9px] font-mono font-medium bg-muted text-muted-foreground border border-input h-4 px-1"
+              className="pointer-events-none mb-2.5 hidden h-4 shrink-0 items-center justify-center rounded border border-input bg-muted px-1 font-mono text-[9px] font-medium text-muted-foreground sm:flex"
               title="Press Esc to exit typing mode"
             >
               esc
             </kbd>
-          ) : !message && (
+          ) : !message ? (
             <kbd
-              className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 flex items-center justify-center rounded text-[9px] font-mono font-medium bg-muted text-muted-foreground border border-input size-4"
+              className="pointer-events-none mb-2.5 hidden size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-[9px] font-medium text-muted-foreground sm:flex"
               title="Press any key to start typing"
             >
               i
             </kbd>
-          )}
-        </div>
+          ) : null}
 
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="size-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              title="Attach file"
-            >
-              <Paperclip className="size-4" />
-            </button>
-            <button
-              onClick={() => {
-                // Open file input in image-only mode
-                if (fileInputRef.current) {
-                  fileInputRef.current.accept = 'image/*';
-                  fileInputRef.current.click();
-                  // Reset to full accept list
-                  setTimeout(() => {
-                    if (fileInputRef.current) {
-                      fileInputRef.current.accept = "image/*,.pdf,.txt,.md,.json,.csv,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml";
-                    }
-                  }, 100);
-                }
-              }}
-              className="size-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              title="Attach image"
-            >
-              <ImageIcon className="size-4" />
-            </button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className="size-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  title="More actions"
-                >
-                  <Plus className="size-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="top" className="min-w-[180px]">
-                <DropdownMenuItem onSelect={() => onCreateRoutine?.()}>
-                  <CalendarClock className="size-4 mr-2" />
-                  Create Routine
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
           <Button
             variant={hasContent ? 'primary' : 'secondary'}
             size="icon"
             className={cn(
-              'size-8 rounded-xl transition-all',
+              'mb-0.5 size-8 shrink-0 rounded-full transition-all',
               hasContent ? 'opacity-100' : 'opacity-50'
             )}
             onClick={handleSend}
             disabled={!hasContent || disabled}
+            aria-label="Send message"
           >
-            <SendHorizontal className="size-4" />
+            <ArrowUp className="size-4" />
           </Button>
         </div>
       </div>

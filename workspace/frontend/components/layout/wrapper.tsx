@@ -4,7 +4,7 @@ import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
 import { AppHeader } from './app-header';
 import { MobileHeader } from './mobile-header';
-import { useLayout } from './layout-context';
+import { useLayout, RAIL_WIDTH_COLLAPSED, RAIL_WIDTH_EXPANDED } from './layout-context';
 import { ChatView } from '@/components/chat/chat-view';
 import { ThreadList } from '@/components/threads/thread-list';
 import { FileList } from '@/components/files/file-list';
@@ -61,6 +61,7 @@ export function Wrapper() {
   const {
     isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
     hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,
+    railDragWidth,
   } = useLayout();
   const { monitorMode, agents, loading } = useWorkspace();
   const hasAgents = agents.length > 0;
@@ -140,7 +141,10 @@ export function Wrapper() {
 
   // The shell sizes itself: rail width plus the list panel when it is showing.
   // Expanding the rail to show labels widens the shell by the same amount.
-  const railWidth = isRailExpanded ? 180 : 52;
+  // While the rail's edge is being dragged the live width wins, so the shell
+  // tracks the pointer and only settles on a state when the drag ends.
+  const railWidth =
+    railDragWidth ?? (isRailExpanded ? RAIL_WIDTH_EXPANDED : RAIL_WIDTH_COLLAPSED);
   const shellWidth = railWidth + (sidebarOpen ? 388 : 0);
 
   return (

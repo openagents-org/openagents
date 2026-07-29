@@ -64,6 +64,14 @@ function writeRailPref(expanded: boolean) {
   document.cookie = `${RAIL_COOKIE}=${expanded ? '1' : '0'}; path=/; max-age=${LIST_PREFS_MAX_AGE}; samesite=lax`;
 }
 
+/**
+ * The rail's two widths. Dragging its trailing edge is free-form while the
+ * pointer is down but always lands on one of these — the rail has two states,
+ * not a continuous width.
+ */
+export const RAIL_WIDTH_COLLAPSED = 52;
+export const RAIL_WIDTH_EXPANDED = 180;
+
 /** On mobile, which pane is showing: the list or the detail */
 export type MobilePane = 'list' | 'detail';
 
@@ -94,6 +102,14 @@ interface LayoutState {
   /** Whether the icon rail is widened to show its labels */
   isRailExpanded: boolean;
   toggleRail: () => void;
+  setRailExpanded: (expanded: boolean) => void;
+  /**
+   * Live width while the rail's edge is being dragged, or null when it isn't.
+   * The shell renders this width verbatim so the drag feels direct; on release
+   * the handle snaps back to one of the two states.
+   */
+  railDragWidth: number | null;
+  setRailDragWidth: (width: number | null) => void;
   /** Experimental: show browser tab side-by-side with chat */
   splitBrowser: boolean;
   setSplitBrowser: (v: boolean) => void;
@@ -126,6 +142,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   };
 
   const [isRailExpanded, setIsRailExpanded] = useState(false);
+  const [railDragWidth, setRailDragWidth] = useState<number | null>(null);
   const [showBrowserPreview, setShowBrowserPreview] = useState(false);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const openNewThread = () => setNewThreadOpen(true);
@@ -140,11 +157,12 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   // Persist outside the state updater: React may run an updater more than once
   // (StrictMode, concurrent renders), and writing a cookie from there is a
   // side effect in the render phase.
-  const toggleRail = () => {
-    const next = !isRailExpanded;
-    setIsRailExpanded(next);
-    writeRailPref(next);
+  const setRailExpanded = (expanded: boolean) => {
+    setIsRailExpanded(expanded);
+    writeRailPref(expanded);
   };
+
+  const toggleRail = () => setRailExpanded(!isRailExpanded);
 
   const isAgentPanelOpen = selectedAgentName !== null;
   const openMobileDetail = () => setMobilePane('detail');
@@ -219,6 +237,9 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       hasListPanel,
       isRailExpanded,
       toggleRail,
+      setRailExpanded,
+      railDragWidth,
+      setRailDragWidth,
       splitBrowser,
       setSplitBrowser: handleSetSplitBrowser,
       showBrowserPreview,

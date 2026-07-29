@@ -824,7 +824,7 @@ export function ChatView() {
             list, so the composer lines up with the conversation column instead
             of sitting in a narrower box of its own. */}
         {!isDM && (
-          <div className="px-3 lg:px-5 pt-1 pb-2 lg:pb-3">
+          <div className="mx-auto w-full max-w-3xl px-3 lg:px-5 pt-1 pb-2 lg:pb-3">
             {currentSessionId && <ThreadStatusBar channelName={currentSessionId} messages={displayMessages} />}
             <ChatInput
               onSend={handleSend}

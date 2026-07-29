@@ -68,13 +68,18 @@ function SidebarRailToggle() {
  * is always wanted there, and the rail's own toggle covers that case.
  */
 export function AppSidebar() {
-  const { hasListPanel, viewMode, isMobile } = useLayout();
+  const { hasListPanel, viewMode, isMobile, isSidebarOpen, railDragWidth } = useLayout();
 
   return (
     <>
       <Sidebar
         collapsible="none"
-        className="h-svh shrink-0 overflow-hidden border-e transition-[width] duration-200 ease-linear"
+        className={cn(
+          'h-svh shrink-0 overflow-hidden border-e',
+          // Dragging the rail's edge drives this width too — easing it would
+          // make the shell lag a frame behind the pointer.
+          railDragWidth === null && 'transition-[width] duration-200 ease-linear',
+        )}
       >
         {/* The list stays mounted while collapsed — the shell simply squeezes
             it to zero width — so its scroll position, filter and search survive
@@ -85,7 +90,12 @@ export function AppSidebar() {
         </div>
       </Sidebar>
 
-      {!isMobile && hasListPanel && viewMode !== 'threads' && <SidebarRailToggle />}
+      {/* Only while the list is open. Collapsed, this handle would land on the
+          exact seam the rail's own toggle owns — and the app header already
+          grows a "Show list" button for that case. */}
+      {!isMobile && hasListPanel && viewMode !== 'threads' && isSidebarOpen && (
+        <SidebarRailToggle />
+      )}
     </>
   );
 }

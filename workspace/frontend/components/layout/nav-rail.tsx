@@ -1,9 +1,10 @@
 'use client';
 
+import * as React from 'react';
 import Image from 'next/image';
 import {
-  BookOpen, CalendarClock, FileText, Globe, Inbox, ListTodo, MessageSquare,
-  PanelLeftClose, PanelLeftOpen, PlusSquare, Sparkles,
+  BookOpen, CalendarClock, ChevronLeft, ChevronRight, FileText, Globe, Inbox,
+  ListTodo, MessageSquare, PlusSquare, Sparkles,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -22,7 +23,12 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { cn } from '@/lib/utils';
 import { isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
-import { useLayout, type ViewMode } from './layout-context';
+import {
+  useLayout,
+  RAIL_WIDTH_COLLAPSED,
+  RAIL_WIDTH_EXPANDED,
+  type ViewMode,
+} from './layout-context';
 import { SearchMenu } from './search-menu';
 import { NotificationsMenu } from './notifications-menu';
 import { UserMenu } from './user-menu';
@@ -35,6 +41,143 @@ interface RailItem {
   unread?: boolean;
 }
 
+const RAIL_SNAP_POINT = (RAIL_WIDTH_COLLAPSED + RAIL_WIDTH_EXPANDED) / 2;
+
+function clampRailWidth(width: number) {
+  return Math.min(RAIL_WIDTH_EXPANDED, Math.max(RAIL_WIDTH_COLLAPSED, width));
+}
+
+/**
+ * The rail's trailing seam: a drag strip riding the border line, with a round
+ * toggle button floating over it at mid-height — the DingTalk treatment. Both
+ * gestures land on the same two states.
+ *
+ * Dragging is Lark-style: the rail follows the pointer, then snaps to whichever
+ * state the release landed nearest; a drag that never really moved counts as a
+ * click and just toggles. The strip is `fixed` rather than absolute because the
+ * sidebar shell clips its overflow, and the control straddles the seam.
+ */
+function RailResizeHandle() {
+  const {
+    isRailExpanded, toggleRail, setRailExpanded, railDragWidth, setRailDragWidth,
+  } = useLayout();
+  const dragRef = React.useRef<{ startX: number; startWidth: number; moved: boolean } | null>(null);
+  const isDragging = railDragWidth !== null;
+
+  // While dragging, the resize cursor has to win everywhere — the pointer
+  // leaves the handle long before the rail stops following it.
+  React.useEffect(() => {
+    if (!isDragging) return;
+    const { style } = document.body;
+    const prevCursor = style.cursor;
+    const prevSelect = style.userSelect;
+    style.cursor = 'col-resize';
+    style.userSelect = 'none';
+    return () => {
+      style.cursor = prevCursor;
+      style.userSelect = prevSelect;
+    };
+  }, [isDragging]);
+
+  const startWidth = () => (isRailExpanded ? RAIL_WIDTH_EXPANDED : RAIL_WIDTH_COLLAPSED);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startWidth: startWidth(), moved: false };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setRailDragWidth(startWidth());
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const dx = e.clientX - drag.startX;
+    if (Math.abs(dx) > 3) drag.moved = true;
+    setRailDragWidth(clampRailWidth(drag.startWidth + dx));
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    dragRef.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    setRailDragWidth(null);
+    if (!drag.moved) {
+      toggleRail();
+      return;
+    }
+    setRailExpanded(clampRailWidth(drag.startWidth + (e.clientX - drag.startX)) >= RAIL_SNAP_POINT);
+  };
+
+  const handlePointerCancel = () => {
+    dragRef.current = null;
+    setRailDragWidth(null);
+  };
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-valuenow={isRailExpanded ? RAIL_WIDTH_EXPANDED : RAIL_WIDTH_COLLAPSED}
+      aria-valuemin={RAIL_WIDTH_COLLAPSED}
+      aria-valuemax={RAIL_WIDTH_EXPANDED}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      onDoubleClick={toggleRail}
+      style={{ left: 'var(--sidebar-width-icon)' }}
+      className={cn(
+        'group/seam fixed inset-y-0 z-30 w-3 -translate-x-1/2 cursor-col-resize touch-none select-none',
+        railDragWidth === null && 'transition-[left] duration-200 ease-linear',
+      )}
+    >
+      {/* The seam lights up while it is hovered or being dragged */}
+      <span
+        aria-hidden="true"
+        className={cn(
+          'absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-primary/50 opacity-0 transition-opacity',
+          'group-hover/seam:opacity-100',
+          isDragging && 'opacity-100',
+        )}
+      />
+
+      {/* Mid-height toggle, floating over the border line */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label={isRailExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-expanded={isRailExpanded}
+            onPointerDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onClick={toggleRail}
+            className={cn(
+              'absolute top-1/2 left-1/2 flex size-5 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center',
+              'rounded-full border border-border bg-background text-muted-foreground shadow-xs',
+              'opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+              'group-hover/seam:opacity-100',
+              isDragging && 'opacity-0',
+            )}
+          >
+            {isRailExpanded ? (
+              <ChevronLeft className="size-3.5" />
+            ) : (
+              <ChevronRight className="size-3.5" />
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {isRailExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
 /**
  * The icon rail: the app-shell-4 first inner sidebar. It always fills
  * `--sidebar-width-icon`, and that width follows the rail's own expanded state
@@ -42,7 +185,7 @@ interface RailItem {
  */
 export function NavRail() {
   const {
-    viewMode, openView, setSelectedAgentName, isRailExpanded, toggleRail,
+    viewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth,
   } = useLayout();
   const {
     workspace, agents, sessions, unreadSessionIds, unreadNotificationCount,
@@ -88,24 +231,34 @@ export function NavRail() {
 
   const isConnectActive = viewMode === 'connect';
 
+  // Mid-drag the rail previews the state it would snap to, so labels appear
+  // and disappear under the pointer instead of only after the release.
+  const showLabels =
+    railDragWidth !== null ? railDragWidth >= RAIL_SNAP_POINT : isRailExpanded;
+
   return (
+    /* The trailing border uses `border-border`, the same seam the list panel
+       draws on its own trailing edge — `border-sidebar-border` is transparent
+       in this theme, which left the rail bleeding into the list. */
     <Sidebar
       collapsible="none"
-      className="w-[calc(var(--sidebar-width-icon)+1px)]! shrink-0 border-e border-sidebar-border transition-[width] duration-200 ease-linear"
+      className={cn(
+        'relative w-[calc(var(--sidebar-width-icon)+1px)]! shrink-0 border-e border-border',
+        // No easing mid-drag: the width has to track the pointer exactly.
+        railDragWidth === null && 'transition-[width] duration-200 ease-linear',
+      )}
     >
-      {/* Brand — doubles as the rail's expand/collapse control */}
+      {/* Brand. The expand/collapse control lives in the footer now — a fixed
+          bottom-left button, plus the draggable seam on the trailing edge. */}
       <SidebarHeader className="py-3">
         <div
           className={cn(
-            'group/brand relative flex items-center',
-            isRailExpanded ? 'w-full gap-2 px-1' : 'justify-center',
+            'flex items-center',
+            showLabels ? 'w-full gap-2 px-1' : 'justify-center',
           )}
         >
           <span
-            className={cn(
-              'relative flex size-8 shrink-0 items-center justify-center transition-opacity',
-              !isRailExpanded && 'group-hover/brand:opacity-0',
-            )}
+            className="flex size-8 shrink-0 items-center justify-center"
             title={workspace?.name || 'Workspace'}
           >
             <Image
@@ -124,38 +277,11 @@ export function NavRail() {
             />
           </span>
 
-          {isRailExpanded && (
+          {showLabels && (
             <span className="min-w-0 flex-1 truncate text-sm font-semibold">
               {workspace?.name || 'Workspace'}
             </span>
           )}
-
-          {/* Collapsed, the control hides behind the logo until hover, so the
-              rail stays a clean strip of icons. */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={toggleRail}
-                aria-label={isRailExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-                className={cn(
-                  'flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-all hover:bg-sidebar-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none',
-                  isRailExpanded
-                    ? 'ml-auto'
-                    : 'absolute inset-0 m-auto opacity-0 group-hover/brand:opacity-100',
-                )}
-              >
-                {isRailExpanded ? (
-                  <PanelLeftClose className="size-4" />
-                ) : (
-                  <PanelLeftOpen className="size-4" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {isRailExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-            </TooltipContent>
-          </Tooltip>
         </div>
       </SidebarHeader>
 
@@ -167,19 +293,19 @@ export function NavRail() {
               {items.map((item) => (
                 <SidebarMenuItem key={item.mode}>
                   <SidebarMenuButton
-                    className={cn('relative', !isRailExpanded && 'justify-center!')}
+                    className={cn('relative', !showLabels && 'justify-center!')}
                     aria-label={item.label}
-                    tooltip={{ children: item.label, hidden: isRailExpanded }}
+                    tooltip={{ children: item.label, hidden: showLabels }}
                     isActive={viewMode === item.mode}
                     onClick={() => openView(item.mode)}
                   >
                     {item.icon}
-                    {isRailExpanded && <span className="truncate">{item.label}</span>}
+                    {showLabels && <span className="truncate">{item.label}</span>}
                     {item.unread && (
                       <span
                         className={cn(
                           'absolute size-1.5 rounded-full',
-                          isRailExpanded ? 'top-1/2 right-2 -translate-y-1/2' : 'top-0.5 right-0.5',
+                          showLabels ? 'top-1/2 right-2 -translate-y-1/2' : 'top-0.5 right-0.5',
                           item.mode === 'inbox' ? 'bg-destructive' : 'bg-primary',
                         )}
                         aria-hidden="true"
@@ -204,9 +330,9 @@ export function NavRail() {
                   {recentAgents.map((agent) => (
                     <SidebarMenuItem key={agent.agentName}>
                       <SidebarMenuButton
-                        className={cn(!isRailExpanded && 'justify-center!')}
+                        className={cn(!showLabels && 'justify-center!')}
                         aria-label={agent.agentName}
-                        tooltip={{ children: agent.agentName, hidden: isRailExpanded }}
+                        tooltip={{ children: agent.agentName, hidden: showLabels }}
                         onClick={() => setSelectedAgentName(agent.agentName)}
                       >
                         <AgentAvatar
@@ -216,7 +342,7 @@ export function NavRail() {
                           showStatus
                           className="[&_svg]:size-full!"
                         />
-                        {isRailExpanded && <span className="truncate">{agent.agentName}</span>}
+                        {showLabels && <span className="truncate">{agent.agentName}</span>}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
@@ -233,7 +359,7 @@ export function NavRail() {
           <SidebarMenuItem>
             <SidebarMenuButton
               className={cn(
-                !isRailExpanded && 'justify-center!',
+                !showLabels && 'justify-center!',
                 !hasAgents &&
                   !isConnectActive &&
                   'bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary',
@@ -241,13 +367,13 @@ export function NavRail() {
               aria-label={hasAgents ? 'Connect Agent' : 'Connect Your First Agent'}
               tooltip={{
                 children: hasAgents ? 'Connect Agent' : 'Connect Your First Agent',
-                hidden: isRailExpanded,
+                hidden: showLabels,
               }}
               isActive={isConnectActive}
               onClick={() => openView('connect')}
             >
               <PlusSquare />
-              {isRailExpanded && (
+              {showLabels && (
                 <span className="truncate">
                   {hasAgents ? 'Connect Agent' : 'Connect Your First Agent'}
                 </span>
@@ -263,14 +389,17 @@ export function NavRail() {
         <div
           className={cn(
             'flex gap-0.5',
-            isRailExpanded ? 'flex-row items-center px-1' : 'flex-col items-center',
+            showLabels ? 'flex-row items-center px-1' : 'flex-col items-center',
           )}
         >
           <SearchMenu iconOnly />
           <NotificationsMenu side="right" align="end" />
           <UserMenu side="right" align="end" />
         </div>
+
       </SidebarFooter>
+
+      <RailResizeHandle />
     </Sidebar>
   );
 }

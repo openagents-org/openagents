@@ -424,10 +424,12 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
                     transform: `translateY(${virtualRow.start}px)`,
                   }}
                 >
-                  <div className="flex items-start gap-3 py-1">
-                    <div className="size-8 shrink-0" />
-                    <div className="py-1.5">
-                      <WorkingIndicator />
+                  <div className="mx-auto w-full max-w-3xl">
+                    <div className="flex items-start gap-3 py-1">
+                      <div className="size-7 shrink-0" />
+                      <div className="py-1.5">
+                        <WorkingIndicator />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -448,24 +450,28 @@ export function ChatMessages({ messages, agents, showAllSteps, className, scroll
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
-                {group.type === 'chat' ? (
-                  <ChatMessage
-                    message={group.message}
-                    agents={agents}
-                  />
-                ) : group.type === 'thinking' ? (
-                  <ThinkingMessage
-                    sender={group.sender}
-                    messages={group.messages}
-                    agents={agents}
-                  />
-                ) : (
-                  <IntermediateSteps
-                    steps={group.messages}
-                    agents={agents}
-                    isActive={index === groups.length - 1}
-                  />
-                )}
+                {/* Centered conversation column, ChatGPT-style: the pane can be
+                    any width, the reading column stays the same. */}
+                <div className="mx-auto w-full max-w-3xl">
+                  {group.type === 'chat' ? (
+                    <ChatMessage
+                      message={group.message}
+                      agents={agents}
+                    />
+                  ) : group.type === 'thinking' ? (
+                    <ThinkingMessage
+                      sender={group.sender}
+                      messages={group.messages}
+                      agents={agents}
+                    />
+                  ) : (
+                    <IntermediateSteps
+                      steps={group.messages}
+                      agents={agents}
+                      isActive={index === groups.length - 1}
+                    />
+                  )}
+                </div>
               </div>
             );
           })}

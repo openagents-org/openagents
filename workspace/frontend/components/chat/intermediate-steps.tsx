@@ -329,7 +329,7 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
   return (
     <div className="flex items-start gap-3 py-1">
       {/* Spacer matching avatar width for alignment with chat messages */}
-      <div className="size-8 shrink-0" />
+      <div className="size-7 shrink-0" />
       <div className="border-l-2 border-zinc-200 dark:border-zinc-700 pl-3 py-0.5 min-w-0 flex-1">
         {senderGroups.map((group, gi) => (
           <div key={`${group.sender}-${gi}`}>

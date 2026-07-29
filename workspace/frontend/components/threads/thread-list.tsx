@@ -210,14 +210,6 @@ function ThreadRow({
           </p>
         </div>
 
-        {/* Tags */}
-        {participants.length > 1 && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <Badge variant="secondary" appearance="light" size="sm" shape="circle">
-              {participants.length} agents
-            </Badge>
-          </div>
-        )}
       </div>
 
       {/* Row actions */}
