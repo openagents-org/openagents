@@ -16,6 +16,8 @@ from typing import Optional
 import httpx
 
 from app.browser_creds import redact
+from app.browser_egress import DENY_MARKER_HEADER, EgressPolicyProxy
+from app.net_security import UnsafeURLError, validate_public_url
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,36 @@ BROWSERFABRIC_PROVISION_SECRET = os.environ.get("BROWSERFABRIC_PROVISION_SECRET"
 RENDER_SETTLE_SECONDS = float(os.environ.get("RENDER_SETTLE_SECONDS", "1.5"))
 RENDER_SETTLE_ATTEMPTS = int(os.environ.get("RENDER_SETTLE_ATTEMPTS", "3"))
 RENDER_MIN_TEXT_CHARS = int(os.environ.get("RENDER_MIN_TEXT_CHARS", "50"))
+
+# Chromium's own sandbox is a second containment layer under the egress proxy:
+# it is what keeps a renderer compromise (from a page an agent chose) inside
+# the renderer process. It needs a non-root user plus unprivileged user
+# namespaces in the container, which the current backend image does not
+# provide, so it stays opt-in — flipping the default here without changing the
+# image would make every browser launch fail.
+BROWSER_SANDBOX = os.environ.get("BROWSER_SANDBOX", "").lower() in ("1", "true", "yes")
+
+# The only non-http(s) URL a tab may hold: the blank page a tab is opened on
+# before anywhere real is navigated to.
+BLANK_PAGE = "about:blank"
+
+
+async def guard_browser_url(url: Optional[str]) -> str:
+    """Policy gate for every URL a browser is asked to load.
+
+    Raises UnsafeURLError for anything that is not a public http(s) target.
+    `about:blank` is allowed through as an exact match only — it is the
+    default a tab opens on, and it reaches no network — while any other
+    non-http(s) URL (file://, chrome://, data:, view-source:, ...) is refused.
+
+    This is the entry check. It is not the whole defence: once a page is
+    loaded, where it navigates next is constrained by the egress proxy, not
+    by this function.
+    """
+    if not url or url.strip() == "" or url.strip() == BLANK_PAGE:
+        return BLANK_PAGE
+    await validate_public_url(url)
+    return url
 
 
 class BrowserNavigationError(RuntimeError):
@@ -66,6 +98,7 @@ class BrowserManager:
         self._sessions: dict = {}        # tab_id -> Browser Fabric session id
         self._live_urls: dict = {}       # tab_id -> Browser Fabric share URL
         self._tab_keys: dict = {}        # tab_id -> per-workspace BF API key
+        self._egress_proxy = None        # EgressPolicyProxy (local mode only)
 
     @classmethod
     def get(cls) -> "BrowserManager":
@@ -153,13 +186,26 @@ class BrowserManager:
         from playwright.async_api import async_playwright
         self._playwright = await async_playwright().start()
 
+    async def _ensure_egress_proxy(self):
+        """Start (once) the policy proxy every local browser request goes through."""
+        if self._egress_proxy is None:
+            self._egress_proxy = EgressPolicyProxy()
+            await self._egress_proxy.start()
+        return self._egress_proxy
+
     async def _ensure_local_browser(self):
         if self._browser and self._browser.is_connected():
             return
         await self._ensure_playwright()
+        proxy = await self._ensure_egress_proxy()
+        # chromium_sandbox is the switch that actually decides this: Playwright
+        # defaults it to False and injects --no-sandbox itself, so merely
+        # leaving that flag out of `args` would keep the sandbox off while
+        # looking like it had been enabled.
         self._browser = await self._playwright.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox"],
+            args=list(proxy.chromium_args()),
+            chromium_sandbox=BROWSER_SANDBOX,
         )
 
     # ------------------------------------------------------------------
@@ -184,7 +230,11 @@ class BrowserManager:
         return len(dead)
 
     async def open_tab(self, tab_id: str, url: str = "about:blank", bb_context_id: str = None, api_key: str = None) -> dict:
-        """Create a new browser tab. Returns {url, title}."""
+        """Create a new browser tab. Returns {url, title}.
+
+        Raises UnsafeURLError if `url` is not a public http(s) target.
+        """
+        url = await guard_browser_url(url)
         if api_key:
             self._tab_keys[tab_id] = api_key
         async with self._global_lock:
@@ -252,7 +302,11 @@ class BrowserManager:
             return {"url": page.url, "title": title, "warnings": warnings}
 
     async def navigate(self, tab_id: str, url: str) -> dict:
-        """Navigate a tab to a URL. Returns {url, title}."""
+        """Navigate a tab to a URL. Returns {url, title}.
+
+        Raises UnsafeURLError if `url` is not a public http(s) target.
+        """
+        url = await guard_browser_url(url)
         if self._is_cloud_tab(tab_id):
             session_id = self._get_session(tab_id)
             try:
@@ -427,9 +481,19 @@ class BrowserManager:
         snapshot, close. Never registers a tab, so it doesn't consume the
         workspace tab quota. Returns {url, title, text}.
 
-        Raises BrowserNavigationError on navigation failure. The caller
-        (/v1/fetch) has already validated the entry URL against private hosts.
+        Raises BrowserNavigationError on navigation failure, UnsafeURLError if
+        the entry URL is not a public http(s) target.
+
+        Validating the entry URL constrains only the first request. Everything
+        the page does afterwards — redirects, meta-refresh, JS navigation,
+        XHR, iframes, subresources, WebSockets — is constrained in local mode
+        by the egress proxy (see app.browser_egress), which is the actual
+        boundary. In Browser Fabric mode the navigation happens on BF's
+        infrastructure and only this entry check applies.
         """
+        url = await guard_browser_url(url)
+        if url == BLANK_PAGE:
+            raise BrowserNavigationError("NAVIGATION_FAILED", "No URL to render")
         if self.is_cloud_for(api_key):
             key = api_key or BROWSERFABRIC_API_KEY
             result = await self._bf_call("create_session", {"headless": True}, api_key=key)
@@ -463,12 +527,45 @@ class BrowserManager:
             async with self._global_lock:
                 await self._ensure_local_browser()
                 page = await self._browser.new_page()
+
+            # A policy denial arrives as an ordinary 403 and page.goto() does
+            # not raise on HTTP error status, so without this the refusal page
+            # would be scraped and returned as if it were the article. Only
+            # main-frame navigations are treated as fatal: a page whose image
+            # or analytics call was refused still has real content worth
+            # returning.
+            blocked_navigations = []
+            deny_token = self._egress_proxy.deny_token if self._egress_proxy else None
+
+            def _note_blocked(response):
+                try:
+                    # Compare the token, not just the header name. Any site the
+                    # policy allows could set this header itself, and would
+                    # otherwise be able to make its own page look like a
+                    # blocked internal address.
+                    if not deny_token or response.headers.get(DENY_MARKER_HEADER) != deny_token:
+                        return
+                    # response.frame is the frame that issued the request, so an
+                    # image in the top document also reports the main frame.
+                    # Only a navigation of the main frame replaces the content
+                    # this function is about to return.
+                    if response.frame is page.main_frame and response.request.is_navigation_request():
+                        blocked_navigations.append(response.url)
+                except Exception:
+                    pass
+
+            page.on("response", _note_blocked)
             try:
                 try:
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 except Exception as e:
                     raise BrowserNavigationError(classify_navigation_error(e), str(e)[:500]) from e
                 await page.wait_for_timeout(1500)  # let client-side rendering settle
+                if blocked_navigations:
+                    raise UnsafeURLError(
+                        "BLOCKED_PRIVATE_ADDRESS",
+                        "The page navigated to a non-public address, which was blocked",
+                    )
                 text = await page.inner_text("body")
                 return {"url": page.url, "title": await page.title(), "text": text}
             finally:
@@ -493,6 +590,12 @@ class BrowserManager:
             except Exception:
                 pass
             self._playwright = None
+        if self._egress_proxy:
+            try:
+                await self._egress_proxy.stop()
+            except Exception:
+                pass
+            self._egress_proxy = None
 
     # ------------------------------------------------------------------
     # Reconnection (serverless / cold-start recovery)

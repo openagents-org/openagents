@@ -871,6 +871,36 @@ class TestSharedBrowserRouterRejectsInternal:
             "BLOCKED_PRIVATE_ADDRESS", "UNSUPPORTED_SCHEME", "BLOCKED_PORT",
         )
 
+    @pytest.mark.parametrize("url", [
+        "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+        "http://127.0.0.1:8000/v1/workspaces",
+        "file:///etc/passwd",
+    ])
+    def test_navigate_rejects_internal_url(self, client, url):
+        """Opening a tab on a public page and then steering it somewhere
+        internal is the same capability as opening it there directly, so
+        navigate needs its own guard rather than relying on open's."""
+        workspace = _create_workspace(client)
+        with patch("app.browser.BrowserManager.open_tab",
+                   new=AsyncMock(return_value={"url": "https://example.com/", "title": "ok"})):
+            opened = client.post("/v1/browser/tabs", json={
+                "url": "https://example.com/",
+                "network": workspace["id"],
+                "source": "openagents:agent-ssrf",
+            }, headers={"X-Workspace-Token": workspace["token"]})
+        assert opened.status_code == 200
+        tab_id = opened.json()["data"]["id"]
+
+        resp = client.post(f"/v1/browser/tabs/{tab_id}/navigate", json={
+            "url": url,
+            "network": workspace["id"],
+            "source": "openagents:agent-ssrf",
+        }, headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 400
+        assert resp.json()["data"]["error_code"] in (
+            "BLOCKED_PRIVATE_ADDRESS", "UNSUPPORTED_SCHEME", "BLOCKED_PORT",
+        )
+
     def test_open_tab_without_url_still_works(self, client):
         # about:blank is the default a tab opens on; the guard must not break it.
         workspace = _create_workspace(client)
