@@ -43,25 +43,33 @@ async def invoke_cloud_agents(workspace_id: str, event_data: dict) -> None:
         logger.warning("cloud_agent: max depth %d reached, skipping", depth)
         return
 
-    names = [n for n in target_agents if n != "__no_response__"]
+    # Dedupe (order preserved) — duplicate mentions must not invoke the
+    # same cloud agent twice with duplicate, billable provider requests.
+    names = list(dict.fromkeys(n for n in target_agents if n != "__no_response__"))
     if not names:
         return
 
-    # Invoke all targeted cloud agents concurrently — a message like
+    # Invoke the targeted cloud agents concurrently — a message like
     # "@a task1 @b task2" must not make b wait for a's API round-trip.
-    # Each invocation gets its own DB session because SQLAlchemy sessions
-    # are not safe to share across concurrently running tasks.
-    await asyncio.gather(
-        *(_invoke_guarded(workspace_id, event_data, name, depth) for name in names)
-    )
+    # The semaphore bounds the fan-out so a message mentioning many agents
+    # can't exhaust the DB connection pool or hammer provider APIs.
+    semaphore = asyncio.Semaphore(max(1, config.CLOUD_AGENT_MAX_CONCURRENCY))
+
+    async def _bounded(name: str) -> None:
+        async with semaphore:
+            await _invoke_guarded(workspace_id, event_data, name, depth)
+
+    await asyncio.gather(*(_bounded(name) for name in names))
 
 
 async def _invoke_guarded(
     workspace_id: str, event_data: dict, agent_name: str, depth: int,
 ) -> None:
     """Look up one cloud agent's config and invoke it, posting an error
-    message to the channel on failure. Owns its DB session so concurrent
-    invocations don't share one."""
+    message to the channel on failure. DB sessions are short-lived — the
+    config lookup releases its connection before the (slow) provider call
+    so concurrent invocations don't pin pool connections while waiting on
+    external APIs."""
     db = SessionLocal()
     try:
         cloud_config = db.execute(
@@ -71,54 +79,55 @@ async def _invoke_guarded(
                 CloudAgentConfig.status == "active",
             )
         ).scalar_one_or_none()
-
-        if not cloud_config:
-            return
-
-        try:
-            await _invoke_single(db, workspace_id, event_data, cloud_config, depth)
-        except Exception as exc:
-            logger.exception(
-                "cloud_agent: failed to invoke %s (%s/%s)",
-                agent_name, cloud_config.provider, cloud_config.model,
-            )
-            error_detail = str(exc)[:200] if str(exc) else "Unknown error"
-            # Use a fresh DB session for error posting — the original
-            # session may be stale after a long async API call.
-            await _post_error_message(
-                workspace_id, event_data, agent_name,
-                f"Failed to get a response from {cloud_config.provider}/{cloud_config.model}: "
-                f"{error_detail}",
-            )
     finally:
         db.close()
 
+    if not cloud_config:
+        return
+
+    try:
+        await _invoke_single(workspace_id, event_data, cloud_config, depth)
+    except Exception as exc:
+        logger.exception(
+            "cloud_agent: failed to invoke %s (%s/%s)",
+            agent_name, cloud_config.provider, cloud_config.model,
+        )
+        error_detail = str(exc)[:200] if str(exc) else "Unknown error"
+        # _post_error_message opens its own fresh DB session.
+        await _post_error_message(
+            workspace_id, event_data, agent_name,
+            f"Failed to get a response from {cloud_config.provider}/{cloud_config.model}: "
+            f"{error_detail}",
+        )
+
 
 async def _invoke_single(
-    db, workspace_id: str, event_data: dict,
+    workspace_id: str, event_data: dict,
     cloud_config: CloudAgentConfig, depth: int,
 ) -> None:
     """Invoke a single cloud agent and post the response."""
-    channel_target = event_data.get("target", "")
-    agent_name = cloud_config.agent_name
-
     if cloud_config.category == "image":
-        await _invoke_image_agent(db, workspace_id, event_data, cloud_config)
+        await _invoke_image_agent(workspace_id, event_data, cloud_config)
     elif cloud_config.category == "audio":
-        await _invoke_audio_agent(db, workspace_id, event_data, cloud_config)
+        await _invoke_audio_agent(workspace_id, event_data, cloud_config)
     else:
-        await _invoke_chat_agent(db, workspace_id, event_data, cloud_config, depth)
+        await _invoke_chat_agent(workspace_id, event_data, cloud_config, depth)
 
 
 async def _invoke_chat_agent(
-    db, workspace_id: str, event_data: dict,
+    workspace_id: str, event_data: dict,
     cloud_config: CloudAgentConfig, depth: int,
 ) -> None:
     """Invoke a chat cloud agent."""
     channel_target = event_data.get("target", "")
     agent_name = cloud_config.agent_name
 
-    messages = _build_conversation_context(db, workspace_id, channel_target, agent_name)
+    # Short session for the context read — released before the provider call.
+    db = SessionLocal()
+    try:
+        messages = _build_conversation_context(db, workspace_id, channel_target, agent_name)
+    finally:
+        db.close()
 
     content = event_data.get("payload", {}).get("content", "")
     if content:
@@ -142,14 +151,18 @@ async def _invoke_chat_agent(
         base_url=cloud_config.base_url,
     )
 
-    await _post_response(
-        db, workspace_id, channel_target, agent_name,
-        response_text, depth,
-    )
+    db = SessionLocal()
+    try:
+        await _post_response(
+            db, workspace_id, channel_target, agent_name,
+            response_text, depth,
+        )
+    finally:
+        db.close()
 
 
 async def _invoke_image_agent(
-    db, workspace_id: str, event_data: dict,
+    workspace_id: str, event_data: dict,
     cloud_config: CloudAgentConfig,
 ) -> None:
     """Invoke an image generation cloud agent."""
@@ -166,7 +179,7 @@ async def _invoke_image_agent(
     # concrete prompt using recent channel history. Falls back to the raw
     # instruction when no router LLM / no context is available.
     prompt = await _compose_image_prompt(
-        db, workspace_id, channel_target, agent_name, instruction,
+        workspace_id, channel_target, agent_name, instruction,
     )
     if not prompt:
         return
@@ -184,30 +197,35 @@ async def _invoke_image_agent(
         base_url=cloud_config.base_url,
     )
 
-    file_id = await _upload_image(
-        db, workspace_id, channel_target, agent_name,
-        image_bytes, image_format, prompt,
-    )
+    # Session opened only after the (slow) generation call — upload and
+    # response posting share it so the FileRecord commits with the message.
+    db = SessionLocal()
+    try:
+        file_id = await _upload_image(
+            db, workspace_id, channel_target, agent_name,
+            image_bytes, image_format, prompt,
+        )
 
-    channel_name = channel_target.replace("channel/", "") if channel_target.startswith("channel/") else None
-    content_type = f"image/{image_format}"
-    filename = f"generated_{file_id[:8]}.{image_format}"
+        content_type = f"image/{image_format}"
+        filename = f"generated_{file_id[:8]}.{image_format}"
 
-    await _post_response(
-        db, workspace_id, channel_target, agent_name,
-        f"Here's the generated image for: *{instruction[:100]}*",
-        depth=0,
-        attachments=[{
-            "file_id": file_id,
-            "filename": filename,
-            "content_type": content_type,
-            "size": len(image_bytes),
-        }],
-    )
+        await _post_response(
+            db, workspace_id, channel_target, agent_name,
+            f"Here's the generated image for: *{instruction[:100]}*",
+            depth=0,
+            attachments=[{
+                "file_id": file_id,
+                "filename": filename,
+                "content_type": content_type,
+                "size": len(image_bytes),
+            }],
+        )
+    finally:
+        db.close()
 
 
 async def _invoke_audio_agent(
-    db, workspace_id: str, event_data: dict,
+    workspace_id: str, event_data: dict,
     cloud_config: CloudAgentConfig,
 ) -> None:
     """Invoke a text-to-speech cloud agent."""
@@ -230,24 +248,28 @@ async def _invoke_audio_agent(
         text=text,
     )
 
-    file_id = await _upload_image(
-        db, workspace_id, channel_target, agent_name,
-        audio_bytes, audio_format, text,
-    )
+    db = SessionLocal()
+    try:
+        file_id = await _upload_image(
+            db, workspace_id, channel_target, agent_name,
+            audio_bytes, audio_format, text,
+        )
 
-    filename = f"speech_{file_id[:8]}.{audio_format}"
+        filename = f"speech_{file_id[:8]}.{audio_format}"
 
-    await _post_response(
-        db, workspace_id, channel_target, agent_name,
-        f"Generated speech for: *{text[:100]}*",
-        depth=0,
-        attachments=[{
-            "file_id": file_id,
-            "filename": filename,
-            "content_type": f"audio/{audio_format}",
-            "size": len(audio_bytes),
-        }],
-    )
+        await _post_response(
+            db, workspace_id, channel_target, agent_name,
+            f"Generated speech for: *{text[:100]}*",
+            depth=0,
+            attachments=[{
+                "file_id": file_id,
+                "filename": filename,
+                "content_type": f"audio/{audio_format}",
+                "size": len(audio_bytes),
+            }],
+        )
+    finally:
+        db.close()
 
 
 def _build_conversation_context(
@@ -292,7 +314,7 @@ def _build_conversation_context(
 
 
 async def _compose_image_prompt(
-    db, workspace_id: str, channel_target: str, agent_name: str, instruction: str,
+    workspace_id: str, channel_target: str, agent_name: str, instruction: str,
 ) -> str:
     """Turn a (possibly referential) instruction like "make an image of
     cherie's brief above" into a concrete, self-contained image prompt by
@@ -312,7 +334,12 @@ async def _compose_image_prompt(
     if not (config.ROUTER_LLM_ENABLED and api_key):
         return instruction
 
-    context = _build_conversation_context(db, workspace_id, channel_target, agent_name)
+    # Short session for the context read — released before the LLM call.
+    db = SessionLocal()
+    try:
+        context = _build_conversation_context(db, workspace_id, channel_target, agent_name)
+    finally:
+        db.close()
     if not context:
         return instruction
 

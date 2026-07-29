@@ -258,6 +258,12 @@ class TestMasterMode:
                             "@agent-worker please handle this")
         assert _master_targets(event, ch, ["agent-worker"]) == ["agent-worker"]
 
+    def test_master_duplicate_delegation_deduped(self, db, multi_agent_workspace):
+        ch = multi_agent_workspace["channel"]
+        event = _make_event("openagents:agent-master", "channel/session-test",
+                            "@agent-worker do X, and @agent-worker also do Y")
+        assert _master_targets(event, ch, ["agent-worker", "agent-worker"]) == ["agent-worker"]
+
     def test_master_no_mention_stops(self, db, multi_agent_workspace):
         ch = multi_agent_workspace["channel"]
         # Master answered the human directly (no delegation) → stop

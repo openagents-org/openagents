@@ -634,10 +634,12 @@ def _master_targets(event, channel, mentions: List[str]) -> List[str]:
         sender = source[len("openagents:"):]
         if sender == master:
             # Master is delegating. Route to any mentioned sub-agents
-            # (never itself); no mention → the master answered, so stop.
+            # (never itself, deduped); no mention → the master answered,
+            # so stop.
             participants = {p.agent_name for p in (channel.participants or [])}
             delegated = [
-                m for m in mentions if m != master and m in participants
+                m for m in dict.fromkeys(mentions)
+                if m != master and m in participants
             ]
             return delegated
         # A sub-agent spoke → return control to the master hub.
@@ -671,9 +673,14 @@ subject being asked to do/say something. If the agent is merely referenced \
 pick the addressed agent, not the mentioned one.
 
 B. If the LATEST message is from a HUMAN:
-   - Always pick exactly one agent. Humans expect a reply — never output \
+   - Always pick at least one agent. Humans expect a reply — never output \
 "stop" for a human message.
    - Prefer whoever is directly addressed.
+   - If the message assigns separate, independent tasks to SEVERAL agents \
+("@alice do X and @bob do Y"), pick ALL of them (comma-separated) so they \
+work in parallel. Pick several agents only for genuinely independent \
+tasks — if one task depends on another's result, pick only the agent \
+whose task comes first.
    - If nobody is directly addressed, check CONVERSATIONAL CONTINUITY: \
 if the user was just conversing with a specific agent (the last agent \
 reply was from agent X, or X asked the user a question that this message \
@@ -682,8 +689,9 @@ appears to answer), continue with that agent X.
 fall back to the master agent.
 
 C. If the LATEST message is from an AGENT:
-   - If it delegates or hands off to another agent ("@Alice please do X", \
-"Alice, could you check X"), route to that agent.
+   - If it delegates or hands off to other agents ("@Alice please do X", \
+"Alice, could you check X"), route to them — ALL of the delegated agents \
+(comma-separated) when it hands independent tasks to several at once.
    - If it reports back to the master or asks the master to decide, route to the master.
    - If it is a FINAL answer to the previous human question or an \
 acknowledgement ("done", "saved", "sounds good"), output "stop".
@@ -692,9 +700,11 @@ acknowledgement ("done", "saved", "sounds good"), output "stop".
 
 EXAMPLES:
   Human: "@alice what's the status?"                → next:alice
+  Human: "@alice check the logs, @bob fix the tests" → next:alice,bob (independent tasks, parallel)
   Human: "check @alice's notes, @bob"                → next:bob       (bob is addressed)
   Human: "how about julia?"  (julia is not an agent) → next:<master>  (who owns that topic)
   Agent alice: "@bob can you verify?"                → next:bob
+  Agent alice: "@bob run the tests and @carol update the docs" → next:bob,carol
   Agent alice: "Done — results attached."            → stop
   Agent bob (master): "Here's the final answer ..."  → stop
 
@@ -705,8 +715,9 @@ EXAMPLES:
     alice: "I pulled these results: [...]."
     Human: "thanks, can you also check Y?"           → next:alice     (follow-up to alice)
 
-Output EXACTLY one line, lowercase, no punctuation or explanation:
+Output EXACTLY one line, lowercase, no spaces or explanation:
   next:<agent_name>
+  next:<agent_name>,<agent_name>   (several agents, comma-separated)
   stop"""
 
 
@@ -873,14 +884,14 @@ async def _route_with_llm(
         if provider == "openai":
             response = client.chat.completions.create(
                 model=model,
-                max_tokens=30,
+                max_tokens=64,
                 messages=[{"role": "user", "content": prompt}],
             )
             raw_result = response.choices[0].message.content.strip()
         else:
             response = client.messages.create(
                 model=model,
-                max_tokens=30,
+                max_tokens=64,
                 messages=[{"role": "user", "content": prompt}],
             )
             raw_result = response.content[0].text.strip()
