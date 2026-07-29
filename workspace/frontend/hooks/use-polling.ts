@@ -272,7 +272,13 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
     if (!sessionId || !enabled) return;
 
     if (!historyLoadedRef.current) {
-      loadHistory();
+      // History hydration excludes intermediate step events (thinking/status/
+      // todos), and SSE only carries events published after the connection
+      // opens — so without an explicit catch-up poll, steps emitted before
+      // the refresh would never load and an agent mid-task would look idle.
+      // The forward poll is unfiltered and starts after the newest chat
+      // message, so it backfills exactly that gap.
+      loadHistory().then(() => poll());
     }
 
     // Try SSE first for instant updates, fall back to polling

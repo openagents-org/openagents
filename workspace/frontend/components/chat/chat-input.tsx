@@ -15,9 +15,10 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { BookOpen } from 'lucide-react';
 import { toast } from 'sonner';
 
-// Keep in sync with the backend's MAX_FILE_SIZE (app/config.py) and nginx's
-// client_max_body_size — oversized files would be rejected server-side anyway,
-// so reject them here with immediate feedback instead.
+// Keep in sync with the backend's MAX_FILE_SIZE (app/config.py); nginx's
+// /v1/files client_max_body_size allows extra headroom for multipart
+// overhead. Oversized files would be rejected server-side anyway, so
+// reject them here with immediate feedback instead.
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 export interface PendingFile {

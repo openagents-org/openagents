@@ -409,6 +409,47 @@ class TestPollExcludeMessageTypes:
         assert "hello" in contents
 
 
+class TestPollCacheKeyConsistency:
+    """The head/at-head keys poll_events constructs must stay invalidatable
+    by _poll_cache_keys_for — regression tests for the exclude_message_types
+    param silently changing every filter hash."""
+
+    def test_adapter_poll_hash_is_in_invalidation_set(self):
+        """Filters without exclude_message_types must hash exactly like the
+        enumerated invalidation patterns, or agents keep getting stale
+        cached-empty responses after new events are posted."""
+        from app.routers.events import _poll_cache_keys_for, _poll_filter_hash
+
+        ws = "ws-cache-test"
+        invalidated = {k for pair in _poll_cache_keys_for(ws, "workspace.message.posted") for k in pair}
+
+        # The main adapter poll pattern (workspace-client.js pollPending).
+        fh = _poll_filter_hash(ws, "", "", "workspace.message.posted", "", "asc", 500)
+        assert "v1events:head:" + fh in invalidated
+        assert "v1events:athead:" + fh in invalidated
+
+        # getHeadEventId pattern.
+        fh = _poll_filter_hash(ws, "", "", "workspace.message.posted", "", "desc", 1)
+        assert "v1events:head:" + fh in invalidated
+
+        # Untyped all-events pattern.
+        fh = _poll_filter_hash(ws, "", "", "", "", "asc", 50)
+        assert "v1events:head:" + fh in invalidated
+
+    def test_exclude_param_changes_hash(self):
+        """Polls that do use exclude_message_types must get their own key —
+        sharing the plain filter's key would poison its cached results."""
+        from app.routers.events import _poll_filter_hash
+
+        ws = "ws-cache-test"
+        plain = _poll_filter_hash(ws, "", "general", "workspace.message", "", "desc", 50)
+        excluded = _poll_filter_hash(
+            ws, "", "general", "workspace.message", "", "desc", 50,
+            exclude_message_types="thinking,status,todos",
+        )
+        assert plain != excluded
+
+
 class TestPollTargetAgents:
     """GET /v1/events?target_agents= — server-side per-agent filtering.
 
