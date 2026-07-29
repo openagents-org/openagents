@@ -1,8 +1,21 @@
 import type { ConnectionAuthKind, CredentialKind, PlatformId } from '../../types'
 
+/**
+ * How far along a platform's integration is.
+ *
+ * - `ready`   — connecting works end to end: the credential is stored, probed
+ *               against the real API, and can be handed to agents.
+ * - `planned` — the probe exists but there's nothing downstream to use the
+ *               credential yet, so the card is shown read-only.
+ *
+ * Cards are rendered in PLATFORMS order, so `ready` entries are listed first.
+ */
+export type PlatformSupport = 'ready' | 'planned'
+
 export interface PlatformDef {
   id: PlatformId
   label: string
+  support: PlatformSupport
   /** Short tagline shown under the card title. */
   blurb: string
   /** Single-character glyph fallback when no logo is available. */
@@ -26,10 +39,13 @@ export interface PlatformDef {
   defaultEnvKey?: string
 }
 
+// Order matters — this is the card order on the Connections page. Supported
+// platforms first, "planned" ones after.
 export const PLATFORMS: PlatformDef[] = [
   {
     id: 'github',
     label: 'GitHub',
+    support: 'ready',
     blurb: 'Repos, issues, pull requests, Actions',
     glyph: 'G',
     tint: '#24292f',
@@ -40,8 +56,36 @@ export const PLATFORMS: PlatformDef[] = [
     defaultEnvKey: 'GITHUB_TOKEN',
   },
   {
+    id: 'google',
+    label: 'Google',
+    support: 'ready',
+    blurb: 'Gemini, AI Studio',
+    glyph: 'G',
+    tint: '#4285F4',
+    authKinds: ['token', 'oauth'],
+    defaultCredentialKind: 'api_key',
+    docs: 'https://aistudio.google.com/app/apikey',
+    // registry.json lists both GEMINI_API_KEY and GOOGLE_API_KEY for the
+    // gemini agent, but GEMINI_API_KEY is its `saved_env_key` — use that so a
+    // key applied here is the one the readiness check looks at.
+    defaultEnvKey: 'GEMINI_API_KEY',
+  },
+  {
+    id: 'linear',
+    label: 'Linear',
+    support: 'ready',
+    blurb: 'Issues, projects, cycles',
+    glyph: 'L',
+    tint: '#5E6AD2',
+    authKinds: ['oauth', 'token'],
+    defaultCredentialKind: 'token',
+    docs: 'https://linear.app/settings/api',
+    defaultEnvKey: 'LINEAR_API_KEY',
+  },
+  {
     id: 'slack',
     label: 'Slack',
+    support: 'planned',
     blurb: 'Channels, bot tokens, slash commands',
     glyph: 'S',
     tint: '#4A154B',
@@ -54,6 +98,7 @@ export const PLATFORMS: PlatformDef[] = [
   {
     id: 'discord',
     label: 'Discord',
+    support: 'planned',
     blurb: 'Bot connection, guilds, messaging',
     glyph: 'D',
     tint: '#5865F2',
@@ -65,6 +110,7 @@ export const PLATFORMS: PlatformDef[] = [
   {
     id: 'telegram',
     label: 'Telegram',
+    support: 'planned',
     blurb: 'Bot token, chats, commands',
     glyph: 'T',
     tint: '#26A5E4',
@@ -76,6 +122,7 @@ export const PLATFORMS: PlatformDef[] = [
   {
     id: 'notion',
     label: 'Notion',
+    support: 'planned',
     blurb: 'Pages, databases, search',
     glyph: 'N',
     tint: '#000000',
@@ -83,28 +130,6 @@ export const PLATFORMS: PlatformDef[] = [
     defaultCredentialKind: 'token',
     docs: 'https://www.notion.so/my-integrations',
     defaultEnvKey: 'NOTION_API_KEY',
-  },
-  {
-    id: 'linear',
-    label: 'Linear',
-    blurb: 'Issues, projects, cycles',
-    glyph: 'L',
-    tint: '#5E6AD2',
-    authKinds: ['oauth', 'token'],
-    defaultCredentialKind: 'token',
-    docs: 'https://linear.app/settings/api',
-    defaultEnvKey: 'LINEAR_API_KEY',
-  },
-  {
-    id: 'google',
-    label: 'Google',
-    blurb: 'Gemini, AI Studio',
-    glyph: 'G',
-    tint: '#4285F4',
-    authKinds: ['token', 'oauth'],
-    defaultCredentialKind: 'api_key',
-    docs: 'https://aistudio.google.com/app/apikey',
-    defaultEnvKey: 'GOOGLE_API_KEY',
   },
 ]
 

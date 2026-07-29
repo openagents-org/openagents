@@ -145,6 +145,14 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('connections:set-status', id, status, lastError),
   testConnection: (id: string) => ipcRenderer.invoke('connections:test', id),
 
+  // ── MCP registration ──
+  mcpPlatforms: () => ipcRenderer.invoke('mcp:platforms'),
+  mcpListTargets: (platform: string) => ipcRenderer.invoke('mcp:list-targets', platform),
+  mcpApply: (input: { connectionId: string; targetIds: string[] }) =>
+    ipcRenderer.invoke('mcp:apply', input),
+  mcpRemove: (input: { platform: string; targetIds: string[] }) =>
+    ipcRenderer.invoke('mcp:remove', input),
+
   // ── Notifications (5.4) ──
   notificationsList: () => ipcRenderer.invoke('notifications:list'),
   notificationsPush: (input: unknown) => ipcRenderer.invoke('notifications:push', input),

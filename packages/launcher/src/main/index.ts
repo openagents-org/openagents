@@ -26,6 +26,12 @@ import {
 } from "./connections-store"
 import { probe as probeConnection } from "./connection-tester"
 import {
+  listMcpTargets,
+  applyMcpServer,
+  removeMcpServer,
+  MCP_CATALOG,
+} from "./mcp-config"
+import {
   setupAutoUpdater,
   checkForUpdatesOnStartup,
   getUpdaterState,
@@ -940,12 +946,25 @@ function createPlaceholderIcon(): Electron.NativeImage {
 }
 
 function createTray(): void {
-  // Always use the white ("light") glyph on both platforms. It's 22×22
-  // (menu-bar point size) and Electron auto-loads tray-icon-light@2x.png
-  // (44×44) as the Retina representation, so no resize is needed.
-  const assetsDir = path.join(__dirname, "../../assets")
+  // White glyph everywhere, but macOS needs its own padded variant. The
+  // menu-bar canvas is 22pt and AppKit draws the image at that size, while
+  // other menu-bar extras keep their glyph around 18pt inside it — so the
+  // full-bleed 22pt art reads as noticeably oversized next to them.
+  // tray-icon-mac.png is the same glyph inset to 18pt. Windows/Linux scale
+  // the icon down into a ~16px slot, where full-bleed is correct.
+  // Electron auto-loads the matching @2x file as the Retina representation.
+  //
+  // Path: in dev, assets/ sits two levels above out/main. In packaged builds
+  // that directory is NOT inside app.asar — it is `directories.buildResources`,
+  // which electron-builder never bundles — so it is copied to
+  // Contents/Resources/assets via `extraResources` instead.
+  const assetsDir = app.isPackaged
+    ? path.join(process.resourcesPath, "assets")
+    : path.join(__dirname, "../../assets")
+  const trayIconFile =
+    process.platform === "darwin" ? "tray-icon-mac.png" : "tray-icon-light.png"
   let trayIcon = nativeImage.createFromPath(
-    path.join(assetsDir, "tray-icon-light.png"),
+    path.join(assetsDir, trayIconFile),
   )
   if (!trayIcon || trayIcon.isEmpty()) trayIcon = createPlaceholderIcon()
 
@@ -1801,6 +1820,50 @@ function setupIPC(): void {
     credentialsStore.recordTest(conn.credentialId, result.ok, result.detail)
     return result
   })
+
+  // ── MCP registration ──
+  //
+  // An .env key is enough for agents that read it natively (gemini), but for
+  // claude/cursor the usable form of a connection is an MCP server. These
+  // handlers register the platform's hosted endpoint in each agent's own
+  // config, authenticated with the stored credential.
+
+  /** Platform ids that have a hosted MCP endpoint we know how to register. */
+  ipcMain.handle("mcp:platforms", () => Object.keys(MCP_CATALOG))
+
+  ipcMain.handle("mcp:list-targets", (_e, platform: string) =>
+    listMcpTargets(platform),
+  )
+
+  ipcMain.handle(
+    "mcp:apply",
+    (_e, payload: { connectionId: string; targetIds: string[] }) => {
+      const { connectionId, targetIds } = payload || {}
+      if (!connectionId || !Array.isArray(targetIds) || targetIds.length === 0) {
+        return { ok: false, written: [], errors: ["Missing connectionId / targetIds"] }
+      }
+      const conn = connectionsStore.get(connectionId)
+      if (!conn)
+        return { ok: false, written: [], errors: ["Connection not found"] }
+      if (!conn.credentialId)
+        return { ok: false, written: [], errors: ["No credential linked"] }
+      const secret = credentialsStore.getSecret(conn.credentialId)
+      if (!secret)
+        return { ok: false, written: [], errors: ["Credential missing"] }
+      return applyMcpServer(conn.platform, secret, targetIds)
+    },
+  )
+
+  ipcMain.handle(
+    "mcp:remove",
+    (_e, payload: { platform: string; targetIds: string[] }) => {
+      const { platform, targetIds } = payload || {}
+      if (!platform || !Array.isArray(targetIds) || targetIds.length === 0) {
+        return { ok: false, written: [], errors: ["Missing platform / targetIds"] }
+      }
+      return removeMcpServer(platform, targetIds)
+    },
+  )
 
   // ── Credentials ──
   ipcMain.handle("credentials:list", () => credentialsStore.list())

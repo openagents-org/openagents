@@ -2,8 +2,8 @@
   "title": "Connections",
   "subtitle": "— Authorizations to external platforms (encrypted on disk)",
   "banner": {
-    "title": "Connections are coming soon",
-    "body": "This area is still under active development — platform integrations aren't fully wired up yet. Feel free to look around; full support is on the way."
+    "title": "Connect, then hand the key to your agents",
+    "body": "Once a supported platform is connected you can write its key straight into an agent's environment. Platforms marked \"Planned\" aren't wired up yet."
   },
   "stats": {
     "connected": "connected",
@@ -27,7 +27,8 @@
     "pasteToken": "Paste a token or API key",
     "saveCredentialFailed": "Failed to save credential",
     "connected": "{{platform}} connected",
-    "testFailed": "Saved, but test failed: {{detail}}"
+    "testFailed": "Saved, but test failed: {{detail}}",
+    "credentialMissing": "No credential found for this connection — reconfigure it"
   },
   "disconnect": {
     "title": "Disconnect {{platform}}?",
@@ -50,10 +51,30 @@
     "connect": "Connect",
     "test": "Test",
     "reconfigure": "Reconfigure",
-    "disconnect": "Disconnect"
+    "disconnect": "Disconnect",
+    "applyToAgents": "Write env var",
+    "configureMcp": "Set up MCP",
+    "planned": "Planned",
+    "plannedHint": "Integration in progress",
+    "more": "More"
+  },
+  "mcp": {
+    "title": "Give agents access to {{platform}}",
+    "description": "Registers the {{platform}} MCP server in the agents below so they can call {{platform}} tools directly — no manual setup on their side.",
+    "targetsLabel": "Write to which agents",
+    "loading": "Detecting installed agents…",
+    "alreadyConfigured": "Already set up",
+    "notDetected": "Not detected",
+    "unreadable": "Config file couldn't be parsed, skipped: {{detail}}",
+    "secretWarning": "The key is written to these config files in cleartext — that's the only way MCP clients read static credentials today. A .openagents.bak backup is made before the first change.",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Writing…",
+    "toasts": {
+      "saved": "Updated MCP config for {{count}} agent(s)"
+    }
   },
   "relativeTime": {
-    "never": "never",
     "justNow": "just now",
     "minutesAgo": "{{count}}m ago",
     "hoursAgo": "{{count}}h ago",

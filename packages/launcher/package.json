@@ -1,6 +1,6 @@
 {
   "name": "openagents-launcher",
-  "version": "0.8.20",
+  "version": "0.8.21",
   "description": "OpenAgents Launcher — install, configure, and manage your AI agents",
   "main": "out/main/index.js",
   "homepage": "https://github.com/openagents-org/openagents",
@@ -95,6 +95,15 @@
       "node_modules/@openagents-org/**/*",
       "node_modules/ws/**/*",
       "node_modules/blessed/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": [
+          "tray-icon*.png"
+        ]
+      }
     ],
     "directories": {
       "buildResources": "assets",
