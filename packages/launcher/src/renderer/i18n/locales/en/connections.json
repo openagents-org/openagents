@@ -11,7 +11,10 @@
   },
   "search": {
     "placeholder": "Search platforms...",
-    "noResults": "No platforms match \"{{query}}\"."
+    "noResults": "No platforms match \"{{query}}\"",
+    "noConnected": "No platforms are connected yet",
+    "noDisconnected": "All platforms are connected",
+    "noPlatforms": "No platforms are available"
   },
   "filters": {
     "all": "All",

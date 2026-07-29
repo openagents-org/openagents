@@ -11,7 +11,10 @@
   },
   "search": {
     "placeholder": "搜索平台……",
-    "noResults": "没有匹配“{{query}}”的平台。"
+    "noResults": "没有匹配“{{query}}”的平台",
+    "noConnected": "尚未连接任何平台",
+    "noDisconnected": "所有平台均已连接",
+    "noPlatforms": "暂无可用平台"
   },
   "filters": {
     "all": "全部",
