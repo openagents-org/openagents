@@ -820,23 +820,23 @@ export function ChatView() {
           />
         )}
 
-        {/* Input — hidden for read-only DM views */}
+        {/* Input — hidden for read-only DM views. Same gutters as the message
+            list, so the composer lines up with the conversation column instead
+            of sitting in a narrower box of its own. */}
         {!isDM && (
-          <div className="px-3 lg:px-4 py-2 lg:py-3">
-            <div className="max-w-3xl mx-auto w-full">
-              {currentSessionId && <ThreadStatusBar channelName={currentSessionId} messages={displayMessages} />}
-              <ChatInput
-                onSend={handleSend}
-                agents={agents}
-                knowledge={knowledge}
-                draft={currentDraft}
-                onDraftChange={handleDraftChange}
-                onFocusChange={(focused) => focused ? notifyFocus() : notifyBlur()}
-                focusKey={focusKey}
-                onCreateRoutine={() => setShowCreateRoutine(true)}
-                disabled={!currentUser.name.trim()}
-              />
-            </div>
+          <div className="px-3 lg:px-5 pt-1 pb-2 lg:pb-3">
+            {currentSessionId && <ThreadStatusBar channelName={currentSessionId} messages={displayMessages} />}
+            <ChatInput
+              onSend={handleSend}
+              agents={agents}
+              knowledge={knowledge}
+              draft={currentDraft}
+              onDraftChange={handleDraftChange}
+              onFocusChange={(focused) => focused ? notifyFocus() : notifyBlur()}
+              focusKey={focusKey}
+              onCreateRoutine={() => setShowCreateRoutine(true)}
+              disabled={!currentUser.name.trim()}
+            />
           </div>
         )}
 

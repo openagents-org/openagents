@@ -111,7 +111,7 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
           <ScrollArea className="max-h-[420px]">
             <div className="divide-y divide-border">
               {items.map((n) => (
-                <div key={n.id} className={cn('group', !n.isRead && 'bg-blue-50/40 dark:bg-blue-950/10')}>
+                <div key={n.id} className={cn('group', !n.isRead && 'bg-accent/50 dark:bg-accent/20')}>
                   <NotificationCard
                     notification={n}
                     onRead={markNotificationRead}

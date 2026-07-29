@@ -55,7 +55,7 @@ function getProviderBrand(name: string) {
 function CategoryIcon({ category, className }: { category: string; className?: string }) {
   if (category === 'image') return <ImageIcon className={cn('text-violet-500', className)} />;
   if (category === 'audio') return <Volume2 className={cn('text-amber-500', className)} />;
-  return <MessageSquare className={cn('text-blue-500', className)} />;
+  return <MessageSquare className={cn('text-foreground/70', className)} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -736,7 +736,7 @@ function CloudAgentsTab({
               <>
                 <a
                   href={`${process.env.NEXT_PUBLIC_API_URL || 'https://workspace-endpoint.openagents.org'}/v1/cloud-agents/google/auth?network=${encodeURIComponent(workspaceId)}&agent_name=${encodeURIComponent(cfgName || 'gemini')}&model=${encodeURIComponent(cfgModel || 'gemini-3.5-flash')}`}
-                  className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-lg border-2 border-blue-200 dark:border-blue-800 bg-white dark:bg-zinc-900 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors text-sm font-medium"
+                  className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-lg border-2 border-input bg-background hover:bg-accent transition-colors text-sm font-medium"
                 >
                   <svg viewBox="0 0 24 24" className="size-4" xmlns="http://www.w3.org/2000/svg">
                     <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>

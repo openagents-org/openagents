@@ -22,7 +22,7 @@ function timeAgo(dateStr: string | null): string {
 
 function StatusIcon({ status }: { status: TodoItem['status'] }) {
   if (status === 'completed') return <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />;
-  if (status === 'in_progress') return <Loader2 className="size-4 text-blue-500 shrink-0 animate-spin" />;
+  if (status === 'in_progress') return <Loader2 className="size-4 text-foreground shrink-0 animate-spin" />;
   if (status === 'cancelled') return <XCircle className="size-4 text-zinc-400 shrink-0" />;
   return <Circle className="size-4 text-zinc-400 shrink-0" />;
 }
@@ -133,7 +133,7 @@ export function TasksView() {
       {/* Header — title in the app header, actions in its toolbar */}
       <DetailHeader
         title={<>
-          <ListTodo className="size-4 text-indigo-500" />
+          <ListTodo className="size-4 text-foreground" />
           <h2 className="text-sm font-semibold">Tasks</h2>
         </>}
       >
@@ -162,7 +162,7 @@ export function TasksView() {
           <div className="p-4 space-y-6">
             <StatusSection
               title="In Progress"
-              icon={<Loader2 className="size-3.5 text-blue-500 animate-spin" />}
+              icon={<Loader2 className="size-3.5 text-foreground animate-spin" />}
               items={inProgressItems}
 
               sessions={sessions}

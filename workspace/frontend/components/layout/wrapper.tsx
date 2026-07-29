@@ -60,7 +60,7 @@ function WorkspaceLoadingScreen() {
 export function Wrapper() {
   const {
     isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
-    hasListPanel, mobilePane, splitBrowser, showBrowserPreview,
+    hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,
   } = useLayout();
   const { monitorMode, agents, loading } = useWorkspace();
   const hasAgents = agents.length > 0;
@@ -138,14 +138,19 @@ export function Wrapper() {
     (viewMode === 'threads' && splitBrowser && showBrowserPreview);
   const sidebarOpen = isSidebarOpen && hasListPanel && !listSuppressed;
 
+  // The shell sizes itself: rail width plus the list panel when it is showing.
+  // Expanding the rail to show labels widens the shell by the same amount.
+  const railWidth = isRailExpanded ? 180 : 52;
+  const shellWidth = railWidth + (sidebarOpen ? 388 : 0);
+
   return (
     <SidebarProvider
       open={sidebarOpen}
       onOpenChange={setSidebarOpen}
       className="h-screen min-h-0 [&_.container-fluid]:px-5"
       style={{
-        '--sidebar-width': '440px',
-        '--sidebar-width-icon': '52px',
+        '--sidebar-width': `${shellWidth}px`,
+        '--sidebar-width-icon': `${railWidth}px`,
         '--header-height': '48px',
       } as React.CSSProperties}
     >

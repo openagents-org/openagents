@@ -230,7 +230,7 @@ export function BrowserView() {
               <ChevronLeft className="size-5" />
             </button>
           )}
-          <Globe className={cn("size-4 shrink-0", navigating ? "text-amber-500 animate-pulse" : "text-blue-500")} />
+          <Globe className={cn("size-4 shrink-0", navigating ? "text-amber-500 animate-pulse" : "text-foreground/70")} />
           <p className="text-sm font-medium truncate">{tab.title || 'Untitled'}</p>
         </>}
       >
@@ -241,7 +241,7 @@ export function BrowserView() {
             {tab.sharedWith.map((agent) => (
               <span
                 key={agent}
-                className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                className="text-[10px] px-1.5 py-0.5 rounded-full bg-accent text-accent-foreground"
               >
                 {agent}
               </span>
@@ -315,7 +315,7 @@ export function BrowserView() {
               if (e.key === 'Enter') handleNavigate();
               if (e.key === 'Escape') setEditingUrl(false);
             }}
-            className="w-full rounded border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 font-mono text-xs outline-none focus:border-blue-500 dark:border-zinc-600 dark:bg-zinc-800"
+            className="w-full rounded border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 font-mono text-xs outline-none focus:border-foreground/50 dark:border-zinc-600 dark:bg-zinc-800"
             autoFocus
           />
         ) : (
@@ -347,7 +347,7 @@ export function BrowserView() {
               <button
                 onClick={handleReconnect}
                 disabled={reconnecting}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
               >
                 <RefreshCw className={cn("size-3.5", reconnecting && "animate-spin")} />
                 {reconnecting ? 'Reconnecting…' : 'Reconnect'}

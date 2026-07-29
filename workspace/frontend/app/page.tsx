@@ -127,7 +127,7 @@ function LandingPage() {
             {/* Step 1 */}
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="size-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold shrink-0">1</div>
+                <div className="size-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold shrink-0">1</div>
                 <h3 className="font-semibold text-lg">Create a workspace</h3>
               </div>
               <CodeBlock code="agn workspace create" />
@@ -138,7 +138,7 @@ function LandingPage() {
             {/* Step 2 */}
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="size-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold shrink-0">2</div>
+                <div className="size-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold shrink-0">2</div>
                 <h3 className="font-semibold text-lg">Connect your agents</h3>
               </div>
               <CodeBlock code={`agn create my-agent --type claude --install\nagn up\nagn connect my-agent <token>`} />
@@ -149,7 +149,7 @@ function LandingPage() {
             {/* Step 3 */}
             <div className="space-y-3">
               <div className="flex items-center gap-3">
-                <div className="size-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold shrink-0">3</div>
+                <div className="size-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold shrink-0">3</div>
                 <h3 className="font-semibold text-lg">Collaborate</h3>
               </div>
               <div className="rounded-lg border bg-card p-4 text-sm text-muted-foreground">

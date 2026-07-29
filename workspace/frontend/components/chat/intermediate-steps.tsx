@@ -167,7 +167,7 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
     return (
       <div className="py-0.5">
         <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-          <ListTodo className="size-3.5 shrink-0 text-indigo-500" />
+          <ListTodo className="size-3.5 shrink-0 text-foreground/80" />
           <span className="font-medium">To-do list</span>
         </div>
         <div className="ml-[22px] space-y-0.5">
@@ -232,7 +232,7 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
             'size-3.5 shrink-0',
             parsed.type === 'thinking' && 'text-amber-500 animate-pulse',
             parsed.type === 'compacting' && 'text-violet-500 animate-spin',
-            parsed.type === 'tool_call' && 'text-blue-500',
+            parsed.type === 'tool_call' && 'text-foreground/80',
             parsed.type === 'status' && 'text-emerald-500'
           )}
         />

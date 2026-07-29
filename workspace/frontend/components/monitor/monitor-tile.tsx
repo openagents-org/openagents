@@ -196,7 +196,7 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
                     <Icon className={cn(
                       'size-3 shrink-0',
                       parsed.type === 'thinking' && 'text-amber-500',
-                      parsed.type === 'tool_call' && 'text-blue-500',
+                      parsed.type === 'tool_call' && 'text-foreground/80',
                       parsed.type === 'status' && 'text-emerald-500',
                       parsed.type === 'compacting' && 'text-violet-500 animate-spin',
                     )} />

@@ -245,7 +245,7 @@ export function BrowserTabList() {
                       : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
                   )}
                 >
-                  <Globe className="size-4 text-blue-500 shrink-0" />
+                  <Globe className="size-4 text-foreground/70 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-medium truncate">
                       {tab.title || truncateUrl(tab.url)}

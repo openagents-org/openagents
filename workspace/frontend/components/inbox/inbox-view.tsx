@@ -27,7 +27,7 @@ function PriorityDot({ priority }: { priority: NotificationItem['priority'] }) {
       className={cn(
         'size-2 rounded-full shrink-0 mt-1.5',
         priority === 'high' && 'bg-red-500',
-        priority === 'normal' && 'bg-blue-500',
+        priority === 'normal' && 'bg-foreground/70',
         priority === 'low' && 'bg-zinc-400',
       )}
     />
@@ -52,7 +52,7 @@ export function NotificationCard({
       className={cn(
         'px-3 py-2.5 flex items-start gap-2.5 cursor-pointer transition-colors',
         !notification.isRead
-          ? 'bg-blue-50/50 dark:bg-blue-950/20 hover:bg-blue-50 dark:hover:bg-blue-950/30'
+          ? 'bg-accent/60 dark:bg-accent/25 hover:bg-accent dark:hover:bg-accent/40'
           : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
       )}
       onClick={() => onNavigate(notification)}
@@ -77,7 +77,7 @@ export function NotificationCard({
           <span className="text-[10px] text-muted-foreground">{agentName}</span>
           <span className="text-[10px] text-muted-foreground">{timeAgo(notification.createdAt)}</span>
           {notification.channelName && (
-            <span className="text-[10px] text-blue-500 flex items-center gap-0.5">
+            <span className="text-[10px] text-foreground/70 flex items-center gap-0.5">
               <ArrowRight className="size-2.5" />
               Go to thread
             </span>
@@ -87,7 +87,7 @@ export function NotificationCard({
               href={notification.linkUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[10px] text-blue-500 flex items-center gap-0.5"
+              className="text-[10px] text-foreground/70 flex items-center gap-0.5 hover:text-foreground"
               onClick={(e) => e.stopPropagation()}
             >
               <ExternalLink className="size-2.5" />
@@ -202,7 +202,7 @@ export function InboxView() {
       {/* Header — title in the app header, actions in its toolbar */}
       <DetailHeader
         title={<>
-          <Inbox className="size-4 text-blue-500" />
+          <Inbox className="size-4 text-foreground" />
           <h2 className="text-sm font-semibold">Inbox</h2>
         </>}
       >

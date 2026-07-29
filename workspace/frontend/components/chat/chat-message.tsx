@@ -153,7 +153,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
         <span className={cn(
           'text-xs italic',
           isQueued
-            ? 'text-blue-500 dark:text-blue-400'
+            ? 'text-foreground/80'
             : 'text-muted-foreground'
         )}>
           {message.senderName}: {message.content}

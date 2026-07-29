@@ -384,7 +384,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
       )}
 
       <div className={cn(
-        'relative flex flex-col gap-2 bg-background transition-all rounded-2xl border shadow-lg p-4',
+        'relative flex flex-col gap-1 bg-background transition-all rounded-2xl border shadow-lg px-3 py-2',
         isDragging && 'border-primary border-dashed bg-primary/5',
         isFocused && !isDragging && 'ring-2 ring-primary/30 border-primary/40'
       )}>
@@ -441,12 +441,12 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
             rows={1}
             disabled={disabled}
             data-chat-input
-            className="w-full border-0 bg-transparent shadow-none focus:outline-none placeholder:text-muted-foreground h-auto px-0 text-sm py-2 resize-none"
+            className="w-full border-0 bg-transparent shadow-none focus:outline-none placeholder:text-muted-foreground h-auto px-0 text-sm py-1.5 resize-none"
           />
           {/* Shortcut hint: always show 'esc' when focused, show 'i' when not focused and empty */}
           {isFocused ? (
             <kbd
-              className="pointer-events-none absolute right-1 top-2.5 flex items-center justify-center rounded text-[9px] font-mono font-medium bg-muted text-muted-foreground border border-input h-4 px-1"
+              className="pointer-events-none absolute right-1 top-2 flex items-center justify-center rounded text-[9px] font-mono font-medium bg-muted text-muted-foreground border border-input h-4 px-1"
               title="Press Esc to exit typing mode"
             >
               esc
@@ -473,7 +473,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="size-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              className="size-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               title="Attach file"
             >
               <Paperclip className="size-4" />
@@ -492,7 +492,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
                   }, 100);
                 }
               }}
-              className="size-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              className="size-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
               title="Attach image"
             >
               <ImageIcon className="size-4" />
@@ -500,7 +500,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="size-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  className="size-7 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                   title="More actions"
                 >
                   <Plus className="size-4" />
@@ -518,7 +518,7 @@ export function ChatInput({ onSend, disabled, className, agents = [], knowledge 
             variant={hasContent ? 'primary' : 'secondary'}
             size="icon"
             className={cn(
-              'size-9 rounded-xl transition-all',
+              'size-8 rounded-xl transition-all',
               hasContent ? 'opacity-100' : 'opacity-50'
             )}
             onClick={handleSend}

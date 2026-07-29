@@ -14,8 +14,9 @@
   --card-foreground: var(--color-zinc-950);
   --popover: var(--color-white);
   --popover-foreground: var(--color-zinc-950);
-  --primary: var(--color-blue-500);
-  --primary-foreground: var(--color-white);
+  /* app-shell-4 runs a neutral brand: black in light, near-white in dark */
+  --primary: var(--color-zinc-950);
+  --primary-foreground: var(--color-zinc-50);
   --secondary: var(--color-zinc-100);
   --secondary-foreground: var(--color-zinc-900);
   --muted: var(--color-zinc-100);
@@ -54,8 +55,8 @@
   --card-foreground: var(--color-zinc-50);
   --popover: var(--color-zinc-950);
   --popover-foreground: var(--color-zinc-50);
-  --primary: var(--color-blue-600);
-  --primary-foreground: var(--color-white);
+  --primary: var(--color-zinc-50);
+  --primary-foreground: var(--color-zinc-900);
   --secondary: var(--color-zinc-800);
   --secondary-foreground: var(--color-zinc-50);
   --muted: var(--color-zinc-900);
@@ -79,7 +80,7 @@
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: color-mix(in oklab, var(--primary) 12%, transparent);
-  --sidebar-accent-foreground: var(--color-blue-400);
+  --sidebar-accent-foreground: var(--color-zinc-50);
   --sidebar-border: transparent;
   --sidebar-ring: var(--ring);
 }
@@ -159,11 +160,11 @@
 .thread-wip {
   background: linear-gradient(
     90deg,
-    rgba(59, 130, 246, 0.04) 0%,
-    rgba(59, 130, 246, 0.15) 30%,
-    rgba(99, 102, 241, 0.20) 50%,
-    rgba(59, 130, 246, 0.15) 70%,
-    rgba(59, 130, 246, 0.04) 100%
+    rgba(24, 24, 27, 0.03) 0%,
+    rgba(24, 24, 27, 0.08) 30%,
+    rgba(24, 24, 27, 0.13) 50%,
+    rgba(24, 24, 27, 0.08) 70%,
+    rgba(24, 24, 27, 0.03) 100%
   );
   background-size: 200% 100%;
   animation: shimmer 2.5s ease-in-out infinite;
@@ -171,11 +172,11 @@
 .dark .thread-wip {
   background: linear-gradient(
     90deg,
-    rgba(96, 165, 250, 0.05) 0%,
-    rgba(96, 165, 250, 0.18) 30%,
-    rgba(129, 140, 248, 0.25) 50%,
-    rgba(96, 165, 250, 0.18) 70%,
-    rgba(96, 165, 250, 0.05) 100%
+    rgba(244, 244, 245, 0.03) 0%,
+    rgba(244, 244, 245, 0.09) 30%,
+    rgba(244, 244, 245, 0.14) 50%,
+    rgba(244, 244, 245, 0.09) 70%,
+    rgba(244, 244, 245, 0.03) 100%
   );
   background-size: 200% 100%;
   animation: shimmer 2.5s ease-in-out infinite;

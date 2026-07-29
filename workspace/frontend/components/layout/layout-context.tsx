@@ -48,6 +48,22 @@ function writeListPrefs(prefs: ListPrefs) {
   document.cookie = `${LIST_PREFS_COOKIE}=${value}; path=/; max-age=${LIST_PREFS_MAX_AGE}; samesite=lax`;
 }
 
+/**
+ * Whether the icon rail is expanded to show labels. Persisted the same way as
+ * the list preference so the shell comes back the way it was left.
+ */
+const RAIL_COOKIE = 'oa-rail-expanded';
+
+function readRailPref(): boolean {
+  if (typeof document === 'undefined') return false;
+  return new RegExp(`(?:^|; )${RAIL_COOKIE}=1`).test(document.cookie);
+}
+
+function writeRailPref(expanded: boolean) {
+  if (typeof document === 'undefined') return;
+  document.cookie = `${RAIL_COOKIE}=${expanded ? '1' : '0'}; path=/; max-age=${LIST_PREFS_MAX_AGE}; samesite=lax`;
+}
+
 /** On mobile, which pane is showing: the list or the detail */
 export type MobilePane = 'list' | 'detail';
 
@@ -75,6 +91,9 @@ interface LayoutState {
   toggleDetailExpanded: () => void;
   /** Whether the current view has a list panel at all */
   hasListPanel: boolean;
+  /** Whether the icon rail is widened to show its labels */
+  isRailExpanded: boolean;
+  toggleRail: () => void;
   /** Experimental: show browser tab side-by-side with chat */
   splitBrowser: boolean;
   setSplitBrowser: (v: boolean) => void;
@@ -106,13 +125,26 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('x-split-browser', v ? '1' : '0');
   };
 
+  const [isRailExpanded, setIsRailExpanded] = useState(false);
   const [showBrowserPreview, setShowBrowserPreview] = useState(false);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const openNewThread = () => setNewThreadOpen(true);
 
   // Read on mount rather than in the initial state, so the server render and the
   // first client render agree before the stored preference is applied.
-  useEffect(() => { setListPrefs(readListPrefs()); }, []);
+  useEffect(() => {
+    setListPrefs(readListPrefs());
+    setIsRailExpanded(readRailPref());
+  }, []);
+
+  // Persist outside the state updater: React may run an updater more than once
+  // (StrictMode, concurrent renders), and writing a cookie from there is a
+  // side effect in the render phase.
+  const toggleRail = () => {
+    const next = !isRailExpanded;
+    setIsRailExpanded(next);
+    writeRailPref(next);
+  };
 
   const isAgentPanelOpen = selectedAgentName !== null;
   const openMobileDetail = () => setMobilePane('detail');
@@ -127,11 +159,9 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
 
   const setSidebarOpen = (open: boolean) => {
     if (!hasListPanel) return; // nothing to remember for full-width views
-    setListPrefs((prev) => {
-      const next = { ...prev, [viewMode]: open };
-      writeListPrefs(next);
-      return next;
-    });
+    const next = { ...listPrefs, [viewMode]: open };
+    setListPrefs(next);
+    writeListPrefs(next);
   };
 
   const isDetailExpanded = !isSidebarOpen;
@@ -187,6 +217,8 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       isDetailExpanded,
       toggleDetailExpanded,
       hasListPanel,
+      isRailExpanded,
+      toggleRail,
       splitBrowser,
       setSplitBrowser: handleSetSplitBrowser,
       showBrowserPreview,

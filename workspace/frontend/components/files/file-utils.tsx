@@ -11,7 +11,7 @@ export function getFileIcon(contentType: string | undefined, filename: string) {
   const ct = contentType || '';
   if (ct.startsWith('image/')) return <Image className="size-4 text-purple-500" />;
   if (ct.startsWith('text/') || filename.match(/\.(md|txt|csv)$/i))
-    return <FileText className="size-4 text-blue-500" />;
+    return <FileText className="size-4 text-foreground/70" />;
   if (
     filename.match(/\.(js|ts|tsx|jsx|py|rs|go|java|rb|c|cpp|h|sh|yaml|yml|json|toml)$/i) ||
     ct.includes('javascript') ||
@@ -26,7 +26,7 @@ export function getFileIconLarge(contentType: string | undefined, filename: stri
   const ct = contentType || '';
   if (ct.startsWith('image/')) return <Image className="size-10 text-purple-500" />;
   if (ct.startsWith('text/') || filename.match(/\.(md|txt|csv)$/i))
-    return <FileText className="size-10 text-blue-500" />;
+    return <FileText className="size-10 text-foreground/70" />;
   if (
     filename.match(/\.(js|ts|tsx|jsx|py|rs|go|java|rb|c|cpp|h|sh|yaml|yml|json|toml)$/i) ||
     ct.includes('javascript') ||

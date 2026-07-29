@@ -125,7 +125,7 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
             <span className="flex items-center gap-1">
               {inProgressCount > 0 && (
                 <>
-                  <Loader2 className="size-3 text-blue-500 animate-spin" />
+                  <Loader2 className="size-3 text-foreground animate-spin" />
                   <span>{inProgressCount} in progress</span>
                 </>
               )}
@@ -164,7 +164,7 @@ export function ThreadStatusBar({ channelName, messages = [] }: { channelName: s
 
       {/* Queued messages */}
       {queuedMessages.map((q) => (
-        <div key={q.queueId} className="flex items-center gap-1.5 text-blue-500 dark:text-blue-400">
+        <div key={q.queueId} className="flex items-center gap-1.5 text-foreground/80">
           <MessageSquareMore className="size-3 shrink-0" />
           <span className="truncate">
             Queued: {q.content.length > 60 ? q.content.slice(0, 60) + '…' : q.content}

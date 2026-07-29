@@ -1,12 +1,15 @@
 'use client';
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { Sparkles, Search, ExternalLink, Star, ArrowRight, Check, Plus, Loader2, AlertCircle, Upload, Package } from 'lucide-react';
+import { Search, ExternalLink, Star, ArrowRight, Check, Plus, Loader2, AlertCircle, Upload, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import type { WorkspaceCustomSkill } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { DetailHeader } from '@/components/layout/app-header';
 import {
   Dialog,
@@ -549,28 +552,44 @@ export function SkillsView() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header — title in the app header, count + upload in its toolbar */}
+      {/* Header — title (with the catalogue size) plus search and upload. The
+          count describes the catalogue, not the actions, so it belongs beside
+          the title, the way the thread list carries its unread count. */}
       <DetailHeader
+        // Without this the desktop shell falls back to its own plain "Skill Hub"
+        // text and this title — icon and count included — is never rendered.
+        titleInHeader
         title={<>
-          <Sparkles className="size-4 text-amber-500" />
           <h2 className="text-sm font-semibold">Skill Hub</h2>
+          <Badge variant="outline" size="sm" shape="circle">
+            {allSkills.length}
+          </Badge>
         </>}
       >
-        <span className="hidden text-xs text-muted-foreground sm:inline">
-          {allSkills.length} skills
-        </span>
-        <button
-          onClick={() => setUploadOpen(true)}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-        >
-          <Upload className="size-3.5" />
-          Upload custom skill
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Search only ever needs room for a skill name, not the page width */}
+          <div className="relative hidden md:block">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+            <Input
+              type="text"
+              placeholder="Search skills..."
+              aria-label="Search skills"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="h-7 w-48 pl-8 text-xs lg:w-56"
+            />
+          </div>
+          <Button variant="primary" size="sm" onClick={() => setUploadOpen(true)}>
+            <Upload className="size-3.5" />
+            <span className="hidden sm:inline">Upload custom skill</span>
+          </Button>
+        </div>
       </DetailHeader>
 
       {/* Filters */}
-      <div className="shrink-0 px-5 py-3 border-b border-border space-y-3">
-        <div className="relative">
+      <div className="shrink-0 px-5 py-2 border-b border-border space-y-2 md:space-y-0">
+        {/* Narrow screens keep the search here — the mobile header has no room */}
+        <div className="relative md:hidden">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
           <input
             type="text"

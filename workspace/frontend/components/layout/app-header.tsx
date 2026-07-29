@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, MessageSquare, PanelLeft } from 'lucide-react';
+import { MessageSquare, PanelLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useWorkspace } from '@/lib/workspace-context';
 import { cn } from '@/lib/utils';
@@ -164,48 +163,15 @@ function ThreadTitle() {
 }
 
 /**
- * The app-shell-4 action header: expand-list control, previous/next navigation
- * through the current list, the selected item's title, and a toolbar that the
- * active view fills via {@link AppHeaderActions}.
+ * The app-shell-4 action header: expand-list control, the selected item's
+ * title, and a toolbar that the active view fills via {@link AppHeaderActions}.
  */
 export function AppHeader() {
   const { viewMode, isSidebarOpen, setSidebarOpen, hasListPanel } = useLayout();
   const {
-    sessions, currentSessionId, setCurrentSessionId,
-    files, selectedFileId, setSelectedFileId, currentFilePath,
-    browserTabs, selectedBrowserTabId, setSelectedBrowserTabId,
+    files, selectedFileId, currentFilePath,
+    browserTabs, selectedBrowserTabId,
   } = useWorkspace();
-
-  // Previous/next walk the same order the list panel shows by default.
-  let items: string[] = [];
-  let currentId: string | null = null;
-  let select: (id: string) => void = () => {};
-
-  if (viewMode === 'threads' || viewMode === 'routines') {
-    items = [...sessions]
-      .filter((s) => s.status === 'active' && !s.sessionId.startsWith('routine:'))
-      .sort((a, b) => {
-        const at = a.lastEventAt || (a.createdAt ? new Date(a.createdAt).getTime() : 0);
-        const bt = b.lastEventAt || (b.createdAt ? new Date(b.createdAt).getTime() : 0);
-        return bt - at;
-      })
-      .map((s) => s.sessionId);
-    currentId = currentSessionId;
-    select = (id) => setCurrentSessionId(id);
-  } else if (viewMode === 'files') {
-    items = files.map((f) => f.id);
-    currentId = selectedFileId;
-    select = (id) => setSelectedFileId(id);
-  } else if (viewMode === 'browser') {
-    items = browserTabs.map((t) => t.id);
-    currentId = selectedBrowserTabId;
-    select = (id) => setSelectedBrowserTabId(id);
-  }
-
-  const idx = currentId ? items.indexOf(currentId) : -1;
-  const prevId = idx > 0 ? items[idx - 1] : null;
-  const nextId = idx >= 0 && idx < items.length - 1 ? items[idx + 1] : null;
-  const canNavigate = items.length > 1;
 
   // Title: the selected item for list-backed views, the view name otherwise.
   let title: React.ReactNode;
@@ -257,37 +223,6 @@ export function AppHeader() {
           </TooltipTrigger>
           <TooltipContent>Show list</TooltipContent>
         </Tooltip>
-      )}
-
-      {canNavigate && (
-        <>
-          <Button
-            variant="ghost"
-            mode="icon"
-            size="sm"
-            aria-label="Previous item"
-            disabled={!prevId}
-            onClick={() => prevId && select(prevId)}
-            className="hidden shrink-0 text-muted-foreground sm:flex"
-          >
-            <ChevronLeft className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            mode="icon"
-            size="sm"
-            aria-label="Next item"
-            disabled={!nextId}
-            onClick={() => nextId && select(nextId)}
-            className="hidden shrink-0 text-muted-foreground sm:flex"
-          >
-            <ChevronRight className="size-4" />
-          </Button>
-
-          <div className="hidden items-center sm:flex">
-            <Separator orientation="vertical" className="h-5" />
-          </div>
-        </>
       )}
 
       {/* Title slot. The derived title is a fallback: once a view portals its

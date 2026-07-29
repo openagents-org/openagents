@@ -135,8 +135,10 @@ function ThreadRow({
       className={cn(
         'group relative flex shrink-0 cursor-pointer items-start gap-2 border-b border-border/40 px-2 py-2.5 transition-colors md:px-3',
         'focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none',
+        // The open thread is outlined, not just tinted — the tint alone is too
+        // easy to lose track of while scrolling a long list.
         isSelected
-          ? 'bg-accent/60 dark:bg-accent/20'
+          ? 'bg-accent/60 ring-1 ring-foreground/20 ring-inset dark:bg-accent/20 dark:ring-foreground/25'
           : 'hover:bg-accent/60 dark:hover:bg-accent/20',
         'has-data-[state=open]:bg-accent/60 dark:has-data-[state=open]:bg-accent/20',
         isRunning && 'thread-wip',
@@ -572,7 +574,7 @@ export function ThreadList() {
             'flex shrink-0 cursor-pointer items-start gap-2 border-b border-border/40 px-2 py-2.5 transition-colors md:px-3',
             'focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none',
             currentSessionId === dmId
-              ? 'bg-accent/60 dark:bg-accent/20'
+              ? 'bg-accent/60 ring-1 ring-foreground/20 ring-inset dark:bg-accent/20 dark:ring-foreground/25'
               : 'hover:bg-accent/60 dark:hover:bg-accent/20',
           )}
         >
@@ -639,8 +641,10 @@ export function ThreadList() {
       <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-sm leading-relaxed font-semibold">Threads</span>
+          {/* Unread threads, in the app-shell-4 outlined-count style. Hidden at
+              zero — a "0" beside the title is noise, not information. */}
           {unreadCount > 0 && (
-            <Badge variant="secondary" appearance="light" size="sm" shape="circle">
+            <Badge variant="outline" size="sm" shape="circle" aria-label={`${unreadCount} unread`}>
               {unreadCount}
             </Badge>
           )}
@@ -752,7 +756,9 @@ export function ThreadList() {
                   value={tab.id}
                   className={cn(
                     'h-auto flex-none gap-1 rounded-full px-2.5 py-0.5 text-xs font-normal',
-                    'data-[state=active]:bg-primary! data-[state=active]:font-medium! data-[state=active]:text-primary-foreground! data-[state=active]:shadow-none!',
+                    // Neutral (foreground) fill rather than the blue primary, so the
+                    // pills read as part of the ReUI zinc palette.
+                    'data-[state=active]:bg-foreground! data-[state=active]:font-medium! data-[state=active]:text-background! data-[state=active]:shadow-none!',
                     'data-[state=active]:after:opacity-0!',
                   )}
                 >
