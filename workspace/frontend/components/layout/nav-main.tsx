@@ -24,7 +24,8 @@ interface NavItem {
   count?: number;
 }
 
-export function NavMain() {
+/** `onNavigate` lets the mobile drawer close itself once a view is picked. */
+export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView } = useLayout();
   const { agents, sessions, files, browserTabs, todos, routines, knowledge, unreadNotificationCount } = useWorkspace();
 
@@ -75,7 +76,10 @@ export function NavMain() {
               <SidebarMenuButton
                 tooltip={item.label}
                 isActive={viewMode === item.mode}
-                onClick={() => openView(item.mode)}
+                onClick={() => {
+                  openView(item.mode);
+                  onNavigate?.();
+                }}
               >
                 {item.icon}
                 <span>{item.label}</span>

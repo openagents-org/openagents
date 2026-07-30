@@ -12,7 +12,9 @@ import { toast } from 'sonner';
 import type { CloudAgentConfig } from '@/lib/types';
 
 export function AgentProfilePanel() {
-  const { selectedAgentName, setSelectedAgentName, isMobile, setViewMode } = useLayout();
+  const {
+    selectedAgentName, setSelectedAgentName, isMobile, setViewMode, openMobileDetail,
+  } = useLayout();
   const { agents, refreshWorkspace, createSession } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
 
@@ -119,7 +121,11 @@ export function AgentProfilePanel() {
     await createSession({ master: agent.agentName, participants: [agent.agentName] });
     setSelectedAgentName(null);
     setViewMode('threads');
-  }, [agent, createSession, setSelectedAgentName, setViewMode]);
+    // On mobile the panel can be opened from either pane, so send the user to
+    // the detail pane explicitly — otherwise the new thread is created behind
+    // the thread list and the tap looks like it did nothing.
+    if (isMobile) openMobileDetail();
+  }, [agent, createSession, setSelectedAgentName, setViewMode, isMobile, openMobileDetail]);
 
   if (!agent) return null;
 

@@ -9,15 +9,10 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { Menu, MessageSquare, FileText, Globe, Plus } from 'lucide-react';
+import { Menu, MessageSquare, FileText, Globe } from 'lucide-react';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
-import {
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-} from '@/components/ui/sidebar';
+import { SidebarProvider } from '@/components/ui/sidebar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Brand } from './brand';
 import { NavMain } from './nav-main';
@@ -29,28 +24,9 @@ import { useLayout, type ViewMode } from './layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { cn } from '@/lib/utils';
 
-/** Primary call to action inside the mobile navigation sheet. */
-function NewThreadButton() {
-  const { openNewThread } = useLayout();
-
-  return (
-    <SidebarMenu className="px-1 pb-1">
-      <SidebarMenuItem>
-        <SidebarMenuButton
-          onClick={openNewThread}
-          className="h-9 justify-center gap-2 bg-primary font-medium text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground"
-        >
-          <Plus />
-          <span>New Thread</span>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-    </SidebarMenu>
-  );
-}
-
 export function MobileHeader() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
-  const { viewMode, openView, openMobileList, openNewThread } = useLayout();
+  const { viewMode, openView, openMobileList } = useLayout();
   const { workspace } = useWorkspace();
 
   // Close sheet when clicking a session
@@ -65,13 +41,12 @@ export function MobileHeader() {
     }
   }, [isSheetOpen]);
 
+  const closeSheet = () => setIsSheetOpen(false);
+
   const handleViewSwitch = (mode: ViewMode) => {
     openView(mode);
     openMobileList();
   };
-
-  // Open the shared agent picker so the user chooses who joins the new session.
-  const handleNewThread = () => openNewThread();
 
   const tabs: { mode: ViewMode; icon: typeof MessageSquare; label: string }[] = [
     { mode: 'threads', icon: MessageSquare, label: 'Threads' },
@@ -103,16 +78,15 @@ export function MobileHeader() {
                     style={{ '--sidebar-width': '280px' } as React.CSSProperties}
                   >
                     <div className="flex h-full min-h-0 flex-col">
-                      <div className="shrink-0 px-1 pt-1">
+                      <div className="shrink-0 px-1 pt-1 pb-1">
                         <Brand />
-                        <NewThreadButton />
                       </div>
                       <ScrollArea className="min-h-0 flex-1">
-                        <NavMain />
-                        <NavAgents />
+                        <NavMain onNavigate={closeSheet} />
+                        <NavAgents onNavigate={closeSheet} />
                       </ScrollArea>
                       <div className="shrink-0 border-t border-border px-1 pb-[env(safe-area-inset-bottom)]">
-                        <NavSecondary />
+                        <NavSecondary onNavigate={closeSheet} />
                       </div>
                     </div>
                   </SidebarProvider>
@@ -130,17 +104,12 @@ export function MobileHeader() {
             </span>
           </div>
 
-          {/* Right: notifications, account and new thread */}
+          {/* Right: notifications and account. Starting a thread lives in the
+              threads list itself, where the new thread will show up — a global
+              button here fired from Files or Browser and yanked you elsewhere. */}
           <div className="flex items-center gap-0.5 shrink-0 text-muted-foreground">
             <NotificationsMenu />
             <UserMenu />
-            <button
-              onClick={handleNewThread}
-              className="size-8 flex items-center justify-center rounded-lg bg-primary text-primary-foreground shrink-0"
-              title="New Thread"
-            >
-              <Plus className="size-4" />
-            </button>
           </div>
         </div>
       </header>

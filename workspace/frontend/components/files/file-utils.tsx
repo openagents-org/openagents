@@ -7,6 +7,7 @@ import {
   FileCode,
   FileSpreadsheet,
   FileText,
+  Folder,
   Globe,
   Image as ImageIcon,
   Music,
@@ -172,6 +173,12 @@ export interface FileFilterGroupMeta {
   color: string;
 }
 
+/** What the Files grid can be filtered down to — a type, folders, or nothing. */
+export type FileTypeFilter = FileFilterGroup | 'folders' | 'all';
+
+/** What it can be ordered by. */
+export type FileSortKey = 'name' | 'recent' | 'size';
+
 export const FILE_FILTER_GROUPS: FileFilterGroupMeta[] = [
   { id: 'documents', label: 'Documents', kinds: ['pdf', 'doc', 'markdown', 'text'], icon: FileText, color: 'var(--file-doc)' },
   { id: 'sheets', label: 'Spreadsheets', kinds: ['sheet'], icon: FileSpreadsheet, color: 'var(--file-sheet)' },
@@ -252,6 +259,57 @@ export function FileTypeTile({
   );
 }
 
+/** Amber, the same colour the folder panel uses for its rows. */
+const FOLDER_COLOR = '#f59e0b';
+
+/**
+ * A folder in the grid. It takes the same 76px slot as a file tile so the two
+ * sit in one grid without knocking the rows out of line, and wears the panel's
+ * amber so the thing you clicked on the left is recognisably the same thing.
+ */
+export function FolderTile({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn(
+        'flex h-19 w-15 shrink-0 items-center justify-center rounded-xl border border-border/70 shadow-xs transition-transform',
+        className,
+      )}
+      style={{
+        background: `linear-gradient(155deg, color-mix(in oklab, ${FOLDER_COLOR} 18%, transparent), color-mix(in oklab, ${FOLDER_COLOR} 6%, transparent))`,
+      }}
+    >
+      <Folder className="size-8" style={{ color: FOLDER_COLOR }} />
+    </div>
+  );
+}
+
+/** Row-height folder icon, matching {@link FileRowIcon}'s slot in list view. */
+export function FolderRowIcon({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn(
+        'flex size-7 shrink-0 items-center justify-center rounded-md border border-border/60',
+        className,
+      )}
+      style={{ background: `color-mix(in oklab, ${FOLDER_COLOR} 12%, transparent)` }}
+    >
+      <Folder className="size-4" style={{ color: FOLDER_COLOR }} />
+    </div>
+  );
+}
+
+/** "3 folders · 12 files", or "Empty" when there's nothing to say. */
+export function describeFolder(entry: FolderEntry): string {
+  const parts: string[] = [];
+  if (entry.folderCount) {
+    parts.push(`${entry.folderCount} ${entry.folderCount === 1 ? 'folder' : 'folders'}`);
+  }
+  if (entry.fileCount) {
+    parts.push(`${entry.fileCount} ${entry.fileCount === 1 ? 'file' : 'files'}`);
+  }
+  return parts.join(' · ') || 'Empty';
+}
+
 /* ── Thumbnails ──────────────────────────────────────────────────────────────
  * An image is the one kind whose glyph tells you nothing: a folder of
  * screenshots is a dozen identical tiles until you can see them. So an image
@@ -281,8 +339,22 @@ const MAX_THUMBNAIL_BYTES = 8 * 1024 * 1024;
  */
 const brokenThumbnails = new Set<string>();
 
+/**
+ * What a thumbnail needs to know about a file.
+ *
+ * Narrower than `WorkspaceFile` on purpose: a trash row carries these four
+ * fields and nothing else, and its images deserve pixels for the same reason
+ * the grid's do — that's when you're deciding whether to restore it.
+ */
+export interface ThumbnailSource {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+}
+
 /** Whether this file can stand in for itself, rather than for its type. */
-export function canThumbnail(file: WorkspaceFile): boolean {
+export function canThumbnail(file: ThumbnailSource): boolean {
   if (getFileKind(file.contentType, file.filename) !== 'image') return false;
   if (file.size > MAX_THUMBNAIL_BYTES) return false;
 
@@ -296,21 +368,32 @@ export function canThumbnail(file: WorkspaceFile): boolean {
 }
 
 /**
- * The image, filling whatever box the caller reserved, with `fallback` standing
- * in until it decodes and for good if it never does.
+ * The image, filling whatever box the caller reserved, with the file's own type
+ * tile standing in until it decodes and for good if it never does.
+ *
+ * The stand-in matters more than it sounds: there's no resizing endpoint, so a
+ * 5MB screenshot is 5MB on the wire to draw 76 pixels, and for those seconds
+ * the tile is all there is. An empty tinted box for that long reads as a file
+ * that failed, so the wait shows the same tile a non-image gets — the kind,
+ * the extension, a slow pulse — and the picture fades in over it. Nothing
+ * moves when it arrives; the box was always the right size.
  *
  * Callers pass the box size in `className` rather than getting it from here:
- * the fallback has to occupy exactly the same space, and only the caller knows
+ * the stand-in has to occupy exactly the same space, and only the caller knows
  * what that is.
  */
 function FileThumbnail({
   file,
   className,
   fallback,
+  placeholder,
 }: {
-  file: WorkspaceFile;
+  file: ThumbnailSource;
   className?: string;
+  /** Shown instead of the box when the image will never arrive. */
   fallback: ReactNode;
+  /** Shown inside the box until it does. */
+  placeholder: ReactNode;
 }) {
   const [broken, setBroken] = useState(() => brokenThumbnails.has(file.id));
   const [loaded, setLoaded] = useState(false);
@@ -320,10 +403,15 @@ function FileThumbnail({
 
   return (
     <span
-      className={cn('relative block overflow-hidden', className)}
-      // Tinted while it loads: an empty grey box in a grid of coloured tiles
-      // reads as a broken image, and this one is about to hold a picture.
-      style={{ background: `color-mix(in oklab, ${color} 12%, transparent)` }}
+      className={cn(
+        'relative block overflow-hidden',
+        className,
+        // Until there are pixels, the box is only a frame around the stand-in:
+        // its own border and tint would read as a second, empty tile.
+        !loaded && 'border-transparent shadow-none',
+      )}
+      // Tinted behind the image, which is what a transparent PNG sits on.
+      style={loaded ? { background: `color-mix(in oklab, ${color} 12%, transparent)` } : undefined}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -342,6 +430,14 @@ function FileThumbnail({
           loaded ? 'opacity-100' : 'opacity-0',
         )}
       />
+      {!loaded && (
+        <span
+          className="absolute inset-0 flex animate-pulse items-center justify-center"
+          aria-hidden
+        >
+          {placeholder}
+        </span>
+      )}
     </span>
   );
 }
@@ -355,15 +451,18 @@ function FileThumbnail({
  * it, and one letterboxed tile beside a full one reads as a layout bug.
  */
 export function FileTile({ file, className }: { file: WorkspaceFile; className?: string }) {
-  const tile = (
+  // The caller's className carries the hover lift, which belongs to whichever
+  // element is the tile: the type tile when it stands alone, the frame when it
+  // holds one. Handing it to both would lift twice.
+  const tile = (tileClassName?: string) => (
     <FileTypeTile
       contentType={file.contentType}
       filename={file.filename}
-      className={className}
+      className={tileClassName}
     />
   );
 
-  if (!canThumbnail(file)) return tile;
+  if (!canThumbnail(file)) return tile(className);
 
   return (
     <FileThumbnail
@@ -371,7 +470,8 @@ export function FileTile({ file, className }: { file: WorkspaceFile; className?:
       // broken verdict.
       key={file.id}
       file={file}
-      fallback={tile}
+      fallback={tile(className)}
+      placeholder={tile()}
       className={cn(
         'size-19 rounded-xl border border-border/70 shadow-xs transition-transform',
         className,
@@ -384,20 +484,21 @@ export function FileTile({ file, className }: { file: WorkspaceFile; className?:
  * A list row's leading square — thumbnail or glyph, both 28px, so every name in
  * the list starts on the same edge whatever the row holds.
  */
-export function FileRowIcon({ file, className }: { file: WorkspaceFile; className?: string }) {
-  const glyph = (
-    <span className={cn('flex size-7 shrink-0 items-center justify-center', className)}>
+export function FileRowIcon({ file, className }: { file: ThumbnailSource; className?: string }) {
+  const glyph = (glyphClassName?: string) => (
+    <span className={cn('flex size-7 shrink-0 items-center justify-center', glyphClassName)}>
       {getFileIcon(file.contentType, file.filename)}
     </span>
   );
 
-  if (!canThumbnail(file)) return glyph;
+  if (!canThumbnail(file)) return glyph(className);
 
   return (
     <FileThumbnail
       key={file.id}
       file={file}
-      fallback={glyph}
+      fallback={glyph(className)}
+      placeholder={glyph()}
       className={cn('size-7 shrink-0 rounded-md border border-border/60', className)}
     />
   );
@@ -432,12 +533,27 @@ export interface FileEntry {
   displayName: string;
 }
 
+export interface FolderEntry {
+  type: 'folder';
+  /** Full path from the root, which is what selecting it navigates to */
+  path: string;
+  name: string;
+  /** Files anywhere below it — what you'd find if you kept opening it */
+  fileCount: number;
+  /** Direct subfolders, so a folder of folders doesn't read as empty */
+  folderCount: number;
+  /** Total bytes in the folder subtree, used when sorting folders by size */
+  totalSize: number;
+  /** Newest item in the folder subtree, used as the folder's modified time */
+  modifiedAt: string | null;
+}
+
 /**
  * Every file at or below `path`, named relative to it.
  *
- * The detail pane lists files, never folders — the folder panel owns the
- * hierarchy — so picking a folder means "everything under here", and the
- * subfolder stays in the name to say where each file came from.
+ * Used for search, which spans folders and so has to say which one each hit
+ * came from. Browsing uses {@link getFolderContents} instead — one level at a
+ * time, the way the folder was built.
  */
 export function getFilesUnderPath(files: WorkspaceFile[], path: string): FileEntry[] {
   const prefix = path ? `${path}/` : '';
@@ -451,4 +567,98 @@ export function getFilesUnderPath(files: WorkspaceFile[], path: string): FileEnt
   }
 
   return entries;
+}
+
+/**
+ * Every folder represented by the file-path prefixes in the workspace.
+ *
+ * Folder metadata is aggregated over the whole subtree. This gives folder
+ * sorting useful semantics even though folders are virtual and do not have
+ * their own size or modified timestamp in the API.
+ */
+export function getAllFolders(files: WorkspaceFile[]): FolderEntry[] {
+  const folders = new Map<string, FolderEntry>();
+  const childFolders = new Map<string, Set<string>>();
+
+  for (const file of files) {
+    const directory = dirname(file.filename);
+    if (!directory) continue;
+
+    const segments = directory.split('/');
+    const isKeep = basename(file.filename) === '.keep';
+    const createdAtMs = file.createdAt ? new Date(file.createdAt).getTime() : 0;
+
+    for (let i = 0; i < segments.length; i++) {
+      const path = segments.slice(0, i + 1).join('/');
+      let entry = folders.get(path);
+      if (!entry) {
+        entry = {
+          type: 'folder',
+          path,
+          name: segments[i],
+          fileCount: 0,
+          folderCount: 0,
+          totalSize: 0,
+          modifiedAt: null,
+        };
+        folders.set(path, entry);
+        childFolders.set(path, new Set());
+      }
+
+      if (!isKeep) {
+        entry.fileCount += 1;
+        entry.totalSize += file.size;
+      }
+
+      const previousMs = entry.modifiedAt ? new Date(entry.modifiedAt).getTime() : 0;
+      if (createdAtMs > previousMs) entry.modifiedAt = file.createdAt;
+
+      if (i < segments.length - 1) {
+        childFolders.get(path)!.add(segments[i + 1]);
+      }
+    }
+  }
+
+  childFolders.forEach((children, path) => {
+    folders.get(path)!.folderCount = children.size;
+  });
+
+  return Array.from(folders.values());
+}
+
+/**
+ * What's directly inside `path`: its subfolders, and the files sitting in it.
+ *
+ * One level only. Flattening a folder's descendants into its own listing puts
+ * files somewhere they aren't — the folder you're looking at stops matching
+ * what it holds, and dragging a file "out" of a subfolder you can't see isn't
+ * a thing you can do.
+ */
+export function getFolderContents(
+  files: WorkspaceFile[],
+  path: string,
+): { folders: FolderEntry[]; files: FileEntry[] } {
+  const prefix = path ? `${path}/` : '';
+  const directFiles: FileEntry[] = [];
+
+  for (const file of files) {
+    if (prefix && !file.filename.startsWith(prefix)) continue;
+    const relative = prefix ? file.filename.slice(prefix.length) : file.filename;
+    const slash = relative.indexOf('/');
+
+    if (slash === -1) {
+      // `.keep` only exists to give an empty folder something to be
+      if (relative === '.keep') continue;
+      directFiles.push({ type: 'file', file, displayName: relative });
+    }
+  }
+
+  const folders = getAllFolders(files)
+    .filter((folder) => dirname(folder.path) === path)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return {
+    folders,
+    files: directFiles,
+  };
 }

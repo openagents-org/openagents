@@ -3,8 +3,8 @@
 import * as React from 'react';
 import Image from 'next/image';
 import {
-  BookOpen, CalendarClock, ChevronLeft, ChevronRight, FileText, Globe, Inbox,
-  ListTodo, MessageSquare, PlusSquare, Sparkles,
+  BookOpen, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, FileText, Globe,
+  Inbox, ListTodo, MessageSquare, PlusSquare, Sparkles, Users,
 } from 'lucide-react';
 import {
   Sidebar,
@@ -12,6 +12,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -189,10 +190,13 @@ export function NavRail() {
   } = useLayout();
   const {
     workspace, agents, sessions, unreadSessionIds, unreadNotificationCount,
+    onlineUsers, currentUser,
   } = useWorkspace();
+  const [agentsOpen, setAgentsOpen] = React.useState(true);
 
   const recentAgents = agents.filter(isRecentAgent);
   const hasAgents = recentAgents.length > 0;
+  const onlineAgentCount = recentAgents.filter((a) => a.status === 'online').length;
 
   // Only threads the list actually shows may light the rail. Counting archived
   // and routine sessions too — as `unreadSessionIds` does on its own — leaves
@@ -288,6 +292,10 @@ export function NavRail() {
       {/* View nav + agents */}
       <SidebarContent>
         <SidebarGroup className="px-1.5">
+          {/* Group labels only make sense once there is room for them — the
+              collapsed rail is icon-only, and a 52px column has nowhere to put
+              a caption. */}
+          {showLabels && <SidebarGroupLabel className="px-2">Collaboration</SidebarGroupLabel>}
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
               {items.map((item) => (
@@ -325,7 +333,34 @@ export function NavRail() {
               <Separator />
             </div>
             <SidebarGroup className="px-1.5">
-              <SidebarGroupContent>
+              {showLabels && (
+                <SidebarGroupLabel
+                  asChild
+                  className="cursor-pointer px-2 focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setAgentsOpen((prev) => !prev)}
+                    aria-expanded={agentsOpen}
+                    aria-controls="rail-agent-list"
+                  >
+                    Agents ({onlineAgentCount}/{recentAgents.length})
+                    <ChevronDown
+                      className={cn(
+                        'ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200',
+                        !agentsOpen && '-rotate-90',
+                      )}
+                    />
+                  </button>
+                </SidebarGroupLabel>
+              )}
+              {/* Collapsing the group only applies to the expanded rail —
+                  icon-only, keeping presence visible is the rail's whole job,
+                  so the avatars stay. */}
+              <SidebarGroupContent
+                id="rail-agent-list"
+                className={cn(showLabels && !agentsOpen && 'hidden')}
+              >
                 <SidebarMenu className="gap-0.5">
                   {recentAgents.map((agent) => (
                     <SidebarMenuItem key={agent.agentName}>
@@ -346,6 +381,65 @@ export function NavRail() {
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </>
+        )}
+
+        {/* Humans currently in the workspace. Collapsed there is no room for a
+            name, so each becomes an initial chip carrying the name in its
+            tooltip — the same trade the agent avatars make. */}
+        {onlineUsers.length > 0 && (
+          <>
+            <div className="px-3">
+              <Separator />
+            </div>
+            <SidebarGroup className="px-1.5">
+              {showLabels && (
+                <SidebarGroupLabel className="px-2">
+                  <Users className="me-1 size-3" />
+                  Online ({onlineUsers.length})
+                </SidebarGroupLabel>
+              )}
+              <SidebarGroupContent>
+                <SidebarMenu className="gap-0.5">
+                  {onlineUsers.map((user) => {
+                    const label =
+                      user.id === currentUser.id ? `${user.name} (you)` : user.name;
+
+                    return (
+                      <SidebarMenuItem key={user.id}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              className={cn(
+                                'flex h-8 items-center gap-2 rounded-md text-sm',
+                                showLabels ? 'px-2' : 'justify-center',
+                              )}
+                            >
+                              {showLabels ? (
+                                <>
+                                  <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
+                                  <span className="min-w-0 truncate text-foreground">
+                                    {label}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="relative flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium uppercase text-muted-foreground">
+                                  {user.name.trim().charAt(0) || '?'}
+                                  <span className="absolute -end-0.5 -bottom-0.5 size-1.5 rounded-full bg-emerald-500 ring-1 ring-sidebar" />
+                                </span>
+                              )}
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="right" hidden={showLabels}>
+                            {label}
+                          </TooltipContent>
+                        </Tooltip>
+                      </SidebarMenuItem>
+                    );
+                  })}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

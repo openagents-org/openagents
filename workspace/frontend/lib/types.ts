@@ -139,6 +139,37 @@ export interface WorkspaceFile {
   createdAt: string | null;
 }
 
+/** A file held by a trash entry — a preview of what a restore brings back. */
+export interface TrashFile {
+  id: string;
+  filename: string;
+  name: string;
+  size: number;
+  contentType: string;
+  kind: string;
+}
+
+/**
+ * One delete action, as the trash lists it back.
+ *
+ * A folder that went in with twelve files is a single entry, not twelve rows:
+ * restoring is the same gesture deleting was. `files` previews the first few of
+ * them; `fileCount` is how many there really are.
+ */
+export interface TrashEntry {
+  /** What restore and purge address — not a file id. */
+  trashId: string;
+  kind: 'file' | 'folder';
+  /** Where it lived: the folder's path, or the deleted file's own path. */
+  path: string;
+  name: string;
+  /** Null for records deleted before the trash existed — nothing recorded when. */
+  deletedAt: string | null;
+  fileCount: number;
+  size: number;
+  files: TrashFile[];
+}
+
 export interface KnowledgeEntry {
   id: string;
   slug: string;

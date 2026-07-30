@@ -19,8 +19,12 @@ import { useLayout } from './layout-context';
 /**
  * Agents rail: recent/online agents (kept visible on the icon rail as avatars)
  * plus the list of humans currently in the workspace.
+ *
+ * `onNavigate` fires after anything here changes what the detail area shows —
+ * the mobile drawer uses it to close itself, since otherwise the sheet stays
+ * parked over the very panel the tap just opened.
  */
-export function NavAgents() {
+export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
   const { setSelectedAgentName } = useLayout();
   const { agents, onlineUsers, currentUser } = useWorkspace();
   const [open, setOpen] = useState(true);
@@ -64,7 +68,10 @@ export function NavAgents() {
                 <SidebarMenuItem key={agent.agentName}>
                   <SidebarMenuButton
                     tooltip={agent.agentName}
-                    onClick={() => setSelectedAgentName(agent.agentName)}
+                    onClick={() => {
+                      setSelectedAgentName(agent.agentName);
+                      onNavigate?.();
+                    }}
                   >
                     <AgentAvatar
                       name={agent.agentName}

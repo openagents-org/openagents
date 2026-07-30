@@ -42,6 +42,12 @@ interface PromptOptions {
   defaultValue?: string;
   confirmText?: string;
   cancelText?: string;
+  /**
+   * Checked on every keystroke; a returned message blocks submit and shows
+   * under the input. Catching a name clash here rather than in the caller's
+   * error handler keeps the answer instant instead of a round trip away.
+   */
+  validate?: (value: string) => string | null;
 }
 
 type Pending =
@@ -120,7 +126,14 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
     if (!open) settle(cancelResult);
   };
 
+  // An empty name is a no-op the caller would silently swallow, so it counts as
+  // invalid here and the button says so by staying disabled.
+  const promptError =
+    pending?.kind === 'prompt' && value.trim() ? pending.validate?.(value.trim()) ?? null : null;
+  const canSubmit = pending?.kind !== 'prompt' || (Boolean(value.trim()) && !promptError);
+
   const submit = () => {
+    if (!canSubmit) return;
     if (pending?.kind === 'prompt') settle(value);
     else settle(true);
   };
@@ -149,6 +162,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
                   ref={inputRef}
                   value={value}
                   placeholder={pending.placeholder}
+                  aria-invalid={Boolean(promptError)}
                   onChange={(e) => setValue(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
@@ -157,6 +171,9 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
                     }
                   }}
                 />
+                {/* Reserve the line so the footer doesn't jump the moment a
+                    name turns out to be taken. */}
+                <p className="mt-2 min-h-4 text-xs text-destructive">{promptError}</p>
               </DialogBody>
             )}
 
@@ -171,6 +188,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
               <Button
                 variant={pending.kind === 'confirm' && pending.destructive ? 'destructive' : 'primary'}
                 className="min-w-24"
+                disabled={!canSubmit}
                 onClick={submit}
               >
                 {pending.confirmText ?? (pending.kind === 'prompt' ? 'OK' : 'Confirm')}

@@ -16,6 +16,7 @@ import type {
   ShareSummary,
   TimerItem,
   TodoItem,
+  TrashEntry,
   Workspace,
   WorkspaceAgent,
   WorkspaceCollaborator,
@@ -57,6 +58,27 @@ function mapFileResponse(raw: Record<string, unknown>): WorkspaceFile {
     channelName: (raw.channel_name ?? raw.channelName ?? null) as string | null,
     status: (raw.status || 'active') as string,
     createdAt: (raw.created_at || raw.createdAt || null) as string | null,
+  };
+}
+
+/** Map a snake_case trash entry from the backend to camelCase. */
+function mapTrashEntry(raw: Record<string, unknown>): TrashEntry {
+  return {
+    trashId: raw.trash_id as string,
+    kind: raw.kind === 'folder' ? 'folder' : 'file',
+    path: (raw.path || '') as string,
+    name: (raw.name || '') as string,
+    deletedAt: (raw.deleted_at ?? null) as string | null,
+    fileCount: (raw.file_count as number) ?? 0,
+    size: (raw.size as number) ?? 0,
+    files: ((raw.files as Record<string, unknown>[]) || []).map((f) => ({
+      id: f.id as string,
+      filename: f.filename as string,
+      name: (f.name || f.filename) as string,
+      size: (f.size as number) ?? 0,
+      contentType: (f.content_type || 'application/octet-stream') as string,
+      kind: (f.kind || 'other') as string,
+    })),
   };
 }
 
@@ -410,42 +432,90 @@ class WorkspaceApi {
   // Files
   // ---------------------------------------------------------------------------
 
-  /** Upload a file to workspace shared storage. */
-  async uploadFile(file: File, channelName?: string): Promise<WorkspaceFile> {
+  /**
+   * Upload a file to workspace shared storage.
+   *
+   * XHR rather than fetch for one reason: `upload.onprogress`. A fetch request
+   * body is opaque once it's handed over, so there is no way to tell a 40MB
+   * upload apart from a stalled one — and the grid draws a progress bar over
+   * the file while it goes up.
+   */
+  uploadFile(
+    file: File,
+    channelName?: string,
+    options?: {
+      /** Fraction uploaded, 0–1. Never fires if the browser can't measure it. */
+      onProgress?: (fraction: number) => void;
+      signal?: AbortSignal;
+    },
+  ): Promise<WorkspaceFile> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('network', this.workspaceId);
     if (channelName) formData.append('channel_name', channelName);
 
-    const authHeaders: Record<string, string> = {};
-    if (this.token) authHeaders['X-Workspace-Token'] = this.token;
-    if (this.bearerToken) authHeaders['Authorization'] = `Bearer ${this.bearerToken}`;
+    return new Promise<WorkspaceFile>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_URL}/v1/files`);
+      if (this.token) xhr.setRequestHeader('X-Workspace-Token', this.token);
+      if (this.bearerToken) xhr.setRequestHeader('Authorization', `Bearer ${this.bearerToken}`);
 
-    const url = `${API_URL}/v1/files`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: authHeaders,
-      body: formData,
+      if (options?.onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable && e.total > 0) options.onProgress!(e.loaded / e.total);
+        };
+      }
+
+      xhr.onload = () => {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          reject(new Error(`Upload failed: ${xhr.responseText || xhr.statusText}`));
+          return;
+        }
+        try {
+          resolve(mapFileResponse(JSON.parse(xhr.responseText).data));
+        } catch {
+          reject(new Error('Upload failed: malformed response'));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Upload failed: network error'));
+      xhr.onabort = () => reject(new DOMException('Upload cancelled', 'AbortError'));
+
+      if (options?.signal) {
+        if (options.signal.aborted) {
+          reject(new DOMException('Upload cancelled', 'AbortError'));
+          return;
+        }
+        options.signal.addEventListener('abort', () => xhr.abort(), { once: true });
+      }
+
+      xhr.send(formData);
     });
-
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`Upload failed: ${body}`);
-    }
-
-    const json = await res.json();
-    return mapFileResponse(json.data);
   }
 
-  /** List files in the workspace. */
+  /**
+   * List every file in the workspace.
+   *
+   * The endpoint pages at 50 by default and caps at 200, but the Files view
+   * derives the whole folder tree from this list — a partial page silently
+   * drops folders and makes their counts shrink as new files arrive, so we
+   * walk the pages until we have them all.
+   */
   async listFiles(): Promise<{ files: WorkspaceFile[]; total: number }> {
-    const raw = await this.request<{ files: Record<string, unknown>[]; total: number }>(
-      `/v1/files?network=${this.workspaceId}`
-    );
-    return {
-      files: raw.files.map(mapFileResponse),
-      total: raw.total,
-    };
+    const PAGE_SIZE = 200; // the endpoint's hard ceiling
+    const MAX_PAGES = 25;  // 5k files: a backstop, not an expected limit
+    const files: WorkspaceFile[] = [];
+    let total = 0;
+
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const raw = await this.request<{ files: Record<string, unknown>[]; total: number }>(
+        `/v1/files?network=${this.workspaceId}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`
+      );
+      total = raw.total;
+      files.push(...raw.files.map(mapFileResponse));
+      if (raw.files.length < PAGE_SIZE || files.length >= total) break;
+    }
+
+    return { files, total };
   }
 
   /** Get the download URL for a file. */
@@ -482,6 +552,98 @@ class WorkspaceApi {
   async deleteFolder(path: string): Promise<void> {
     const params = new URLSearchParams({ network: this.workspaceId, path });
     await this.request<unknown>(`/v1/files/folders?${params}`, { method: 'DELETE' });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Trash
+  //
+  // Deleting is soft: files and folders land here first and can be put back.
+  // The unit is the delete action, not the file — a deleted folder is one entry
+  // holding its files — so restore and purge take `trashId`s, never file ids.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Move files and/or folders to the trash.
+   *
+   * Preferred over `deleteFile`/`deleteFolder`: those routes predate the trash
+   * and record no timestamp or grouping, so what they delete comes back as one
+   * loose row per file, undated and unrestorable as a unit.
+   */
+  async moveToTrash(target: { fileIds?: string[]; paths?: string[] }): Promise<void> {
+    await this.request<unknown>('/v1/files/trash', {
+      method: 'POST',
+      body: JSON.stringify({
+        network: this.workspaceId,
+        file_ids: target.fileIds ?? [],
+        paths: target.paths ?? [],
+      }),
+    });
+  }
+
+  /** What's in the trash, newest first. Paged for the same reason as listFiles. */
+  async listTrash(): Promise<{
+    entries: TrashEntry[];
+    total: number;
+    fileTotal: number;
+    sizeTotal: number;
+  }> {
+    const PAGE_SIZE = 500; // the endpoint's hard ceiling
+    const MAX_PAGES = 10;
+    const entries: TrashEntry[] = [];
+    let total = 0;
+    let fileTotal = 0;
+    let sizeTotal = 0;
+
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const raw = await this.request<{
+        entries: Record<string, unknown>[];
+        total: number;
+        file_total: number;
+        size_total: number;
+      }>(
+        `/v1/files/trash?network=${this.workspaceId}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`
+      );
+      total = raw.total;
+      fileTotal = raw.file_total;
+      sizeTotal = raw.size_total;
+      entries.push(...raw.entries.map(mapTrashEntry));
+      if (raw.entries.length < PAGE_SIZE || entries.length >= total) break;
+    }
+
+    return { entries, total, fileTotal, sizeTotal };
+  }
+
+  /**
+   * Put trash entries back where they were.
+   *
+   * A name taken in the meantime doesn't fail the restore — the file lands
+   * beside its replacement as "report (2).pdf" — so `renamedCount` is what the
+   * caller needs to say so rather than claiming an exact restore.
+   */
+  async restoreFromTrash(trashIds: string[]): Promise<{ restoredCount: number; renamedCount: number }> {
+    const data = await this.request<{
+      entries: { renamed_count?: number }[];
+      restored_count: number;
+    }>('/v1/files/trash/restore', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.workspaceId, trash_ids: trashIds }),
+    });
+    return {
+      restoredCount: data.restored_count ?? 0,
+      renamedCount: (data.entries ?? []).reduce((n, e) => n + (e.renamed_count ?? 0), 0),
+    };
+  }
+
+  /** Destroy trash entries — records and stored bytes. `all` is Empty Trash. */
+  async purgeTrash(target: { trashIds?: string[]; all?: boolean }): Promise<void> {
+    await this.request<unknown>('/v1/files/trash/purge', {
+      method: 'POST',
+      body: JSON.stringify({
+        network: this.workspaceId,
+        trash_ids: target.trashIds ?? [],
+        all: target.all ?? false,
+      }),
+    });
   }
 
   // ---------------------------------------------------------------------------

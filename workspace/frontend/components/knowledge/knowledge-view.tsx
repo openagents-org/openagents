@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, BookOpen, Pencil } from 'lucide-react';
+import { ArrowLeft, BookOpen, Loader2, Pencil } from 'lucide-react';
 import { MarkdownContent } from '@/components/chat/markdown-content';
 import { Button } from '@/components/ui/button';
 import { useLayout } from '@/components/layout/layout-context';
@@ -98,8 +98,11 @@ export function KnowledgeView() {
 
       <div className="flex-1 overflow-y-auto p-4">
         {loading ? (
-          <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
-            Loading...
+          /* h-full, not a fixed box: the wait belongs to the whole pane, and a
+             128px one centred its spinner against the top of an empty page.
+             Same spinner the file preview uses — it's the same wait. */
+          <div className="flex h-full items-center justify-center">
+            <Loader2 className="size-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
           <div className="prose prose-sm dark:prose-invert max-w-none">

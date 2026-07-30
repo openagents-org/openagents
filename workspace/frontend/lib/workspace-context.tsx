@@ -6,7 +6,9 @@ import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
 import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
 import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
-import type { BrowserPersistentContext, BrowserTab, DMConversation, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+import { useUploadQueue } from '@/hooks/use-upload-queue';
+import type { PendingUpload } from '@/hooks/use-upload-queue';
+import type { BrowserPersistentContext, BrowserTab, DMConversation, KnowledgeEntry, NotificationItem, OnlineUser, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
 
 function useWorkspaceIdentity() {
   const { user } = useOpenAgentsAuth();
@@ -39,6 +41,65 @@ function useWorkspaceIdentity() {
   }
 
   return { currentUser: localIdentity, setUserName };
+}
+
+/**
+ * A folder mutation that the server hasn't confirmed yet.
+ *
+ * Folders exist only as a path prefix on `filename`, so creating, renaming or
+ * deleting one rewrites a batch of file rows server-side and takes a round trip
+ * to come back. Projecting the pending op over the last server list is what
+ * lets the tree move on click instead of a second later — and projecting it,
+ * rather than patching `files` once, is what survives the background poll
+ * landing mid-flight with the old tree still in it.
+ */
+type FolderOp =
+  | { kind: 'create'; path: string }
+  | { kind: 'rename'; path: string; newPath: string }
+  | { kind: 'delete'; path: string };
+
+/** The same op with the handle used to retire it once it lands. */
+type PendingFolderOp = FolderOp & { id: number };
+
+export type FolderOpKind = FolderOp['kind'];
+
+/** Marker file the backend writes so an empty folder still has a path prefix. */
+const FOLDER_KEEP = '.keep';
+
+const isUnderFolder = (filename: string, path: string) => filename.startsWith(`${path}/`);
+
+/** The file list as it will look once the pending folder ops land. */
+function applyFolderOps(files: WorkspaceFile[], ops: PendingFolderOp[]): WorkspaceFile[] {
+  if (ops.length === 0) return files;
+
+  return ops.reduce((current, op) => {
+    if (op.kind === 'delete') {
+      return current.filter((f) => !isUnderFolder(f.filename, op.path));
+    }
+    if (op.kind === 'rename') {
+      return current.map((f) =>
+        isUnderFolder(f.filename, op.path)
+          ? { ...f, filename: `${op.newPath}${f.filename.slice(op.path.length)}` }
+          : f,
+      );
+    }
+    // Create: once the refetch brings the real `.keep` row in, the stand-in
+    // would double the folder's contents, so it only fills a gap.
+    if (current.some((f) => isUnderFolder(f.filename, op.path))) return current;
+    return [
+      ...current,
+      {
+        id: `pending-folder:${op.path}`,
+        filename: `${op.path}/${FOLDER_KEEP}`,
+        contentType: 'application/x-directory',
+        size: 0,
+        uploadedBy: '',
+        channelName: null,
+        status: 'active',
+        createdAt: null,
+      },
+    ];
+  }, files);
 }
 
 /** When a thread last saw activity, tolerating a missing backend timestamp. */
@@ -96,11 +157,29 @@ interface WorkspaceContextValue {
   refreshWorkspace: () => Promise<void>;
   refreshAgents: () => Promise<void>;
   refreshFiles: () => Promise<void>;
-  uploadFile: (file: File) => Promise<WorkspaceFile>;
+  /** Queue a batch into `folder` and draw it going up; see {@link PendingUpload}. */
+  enqueueUploads: (files: File[], folder: string) => void;
+  pendingUploads: PendingUpload[];
+  retryUpload: (id: string) => void;
+  cancelUpload: (id: string) => void;
   deleteFile: (fileId: string) => Promise<void>;
   createFolder: (path: string) => Promise<void>;
   renameFolder: (path: string, newPath: string) => Promise<void>;
   deleteFolder: (path: string) => Promise<void>;
+  /** Folders whose create/rename/delete is still in flight, keyed by the path
+   *  the tree is showing for them right now. */
+  pendingFolderPaths: Map<string, FolderOpKind>;
+  /** What deleting put in the trash — one entry per delete action, newest
+   *  first. Lives here rather than in the Trash view because the folder panel
+   *  counts it while that view isn't mounted. */
+  trashEntries: TrashEntry[];
+  refreshTrash: () => Promise<void>;
+  /** Put entries back. Resolves with how many files came back and how many had
+   *  to be renamed around a name taken since. */
+  restoreFromTrash: (trashIds: string[]) => Promise<{ restoredCount: number; renamedCount: number }>;
+  /** Destroy entries — bytes included. Not undoable. */
+  purgeTrash: (trashIds: string[]) => Promise<void>;
+  emptyTrash: () => Promise<void>;
   browserTabs: BrowserTab[];
   selectedBrowserTabId: string | null;
   setSelectedBrowserTabId: (id: string | null) => void;
@@ -236,6 +315,19 @@ export function WorkspaceProvider({
   const [completedSessionIds, setCompletedSessionIds] = useState<Set<string>>(new Set());
   const [agentModes, setAgentModes] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([]);
+  const [pendingFolderOps, setPendingFolderOps] = useState<PendingFolderOp[]>([]);
+  const folderOpIdRef = useRef(0);
+  /**
+   * Bumped whenever a folder mutation starts or finishes. A file list that was
+   * already in flight at that moment describes the tree before the change, so
+   * it's dropped instead of being allowed to flash the old folders back.
+   */
+  const filesEpochRef = useRef(0);
+  const commitFiles = useCallback((next: WorkspaceFile[], epoch: number) => {
+    if (epoch !== filesEpochRef.current) return;
+    setFiles(next);
+  }, []);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [selectedKnowledgeId, setSelectedKnowledgeId] = useState<string | null>(null);
   const [currentFilePath, setCurrentFilePath] = useState('');
@@ -657,7 +749,8 @@ export function WorkspaceProvider({
       }
 
       // Also refresh files, browser tabs, persistent contexts, and DM conversations so sidebar counts stay current
-      workspaceApi.listFiles().then((r) => setFiles(r.files)).catch(() => {});
+      const filesEpoch = filesEpochRef.current;
+      workspaceApi.listFiles().then((r) => commitFiles(r.files, filesEpoch)).catch(() => {});
       workspaceApi.listBrowserTabs().then((r) => setBrowserTabs(r.tabs)).catch(() => {});
       workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {});
       workspaceApi.listConversations().then((c) => setDMConversations(c)).catch(() => {});
@@ -671,19 +764,20 @@ export function WorkspaceProvider({
     } catch {
       // Non-critical — keep existing state
     }
-  }, [workspaceId, stoppingSessionIds]);
+  }, [workspaceId, stoppingSessionIds, commitFiles]);
 
   // Alias for backward compat
   const refreshAgents = refreshDiscovery;
 
   const refreshFiles = useCallback(async () => {
+    const epoch = filesEpochRef.current;
     try {
       const result = await workspaceApi.listFiles();
-      setFiles(result.files);
+      commitFiles(result.files, epoch);
     } catch {
       // Non-critical
     }
-  }, []);
+  }, [commitFiles]);
 
   const refreshTodos = useCallback(async () => {
     try {
@@ -784,34 +878,131 @@ export function WorkspaceProvider({
     setKnowledge((prev) => prev.filter((k) => k.id !== entryId));
   }, []);
 
-  const uploadFile = useCallback(async (file: File) => {
-    const result = await workspaceApi.uploadFile(file);
-    await refreshFiles();
-    return result;
-  }, [refreshFiles]);
+  // Uploads are queued rather than awaited: the Files grid draws each one as it
+  // goes up, so the work has to outlive the pane that started it.
+  const { uploads, enqueueUploads, retryUpload, cancelUpload } = useUploadQueue(refreshFiles);
 
+  const refreshTrash = useCallback(async () => {
+    try {
+      const result = await workspaceApi.listTrash();
+      setTrashEntries(result.entries);
+    } catch {
+      // Non-critical
+    }
+  }, []);
+
+  // The row goes as soon as it's clicked and comes back if the request fails —
+  // waiting out the round trip left the file sitting there looking undeleted.
+  //
+  // Deleting goes through the trash rather than DELETE /files/{id}: that route
+  // soft-deletes without recording when or as part of what, so the file would
+  // land in the trash undated and unrestorable alongside its folder.
   const deleteFile = useCallback(async (fileId: string) => {
-    await workspaceApi.deleteFile(fileId);
+    const removed = files.find((f) => f.id === fileId);
     setFiles((prev) => prev.filter((f) => f.id !== fileId));
     if (selectedFileId === fileId) setSelectedFileId(null);
-  }, [selectedFileId]);
+    try {
+      await workspaceApi.moveToTrash({ fileIds: [fileId] });
+    } catch (err) {
+      if (removed) {
+        setFiles((prev) => (prev.some((f) => f.id === fileId) ? prev : [...prev, removed]));
+      }
+      throw err;
+    }
+    await refreshTrash();
+  }, [files, selectedFileId, refreshTrash]);
 
-  // Folder mutations rewrite many file records at once, so each one refetches
-  // rather than trying to patch the local list.
-  const createFolder = useCallback(async (path: string) => {
-    await workspaceApi.createFolder(path);
-    await refreshFiles();
+  /**
+   * Run a folder mutation with its result already on screen.
+   *
+   * Folder mutations rewrite many file records at once, so each one refetches
+   * rather than trying to patch the local list — and a refetch is slow enough
+   * that the tree used to sit unchanged until it came back. The op is projected
+   * over `files` for the whole round trip instead, so the change is immediate;
+   * dropping it at the end is what rolls it back on failure, and on success the
+   * refetch has already put the real rows in its place.
+   */
+  const runFolderOp = useCallback(async (op: FolderOp, request: () => Promise<void>) => {
+    const id = ++folderOpIdRef.current;
+    filesEpochRef.current += 1;
+    setPendingFolderOps((prev) => [...prev, { ...op, id }]);
+    try {
+      await request();
+      filesEpochRef.current += 1;
+      await refreshFiles();
+    } finally {
+      setPendingFolderOps((prev) => prev.filter((o) => o.id !== id));
+    }
   }, [refreshFiles]);
 
-  const renameFolder = useCallback(async (path: string, newPath: string) => {
-    await workspaceApi.renameFolder(path, newPath);
-    await refreshFiles();
-  }, [refreshFiles]);
+  const createFolder = useCallback((path: string) => (
+    runFolderOp({ kind: 'create', path }, () => workspaceApi.createFolder(path))
+  ), [runFolderOp]);
 
+  const renameFolder = useCallback((path: string, newPath: string) => (
+    runFolderOp({ kind: 'rename', path, newPath }, () => workspaceApi.renameFolder(path, newPath))
+  ), [runFolderOp]);
+
+  // One trash entry for the whole folder, so it comes back in one gesture —
+  // see the note on deleteFile for why the folder DELETE route isn't used.
   const deleteFolder = useCallback(async (path: string) => {
-    await workspaceApi.deleteFolder(path);
-    await refreshFiles();
-  }, [refreshFiles]);
+    await runFolderOp({ kind: 'delete', path }, () => workspaceApi.moveToTrash({ paths: [path] }));
+    await refreshTrash();
+  }, [runFolderOp, refreshTrash]);
+
+  /**
+   * Put entries back and show them again.
+   *
+   * A restore rewrites file rows the same way a folder mutation does — and can
+   * rename around a clash while it's at it — so the file list is refetched
+   * rather than reconstructed from what went into the trash.
+   */
+  const restoreFromTrash = useCallback(async (trashIds: string[]) => {
+    const wanted = new Set(trashIds);
+    setTrashEntries((prev) => prev.filter((e) => !wanted.has(e.trashId)));
+    try {
+      const result = await workspaceApi.restoreFromTrash(trashIds);
+      await Promise.all([refreshFiles(), refreshTrash()]);
+      return result;
+    } catch (err) {
+      await refreshTrash();
+      throw err;
+    }
+  }, [refreshFiles, refreshTrash]);
+
+  const purgeTrash = useCallback(async (trashIds: string[]) => {
+    const wanted = new Set(trashIds);
+    setTrashEntries((prev) => prev.filter((e) => !wanted.has(e.trashId)));
+    try {
+      await workspaceApi.purgeTrash({ trashIds });
+    } finally {
+      await refreshTrash();
+    }
+  }, [refreshTrash]);
+
+  const emptyTrash = useCallback(async () => {
+    setTrashEntries([]);
+    try {
+      await workspaceApi.purgeTrash({ all: true });
+    } finally {
+      await refreshTrash();
+    }
+  }, [refreshTrash]);
+
+  /** Files as the user sees them: server truth with the in-flight folder ops
+   *  already applied. Unchanged identity while nothing is pending. */
+  const visibleFiles = useMemo(
+    () => applyFolderOps(files, pendingFolderOps),
+    [files, pendingFolderOps],
+  );
+
+  const pendingFolderPaths = useMemo(() => {
+    const map = new Map<string, FolderOpKind>();
+    for (const op of pendingFolderOps) {
+      map.set(op.kind === 'rename' ? op.newPath : op.path, op.kind);
+    }
+    return map;
+  }, [pendingFolderOps]);
 
   const refreshBrowserTabs = useCallback(async () => {
     try {
@@ -904,6 +1095,9 @@ export function WorkspaceProvider({
           workspaceApi.getWorkspace(),
           workspaceApi.discover(),
           workspaceApi.listFiles().then((r) => setFiles(r.files)).catch(() => {}),
+          // The folder panel shows the trash count from the first paint, so it
+          // loads with the files rather than when the Trash view opens.
+          workspaceApi.listTrash().then((r) => setTrashEntries(r.entries)).catch(() => {}),
           workspaceApi.listBrowserTabs().then((r) => setBrowserTabs(r.tabs)).catch(() => {}),
           workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(r.contexts)).catch(() => {}),
           workspaceApi.listTodos().then((r) => setTodos(r.todos)).catch(() => {}),
@@ -1306,7 +1500,7 @@ export function WorkspaceProvider({
         setUserName,
         onlineUsers,
         sessions,
-        files,
+        files: visibleFiles,
         selectedFileId,
         selectedKnowledgeId,
         currentSessionId,
@@ -1340,11 +1534,20 @@ export function WorkspaceProvider({
         refreshWorkspace,
         refreshAgents,
         refreshFiles,
-        uploadFile,
+        enqueueUploads,
+        pendingUploads: uploads,
+        retryUpload,
+        cancelUpload,
         deleteFile,
         createFolder,
         renameFolder,
         deleteFolder,
+        pendingFolderPaths,
+        trashEntries,
+        refreshTrash,
+        restoreFromTrash,
+        purgeTrash,
+        emptyTrash,
         browserTabs,
         selectedBrowserTabId,
         setSelectedBrowserTabId,

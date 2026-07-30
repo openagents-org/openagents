@@ -16,7 +16,7 @@ import { useLayout } from './layout-context';
  * Pinned footer nav. When the workspace has no agent yet this becomes the
  * primary call to action, mirroring the previous sidebar behaviour.
  */
-export function NavSecondary() {
+export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView } = useLayout();
   const { agents } = useWorkspace();
   const hasAgents = agents.filter(isRecentAgent).length > 0;
@@ -29,7 +29,10 @@ export function NavSecondary() {
           <SidebarMenuButton
             tooltip="Connect Agent"
             isActive={isActive}
-            onClick={() => openView('connect')}
+            onClick={() => {
+              openView('connect');
+              onNavigate?.();
+            }}
             className={cn(
               !hasAgents &&
                 !isActive &&

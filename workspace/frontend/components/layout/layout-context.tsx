@@ -3,6 +3,7 @@
 import {
   createContext,
   ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -10,11 +11,46 @@ import {
 } from 'react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import type { FileSortKey, FileTypeFilter } from '@/components/files/file-utils';
 
 export type ViewMode = 'threads' | 'files' | 'knowledge' | 'browser' | 'tasks' | 'routines' | 'inbox' | 'connect' | 'skills';
 
 /** The Files view has two halves the folder panel switches between. */
 export type FilesSection = 'folders' | 'trash';
+
+/**
+ * How the Files detail pane is currently looking at a folder.
+ *
+ * It lives up here because the grid doesn't: opening a file replaces it with
+ * the preview, so state held inside it was thrown away every time you looked
+ * at something. A filter that resets whenever you open one of the files it
+ * turned up isn't a filter you can use to find a file.
+ *
+ * The two halves are kept apart because they answer different questions.
+ * `view` and `sort` are how you like to read a listing — any listing — so they
+ * follow you around. `narrowing` is about the folder you're standing in, and
+ * leaving is what ends it.
+ */
+export interface FilesBrowseState {
+  view: 'grid' | 'list';
+  sort: FileSortKey;
+  /**
+   * The type filter and the search query, tagged with the folder they were set
+   * on. The tag is what separates "opened a file" from "went somewhere else":
+   * the preview doesn't change the folder, so the narrowing outlives it, while
+   * any real navigation lands on a path these no longer match and the grid
+   * starts the folder clean.
+   */
+  narrowing: { path: string; typeFilter: FileTypeFilter; query: string };
+}
+
+const EMPTY_NARROWING = { path: '', typeFilter: 'all' as FileTypeFilter, query: '' };
+
+const DEFAULT_FILES_BROWSE: FilesBrowseState = {
+  view: 'grid',
+  sort: 'name',
+  narrowing: EMPTY_NARROWING,
+};
 
 /**
  * Views that render a list panel beside the icon rail. Everything else takes
@@ -130,6 +166,10 @@ interface LayoutState {
    */
   filesSection: FilesSection;
   setFilesSection: (section: FilesSection) => void;
+  /** View, sort, type filter and search for the Files grid; see {@link FilesBrowseState}. */
+  filesBrowse: FilesBrowseState;
+  /** Patch one part of it and leave the rest alone. */
+  setFilesBrowse: (updates: Partial<FilesBrowseState>) => void;
 }
 
 const LayoutContext = createContext<LayoutState | undefined>(undefined);
@@ -138,6 +178,10 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   const isMobile = useIsMobile();
   const [viewMode, setViewMode] = useState<ViewMode>('threads');
   const [filesSection, setFilesSection] = useState<FilesSection>('folders');
+  const [filesBrowse, setFilesBrowseState] = useState<FilesBrowseState>(DEFAULT_FILES_BROWSE);
+  const setFilesBrowse = useCallback((updates: Partial<FilesBrowseState>) => {
+    setFilesBrowseState((prev) => ({ ...prev, ...updates }));
+  }, []);
   const [listPrefs, setListPrefs] = useState<ListPrefs>({});
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>('list');
@@ -237,6 +281,8 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       setViewMode,
       filesSection,
       setFilesSection,
+      filesBrowse,
+      setFilesBrowse,
       openView,
       selectedAgentName,
       setSelectedAgentName,

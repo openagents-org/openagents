@@ -2,16 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ChevronLeft,
+  ArrowLeft,
   ChevronRight,
   Download,
   ExternalLink,
   Loader2,
-  Maximize2,
-  RotateCw,
+  PanelRight,
   Trash2,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -23,6 +20,8 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { FileGrid } from './file-grid';
+import { ImageStage } from './image-stage';
+import { AudioStage, VideoStage } from './media-stage';
 import {
   basename,
   dirname,
@@ -209,123 +208,6 @@ function SheetStage({ content, delimiter }: { content: string; delimiter: string
   );
 }
 
-/** Images get the controls people reach for: zoom, rotate, fit. */
-function ImageStage({ src, alt }: { src: string; alt: string }) {
-  const [zoom, setZoom] = useState(1);
-  const [rotation, setRotation] = useState(0);
-
-  // A new file starts fresh — carrying 300% and 180° over is disorienting.
-  useEffect(() => {
-    setZoom(1);
-    setRotation(0);
-  }, [src]);
-
-  const fitted = zoom === 1 && rotation === 0;
-
-  return (
-    <div className="relative flex h-full flex-col">
-      <div className="flex flex-1 items-center justify-center overflow-auto p-6">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={src}
-          alt={alt}
-          style={{ transform: `scale(${zoom}) rotate(${rotation}deg)` }}
-          className={cn(
-            'rounded shadow-sm transition-transform duration-150',
-            fitted && 'max-h-full max-w-full object-contain',
-          )}
-        />
-      </div>
-
-      <div className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center">
-        <div className="pointer-events-auto flex items-center gap-0.5 rounded-full border border-border bg-background/90 px-1.5 py-1 shadow-md backdrop-blur">
-          <Button
-            variant="ghost"
-            mode="icon"
-            size="sm"
-            aria-label="Zoom out"
-            disabled={zoom <= 0.25}
-            onClick={() => setZoom((z) => Math.max(0.25, +(z - 0.25).toFixed(2)))}
-            className="text-muted-foreground"
-          >
-            <ZoomOut className="size-4" />
-          </Button>
-          <span className="w-11 text-center text-xs tabular-nums text-muted-foreground">
-            {Math.round(zoom * 100)}%
-          </span>
-          <Button
-            variant="ghost"
-            mode="icon"
-            size="sm"
-            aria-label="Zoom in"
-            disabled={zoom >= 4}
-            onClick={() => setZoom((z) => Math.min(4, +(z + 0.25).toFixed(2)))}
-            className="text-muted-foreground"
-          >
-            <ZoomIn className="size-4" />
-          </Button>
-          <span className="mx-0.5 h-4 w-px bg-border" />
-          <Button
-            variant="ghost"
-            mode="icon"
-            size="sm"
-            aria-label="Rotate"
-            onClick={() => setRotation((r) => (r + 90) % 360)}
-            className="text-muted-foreground"
-          >
-            <RotateCw className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            mode="icon"
-            size="sm"
-            aria-label="Fit to screen"
-            disabled={fitted}
-            onClick={() => {
-              setZoom(1);
-              setRotation(0);
-            }}
-            className="text-muted-foreground"
-          >
-            <Maximize2 className="size-4" />
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** Audio has nothing to look at, so the type tile stands in for artwork. */
-function AudioStage({
-  src,
-  filename,
-  contentType,
-}: {
-  src: string;
-  filename: string;
-  contentType: string;
-}) {
-  const { color } = getFileTypeMeta(contentType, filename);
-
-  return (
-    <div className="flex h-full items-center justify-center p-6">
-      <div className="flex w-full max-w-md flex-col items-center gap-5 rounded-2xl border border-border p-8">
-        <div
-          className="flex size-24 items-center justify-center rounded-2xl"
-          style={{ background: `color-mix(in oklab, ${color} 14%, transparent)` }}
-        >
-          {getFileIconLarge(contentType, filename, 'size-11')}
-        </div>
-        <p className="max-w-full truncate text-sm font-medium" title={filename}>
-          {basename(filename)}
-        </p>
-        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-        <audio src={src} controls className="w-full" />
-      </div>
-    </div>
-  );
-}
-
 /** Everything we can't render in the browser — Office formats, archives,
  *  binaries. Named, typed, and one click from being downloaded. */
 function UnsupportedStage({
@@ -372,6 +254,9 @@ export function FilePreview() {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Whether the stages that have a metadata column are showing it. Kept here
+   *  rather than per stage so the choice survives moving between files. */
+  const [infoOpen, setInfoOpen] = useState(true);
 
   const file = files.find((f) => f.id === selectedFileId);
   const contentType = file?.contentType || '';
@@ -379,6 +264,29 @@ export function FilePreview() {
   const kind = file ? getFileKind(contentType, filename) : 'unknown';
   const strategy = file ? loadStrategyFor(kind, contentType, filename) : 'none';
   const sourceUrl = file ? workspaceApi.getFileUrl(file.id) : '';
+  // Images don't have one — the picture wants the width, and its footer says
+  // everything a column would have.
+  const hasInfoPanel = kind === 'audio' || kind === 'video';
+
+  /**
+   * The other pictures in this file's own folder, in the order the grid shows
+   * them, so the preview can step between them.
+   *
+   * Its own folder, not the whole workspace: the grid you opened this from was
+   * a folder's contents, and "next" landing three folders away would be a
+   * different set than the one you were looking at.
+   */
+  const imageSiblings = useMemo(() => {
+    if (kind !== 'image' || !file) return [];
+    const folder = dirname(filename);
+    return files
+      .filter(
+        (candidate) =>
+          dirname(candidate.filename) === folder &&
+          getFileKind(candidate.contentType, candidate.filename) === 'image',
+      )
+      .sort((a, b) => basename(a.filename).localeCompare(basename(b.filename)));
+  }, [files, file, kind, filename]);
 
   // Load whatever this kind needs — text into state, PDFs into a blob URL,
   // media straight off the download route.
@@ -454,7 +362,7 @@ export function FilePreview() {
   const handleDelete = async () => {
     try {
       await deleteFile(file.id);
-      toast.success(`Deleted ${basename(filename)}`);
+      toast.success(`Moved "${basename(filename)}" to Trash`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Delete failed');
     }
@@ -481,19 +389,60 @@ export function FilePreview() {
     }
 
     switch (kind) {
-      case 'image':
-        return <ImageStage src={sourceUrl} alt={basename(filename)} />;
+      case 'image': {
+        const position = imageSiblings.findIndex((candidate) => candidate.id === file.id);
+        const step = (delta: number) => {
+          // Wraps, so the last picture's "next" is the first rather than a
+          // dead button at the end of every folder.
+          const next = imageSiblings[(position + delta + imageSiblings.length) % imageSiblings.length];
+          if (next) setSelectedFileId(next.id);
+        };
+        return (
+          <ImageStage
+            key={sourceUrl}
+            src={sourceUrl}
+            filename={filename}
+            contentType={contentType}
+            siblings={
+              position >= 0
+                ? {
+                    position: position + 1,
+                    total: imageSiblings.length,
+                    onPrevious: () => step(-1),
+                    onNext: () => step(1),
+                  }
+                : undefined
+            }
+          />
+        );
+      }
 
+      // Keyed on the URL: the stages hold player state (playhead, volume,
+      // speed, the decoded waveform) that belongs to one file, and React would
+      // otherwise reuse the instance and carry it into the next one.
       case 'video':
         return (
-          <div className="flex h-full items-center justify-center bg-black/90 p-4">
-            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-            <video src={sourceUrl} controls className="max-h-full max-w-full rounded" />
-          </div>
+          <VideoStage
+            key={sourceUrl}
+            src={sourceUrl}
+            filename={filename}
+            contentType={contentType}
+            size={file.size}
+            infoOpen={infoOpen}
+          />
         );
 
       case 'audio':
-        return <AudioStage src={sourceUrl} filename={filename} contentType={contentType} />;
+        return (
+          <AudioStage
+            key={sourceUrl}
+            src={sourceUrl}
+            filename={filename}
+            contentType={contentType}
+            size={file.size}
+            infoOpen={infoOpen}
+          />
+        );
 
       case 'pdf':
         return blobUrl ? (
@@ -565,32 +514,31 @@ export function FilePreview() {
           way out at all. */}
       <DetailHeader
         titleInHeader
-        title={<>
-          <Button
-            variant="ghost"
-            mode="icon"
-            size="sm"
-            onClick={() => {
-              if (isMobile) openMobileList();
-              else closePreview();
-            }}
-            aria-label="Back to files"
-            className="shrink-0 text-muted-foreground"
-          >
-            <ChevronLeft className="size-5" />
-          </Button>
-          {/* The path is the way out: every segment walks back to that folder,
-              so an opened file is never a dead end. */}
-          <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto text-sm text-muted-foreground">
-            <button
-              onClick={() => closePreview('')}
-              className="shrink-0 rounded-md px-1.5 py-0.5 font-medium transition-colors hover:bg-muted hover:text-foreground"
+        title={
+          /* Same single-row shell as the grid header — back button and trail in
+             one flex container, so the path sits at the same offset in both and
+             opening a file doesn't nudge the title sideways. */
+          <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto text-sm text-muted-foreground">
+            <Button
+              variant="ghost"
+              mode="icon"
+              size="sm"
+              onClick={() => {
+                if (isMobile) openMobileList();
+                else closePreview();
+              }}
+              title="Back to files"
+              aria-label="Back to files"
+              className="mr-1 shrink-0 text-muted-foreground"
             >
-              All files
-            </button>
+              <ArrowLeft className="size-4" />
+            </Button>
+            {/* The path is the way out: every segment walks back to that folder,
+                so an opened file is never a dead end. It starts at the file's own
+                top folder — there's no all-files listing above it to return to. */}
             {folderSegments.map((segment, i) => (
               <span key={i} className="flex shrink-0 items-center gap-0.5">
-                <ChevronRight className="size-3.5 opacity-40" />
+                {i > 0 && <ChevronRight className="size-3.5 opacity-40" />}
                 <button
                   onClick={() => closePreview(folderSegments.slice(0, i + 1).join('/'))}
                   className="rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted hover:text-foreground"
@@ -599,19 +547,43 @@ export function FilePreview() {
                 </button>
               </span>
             ))}
-            <ChevronRight className="size-3.5 shrink-0 opacity-40" />
+            {folderSegments.length > 0 && <ChevronRight className="size-3.5 shrink-0 opacity-40" />}
             <span className="flex min-w-0 items-center gap-1.5 px-1.5">
               {getFileIcon(contentType, filename)}
               <p className="truncate text-sm font-medium text-foreground">{basename(filename)}</p>
             </span>
           </div>
-        </>}
+        }
       >
         {/* File metadata — the single-line header keeps it beside the actions */}
         <span className="hidden max-w-105 truncate text-xs text-muted-foreground lg:inline">
           {formatSize(file.size)} · {getFileTypeMeta(contentType, filename).label} ·{' '}
           {(file.uploadedBy || 'unknown').replace(/^(openagents:|human:)/, '')}
         </span>
+        {/* Only the stages that have a metadata column get the switch, and only
+            at the width where that column exists — a toggle for something the
+            viewport has already hidden is a button that does nothing. */}
+        {hasInfoPanel && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                mode="icon"
+                size="sm"
+                onClick={() => setInfoOpen((open) => !open)}
+                aria-label={infoOpen ? 'Hide file info' : 'Show file info'}
+                aria-pressed={infoOpen}
+                className={cn(
+                  'hidden xl:inline-flex',
+                  infoOpen ? 'text-foreground' : 'text-muted-foreground',
+                )}
+              >
+                <PanelRight className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{infoOpen ? 'Hide file info' : 'Show file info'}</TooltipContent>
+          </Tooltip>
+        )}
         {/* Media and PDFs are worth a full window; the pane is narrow. */}
         {(kind === 'image' || kind === 'pdf' || kind === 'video' || kind === 'web') && (
           <Tooltip>
