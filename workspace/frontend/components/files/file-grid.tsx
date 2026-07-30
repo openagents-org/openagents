@@ -32,7 +32,7 @@ import type {
 import {
   FILE_FILTER_GROUPS, FileRowIcon, FileTile, FileTypeTile, FolderRowIcon, FolderTile,
   describeFolder, formatSize, getFileFilterGroup, getFileIcon, timeAgo,
-  basename, getFolderContents,
+  basename, dirname, getFilesUnderPath, getFolderContents,
 } from './file-utils';
 
 const SORT_LABELS: Record<SortKey, string> = {
@@ -42,15 +42,24 @@ const SORT_LABELS: Record<SortKey, string> = {
 };
 
 /**
+ * How many files the no-folder view shows.
+ *
+ * A starting point rather than an index: past the first screenful you're not
+ * scanning any more, you're looking for something, and the folder tree and its
+ * search are what that is.
+ */
+const RECENT_LIMIT = 50;
+
+/**
  * The detail pane: the files inside whatever the folder panel has selected.
  *
  * The folder panel is the persistent tree; this pane shows the direct contents
  * of the selected folder, including its immediate subfolders.
  *
- * There is no "all files" root: with nothing picked the pane says so and waits.
- * A flat dump of every folder's contents isn't a place you can act on — you
- * can't upload into it, and the folder it lands in wouldn't be the one you're
- * looking at.
+ * With nothing picked it shows the newest files in the workspace instead of an
+ * empty root. That listing is a starting point, not a place: it can't be
+ * uploaded into, and each row carries the folder it actually lives in, because
+ * a flat dump you could mistake for a folder is one you'd try to act on.
  */
 export function FileGrid() {
   const {
@@ -103,8 +112,36 @@ export function FileGrid() {
     }
   }, [currentPath, narrowing.path, setFilesBrowse]);
 
-  /** A folder is picked, so there is a list to show at all. */
+  /** A folder is picked, so there is a folder's worth of things to act on. */
   const hasFolder = Boolean(currentPath);
+
+  /**
+   * What's on screen with no folder picked: the newest files in the workspace,
+   * wherever they live.
+   *
+   * The pane used to sit empty here telling you to pick something, which spent
+   * the whole width on an instruction. What you want on opening Files is
+   * usually the thing you or an agent just put there, and that's one list away
+   * — every file is already loaded to draw the folder tree, so this is a sort
+   * and a slice rather than a fetch.
+   *
+   * It's a starting point, not a place: there's no folder to upload into, no
+   * subfolders to open, and the folder each file belongs to rides along on
+   * every row so the list can't be mistaken for one.
+   */
+  const recentFiles = useMemo(() => {
+    if (currentPath) return [] as FileEntry[];
+    return getFilesUnderPath(files, '')
+      .sort((a, b) => {
+        const at = a.file.createdAt ? new Date(a.file.createdAt).getTime() : 0;
+        const bt = b.file.createdAt ? new Date(b.file.createdAt).getTime() : 0;
+        return bt - at || a.displayName.localeCompare(b.displayName);
+      })
+      .slice(0, RECENT_LIMIT)
+      // The name alone, with the folder shown beside it — a row of full paths
+      // truncates to the folder and hides the filename it's there for.
+      .map((entry) => ({ ...entry, displayName: basename(entry.file.filename) }));
+  }, [files, currentPath]);
 
   /**
    * What's in the folder on screen: its subfolders, and the files sitting
@@ -118,7 +155,7 @@ export function FileGrid() {
    * a folder that half the rows don't belong to.
    */
   const contents = useMemo(() => {
-    if (!currentPath) return { folders: [] as FolderEntry[], files: [] as FileEntry[] };
+    if (!currentPath) return { folders: [] as FolderEntry[], files: recentFiles };
     const { folders, files: direct } = getFolderContents(files, currentPath);
     if (!search) return { folders, files: direct };
     const q = search.toLowerCase();
@@ -126,7 +163,7 @@ export function FileGrid() {
       folders: folders.filter((folder) => folder.name.toLowerCase().includes(q)),
       files: direct.filter((e) => e.displayName.toLowerCase().includes(q)),
     };
-  }, [files, currentPath, search]);
+  }, [files, currentPath, search, recentFiles]);
 
   /** The files this listing can show — what the filter menu counts, so a
    *  listed type always has something behind it. */
@@ -154,6 +191,10 @@ export function FileGrid() {
           (e) => getFileFilterGroup(e.file.contentType, e.file.filename) === typeFilter,
         );
 
+    // The recent list is already in the only order it has: newest first is what
+    // makes it "recent", and the sort control is hidden with no folder picked.
+    if (!currentPath) return scoped;
+
     return [...scoped].sort((a, b) => {
       if (sort === 'size') {
         return b.file.size - a.file.size || a.displayName.localeCompare(b.displayName);
@@ -165,7 +206,7 @@ export function FileGrid() {
       }
       return a.displayName.localeCompare(b.displayName);
     });
-  }, [scopedFiles, sort, typeFilter]);
+  }, [scopedFiles, sort, typeFilter, currentPath]);
 
   /** Folders and files sort independently, then folders lead the combined
    *  listing. A size/recent sort uses aggregate subtree metadata for folders. */
@@ -314,7 +355,7 @@ export function FileGrid() {
         title={
           <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto text-sm text-muted-foreground">
             {!currentPath ? (
-              <span className="shrink-0 px-1.5 py-0.5 font-medium">Files</span>
+              <span className="shrink-0 px-1.5 py-0.5 font-medium">Recent files</span>
             ) : (
               <>
                 {/* At a nested level this goes to the parent. At the first
@@ -459,23 +500,28 @@ export function FileGrid() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            {/* View toggle */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  mode="icon"
-                  size="sm"
-                  onClick={() => setView(view === 'grid' ? 'list' : 'grid')}
-                  aria-label={view === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
-                  className="shrink-0 text-muted-foreground"
-                >
-                  {view === 'grid' ? <List className="size-4" /> : <LayoutGrid className="size-4" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{view === 'grid' ? 'List view' : 'Grid view'}</TooltipContent>
-            </Tooltip>
           </>
+        )}
+
+        {/* Outside the block above: grid-or-list is how you like to read a
+            listing rather than something about this folder, so it belongs to
+            the recent list too. It waits for a listing to exist at all. */}
+        {(hasFolder || !isEmpty) && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                mode="icon"
+                size="sm"
+                onClick={() => setView(view === 'grid' ? 'list' : 'grid')}
+                aria-label={view === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
+                className="shrink-0 text-muted-foreground"
+              >
+                {view === 'grid' ? <List className="size-4" /> : <LayoutGrid className="size-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{view === 'grid' ? 'List view' : 'Grid view'}</TooltipContent>
+          </Tooltip>
         )}
 
         {/* Upload only — creating folders belongs to the folder panel, which
@@ -508,18 +554,17 @@ export function FileGrid() {
       </DetailHeader>
 
       {/* Grid content */}
-      {!hasFolder ? (
-        /* Nothing picked. This is the resting state of the pane, not a
-           failure, so it names the one move that gets you out of it — and on
-           mobile, where the folder panel is a separate pane, it can make it. */
+      {!hasFolder && isEmpty ? (
+        /* Nothing to be recent about — a workspace with no files at all. The
+           one move that gets you out of it, and on mobile, where the folder
+           panel is a separate pane, the way to reach it. */
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
           <div className="flex flex-col items-center gap-3 px-6 text-center">
             <FolderOpen className="size-16 opacity-20" />
-            <p className="text-sm font-medium">No folder selected</p>
+            <p className="text-sm font-medium">No files yet</p>
             <p className="max-w-md text-xs text-balance">
-              {files.length === 0
-                ? 'Create a folder on the left to start putting files somewhere.'
-                : 'Pick a folder on the left to see the files inside it.'}
+              Create a folder on the left, then drop files into it — whatever
+              lands there shows up here.
             </p>
             {isMobile && (
               <Button variant="outline" size="sm" className="mt-1" onClick={openMobileList}>
@@ -529,7 +574,7 @@ export function FileGrid() {
             )}
           </div>
         </div>
-      ) : isEmpty ? (
+      ) : hasFolder && isEmpty ? (
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
           <div className="flex flex-col items-center gap-3 px-6 text-center">
             <FileX className="size-16 opacity-20" />
@@ -632,8 +677,15 @@ export function FileGrid() {
                 )}
               >
                 <FileRowIcon file={file} />
-                <span className="flex-1 truncate text-sm font-medium" title={displayName}>
+                <span className="flex-1 truncate text-sm font-medium" title={file.filename}>
                   {displayName}
+                  {/* Where it lives, only where that isn't already the answer:
+                      in a folder listing every row shares the same folder. */}
+                  {!hasFolder && dirname(file.filename) && (
+                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                      in {dirname(file.filename)}
+                    </span>
+                  )}
                 </span>
                 <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
                   {formatSize(file.size)}
@@ -719,15 +771,19 @@ export function FileGrid() {
                     <FileTile file={file} className="group-hover:-translate-y-0.5" />
                   </div>
 
-                  {/* Filename — every file here sits directly in the folder
-                      above, so the name is all there is to say. */}
-                  <span className="text-xs font-medium truncate w-full leading-tight" title={displayName}>
+                  {/* Filename — in a folder listing every file here sits
+                      directly in the folder above, so the name is all there is
+                      to say. The recent list spans folders, so the metadata
+                      line below carries the one each file came from. */}
+                  <span className="text-xs font-medium truncate w-full leading-tight" title={file.filename}>
                     {displayName}
                   </span>
 
                   {/* Metadata */}
                   <span className="w-full truncate text-[10px] text-muted-foreground leading-tight">
-                    {`${formatSize(file.size)}${file.createdAt ? ` · ${timeAgo(file.createdAt)}` : ''}`}
+                    {!hasFolder && dirname(file.filename)
+                      ? dirname(file.filename)
+                      : `${formatSize(file.size)}${file.createdAt ? ` · ${timeAgo(file.createdAt)}` : ''}`}
                   </span>
 
                   {/* Delete button on hover */}
