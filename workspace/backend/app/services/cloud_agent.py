@@ -23,6 +23,11 @@ from app.services.cloud_providers import audio_generation, chat_completion, imag
 
 logger = logging.getLogger(__name__)
 
+# The image prompt composer only needs enough history to resolve references
+# like "the brief above" and runs on a small router model, so it gets a much
+# tighter context budget than the chat path.
+_IMAGE_CONTEXT_MAX_CHARS = 8000
+
 
 def _mask_key(key: str) -> str:
     if len(key) <= 8:
@@ -106,6 +111,7 @@ async def _invoke_chat_agent(
     messages = _build_conversation_context(
         db, workspace_id, channel_target, agent_name,
         exclude_event_id=event_data.get("id"),
+        before_timestamp=_event_order_boundary(event_data),
     )
 
     content = event_data.get("payload", {}).get("content", "")
@@ -156,6 +162,7 @@ async def _invoke_image_agent(
     prompt = await _compose_image_prompt(
         db, workspace_id, channel_target, agent_name, instruction,
         exclude_event_id=event_data.get("id"),
+        before_timestamp=_event_order_boundary(event_data),
     )
     if not prompt:
         return
@@ -239,65 +246,116 @@ async def _invoke_audio_agent(
     )
 
 
+def _event_order_boundary(event_data: dict) -> Optional[int]:
+    """Best-effort extraction of the triggering event's timestamp (unix ms)."""
+    try:
+        return int(event_data.get("timestamp"))
+    except (TypeError, ValueError):
+        return None
+
+
 def _build_conversation_context(
     db, workspace_id: str, channel_target: str, agent_name: str,
     exclude_event_id: Optional[str] = None,
+    before_timestamp: Optional[int] = None,
+    max_chars: Optional[int] = None,
 ) -> list[dict]:
     """Fetch recent messages from the channel as conversation context.
 
-    Over-fetches beyond CLOUD_AGENT_MAX_CONTEXT_MESSAGES so that rows
-    filtered out below (thinking/status/todos, empty content, foreign
-    senders) do not consume window slots — the returned list holds up to
-    max_messages real conversation messages, not "whatever survives
-    filtering the newest max_messages rows".
+    Only events causally prior to the trigger are eligible. When
+    before_timestamp is given, rows at or after it are excluded in SQL, so
+    a message committed after the trigger can never leak into this request
+    and get answered early. Events carry no ordering finer than the unix-ms
+    timestamp, so rows sharing the trigger's millisecond are conservatively
+    dropped too. Without a boundary, the newest row is assumed to be the
+    trigger and skipped (legacy behavior); exclude_event_id is a further
+    guard for the id-only case.
 
-    exclude_event_id drops the triggering message itself, which the caller
-    appends separately; matching by id (rather than assuming it is the
-    newest row) keeps history intact when another message lands in the
-    channel between persistence and this query.
+    Chat messages are collected newest-first in pages until the window
+    holds max_messages of them, the character budget is spent, or the scan
+    cap is reached — non-chat rows (status/thinking/todos/anything else)
+    never consume window slots no matter how many there are. The character
+    budget bounds prompt size for models with small context windows, which
+    a message count alone does not.
     """
     max_messages = config.CLOUD_AGENT_MAX_CONTEXT_MESSAGES
+    if max_chars is None:
+        max_chars = config.CLOUD_AGENT_MAX_CONTEXT_CHARS
 
-    rows = db.execute(
-        select(EventRecord)
-        .where(
+    batch_size = max(max_messages * 3, 100)
+    max_scanned = batch_size * 10
+
+    collected: list[dict] = []  # newest -> oldest
+    used_chars = 0
+    offset = 0
+    drop_newest = exclude_event_id is None and before_timestamp is None
+
+    while len(collected) < max_messages and offset < max_scanned:
+        query = select(EventRecord).where(
             EventRecord.network_id == workspace_id,
             EventRecord.target == channel_target,
             EventRecord.type == "workspace.message.posted",
         )
-        .order_by(EventRecord.timestamp.desc())
-        .limit(max_messages * 3 + 1)
-    ).scalars().all()
+        if before_timestamp is not None:
+            query = query.where(EventRecord.timestamp < before_timestamp)
 
-    rows = list(reversed(rows))
-    if exclude_event_id is not None:
-        rows = [r for r in rows if r.id != exclude_event_id]
-    elif rows:
-        rows = rows[:-1]
+        rows = db.execute(
+            query.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc())
+            .offset(offset)
+            .limit(batch_size)
+        ).scalars().all()
+        if not rows:
+            break
 
-    messages = []
-    for row in rows:
-        payload = row.payload or {}
-        msg_type = payload.get("message_type", "chat")
-        if msg_type in ("thinking", "status", "todos"):
-            continue
+        done = False
+        for row in rows:
+            if drop_newest:
+                drop_newest = False
+                continue
+            if exclude_event_id is not None and row.id == exclude_event_id:
+                continue
 
-        content = payload.get("content", "")
-        if not content:
-            continue
+            payload = row.payload or {}
+            if payload.get("message_type", "chat") != "chat":
+                continue
+            content = payload.get("content", "")
+            if not content:
+                continue
 
-        source = row.source or ""
-        if source.startswith("human:") or (source.startswith("openagents:") and source != f"openagents:{agent_name}"):
-            messages.append({"role": "user", "content": content})
-        elif source == f"openagents:{agent_name}":
-            messages.append({"role": "assistant", "content": content})
+            source = row.source or ""
+            if source == f"openagents:{agent_name}":
+                role = "assistant"
+            elif source.startswith("human:") or source.startswith("openagents:"):
+                role = "user"
+            else:
+                continue
 
-    return messages[-max_messages:]
+            if used_chars + len(content) > max_chars:
+                # Keep at least a truncated newest message so the model
+                # is never invoked with the trigger's context fully empty.
+                if not collected and max_chars > 0:
+                    collected.append({"role": role, "content": content[:max_chars]})
+                done = True
+                break
+
+            collected.append({"role": role, "content": content})
+            used_chars += len(content)
+            if len(collected) >= max_messages:
+                done = True
+                break
+
+        if done or len(rows) < batch_size:
+            break
+        offset += batch_size
+
+    collected.reverse()
+    return collected
 
 
 async def _compose_image_prompt(
     db, workspace_id: str, channel_target: str, agent_name: str, instruction: str,
     exclude_event_id: Optional[str] = None,
+    before_timestamp: Optional[int] = None,
 ) -> str:
     """Turn a (possibly referential) instruction like "make an image of
     cherie's brief above" into a concrete, self-contained image prompt by
@@ -320,6 +378,8 @@ async def _compose_image_prompt(
     context = _build_conversation_context(
         db, workspace_id, channel_target, agent_name,
         exclude_event_id=exclude_event_id,
+        before_timestamp=before_timestamp,
+        max_chars=_IMAGE_CONTEXT_MAX_CHARS,
     )
     if not context:
         return instruction

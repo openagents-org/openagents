@@ -76,6 +76,7 @@ class Config:
 
     # Cloud agents
     CLOUD_AGENT_MAX_CONTEXT_MESSAGES: int = int(os.environ.get("CLOUD_AGENT_MAX_CONTEXT_MESSAGES", "100"))
+    CLOUD_AGENT_MAX_CONTEXT_CHARS: int = int(os.environ.get("CLOUD_AGENT_MAX_CONTEXT_CHARS", "60000"))
     CLOUD_AGENT_MAX_DEPTH: int = int(os.environ.get("CLOUD_AGENT_MAX_DEPTH", "3"))
 
     # Google OAuth (for "Sign in with Google" Gemini integration)
