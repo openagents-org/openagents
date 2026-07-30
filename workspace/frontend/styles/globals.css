@@ -46,6 +46,24 @@
   --sidebar-accent-foreground: var(--primary);
   --sidebar-border: transparent;
   --sidebar-ring: var(--ring);
+
+  /** File type accents — a folder of uploads is a wall of near-identical
+      names, so the glyph colour carries the type and the eye can sort the
+      list before reading a single filename. One hue per kind, shared by the
+      grid tiles, the list rows, the ⌘K palette and the preview header. **/
+  --file-pdf: hsl(350 75% 55%);
+  --file-doc: hsl(220 85% 58%);
+  --file-sheet: hsl(150 70% 35%);
+  --file-slides: hsl(15 85% 52%);
+  --file-markdown: hsl(280 60% 58%);
+  --file-text: hsl(220 12% 45%);
+  --file-code: hsl(190 90% 35%);
+  --file-image: hsl(280 85% 58%);
+  --file-audio: hsl(45 90% 42%);
+  --file-video: hsl(340 78% 50%);
+  --file-web: hsl(210 95% 48%);
+  --file-archive: hsl(35 65% 45%);
+  --file-unknown: hsl(0 0% 48%);
 }
 
 .dark {
@@ -83,6 +101,21 @@
   --sidebar-accent-foreground: var(--color-zinc-50);
   --sidebar-border: transparent;
   --sidebar-ring: var(--ring);
+
+  /** File type accents — same hues, lifted so they hold up on zinc-950. **/
+  --file-pdf: hsl(350 80% 68%);
+  --file-doc: hsl(220 90% 70%);
+  --file-sheet: hsl(150 60% 50%);
+  --file-slides: hsl(15 85% 63%);
+  --file-markdown: hsl(280 70% 72%);
+  --file-text: hsl(220 12% 62%);
+  --file-code: hsl(190 85% 55%);
+  --file-image: hsl(280 90% 72%);
+  --file-audio: hsl(45 90% 58%);
+  --file-video: hsl(340 80% 65%);
+  --file-web: hsl(210 95% 62%);
+  --file-archive: hsl(35 70% 58%);
+  --file-unknown: hsl(0 0% 62%);
 }
 
 /** Theme Setup **/

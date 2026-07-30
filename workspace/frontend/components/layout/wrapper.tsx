@@ -9,6 +9,7 @@ import { ChatView } from '@/components/chat/chat-view';
 import { ThreadList } from '@/components/threads/thread-list';
 import { FileList } from '@/components/files/file-list';
 import { FilePreview } from '@/components/files/file-preview';
+import { TrashView } from '@/components/files/trash-view';
 import { BrowserTabList } from '@/components/browser/browser-tab-list';
 import { BrowserView } from '@/components/browser/browser-view';
 import { ConnectAgentView } from '@/components/connect/connect-agent-view';
@@ -61,7 +62,7 @@ export function Wrapper() {
   const {
     isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
     hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,
-    railDragWidth,
+    railDragWidth, filesSection,
   } = useLayout();
   const { monitorMode, agents, loading } = useWorkspace();
   const hasAgents = agents.length > 0;
@@ -114,7 +115,7 @@ export function Wrapper() {
                   <ChatView />
                 </div>
               )}
-              {viewMode === 'files' && <FilePreview />}
+              {viewMode === 'files' && (filesSection === 'trash' ? <TrashView /> : <FilePreview />)}
               {viewMode === 'browser' && <BrowserView />}
               {viewMode === 'knowledge' && <KnowledgeView />}
               {isAgentPanelOpen && <AgentProfilePanel />}
@@ -194,7 +195,7 @@ export function Wrapper() {
                   <ChatView />
                 </div>
               )}
-              {viewMode === 'files' && <FilePreview />}
+              {viewMode === 'files' && (filesSection === 'trash' ? <TrashView /> : <FilePreview />)}
               {viewMode === 'browser' && <BrowserView />}
               {viewMode === 'connect' && <ConnectAgentView />}
               {viewMode === 'tasks' && <TasksView />}

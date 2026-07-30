@@ -13,6 +13,9 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 
 export type ViewMode = 'threads' | 'files' | 'knowledge' | 'browser' | 'tasks' | 'routines' | 'inbox' | 'connect' | 'skills';
 
+/** The Files view has two halves the folder panel switches between. */
+export type FilesSection = 'folders' | 'trash';
+
 /**
  * Views that render a list panel beside the icon rail. Everything else takes
  * over the full detail area, so the sidebar collapses down to the rail.
@@ -121,6 +124,12 @@ interface LayoutState {
   setNewThreadOpen: (v: boolean) => void;
   /** Open the New Thread dialog so the user can pick agents for a new session */
   openNewThread: () => void;
+  /**
+   * Which half of the Files view the folder panel is pointing at: the folder
+   * tree, or the trash. The detail pane swaps wholesale between them.
+   */
+  filesSection: FilesSection;
+  setFilesSection: (section: FilesSection) => void;
 }
 
 const LayoutContext = createContext<LayoutState | undefined>(undefined);
@@ -128,6 +137,7 @@ const LayoutContext = createContext<LayoutState | undefined>(undefined);
 export function LayoutProvider({ children }: { children: ReactNode }) {
   const isMobile = useIsMobile();
   const [viewMode, setViewMode] = useState<ViewMode>('threads');
+  const [filesSection, setFilesSection] = useState<FilesSection>('folders');
   const [listPrefs, setListPrefs] = useState<ListPrefs>({});
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null);
   const [mobilePane, setMobilePane] = useState<MobilePane>('list');
@@ -225,6 +235,8 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       sidebarToggle,
       viewMode,
       setViewMode,
+      filesSection,
+      setFilesSection,
       openView,
       selectedAgentName,
       setSelectedAgentName,

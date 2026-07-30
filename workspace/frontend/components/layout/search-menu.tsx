@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { FileText, MessageSquare, Search } from 'lucide-react';
+import { MessageSquare, Search } from 'lucide-react';
 import {
   Command,
   CommandDialog,
@@ -10,8 +10,10 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandShortcut,
 } from '@/components/ui/command';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { getFileIcon } from '@/components/files/file-utils';
 import { isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from './layout-context';
@@ -111,7 +113,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
                       })
                     }
                   >
-                    <FileText />
+                    {getFileIcon(file.contentType, file.filename)}
                     <span className="truncate">{file.filename}</span>
                   </CommandItem>
                 ))}
@@ -133,9 +135,14 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
                       className="[&_svg]:size-full!"
                     />
                     <span className="truncate">{agent.agentName}</span>
-                    <span className="ml-auto text-xs text-muted-foreground">
+                    {/* CommandShortcut, not a bare `ml-auto` span: CommandItem
+                        always renders a trailing check icon that also carries
+                        `ml-auto`, and two auto margins split the free space
+                        between them — which parked the status mid-row. The
+                        `data-slot` on CommandShortcut hides that check. */}
+                    <CommandShortcut className="tracking-normal">
                       {agent.status === 'online' ? 'online' : 'offline'}
-                    </span>
+                    </CommandShortcut>
                   </CommandItem>
                 ))}
               </CommandGroup>

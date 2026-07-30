@@ -2,74 +2,115 @@
 
 import { useRef, useState, useMemo, useCallback } from 'react';
 import {
-  Search, Upload, FolderOpen, Folder, ChevronRight, FolderPlus, Trash2,
+  Search, Upload, FileX, ChevronRight, ArrowLeft, Trash2,
+  LayoutGrid, List, ArrowDownWideNarrow, ListFilter, X,
 } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
-import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
+import { useConfirm } from '@/components/ui/dialogs-provider';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import { workspaceApi } from '@/lib/api';
-import type { FileEntry } from './file-utils';
-import { formatSize, getFileIconLarge, timeAgo, basename, getEntriesAtPath } from './file-utils';
+import type { FileFilterGroup } from './file-utils';
+import {
+  FILE_FILTER_GROUPS, FileRowIcon, FileTile, formatSize, getFileFilterGroup, timeAgo,
+  basename, dirname, getFilesUnderPath,
+} from './file-utils';
 
-/** Image thumbnail using the workspace file download URL */
-function ImageThumbnail({ fileId, filename }: { fileId: string; filename: string }) {
-  const [failed, setFailed] = useState(false);
-  const url = workspaceApi.getFileUrl(fileId);
+type SortKey = 'name' | 'recent' | 'size';
 
-  if (failed) {
-    return getFileIconLarge('image/', filename);
-  }
+const SORT_LABELS: Record<SortKey, string> = {
+  name: 'Name',
+  recent: 'Last modified',
+  size: 'Size',
+};
 
-  return (
-    <img
-      src={url}
-      alt={filename}
-      className="size-16 object-cover rounded-lg"
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
-  );
-}
-
+/**
+ * The detail pane: the files inside whatever the folder panel has selected.
+ *
+ * Folders live entirely in that panel — this side never draws one. Splitting
+ * it that way means a folder is one thing in one place instead of a row on the
+ * left and a tile on the right that had to be kept in sync, and it makes the
+ * pane's job sayable in one line: these are the files under here.
+ */
 export function FileGrid() {
   const {
     files, selectedFileId, setSelectedFileId, uploadFile, deleteFile,
     currentFilePath, setCurrentFilePath,
   } = useWorkspace();
   const { isMobile, openMobileDetail } = useLayout();
-  const prompt = usePrompt();
   const confirm = useConfirm();
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [view, setView] = useState<'grid' | 'list'>('grid');
+  const [sort, setSort] = useState<SortKey>('name');
+  const [typeFilter, setTypeFilter] = useState<FileFilterGroup | 'all'>('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const currentPath = currentFilePath;
   const setCurrentPath = setCurrentFilePath;
 
-  const entries = useMemo(() => {
+  /**
+   * Every file under the selected folder — subfolders included, because "All
+   * files" means all of them and a folder you've picked means everything it
+   * holds. Search widens that to the whole workspace. This is also what the
+   * filter menu counts, so a listed type always has something behind it.
+   */
+  const scopedFiles = useMemo(() => {
     if (search) {
-      const filtered = files.filter((f) => f.filename.toLowerCase().includes(search.toLowerCase()));
-      return filtered.map((f): FileEntry => ({
-        type: 'file',
-        file: f,
-        displayName: f.filename,
-      }));
+      const q = search.toLowerCase();
+      return getFilesUnderPath(files, '')
+        .filter((e) => e.file.filename.toLowerCase().includes(q));
     }
-    return getEntriesAtPath(files, currentPath);
+    return getFilesUnderPath(files, currentPath);
   }, [files, currentPath, search]);
+
+  const typeCounts = useMemo(() => {
+    const counts = new Map<FileFilterGroup, number>();
+    for (const entry of scopedFiles) {
+      const group = getFileFilterGroup(entry.file.contentType, entry.file.filename);
+      counts.set(group, (counts.get(group) || 0) + 1);
+    }
+    return counts;
+  }, [scopedFiles]);
+
+  const activeFilter = typeFilter === 'all'
+    ? null
+    : FILE_FILTER_GROUPS.find((g) => g.id === typeFilter) ?? null;
+
+  const entries = useMemo(() => {
+    const scoped = typeFilter === 'all'
+      ? scopedFiles
+      : scopedFiles.filter(
+          (e) => getFileFilterGroup(e.file.contentType, e.file.filename) === typeFilter,
+        );
+
+    return [...scoped].sort((a, b) => {
+      if (sort === 'size') return b.file.size - a.file.size;
+      if (sort === 'recent') {
+        const at = a.file.createdAt ? new Date(a.file.createdAt).getTime() : 0;
+        const bt = b.file.createdAt ? new Date(b.file.createdAt).getTime() : 0;
+        return bt - at;
+      }
+      return a.displayName.localeCompare(b.displayName);
+    });
+  }, [scopedFiles, sort, typeFilter]);
 
   const breadcrumbs = useMemo(() => {
     if (!currentPath) return [];
     return currentPath.split('/');
   }, [currentPath]);
-
-  const navigateToFolder = useCallback((folderName: string) => {
-    setCurrentPath(currentPath ? `${currentPath}/${folderName}` : folderName);
-    setSearch('');
-  }, [currentPath, setCurrentPath]);
 
   const navigateToBreadcrumb = useCallback((index: number) => {
     if (index < 0) {
@@ -103,24 +144,6 @@ export function FileGrid() {
     }
   };
 
-  const handleCreateFolder = async () => {
-    const name = await prompt({
-      title: 'New folder',
-      placeholder: 'Folder name',
-      confirmText: 'Create',
-    });
-    if (!name?.trim()) return;
-    const sanitized = name.trim().replace(/[/\\]/g, '-');
-    const folderPath = currentPath ? `${currentPath}/${sanitized}` : sanitized;
-    try {
-      // Upload a .keep placeholder so the folder persists even when empty
-      const keepFile = new File([''], `${folderPath}/.keep`, { type: 'text/plain' });
-      await uploadFile(keepFile);
-      toast.success(`Created folder "${sanitized}"`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create folder');
-    }
-  };
 
   const handleDelete = async (e: React.MouseEvent, fileId: string, filename: string) => {
     e.stopPropagation();
@@ -172,64 +195,167 @@ export function FileGrid() {
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
     >
-      {/* Toolbar — breadcrumbs as the title, the rest as header actions */}
+      {/* Toolbar — the title says which files these are (search widens past
+          the selected folder, so it says so instead of showing a path that no
+          longer describes the list), and the count says how many. */}
       <DetailHeader
         titleInHeader
         title={
           <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto text-sm text-muted-foreground">
-            <button
-              onClick={() => navigateToBreadcrumb(-1)}
-              className={cn(
-                'hover:text-foreground transition-colors shrink-0 font-medium',
-                !currentPath && 'text-foreground'
-              )}
-            >
-              Files
-            </button>
-            {breadcrumbs.map((segment, i) => (
-              <span key={i} className="flex items-center gap-0.5 shrink-0">
-                <ChevronRight className="size-3.5 opacity-40" />
+            {search ? (
+              <span className="shrink-0 px-1.5 py-0.5 font-medium text-foreground">
+                Search results
+              </span>
+            ) : (
+              <>
+                {/* Up one level — a breadcrumb tells you where you are, but
+                    going back shouldn't require hitting a 40px-wide word. */}
+                {currentPath && (
+                  <button
+                    onClick={() => navigateToBreadcrumb(breadcrumbs.length - 2)}
+                    className="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-muted hover:text-foreground"
+                    title="Up one level"
+                    aria-label="Up one level"
+                  >
+                    <ArrowLeft className="size-4" />
+                  </button>
+                )}
                 <button
-                  onClick={() => navigateToBreadcrumb(i)}
+                  onClick={() => navigateToBreadcrumb(-1)}
                   className={cn(
-                    'hover:text-foreground transition-colors',
-                    i === breadcrumbs.length - 1 && 'text-foreground font-medium'
+                    'shrink-0 rounded-md px-1.5 py-0.5 font-medium transition-colors hover:bg-muted hover:text-foreground',
+                    !currentPath && 'text-foreground'
                   )}
                 >
-                  {segment}
+                  All files
                 </button>
-              </span>
-            ))}
+                {breadcrumbs.map((segment, i) => (
+                  <span key={i} className="flex items-center gap-0.5 shrink-0">
+                    <ChevronRight className="size-3.5 opacity-40" />
+                    <button
+                      onClick={() => navigateToBreadcrumb(i)}
+                      className={cn(
+                        'rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted hover:text-foreground',
+                        i === breadcrumbs.length - 1 && 'text-foreground font-medium'
+                      )}
+                    >
+                      {segment}
+                    </button>
+                  </span>
+                ))}
+              </>
+            )}
+            {entries.length > 0 && (
+              <Badge variant="secondary" size="sm" className="ml-1.5 shrink-0 rounded-full!">
+                {entries.length}
+              </Badge>
+            )}
           </div>
         }
       >
         {/* Search */}
-        <div className="flex w-48 items-center gap-1.5 rounded-lg border border-input bg-muted/50 px-2.5 py-1.5 text-muted-foreground">
-          <Search className="size-3.5 shrink-0" />
-          <input
+        <div className="relative w-48 shrink-0">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+          <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search..."
-            className="text-xs bg-transparent outline-none flex-1 text-foreground placeholder:text-muted-foreground"
+            placeholder="Search files…"
+            aria-label="Search files"
+            className="h-8 pl-8 text-xs"
           />
         </div>
 
-        {/* Actions */}
-        <button
-          onClick={handleCreateFolder}
-          className="size-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0"
-          title="New Folder"
-        >
-          <FolderPlus className="size-4" />
-        </button>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="size-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0 disabled:opacity-50"
-          title={currentPath ? `Upload to ${currentPath}` : 'Upload File'}
-        >
-          <Upload className="size-4" />
-        </button>
+        {/* Type filter — only the kinds actually present, each with its count.
+            An empty "Presentations" row is a dead end, not a filter. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label="Filter by type"
+              className={cn('shrink-0 gap-1.5', activeFilter ? 'text-foreground' : 'text-muted-foreground')}
+            >
+              <ListFilter className="size-4" style={activeFilter ? { color: activeFilter.color } : undefined} />
+              <span className="hidden lg:inline">{activeFilter?.label ?? 'All types'}</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuRadioGroup
+              value={typeFilter}
+              onValueChange={(v) => setTypeFilter(v as FileFilterGroup | 'all')}
+            >
+              <DropdownMenuRadioItem value="all">
+                <span className="flex-1">All types</span>
+                <span className="text-xs text-muted-foreground tabular-nums">{scopedFiles.length}</span>
+              </DropdownMenuRadioItem>
+              {FILE_FILTER_GROUPS.filter((group) => typeCounts.get(group.id)).map((group) => (
+                <DropdownMenuRadioItem key={group.id} value={group.id}>
+                  <span className="flex-1">{group.label}</span>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {typeCounts.get(group.id)}
+                  </span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Sort */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="shrink-0 gap-1.5 text-muted-foreground">
+              <ArrowDownWideNarrow className="size-4" />
+              <span className="hidden lg:inline">{SORT_LABELS[sort]}</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+              {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+                <DropdownMenuRadioItem key={key} value={key}>
+                  {SORT_LABELS[key]}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* View toggle */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              mode="icon"
+              size="sm"
+              onClick={() => setView(view === 'grid' ? 'list' : 'grid')}
+              aria-label={view === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
+              className="shrink-0 text-muted-foreground"
+            >
+              {view === 'grid' ? <List className="size-4" /> : <LayoutGrid className="size-4" />}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{view === 'grid' ? 'List view' : 'Grid view'}</TooltipContent>
+        </Tooltip>
+
+        {/* Upload only — creating folders belongs to the folder panel, which
+            owns the tree and can show the new folder in place. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              mode="icon"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              aria-label="Upload file"
+              className="shrink-0 text-muted-foreground"
+            >
+              <Upload className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {currentPath ? `Upload to ${currentPath}` : 'Upload file'}
+          </TooltipContent>
+        </Tooltip>
         <input
           ref={fileInputRef}
           type="file"
@@ -242,43 +368,105 @@ export function FileGrid() {
       {/* Grid content */}
       {entries.length === 0 ? (
         <div className="flex-1 flex items-center justify-center text-muted-foreground">
-          <div className="text-center space-y-3">
-            <FolderOpen className="size-16 mx-auto opacity-20" />
+          <div className="flex flex-col items-center gap-3 text-center">
+            <FileX className="size-16 opacity-20" />
             <p className="text-sm font-medium">
-              {files.length === 0 ? 'No files yet' : search ? 'No matches' : 'Empty folder'}
-            </p>
-            <p className="text-xs max-w-[240px]">
               {files.length === 0
-                ? 'Upload files or ask an agent to create one. You can also drag & drop files here.'
+                ? 'No files yet'
+                : activeFilter
+                ? `No ${activeFilter.label.toLowerCase()} here`
+                : search
+                ? 'No matches'
+                : 'No files in this folder'}
+            </p>
+            <p className="max-w-xs text-xs">
+              {files.length === 0
+                ? 'Upload files or ask an agent to create one. You can also drag & drop them anywhere here.'
+                : activeFilter
+                ? search
+                  ? 'Nothing of this type matches your search.'
+                  : 'Nothing of this type in this folder or the ones below it.'
                 : search
                 ? 'Try a different search term'
-                : 'Upload files here or go back'}
+                : 'Drag files in, upload them, or pick another folder on the left.'}
             </p>
+            {/* The empty state offers this pane's own action, not the folder
+                panel's — same boundary as the toolbar above. */}
+            {activeFilter ? (
+              <Button variant="outline" size="sm" className="mt-1" onClick={() => setTypeFilter('all')}>
+                <X className="size-3.5" />
+                Clear filter
+              </Button>
+            ) : !search && (
+              <div className="mt-1 flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                  <Upload className="size-3.5" />
+                  Upload files
+                </Button>
+                {currentPath && (
+                  <Button variant="ghost" size="sm" onClick={() => navigateToBreadcrumb(breadcrumbs.length - 2)}>
+                    <ArrowLeft className="size-3.5" />
+                    Back
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
+        </div>
+      ) : view === 'list' ? (
+        /* List view — one row per file, name in full including its subfolder.
+           Upload names run long and look alike, so a dense row with the whole
+           name and its metadata beats a wall of truncated tiles. */
+        <div className="flex-1 overflow-y-auto p-2">
+          {entries.map((entry) => {
+            const { file, displayName } = entry;
+            const isSelected = selectedFileId === file.id;
+
+            return (
+              <div
+                key={file.id}
+                onClick={() => {
+                  setSelectedFileId(file.id);
+                  if (isMobile) openMobileDetail();
+                }}
+                className={cn(
+                  'group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors',
+                  isSelected
+                    ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
+                    : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/60',
+                )}
+              >
+                <FileRowIcon file={file} />
+                <span className="flex-1 truncate text-sm font-medium" title={displayName}>
+                  {displayName}
+                </span>
+                <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+                  {formatSize(file.size)}
+                </span>
+                <span className="hidden w-24 shrink-0 text-right text-xs text-muted-foreground lg:inline">
+                  {file.createdAt ? timeAgo(file.createdAt) : ''}
+                </span>
+                <Button
+                  variant="ghost"
+                  mode="icon"
+                  size="sm"
+                  onClick={(e) => handleDelete(e, file.id, file.filename)}
+                  aria-label={`Delete ${displayName}`}
+                  className="size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                >
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            );
+          })}
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
+          {/* Wider tiles: at 120px the names truncate after a few characters,
+              and these are timestamped upload names. */}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-2">
             {entries.map((entry) => {
-              if (entry.type === 'folder') {
-                return (
-                  <button
-                    key={`folder:${entry.name}`}
-                    type="button"
-                    onClick={() => navigateToFolder(entry.name)}
-                    className="flex flex-col items-center gap-1.5 p-3 rounded-xl text-center transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/60 cursor-pointer group"
-                  >
-                    <Folder className="size-12 text-amber-500" />
-                    <span className="text-xs font-medium truncate w-full">{entry.name}</span>
-                    <span className="text-[10px] text-muted-foreground">
-                      {entry.fileCount} {entry.fileCount === 1 ? 'item' : 'items'}
-                    </span>
-                  </button>
-                );
-              }
-
               const { file, displayName } = entry;
-              const isImage = (file.contentType || '').startsWith('image/');
               const isSelected = selectedFileId === file.id;
 
               return (
@@ -291,37 +479,45 @@ export function FileGrid() {
                       : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/60'
                   )}
                   onClick={() => {
+                    // Opening a file leaves the folder selection alone: the
+                    // file is already inside the current scope, so closing the
+                    // preview should land back on the same list.
                     setSelectedFileId(file.id);
                     if (isMobile) openMobileDetail();
                   }}
                 >
-                  {/* Thumbnail or icon */}
-                  <div className="size-16 flex items-center justify-center">
-                    {isImage
-                      ? <ImageThumbnail fileId={file.id} filename={file.filename} />
-                      : getFileIconLarge(file.contentType, file.filename)
-                    }
+                  {/* An image shows itself; everything else shows its type
+                      tile. Both occupy this same 76px slot, so thumbnails
+                      loading in never move the grid around them. */}
+                  <div className="flex h-19 items-center justify-center">
+                    <FileTile file={file} className="group-hover:-translate-y-0.5" />
                   </div>
 
-                  {/* Filename */}
+                  {/* Filename — the list is flat, so the name drops its folder
+                      and the metadata line picks it up. A 160px tile is too
+                      narrow to carry both in full. */}
                   <span className="text-xs font-medium truncate w-full leading-tight" title={displayName}>
-                    {displayName}
+                    {basename(displayName)}
                   </span>
 
                   {/* Metadata */}
-                  <span className="text-[10px] text-muted-foreground leading-tight">
-                    {formatSize(file.size)}
-                    {file.createdAt && ` · ${timeAgo(file.createdAt)}`}
+                  <span className="w-full truncate text-[10px] text-muted-foreground leading-tight">
+                    {dirname(displayName)
+                      ? `${dirname(displayName)} · ${formatSize(file.size)}`
+                      : `${formatSize(file.size)}${file.createdAt ? ` · ${timeAgo(file.createdAt)}` : ''}`}
                   </span>
 
                   {/* Delete button on hover */}
-                  <button
+                  <Button
+                    variant="ghost"
+                    mode="icon"
+                    size="sm"
                     onClick={(e) => handleDelete(e, file.id, file.filename)}
-                    className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 p-1 rounded-lg bg-white/80 dark:bg-zinc-900/80 hover:bg-red-50 dark:hover:bg-red-950/50 text-muted-foreground hover:text-red-500 transition-all shadow-sm"
-                    title="Delete"
+                    aria-label={`Delete ${displayName}`}
+                    className="absolute top-1.5 right-1.5 size-6 bg-background/80 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-red-500 group-hover:opacity-100"
                   >
                     <Trash2 className="size-3" />
-                  </button>
+                  </Button>
                 </div>
               );
             })}

@@ -461,6 +461,29 @@ class WorkspaceApi {
     await this.request<unknown>(`/v1/files/${fileId}`, { method: 'DELETE' });
   }
 
+  /**
+   * Folders are a path prefix on `filename`, not rows of their own, so these
+   * rewrite or soft-delete every record under the prefix server-side.
+   */
+  async createFolder(path: string): Promise<void> {
+    await this.request<unknown>('/v1/files/folders', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.workspaceId, path }),
+    });
+  }
+
+  async renameFolder(path: string, newPath: string): Promise<void> {
+    await this.request<unknown>('/v1/files/folders', {
+      method: 'PATCH',
+      body: JSON.stringify({ network: this.workspaceId, path, new_path: newPath }),
+    });
+  }
+
+  async deleteFolder(path: string): Promise<void> {
+    const params = new URLSearchParams({ network: this.workspaceId, path });
+    await this.request<unknown>(`/v1/files/folders?${params}`, { method: 'DELETE' });
+  }
+
   // ---------------------------------------------------------------------------
   // Knowledge Base
   // ---------------------------------------------------------------------------

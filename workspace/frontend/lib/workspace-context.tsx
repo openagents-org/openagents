@@ -98,6 +98,9 @@ interface WorkspaceContextValue {
   refreshFiles: () => Promise<void>;
   uploadFile: (file: File) => Promise<WorkspaceFile>;
   deleteFile: (fileId: string) => Promise<void>;
+  createFolder: (path: string) => Promise<void>;
+  renameFolder: (path: string, newPath: string) => Promise<void>;
+  deleteFolder: (path: string) => Promise<void>;
   browserTabs: BrowserTab[];
   selectedBrowserTabId: string | null;
   setSelectedBrowserTabId: (id: string | null) => void;
@@ -793,6 +796,23 @@ export function WorkspaceProvider({
     if (selectedFileId === fileId) setSelectedFileId(null);
   }, [selectedFileId]);
 
+  // Folder mutations rewrite many file records at once, so each one refetches
+  // rather than trying to patch the local list.
+  const createFolder = useCallback(async (path: string) => {
+    await workspaceApi.createFolder(path);
+    await refreshFiles();
+  }, [refreshFiles]);
+
+  const renameFolder = useCallback(async (path: string, newPath: string) => {
+    await workspaceApi.renameFolder(path, newPath);
+    await refreshFiles();
+  }, [refreshFiles]);
+
+  const deleteFolder = useCallback(async (path: string) => {
+    await workspaceApi.deleteFolder(path);
+    await refreshFiles();
+  }, [refreshFiles]);
+
   const refreshBrowserTabs = useCallback(async () => {
     try {
       const result = await workspaceApi.listBrowserTabs();
@@ -1322,6 +1342,9 @@ export function WorkspaceProvider({
         refreshFiles,
         uploadFile,
         deleteFile,
+        createFolder,
+        renameFolder,
+        deleteFolder,
         browserTabs,
         selectedBrowserTabId,
         setSelectedBrowserTabId,
