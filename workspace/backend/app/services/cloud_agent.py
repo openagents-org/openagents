@@ -108,13 +108,28 @@ async def _invoke_chat_agent(
     channel_target = event_data.get("target", "")
     agent_name = cloud_config.agent_name
 
+    # The char budget covers the whole request, not just history — system
+    # prompt and the trigger message spend from it first, history gets the
+    # remainder. An absurdly long trigger is truncated so the assembled
+    # payload always stays within CLOUD_AGENT_MAX_CONTEXT_CHARS.
+    content = event_data.get("payload", {}).get("content", "")
+    total_budget = config.CLOUD_AGENT_MAX_CONTEXT_CHARS
+    system_len = len(cloud_config.system_prompt or "")
+    if content and system_len + len(content) > total_budget:
+        logger.warning(
+            "cloud_agent: trigger message for %s exceeds the context budget "
+            "(%d + %d > %d chars), truncating",
+            agent_name, system_len, len(content), total_budget,
+        )
+        content = content[: max(0, total_budget - system_len)]
+
     messages = _build_conversation_context(
         db, workspace_id, channel_target, agent_name,
         exclude_event_id=event_data.get("id"),
         before_timestamp=_event_order_boundary(event_data),
+        max_chars=max(0, total_budget - system_len - len(content)),
     )
 
-    content = event_data.get("payload", {}).get("content", "")
     if content:
         messages.append({"role": "user", "content": content})
 
@@ -274,9 +289,13 @@ def _build_conversation_context(
     Chat messages are collected newest-first in pages until the window
     holds max_messages of them, the character budget is spent, or the scan
     cap is reached — non-chat rows (status/thinking/todos/anything else)
-    never consume window slots no matter how many there are. The character
-    budget bounds prompt size for models with small context windows, which
-    a message count alone does not.
+    never consume window slots. The character budget bounds prompt size for
+    models with small context windows, which a message count alone does not.
+
+    The scan cap makes this best-effort, deliberately: without it a busy
+    channel would degrade into an unbounded table scan. If the most recent
+    max_scanned rows are all noise, older chat history is invisible for
+    this turn — a warning is logged when that happens.
     """
     max_messages = config.CLOUD_AGENT_MAX_CONTEXT_MESSAGES
     if max_chars is None:
@@ -348,6 +367,14 @@ def _build_conversation_context(
             break
         offset += batch_size
 
+    if len(collected) < max_messages and offset >= max_scanned:
+        logger.warning(
+            "cloud_agent: context scan cap (%d rows) reached for %s in %s "
+            "with only %d chat message(s) collected — older history is "
+            "invisible this turn",
+            max_scanned, agent_name, channel_target, len(collected),
+        )
+
     collected.reverse()
     return collected
 
@@ -375,11 +402,14 @@ async def _compose_image_prompt(
     if not (config.ROUTER_LLM_ENABLED and api_key):
         return instruction
 
+    # As in the chat path, the budget covers the whole composer request —
+    # the instruction (plus the fixed ~600-char system prompt below) spends
+    # from it first and history gets what remains.
     context = _build_conversation_context(
         db, workspace_id, channel_target, agent_name,
         exclude_event_id=exclude_event_id,
         before_timestamp=before_timestamp,
-        max_chars=_IMAGE_CONTEXT_MAX_CHARS,
+        max_chars=max(0, _IMAGE_CONTEXT_MAX_CHARS - 600 - len(instruction)),
     )
     if not context:
         return instruction

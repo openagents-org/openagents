@@ -3,18 +3,23 @@
 Tests for the cloud-agent conversation context builder.
 
 Covers the fixes for constraint loss in long conversations: the window holds
-real chat messages (noise never consumes slots, however much of it there is),
-context stops at the trigger's causal boundary so later messages can't leak
-in, a character budget bounds prompt size independently of message count, and
-the window size follows CLOUD_AGENT_MAX_CONTEXT_MESSAGES.
+real chat messages (noise never consumes slots, up to a best-effort scan cap
+that is logged when hit), context stops at the trigger's causal boundary so
+later messages can't leak in, a character budget bounds the whole request
+independently of message count, and the window size follows
+CLOUD_AGENT_MAX_CONTEXT_MESSAGES.
 """
 
+import asyncio
+import logging
+import types
 import uuid
 
 import pytest
 
 from app.config import config
 from app.models import EventRecord
+from app.services import cloud_agent
 from app.services.cloud_agent import _build_conversation_context
 
 WORKSPACE_ID = str(uuid.uuid4())
@@ -205,6 +210,108 @@ class TestCharBudget:
 
     def test_default_budget_is_configured(self):
         assert config.CLOUD_AGENT_MAX_CONTEXT_CHARS > 0
+
+    def test_final_provider_payload_stays_within_total_budget(self, db, monkeypatch):
+        """The budget covers the assembled request — system prompt, history
+        and the trigger message together, not history alone."""
+        for i in range(10):
+            _add_message(db, i, "x" * 20_000)
+        db.commit()
+
+        captured = {}
+
+        async def fake_chat_completion(**kwargs):
+            captured.update(kwargs)
+            return "ok"
+
+        async def fake_post_response(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(cloud_agent, "chat_completion", fake_chat_completion)
+        monkeypatch.setattr(cloud_agent, "_post_response", fake_post_response)
+        monkeypatch.setattr(config, "CLOUD_AGENT_MAX_CONTEXT_CHARS", 50_000)
+
+        cloud_config = types.SimpleNamespace(
+            agent_name=AGENT, provider="openai", model="test-model",
+            api_key="key", system_prompt="s" * 1_000, max_tokens=100,
+            base_url=None, category="chat",
+        )
+        event_data = {
+            "id": "ev-trigger", "target": CHANNEL,
+            "payload": {"content": "c" * 5_000}, "timestamp": 100,
+        }
+
+        asyncio.run(cloud_agent._invoke_chat_agent(
+            db, WORKSPACE_ID, event_data, cloud_config, depth=0,
+        ))
+
+        total = len(cloud_config.system_prompt) + sum(
+            len(m["content"]) for m in captured["messages"]
+        )
+        assert total <= 50_000
+        # The trigger message itself is the final user message, intact.
+        assert captured["messages"][-1] == {"role": "user", "content": "c" * 5_000}
+
+    def test_overlong_trigger_is_truncated_to_budget(self, db, monkeypatch):
+        captured = {}
+
+        async def fake_chat_completion(**kwargs):
+            captured.update(kwargs)
+            return "ok"
+
+        async def fake_post_response(*args, **kwargs):
+            return None
+
+        monkeypatch.setattr(cloud_agent, "chat_completion", fake_chat_completion)
+        monkeypatch.setattr(cloud_agent, "_post_response", fake_post_response)
+        monkeypatch.setattr(config, "CLOUD_AGENT_MAX_CONTEXT_CHARS", 1_000)
+
+        cloud_config = types.SimpleNamespace(
+            agent_name=AGENT, provider="openai", model="test-model",
+            api_key="key", system_prompt="", max_tokens=100,
+            base_url=None, category="chat",
+        )
+        event_data = {
+            "id": "ev-trigger", "target": CHANNEL,
+            "payload": {"content": "c" * 5_000}, "timestamp": 100,
+        }
+
+        asyncio.run(cloud_agent._invoke_chat_agent(
+            db, WORKSPACE_ID, event_data, cloud_config, depth=0,
+        ))
+
+        assert captured["messages"] == [{"role": "user", "content": "c" * 1_000}]
+
+
+class TestScanCap:
+    def test_scan_cap_is_best_effort_and_logged(self, db, caplog):
+        """When the newest max_scanned rows are all noise, older chat
+        history is invisible for the turn — documented best-effort behavior
+        that must surface as a warning, never silently."""
+        batch_size = max(config.CLOUD_AGENT_MAX_CONTEXT_MESSAGES * 3, 100)
+        max_scanned = batch_size * 10
+
+        _add_message(db, 1, "buried real message")
+        db.bulk_save_objects([
+            EventRecord(
+                id=f"noise-{i}",
+                network_id=WORKSPACE_ID,
+                type="workspace.message.posted",
+                source=f"openagents:{AGENT}",
+                target=CHANNEL,
+                payload={"content": f"status {i}", "message_type": "status"},
+                metadata_={},
+                timestamp=10 + i,
+            )
+            for i in range(max_scanned + 1)
+        ])
+        db.commit()
+
+        with caplog.at_level(logging.WARNING):
+            messages = _build(db, before_timestamp=10_000_000)
+
+        assert messages == []
+        assert any("scan cap" in r.message for r in caplog.records)
 
 
 class TestDefaultWindowSize:
