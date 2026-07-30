@@ -68,8 +68,21 @@ function applyDocumentLang(lng: string): void {
   }
 }
 
+// Mirror the language into main's settings store. Main owns the OS
+// notifications and the tray menu but can't read i18next's localStorage, so
+// without this an update toast stays English for a user who picked 简体中文.
+function syncLanguageToMain(lng: string): void {
+  try {
+    void window.api?.setSetting?.("language", lng)
+  } catch {}
+}
+
 applyDocumentLang(i18n.resolvedLanguage ?? i18n.language)
-i18n.on("languageChanged", applyDocumentLang)
+syncLanguageToMain(i18n.resolvedLanguage ?? i18n.language)
+i18n.on("languageChanged", (lng: string) => {
+  applyDocumentLang(lng)
+  syncLanguageToMain(lng)
+})
 
 export function changeLanguage(lng: LanguageCode): Promise<unknown> {
   return i18n.changeLanguage(lng)

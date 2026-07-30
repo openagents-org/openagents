@@ -36,6 +36,7 @@ import {
   checkForUpdatesOnStartup,
   getUpdaterState,
   installDownloadedUpdate,
+  applyUpdateFeedUrl,
 } from "./updater"
 import { getGitHubClient, parseGitHubRepo } from "./github-bridge"
 import { GitHubBindingsStore } from "./github-bindings-store"
@@ -46,6 +47,7 @@ import {
   npmUrls,
   npmRegistryBase,
 } from "./mirror"
+import { t, setMainLanguage } from "./i18n"
 import {
   setNotificationsWindow,
   pushNotification,
@@ -54,6 +56,7 @@ import {
   markAllRead,
   clearAll as clearAllNotifications,
   clearOne as clearOneNotification,
+  clearBySource as clearNotificationsBySource,
   getPrefs as getNotifPrefs,
   setPrefs as setNotifPrefs,
 } from "./notifications"
@@ -879,11 +882,24 @@ function applyStartOnBoot(): void {
   } catch {}
 }
 
-// Apply proxy settings (Settings → Network) two ways:
+// electron-updater does NOT use the default session: ElectronHttpExecutor
+// downloads through `session.fromPartition("electron-updater", {cache: false})`
+// (see its electronHttpExecutor.ts, NET_SESSION_NAME). fromPartition is
+// idempotent per name, so asking for the same partition here hands us the very
+// session the updater will use — setting the proxy on it is the only way the
+// in-app proxy reaches update downloads.
+const UPDATER_NET_PARTITION = "electron-updater"
+
+// Apply proxy settings (Settings → Network) three ways:
 //  1. process.env HTTP(S)_PROXY / NO_PROXY — inherited by every child process
 //     we spawn (npm, agent CLIs), all of which honor these standard vars.
-//  2. session.setProxy — covers Electron's own network stack (renderer fetch,
+//  2. defaultSession.setProxy — Electron's own network stack (renderer fetch,
 //     the net module).
+//  3. the updater's private session — self-update downloads. Chromium's net
+//     stack ignores HTTP_PROXY entirely, so without this the proxy configured
+//     here did nothing for updates: the only thing that helped was an OS-level
+//     proxy, which Chromium picks up on its own. That mismatch is why "it's
+//     only fast with the system proxy on" was the reported experience.
 // node's core https (our Node/npm bootstrap downloads) doesn't read these, but
 // those already go through regional mirrors so proxy coverage there is moot.
 function applyProxyFromSettings(): void {
@@ -904,15 +920,22 @@ function applyProxyFromSettings(): void {
   setOrClear("HTTPS_PROXY", https)
   setOrClear("NO_PROXY", no)
 
+  const rules = [http && `http=${http}`, https && `https=${https}`]
+    .filter(Boolean)
+    .join(";")
+  const config: Electron.ProxyConfig = rules
+    ? { proxyRules: rules, proxyBypassRules: no || undefined }
+    : { mode: "direct" }
+
   if (session?.defaultSession) {
-    const rules = [http && `http=${http}`, https && `https=${https}`]
-      .filter(Boolean)
-      .join(";")
-    void session.defaultSession.setProxy(
-      rules
-        ? { proxyRules: rules, proxyBypassRules: no || undefined }
-        : { mode: "direct" },
-    )
+    void session.defaultSession.setProxy(config)
+  }
+  try {
+    void session
+      .fromPartition(UPDATER_NET_PARTITION, { cache: false })
+      .setProxy(config)
+  } catch (err) {
+    slog(`failed to apply proxy to updater session: ${(err as Error).message}`)
   }
 }
 
@@ -1021,7 +1044,9 @@ function updateTrayMenu(): void {
       ? [
           { type: "separator" },
           {
-            label: `Restart to update (v${launcherUpdate.latestVersion ?? "?"})`,
+            label: t("trayRestartToUpdate", {
+              version: launcherUpdate.latestVersion ?? "?",
+            }),
             click: () => {
               installDownloadedUpdate()
             },
@@ -1773,9 +1798,24 @@ function setupIPC(): void {
       agentManager.reloadCore()
     }
     if (key === "startOnBoot") applyStartOnBoot()
+    // Keep main's notification/tray strings on the language the user picked in
+    // Settings — main can't read the renderer's localStorage-backed i18next.
+    if (key === "language") {
+      setMainLanguage(value)
+      updateTrayMenu()
+    }
     if (key === "httpProxy" || key === "httpsProxy" || key === "noProxy") {
       applyProxyFromSettings()
     }
+    // Download acceleration: re-point npm (and therefore core/agent installs)
+    // at the mirror without needing a restart. Node dist URLs are resolved per
+    // download, so they pick the new region up on their own.
+    if (key === "downloadRegion") {
+      setRegionPreference(value)
+      process.env.npm_config_registry = npmRegistryBase()
+      slog(`download region changed → registry=${npmRegistryBase()}`)
+    }
+    if (key === "updateFeedUrl") applyUpdateFeedUrl(value)
   })
 
   // ── Connections ──
@@ -2483,11 +2523,17 @@ app.whenReady().then(async () => {
   applyStartOnBoot()
   applyProxyFromSettings()
 
+  // Restore the UI language before the tray is built or any startup
+  // notification fires, so main's strings match the renderer from the first
+  // frame instead of falling back to the OS locale until the renderer syncs.
+  setMainLanguage(store.get("language"))
+
   // Resolve the download region BEFORE any runtime download runs. `downloadRegion`
-  // ('auto' | 'global' | 'cn') lets support/QA pin the origin; default 'auto'
-  // detects mainland China by timezone/locale and routes Node/npm/core through
-  // the npmmirror mirror (with the official origin as fallback). Also point npm's
-  // own registry at the mirror so agent installs the core/daemon spawn go fast too.
+  // ('auto' | 'global' | 'cn') lets the user (Settings → Network) or support/QA
+  // pin the origin; default 'auto' detects mainland China by timezone/locale and
+  // routes Node/npm/core through the npmmirror mirror (with the official origin
+  // as fallback). Also point npm's own registry at the mirror so agent installs
+  // the core/daemon spawn go fast too.
   setRegionPreference(store.get("downloadRegion"))
   if (useChinaMirror()) {
     process.env.npm_config_registry = npmRegistryBase()
@@ -2498,9 +2544,13 @@ app.whenReady().then(async () => {
   setupAutoUpdater({
     getWindow: () => mainWindow,
     log: slog,
-    // "Automatic updates" ON (default) = background checks auto-download and
-    // electron-updater installs on the next quit. OFF = no check at all.
+    // "Automatic updates" ON (default) = background checks auto-download, and
+    // electron-updater installs on the next quit. OFF = still check and still
+    // notify, but wait for the user to press Download.
     isAutoUpdateEnabled: () => store.get("autoUpdate") !== false,
+    // Optional mirror of the release feed, for networks where the default
+    // origin is slow (mainland China without a proxy). Blank = packaged origin.
+    feedUrlOverride: store.get("updateFeedUrl"),
     // Stop chat polling + the daemon/agent subprocesses before the installer
     // runs. On Windows a live daemon holds locks under the install dir, so the
     // NSIS overwrite silently fails and the relaunch comes back on the old
@@ -2526,10 +2576,17 @@ app.whenReady().then(async () => {
       _lastUpdateNotifiedVersion = version
       slog(`[updater] auto-update v${version} downloaded — ready to install`)
       try {
+        // Only the newest package is installable, so retire the previous
+        // version's prompt rather than stacking a second unread badge for an
+        // update the user can no longer choose.
+        clearNotificationsBySource("launcher-update")
         pushNotification({
           kind: "system",
-          title: "Update ready",
-          body: `OpenAgents Launcher v${version} will install when you restart.`,
+          title: t("updateReadyTitle"),
+          // "when you restart" was misleading for a tray-resident app: closing
+          // the window only hides it, so the install never ran and the prompts
+          // piled up. Point at the button that actually performs the install.
+          body: t("updateReadyBody", { version }),
           source: "launcher-update",
         })
       } catch {}
@@ -2781,14 +2838,17 @@ app.whenReady().then(async () => {
   setTimeout(() => checkCoreUpdate().catch(() => {}), 30000)
 
   // Launcher self-update: check shortly after launch and every half hour
-  // thereafter, but only when the user hasn't turned automatic updates off.
-  // Surfaces a banner in the renderer; the actual download/install is
-  // user-driven. Also throttled so the window-focus trigger below can't spam
-  // the update server.
+  // thereafter. Surfaces a banner in the renderer; whether the download starts
+  // by itself depends on the "Automatic updates" setting, which
+  // checkForUpdatesOnStartup reads to set autoDownload.
+  //
+  // Note we no longer skip the *check* when that setting is off. It used to
+  // return early, which meant turning off automatic updates also turned off
+  // ever being told a new version exists — the user just silently stayed on an
+  // old build. Off now means "don't download it for me", not "don't tell me".
   const THIRTY_MIN = 30 * 60 * 1000
   let _lastLauncherUpdateCheck = 0
   const launcherUpdateCheck = (minGapMs = 0): void => {
-    if (store.get("autoUpdate") === false) return
     const now = Date.now()
     if (minGapMs > 0 && now - _lastLauncherUpdateCheck < minGapMs) return
     _lastLauncherUpdateCheck = now

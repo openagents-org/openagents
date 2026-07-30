@@ -7,10 +7,13 @@ vi.mock("electron", () => ({ app: { getLocale: () => "en-US" } }))
 
 import {
   setRegionPreference,
+  getRegionPreference,
   useChinaMirror,
   nodeDistUrls,
   npmUrls,
   npmRegistryBase,
+  launcherFeedUrl,
+  DEFAULT_LAUNCHER_FEED,
 } from "./mirror"
 
 describe("download mirrors", () => {
@@ -49,5 +52,36 @@ describe("download mirrors", () => {
     setRegionPreference("cn")
     setRegionPreference("nonsense")
     expect(useChinaMirror()).toBe(true)
+    expect(getRegionPreference()).toBe("cn")
+  })
+})
+
+describe("launcher update feed", () => {
+  it("returns null when there is no override, so the packaged origin is kept", () => {
+    expect(launcherFeedUrl(undefined)).toBeNull()
+    expect(launcherFeedUrl("")).toBeNull()
+    expect(launcherFeedUrl("   ")).toBeNull()
+    expect(launcherFeedUrl(null)).toBeNull()
+    expect(launcherFeedUrl(42)).toBeNull()
+  })
+
+  it("accepts an absolute http(s) mirror and trims it", () => {
+    expect(launcherFeedUrl("https://dl-cn.example.com/launcher/stable")).toBe(
+      "https://dl-cn.example.com/launcher/stable",
+    )
+    expect(launcherFeedUrl("  http://192.168.1.10:8080/launcher  ")).toBe(
+      "http://192.168.1.10:8080/launcher",
+    )
+  })
+
+  it("rejects values electron-updater would choke on", () => {
+    expect(launcherFeedUrl("dl-cn.example.com/launcher")).toBeNull()
+    expect(launcherFeedUrl("ftp://dl.example.com/launcher")).toBeNull()
+    expect(launcherFeedUrl("file:///tmp/launcher")).toBeNull()
+  })
+
+  it("treats the official origin as 'no override'", () => {
+    expect(launcherFeedUrl(DEFAULT_LAUNCHER_FEED)).toBeNull()
+    expect(launcherFeedUrl(`${DEFAULT_LAUNCHER_FEED}/`)).toBeNull()
   })
 })

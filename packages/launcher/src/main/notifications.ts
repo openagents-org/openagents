@@ -75,6 +75,24 @@ export function clearOne(idValue: string): void {
   }
 }
 
+/**
+ * Drop every notification from a source. Used for self-superseding streams like
+ * launcher updates: only the newest "update ready" is actionable, so leaving the
+ * previous versions' entries behind just inflates the unread badge with prompts
+ * for versions the user can no longer install.
+ */
+export function clearBySource(source: string): number {
+  let removed = 0
+  for (let i = _records.length - 1; i >= 0; i--) {
+    if (_records[i].source === source) {
+      _records.splice(i, 1)
+      removed++
+    }
+  }
+  if (removed > 0) broadcast()
+  return removed
+}
+
 interface NotificationPrefs {
   enabled: boolean
   soundEnabled: boolean
