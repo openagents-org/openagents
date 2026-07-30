@@ -313,9 +313,12 @@ class TestCharBudget:
 
     def test_image_composer_payload_stays_within_its_budget(self, db, monkeypatch):
         """The composer budget covers the whole request including the
-        user-message wrapper text, not just the raw instruction."""
-        for i in range(10):
-            _add_message(db, i, "x" * 3_000)
+        user-message wrapper text, not just the raw instruction. A single
+        overlong history message forces the builder to truncate exactly to
+        the remaining budget, so the payload lands on the boundary — an
+        implementation that misses the 46-char wrapper overshoots to 8046
+        and fails this test."""
+        _add_message(db, 1, "x" * 10_000)
         db.commit()
 
         captured = {}
@@ -338,7 +341,9 @@ class TestCharBudget:
         total = len(captured["system_prompt"]) + sum(
             len(m["content"]) for m in captured["messages"]
         )
-        assert total <= cloud_agent._IMAGE_CONTEXT_MAX_CHARS
+        # The truncated history fills the payload to exactly the cap, so
+        # any unbudgeted text would push the total over it.
+        assert total == cloud_agent._IMAGE_CONTEXT_MAX_CHARS
         # The final user message carries the wrapper text around the
         # instruction, and it is what the budget accounted for.
         assert captured["messages"][-1]["content"] == (
