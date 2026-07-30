@@ -283,8 +283,20 @@ class FileRecord(Base):
     status = Column(Text, nullable=False, default="active")  # active | deleted
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 
+    # Trash. A deleted record keeps its bytes until it's purged; these three
+    # columns are what turn "status = deleted" into something restorable.
+    #   deleted_at  when it went to the trash (and what an expiry sweep reads)
+    #   trash_id    one delete action — deleting a folder trashes N records
+    #               that must come back, or be purged, together
+    #   trash_path  what the user deleted: a file's path, or a folder's
+    # All nullable: records deleted before trash existed simply have none.
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    trash_id = Column(Text, nullable=True)
+    trash_path = Column(Text, nullable=True)
+
     __table_args__ = (
         Index("idx_files_workspace_status", "workspace_id", "status"),
+        Index("idx_files_trash", "workspace_id", "trash_id"),
     )
 
 
