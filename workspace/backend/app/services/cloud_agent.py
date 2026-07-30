@@ -115,6 +115,15 @@ async def _invoke_chat_agent(
     content = event_data.get("payload", {}).get("content", "")
     total_budget = config.CLOUD_AGENT_MAX_CONTEXT_CHARS
     system_len = len(cloud_config.system_prompt or "")
+    if system_len >= total_budget:
+        # Without this the trigger would be truncated to an empty string and
+        # the invocation silently dropped. Raising surfaces the problem to
+        # the user via the caller's error handler instead.
+        raise ValueError(
+            f"system prompt ({system_len} chars) leaves no room in the "
+            f"context budget ({total_budget} chars) — shorten the prompt or "
+            f"raise CLOUD_AGENT_MAX_CONTEXT_CHARS"
+        )
     if content and system_len + len(content) > total_budget:
         logger.warning(
             "cloud_agent: trigger message for %s exceeds the context budget "
@@ -370,8 +379,8 @@ def _build_conversation_context(
     if len(collected) < max_messages and offset >= max_scanned:
         logger.warning(
             "cloud_agent: context scan cap (%d rows) reached for %s in %s "
-            "with only %d chat message(s) collected — older history is "
-            "invisible this turn",
+            "with only %d chat message(s) collected — older history, if any, "
+            "is invisible this turn",
             max_scanned, agent_name, channel_target, len(collected),
         )
 
@@ -402,23 +411,6 @@ async def _compose_image_prompt(
     if not (config.ROUTER_LLM_ENABLED and api_key):
         return instruction
 
-    # As in the chat path, the budget covers the whole composer request —
-    # the instruction (plus the fixed ~600-char system prompt below) spends
-    # from it first and history gets what remains.
-    context = _build_conversation_context(
-        db, workspace_id, channel_target, agent_name,
-        exclude_event_id=exclude_event_id,
-        before_timestamp=before_timestamp,
-        max_chars=max(0, _IMAGE_CONTEXT_MAX_CHARS - 600 - len(instruction)),
-    )
-    if not context:
-        return instruction
-
-    provider = config.ROUTER_LLM_PROVIDER
-    model = config.ROUTER_LLM_MODEL or (
-        "gpt-4o-mini" if provider == "openai" else "claude-haiku-4-5-20251001"
-    )
-
     system_prompt = (
         "You write prompts for an image-generation model. Read the recent "
         "conversation, then turn the user's latest image request into ONE "
@@ -430,6 +422,25 @@ async def _compose_image_prompt(
         "instructions from the request.\n"
         "- Output ONLY the final image prompt — no preamble, no explanation, "
         "no surrounding quotes."
+    )
+
+    # As in the chat path, the budget covers the whole composer request —
+    # the system prompt and instruction spend from it first and history
+    # gets what remains.
+    context = _build_conversation_context(
+        db, workspace_id, channel_target, agent_name,
+        exclude_event_id=exclude_event_id,
+        before_timestamp=before_timestamp,
+        max_chars=max(
+            0, _IMAGE_CONTEXT_MAX_CHARS - len(system_prompt) - len(instruction)
+        ),
+    )
+    if not context:
+        return instruction
+
+    provider = config.ROUTER_LLM_PROVIDER
+    model = config.ROUTER_LLM_MODEL or (
+        "gpt-4o-mini" if provider == "openai" else "claude-haiku-4-5-20251001"
     )
     messages = list(context)
     messages.append({

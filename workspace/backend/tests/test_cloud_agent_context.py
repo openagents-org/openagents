@@ -282,6 +282,35 @@ class TestCharBudget:
 
         assert captured["messages"] == [{"role": "user", "content": "c" * 1_000}]
 
+    def test_system_prompt_consuming_whole_budget_raises(self, db, monkeypatch):
+        """A system prompt at or over the budget must fail loudly — the
+        caller's error handler posts the failure to the user — instead of
+        truncating the trigger to nothing and silently dropping the turn."""
+        called = {"chat": False}
+
+        async def fake_chat_completion(**kwargs):
+            called["chat"] = True
+            return "ok"
+
+        monkeypatch.setattr(cloud_agent, "chat_completion", fake_chat_completion)
+        monkeypatch.setattr(config, "CLOUD_AGENT_MAX_CONTEXT_CHARS", 1_000)
+
+        cloud_config = types.SimpleNamespace(
+            agent_name=AGENT, provider="openai", model="test-model",
+            api_key="key", system_prompt="s" * 1_000, max_tokens=100,
+            base_url=None, category="chat",
+        )
+        event_data = {
+            "id": "ev-trigger", "target": CHANNEL,
+            "payload": {"content": "hello"}, "timestamp": 100,
+        }
+
+        with pytest.raises(ValueError, match="context budget"):
+            asyncio.run(cloud_agent._invoke_chat_agent(
+                db, WORKSPACE_ID, event_data, cloud_config, depth=0,
+            ))
+        assert not called["chat"]
+
 
 class TestScanCap:
     def test_scan_cap_is_best_effort_and_logged(self, db, caplog):
