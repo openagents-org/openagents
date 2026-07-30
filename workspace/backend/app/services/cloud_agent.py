@@ -424,15 +424,17 @@ async def _compose_image_prompt(
         "no surrounding quotes."
     )
 
+    user_prompt = f"Image request: {instruction}\n\nWrite the final image prompt."
+
     # As in the chat path, the budget covers the whole composer request —
-    # the system prompt and instruction spend from it first and history
-    # gets what remains.
+    # the system prompt and the full user message (wrapper text included)
+    # spend from it first and history gets what remains.
     context = _build_conversation_context(
         db, workspace_id, channel_target, agent_name,
         exclude_event_id=exclude_event_id,
         before_timestamp=before_timestamp,
         max_chars=max(
-            0, _IMAGE_CONTEXT_MAX_CHARS - len(system_prompt) - len(instruction)
+            0, _IMAGE_CONTEXT_MAX_CHARS - len(system_prompt) - len(user_prompt)
         ),
     )
     if not context:
@@ -443,10 +445,7 @@ async def _compose_image_prompt(
         "gpt-4o-mini" if provider == "openai" else "claude-haiku-4-5-20251001"
     )
     messages = list(context)
-    messages.append({
-        "role": "user",
-        "content": f"Image request: {instruction}\n\nWrite the final image prompt.",
-    })
+    messages.append({"role": "user", "content": user_prompt})
 
     try:
         composed = await chat_completion(

@@ -311,6 +311,40 @@ class TestCharBudget:
             ))
         assert not called["chat"]
 
+    def test_image_composer_payload_stays_within_its_budget(self, db, monkeypatch):
+        """The composer budget covers the whole request including the
+        user-message wrapper text, not just the raw instruction."""
+        for i in range(10):
+            _add_message(db, i, "x" * 3_000)
+        db.commit()
+
+        captured = {}
+
+        async def fake_chat_completion(**kwargs):
+            captured.update(kwargs)
+            return "a composed prompt"
+
+        monkeypatch.setattr(cloud_agent, "chat_completion", fake_chat_completion)
+        monkeypatch.setattr(config, "ROUTER_LLM_ENABLED", True)
+        monkeypatch.setattr(config, "ROUTER_LLM_API_KEY", "key")
+
+        instruction = "draw the brief above"
+        result = asyncio.run(cloud_agent._compose_image_prompt(
+            db, WORKSPACE_ID, CHANNEL, AGENT, instruction,
+            before_timestamp=100,
+        ))
+
+        assert result == "a composed prompt"
+        total = len(captured["system_prompt"]) + sum(
+            len(m["content"]) for m in captured["messages"]
+        )
+        assert total <= cloud_agent._IMAGE_CONTEXT_MAX_CHARS
+        # The final user message carries the wrapper text around the
+        # instruction, and it is what the budget accounted for.
+        assert captured["messages"][-1]["content"] == (
+            f"Image request: {instruction}\n\nWrite the final image prompt."
+        )
+
 
 class TestScanCap:
     def test_scan_cap_is_best_effort_and_logged(self, db, caplog):
