@@ -188,6 +188,11 @@ async def create_folder(
         uploaded_by=request.source or "human:user",
     ))
 
+    # Commit the mutation before emitting: _emit_event only commits on the
+    # success path and rolls back on EventRejected, which would silently drop
+    # this write while still returning 200. Matches the trash routes.
+    db.commit()
+
     await _emit_event(
         Event(
             type="workspace.folder.created",
@@ -238,6 +243,10 @@ async def rename_folder(
     for record in records:
         record.filename = f"{new_path}/{record.filename[len(path) + 1:]}"
 
+    # Commit before emitting (see create_folder) so an EventRejected can't
+    # silently discard the prefix rewrite while returning 200.
+    db.commit()
+
     await _emit_event(
         Event(
             type="workspace.folder.renamed",
@@ -280,6 +289,10 @@ async def delete_folder(
 
     for record in records:
         record.status = "deleted"
+
+    # Commit before emitting (see create_folder) so an EventRejected can't
+    # silently discard the soft-delete while returning 200.
+    db.commit()
 
     await _emit_event(
         Event(
