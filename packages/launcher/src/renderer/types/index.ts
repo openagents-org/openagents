@@ -267,6 +267,12 @@ export interface UpdaterState {
   error: string | null
   supported: boolean
   downloadUrl: string
+  /**
+   * Version that was downloaded and handed to the installer but never actually
+   * replaced the app (repeatedly). Set on the launch that detects the failure
+   * so the UI can offer a manual download instead of another no-op restart.
+   */
+  installFailedVersion: string | null
 }
 
 // ── Chat ──

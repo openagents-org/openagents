@@ -21,6 +21,14 @@ interface UiState {
   installListSignal: number
   goToInstallList: () => void
 
+  // Deep-link into a specific Settings section (used by the update banner to
+  // drop the user straight on Settings → Updates). The signal is bumped on
+  // every call so re-requesting the section the user already navigated away
+  // from still re-selects it.
+  settingsSection: string | null
+  settingsSectionSignal: number
+  openSettingsSection: (section: string) => void
+
   // Activity log — replaces legacy activityEntries[]
   activityLog: ActivityEntry[]
   addActivity: (msg: string) => void
@@ -45,6 +53,15 @@ export const useUiStore = create<UiState>((set) => ({
   installListSignal: 0,
   goToInstallList: () =>
     set((s) => ({ currentTab: 'install', installListSignal: s.installListSignal + 1 })),
+
+  settingsSection: null,
+  settingsSectionSignal: 0,
+  openSettingsSection: (section) =>
+    set((s) => ({
+      currentTab: 'settings',
+      settingsSection: section,
+      settingsSectionSignal: s.settingsSectionSignal + 1,
+    })),
 
   activityLog: [],
   addActivity: (msg) => {

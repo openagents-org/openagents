@@ -28,6 +28,7 @@ import { ConfirmDialog } from "../../components/ui/ConfirmDialog"
 import { useThemeStore, type ThemeMode } from "../../store/theme"
 import { useAgentsStore } from "../../store/agents"
 import { useNotificationsStore } from "../../store/notifications"
+import { useUiStore } from "../../store/ui"
 import type { RuntimeInfo, UpdaterState } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
 import { cn } from "../../lib/utils"
@@ -76,6 +77,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
   const [httpsProxy, setHttpsProxy] = useState("")
   const [noProxy, setNoProxy] = useState("")
   const [workspaceEndpoint, setWorkspaceEndpoint] = useState("")
+  const [downloadRegion, setDownloadRegion] = useState("auto")
   const [paths, setPaths] = useState<{
     userData: string
     logs: string
@@ -120,6 +122,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
       setHttpsProxy((all.httpsProxy as string) || "")
       setNoProxy((all.noProxy as string) || "")
       setWorkspaceEndpoint((all.workspaceEndpoint as string) || "")
+      setDownloadRegion((all.downloadRegion as string) || "auto")
     } catch {}
   }, [])
 
@@ -170,11 +173,24 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
     return off
   }, [])
 
-  // Auto-check the moment the user opens the Updates section, so a supported
-  // build immediately resolves to "Up to date (vX)" or "New version available"
-  // instead of sitting on a stale "Current version · Check for updates". Skips
-  // when a check/download is already in flight, and never on unsupported (dev)
-  // builds. Manual checks stay user-driven (no auto-download).
+  // Deep-link from elsewhere in the app (currently the update banner's "view
+  // progress" / "update now"), which needs to land on a specific section rather
+  // than the default General. Keyed off the signal too, so re-requesting a
+  // section the user has since navigated away from still re-selects it.
+  const deepLinkSection = useUiStore((s) => s.settingsSection)
+  const deepLinkSignal = useUiStore((s) => s.settingsSectionSignal)
+  useEffect(() => {
+    if (!deepLinkSection) return
+    if (SECTIONS.some((s) => s.id === deepLinkSection)) {
+      setSection(deepLinkSection as SectionId)
+    }
+  }, [deepLinkSection, deepLinkSignal])
+
+  // Auto-check the moment the user opens the Updates section, so it immediately
+  // resolves to "Up to date (vX)" or "New version available" instead of sitting
+  // on a stale "Current version · Check for updates". Skips when a check or
+  // download is already in flight. Manual checks stay user-driven (no
+  // auto-download).
   useEffect(() => {
     if (section !== "updates") return
     if (!updater?.supported) return
@@ -539,6 +555,28 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
 
           {section === "network" && (
             <SettingsCard title={t("settings.network.title")}>
+              {/* Routes the Node runtime, npm and the agent core through
+                  npmmirror. It was previously auto-detected from timezone/locale
+                  with no way to correct a wrong guess — which left users on a
+                  slow origin with no recourse but a system-wide proxy. */}
+              <Row
+                label={t("settings.network.downloadRegion")}
+                desc={t("settings.network.downloadRegionDesc")}
+              >
+                <Select
+                  value={downloadRegion}
+                  onChange={(e) => {
+                    setDownloadRegion(e.target.value)
+                    void set("downloadRegion", e.target.value)
+                  }}
+                  className="w-[200px]"
+                >
+                  <option value="auto">{t("settings.network.regionAuto")}</option>
+                  <option value="cn">{t("settings.network.regionCn")}</option>
+                  <option value="global">{t("settings.network.regionGlobal")}</option>
+                </Select>
+              </Row>
+              <Separator />
               <Row
                 stacked
                 label={t("settings.network.workspaceUrl")}
@@ -749,16 +787,27 @@ function LauncherUpdate({
   const status = state?.status ?? "idle"
   const latest = state?.latestVersion ? `v${state.latestVersion}` : null
 
-  // Dev build / missing update metadata: in-app update can't run, so point the
-  // user at the download page instead of offering a dead button.
-  if (state && !state.supported) {
+  // There is deliberately no `!state.supported` special case. Unpackaged builds
+  // now check the real release feed too (see updater.ts / dev-app-update.yml),
+  // so every build renders the same states — and the idle state below is already
+  // exactly "Current version X · [Check for updates]".
+
+  // We handed this version to the installer at least twice and came back up on
+  // the old build both times — on Windows that is almost always a profile path
+  // the NSIS handoff can't represent. Offering "Restart & install" again would
+  // just repeat the no-op, so switch to a manual download. Main clears the flag
+  // as soon as a *different* version shows up, so this can't get stuck.
+  if (state?.installFailedVersion) {
     return (
       <Row
         label={t("settings.updates.appUpdate")}
-        desc={t("settings.updates.cannotUpdate", { version: currentVersion })}
+        desc={t("settings.updates.installFailedDesc", {
+          version: state.installFailedVersion,
+          current: currentVersion,
+        })}
       >
         <Button
-          variant="default"
+          variant="primary"
           size="sm"
           onClick={() =>
             window.api.openExternal(
