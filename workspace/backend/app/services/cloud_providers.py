@@ -379,13 +379,35 @@ async def _anthropic_chat(
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
+
+    # Prompt caching. Cloud agents are stateless and resend the full channel
+    # history on every turn, so mark the system prompt and the end of the
+    # message list as cache breakpoints — consecutive turns then bill the
+    # shared prefix at cache-read rates instead of full input price.
+    api_messages = list(messages)
+    if api_messages:
+        last = api_messages[-1]
+        if isinstance(last.get("content"), str):
+            api_messages[-1] = {
+                "role": last["role"],
+                "content": [{
+                    "type": "text",
+                    "text": last["content"],
+                    "cache_control": {"type": "ephemeral"},
+                }],
+            }
+
     body: dict = {
         "model": model,
-        "messages": messages,
+        "messages": api_messages,
         "max_tokens": max_tokens or 4096,
     }
     if system_prompt:
-        body["system"] = system_prompt
+        body["system"] = [{
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }]
 
     async with httpx.AsyncClient(timeout=120) as http:
         r = await http.post("https://api.anthropic.com/v1/messages", headers=headers, json=body)

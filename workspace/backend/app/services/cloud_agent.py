@@ -103,7 +103,10 @@ async def _invoke_chat_agent(
     channel_target = event_data.get("target", "")
     agent_name = cloud_config.agent_name
 
-    messages = _build_conversation_context(db, workspace_id, channel_target, agent_name)
+    messages = _build_conversation_context(
+        db, workspace_id, channel_target, agent_name,
+        exclude_event_id=event_data.get("id"),
+    )
 
     content = event_data.get("payload", {}).get("content", "")
     if content:
@@ -152,6 +155,7 @@ async def _invoke_image_agent(
     # instruction when no router LLM / no context is available.
     prompt = await _compose_image_prompt(
         db, workspace_id, channel_target, agent_name, instruction,
+        exclude_event_id=event_data.get("id"),
     )
     if not prompt:
         return
@@ -237,8 +241,21 @@ async def _invoke_audio_agent(
 
 def _build_conversation_context(
     db, workspace_id: str, channel_target: str, agent_name: str,
+    exclude_event_id: Optional[str] = None,
 ) -> list[dict]:
-    """Fetch recent messages from the channel as conversation context."""
+    """Fetch recent messages from the channel as conversation context.
+
+    Over-fetches beyond CLOUD_AGENT_MAX_CONTEXT_MESSAGES so that rows
+    filtered out below (thinking/status/todos, empty content, foreign
+    senders) do not consume window slots — the returned list holds up to
+    max_messages real conversation messages, not "whatever survives
+    filtering the newest max_messages rows".
+
+    exclude_event_id drops the triggering message itself, which the caller
+    appends separately; matching by id (rather than assuming it is the
+    newest row) keeps history intact when another message lands in the
+    channel between persistence and this query.
+    """
     max_messages = config.CLOUD_AGENT_MAX_CONTEXT_MESSAGES
 
     rows = db.execute(
@@ -249,11 +266,13 @@ def _build_conversation_context(
             EventRecord.type == "workspace.message.posted",
         )
         .order_by(EventRecord.timestamp.desc())
-        .limit(max_messages + 1)
+        .limit(max_messages * 3 + 1)
     ).scalars().all()
 
     rows = list(reversed(rows))
-    if rows:
+    if exclude_event_id is not None:
+        rows = [r for r in rows if r.id != exclude_event_id]
+    elif rows:
         rows = rows[:-1]
 
     messages = []
@@ -273,11 +292,12 @@ def _build_conversation_context(
         elif source == f"openagents:{agent_name}":
             messages.append({"role": "assistant", "content": content})
 
-    return messages
+    return messages[-max_messages:]
 
 
 async def _compose_image_prompt(
     db, workspace_id: str, channel_target: str, agent_name: str, instruction: str,
+    exclude_event_id: Optional[str] = None,
 ) -> str:
     """Turn a (possibly referential) instruction like "make an image of
     cherie's brief above" into a concrete, self-contained image prompt by
@@ -297,7 +317,10 @@ async def _compose_image_prompt(
     if not (config.ROUTER_LLM_ENABLED and api_key):
         return instruction
 
-    context = _build_conversation_context(db, workspace_id, channel_target, agent_name)
+    context = _build_conversation_context(
+        db, workspace_id, channel_target, agent_name,
+        exclude_event_id=exclude_event_id,
+    )
     if not context:
         return instruction
 
