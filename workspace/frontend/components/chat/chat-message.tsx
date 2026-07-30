@@ -163,31 +163,16 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [] }: C
   }
 
   // ── Human message ──
-  // Your own turns are ChatGPT-style: a right-aligned bubble with no avatar or
-  // name — you already know who wrote them. Other people in a shared workspace
-  // still need attribution, so theirs keep the avatar + name treatment.
+  // Everyone reads the same way: avatar + name + time on the left, like the
+  // agent turns below. A shared workspace has several people in it, so your own
+  // turns stay in the same column as theirs rather than becoming right-aligned
+  // bubbles — the thread reads as one transcript.
   if (isHuman) {
     const isCurrentUser = !!message.senderId && message.senderId === currentUser.id;
     const seed = message.senderId || message.senderName || 'human';
-
-    if (isCurrentUser) {
-      return (
-        <div className="group flex flex-col items-end py-2">
-          <div className="max-w-[min(85%,42rem)] rounded-3xl bg-muted px-4 py-2.5 text-sm leading-relaxed">
-            <MarkdownContent content={message.content} agentNames={agentNames} />
-            <Attachments items={attachments} />
-          </div>
-          {timestamp && (
-            <span className="mt-1 pe-1 text-[11px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-              {timestamp}
-            </span>
-          )}
-        </div>
-      );
-    }
-
-    const displayName =
-      message.senderName && message.senderName !== 'user' ? message.senderName : 'User';
+    const displayName = isCurrentUser
+      ? 'You'
+      : (message.senderName && message.senderName !== 'user' ? message.senderName : 'User');
 
     return (
       <div className="py-2">
