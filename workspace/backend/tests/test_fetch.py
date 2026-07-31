@@ -6,6 +6,7 @@ Static HTTP and browser rendering are mocked; the chain logic
 (static → JS-shell detection → render → wall detection) is real.
 """
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -280,8 +281,8 @@ class TestHeuristics:
         assert _looks_like_js_shell(STATIC_HTML, extracted) is False
 
     def test_wall_detection(self):
-        assert _detect_wall("Please sign in to continue.", "App") == "AUTH_REQUIRED"
-        assert _detect_wall("Checking your browser before accessing", "Just a moment") == "BOT_CHALLENGE"
+        assert _detect_wall("Please sign in to continue.", "App")[0] == "AUTH_REQUIRED"
+        assert _detect_wall("Checking your browser before accessing", "Just a moment")[0] == "BOT_CHALLENGE"
         assert _detect_wall("A long normal article. " * 200, "News") is None
         # "sign in" link on a long page must not trigger the wall
         assert _detect_wall("please sign in " + "content " * 400, "News") is None
@@ -413,3 +414,68 @@ class TestRenderedAssets:
 
     def test_missing_image_list_is_not_an_error(self):
         assert _normalize_rendered_assets(None, "https://site.example/") == []
+
+
+FIXTURES = Path(__file__).parent / "fixtures" / "cn_walls"
+
+
+def _classify_fixture(name, url):
+    raw = (FIXTURES / name).read_text(encoding="utf-8")
+    extracted = _extract_text(raw, url)
+    return _detect_wall(extracted["text"], extracted["title"], url)
+
+
+class TestPlatformWalls:
+    """Run the classifier over responses these sites really sent.
+
+    Each refusal needs a different action from the caller, so collapsing them
+    into one BOT_CHALLENGE would produce advice that cannot work — telling a
+    user to log in past a block that ignores logins, or to re-send a link that
+    was never the problem.
+    """
+
+    def test_weixin_environment_check_is_a_client_problem(self):
+        code, hint = _classify_fixture(
+            "weixin_env_blocked.html", "https://mp.weixin.qq.com/s/jzP8QDyGUAoWduvlr10I4g"
+        )
+        assert code == "CLIENT_ENV_BLOCKED"
+        assert "OUTBOUND_USER_AGENT" in hint
+
+    def test_xiaohongshu_without_token_asks_for_the_share_link(self):
+        code, hint = _classify_fixture(
+            "xiaohongshu_no_token.html", "https://www.xiaohongshu.com/explore/6553f0b8000000003a02b0b5"
+        )
+        assert code == "SHARE_TOKEN_REQUIRED"
+        assert "xsec_token" in hint
+
+    def test_same_page_with_a_token_means_the_note_is_gone(self):
+        # Identical body; only the URL says whether a token was ever missing.
+        # Asking the user to re-share a link that already had one just fails again.
+        code, hint = _classify_fixture(
+            "xiaohongshu_no_token.html",
+            "https://www.xiaohongshu.com/explore/6553f0b8000000003a02b0b5?xsec_token=ABC&xsec_source=pc_feed",
+        )
+        assert code == "CONTENT_UNAVAILABLE"
+        assert "do not ask the user to send it again" in hint
+
+    def test_zhihu_refusal_is_not_presented_as_a_login_problem(self):
+        code, hint = _classify_fixture("zhihu_rate_limited.json", "https://www.zhihu.com/question/19550225")
+        assert code == "IP_OR_REGION_BLOCKED"
+        assert "do not prompt the user to log in" in hint.lower()
+
+    def test_zhihu_static_shell_carries_no_classifiable_text(self):
+        # The 403 body's visible text is a tagline; the refusal wording only
+        # appears after a browser runs the challenge. The chain reports the
+        # upstream 403 rather than inventing a reason.
+        assert _classify_fixture(
+            "zhihu_challenge_shell.html", "https://www.zhihu.com/question/19550225"
+        ) is None
+
+    def test_platform_wording_does_not_leak_across_hosts(self):
+        # The same sentence on an unrelated host must not be classified.
+        assert _detect_wall("当前环境异常", "x", "https://example.com/a") is None
+        assert _detect_wall("你访问的页面不见了", "x", "https://example.com/a") is None
+
+    def test_a_long_article_is_never_a_wall(self):
+        body = "正文内容。" * 400
+        assert _detect_wall(body, "文章", "https://mp.weixin.qq.com/s/x") is None

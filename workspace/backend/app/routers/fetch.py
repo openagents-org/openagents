@@ -12,9 +12,12 @@ POST /v1/fetch — read a web page without holding a shared-browser tab:
      AUTH_REQUIRED so the agent can open a shared browser tab and let a
      human take over.
 
-Errors carry a stable error_code:
+Errors carry a stable error_code, so the caller can ask for the one action
+that would actually help instead of a generic "fetch failed":
   JS_RENDER_TIMEOUT | AUTH_REQUIRED | BOT_CHALLENGE | DNS_OR_TLS_ERROR |
-  CONTENT_BLOCKED | NAVIGATION_FAILED | UNSUPPORTED_CONTENT
+  CONTENT_BLOCKED | NAVIGATION_FAILED | UNSUPPORTED_CONTENT |
+  CLIENT_ENV_BLOCKED | SHARE_TOKEN_REQUIRED | CONTENT_UNAVAILABLE |
+  IP_OR_REGION_BLOCKED
 """
 
 import logging
@@ -335,19 +338,94 @@ def _looks_like_js_shell(html: str, extracted: dict) -> bool:
     return len(html) > 10000 and len(extracted["text"]) < JS_SHELL_MIN_TEXT_CHARS
 
 
-def _detect_wall(text: str, title: str) -> Optional[str]:
-    """Return AUTH_REQUIRED / BOT_CHALLENGE if the page is a wall, else None.
+# One line per code, so the caller can tell the user what happened without
+# reading the hint, and so "login wall or bot challenge" stops being the
+# message for refusals that are neither.
+_WALL_MESSAGES = {
+    "AUTH_REQUIRED": "The page is behind a login wall",
+    "BOT_CHALLENGE": "The page is behind a bot challenge",
+    "CLIENT_ENV_BLOCKED": "The site rejected this client and served a verification page",
+    "SHARE_TOKEN_REQUIRED": "The page needs the share token that comes with the app link",
+    "CONTENT_UNAVAILABLE": "The content is deleted, private, or no longer public",
+    "IP_OR_REGION_BLOCKED": "The site refused this request at the network level",
+}
+
+_GENERIC_BOT_HINT = (
+    "Open the URL in the shared browser (workspace_browser_open) and ask a human "
+    "to complete the challenge there."
+)
+_GENERIC_AUTH_HINT = (
+    "Open the URL in the shared browser (workspace_browser_open) and ask a human "
+    "to sign in there."
+)
+
+
+def _host_matches(host: str, domains: tuple) -> bool:
+    return any(host == d or host.endswith("." + d) for d in domains)
+
+
+def _detect_platform_wall(host: str, sample: str, url: str) -> Optional[tuple]:
+    """Classify refusals whose wording only means something on one platform.
+
+    Kept off the generic marker lists on purpose. Those are substring-matched
+    against every page we read, so a phrase added here for one site would be
+    free to misclassify another site's perfectly good article.
+    """
+    if _host_matches(host, ("weixin.qq.com",)) and any(
+        m in sample for m in ("当前环境异常", "请在微信客户端打开")
+    ):
+        # Nothing a user can do: WeChat decided the caller isn't a browser.
+        return ("CLIENT_ENV_BLOCKED", (
+            "WeChat served an environment check instead of the article. This is an "
+            "outbound-client problem, not a user action — check that "
+            "OUTBOUND_USER_AGENT still presents a desktop browser."
+        ))
+
+    if _host_matches(host, ("xiaohongshu.com", "xhslink.com")) and "你访问的页面不见了" in sample:
+        # Same page for "you didn't bring a share token" and "this note is
+        # gone", so the URL decides which. Asking a user to re-share a link
+        # that already had a token would just fail again.
+        if "xsec_token=" in url:
+            return ("CONTENT_UNAVAILABLE", (
+                "The note is deleted or private. The link already carried a share "
+                "token, so this is not a missing-parameter problem — do not ask the "
+                "user to send it again."
+            ))
+        return ("SHARE_TOKEN_REQUIRED", (
+            "Xiaohongshu only serves a note to a link carrying xsec_token. Ask the "
+            "user for the full link shared from the app, not a trimmed "
+            "/explore/<id> URL."
+        ))
+
+    if _host_matches(host, ("zhihu.com",)) and any(
+        m in sample for m in ("请求存在异常", "安全验证")
+    ):
+        return ("IP_OR_REGION_BLOCKED", (
+            "Zhihu refused this request at the network level, which signing in does "
+            "not by itself fix. Do not prompt the user to log in until an egress "
+            "path has been verified."
+        ))
+
+    return None
+
+
+def _detect_wall(text: str, title: str, url: str = "") -> Optional[tuple]:
+    """Return (error_code, hint) if the page is a refusal rather than content.
 
     Markers alone are too false-positive-prone (any page with a login link
     mentions "sign in"), so only classify short pages as walls.
     """
     if len(text) > 1500:
         return None
-    sample = (title + " " + text[:1500]).lower()
-    if any(marker in sample for marker in _BOT_MARKERS):
-        return "BOT_CHALLENGE"
-    if any(marker in sample for marker in _AUTH_MARKERS):
-        return "AUTH_REQUIRED"
+    sample = title + " " + text[:1500]
+    platform = _detect_platform_wall(urlparse(url).netloc.lower(), sample, url)
+    if platform:
+        return platform
+    lowered = sample.lower()
+    if any(marker in lowered for marker in _BOT_MARKERS):
+        return ("BOT_CHALLENGE", _GENERIC_BOT_HINT)
+    if any(marker in lowered for marker in _AUTH_MARKERS):
+        return ("AUTH_REQUIRED", _GENERIC_AUTH_HINT)
     return None
 
 
@@ -482,7 +560,7 @@ async def fetch_url(
 
     if static_result is not None:
         extracted = _extract_text(static_result["html"], static_result["final_url"])
-        wall = _detect_wall(extracted["text"], extracted["title"])
+        wall = _detect_wall(extracted["text"], extracted["title"], static_result["final_url"])
         upstream_error = static_result["status_code"] >= 400
         needs_render = (
             upstream_error
@@ -491,12 +569,8 @@ async def fetch_url(
         )
         if body.mode == "static" or not needs_render:
             if wall:
-                return _error(
-                    ResponseCode.BAD_REQUEST,
-                    "The page is behind a login wall or bot challenge",
-                    wall,
-                    hint="Open the URL in the shared browser (workspace_browser_open) and ask a human to complete the login there.",
-                )
+                code, hint = wall
+                return _error(ResponseCode.BAD_REQUEST, _WALL_MESSAGES[code], code, hint=hint)
             # In static mode we don't escalate to a browser, so an upstream
             # 4xx/5xx must be reported as an error, not returned as success.
             if body.mode == "static" and upstream_error:
@@ -542,14 +616,10 @@ async def fetch_url(
         return _error(ResponseCode.INTERNAL_ERROR, "Browser render failed", "NAVIGATION_FAILED")
 
     # ---- Tier 3: wall detection on the rendered page ----
-    wall = _detect_wall(rendered["text"], rendered["title"])
+    wall = _detect_wall(rendered["text"], rendered["title"], rendered["url"])
     if wall:
-        return _error(
-            ResponseCode.BAD_REQUEST,
-            "The page is behind a login wall or bot challenge",
-            wall,
-            hint="Open the URL in the shared browser (workspace_browser_open) and ask a human to complete the login there.",
-        )
+        code, hint = wall
+        return _error(ResponseCode.BAD_REQUEST, _WALL_MESSAGES[code], code, hint=hint)
 
     return _success(rendered["text"], "browser", rendered["url"], rendered["title"], max_chars,
                     _normalize_rendered_assets(rendered.get("images"), rendered["url"]))
