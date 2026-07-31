@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 from app.config import config
 from app.database import get_db
 from app.file_types import FILTER_GROUPS, KIND_GROUPS, kind_for
-from app.net_security import UnsafeURLError, safe_fetch
+from app.net_security import OUTBOUND_USER_AGENT, UnsafeURLError, safe_fetch
 from app.models import FileRecord, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import (
@@ -559,10 +559,8 @@ async def upload_file_base64(
 # ---------------------------------------------------------------------------
 
 DOWNLOAD_TIMEOUT_SECONDS = 30.0
-_DOWNLOAD_UA = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/126.0.0.0 Safari/537.36 OpenAgentsFetch/1.0"
-)
+# Shared with /v1/fetch — see OUTBOUND_USER_AGENT for why the two must match.
+_DOWNLOAD_UA = OUTBOUND_USER_AGENT
 
 
 @router.post("/files/from_url")

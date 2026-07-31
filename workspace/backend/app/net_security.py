@@ -42,6 +42,23 @@ logger = logging.getLogger(__name__)
 ALLOWED_SCHEMES = {"http", "https"}
 DEFAULT_MAX_REDIRECTS = 4
 
+# The User-Agent for every agent-triggered outbound fetch. Defined here, next
+# to safe_fetch, because both callers (/v1/fetch and /v1/files/from_url) must
+# send the same one: a page read and the image download that follows it come
+# from the same logical client, and two drifting strings mean a site can serve
+# the article but refuse its images.
+#
+# The platform token is load-bearing, not cosmetic. mp.weixin.qq.com serves a
+# "当前环境异常" interstitial instead of the article to non-browser agents, and
+# it treats "X11; Linux x86_64" as one of them: measured over four requests
+# each from the same IP, the Linux token was blocked 4/4 while the Windows and
+# macOS tokens succeeded 4/4. The trailing product token is fine to keep (3/3
+# with it), so we stay honest about who is calling.
+OUTBOUND_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/126.0.0.0 Safari/537.36 OpenAgentsFetch/1.0"
+)
+
 
 def _parse_port_allowlist() -> frozenset:
     """Destination ports agents may reach. Restricting this stops the fetch

@@ -31,7 +31,12 @@ from sqlalchemy.orm import Session
 
 from app.browser import BrowserManager, BrowserNavigationError, classify_navigation_error
 from app.database import get_db
-from app.net_security import UnsafeURLError, safe_fetch, validate_public_url
+from app.net_security import (
+    OUTBOUND_USER_AGENT,
+    UnsafeURLError,
+    safe_fetch,
+    validate_public_url,
+)
 from app.response import ResponseCode, json_response, success_response
 from app.routers.browser import _resolve_bf_key
 from app.routers.network import _resolve_workspace, _verify_workspace_access
@@ -43,10 +48,7 @@ router = APIRouter(prefix="/v1", tags=["Fetch"])
 STATIC_TIMEOUT_SECONDS = 15.0
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 DEFAULT_MAX_CHARS = 20000
-USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/126.0.0.0 Safari/537.36 OpenAgentsFetch/1.0"
-)
+USER_AGENT = OUTBOUND_USER_AGENT
 
 # A static fetch that yields less text than this (from a large HTML payload)
 # is treated as a JS shell and escalated to browser rendering.

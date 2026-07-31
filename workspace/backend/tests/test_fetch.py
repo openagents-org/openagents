@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.browser import BrowserNavigationError
+from app.net_security import OUTBOUND_USER_AGENT
 from app.routers.fetch import _detect_wall, _extract_text, _looks_like_js_shell
 
 
@@ -225,3 +226,28 @@ class TestHeuristics:
         assert _detect_wall("A long normal article. " * 200, "News") is None
         # "sign in" link on a long page must not trigger the wall
         assert _detect_wall("please sign in " + "content " * 400, "News") is None
+
+
+class TestOutboundUserAgent:
+    """The UA is a compatibility contract with the sites we read, not a detail.
+
+    Regression cover for two separate defects: the page reader and the file
+    downloader drifting apart, and the Linux platform token that mp.weixin.qq.com
+    answers with a "当前环境异常" interstitial instead of the article.
+    """
+
+    def test_fetch_and_download_send_the_same_ua(self):
+        from app.routers.files import _DOWNLOAD_UA
+        from app.routers.fetch import USER_AGENT
+
+        assert USER_AGENT == _DOWNLOAD_UA == OUTBOUND_USER_AGENT
+
+    def test_ua_does_not_advertise_linux(self):
+        assert "Linux" not in OUTBOUND_USER_AGENT
+        assert "X11" not in OUTBOUND_USER_AGENT
+
+    def test_ua_looks_like_a_browser(self):
+        # Non-Mozilla prefixes (curl/..., python-requests/...) are refused
+        # outright by the same interstitial.
+        assert OUTBOUND_USER_AGENT.startswith("Mozilla/5.0 ")
+        assert "Chrome/" in OUTBOUND_USER_AGENT
