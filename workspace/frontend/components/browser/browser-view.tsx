@@ -32,28 +32,41 @@ export function BrowserView() {
 
   const tab = browserTabs.find((t) => t.id === selectedBrowserTabId);
 
-  // Validate live session on mount / tab switch. The backend checks if the
-  // BF session is still alive and auto-reconnects if dead, returning fresh
-  // tab data (including a new live_url).
+  // Validate the live session on mount / tab switch, then keep checking. The
+  // backend probes the BF session and auto-reconnects if it can, returning
+  // fresh tab data (including a new live_url).
+  //
+  // The repeat check matters because a live tab has no other health signal: the
+  // screenshot poll below is skipped entirely while liveUrl is set, and when a
+  // share link expires the iframe silently swaps in BrowserFabric's own error
+  // page — cross-origin, so nothing here can read it. Without this the tab
+  // looked healthy indefinitely while showing BF's "expired share link" screen.
+  //
+  // Depends on whether there IS a live URL, not on its value: validate can hand
+  // back a new one, and depending on the string would re-trigger itself.
+  const hasLiveUrl = !!tab?.liveUrl;
   useEffect(() => {
-    if (!selectedBrowserTabId || !tab?.liveUrl) return;
+    if (!selectedBrowserTabId || !hasLiveUrl) return;
     let cancelled = false;
 
-    const validate = async () => {
-      setReconnecting(true);
+    const validate = async (initial: boolean) => {
+      if (initial) setReconnecting(true);
       try {
         await workspaceApi.validateBrowserTab(selectedBrowserTabId);
-        if (!cancelled) await refreshBrowserTabs();
+        if (cancelled) return;
+        setSessionDead(false);
+        await refreshBrowserTabs();
       } catch {
         if (!cancelled) setSessionDead(true);
       } finally {
-        if (!cancelled) setReconnecting(false);
+        if (!cancelled && initial) setReconnecting(false);
       }
     };
 
-    validate();
-    return () => { cancelled = true; };
-  }, [selectedBrowserTabId]); // eslint-disable-line react-hooks/exhaustive-deps
+    validate(true);
+    const interval = setInterval(() => validate(false), 30000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [selectedBrowserTabId, hasLiveUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll screenshot every 2 seconds (only when no live URL)
   useEffect(() => {
@@ -331,14 +344,10 @@ export function BrowserView() {
 
       {/* Browser view area */}
       <div className="flex-1 overflow-auto bg-zinc-50 dark:bg-zinc-900 flex items-start justify-center">
-        {tab.liveUrl && !reconnecting ? (
-          <iframe
-            src={tab.liveUrl}
-            className="w-full h-full border-0"
-            allow="clipboard-read; clipboard-write"
-            title={`Live browser: ${tab.url}`}
-          />
-        ) : sessionDead ? (
+        {/* Dead is checked before liveUrl: an expired tab still carries the
+            stale share URL, and rendering it just showed BrowserFabric's own
+            "invalid or expired share link" page inside the frame. */}
+        {sessionDead ? (
           <div className="flex items-center justify-center h-full text-muted-foreground">
             <div className="text-center space-y-3">
               <Globe className="size-10 mx-auto opacity-20" />
@@ -354,6 +363,13 @@ export function BrowserView() {
               </button>
             </div>
           </div>
+        ) : tab.liveUrl && !reconnecting ? (
+          <iframe
+            src={tab.liveUrl}
+            className="w-full h-full border-0"
+            allow="clipboard-read; clipboard-write"
+            title={`Live browser: ${tab.url}`}
+          />
         ) : loading && !screenshotUrl ? (
           <div className="flex items-center justify-center h-full text-muted-foreground">
             <RefreshCw className="size-6 animate-spin" />
