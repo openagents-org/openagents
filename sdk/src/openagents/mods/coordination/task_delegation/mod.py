@@ -209,6 +209,17 @@ class TaskDelegationMod(BaseMod):
             ),
         )
 
+        # The task is dead locally; stop polling any external counterpart so
+        # the polling coroutine does not outlive it.
+        if self._external_delegator and delegation.get("is_external_assignee"):
+            try:
+                await self._external_delegator.stop_background_polling(task.id)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to stop external polling for timed-out task "
+                    f"{task.id}: {e}"
+                )
+
         # Notify delegator
         await self._send_notification(
             "task.notification.timeout",
@@ -875,6 +886,10 @@ class TaskDelegationMod(BaseMod):
         await self._save_task(task)
 
         logger.info(f"Task {task_id} completed by {completer_id}")
+
+        # Re-extract after the update; the earlier snapshot predates
+        # completed_at being written.
+        delegation = extract_delegation_metadata(task)
 
         # Notify delegator
         await self._send_notification(

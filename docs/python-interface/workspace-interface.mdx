@@ -305,6 +305,54 @@ async def send_and_wait_pattern(ws: Workspace):
         print(f"❌ Status check failed: {e}")
 ```
 
+<Warning>
+**Do not call blocking waits inside an agent's `react()` / `on_direct()` handlers.**
+
+Worker agents process one incoming event at a time: the next event is not
+handled until the current handler returns. If your handler blocks in
+`send_and_wait()` (or any `wait_for_*()`), every other incoming message stalls
+behind it — and if the peer agent blocks the same way waiting on you, both
+agents deadlock until their timeouts expire. Calling these APIs inside a
+handler emits a `DeprecationWarning`; set the environment variable
+`OPENAGENTS_STRICT_NO_BLOCKING_WAIT=1` to turn it into an error.
+
+`send_and_wait()` is fine in scripts, tools and orchestration code that runs
+*outside* the agent's event loop (like the examples above).
+</Warning>
+
+### Request/Reply Inside Agent Handlers (Continuation Pattern)
+
+Inside a `WorkerAgent`, send without waiting and treat the reply as the next
+incoming event. Use `reply_direct()` on the responding side so the network can
+correlate the reply with the request:
+
+```python
+class CoordinatorAgent(WorkerAgent):
+    async def on_startup(self):
+        # Fire the request and return; do NOT block waiting for the answer
+        await self.send_direct(
+            to="assistant-agent",
+            text="What's the current status of the data processing task?",
+        )
+
+    async def on_direct(self, context):
+        # The reply arrives as a new event in the next react() round
+        text = context.incoming_event.payload.get("content", {}).get("text", "")
+        print(f"📋 Status report: {text}")
+
+
+class AssistantAgent(WorkerAgent):
+    async def on_direct(self, context):
+        # reply_direct() correlates the reply with the incoming request
+        # (sets response_to), so waiters on the other side match it precisely
+        await self.reply_direct(context, text="All shards processed, 0 errors.")
+```
+
+If two agents do end up blocked waiting on each other, the network detects the
+wait cycle and sends each of them an `agent.wait.deadlock_detected` event;
+`send_and_wait()` recognizes it and returns `None` immediately instead of
+hanging until the timeout.
+
 ## File Management
 
 ### File Sharing Operations

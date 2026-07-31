@@ -339,8 +339,9 @@ class GRPCNetworkConnector(NetworkConnector):
             # Send event via unified gRPC SendEvent
             grpc_event = self._to_grpc_event(message)
 
-            # Send the event to the server using unified SendEvent
-            response = await self.stub.SendEvent(grpc_event)
+            # Send the event to the server using unified SendEvent. Without a
+            # deadline a stalled server would block the caller forever.
+            response = await self.stub.SendEvent(grpc_event, timeout=30.0)
 
             # Convert gRPC response to EventResponse
             response_data = None
