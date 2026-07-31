@@ -12,7 +12,13 @@ import pytest
 
 from app.browser import BrowserNavigationError
 from app.net_security import OUTBOUND_USER_AGENT
-from app.routers.fetch import _detect_wall, _extract_text, _looks_like_js_shell
+from app.routers.fetch import (
+    ASSET_LIMIT,
+    _detect_wall,
+    _extract_text,
+    _looks_like_js_shell,
+    _normalize_rendered_assets,
+)
 
 
 def _create_workspace(client):
@@ -204,6 +210,59 @@ class TestFetchSSRF:
         assert resp.json()["data"]["error_code"] in ("URL_CREDENTIALS_NOT_ALLOWED", "BLOCKED_PRIVATE_ADDRESS")
 
 
+class TestAssetsInResponse:
+    """The endpoint must actually carry the assets, not just extract them."""
+
+    @pytest.fixture(autouse=True)
+    def _skip_ssrf_dns(self):
+        with patch("app.routers.fetch.validate_public_url", new=AsyncMock()):
+            yield
+
+    @patch("app.routers.fetch._static_fetch")
+    def test_static_read_returns_image_assets(self, mock_static, client):
+        html = STATIC_HTML.replace(
+            "<h1>", '<img data-src="https://mmbiz.qpic.cn/x/640?wx_fmt=jpeg" alt="figure"><h1>'
+        )
+        mock_static.return_value = {
+            "html": html, "final_url": "https://mp.weixin.qq.com/s/x", "status_code": 200,
+        }
+        workspace = _create_workspace(client)
+
+        with patch("app.routers.fetch.BrowserManager") as mock_bm:
+            manager = MagicMock()
+            manager.render_page_text = AsyncMock()
+            mock_bm.get.return_value = manager
+            resp = _fetch(client, workspace, "https://mp.weixin.qq.com/s/x")
+
+        assets = resp.json()["data"]["assets"]
+        assert [a["url"] for a in assets] == ["https://mmbiz.qpic.cn/x/640?wx_fmt=jpeg"]
+        assert assets[0]["alt"] == "figure"
+
+    @patch("app.routers.fetch._resolve_bf_key", new_callable=AsyncMock, return_value=None)
+    @patch("app.routers.fetch._static_fetch")
+    def test_rendered_read_returns_image_assets(self, mock_static, _key, client):
+        mock_static.return_value = {
+            "html": JS_SHELL_HTML, "final_url": "https://app.example/x", "status_code": 200,
+        }
+        workspace = _create_workspace(client)
+
+        with patch("app.routers.fetch.BrowserManager") as mock_bm:
+            manager = MagicMock()
+            manager.render_page_text = AsyncMock(return_value={
+                "url": "https://app.example/x",
+                "title": "App",
+                "text": "Rendered content. " * 100,
+                "images": [{"url": "https://cdn.example.com/hero.png", "alt": "hero"}],
+            })
+            mock_bm.get.return_value = manager
+            resp = _fetch(client, workspace, "https://app.example/x")
+
+        data = resp.json()["data"]
+        assert data["content_source"] == "browser"
+        assert [a["url"] for a in data["assets"]] == ["https://cdn.example.com/hero.png"]
+        assert data["assets"][0]["source"] == "browser"
+
+
 class TestHeuristics:
 
     def test_extract_text_strips_scripts_and_keeps_title(self):
@@ -251,3 +310,106 @@ class TestOutboundUserAgent:
         # outright by the same interstitial.
         assert OUTBOUND_USER_AGENT.startswith("Mozilla/5.0 ")
         assert "Chrome/" in OUTBOUND_USER_AGENT
+
+
+class TestAssetExtraction:
+    """Reading a page is the only step that sees markup. If it drops the image
+    URLs, /v1/files/from_url — which needs a direct URL — can never be reached,
+    so these cover the shapes real pages actually use.
+    """
+
+    def test_lazy_loaded_images_are_collected(self):
+        # mp.weixin.qq.com puts every article image in data-src and leaves no src.
+        html = '<html><body><img data-src="https://mmbiz.qpic.cn/a/640?wx_fmt=jpeg" alt="fig"></body></html>'
+        assets = _extract_text(html, "https://mp.weixin.qq.com/s/x")["assets"]
+        assert [a["url"] for a in assets] == ["https://mmbiz.qpic.cn/a/640?wx_fmt=jpeg"]
+        assert assets[0]["alt"] == "fig"
+        assert assets[0]["type"] == "image"
+        assert assets[0]["source"] == "html"
+
+    def test_extensionless_img_url_is_kept(self):
+        # An <img> is an image whatever its path looks like; filtering markup
+        # by file extension is what dropped these platforms' images entirely.
+        html = '<html><body><img src="https://cdn.example.com/note/abc!nd_dft"></body></html>'
+        assets = _extract_text(html, "https://example.com/")["assets"]
+        assert len(assets) == 1
+        assert assets[0]["mime"] is None
+
+    def test_images_from_escaped_embedded_json(self):
+        # xiaohongshu renders its gallery from a JSON blob inside <script>,
+        # writing every path separator as /.
+        html = (
+            '<html><body><script>window.__INITIAL_STATE__={"imageList":[{"urlDefault":'
+            '"http:\\u002F\\u002Fsns-webpic-qc.xhscdn.com\\u002F202607\\u002Fabc\\u002Fnote!nd_dft"}]}'
+            "</script></body></html>"
+        )
+        assets = _extract_text(html, "https://www.xiaohongshu.com/explore/x")["assets"]
+        assert [a["url"] for a in assets] == [
+            "http://sns-webpic-qc.xhscdn.com/202607/abc/note!nd_dft"
+        ]
+        assert assets[0]["source"] == "embedded_json"
+
+    def test_non_image_assets_from_json_are_rejected(self):
+        html = (
+            '<html><body><script>{"url":"https:\\u002F\\u002Ffe-static.xhscdn.com\\u002Fas\\u002Fv2\\u002Fapp.js",'
+            '"cssUrl":"https:\\u002F\\u002Ffe-static.xhscdn.com\\u002Fa\\u002Fb.css"}</script></body></html>'
+        )
+        assert _extract_text(html, "https://www.xiaohongshu.com/")["assets"] == []
+
+    def test_relative_and_protocol_relative_urls_are_absolute(self):
+        html = '<html><body><img src="/img/a.png"><img src="//cdn.example.com/b.jpg"></body></html>'
+        urls = [a["url"] for a in _extract_text(html, "https://site.example/post/1")["assets"]]
+        assert urls == ["https://site.example/img/a.png", "https://cdn.example.com/b.jpg"]
+
+    def test_inline_data_uris_and_duplicates_are_dropped(self):
+        html = (
+            '<html><body><img src="data:image/png;base64,AAAA">'
+            '<img src="https://cdn.example.com/a.jpg">'
+            '<img data-src="https://cdn.example.com/a.jpg"></body></html>'
+        )
+        assets = _extract_text(html, "https://example.com/")["assets"]
+        assert [a["url"] for a in assets] == ["https://cdn.example.com/a.jpg"]
+
+    def test_asset_list_is_capped(self):
+        html = "<html><body>" + "".join(
+            f'<img src="https://cdn.example.com/{i}.jpg">' for i in range(200)
+        ) + "</body></html>"
+        assert len(_extract_text(html, "https://example.com/")["assets"]) == ASSET_LIMIT
+
+    def test_og_title_fills_in_for_an_empty_title_tag(self):
+        html = (
+            '<html><head><title></title>'
+            '<meta property="og:title" content="真正的标题" /></head><body>x</body></html>'
+        )
+        assert _extract_text(html, "https://mp.weixin.qq.com/s/x")["title"] == "真正的标题"
+
+    def test_real_title_tag_wins_over_og_title(self):
+        html = (
+            '<html><head><title>Real</title>'
+            '<meta property="og:title" content="Other" /></head><body>x</body></html>'
+        )
+        assert _extract_text(html, "https://example.com/")["title"] == "Real"
+
+
+class TestRenderedAssets:
+
+    def test_rendered_images_are_normalized_and_deduped(self):
+        assets = _normalize_rendered_assets(
+            [
+                {"url": "https://cdn.example.com/a.png", "alt": "A"},
+                {"url": "https://cdn.example.com/a.png", "alt": "dup"},
+                {"url": "data:image/png;base64,AAA", "alt": ""},
+                {"url": "/rel/b.jpg", "alt": ""},
+                "not-a-dict",
+                {"alt": "no url"},
+            ],
+            "https://site.example/page",
+        )
+        assert [a["url"] for a in assets] == [
+            "https://cdn.example.com/a.png",
+            "https://site.example/rel/b.jpg",
+        ]
+        assert all(a["source"] == "browser" for a in assets)
+
+    def test_missing_image_list_is_not_an_error(self):
+        assert _normalize_rendered_assets(None, "https://site.example/") == []

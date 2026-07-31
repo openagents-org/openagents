@@ -33,6 +33,17 @@ RENDER_SETTLE_SECONDS = float(os.environ.get("RENDER_SETTLE_SECONDS", "1.5"))
 RENDER_SETTLE_ATTEMPTS = int(os.environ.get("RENDER_SETTLE_ATTEMPTS", "3"))
 RENDER_MIN_TEXT_CHARS = int(os.environ.get("RENDER_MIN_TEXT_CHARS", "50"))
 
+# Enumerate the images the DOM actually resolved, so a rendered read can hand
+# back the same assets a static read extracts from markup. currentSrc is what
+# the browser picked out of any srcset; src is the fallback before layout.
+# Bounded here rather than in the caller so a pathological page can't return a
+# multi-megabyte list across the process boundary.
+RENDER_IMAGE_JS = (
+    "Array.from(document.images).slice(0, 60)"
+    ".map(function (i) { return {url: i.currentSrc || i.src || '', alt: i.alt || ''}; })"
+    ".filter(function (x) { return x.url; })"
+)
+
 # Chromium's own sandbox is a second containment layer under the egress proxy:
 # it is what keeps a renderer compromise (from a page an agent chose) inside
 # the renderer process. It needs a non-root user plus unprivileged user
@@ -517,7 +528,22 @@ class BrowserManager:
                         break
                 info = await self._bf_call("get_page_info", {}, session_id, api_key=key)
                 page_info = info.get("result", {})
-                return {"url": page_info.get("url", url), "title": page_info.get("title", ""), "text": text}
+                images = []
+                try:
+                    shot = await self._bf_call(
+                        "evaluate_js", {"expression": RENDER_IMAGE_JS}, session_id, api_key=key
+                    )
+                    images = shot.get("result", {}).get("result") or []
+                except Exception as e:
+                    # Images are a bonus on top of the text read; never fail
+                    # the render because the page wouldn't enumerate them.
+                    logger.debug("Image enumeration failed for %s: %s", url, e)
+                return {
+                    "url": page_info.get("url", url),
+                    "title": page_info.get("title", ""),
+                    "text": text,
+                    "images": images,
+                }
             finally:
                 try:
                     await self._bf_call("close_session", {}, session_id, api_key=key)
@@ -567,7 +593,12 @@ class BrowserManager:
                         "The page navigated to a non-public address, which was blocked",
                     )
                 text = await page.inner_text("body")
-                return {"url": page.url, "title": await page.title(), "text": text}
+                try:
+                    images = await page.evaluate(RENDER_IMAGE_JS)
+                except Exception as e:
+                    logger.debug("Image enumeration failed for %s: %s", url, e)
+                    images = []
+                return {"url": page.url, "title": await page.title(), "text": text, "images": images}
             finally:
                 try:
                     await page.close()

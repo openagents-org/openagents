@@ -23,6 +23,7 @@ import re
 import time
 from html.parser import HTMLParser
 from typing import Optional
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Header
@@ -83,9 +84,95 @@ _BOT_MARKERS = (
 )
 
 
+# --- image asset extraction -------------------------------------------------
+#
+# Reading a page and downloading its images are two different endpoints, and
+# only this one sees the markup. If the read returns text alone, the direct
+# image URLs are gone by the time the agent wants them and
+# POST /v1/files/from_url — which requires a direct URL — is unreachable in
+# practice. So the read has to hand back what it saw.
+
+ASSET_LIMIT = 60
+
+# src is the easy case. The data-* attributes are what lazy-loading pages use
+# instead, and mp.weixin.qq.com is one of them: every article image sits in
+# data-src with no src at all, so a src-only reader reports zero images for a
+# page full of them.
+_IMG_URL_ATTRS = ("src", "data-src", "data-original", "data-lazy-src", "data-actualsrc")
+
+_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".avif", ".ico", ".svg")
+
+# Checked before anything else. The host-shape arm below would otherwise
+# accept a bundle off a CDN named "fe-static" as an image purely because its
+# key was "url" — a real hit on xiaohongshu's note pages.
+_NON_IMAGE_EXTENSIONS = (
+    ".js", ".mjs", ".css", ".json", ".xml", ".txt", ".map",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    ".mp4", ".webm", ".m3u8", ".ts", ".mp3", ".m4a", ".wav",
+    ".pdf", ".zip", ".gz", ".html", ".htm",
+)
+
+_MIME_BY_EXTENSION = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+    ".avif": "image/avif", ".ico": "image/x-icon", ".svg": "image/svg+xml",
+}
+
+# Some sites build the gallery from an embedded JSON blob and never emit an
+# <img> for it — xiaohongshu keeps its note images under
+# imageList[].urlDefault, inside a <script> the text reader deliberately
+# drops. Those URLs carry no file extension either, so this matches on the
+# key name and falls back to a host-shape check below.
+# The body alternation has to accept the escape sequences themselves: these
+# blobs write every path separator as /, so a char class that merely
+# excludes backslash stops at the first separator and matches nothing useful.
+_ESCAPED_SLASH = r"(?:\\u002[fF]|\\/|/)"
+_JSON_URL_RE = re.compile(
+    r'"([A-Za-z0-9_]{2,40})"\s*:\s*"'
+    r"((?:https?:)?" + _ESCAPED_SLASH + r"{2}"
+    r"(?:[^\"\\\s]|" + _ESCAPED_SLASH + r"){8,600})\""
+)
+_IMAGE_KEY_RE = re.compile(r"image|img|pic|photo|cover|thumb|avatar|poster", re.IGNORECASE)
+_URLISH_KEY_RE = re.compile(r"^url|url$", re.IGNORECASE)
+_IMAGE_HOST_RE = re.compile(r"img|pic|image|photo|webpic|media|static|cdn", re.IGNORECASE)
+
+
+def _unescape_json_url(raw: str) -> str:
+    return raw.replace("\\u002F", "/").replace("\\u002f", "/").replace("\\/", "/")
+
+
+def _guess_mime(url: str) -> Optional[str]:
+    path = urlparse(url).path.lower()
+    for ext, mime in _MIME_BY_EXTENSION.items():
+        if path.endswith(ext):
+            return mime
+    return None
+
+
+def _json_url_is_image(url: str, key: str) -> bool:
+    """Decide whether a URL lifted out of an embedded JSON blob is an image.
+
+    Only applies to the JSON sweep. Anything found in an <img> tag is an image
+    by construction and must not be filtered — CDN image URLs routinely have
+    no file extension (mp.weixin.qq.com ends its paths in /640, xiaohongshu in
+    !nd_dft), so an extension test would drop exactly the ones that matter.
+    """
+    path = urlparse(url).path.lower()
+    if path.endswith(_NON_IMAGE_EXTENSIONS):
+        return False
+    if path.endswith(_IMAGE_EXTENSIONS):
+        return True
+    if _IMAGE_KEY_RE.search(key):
+        return True
+    # A bare "url" key is far too common to trust on its own; require the host
+    # to look like an image CDN before believing it.
+    return bool(_URLISH_KEY_RE.search(key) and _IMAGE_HOST_RE.search(urlparse(url).netloc))
+
+
 class _TextExtractor(HTMLParser):
     """Minimal main-text extraction: strips tags, drops script/style/noscript
-    (noscript content is kept separately for JS-shell detection)."""
+    (noscript content is kept separately for JS-shell detection). Image URLs
+    are collected on the way past, since nothing downstream sees the markup."""
 
     _SKIP = {"script", "style", "svg", "template"}
 
@@ -93,18 +180,44 @@ class _TextExtractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.chunks: list[str] = []
         self.noscript_chunks: list[str] = []
+        self.images: list[dict] = []
         self.title = ""
+        self.og_title = ""
         self._skip_depth = 0
         self._in_noscript = False
         self._in_title = False
 
     def handle_starttag(self, tag, attrs):
+        if tag == "img":
+            self._collect_image(dict(attrs))
+        elif tag == "meta":
+            self._collect_meta(dict(attrs))
         if tag in self._SKIP:
             self._skip_depth += 1
         elif tag == "noscript":
             self._in_noscript = True
         elif tag == "title":
             self._in_title = True
+
+    def _collect_meta(self, attrs: dict):
+        prop = (attrs.get("property") or attrs.get("name") or "").lower()
+        content = (attrs.get("content") or "").strip()
+        if not content:
+            return
+        if prop == "og:title" and not self.og_title:
+            # mp.weixin.qq.com ships an empty <title> and puts the real one
+            # here, so without this every article comes back untitled.
+            self.og_title = content
+        elif prop in ("og:image", "twitter:image"):
+            self.images.append({"url": content, "alt": ""})
+
+    def _collect_image(self, attrs: dict):
+        url = next((attrs[a] for a in _IMG_URL_ATTRS if attrs.get(a)), None)
+        if not url and attrs.get("srcset"):
+            # "url 1x, url 2x" — the first candidate is enough to identify it.
+            url = attrs["srcset"].split(",")[0].strip().split(" ")[0]
+        if url:
+            self.images.append({"url": url.strip(), "alt": (attrs.get("alt") or "").strip()[:200]})
 
     def handle_endtag(self, tag):
         if tag in self._SKIP and self._skip_depth > 0:
@@ -126,7 +239,80 @@ class _TextExtractor(HTMLParser):
             target.append(stripped)
 
 
-def _extract_text(html: str) -> dict:
+def _collect_assets(html: str, tag_images: list[dict], base_url: str) -> list[dict]:
+    """Merge <img>-derived and JSON-derived image URLs into one deduped list.
+
+    Markup first, since those carry alt text and are the images actually laid
+    out on the page; the JSON sweep then adds galleries that never reached the
+    DOM. Relative URLs are resolved against the final URL so what comes back
+    is always directly fetchable.
+    """
+    candidates: list[tuple[str, str, Optional[str]]] = [
+        (img["url"], img.get("alt", ""), None) for img in tag_images
+    ]
+    if len(candidates) < ASSET_LIMIT:
+        for key, raw in _JSON_URL_RE.findall(html):
+            candidates.append((_unescape_json_url(raw), "", key))
+
+    assets: list[dict] = []
+    seen: set[str] = set()
+    for raw_url, alt, key in candidates:
+        if len(assets) >= ASSET_LIMIT:
+            break
+        if raw_url.startswith("data:"):
+            continue  # already inline; nothing to download
+        url = urljoin(base_url, raw_url) if not raw_url.startswith("//") else "https:" + raw_url
+        if urlparse(url).scheme not in ("http", "https"):
+            continue
+        # key is None for markup-derived URLs, which need no further proof.
+        if key is not None and not _json_url_is_image(url, key):
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        assets.append({
+            "url": url,
+            "type": "image",
+            "mime": _guess_mime(url),
+            "alt": alt,
+            "source": "html" if key is None else "embedded_json",
+        })
+    return assets
+
+
+def _normalize_rendered_assets(images: Optional[list], base_url: str) -> list[dict]:
+    """Shape the rendered page's image list like the static tier's assets.
+
+    The browser reports what the DOM actually resolved, so these are already
+    absolute and already images — no markup heuristics needed. Anything
+    malformed is dropped rather than trusted, since it crosses a process
+    boundary (Browser Fabric or Chromium) before arriving here.
+    """
+    assets: list[dict] = []
+    seen: set[str] = set()
+    for entry in images or []:
+        if not isinstance(entry, dict):
+            continue
+        raw = (entry.get("url") or "").strip()
+        if not raw or raw.startswith("data:"):
+            continue
+        url = urljoin(base_url, raw)
+        if urlparse(url).scheme not in ("http", "https") or url in seen:
+            continue
+        seen.add(url)
+        assets.append({
+            "url": url,
+            "type": "image",
+            "mime": _guess_mime(url),
+            "alt": str(entry.get("alt") or "")[:200],
+            "source": "browser",
+        })
+        if len(assets) >= ASSET_LIMIT:
+            break
+    return assets
+
+
+def _extract_text(html: str, base_url: str = "") -> dict:
     parser = _TextExtractor()
     try:
         parser.feed(html)
@@ -137,7 +323,8 @@ def _extract_text(html: str) -> dict:
     return {
         "text": text,
         "noscript": " ".join(parser.noscript_chunks),
-        "title": parser.title.strip(),
+        "title": parser.title.strip() or parser.og_title.strip(),
+        "assets": _collect_assets(html, parser.images, base_url),
     }
 
 
@@ -203,7 +390,8 @@ def _error(code: ResponseCode, message: str, error_code: str, **extra) -> object
     return json_response(code, message, data={"error_code": error_code, **extra})
 
 
-def _success(content: str, source: str, url: str, title: str, max_chars: int) -> object:
+def _success(content: str, source: str, url: str, title: str, max_chars: int,
+             assets: Optional[list] = None) -> object:
     truncated = len(content) > max_chars
     return success_response({
         "url": url,
@@ -211,6 +399,10 @@ def _success(content: str, source: str, url: str, title: str, max_chars: int) ->
         "content": content[:max_chars],
         "truncated": truncated,
         "content_source": source,
+        # Direct, already-absolute image URLs seen on the page. This is the
+        # only place they exist: the text above has no markup left, and
+        # POST /v1/files/from_url needs a direct URL to save one.
+        "assets": assets or [],
     })
 
 
@@ -289,7 +481,7 @@ async def fetch_url(
             static_error = (classify_navigation_error(e), f"Static fetch failed: {e}")
 
     if static_result is not None:
-        extracted = _extract_text(static_result["html"])
+        extracted = _extract_text(static_result["html"], static_result["final_url"])
         wall = _detect_wall(extracted["text"], extracted["title"])
         upstream_error = static_result["status_code"] >= 400
         needs_render = (
@@ -314,7 +506,8 @@ async def fetch_url(
                     "UPSTREAM_HTTP_ERROR",
                     status=static_result["status_code"],
                 )
-            return _success(extracted["text"], "static", static_result["final_url"], extracted["title"], max_chars)
+            return _success(extracted["text"], "static", static_result["final_url"],
+                            extracted["title"], max_chars, extracted["assets"])
     elif body.mode == "static":
         code, message = static_error
         return _error(ResponseCode.BAD_REQUEST, message, code)
@@ -339,9 +532,10 @@ async def fetch_url(
         logger.error("Ephemeral render failed for %s: %s", body.url, e)
         # If the static tier had usable content, degrade gracefully to it
         if static_result is not None:
-            extracted = _extract_text(static_result["html"])
+            extracted = _extract_text(static_result["html"], static_result["final_url"])
             if extracted["text"]:
-                return _success(extracted["text"], "static", static_result["final_url"], extracted["title"], max_chars)
+                return _success(extracted["text"], "static", static_result["final_url"],
+                                extracted["title"], max_chars, extracted["assets"])
         if static_error is not None:
             code, message = static_error
             return _error(ResponseCode.BAD_REQUEST, message, code)
@@ -357,4 +551,5 @@ async def fetch_url(
             hint="Open the URL in the shared browser (workspace_browser_open) and ask a human to complete the login there.",
         )
 
-    return _success(rendered["text"], "browser", rendered["url"], rendered["title"], max_chars)
+    return _success(rendered["text"], "browser", rendered["url"], rendered["title"], max_chars,
+                    _normalize_rendered_assets(rendered.get("images"), rendered["url"]))
