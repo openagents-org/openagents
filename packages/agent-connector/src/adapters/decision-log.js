@@ -28,12 +28,24 @@ function decisionLogTitle(channelName) {
 }
 
 /**
- * Stable hash of the decision log content, used to detect that a persistent
- * CLI process was spawned with an outdated system prompt. null/undefined and
- * '' hash identically so "no entry yet" never reads as a change.
+ * Stable hash of the decision log content. null/undefined and '' hash
+ * identically so "no entry yet" never reads as a change.
  */
 function hashDecisions(content) {
   return crypto.createHash('sha256').update(String(content || '').trim(), 'utf-8').digest('hex');
+}
+
+/**
+ * Fingerprint of everything the system prompt pins from the decision log —
+ * the entry id AND the content — used to detect that a persistent CLI
+ * process was spawned with an outdated prompt. Content alone is not enough:
+ * a deleted-and-recreated log can carry identical content under a new id,
+ * and a prompt still holding the old id would send updates to a dead entry.
+ */
+function decisionFingerprint(entryId, content) {
+  return crypto.createHash('sha256')
+    .update(`${entryId || ''}\u0000${String(content || '').trim()}`, 'utf-8')
+    .digest('hex');
 }
 
 /**
@@ -160,6 +172,7 @@ module.exports = {
   RECAP_LINE_MAX_CHARS,
   decisionLogTitle,
   hashDecisions,
+  decisionFingerprint,
   pickDecisionEntry,
   renderPinnedDecisions,
   isRecapEligible,

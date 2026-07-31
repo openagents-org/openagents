@@ -510,6 +510,8 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       `\`${curl} -s -H "${h}" "${baseUrl}/v1/knowledge?network=${workspaceId}"\`\n\n` +
       '**Read a knowledge entry by slug:**\n' +
       `\`${curl} -s -H "${h}" "${baseUrl}/v1/knowledge/by-slug/api-design-patterns?network=${workspaceId}"\`\n\n` +
+      '**Read a knowledge entry by ID:**\n' +
+      `\`${curl} -s -H "${h}" "${baseUrl}/v1/knowledge/ENTRY_ID?network=${workspaceId}"\`\n\n` +
       '**Update a knowledge entry:**\n' +
       `\`${curl} -s -X PUT -H "${h}" -H "Content-Type: application/json" ` +
       `${baseUrl}/v1/knowledge/ENTRY_ID -d '{"title":"Updated Title","content":"# Updated\\n\\n...",` +
@@ -613,8 +615,10 @@ function buildClaudeSkillsToolBlock(skillName = 'openagents-workspace') {
  * knows the entry id it is embedded here so the agent never has to discover
  * it (and can never create a duplicate by accident).
  */
-function buildDecisionLogPrompt({ toolMode = 'mcp', channelName, entryId = null, content = '' }) {
+function buildDecisionLogPrompt({ toolMode = 'mcp', channelName, entryId = null, content = '', state, mode = 'execute' }) {
   const title = decisionLogTitle(channelName);
+  // Back-compat default for callers that predate the three-state contract.
+  const logState = state || (entryId ? 'found' : 'absent');
   const parts = [];
 
   parts.push('\n## Decision log\n');
@@ -632,7 +636,7 @@ function buildDecisionLogPrompt({ toolMode = 'mcp', channelName, entryId = null,
   const mcpMode = toolMode !== 'skills';
   const readTool = mcpMode
     ? 'workspace_read_knowledge'
-    : 'the knowledge read curl command from your workspace skill';
+    : 'the read-by-ID knowledge curl command from your workspace skill (GET /v1/knowledge/ENTRY_ID)';
   const writeTool = mcpMode
     ? 'workspace_write_knowledge'
     : 'the knowledge update curl command from your workspace skill (PUT /v1/knowledge/ENTRY_ID)';
@@ -643,7 +647,16 @@ function buildDecisionLogPrompt({ toolMode = 'mcp', channelName, entryId = null,
     ? 'workspace_list_knowledge'
     : 'the knowledge list curl command from your workspace skill';
 
-  if (entryId) {
+  if (mode === 'plan') {
+    // PLAN mode forbids making changes, and knowledge writes may not even be
+    // permitted — do not hand out a write protocol that conflicts with that.
+    parts.push(
+      'You are in PLAN mode, so do NOT write to the decision log now. ' +
+      'Instead, end your reply with an explicit "Confirmed decisions" list of ' +
+      'any decisions the user confirmed during planning, so they can be ' +
+      'recorded in the log once execution starts.\n'
+    );
+  } else if (logState === 'found' && entryId) {
     parts.push(
       'Update protocol (follow exactly):\n' +
       `1. The decision log entry id for this channel is \`${entryId}\`.\n` +
@@ -651,6 +664,14 @@ function buildDecisionLogPrompt({ toolMode = 'mcp', channelName, entryId = null,
       '3. Merge your change into the existing bullets.\n' +
       `4. Write the merged content back with ${writeTool}, passing entry id \`${entryId}\` and keeping the title "${title}" unchanged.\n` +
       'The log already exists — NEVER create a new entry for it.\n'
+    );
+  } else if (logState === 'unknown') {
+    parts.push(
+      'Update protocol (follow exactly):\n' +
+      `The decision log for this channel could not be read just now, so its state is UNKNOWN — it may or may not exist. Before ANY update, use ${listTool} and match the exact title "${title}".\n` +
+      `- If the entry is listed, read it with ${readTool}, merge your change, and write back with ${writeTool} using that entry's id.\n` +
+      `- Only if the listing confirms no such entry exists, create it with ${createTool}, using EXACTLY the title "${title}".\n` +
+      'NEVER create the entry without listing first — a blind create forks the log when it already exists.\n'
     );
   } else {
     parts.push(
@@ -694,7 +715,8 @@ function buildDecisionLogPrompt({ toolMode = 'mcp', channelName, entryId = null,
  * never drift out of sync (previously the adapter string-replaced the MCP
  * block, which silently leaked stale MCP tool names when the list changed).
  *
- * `decisionLog` opts in to constraint pinning: { enabled, entryId, content }.
+ * `decisionLog` opts in to constraint pinning:
+ * { enabled, state 'found'|'absent'|'unknown', entryId, content }.
  * It is Claude-adapter specific and defaults to off — other adapters that
  * reuse this builder (e.g. Gemini) are unaffected unless they pass it.
  */
@@ -712,6 +734,8 @@ function buildClaudeSystemPrompt({ agentName, workspaceId, channelName, mode = '
       channelName,
       entryId: decisionLog.entryId || null,
       content: decisionLog.content || '',
+      state: decisionLog.state,
+      mode,
     }));
   }
 

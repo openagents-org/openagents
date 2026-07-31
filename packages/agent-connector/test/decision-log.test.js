@@ -13,11 +13,12 @@ const assert = require('node:assert/strict');
 const {
   decisionLogTitle,
   hashDecisions,
+  decisionFingerprint,
   pickDecisionEntry,
   renderPinnedDecisions,
   sampleRecap,
 } = require('../src/adapters/decision-log');
-const { buildClaudeSystemPrompt, buildDecisionLogPrompt } = require('../src/adapters/workspace-prompt');
+const { buildClaudeSystemPrompt, buildDecisionLogPrompt, buildClaudeSkillMd } = require('../src/adapters/workspace-prompt');
 
 describe('hashDecisions', () => {
   it('is stable for equal content and ignores surrounding whitespace', () => {
@@ -31,6 +32,26 @@ describe('hashDecisions', () => {
 
   it('differs when content differs', () => {
     assert.notEqual(hashDecisions('- a'), hashDecisions('- b'));
+  });
+});
+
+describe('decisionFingerprint', () => {
+  it('changes when the entry id changes even with identical content', () => {
+    assert.notEqual(
+      decisionFingerprint('e-1', '- same'),
+      decisionFingerprint('e-2', '- same')
+    );
+  });
+
+  it('changes when content changes under the same id', () => {
+    assert.notEqual(
+      decisionFingerprint('e-1', '- a'),
+      decisionFingerprint('e-1', '- b')
+    );
+  });
+
+  it('is stable for the no-log state', () => {
+    assert.equal(decisionFingerprint(null, null), decisionFingerprint(undefined, ''));
   });
 });
 
@@ -168,6 +189,41 @@ describe('buildDecisionLogPrompt', () => {
     const text = buildDecisionLogPrompt({ toolMode: 'skills', channelName: 'general', entryId: 'e-1', content: '- x' });
     assert.ok(!text.includes('workspace_write_knowledge'));
     assert.ok(text.includes('PUT /v1/knowledge/ENTRY_ID'));
+    // Reads go by ID (the prompt only hands out an id, never a slug), and the
+    // skill must document that exact endpoint — see the skill-md test below.
+    assert.ok(text.includes('GET /v1/knowledge/ENTRY_ID'));
+  });
+
+  it('unknown state demands list-first and never claims the log is missing', () => {
+    const text = buildDecisionLogPrompt({ toolMode: 'mcp', channelName: 'general', entryId: null, content: '', state: 'unknown' });
+    assert.ok(!text.includes('No decision log exists'));
+    assert.ok(text.includes('UNKNOWN'));
+    assert.ok(text.includes('workspace_list_knowledge'));
+    assert.ok(text.includes('NEVER create the entry without listing first'));
+    assert.ok(text.includes('Only if the listing confirms no such entry exists'));
+  });
+
+  it('plan mode suppresses the write protocol but keeps the pinned decisions', () => {
+    const text = buildDecisionLogPrompt({ toolMode: 'mcp', channelName: 'general', entryId: 'e-1', content: '- pinned', mode: 'plan' });
+    assert.ok(!text.includes('Update protocol'));
+    assert.ok(text.includes('do NOT write to the decision log'));
+    assert.ok(text.includes('Confirmed decisions'));
+    assert.ok(text.includes('- pinned'));
+  });
+});
+
+describe('workspace skill knowledge commands', () => {
+  it('documents reading a knowledge entry by ID, which the decision protocol relies on', () => {
+    const md = buildClaudeSkillMd({
+      endpoint: 'https://example.test',
+      workspaceId: 'ws-1',
+      token: 'tok',
+      agentName: 'claude',
+      channelName: 'general',
+      disabledModules: new Set(),
+    });
+    assert.ok(md.includes('Read a knowledge entry by ID'));
+    assert.ok(md.includes('/v1/knowledge/ENTRY_ID?network=ws-1'));
   });
 });
 

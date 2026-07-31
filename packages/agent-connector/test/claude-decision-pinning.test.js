@@ -13,7 +13,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
 const ClaudeAdapter = require('../src/adapters/claude');
-const { hashDecisions, decisionLogTitle } = require('../src/adapters/decision-log');
+const { decisionFingerprint, decisionLogTitle } = require('../src/adapters/decision-log');
 
 function mkAdapter(overrides = {}) {
   const adapter = new ClaudeAdapter({
@@ -48,7 +48,7 @@ function mkPP(overrides = {}) {
     lastErrorText: '',
     everPostedAnything: false,
     userStopped: false,
-    decisionHash: hashDecisions(null),
+    decisionHash: decisionFingerprint(null, null),
     ...overrides,
   };
 }
@@ -83,7 +83,7 @@ describe('_fetchDecisionLog', () => {
     };
 
     const res = await adapter._fetchDecisionLog('general');
-    assert.deepEqual(res, { available: true, entryId: 'e-1', content: '- pinned fact', error: false });
+    assert.deepEqual(res, { available: true, state: 'found', entryId: 'e-1', content: '- pinned fact', error: false });
     assert.equal(adapter._decisionEntryIds.general, 'e-1');
     // Short deadline on every request.
     for (const c of calls) assert.equal(c.at(-1).timeout, adapter._DECISION_FETCH_TIMEOUT_MS);
@@ -123,6 +123,53 @@ describe('_fetchDecisionLog', () => {
     const res = await adapter._fetchDecisionLog('general');
     assert.equal(res.error, true);
     assert.equal(res.content, null);
+    // The id is still known, so the state stays found — not unknown.
+    assert.equal(res.state, 'found');
+  });
+
+  it('reports state unknown on cold-start failure so the prompt cannot claim absence', async () => {
+    const adapter = mkAdapter();
+    adapter.client = {
+      listKnowledge: async () => { throw new Error('Request timed out'); },
+    };
+    const res = await adapter._fetchDecisionLog('general');
+    assert.equal(res.error, true);
+    assert.equal(res.state, 'unknown');
+    assert.equal(res.entryId, null);
+  });
+
+  it('treats a soft-deleted cached entry as gone and re-lists', async () => {
+    const adapter = mkAdapter();
+    adapter._decisionEntryIds.general = 'dead';
+    let listed = false;
+    adapter.client = {
+      // The backend keeps deleted rows readable by id with status "deleted".
+      getKnowledge: async (ws, tok, id) => {
+        if (id === 'dead') return { id, status: 'deleted', content: '- stale decision' };
+        return { id, status: 'active', content: '- fresh decision' };
+      },
+      listKnowledge: async () => {
+        listed = true;
+        return { entries: [{ id: 'e-new', title: decisionLogTitle('general'), status: 'active' }] };
+      },
+    };
+    const res = await adapter._fetchDecisionLog('general');
+    assert.equal(listed, true);
+    assert.equal(res.entryId, 'e-new');
+    assert.equal(res.content, '- fresh decision');
+    assert.equal(res.state, 'found');
+  });
+
+  it('reports absent when the entry vanishes between listing and read', async () => {
+    const adapter = mkAdapter();
+    adapter.client = {
+      listKnowledge: async () => ({ entries: [{ id: 'e-1', title: decisionLogTitle('general') }] }),
+      getKnowledge: async (ws, tok, id) => ({ id, status: 'deleted', content: '- was here' }),
+    };
+    const res = await adapter._fetchDecisionLog('general');
+    assert.equal(res.state, 'absent');
+    assert.equal(res.entryId, null);
+    assert.equal(adapter._decisionEntryIds.general, undefined);
   });
 
   it('warns about duplicate titles and uses the earliest entry', async () => {
@@ -146,12 +193,12 @@ describe('fast-path decision hash check', () => {
   it('respawns with resume when the decision log changed since spawn', async () => {
     const adapter = mkAdapter();
     adapter._channelSessions.general = 'sess-1';
-    adapter._fetchDecisionLog = async () => ({ available: true, entryId: 'e-1', content: '- NEW decision', error: false });
+    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- NEW decision', error: false });
 
-    const stalePP = mkPP({ decisionHash: hashDecisions('- old decision') });
+    const stalePP = mkPP({ decisionHash: decisionFingerprint('e-1', '- old decision') });
     adapter._persistentProcs.general = stalePP;
     const killed = [];
-    adapter._killPersistentProc = (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
+    adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
 
     let builtOpts = null;
     adapter._buildClaudeCmd = (prompt, ch, opts) => { builtOpts = opts; return { cmd: ['claude'], mcpConfigFile: null }; };
@@ -171,14 +218,36 @@ describe('fast-path decision hash check', () => {
     assert.equal(builtOpts.decisionLog.content, '- NEW decision');
     assert.equal(builtOpts.decisionLog.entryId, 'e-1');
     // The new process records the state it was spawned with.
-    assert.equal(freshPP.decisionHash, hashDecisions('- NEW decision'));
+    assert.equal(freshPP.decisionHash, decisionFingerprint('e-1', '- NEW decision'));
     assert.deepEqual(adapter.responses, ['done with new pin']);
+  });
+
+  it('respawns when the entry id changed even though content is identical', async () => {
+    const adapter = mkAdapter();
+    adapter._channelSessions.general = 'sess-1';
+    // Same content, but the log was deleted and recreated under a new id —
+    // the prompt still pins the old id, so the process must be replaced.
+    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-recreated', content: '- same content', error: false });
+    adapter._persistentProcs.general = mkPP({ decisionHash: decisionFingerprint('e-original', '- same content') });
+    const killed = [];
+    adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
+    adapter._buildClaudeCmd = () => ({ cmd: ['claude'], mcpConfigFile: null });
+    adapter._spawnPersistentProc = () => mkPP();
+    adapter._sendToPersistentProc = async (p) => {
+      p.lastResponseText = ['ok'];
+      p.everPostedAnything = true;
+      return { resultEvent: {} };
+    };
+
+    await adapter._handleMessage({ content: 'go', sessionId: 'general' });
+
+    assert.deepEqual(killed, ['general']);
   });
 
   it('reuses the process when the log is unchanged', async () => {
     const adapter = mkAdapter();
-    adapter._fetchDecisionLog = async () => ({ available: true, entryId: 'e-1', content: '- same', error: false });
-    const pp = mkPP({ decisionHash: hashDecisions('- same') });
+    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: '- same', error: false });
+    const pp = mkPP({ decisionHash: decisionFingerprint('e-1', '- same') });
     adapter._persistentProcs.general = pp;
     let spawned = 0;
     adapter._spawnPersistentProc = () => { spawned++; return mkPP(); };
@@ -196,8 +265,8 @@ describe('fast-path decision hash check', () => {
 
   it('does not respawn on a failed decision fetch (unknown content is not a change)', async () => {
     const adapter = mkAdapter();
-    adapter._fetchDecisionLog = async () => ({ available: true, entryId: 'e-1', content: null, error: true });
-    const pp = mkPP({ decisionHash: hashDecisions('- whatever') });
+    adapter._fetchDecisionLog = async () => ({ available: true, state: 'found', entryId: 'e-1', content: null, error: true });
+    const pp = mkPP({ decisionHash: decisionFingerprint('e-1', '- whatever') });
     adapter._persistentProcs.general = pp;
     let spawned = 0;
     adapter._spawnPersistentProc = () => { spawned++; return mkPP(); };
@@ -275,6 +344,42 @@ describe('context-limit and stale-session visibility', () => {
   });
 });
 
+describe('process registration race', () => {
+  it('a predecessor exit never unhooks the replacement registration', () => {
+    const adapter = mkAdapter();
+    const oldProc = {};
+    const oldPP = mkPP();
+    const newProc = {};
+    const newPP = mkPP();
+    // The replacement is already registered when the killed predecessor's
+    // exit event finally fires.
+    adapter._persistentProcs.general = newPP;
+    adapter._channelProcesses.general = newProc;
+
+    adapter._unregisterProc('general', oldPP, oldProc);
+    assert.equal(adapter._persistentProcs.general, newPP);
+    assert.equal(adapter._channelProcesses.general, newProc);
+
+    // The registered process unhooks itself normally.
+    adapter._unregisterProc('general', newPP, newProc);
+    assert.equal(adapter._persistentProcs.general, undefined);
+    assert.equal(adapter._channelProcesses.general, undefined);
+  });
+
+  it('_killPersistentProc resolves and deregisters before the stop settles', async () => {
+    const adapter = mkAdapter();
+    let stopped = false;
+    adapter._stopProcess = async () => { stopped = true; };
+    adapter._persistentProcs.general = mkPP({ proc: {} });
+
+    await adapter._killPersistentProc('general');
+    assert.equal(stopped, true);
+    assert.equal(adapter._persistentProcs.general, undefined);
+    // Killing a channel with no process is a settled no-op.
+    await adapter._killPersistentProc('general');
+  });
+});
+
 describe('_buildChannelRecap head+tail sampling', () => {
   it('fetches the channel opening ascending and merges it before the tail', async () => {
     const adapter = mkAdapter();
@@ -290,7 +395,7 @@ describe('_buildChannelRecap head+tail sampling', () => {
 
     const recap = await adapter._buildChannelRecap('general', 'current msg');
 
-    assert.deepEqual(fetches, [{ limit: 15, sort: 'asc' }, { limit: 60, sort: 'desc' }]);
+    assert.deepEqual(fetches, [{ limit: 30, sort: 'asc' }, { limit: 60, sort: 'desc' }]);
     const headIdx = recap.indexOf('original requirement');
     const tailIdx = recap.indexOf('latest talk');
     assert.ok(headIdx !== -1 && tailIdx !== -1 && headIdx < tailIdx);

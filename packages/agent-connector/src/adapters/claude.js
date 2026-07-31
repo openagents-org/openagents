@@ -19,7 +19,7 @@ const { execSync, spawn } = require('child_process');
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd, workspaceSkillName } = require('./workspace-prompt');
-const { decisionLogTitle, hashDecisions, pickDecisionEntry, sampleRecap } = require('./decision-log');
+const { decisionLogTitle, decisionFingerprint, pickDecisionEntry, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -243,8 +243,11 @@ class ClaudeAdapter extends BaseAdapter {
    * and any status/thinking events, which are mostly tool-call noise.
    */
   async _buildChannelRecap(channelName, currentMessage) {
+    // The head window is raw events — status/thinking noise is filtered out
+    // AFTER the fetch, and an opening turn is often mostly noise, so fetch
+    // well more than the 5 chat messages the sampler will keep.
     const [headMsgs, tailMsgs] = await Promise.all([
-      this.client.getRecentMessages(this.workspaceId, channelName, this.token, 15, { sort: 'asc' }),
+      this.client.getRecentMessages(this.workspaceId, channelName, this.token, 30, { sort: 'asc' }),
       this.client.getRecentMessages(this.workspaceId, channelName, this.token, 60),
     ]);
     const lines = sampleRecap(headMsgs, tailMsgs, currentMessage);
@@ -260,12 +263,21 @@ class ClaudeAdapter extends BaseAdapter {
 
   /**
    * Read the channel's decision log (a knowledge entry) with a short
-   * deadline. Returns { available, entryId, content, error }:
-   * - available=false → knowledge module disabled, pinning inactive
-   * - error=true      → transient fetch failure; content is unknown (null),
-   *                     callers must NOT treat this as "log changed/empty"
+   * per-request deadline (worst case one list + one get, ~2x that budget).
+   * Returns { available, state, entryId, content, error }:
+   * - available=false  → knowledge module disabled, pinning inactive
+   * - state 'found'    → the entry exists (entryId set; content null when a
+   *                      transient error hid it this turn)
+   * - state 'absent'   → a successful listing confirmed no entry exists
+   * - state 'unknown'  → fetch failed before existence could be confirmed;
+   *                      the prompt must NOT claim the log is missing, or a
+   *                      recovered network mid-turn produces a duplicate
+   * - error=true       → transient failure; callers must NOT treat this as
+   *                      "log changed/empty"
    * The matched entry id is cached per channel so the steady state is a
-   * single GET; a 404 invalidates the cache and falls back to list+match.
+   * single GET; a 404 or a soft-deleted entry (the backend keeps deleted
+   * rows readable by id with status "deleted") invalidates the cache and
+   * falls back to list+match, which only sees active entries.
    */
   async _fetchDecisionLog(channel) {
     if (this.disabledModules.has('knowledge')) {
@@ -276,7 +288,7 @@ class ClaudeAdapter extends BaseAdapter {
           'Confirmed decisions will not survive context compaction or session resets.'
         );
       }
-      return { available: false, entryId: null, content: null, error: false };
+      return { available: false, state: 'unknown', entryId: null, content: null, error: false };
     }
 
     const timeout = this._DECISION_FETCH_TIMEOUT_MS;
@@ -284,14 +296,20 @@ class ClaudeAdapter extends BaseAdapter {
     if (cachedId) {
       try {
         const entry = await this.client.getKnowledge(this.workspaceId, this.token, cachedId, { timeout });
-        return { available: true, entryId: cachedId, content: (entry && entry.content) || '', error: false };
+        if (entry && entry.status && entry.status !== 'active') {
+          // Soft-deleted: still served by id, but dead for updates.
+          delete this._decisionEntryIds[channel];
+          // Fall through to list+match below.
+        } else {
+          return { available: true, state: 'found', entryId: cachedId, content: (entry && entry.content) || '', error: false };
+        }
       } catch (e) {
         if (/not found|HTTP 404/i.test(e.message || '')) {
           delete this._decisionEntryIds[channel];
-          // Entry was deleted — fall through to list+match below.
+          // Entry is gone — fall through to list+match below.
         } else {
           this._log(`Decision log read failed (${e.message}) — reusing last known state`);
-          return { available: true, entryId: cachedId, content: null, error: true };
+          return { available: true, state: 'found', entryId: cachedId, content: null, error: true };
         }
       }
     }
@@ -306,13 +324,19 @@ class ClaudeAdapter extends BaseAdapter {
           `"${decisionLogTitle(channel)}"; using the earliest. The duplicates should be merged manually.`
         );
       }
-      if (!entry) return { available: true, entryId: null, content: null, error: false };
+      if (!entry) return { available: true, state: 'absent', entryId: null, content: null, error: false };
       this._decisionEntryIds[channel] = entry.id;
       const full = await this.client.getKnowledge(this.workspaceId, this.token, entry.id, { timeout });
-      return { available: true, entryId: entry.id, content: (full && full.content) || '', error: false };
+      if (full && full.status && full.status !== 'active') {
+        // Deleted between the listing and the read.
+        delete this._decisionEntryIds[channel];
+        return { available: true, state: 'absent', entryId: null, content: null, error: false };
+      }
+      return { available: true, state: 'found', entryId: entry.id, content: (full && full.content) || '', error: false };
     } catch (e) {
       this._log(`Decision log fetch failed (${e.message}) — reusing last known state`);
-      return { available: true, entryId: this._decisionEntryIds[channel] || null, content: null, error: true };
+      const knownId = this._decisionEntryIds[channel] || null;
+      return { available: true, state: knownId ? 'found' : 'unknown', entryId: knownId, content: null, error: true };
     }
   }
 
@@ -653,14 +677,28 @@ class ClaudeAdapter extends BaseAdapter {
 
   /**
    * Kill a persistent process for a channel and clean up its idle timer.
+   * Returns a promise that settles once the process has actually exited —
+   * callers that spawn a REPLACEMENT process for the same channel must await
+   * it, or the old process's exit handler races the new registration (and
+   * two live processes could resume the same CLI session concurrently).
    */
   _killPersistentProc(channel) {
     const pp = this._persistentProcs[channel];
-    if (!pp) return;
+    if (!pp) return Promise.resolve();
     if (pp.idleTimer) clearTimeout(pp.idleTimer);
     this._stopWatchdog(pp);
-    this._stopProcess(pp.proc).catch(() => {});
     delete this._persistentProcs[channel];
+    return this._stopProcess(pp.proc).catch(() => {});
+  }
+
+  /**
+   * Drop a process's channel registrations, but only if they still point at
+   * THIS process. A killed predecessor's late exit event must never unhook
+   * the replacement that was registered after it.
+   */
+  _unregisterProc(channel, pp, proc) {
+    if (this._persistentProcs[channel] === pp) delete this._persistentProcs[channel];
+    if (this._channelProcesses[channel] === proc) delete this._channelProcesses[channel];
   }
 
   /**
@@ -899,8 +937,7 @@ class ClaudeAdapter extends BaseAdapter {
         pp.messageResolve({ exited: true, code });
         pp.messageResolve = null;
       }
-      delete this._persistentProcs[channel];
-      delete this._channelProcesses[channel];
+      this._unregisterProc(channel, pp, proc);
     });
 
     proc.on('error', (err) => {
@@ -911,7 +948,7 @@ class ClaudeAdapter extends BaseAdapter {
         pp.messageResolve({ exited: true, error: err });
         pp.messageResolve = null;
       }
-      delete this._persistentProcs[channel];
+      this._unregisterProc(channel, pp, proc);
     });
 
     this._persistentProcs[channel] = pp;
@@ -1013,7 +1050,7 @@ class ClaudeAdapter extends BaseAdapter {
     this._log('Prompt too long, clearing session and retrying');
     delete this._channelSessions[msgChannel];
     this._saveSessions();
-    this._killPersistentProc(msgChannel);
+    await this._killPersistentProc(msgChannel);
     try {
       await this.sendStatus(
         msgChannel,
@@ -1105,11 +1142,13 @@ class ClaudeAdapter extends BaseAdapter {
     // Read the channel's decision log up front — the fast-path staleness
     // check and any (re)spawn below both need it.
     const decisions = await this._fetchDecisionLog(msgChannel);
-    // null hash = fetch failed, current content unknown; never treat that as
-    // a change (it would churn respawns on every workspace hiccup).
-    const decisionHash = decisions.error ? null : hashDecisions(decisions.content);
+    // null fingerprint = fetch failed, current state unknown; never treat
+    // that as a change (it would churn respawns on every workspace hiccup).
+    // The fingerprint covers entry id AND content — both are pinned into the
+    // prompt, and a recreated entry can change id without changing content.
+    const decisionHash = decisions.error ? null : decisionFingerprint(decisions.entryId, decisions.content);
     const decisionLogOpt = decisions.available
-      ? { enabled: true, entryId: decisions.entryId, content: decisions.error ? '' : (decisions.content || '') }
+      ? { enabled: true, state: decisions.state, entryId: decisions.entryId, content: decisions.error ? '' : (decisions.content || '') }
       : null;
 
     // ── Persistent process fast-path ──
@@ -1123,7 +1162,7 @@ class ClaudeAdapter extends BaseAdapter {
         // fresh spawn: --resume keeps the conversation (it lives in the CLI
         // transcript), while the new spawn re-pins the current decisions.
         this._log(`Decision log changed for ${msgChannel} — respawning with resume to re-pin decisions`);
-        this._killPersistentProc(msgChannel);
+        await this._killPersistentProc(msgChannel);
       } else {
         this._log(`Reusing persistent process for ${msgChannel}`);
         this._resetIdleTimer(msgChannel);
@@ -1214,7 +1253,7 @@ class ClaudeAdapter extends BaseAdapter {
       if (mcpConfigFile) { try { fs.unlinkSync(mcpConfigFile); } catch {} mcpConfigFile = null; }
 
       if (attempt > 0) {
-        this._killPersistentProc(msgChannel);
+        await this._killPersistentProc(msgChannel);
         // Rebuild recap for retry without resume
         try {
           const recap = await this._buildChannelRecap(msgChannel, content);
@@ -1240,7 +1279,9 @@ class ClaudeAdapter extends BaseAdapter {
         const pp = this._spawnPersistentProc(msgChannel, cmd, cleanEnv);
         // Remember which decision-log state this process was spawned with so
         // the fast-path can detect staleness on later messages.
-        pp.decisionHash = hashDecisions(decisionLogOpt ? decisionLogOpt.content : null);
+        pp.decisionHash = decisionLogOpt
+          ? decisionFingerprint(decisionLogOpt.entryId, decisionLogOpt.content)
+          : decisionFingerprint(null, null);
         this._log(`Spawned persistent process for ${msgChannel} (attempt ${attempt + 1})`);
 
         const result = await this._sendToPersistentProc(pp, effectiveContent);
