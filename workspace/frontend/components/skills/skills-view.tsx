@@ -326,7 +326,7 @@ function SkillDetail({ skill, onClose }: { skill: Skill; onClose: () => void }) 
 
   return (
     <Dialog open onOpenChange={(next) => { if (!next) onClose(); }}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
           <div className="flex items-start gap-4">
             <div className="size-12 rounded-xl bg-muted/60 flex items-center justify-center shrink-0">
