@@ -100,9 +100,66 @@ function buildToolDefs(disabledModules) {
     );
   }
 
+  // -- Search module --
+  if (!disabledModules.has('search')) {
+    tools.push(
+      {
+        name: 'workspace_image_search',
+        description:
+          'Search the web for images. Returns image URLs you can show in chat directly by embedding ' +
+          'markdown — ![title](image_url) — in your reply, or persist with workspace_image_save.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: { type: 'string', description: 'Image search query' },
+            count: { type: 'number', description: 'Number of results (default 10, max 20)' },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'workspace_image_save',
+        description:
+          'Download an image (or any file) URL into workspace storage. By default it is also posted ' +
+          'into the current channel as an inline image attachment (set post_to_channel=false to only save).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'Direct image/file URL (e.g. image_url from workspace_image_search)' },
+            filename: { type: 'string', description: 'Filename to store as (derived from URL if omitted)' },
+            caption: { type: 'string', description: 'Message text to accompany the posted image' },
+            post_to_channel: { type: 'boolean', description: 'Post into the chat as an attachment (default true)' },
+          },
+          required: ['url'],
+        },
+      },
+    );
+  }
+
   // -- Browser module --
   if (!disabledModules.has('browser')) {
     tools.push(
+      {
+        name: 'workspace_fetch_url',
+        description:
+          'Read a web page as text WITHOUT opening a shared browser tab. Preferred way to read any URL: ' +
+          'tries a fast static fetch first, and automatically renders JavaScript-heavy pages (Notion, SPAs) ' +
+          'in a temporary browser session. Only open a shared browser tab (workspace_browser_open) when you ' +
+          'need to interact with the page (click/type/login) or the result says AUTH_REQUIRED.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', description: 'URL to fetch (http/https)' },
+            mode: {
+              type: 'string',
+              enum: ['auto', 'static', 'render'],
+              description: 'auto (default): static first, browser render if needed. static: never use a browser. render: force browser rendering.',
+            },
+            max_chars: { type: 'number', description: 'Max characters of content to return (default 20000)' },
+          },
+          required: ['url'],
+        },
+      },
       {
         name: 'workspace_browser_open',
         description:
@@ -628,6 +685,61 @@ class McpServer {
       }
 
       // ── Browser ──
+
+      case 'workspace_fetch_url': {
+        try {
+          const result = await this.ws.fetchUrl(this.workspaceId, this.token, args.url, {
+            mode: args.mode || 'auto',
+            maxChars: args.max_chars,
+            source: `openagents:${this.agentName}`,
+          });
+          const header = [
+            `URL: ${result.url}`,
+            result.title ? `Title: ${result.title}` : null,
+            `Source: ${result.content_source}${result.truncated ? ' (truncated)' : ''}`,
+          ].filter(Boolean).join('\n');
+          return text(`${header}\n\n${result.content || '(empty page)'}`);
+        } catch (e) {
+          const detail = e.data || {};
+          const parts = [`Fetch failed: ${e.message}`];
+          if (detail.error_code) parts.push(`Code: ${detail.error_code}`);
+          if (detail.hint) parts.push(`Hint: ${detail.hint}`);
+          return text(parts.join('\n'));
+        }
+      }
+
+      case 'workspace_image_search': {
+        const data = await this.ws.searchImages(this.workspaceId, this.token, args.query, {
+          count: args.count || 10,
+        });
+        const results = (data && data.results) || [];
+        if (!results.length) return text(`No image results for "${args.query}".`);
+        const lines = results.map((r, i) => {
+          const dims = r.width && r.height ? ` (${r.width}x${r.height})` : '';
+          return `${i + 1}. ${r.title || 'untitled'}${dims}\n` +
+            `   image_url: ${r.image_url}\n` +
+            `   source: ${r.page_url || r.source || 'unknown'}`;
+        });
+        return text(
+          `Found ${results.length} images for "${args.query}":\n\n${lines.join('\n')}\n\n` +
+          'To show one in chat, embed it in your reply as markdown: ![title](image_url). ' +
+          'To keep a copy in the workspace (and post it as an attachment), call workspace_image_save with the image_url.'
+        );
+      }
+
+      case 'workspace_image_save': {
+        const result = await this.ws.uploadFileFromUrl(this.workspaceId, this.token, args.url, {
+          filename: args.filename,
+          channelName: this.channelName,
+          source: `openagents:${this.agentName}`,
+          postToChannel: args.post_to_channel !== false,
+          caption: args.caption,
+        });
+        const posted = result.posted_to_channel
+          ? ' and posted to the channel'
+          : '';
+        return text(`Saved ${result.filename} (${result.content_type}, ${result.size} bytes, id: ${result.id})${posted}.`);
+      }
 
       case 'workspace_browser_open': {
         const opts = {
