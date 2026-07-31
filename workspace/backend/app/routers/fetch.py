@@ -507,7 +507,48 @@ async def _static_fetch(url: str) -> dict:
         "html": result.content.decode("utf-8", errors="replace"),
         "final_url": result.final_url,
         "status_code": result.status_code,
+        "content_type": content_type,
+        "bytes": len(result.content),
     }
+
+
+def _redact_url(url: str) -> str:
+    """Scheme, host and path only.
+
+    Query strings on the platforms this endpoint is used against carry share
+    tokens (xiaohongshu's xsec_token), signed-CDN parameters and session
+    identifiers. A log line is the wrong place for any of them, and dropping
+    the whole query is the only version of this rule that cannot be got wrong
+    later by someone adding a parameter we did not anticipate.
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return "<unparseable>"
+    path = parsed.path if len(parsed.path) <= 120 else parsed.path[:120] + "..."
+    return f"{parsed.scheme}://{parsed.netloc}{path}" + ("?<redacted>" if parsed.query else "")
+
+
+def _log_fetch(trace: dict) -> None:
+    """One line per fetch, with enough shape to see where a platform breaks.
+
+    Deliberately excludes the page text, the response headers and the query
+    string — the point is to be able to tell "xiaohongshu reads are failing at
+    the static tier with SHARE_TOKEN_REQUIRED" without any of the content or
+    credentials being in the log.
+    """
+    logger.info(
+        "fetch host=%s tier=%s status=%s content_type=%s bytes=%d assets=%d error=%s ms=%d url=%s",
+        trace.get("host") or "-",
+        trace.get("tier") or "-",
+        trace.get("status") if trace.get("status") is not None else "-",
+        trace.get("content_type") or "-",
+        trace.get("bytes") or 0,
+        trace.get("assets") or 0,
+        trace.get("error") or "-",
+        trace.get("ms") or 0,
+        trace.get("url") or "-",
+    )
 
 
 @router.post("/fetch")
@@ -523,8 +564,29 @@ async def fetch_url(
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
 
+    trace = {"host": urlparse(body.url).netloc.lower(), "url": _redact_url(body.url), "mode": body.mode}
+    started = time.monotonic()
+    try:
+        return await _run_fetch_chain(body, workspace, db, trace)
+    finally:
+        trace["ms"] = int((time.monotonic() - started) * 1000)
+        _log_fetch(trace)
+
+
+async def _run_fetch_chain(body: FetchRequest, workspace, db: Session, trace: dict):
+    # Positional-only, so a caller passing something like status=404 through
+    # **extra can never collide with a parameter name here.
+    def fail(response_code: ResponseCode, message: str, error_code: str, /, **extra):
+        trace["error"] = error_code
+        return _error(response_code, message, error_code, **extra)
+
+    def ok(content: str, tier: str, url: str, title: str, max_chars: int, assets: list):
+        trace["tier"] = tier
+        trace["assets"] = len(assets)
+        return _success(content, tier, url, title, max_chars, assets)
+
     if _rate_limited(str(workspace.id)):
-        return _error(
+        return fail(
             ResponseCode.BAD_REQUEST,
             f"Fetch rate limit reached ({FETCH_RATE_LIMIT_PER_MINUTE}/min for this workspace)",
             "FETCH_RATE_LIMITED",
@@ -537,7 +599,7 @@ async def fetch_url(
     try:
         await validate_public_url(body.url)
     except UnsafeURLError as e:
-        return _error(ResponseCode.BAD_REQUEST, str(e), e.code)
+        return fail(ResponseCode.BAD_REQUEST, str(e), e.code)
 
     max_chars = max(1000, min(body.max_chars, 100000))
     manager = BrowserManager.get()
@@ -550,15 +612,18 @@ async def fetch_url(
             static_result = await _static_fetch(body.url)
         except UnsafeURLError as e:
             # A redirect hop pointed at an internal address — never fall back.
-            return _error(ResponseCode.BAD_REQUEST, str(e), e.code)
+            return fail(ResponseCode.BAD_REQUEST, str(e), e.code)
         except BrowserNavigationError as e:
-            return _error(ResponseCode.BAD_REQUEST, str(e), e.code)
+            return fail(ResponseCode.BAD_REQUEST, str(e), e.code)
         except httpx.TimeoutException as e:
             static_error = ("NAV_TIMEOUT", f"Static fetch timed out after {STATIC_TIMEOUT_SECONDS}s: {e}")
         except httpx.HTTPError as e:
             static_error = (classify_navigation_error(e), f"Static fetch failed: {e}")
 
     if static_result is not None:
+        trace["status"] = static_result["status_code"]
+        trace["content_type"] = static_result.get("content_type")
+        trace["bytes"] = static_result.get("bytes") or 0
         extracted = _extract_text(static_result["html"], static_result["final_url"])
         wall = _detect_wall(extracted["text"], extracted["title"], static_result["final_url"])
         upstream_error = static_result["status_code"] >= 400
@@ -570,21 +635,24 @@ async def fetch_url(
         if body.mode == "static" or not needs_render:
             if wall:
                 code, hint = wall
-                return _error(ResponseCode.BAD_REQUEST, _WALL_MESSAGES[code], code, hint=hint)
+                trace["tier"] = "static"
+                return fail(ResponseCode.BAD_REQUEST, _WALL_MESSAGES[code], code, hint=hint)
             # In static mode we don't escalate to a browser, so an upstream
             # 4xx/5xx must be reported as an error, not returned as success.
             if body.mode == "static" and upstream_error:
-                return _error(
+                trace["tier"] = "static"
+                return fail(
                     ResponseCode.BAD_REQUEST,
                     f"Upstream returned HTTP {static_result['status_code']}",
                     "UPSTREAM_HTTP_ERROR",
                     status=static_result["status_code"],
                 )
-            return _success(extracted["text"], "static", static_result["final_url"],
-                            extracted["title"], max_chars, extracted["assets"])
+            return ok(extracted["text"], "static", static_result["final_url"],
+                      extracted["title"], max_chars, extracted["assets"])
     elif body.mode == "static":
         code, message = static_error
-        return _error(ResponseCode.BAD_REQUEST, message, code)
+        trace["tier"] = "static"
+        return fail(ResponseCode.BAD_REQUEST, message, code)
 
     # ---- Tier 2: ephemeral browser render ----
     #
@@ -594,32 +662,33 @@ async def fetch_url(
     # mode the page runs on BF's infrastructure and this process cannot
     # intercept its navigation, so the render tier there is only as confined
     # as BF's own egress policy.
+    trace["tier"] = "browser"
     bf_key = await _resolve_bf_key(workspace, db)
     try:
         rendered = await manager.render_page_text(body.url, api_key=bf_key)
     except UnsafeURLError as e:
-        return _error(ResponseCode.BAD_REQUEST, str(e), e.code)
+        return fail(ResponseCode.BAD_REQUEST, str(e), e.code)
     except BrowserNavigationError as e:
         code = "JS_RENDER_TIMEOUT" if e.code == "NAV_TIMEOUT" else e.code
-        return _error(ResponseCode.BAD_REQUEST, f"Browser render failed: {e}", code)
+        return fail(ResponseCode.BAD_REQUEST, f"Browser render failed: {e}", code)
     except Exception as e:
-        logger.error("Ephemeral render failed for %s: %s", body.url, e)
+        logger.error("Ephemeral render failed for %s: %s", _redact_url(body.url), e)
         # If the static tier had usable content, degrade gracefully to it
         if static_result is not None:
             extracted = _extract_text(static_result["html"], static_result["final_url"])
             if extracted["text"]:
-                return _success(extracted["text"], "static", static_result["final_url"],
-                                extracted["title"], max_chars, extracted["assets"])
+                return ok(extracted["text"], "static", static_result["final_url"],
+                          extracted["title"], max_chars, extracted["assets"])
         if static_error is not None:
             code, message = static_error
-            return _error(ResponseCode.BAD_REQUEST, message, code)
-        return _error(ResponseCode.INTERNAL_ERROR, "Browser render failed", "NAVIGATION_FAILED")
+            return fail(ResponseCode.BAD_REQUEST, message, code)
+        return fail(ResponseCode.INTERNAL_ERROR, "Browser render failed", "NAVIGATION_FAILED")
 
     # ---- Tier 3: wall detection on the rendered page ----
     wall = _detect_wall(rendered["text"], rendered["title"], rendered["url"])
     if wall:
         code, hint = wall
-        return _error(ResponseCode.BAD_REQUEST, _WALL_MESSAGES[code], code, hint=hint)
+        return fail(ResponseCode.BAD_REQUEST, _WALL_MESSAGES[code], code, hint=hint)
 
-    return _success(rendered["text"], "browser", rendered["url"], rendered["title"], max_chars,
-                    _normalize_rendered_assets(rendered.get("images"), rendered["url"]))
+    return ok(rendered["text"], "browser", rendered["url"], rendered["title"], max_chars,
+              _normalize_rendered_assets(rendered.get("images"), rendered["url"]))

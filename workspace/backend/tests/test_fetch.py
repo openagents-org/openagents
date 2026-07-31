@@ -6,6 +6,7 @@ Static HTTP and browser rendering are mocked; the chain logic
 (static → JS-shell detection → render → wall detection) is real.
 """
 
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,6 +20,7 @@ from app.routers.fetch import (
     _extract_text,
     _looks_like_js_shell,
     _normalize_rendered_assets,
+    _redact_url,
 )
 
 
@@ -479,3 +481,62 @@ class TestPlatformWalls:
     def test_a_long_article_is_never_a_wall(self):
         body = "正文内容。" * 400
         assert _detect_wall(body, "文章", "https://mp.weixin.qq.com/s/x") is None
+
+
+class TestFetchObservability:
+    """A log line has to be safe to keep. These pin the redaction rule, since
+    the platforms this endpoint reads put share tokens and signed-CDN
+    parameters in the query string.
+    """
+
+    def test_query_string_is_never_logged(self):
+        redacted = _redact_url(
+            "https://www.xiaohongshu.com/explore/abc123?xsec_token=SECRET&xsec_source=pc_feed"
+        )
+        assert redacted == "https://www.xiaohongshu.com/explore/abc123?<redacted>"
+        assert "SECRET" not in redacted
+
+    def test_host_and_path_survive(self):
+        assert _redact_url("https://mp.weixin.qq.com/s/abc") == "https://mp.weixin.qq.com/s/abc"
+
+    def test_absurd_paths_are_bounded(self):
+        assert len(_redact_url("https://example.com/" + "a" * 5000)) < 200
+
+    @patch("app.routers.fetch.validate_public_url", new=AsyncMock())
+    @patch("app.routers.fetch._static_fetch")
+    def test_a_fetch_logs_shape_but_no_content(self, mock_static, client, caplog):
+        mock_static.return_value = {
+            "html": STATIC_HTML, "final_url": "https://example.com/a", "status_code": 200,
+            "content_type": "text/html; charset=utf-8", "bytes": 4096,
+        }
+        workspace = _create_workspace(client)
+        with caplog.at_level(logging.INFO, logger="app.routers.fetch"):
+            with patch("app.routers.fetch.BrowserManager") as mock_bm:
+                manager = MagicMock()
+                manager.render_page_text = AsyncMock()
+                mock_bm.get.return_value = manager
+                _fetch(client, workspace, "https://example.com/a?token=SECRET")
+
+        line = next(r.getMessage() for r in caplog.records if r.getMessage().startswith("fetch "))
+        assert "host=example.com" in line
+        assert "tier=static" in line
+        assert "status=200" in line
+        assert "bytes=4096" in line
+        assert "SECRET" not in line
+        assert "A real article" not in line   # page text must never reach the log
+
+    @patch("app.routers.fetch.validate_public_url", new=AsyncMock())
+    @patch("app.routers.fetch._static_fetch")
+    def test_error_code_reaches_the_log(self, mock_static, client, caplog):
+        blocked = (FIXTURES / "weixin_env_blocked.html").read_text(encoding="utf-8")
+        mock_static.return_value = {
+            "html": blocked, "final_url": "https://mp.weixin.qq.com/s/x", "status_code": 200,
+            "content_type": "text/html", "bytes": len(blocked),
+        }
+        workspace = _create_workspace(client)
+        with caplog.at_level(logging.INFO, logger="app.routers.fetch"):
+            _fetch(client, workspace, "https://mp.weixin.qq.com/s/x", mode="static")
+
+        line = next(r.getMessage() for r in caplog.records if r.getMessage().startswith("fetch "))
+        assert "error=CLIENT_ENV_BLOCKED" in line
+        assert "host=mp.weixin.qq.com" in line
