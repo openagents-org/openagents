@@ -1339,12 +1339,20 @@ class ThreadMessagingNetworkMod(BaseMod):
             original_payload = message.payload or {}
             notification_payload = original_payload.copy()
             notification_payload["sender_id"] = message.source_id
+            # Expose the message id so the receiver can correlate its reply
+            # (send(..., response_to=<message_id>)).
+            notification_payload["message_id"] = message.event_id
 
             notification = EventModel(
                 event_name="thread.direct_message.notification",
                 source_id=message.source_id,  # Keep original sender
                 payload=notification_payload,
                 destination_id=target_agent_id,
+                # Preserve request/response correlation across the relay so
+                # waiters can match replies precisely and tell counter-requests
+                # apart from replies.
+                response_to=message.response_to,
+                requires_response=message.requires_response,
             )
 
             await self.network.process_event(notification)

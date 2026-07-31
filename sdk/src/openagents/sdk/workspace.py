@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional, Union, TYPE_CHECKING
 from datetime import datetime
 
 from openagents.sdk.client import AgentClient
+from openagents.sdk.react_context import check_blocking_wait
 from openagents.models.event import Event
 from openagents.models.event_response import EventResponse
 from openagents.models.messages import EventNames
@@ -39,14 +40,41 @@ class AgentConnection:
         self.workspace = workspace
         self._client = workspace.client
 
+    def _build_direct_message(
+        self, content: Union[str, Dict[str, Any]], **kwargs
+    ) -> Event:
+        """Build the thread.direct_message.send event for this agent."""
+        if isinstance(content, str):
+            message_content = {"text": content}
+        else:
+            message_content = content.copy()
+
+        return Event(
+            event_name="thread.direct_message.send",
+            source_id=self._client.agent_id,
+            destination_id=self.agent_id,
+            payload={
+                "target_agent_id": self.agent_id,
+                "message_type": "direct_message",
+                "content": message_content,  # Nested structure like channel messages
+            },
+            relevant_mod=WORKSPACE_MESSAGING_MOD_NAME,
+            **kwargs,
+        )
+
     async def send(
         self, content: Union[str, Dict[str, Any]], **kwargs
     ) -> EventResponse:
         """Send a direct message to this agent.
 
+        To reply to a message received from this agent, pass
+        ``response_to=<message_id of the received message>`` so the peer can
+        correlate the reply with its request (e.g. in ``send_and_wait``).
+
         Args:
             content: Message content (string or dict)
-            **kwargs: Additional message parameters
+            **kwargs: Additional message parameters (passed to the Event,
+                e.g. ``response_to``)
 
         Returns:
             EventResponse: Response from the event system
@@ -59,25 +87,7 @@ class AgentConnection:
             )
 
         try:
-            # Prepare message content
-            if isinstance(content, str):
-                message_content = {"text": content}
-            else:
-                message_content = content.copy()
-
-            # Create direct message event for thread messaging with nested structure
-            direct_message = Event(
-                event_name="thread.direct_message.send",
-                source_id=self._client.agent_id,
-                destination_id=self.agent_id,
-                payload={
-                    "target_agent_id": self.agent_id,
-                    "message_type": "direct_message",
-                    "content": message_content,  # Nested structure like channel messages
-                },
-                relevant_mod=WORKSPACE_MESSAGING_MOD_NAME,
-                **kwargs,
-            )
+            direct_message = self._build_direct_message(content, **kwargs)
 
             # Send through client and get immediate response
             response = await self.workspace.send_event(direct_message)
@@ -117,12 +127,17 @@ class AgentConnection:
     async def wait_for_message(self, timeout: float = 30.0) -> Optional[Dict[str, Any]]:
         """Wait for a direct message from this agent.
 
+        Blocking: do not call inside react() — handle the message in the next
+        react() round instead.
+
         Args:
             timeout: Timeout in seconds
 
         Returns:
             Dict containing the message content, or None if timeout
         """
+        check_blocking_wait("AgentConnection.wait_for_message", self.agent_id)
+
         # Ensure we're connected to the client
         if not await self.workspace._ensure_connected():
             logger.error("Could not establish client connection")
@@ -133,7 +148,10 @@ class AgentConnection:
             def message_condition(msg):
                 """Check if this is a direct message from our target agent."""
                 try:
-                    return msg.source_id == self.agent_id
+                    return (
+                        msg.event_name == "thread.direct_message.notification"
+                        and msg.source_id == self.agent_id
+                    )
                 except (AttributeError, KeyError):
                     return False
 
@@ -153,6 +171,10 @@ class AgentConnection:
     async def wait_for_reply(self, timeout: float = 30.0) -> Optional[Dict[str, Any]]:
         """Wait for a reply from this agent (alias for wait_for_message).
 
+        Note: this matches any direct message from the agent. For precise
+        request/reply correlation use ``send_and_wait``, which matches on the
+        reply's ``response_to`` field.
+
         Args:
             timeout: Timeout in seconds
 
@@ -164,7 +186,20 @@ class AgentConnection:
     async def send_and_wait(
         self, content: Union[str, Dict[str, Any]], timeout: float = 30.0, **kwargs
     ) -> Optional[Dict[str, Any]]:
-        """Send a direct message and wait for a reply.
+        """Send a direct message and wait for the reply to it.
+
+        The reply waiter is registered before the message is sent, so a fast
+        reply cannot be lost. A reply is recognized by ``response_to`` matching
+        the id of the sent message (the receiving agent replies with
+        ``send(content, response_to=<message_id>)``; the message_id is
+        delivered in the notification payload). For peers that do not set
+        ``response_to``, a plain direct message from the target agent is
+        accepted as a fallback — unless that message itself demands a response
+        (``requires_response``), which indicates a counter-request rather than
+        a reply.
+
+        Blocking: do not call inside react() — send() and handle the reply in
+        the next react() round instead.
 
         Args:
             content: Message content to send
@@ -174,15 +209,44 @@ class AgentConnection:
         Returns:
             Dict containing the reply message content, or None if timeout or send failed
         """
-        # Send the message first
-        success = await self.send(content, **kwargs)
-        if not success:
-            logger.error(f"Failed to send message to agent {self.agent_id}")
+        check_blocking_wait("AgentConnection.send_and_wait", self.agent_id)
+
+        # Ensure we're connected to the client
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish client connection")
             return None
 
-        # Wait for reply
-        logger.info(f"Sent message to {self.agent_id}, waiting for reply...")
-        return await self.wait_for_reply(timeout=timeout)
+        request = self._build_direct_message(
+            content, requires_response=True, **kwargs
+        )
+
+        def reply_condition(msg):
+            try:
+                if msg.event_name != "thread.direct_message.notification":
+                    return False
+                if msg.source_id != self.agent_id:
+                    return False
+                if msg.response_to:
+                    return msg.response_to == request.event_id
+                # Legacy peer that does not correlate replies: accept any
+                # plain message, but never one that is itself a request.
+                return not msg.requires_response
+            except (AttributeError, KeyError):
+                return False
+
+        # Register the waiter before sending to avoid the lost-wakeup race.
+        async with self._client.expect_event(reply_condition) as waiter:
+            response = await self.workspace.send_event(request)
+            if not response or not response.success:
+                logger.error(f"Failed to send message to agent {self.agent_id}")
+                return None
+
+            logger.info(f"Sent message to {self.agent_id}, waiting for reply...")
+            reply = await waiter.wait(timeout=timeout)
+
+        if reply:
+            return reply.payload
+        return None
 
     def __str__(self) -> str:
         return f"AgentConnection({self.agent_id})"
@@ -231,28 +295,7 @@ class ChannelConnection:
             )
 
         try:
-            # Prepare message content
-            if isinstance(content, str):
-                message_content = {"text": content}
-            else:
-                message_content = content.copy()
-
-            # Create mod message for thread messaging
-            mod_message = Event(
-                event_name="thread.channel_message.post",
-                source_id=self._client.agent_id,
-                relevant_mod=WORKSPACE_MESSAGING_MOD_NAME,
-                destination_id=f"channel:{self.name.lstrip('#')}",  # Proper channel destination
-                payload={
-                    "action": "channel_message",
-                    "message_type": "channel_message",
-                    "channel": (
-                        self.name.lstrip("#") if self.name else self.name
-                    ),  # Normalize channel name
-                    "content": message_content,
-                    **kwargs,
-                },
-            )
+            mod_message = self._build_post(content, **kwargs)
 
             # Send through workspace and get immediate response
             response = await self.workspace.send_event(mod_message)
@@ -263,6 +306,29 @@ class ChannelConnection:
             return EventResponse(
                 success=False, message=f"Failed to send message: {str(e)}"
             )
+
+    def _build_post(self, content: Union[str, Dict[str, Any]], **kwargs) -> Event:
+        """Build the thread.channel_message.post event for this channel."""
+        if isinstance(content, str):
+            message_content = {"text": content}
+        else:
+            message_content = content.copy()
+
+        return Event(
+            event_name="thread.channel_message.post",
+            source_id=self._client.agent_id,
+            relevant_mod=WORKSPACE_MESSAGING_MOD_NAME,
+            destination_id=f"channel:{self.name.lstrip('#')}",  # Proper channel destination
+            payload={
+                "action": "channel_message",
+                "message_type": "channel_message",
+                "channel": (
+                    self.name.lstrip("#") if self.name else self.name
+                ),  # Normalize channel name
+                "content": message_content,
+                **kwargs,
+            },
+        )
 
     async def post_with_mention(
         self, content: Union[str, Dict[str, Any]], mention_agent_id: str, **kwargs
@@ -527,33 +593,15 @@ class ChannelConnection:
         Returns:
             Dict containing the reply message, or None if timeout
         """
+        check_blocking_wait("ChannelConnection.wait_for_reply", self.name)
+
         # Ensure we're connected to the client
         if not await self.workspace._ensure_connected():
             logger.error("Could not establish client connection")
             return None
 
         try:
-
-            def reply_condition(msg):
-                """Check if this is a reply message in our channel."""
-                try:
-                    content = msg.payload
-                    # Look for reply messages from thread messaging mod
-                    if content.get("action") == "channel_message_notification":
-                        msg_data = content.get("message", {})
-                        # Check if it's in our channel
-                        if msg_data.get("channel") != self.name.lstrip("#"):
-                            return False
-                        # Check if it's a reply (has reply_to_id)
-                        if not msg_data.get("reply_to_id"):
-                            return False
-                        # If specific message_id provided, check if it matches
-                        if message_id and msg_data.get("reply_to_id") != message_id:
-                            return False
-                        return True
-                    return False
-                except (AttributeError, KeyError):
-                    return False
+            reply_condition = self._reply_condition(message_id)
 
             # Wait for the reply
             response = await self._client.wait_mod_message(
@@ -561,12 +609,32 @@ class ChannelConnection:
             )
 
             if response:
-                return response.payload.get("message", {})
+                return response.payload
             return None
 
         except Exception as e:
             logger.error(f"Error waiting for reply in channel {self.name}: {e}")
             return None
+
+    def _reply_condition(self, message_id: Optional[str]):
+        """Build a condition matching reply notifications in this channel."""
+
+        def reply_condition(msg):
+            try:
+                # Reply notifications are delivered as thread.reply.notification
+                # with the reply payload flattened at the top level.
+                if msg.event_name != "thread.reply.notification":
+                    return False
+                content = msg.payload
+                if content.get("channel") != self.name.lstrip("#"):
+                    return False
+                if message_id and content.get("reply_to_id") != message_id:
+                    return False
+                return True
+            except (AttributeError, KeyError):
+                return False
+
+        return reply_condition
 
     async def wait_for_post(
         self, from_agent: Optional[str] = None, timeout: float = 30.0
@@ -580,6 +648,8 @@ class ChannelConnection:
         Returns:
             Dict containing the post message, or None if timeout
         """
+        check_blocking_wait("ChannelConnection.wait_for_post", self.name)
+
         # Ensure we're connected to the client
         if not await self.workspace._ensure_connected():
             logger.error("Could not establish client connection")
@@ -590,24 +660,21 @@ class ChannelConnection:
             def post_condition(msg):
                 """Check if this is a new post (not reply) in our channel."""
                 try:
+                    # Channel posts are delivered as
+                    # thread.channel_message.notification with the post payload
+                    # flattened at the top level.
+                    if msg.event_name != "thread.channel_message.notification":
+                        return False
                     content = msg.payload
-                    # Look for channel messages from thread messaging mod
-                    if content.get("action") == "channel_message_notification":
-                        msg_data = content.get("message", {})
-                        # Check if it's in our channel
-                        if msg_data.get("channel") != self.name.lstrip("#"):
-                            return False
-                        # Check if it's NOT a reply (no reply_to_id)
-                        if msg_data.get("reply_to_id"):
-                            return False
-                        # If specific agent provided, check sender
-                        if from_agent and msg_data.get("sender_id") != from_agent:
-                            return False
-                        # Don't wait for our own messages
-                        if msg_data.get("sender_id") == self._client.agent_id:
-                            return False
-                        return True
-                    return False
+                    if content.get("channel") != self.name.lstrip("#"):
+                        return False
+                    # If specific agent provided, check sender
+                    if from_agent and msg.source_id != from_agent:
+                        return False
+                    # Don't wait for our own messages
+                    if msg.source_id == self._client.agent_id:
+                        return False
+                    return True
                 except (AttributeError, KeyError):
                     return False
 
@@ -617,7 +684,7 @@ class ChannelConnection:
             )
 
             if response:
-                return response.payload.get("message", {})
+                return response.payload
             return None
 
         except Exception as e:
@@ -636,6 +703,8 @@ class ChannelConnection:
         Returns:
             Dict containing the reaction info, or None if timeout
         """
+        check_blocking_wait("ChannelConnection.wait_for_reaction", self.name)
+
         # Ensure we're connected to the client
         if not await self.workspace._ensure_connected():
             logger.error("Could not establish client connection")
@@ -646,11 +715,11 @@ class ChannelConnection:
             def reaction_condition(msg):
                 """Check if this is a reaction to our message."""
                 try:
-                    content = msg.payload
-                    # Look for reaction notifications from thread messaging mod
-                    if content.get("action") == "reaction_notification":
-                        return content.get("target_message_id") == message_id
-                    return False
+                    # Reactions are delivered as thread.reaction.notification
+                    return (
+                        msg.event_name == "thread.reaction.notification"
+                        and msg.payload.get("target_message_id") == message_id
+                    )
                 except (AttributeError, KeyError):
                     return False
 
@@ -670,7 +739,14 @@ class ChannelConnection:
     async def post_and_wait(
         self, content: Union[str, Dict[str, Any]], timeout: float = 30.0, **kwargs
     ) -> Optional[Dict[str, Any]]:
-        """Post a message and wait for any reply to it.
+        """Post a message and wait for a reply to that specific message.
+
+        The reply waiter is registered before the message is posted, so a fast
+        reply cannot be lost, and only replies whose ``reply_to_id`` references
+        the posted message are accepted.
+
+        Blocking: do not call inside react() — post() and handle the reply in
+        the next react() round instead.
 
         Args:
             content: Message content to post
@@ -680,16 +756,32 @@ class ChannelConnection:
         Returns:
             Dict containing the reply message, or None if timeout or post failed
         """
-        # Post the message first
-        success = await self.post(content, **kwargs)
-        if not success:
-            logger.error(f"Failed to post message to {self.name}")
+        check_blocking_wait("ChannelConnection.post_and_wait", self.name)
+
+        # Ensure we're connected to the client
+        if not await self.workspace._ensure_connected():
+            logger.error("Could not establish client connection")
             return None
 
-        # For demo purposes, we'll wait for any reply since we don't have the actual message ID
-        # In a real implementation, the post method would return the message ID
-        logger.info(f"Posted message to {self.name}, waiting for replies...")
-        return await self.wait_for_reply(timeout=timeout)
+        post_event = self._build_post(content, **kwargs)
+
+        # The post's event_id is the message_id repliers reference via
+        # reply_to_id. Register the waiter before posting to avoid the
+        # lost-wakeup race.
+        async with self._client.expect_event(
+            self._reply_condition(post_event.event_id)
+        ) as waiter:
+            response = await self.workspace.send_event(post_event)
+            if not response or not response.success:
+                logger.error(f"Failed to post message to {self.name}")
+                return None
+
+            logger.info(f"Posted message to {self.name}, waiting for replies...")
+            reply = await waiter.wait(timeout=timeout)
+
+        if reply:
+            return reply.payload
+        return None
 
     def __str__(self) -> str:
         return f"ChannelConnection({self.name})"
@@ -1017,30 +1109,20 @@ class Workspace:
                 except (AttributeError, KeyError):
                     return False
 
-            # Start waiting for response before sending request
-            wait_task = asyncio.create_task(
-                self._client.wait_mod_message(
-                    condition=response_condition, timeout=timeout
-                )
-            )
+            # Register the waiter before sending so the response cannot be lost
+            async with self._client.expect_event(response_condition) as waiter:
+                success = await self.send_event(mod_message)
+                if not success:
+                    logger.error("Failed to send list_channels request")
+                    # Return cached or default channels as fallback
+                    return (
+                        list(self._channels_cache.keys())
+                        if self._channels_cache
+                        else DEFAULT_CHANNELS
+                    )
 
-            # Give the wait task a moment to start
-            await asyncio.sleep(0.01)
-
-            # Send request
-            success = await self.send_event(mod_message)
-            if not success:
-                wait_task.cancel()
-                logger.error("Failed to send list_channels request")
-                # Return cached or default channels as fallback
-                return (
-                    list(self._channels_cache.keys())
-                    if self._channels_cache
-                    else DEFAULT_CHANNELS
-                )
-
-            # Wait for response
-            response = await wait_task
+                # Wait for response
+                response = await waiter.wait(timeout=timeout)
 
             if response is None:
                 logger.warning(

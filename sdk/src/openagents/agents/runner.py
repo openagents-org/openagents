@@ -21,6 +21,7 @@ from openagents.models.event import Event
 from openagents.models.event_context import EventContext
 from openagents.models.tool import AgentTool
 from openagents.core.client import AgentClient
+from openagents.sdk.react_context import react_scope
 from openagents.utils.mod_loaders import load_mod_adapters
 from openagents.utils.verbose import verbose_print
 from openagents.models.event_response import EventResponse
@@ -549,7 +550,8 @@ class AgentRunner(ABC):
                     
                     import time
                     start_time = time.time()
-                    await self.react(context)
+                    with react_scope(self.agent_id):
+                        await self.react(context)
                     elapsed = time.time() - start_time
                     
                     print(f"✅ AGENT RESPONSE COMPLETED: {unprocessed_message.message_id[:8]}")

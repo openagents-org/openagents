@@ -65,6 +65,52 @@ class EventWaitingEntry:
         self.result = result if result is not None else {}
 
 
+class EventWaiter:
+    """A registered wait for a matching inbound event.
+
+    The waiter is registered with the client the moment it is created, so it
+    can be set up *before* the request that provokes the reply is sent. This
+    closes the lost-wakeup race where a fast reply arrives between sending the
+    request and starting to wait, and is the building block for
+    request/response helpers such as ``send_and_wait``.
+
+    Use as an async context manager to guarantee deregistration::
+
+        async with client.expect_event(condition) as waiter:
+            await client.send_event(request)
+            reply = await waiter.wait(timeout=30.0)
+    """
+
+    def __init__(self, client: "AgentClient", condition: Optional[Callable[[Event], bool]]):
+        self._client = client
+        self._entry = EventWaitingEntry(
+            event=asyncio.Event(), condition=condition, result={"event": None}
+        )
+        client._event_waiters.append(self._entry)
+
+    async def wait(self, timeout: float = 30.0) -> Optional[Event]:
+        """Wait for a matching event. Returns None on timeout."""
+        try:
+            await asyncio.wait_for(self._entry.event.wait(), timeout=timeout)
+            return self._entry.result["event"]
+        except asyncio.TimeoutError:
+            logger.debug(f"Timeout waiting for event (timeout: {timeout}s)")
+            return None
+        finally:
+            self.cancel()
+
+    def cancel(self) -> None:
+        """Deregister the waiter. Safe to call more than once."""
+        if self._entry in self._client._event_waiters:
+            self._client._event_waiters.remove(self._entry)
+
+    async def __aenter__(self) -> "EventWaiter":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        self.cancel()
+
+
 class AgentClient:
     """Core client implementation for OpenAgents.
 
@@ -834,6 +880,20 @@ class AgentClient:
         # Wait for any event that matches the condition
         return await self._wait_for_message(condition, timeout)
 
+    def expect_event(
+        self, condition: Optional[Callable[[Event], bool]] = None
+    ) -> EventWaiter:
+        """Register a waiter for a matching inbound event without blocking.
+
+        Register the waiter *before* sending the request that provokes the
+        reply, then await ``waiter.wait(timeout)`` — this way a reply that
+        arrives while the request is still being sent is not lost.
+
+        Returns:
+            EventWaiter: The registered waiter (also an async context manager)
+        """
+        return EventWaiter(self, condition)
+
     async def _wait_for_message(
         self, condition: Optional[Callable] = None, timeout: float = 30.0
     ) -> Optional[Event]:
@@ -850,28 +910,25 @@ class AgentClient:
             logger.warning(f"Agent {self.agent_id} is not connected to a network")
             return None
 
-        # Create event and waiter entry
-        event_waiter = asyncio.Event()
-        result_event = {"event": None}
+        return await EventWaiter(self, condition).wait(timeout)
 
-        waiter_entry = EventWaitingEntry(
-            event=event_waiter, condition=condition, result=result_event
-        )
+    async def wait_mod_message(
+        self,
+        condition: Optional[Callable[[Event], bool]] = None,
+        timeout: float = 30.0,
+    ) -> Optional[Event]:
+        """Wait for a mod-generated event that matches the given condition.
 
-        # Add to event waiters list
-        self._event_waiters.append(waiter_entry)
+        Alias of :meth:`wait_event`, kept for the workspace channel helpers.
 
-        try:
-            # Wait for any event with timeout
-            await asyncio.wait_for(event_waiter.wait(), timeout=timeout)
-            return result_event["event"]
-        except asyncio.TimeoutError:
-            logger.debug(f"Timeout waiting for event (timeout: {timeout}s)")
-            return None
-        finally:
-            # Clean up - remove waiter from list
-            if waiter_entry in self._event_waiters:
-                self._event_waiters.remove(waiter_entry)
+        Args:
+            condition: Optional function to filter events
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            Event if found within timeout, None otherwise
+        """
+        return await self._wait_for_message(condition, timeout)
 
     async def _notify_event_waiters(self, event: Event) -> None:
         """Notify all waiters that match the given event.

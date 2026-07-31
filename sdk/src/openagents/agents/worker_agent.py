@@ -546,6 +546,35 @@ class WorkerAgent(CollaboratorAgent):
         agent_connection = self.workspace().agent(to)
         return await agent_connection.send(message_content, **kwargs)
 
+    async def reply_direct(
+        self,
+        context: EventContext,
+        text: str = None,
+        content: Dict[str, Any] = None,
+        **kwargs,
+    ) -> EventResponse:
+        """Reply to a received direct message with request/response correlation.
+
+        Sets ``response_to`` to the incoming message's id so the sender's
+        ``send_and_wait`` (or any waiter matching on ``response_to``) can
+        recognize this message as the reply to its request.
+
+        Args:
+            context: The EventContext of the direct message being replied to
+            text: Text content to send
+            content: Dict content to send (alternative to text)
+            **kwargs: Additional parameters
+
+        Returns:
+            EventResponse: Response from the event system
+        """
+        incoming = context.incoming_event
+        sender = (incoming.payload or {}).get("sender_id") or incoming.source_id
+        message_id = (incoming.payload or {}).get("message_id") or incoming.event_id
+        return await self.send_direct(
+            to=sender, text=text, content=content, response_to=message_id, **kwargs
+        )
+
     async def post_to_channel(
         self, channel: str, text: str = None, content: Dict[str, Any] = None, **kwargs
     ) -> EventResponse:
