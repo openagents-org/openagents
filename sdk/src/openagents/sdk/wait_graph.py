@@ -1,21 +1,29 @@
 """Server-side wait-for graph deadlock detection.
 
 Every event in a network flows through the central event gateway, which makes
-the server the natural place to watch for agents waiting on each other. An
-event sent with ``requires_response=True`` from agent A to agent B registers a
-directed wait edge A -> B keyed by the request's event id; an event whose
-``response_to`` references that request clears the edge. If adding an edge
-closes a cycle (A waits on B while B — directly or transitively — waits on A),
-every agent on the cycle is notified with an ``agent.wait.deadlock_detected``
-event so its waiter can fail fast with the cycle path instead of blocking
-until its timeout with no explanation.
+the server the natural place to watch for agents waiting on each other.
+Blocking wait primitives (``send_and_wait``) mark their request event with
+``metadata={"blocking_wait": True, "wait_timeout": <seconds>}``; such an event
+from agent A to agent B registers a directed wait edge A -> B keyed by the
+request's event id. An event whose ``response_to`` references that request
+clears the edge, and an edge expires at the waiter's own deadline, so an
+abandoned wait (client crash, timeout without a response event) cannot poison
+the graph.
+
+``requires_response`` alone deliberately does NOT create an edge: it only
+means a reply is expected some time, not that the sender is blocked — a
+continuation-style request must never be reported as part of a deadlock.
+
+If adding an edge closes a cycle (A waits on B while B — directly or
+transitively — waits on A), every agent on the cycle is notified with an
+``agent.wait.deadlock_detected`` event naming the cycle and the exact request
+ids forming it, so the affected waiters can fail fast instead of blocking
+until timeout with no explanation. Other concurrent requests between the same
+agents are not named and keep waiting normally.
 
 This catches the wait cycles that delegation-chain validation cannot see:
 mutual ``send_and_wait`` calls, independent tasks pointing at each other, and
 mixed-mechanism cycles.
-
-Edges expire after a TTL so that abandoned waits (client crash, timeout
-without a response event) cannot poison the graph forever.
 """
 
 import logging
@@ -28,9 +36,27 @@ logger = logging.getLogger(__name__)
 
 DEADLOCK_EVENT_NAME = "agent.wait.deadlock_detected"
 
+# Fallback edge lifetime when the request does not carry its own deadline.
 # Client-side blocking waits default to 30s; keep edges a bit longer so slow
-# responses still clear them, but abandoned waits eventually vanish.
+# responses still clear them.
 DEFAULT_EDGE_TTL_SECONDS = 60.0
+
+# Upper bound on any edge lifetime, whatever deadline the client claims.
+MAX_EDGE_TTL_SECONDS = 3600.0
+
+
+def canonical_agent_id(agent_id: Optional[str]) -> str:
+    """Normalize an agent id for wait-graph identity comparisons.
+
+    Strips whitespace and a leading ``agent:`` prefix so that
+    ``alice -> agent:bob`` and ``bob -> agent:alice`` join into one graph.
+    """
+    if not agent_id:
+        return ""
+    normalized = str(agent_id).strip()
+    if normalized.startswith("agent:"):
+        normalized = normalized[len("agent:"):]
+    return normalized
 
 
 class _WaitEdge:
@@ -44,7 +70,7 @@ class _WaitEdge:
 
 
 class WaitGraphMonitor:
-    """Observes gateway traffic and detects request/response wait cycles."""
+    """Observes gateway traffic and detects blocking-wait cycles."""
 
     def __init__(
         self,
@@ -58,7 +84,7 @@ class WaitGraphMonitor:
             network_id: Used as source_id of deadlock notifications
             deliver: Coroutine used to deliver a notification event to its
                 destination agent (the gateway's deliver_event)
-            edge_ttl_seconds: How long an unanswered wait edge is kept
+            edge_ttl_seconds: Edge lifetime for requests without a deadline
         """
         self._network_id = network_id
         self._deliver = deliver
@@ -76,11 +102,14 @@ class WaitGraphMonitor:
             self._edges.pop(event.response_to, None)
             return
 
-        if not event.requires_response:
+        # Only explicitly-marked blocking waits become edges; a plain
+        # requires_response request does not prove the sender is blocked.
+        metadata = event.metadata or {}
+        if not metadata.get("blocking_wait"):
             return
 
-        waiter = event.source_id
-        target = event.destination_id
+        waiter = canonical_agent_id(event.source_id)
+        target = canonical_agent_id(event.destination_id)
         if not self._is_agent_to_agent(waiter, target):
             return
 
@@ -90,23 +119,31 @@ class WaitGraphMonitor:
         if event.event_name.endswith(".notification"):
             return
 
+        ttl = metadata.get("wait_timeout")
+        if not isinstance(ttl, (int, float)) or ttl <= 0:
+            ttl = self._edge_ttl
+        ttl = min(ttl, MAX_EDGE_TTL_SECONDS)
+
         self._edges[event.event_id] = _WaitEdge(
             request_id=event.event_id,
             waiter=waiter,
             target=target,
-            expires_at=time.time() + self._edge_ttl,
+            expires_at=time.time() + ttl,
         )
 
-        cycle = self._find_cycle(waiter)
-        if cycle:
-            await self._notify_cycle(cycle)
+        cycle_edges = self._find_cycle(waiter)
+        if cycle_edges:
+            await self._notify_cycle(cycle_edges)
 
     def waiting_targets(self, waiter: str) -> List[str]:
         """Agents the given agent currently waits on (for introspection)."""
+        waiter = canonical_agent_id(waiter)
         return [e.target for e in self._edges.values() if e.waiter == waiter]
 
-    def _is_agent_to_agent(self, waiter: Optional[str], target: Optional[str]) -> bool:
-        if not waiter or not target or waiter == target:
+    def _is_agent_to_agent(self, waiter: str, target: str) -> bool:
+        # A self-wait (waiter == target) is a valid single-node cycle and is
+        # intentionally let through.
+        if not waiter or not target:
             return False
         for endpoint in (waiter, target):
             if endpoint.startswith(("channel:", "group:", "network:", "mod:")):
@@ -121,40 +158,42 @@ class WaitGraphMonitor:
         for rid in expired:
             del self._edges[rid]
 
-    def _find_cycle(self, start: str) -> Optional[List[str]]:
-        """DFS from `start` over wait edges; return the cycle path if one
-        leads back to `start`."""
-        adjacency: Dict[str, List[str]] = {}
+    def _find_cycle(self, start: str) -> Optional[List[_WaitEdge]]:
+        """DFS from `start` over wait edges; return the exact edges forming a
+        cycle back to `start`, or None."""
+        adjacency: Dict[str, List[_WaitEdge]] = {}
         for edge in self._edges.values():
-            adjacency.setdefault(edge.waiter, []).append(edge.target)
+            adjacency.setdefault(edge.waiter, []).append(edge)
 
-        path: List[str] = [start]
+        edge_path: List[_WaitEdge] = []
         visited = set()
 
-        def dfs(node: str) -> Optional[List[str]]:
-            for neighbor in adjacency.get(node, []):
-                if neighbor == start:
-                    return path + [start]
-                if neighbor in visited:
+        def dfs(node: str) -> Optional[List[_WaitEdge]]:
+            for edge in adjacency.get(node, []):
+                if edge.target == start:
+                    return edge_path + [edge]
+                if edge.target in visited:
                     continue
-                visited.add(neighbor)
-                path.append(neighbor)
-                found = dfs(neighbor)
+                visited.add(edge.target)
+                edge_path.append(edge)
+                found = dfs(edge.target)
                 if found:
                     return found
-                path.pop()
+                edge_path.pop()
             return None
 
         return dfs(start)
 
-    async def _notify_cycle(self, cycle: List[str]) -> None:
-        """Deliver a deadlock notification to every agent on the cycle."""
+    async def _notify_cycle(self, cycle_edges: List[_WaitEdge]) -> None:
+        """Deliver a deadlock notification to every agent on the cycle.
+
+        Only the request ids of the edges actually forming the cycle are
+        reported, so unrelated concurrent waits between the same agents are
+        not aborted.
+        """
+        cycle = [cycle_edges[0].waiter] + [e.target for e in cycle_edges]
         agents = list(dict.fromkeys(cycle))  # de-duplicate, keep order
-        request_ids = [
-            e.request_id
-            for e in self._edges.values()
-            if e.waiter in agents and e.target in agents
-        ]
+        request_ids = [e.request_id for e in cycle_edges]
         logger.warning(
             f"Wait-for cycle detected between agents: {' -> '.join(cycle)}"
         )

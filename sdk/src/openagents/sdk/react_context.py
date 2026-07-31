@@ -18,6 +18,7 @@ affected: the mod runs on the network server and never blocks waiting on the
 calling agent, so no wait cycle can form.
 """
 
+import asyncio
 import logging
 import os
 import warnings
@@ -33,6 +34,15 @@ current_react_agent: ContextVar[Optional[str]] = ContextVar(
     "current_react_agent", default=None
 )
 
+# The asyncio task that owns the react() call. ContextVars are inherited by
+# asyncio.create_task(), so a background task spawned inside react() would
+# otherwise still look like it is "inside react()" after the handler returned;
+# requiring the current task to match the owner confines the scope to the
+# react() call itself.
+current_react_task: ContextVar[Optional[object]] = ContextVar(
+    "current_react_task", default=None
+)
+
 STRICT_ENV_VAR = "OPENAGENTS_STRICT_NO_BLOCKING_WAIT"
 
 
@@ -40,9 +50,19 @@ class BlockingWaitInReactError(RuntimeError):
     """Raised in strict mode when a blocking wait primitive runs inside react()."""
 
 
+def _current_task() -> Optional[object]:
+    try:
+        return asyncio.current_task()
+    except RuntimeError:
+        return None
+
+
 def in_react() -> bool:
     """Return True if the current coroutine is executing inside a react() call."""
-    return current_react_agent.get() is not None
+    return (
+        current_react_agent.get() is not None
+        and current_react_task.get() is _current_task()
+    )
 
 
 def strict_mode_enabled() -> bool:
@@ -57,11 +77,13 @@ def strict_mode_enabled() -> bool:
 @contextmanager
 def react_scope(agent_id: str) -> Iterator[None]:
     """Mark the enclosed block as running inside the given agent's react()."""
-    token = current_react_agent.set(agent_id)
+    agent_token = current_react_agent.set(agent_id)
+    task_token = current_react_task.set(_current_task())
     try:
         yield
     finally:
-        current_react_agent.reset(token)
+        current_react_task.reset(task_token)
+        current_react_agent.reset(agent_token)
 
 
 def check_blocking_wait(api_name: str, target: Optional[str] = None) -> None:
@@ -72,9 +94,9 @@ def check_blocking_wait(api_name: str, target: Optional[str] = None) -> None:
         api_name: Name of the blocking API, for the diagnostic message
         target: Optional peer agent / channel the caller is waiting on
     """
-    agent_id = current_react_agent.get()
-    if agent_id is None:
+    if not in_react():
         return
+    agent_id = current_react_agent.get()
 
     target_desc = f" on {target!r}" if target else ""
     message = (

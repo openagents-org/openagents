@@ -8,7 +8,12 @@ from openagents.sdk.system_commands import SystemCommandProcessor
 from openagents.models.event import Event, EventSubscription
 from openagents.models.event_response import EventResponse
 from openagents.models.network_role import NetworkRole
-from openagents.sdk.wait_graph import WaitGraphMonitor
+from openagents.sdk.wait_graph import DEADLOCK_EVENT_NAME, WaitGraphMonitor
+
+# Network control events that must reach the agent regardless of its event
+# subscriptions — filtering them out would silently disable the mechanism
+# (e.g. a deadlock report degrading back into a blind timeout).
+SUBSCRIPTION_EXEMPT_EVENT_NAMES = {DEADLOCK_EVENT_NAME}
 
 if TYPE_CHECKING:
     from openagents.sdk.network import AgentNetwork
@@ -275,6 +280,15 @@ class EventGateway:
         """
         if agent_id not in self.agent_event_queues:
             logger.debug(f"Agent {agent_id} has no event queue, skipping delivery")
+            return
+
+        # Network control events bypass subscription filtering — an agent
+        # subscribed only to e.g. thread.* must still receive them.
+        if event.event_name in SUBSCRIPTION_EXEMPT_EVENT_NAMES:
+            await self.agent_event_queues[agent_id].put(event)
+            logger.debug(
+                f"Delivered control event {event.event_name} to agent {agent_id}"
+            )
             return
 
         # Check if agent has any subscriptions

@@ -110,6 +110,10 @@ class TaskDelegationMod(BaseMod):
             "max_active_delegations_per_agent",
             DEFAULT_MAX_ACTIVE_DELEGATIONS_PER_AGENT,
         )
+        # Serializes lineage validation with task creation so concurrent
+        # delegations cannot both pass the active-delegation fuse before
+        # either task is stored.
+        self._delegation_lock = asyncio.Lock()
 
         logger.info("Initializing Task Delegation network mod (A2A-compatible)")
 
@@ -483,16 +487,6 @@ class TaskDelegationMod(BaseMod):
                 data={"error": "timeout_seconds must be a positive number"},
             )
 
-        # Validate lineage (self-delegation, cycles, depth, fan-out limits)
-        # and derive the server-side delegation chain.
-        lineage_error, lineage = await self._validate_delegation_lineage(
-            delegator_id=delegator_id,
-            assignee_id=assignee_id,
-            parent_task_id=payload.get("parent_task_id"),
-        )
-        if lineage_error:
-            return lineage_error
-
         # Check if assignee is an external A2A agent
         is_external = (
             self._external_delegator
@@ -502,21 +496,33 @@ class TaskDelegationMod(BaseMod):
         if is_external:
             external_url = self._external_delegator.resolve_external_url(assignee_id)
 
-        # Create the A2A task
-        task = create_delegation_task(
-            delegator_id=delegator_id,
-            assignee_id=assignee_id,
-            description=description,
-            payload=payload.get("payload", {}),
-            timeout_seconds=int(timeout_seconds),
-            is_external_assignee=is_external,
-            assignee_url=external_url,
-            **lineage,
-        )
+        # Validate lineage (self-delegation, cycles, depth, fan-out limits)
+        # and create the task under one lock, so concurrent delegations
+        # cannot both pass the fuse before either task is stored.
+        async with self._delegation_lock:
+            lineage_error, lineage = await self._validate_delegation_lineage(
+                delegator_id=delegator_id,
+                assignee_id=assignee_id,
+                parent_task_id=payload.get("parent_task_id"),
+            )
+            if lineage_error:
+                return lineage_error
 
-        # Store the task
-        await self.task_store.create_task(task)
-        await self._save_task(task)
+            # Create the A2A task
+            task = create_delegation_task(
+                delegator_id=delegator_id,
+                assignee_id=assignee_id,
+                description=description,
+                payload=payload.get("payload", {}),
+                timeout_seconds=int(timeout_seconds),
+                is_external_assignee=is_external,
+                assignee_url=external_url,
+                **lineage,
+            )
+
+            # Store the task
+            await self.task_store.create_task(task)
+            await self._save_task(task)
 
         logger.info(
             f"Task {task.id} delegated from {delegator_id} to {assignee_id}: {description}"
@@ -1460,16 +1466,6 @@ class TaskDelegationMod(BaseMod):
         """Create and delegate a task after routing."""
         timeout_seconds = payload.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
 
-        # Routed tasks go through the same lineage validation as direct
-        # delegations — capability routing must not bypass cycle checks.
-        lineage_error, lineage = await self._validate_delegation_lineage(
-            delegator_id=delegator_id,
-            assignee_id=assignee_id,
-            parent_task_id=payload.get("parent_task_id"),
-        )
-        if lineage_error:
-            return lineage_error
-
         # Check if assignee is external
         is_external = (
             self._external_delegator
@@ -1479,21 +1475,34 @@ class TaskDelegationMod(BaseMod):
         if is_external:
             external_url = self._external_delegator.resolve_external_url(assignee_id)
 
-        # Create the task
-        task = create_delegation_task(
-            delegator_id=delegator_id,
-            assignee_id=assignee_id,
-            description=description,
-            payload=payload.get("payload", {}),
-            timeout_seconds=int(timeout_seconds),
-            is_external_assignee=is_external,
-            assignee_url=external_url,
-            **lineage,
-        )
+        # Routed tasks go through the same lineage validation as direct
+        # delegations — capability routing must not bypass cycle checks.
+        # Validation and creation share one lock so concurrent delegations
+        # cannot both pass the fuse before either task is stored.
+        async with self._delegation_lock:
+            lineage_error, lineage = await self._validate_delegation_lineage(
+                delegator_id=delegator_id,
+                assignee_id=assignee_id,
+                parent_task_id=payload.get("parent_task_id"),
+            )
+            if lineage_error:
+                return lineage_error
 
-        # Store the task
-        await self.task_store.create_task(task)
-        await self._save_task(task)
+            # Create the task
+            task = create_delegation_task(
+                delegator_id=delegator_id,
+                assignee_id=assignee_id,
+                description=description,
+                payload=payload.get("payload", {}),
+                timeout_seconds=int(timeout_seconds),
+                is_external_assignee=is_external,
+                assignee_url=external_url,
+                **lineage,
+            )
+
+            # Store the task
+            await self.task_store.create_task(task)
+            await self._save_task(task)
 
         logger.info(
             f"Task {task.id} routed from {delegator_id} to {assignee_id}: {description}"

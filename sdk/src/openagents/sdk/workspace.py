@@ -216,8 +216,14 @@ class AgentConnection:
             logger.error("Could not establish client connection")
             return None
 
+        # Mark the request as a blocking wait (with its deadline) so the
+        # network's wait-graph can detect deadlocks. requires_response alone
+        # would not prove we are blocked — continuation-style requests also
+        # set it.
+        wait_metadata = {"blocking_wait": True, "wait_timeout": timeout}
+        wait_metadata.update(kwargs.pop("metadata", None) or {})
         request = self._build_direct_message(
-            content, requires_response=True, **kwargs
+            content, requires_response=True, metadata=wait_metadata, **kwargs
         )
 
         def reply_condition(msg):

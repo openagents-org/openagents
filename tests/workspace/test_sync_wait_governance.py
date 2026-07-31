@@ -228,6 +228,29 @@ class TestSendAndWaitCorrelation:
 
         assert reply is None
 
+    async def test_request_is_marked_as_blocking_wait(self):
+        """send_and_wait must tag its request so the network wait-graph can
+        tell real blocking waits apart from continuation requests."""
+        workspace = make_workspace()
+
+        sent_events = []
+
+        async def capture_send(event):
+            sent_events.append(event)
+            return EventResponse(success=True, message="ok")
+
+        workspace.send_event = AsyncMock(side_effect=capture_send)
+
+        await workspace.agent(AGENT_B).send_and_wait("ping", timeout=0.05)
+
+        assert len(sent_events) == 1
+        metadata = sent_events[0].metadata
+        assert metadata["blocking_wait"] is True
+        assert metadata["wait_timeout"] == 0.05
+        # A plain send() carries no such marker.
+        await workspace.agent(AGENT_B).send("fire and forget")
+        assert not (sent_events[1].metadata or {}).get("blocking_wait")
+
     async def test_send_failure_returns_none_and_deregisters_waiter(self):
         workspace = make_workspace()
         workspace.send_event = AsyncMock(
@@ -360,6 +383,44 @@ class TestReactScopeGuard:
         with react_scope(AGENT_A):
             assert current_react_agent.get() == AGENT_A
         assert current_react_agent.get() is None
+
+    async def test_background_task_spawned_in_react_is_not_in_react(self):
+        """ContextVars are inherited by asyncio.create_task(); the react scope
+        must not leak into background continuations spawned by a handler."""
+        from openagents.sdk.react_context import in_react
+
+        results = {}
+
+        async def background_work():
+            results["background_in_react"] = in_react()
+
+        with react_scope(AGENT_A):
+            results["handler_in_react"] = in_react()
+            task = asyncio.create_task(background_work())
+            await task
+
+        assert results["handler_in_react"] is True
+        assert results["background_in_react"] is False
+
+    async def test_blocking_wait_in_background_task_does_not_warn(self, recwarn):
+        """A wait inside a background task spawned from react() is legal —
+        it does not stall the runner loop."""
+        workspace = make_workspace()
+        workspace.send_event = AsyncMock(
+            return_value=EventResponse(success=True, message="ok")
+        )
+
+        async def background_wait():
+            await workspace.agent(AGENT_B).send_and_wait("ping", timeout=0.05)
+
+        with react_scope(AGENT_A):
+            task = asyncio.create_task(background_wait())
+            await task
+
+        deprecations = [
+            w for w in recwarn.list if issubclass(w.category, DeprecationWarning)
+        ]
+        assert deprecations == []
 
 
 class TestMessagingModCorrelationRelay:

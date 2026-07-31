@@ -1045,6 +1045,71 @@ class TestDelegationLineage:
         assert (await self.delegate(task_delegation_mod, "agent_b", "agent_c")).success
 
     @pytest.mark.asyncio
+    async def test_active_delegation_fuse_is_atomic(self, task_delegation_mod):
+        """Concurrent delegations must not both slip past the fuse before
+        either task is stored."""
+        import asyncio
+
+        task_delegation_mod._max_active_delegations_per_agent = 1
+
+        results = await asyncio.gather(
+            self.delegate(task_delegation_mod, "agent_a", "agent_b"),
+            self.delegate(task_delegation_mod, "agent_a", "agent_c"),
+        )
+
+        successes = [r for r in results if r.success]
+        rejections = [r for r in results if not r.success]
+        assert len(successes) == 1
+        assert len(rejections) == 1
+        assert rejections[0].data["error"] == "delegation_limit_exceeded"
+
+    @pytest.mark.asyncio
+    async def test_completed_task_reports_completed_at(self, task_delegation_mod):
+        """Regression: the completion response used to report completed_at as
+        None because it was read from a pre-update snapshot."""
+        delegated = await self.delegate(
+            task_delegation_mod, "agent_alice", "agent_bob"
+        )
+        complete_event = Event(
+            event_name="task.complete",
+            source_id="agent_bob",
+            payload={"task_id": delegated.data["task_id"], "result": {"ok": True}},
+        )
+
+        response = await task_delegation_mod._handle_task_complete(complete_event)
+
+        assert response.success is True
+        assert response.data["completed_at"] is not None
+
+    @pytest.mark.asyncio
+    async def test_timeout_stops_external_polling(self, task_delegation_mod):
+        """Regression: a locally timed-out external task kept its polling
+        loop alive until process shutdown."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from openagents.mods.coordination.task_delegation.a2a_delegation import (
+            create_delegation_task,
+        )
+
+        task = create_delegation_task(
+            delegator_id="agent_alice",
+            assignee_id="a2a:remote-agent",
+            description="external work",
+            timeout_seconds=1,
+            is_external_assignee=True,
+            assignee_url="https://remote.example.com",
+        )
+        await task_delegation_mod.task_store.create_task(task)
+
+        external = MagicMock()
+        external.stop_background_polling = AsyncMock()
+        task_delegation_mod._external_delegator = external
+
+        await task_delegation_mod._timeout_task_handler(task)
+
+        external.stop_background_polling.assert_awaited_once_with(task.id)
+
+    @pytest.mark.asyncio
     async def test_routed_delegation_checks_lineage(self, task_delegation_mod):
         """Capability routing must not bypass cycle checks."""
         first = await self.delegate(task_delegation_mod, "agent_alice", "agent_bob")
