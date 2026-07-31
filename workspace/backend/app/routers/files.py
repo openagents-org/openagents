@@ -1385,12 +1385,20 @@ async def download_file(
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
-    """Download a file by ID."""
+    """
+    Download a file by ID.
+
+    Trashed files stay readable. "deleted" means in the trash, not gone: the
+    Trash view lists those records and draws a thumbnail for the images among
+    them, which is what you decide a restore on. The bytes only disappear on
+    purge, and purge deletes the record too — so a purged file 404s here on the
+    record being missing, with no status check needed.
+    """
     record = db.execute(
         select(FileRecord).where(FileRecord.id == file_id)
     ).scalar_one_or_none()
 
-    if not record or record.status != "active":
+    if not record or record.status not in ("active", "deleted"):
         return json_response(ResponseCode.NOT_FOUND, "File not found")
 
     workspace = _resolve_workspace(db, str(record.workspace_id))
