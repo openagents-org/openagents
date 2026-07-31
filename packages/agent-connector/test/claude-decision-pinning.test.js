@@ -49,6 +49,7 @@ function mkPP(overrides = {}) {
     everPostedAnything: false,
     userStopped: false,
     decisionHash: decisionFingerprint(null, null),
+    spawnMode: 'execute',
     ...overrides,
   };
 }
@@ -341,6 +342,80 @@ describe('context-limit and stale-session visibility', () => {
 
     assert.ok(adapter.statuses.some((s) => /could not be resumed/i.test(s)));
     assert.deepEqual(adapter.responses, ['fresh answer']);
+  });
+});
+
+describe('fast-path mode staleness check', () => {
+  // Mode is baked into the spawn twice over — the system prompt and the CLI
+  // permission flags (plan is read-only, execute skips permissions) — so a
+  // process from the other mode must never be reused.
+  const runModeSwitch = async (fromMode, toMode) => {
+    const adapter = mkAdapter();
+    adapter._mode = toMode;
+    adapter._channelSessions.general = 'sess-1';
+    adapter._fetchDecisionLog = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
+    adapter._persistentProcs.general = mkPP({ spawnMode: fromMode });
+    const killed = [];
+    adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
+    let builtOpts = null;
+    adapter._buildClaudeCmd = (prompt, ch, opts) => { builtOpts = opts; return { cmd: ['claude'], mcpConfigFile: null }; };
+    const freshPP = mkPP({ spawnMode: toMode });
+    adapter._spawnPersistentProc = () => freshPP;
+    adapter._sendToPersistentProc = async (p) => {
+      p.lastResponseText = ['ok'];
+      p.everPostedAnything = true;
+      return { resultEvent: {} };
+    };
+    await adapter._handleMessage({ content: 'go', sessionId: 'general' });
+    return { adapter, killed, builtOpts, freshPP };
+  };
+
+  it('plan-spawned process is replaced once the mode switches to execute', async () => {
+    const { killed, builtOpts, freshPP } = await runModeSwitch('plan', 'execute');
+    assert.deepEqual(killed, ['general']);
+    assert.equal(builtOpts.skipResume, false); // history survives via resume
+    assert.equal(freshPP.spawnMode, 'execute');
+  });
+
+  it('execute-spawned process is replaced once the mode switches to plan', async () => {
+    const { killed, freshPP } = await runModeSwitch('execute', 'plan');
+    assert.deepEqual(killed, ['general']);
+    assert.equal(freshPP.spawnMode, 'plan');
+  });
+
+  it('same mode keeps reusing the process', async () => {
+    const adapter = mkAdapter();
+    adapter._fetchDecisionLog = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
+    adapter._persistentProcs.general = mkPP({ spawnMode: 'execute' });
+    let spawned = 0;
+    adapter._spawnPersistentProc = () => { spawned++; return mkPP(); };
+    adapter._sendToPersistentProc = async (p) => {
+      p.lastResponseText = ['reused'];
+      p.everPostedAnything = true;
+      return { resultEvent: {} };
+    };
+    await adapter._handleMessage({ content: 'hi', sessionId: 'general' });
+    assert.equal(spawned, 0);
+    assert.deepEqual(adapter.responses, ['reused']);
+  });
+
+  it('a failed decision fetch does not keep a wrong-mode process alive', async () => {
+    const adapter = mkAdapter();
+    adapter._mode = 'execute';
+    adapter._fetchDecisionLog = async () => ({ available: true, state: 'unknown', entryId: null, content: null, error: true });
+    adapter._persistentProcs.general = mkPP({ spawnMode: 'plan' });
+    const killed = [];
+    adapter._killPersistentProc = async (ch) => { killed.push(ch); delete adapter._persistentProcs[ch]; };
+    adapter._buildClaudeCmd = () => ({ cmd: ['claude'], mcpConfigFile: null });
+    adapter._buildChannelRecap = async () => null;
+    adapter._spawnPersistentProc = () => mkPP();
+    adapter._sendToPersistentProc = async (p) => {
+      p.lastResponseText = ['ok'];
+      p.everPostedAnything = true;
+      return { resultEvent: {} };
+    };
+    await adapter._handleMessage({ content: 'run it', sessionId: 'general' });
+    assert.deepEqual(killed, ['general']);
   });
 });
 

@@ -1156,12 +1156,21 @@ class ClaudeAdapter extends BaseAdapter {
     // instead of spawning a new CLI (saves ~2s startup time).
     const existingPP = this._persistentProcs[msgChannel];
     if (existingPP && existingPP.alive) {
-      if (decisionHash !== null && existingPP.decisionHash !== decisionHash) {
-        // The decision log changed after this process was spawned, so the
-        // system prompt it runs with is stale. Kill it and fall through to a
-        // fresh spawn: --resume keeps the conversation (it lives in the CLI
-        // transcript), while the new spawn re-pins the current decisions.
-        this._log(`Decision log changed for ${msgChannel} — respawning with resume to re-pin decisions`);
+      // Everything below was baked into the process at spawn time — the
+      // system prompt AND the CLI permission flags (plan mode is read-only,
+      // execute skips permissions) — so a process from the other mode can
+      // never be reused. This check is deliberately independent of the
+      // decision fingerprint: a failed decision fetch must not keep a
+      // read-only plan process serving execute requests.
+      const modeStale = existingPP.spawnMode !== this._mode;
+      const decisionsStale = decisionHash !== null && existingPP.decisionHash !== decisionHash;
+      if (modeStale || decisionsStale) {
+        // Kill it and fall through to a fresh spawn: --resume keeps the
+        // conversation (it lives in the CLI transcript), while the new spawn
+        // carries the current mode and re-pins the current decisions.
+        this._log(modeStale
+          ? `Mode changed to ${this._mode} for ${msgChannel} — respawning with resume`
+          : `Decision log changed for ${msgChannel} — respawning with resume to re-pin decisions`);
         await this._killPersistentProc(msgChannel);
       } else {
         this._log(`Reusing persistent process for ${msgChannel}`);
@@ -1277,11 +1286,13 @@ class ClaudeAdapter extends BaseAdapter {
 
       try {
         const pp = this._spawnPersistentProc(msgChannel, cmd, cleanEnv);
-        // Remember which decision-log state this process was spawned with so
-        // the fast-path can detect staleness on later messages.
+        // Remember the spawn-time configuration so the fast-path can detect
+        // staleness on later messages — the decision-log state and the mode
+        // (which fixes both the system prompt and the permission flags).
         pp.decisionHash = decisionLogOpt
           ? decisionFingerprint(decisionLogOpt.entryId, decisionLogOpt.content)
           : decisionFingerprint(null, null);
+        pp.spawnMode = this._mode;
         this._log(`Spawned persistent process for ${msgChannel} (attempt ${attempt + 1})`);
 
         const result = await this._sendToPersistentProc(pp, effectiveContent);
