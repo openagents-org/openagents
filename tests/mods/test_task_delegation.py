@@ -848,5 +848,245 @@ class TestTaskDataClass:
         assert task.metadata == {"outcome": "success"}
 
 
+class TestDelegationLineage:
+    """Server-derived delegation chains, cycle detection and fuses."""
+
+    def delegate_event(
+        self,
+        delegator: str,
+        assignee: str,
+        description: str = "some task",
+        parent_task_id: str = None,
+    ) -> Event:
+        return Event(
+            event_name="task.delegate",
+            source_id=delegator,
+            payload={
+                "assignee_id": assignee,
+                "description": description,
+                "parent_task_id": parent_task_id,
+                "timeout_seconds": 300,
+            },
+        )
+
+    async def delegate(self, mod, *args, **kwargs):
+        return await mod._handle_task_delegate(self.delegate_event(*args, **kwargs))
+
+    @pytest.mark.asyncio
+    async def test_self_delegation_rejected(self, task_delegation_mod):
+        response = await self.delegate(task_delegation_mod, "agent_alice", "agent_alice")
+        assert response.success is False
+        assert response.data["error"] == "self_delegation_rejected"
+
+    @pytest.mark.asyncio
+    async def test_self_delegation_rejected_despite_prefix_alias(
+        self, task_delegation_mod
+    ):
+        """agent:alice and alice are the same agent for lineage checks."""
+        response = await self.delegate(task_delegation_mod, "agent:alice", "alice")
+        assert response.success is False
+        assert response.data["error"] == "self_delegation_rejected"
+
+    @pytest.mark.asyncio
+    async def test_root_delegation_records_chain(self, task_delegation_mod):
+        response = await self.delegate(task_delegation_mod, "agent_alice", "agent_bob")
+        assert response.success is True
+        assert response.data["delegation_chain"] == ["agent_alice", "agent_bob"]
+        assert response.data["delegation_depth"] == 1
+
+    @pytest.mark.asyncio
+    async def test_parent_child_cycle_rejected(self, task_delegation_mod):
+        """A delegates to B, B delegating back to A must be rejected."""
+        first = await self.delegate(task_delegation_mod, "agent_alice", "agent_bob")
+        assert first.success is True
+        parent_id = first.data["task_id"]
+
+        second = await self.delegate(
+            task_delegation_mod,
+            "agent_bob",
+            "agent_alice",
+            parent_task_id=parent_id,
+        )
+        assert second.success is False
+        assert second.data["error"] == "delegation_cycle_detected"
+        assert second.data["delegation_chain"] == ["agent_alice", "agent_bob"]
+
+    @pytest.mark.asyncio
+    async def test_three_hop_cycle_rejected(self, task_delegation_mod):
+        """A -> B -> C -> A closes a cycle through the derived chain."""
+        first = await self.delegate(task_delegation_mod, "agent_alice", "agent_bob")
+        second = await self.delegate(
+            task_delegation_mod,
+            "agent_bob",
+            "agent_charlie",
+            parent_task_id=first.data["task_id"],
+        )
+        assert second.success is True
+        assert second.data["delegation_chain"] == [
+            "agent_alice",
+            "agent_bob",
+            "agent_charlie",
+        ]
+
+        third = await self.delegate(
+            task_delegation_mod,
+            "agent_charlie",
+            "agent_alice",
+            parent_task_id=second.data["task_id"],
+        )
+        assert third.success is False
+        assert third.data["error"] == "delegation_cycle_detected"
+
+    @pytest.mark.asyncio
+    async def test_normal_chain_delegation_succeeds(self, task_delegation_mod):
+        """A -> B -> C is a legitimate chain and carries lineage metadata."""
+        first = await self.delegate(task_delegation_mod, "agent_alice", "agent_bob")
+        second = await self.delegate(
+            task_delegation_mod,
+            "agent_bob",
+            "agent_charlie",
+            parent_task_id=first.data["task_id"],
+        )
+        assert second.success is True
+        assert second.data["delegation_depth"] == 2
+
+        task = await task_delegation_mod.task_store.get_task(second.data["task_id"])
+        delegation = task.metadata["delegation"]
+        assert delegation["parent_task_id"] == first.data["task_id"]
+        assert delegation["root_task_id"] == first.data["task_id"]
+        assert delegation["delegation_chain"] == [
+            "agent_alice",
+            "agent_bob",
+            "agent_charlie",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_parent_task_not_found(self, task_delegation_mod):
+        response = await self.delegate(
+            task_delegation_mod,
+            "agent_bob",
+            "agent_charlie",
+            parent_task_id="no-such-task",
+        )
+        assert response.success is False
+        assert response.data["error"] == "parent_task_not_found"
+
+    @pytest.mark.asyncio
+    async def test_delegator_must_be_parent_assignee(self, task_delegation_mod):
+        """Only the assignee of the parent task may extend its chain."""
+        first = await self.delegate(task_delegation_mod, "agent_alice", "agent_bob")
+
+        response = await self.delegate(
+            task_delegation_mod,
+            "agent_mallory",
+            "agent_charlie",
+            parent_task_id=first.data["task_id"],
+        )
+        assert response.success is False
+        assert response.data["error"] == "delegator_not_parent_assignee"
+
+    @pytest.mark.asyncio
+    async def test_terminal_parent_rejected(self, task_delegation_mod):
+        first = await self.delegate(task_delegation_mod, "agent_alice", "agent_bob")
+        task_id = first.data["task_id"]
+
+        complete_event = Event(
+            event_name="task.complete",
+            source_id="agent_bob",
+            payload={"task_id": task_id, "result": {"done": True}},
+        )
+        completion = await task_delegation_mod._handle_task_complete(complete_event)
+        assert completion.success is True
+
+        response = await self.delegate(
+            task_delegation_mod,
+            "agent_bob",
+            "agent_charlie",
+            parent_task_id=task_id,
+        )
+        assert response.success is False
+        assert response.data["error"] == "parent_task_terminal"
+
+    @pytest.mark.asyncio
+    async def test_depth_limit_enforced(self, task_delegation_mod):
+        task_delegation_mod._max_delegation_depth = 2
+
+        first = await self.delegate(task_delegation_mod, "agent_a", "agent_b")
+        second = await self.delegate(
+            task_delegation_mod,
+            "agent_b",
+            "agent_c",
+            parent_task_id=first.data["task_id"],
+        )
+        assert second.success is True
+
+        third = await self.delegate(
+            task_delegation_mod,
+            "agent_c",
+            "agent_d",
+            parent_task_id=second.data["task_id"],
+        )
+        assert third.success is False
+        assert third.data["error"] == "delegation_depth_exceeded"
+
+    @pytest.mark.asyncio
+    async def test_active_delegation_fuse(self, task_delegation_mod):
+        """Cycle checks can't stop non-cyclic fan-out; the fuse caps it."""
+        task_delegation_mod._max_active_delegations_per_agent = 2
+
+        assert (await self.delegate(task_delegation_mod, "agent_a", "agent_b")).success
+        assert (await self.delegate(task_delegation_mod, "agent_a", "agent_c")).success
+
+        third = await self.delegate(task_delegation_mod, "agent_a", "agent_d")
+        assert third.success is False
+        assert third.data["error"] == "delegation_limit_exceeded"
+
+        # Other delegators are unaffected.
+        assert (await self.delegate(task_delegation_mod, "agent_b", "agent_c")).success
+
+    @pytest.mark.asyncio
+    async def test_routed_delegation_checks_lineage(self, task_delegation_mod):
+        """Capability routing must not bypass cycle checks."""
+        first = await self.delegate(task_delegation_mod, "agent_alice", "agent_bob")
+
+        response = await task_delegation_mod._delegate_routed_task(
+            delegator_id="agent_bob",
+            assignee_id="agent_alice",
+            description="routed back",
+            payload={"parent_task_id": first.data["task_id"]},
+            matched_count=1,
+        )
+        assert response.success is False
+        assert response.data["error"] == "delegation_cycle_detected"
+
+    @pytest.mark.asyncio
+    async def test_assignment_notification_carries_lineage(
+        self, task_delegation_mod, mock_network
+    ):
+        first = await self.delegate(task_delegation_mod, "agent_alice", "agent_bob")
+        await self.delegate(
+            task_delegation_mod,
+            "agent_bob",
+            "agent_charlie",
+            parent_task_id=first.data["task_id"],
+        )
+
+        notifications = [
+            call.args[0]
+            for call in mock_network.process_event.await_args_list
+            if call.args[0].event_name == "task.notification.assigned"
+        ]
+        assert len(notifications) == 2
+        child_payload = notifications[1].payload
+        assert child_payload["parent_task_id"] == first.data["task_id"]
+        assert child_payload["root_task_id"] == first.data["task_id"]
+        assert child_payload["delegation_chain"] == [
+            "agent_alice",
+            "agent_bob",
+            "agent_charlie",
+        ]
+        assert child_payload["delegation_depth"] == 2
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

@@ -222,6 +222,12 @@ class AgentConnection:
 
         def reply_condition(msg):
             try:
+                # The network reports wait-for cycles; fail fast instead of
+                # blocking until timeout when our request is part of one.
+                if msg.event_name == "agent.wait.deadlock_detected":
+                    return request.event_id in (msg.payload or {}).get(
+                        "request_ids", []
+                    )
                 if msg.event_name != "thread.direct_message.notification":
                     return False
                 if msg.source_id != self.agent_id:
@@ -244,9 +250,16 @@ class AgentConnection:
             logger.info(f"Sent message to {self.agent_id}, waiting for reply...")
             reply = await waiter.wait(timeout=timeout)
 
-        if reply:
-            return reply.payload
-        return None
+        if reply is None:
+            return None
+        if reply.event_name == "agent.wait.deadlock_detected":
+            cycle = (reply.payload or {}).get("cycle")
+            logger.error(
+                f"send_and_wait to {self.agent_id} aborted, the network "
+                f"detected a wait-for deadlock: {cycle}"
+            )
+            return None
+        return reply.payload
 
     def __str__(self) -> str:
         return f"AgentConnection({self.agent_id})"

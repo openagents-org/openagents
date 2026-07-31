@@ -8,6 +8,7 @@ from openagents.sdk.system_commands import SystemCommandProcessor
 from openagents.models.event import Event, EventSubscription
 from openagents.models.event_response import EventResponse
 from openagents.models.network_role import NetworkRole
+from openagents.sdk.wait_graph import WaitGraphMonitor
 
 if TYPE_CHECKING:
     from openagents.sdk.network import AgentNetwork
@@ -105,6 +106,12 @@ class EventGateway:
         self.mod_event_processor = ModEventProcessor(network.mods)
         # Activity counters for reputation reporting
         self._activity_counters: Dict[str, Dict[str, int]] = {}  # agent_id -> {event_type: count}
+        # Wait-for graph over requires_response/response_to traffic; detects
+        # agents blocked waiting on each other and notifies them.
+        self.wait_graph = WaitGraphMonitor(
+            network_id=getattr(network, "network_id", "network"),
+            deliver=self.deliver_event,
+        )
 
     async def process_system_command(self, event: Event) -> Optional[EventResponse]:
         """
@@ -176,6 +183,13 @@ class EventGateway:
                 if src not in self._activity_counters:
                     self._activity_counters[src] = {}
                 self._activity_counters[src]["messages_sent"] = self._activity_counters[src].get("messages_sent", 0) + 1
+
+        # Track request/response waits for deadlock detection; never let the
+        # monitor break event processing.
+        try:
+            await self.wait_graph.observe(event)
+        except Exception as e:
+            logger.error(f"Wait-graph observation failed: {e}")
 
         # Process the event through the pipeline
         response = None

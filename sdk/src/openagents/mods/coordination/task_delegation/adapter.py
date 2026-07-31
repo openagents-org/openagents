@@ -84,6 +84,15 @@ class TaskDelegationAdapter(BaseModAdapter):
                         "description": "Optional timeout in seconds (default 300)",
                         "default": 300,
                     },
+                    "parent_task_id": {
+                        "type": "string",
+                        "description": (
+                            "If you are delegating as part of handling a task "
+                            "assigned to you, pass that task's id so the "
+                            "network can track the delegation chain and "
+                            "reject cycles"
+                        ),
+                    },
                 },
                 "required": ["assignee_id", "description"],
             },
@@ -371,6 +380,15 @@ class TaskDelegationAdapter(BaseModAdapter):
                         "type": "string",
                         "description": "Agent ID to use if no capability match found",
                     },
+                    "parent_task_id": {
+                        "type": "string",
+                        "description": (
+                            "If you are delegating as part of handling a task "
+                            "assigned to you, pass that task's id so the "
+                            "network can track the delegation chain and "
+                            "reject cycles"
+                        ),
+                    },
                 },
                 "required": ["description"],
             },
@@ -386,6 +404,7 @@ class TaskDelegationAdapter(BaseModAdapter):
         description: str,
         payload: Optional[Dict[str, Any]] = None,
         timeout_seconds: int = 300,
+        parent_task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Delegate a task to another agent.
 
@@ -394,6 +413,9 @@ class TaskDelegationAdapter(BaseModAdapter):
             description: Description of the task
             payload: Optional task data/parameters
             timeout_seconds: Timeout in seconds (default 300)
+            parent_task_id: If this delegation is part of handling another
+                task, that task's id. The network derives the delegation
+                chain from it and rejects delegation cycles.
 
         Returns:
             Response containing task_id and status on success, or error on failure
@@ -413,6 +435,7 @@ class TaskDelegationAdapter(BaseModAdapter):
                 "description": description,
                 "payload": payload or {},
                 "timeout_seconds": timeout_seconds,
+                "parent_task_id": parent_task_id,
             },
             relevant_mod="openagents.mods.coordination.task_delegation",
         )
@@ -837,6 +860,7 @@ class TaskDelegationAdapter(BaseModAdapter):
         timeout_seconds: int = 300,
         selection_strategy: str = "first",
         fallback_assignee_id: Optional[str] = None,
+        parent_task_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Route a task to an agent based on required capabilities.
 
@@ -849,6 +873,8 @@ class TaskDelegationAdapter(BaseModAdapter):
             timeout_seconds: Timeout in seconds (default 300)
             selection_strategy: How to select from matches ("first" or "random")
             fallback_assignee_id: Agent to use if no capability match found
+            parent_task_id: If this routing is part of handling another task,
+                that task's id, so the network can track the delegation chain
 
         Returns:
             Response containing task_id and assigned agent on success
@@ -871,6 +897,7 @@ class TaskDelegationAdapter(BaseModAdapter):
             "payload": payload or {},
             "timeout_seconds": timeout_seconds,
             "selection_strategy": selection_strategy,
+            "parent_task_id": parent_task_id,
         }
 
         if required_capabilities:

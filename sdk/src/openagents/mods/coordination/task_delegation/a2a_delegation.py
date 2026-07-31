@@ -38,6 +38,26 @@ TERMINAL_STATES = {
 # Default timeout in seconds
 DEFAULT_TIMEOUT_SECONDS = 300
 
+# Default maximum delegation chain depth (root delegation = depth 1)
+DEFAULT_MAX_DELEGATION_DEPTH = 10
+
+# Default maximum concurrent non-terminal delegations per delegator
+DEFAULT_MAX_ACTIVE_DELEGATIONS_PER_AGENT = 50
+
+
+def normalize_agent_id(agent_id: Optional[str]) -> str:
+    """Normalize an agent id for identity comparisons in delegation checks.
+
+    Strips whitespace and a leading ``agent:`` prefix so that ``agent:alice``
+    and ``alice`` cannot bypass self-delegation or cycle checks.
+    """
+    if not agent_id:
+        return ""
+    normalized = str(agent_id).strip()
+    if normalized.startswith("agent:"):
+        normalized = normalized[len("agent:"):]
+    return normalized
+
 
 # =============================================================================
 # Delegation Metadata Helpers
@@ -54,6 +74,10 @@ def create_delegation_metadata(
     is_external_assignee: bool = False,
     delegator_url: Optional[str] = None,
     assignee_url: Optional[str] = None,
+    parent_task_id: Optional[str] = None,
+    root_task_id: Optional[str] = None,
+    delegation_chain: Optional[List[str]] = None,
+    delegation_depth: int = 1,
 ) -> Dict[str, Any]:
     """Create delegation metadata for an A2A Task.
 
@@ -67,6 +91,10 @@ def create_delegation_metadata(
         is_external_assignee: True if assignee is an external A2A agent
         delegator_url: A2A URL if external delegator
         assignee_url: A2A URL if external assignee
+        parent_task_id: Task this delegation was spawned from, if any
+        root_task_id: Root task of the delegation tree (None for root tasks)
+        delegation_chain: Server-derived chain of agent ids, delegator first
+        delegation_depth: Number of delegation hops from the root (root = 1)
 
     Returns:
         Metadata dictionary for the A2A Task
@@ -83,6 +111,11 @@ def create_delegation_metadata(
             "is_external_assignee": is_external_assignee,
             "delegator_url": delegator_url,
             "assignee_url": assignee_url,
+            "parent_task_id": parent_task_id,
+            "root_task_id": root_task_id,
+            "delegation_chain": delegation_chain
+            or [normalize_agent_id(delegator_id), normalize_agent_id(assignee_id)],
+            "delegation_depth": delegation_depth,
         },
         "payload": payload or {},
         "progress_summary": {
@@ -120,6 +153,10 @@ def extract_delegation_metadata(task: Task) -> Dict[str, Any]:
         "is_external_assignee": delegation.get("is_external_assignee", False),
         "delegator_url": delegation.get("delegator_url"),
         "assignee_url": delegation.get("assignee_url"),
+        "parent_task_id": delegation.get("parent_task_id"),
+        "root_task_id": delegation.get("root_task_id"),
+        "delegation_chain": delegation.get("delegation_chain"),
+        "delegation_depth": delegation.get("delegation_depth", 1),
         "payload": task.metadata.get("payload", {}),
         "error": task.metadata.get("error_details", {}).get("error"),
         "is_timeout": task.metadata.get("error_details", {}).get("is_timeout", False),
@@ -197,6 +234,10 @@ def create_delegation_task(
     is_external_assignee: bool = False,
     delegator_url: Optional[str] = None,
     assignee_url: Optional[str] = None,
+    parent_task_id: Optional[str] = None,
+    root_task_id: Optional[str] = None,
+    delegation_chain: Optional[List[str]] = None,
+    delegation_depth: int = 1,
 ) -> Task:
     """Create an A2A Task for a delegation request.
 
@@ -211,6 +252,10 @@ def create_delegation_task(
         is_external_assignee: True if assignee is an external A2A agent
         delegator_url: A2A URL if external delegator
         assignee_url: A2A URL if external assignee
+        parent_task_id: Task this delegation was spawned from, if any
+        root_task_id: Root task of the delegation tree (None for root tasks)
+        delegation_chain: Server-derived chain of agent ids, delegator first
+        delegation_depth: Number of delegation hops from the root (root = 1)
 
     Returns:
         New A2A Task in SUBMITTED state
@@ -225,6 +270,10 @@ def create_delegation_task(
         is_external_assignee=is_external_assignee,
         delegator_url=delegator_url,
         assignee_url=assignee_url,
+        parent_task_id=parent_task_id,
+        root_task_id=root_task_id,
+        delegation_chain=delegation_chain,
+        delegation_depth=delegation_depth,
     )
 
     # Create initial message describing the task

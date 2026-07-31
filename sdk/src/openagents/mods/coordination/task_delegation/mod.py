@@ -35,6 +35,8 @@ from openagents.models.a2a import (
 )
 
 from .a2a_delegation import (
+    DEFAULT_MAX_ACTIVE_DELEGATIONS_PER_AGENT,
+    DEFAULT_MAX_DELEGATION_DEPTH,
     DEFAULT_TIMEOUT_SECONDS,
     TERMINAL_STATES,
     create_delegation_metadata,
@@ -44,6 +46,7 @@ from .a2a_delegation import (
     extract_delegation_metadata,
     increment_progress_count,
     is_task_expired,
+    normalize_agent_id,
     update_delegation_metadata,
 )
 from .capability_matcher import (
@@ -96,6 +99,16 @@ class TaskDelegationMod(BaseMod):
         # Timeout check interval can be configured via config
         self._timeout_check_interval = self.config.get(
             "timeout_check_interval", self.DEFAULT_TIMEOUT_CHECK_INTERVAL
+        )
+
+        # Delegation lineage limits (guard against delegation cycles and
+        # runaway fan-out); configurable via mod config
+        self._max_delegation_depth = self.config.get(
+            "max_delegation_depth", DEFAULT_MAX_DELEGATION_DEPTH
+        )
+        self._max_active_delegations_per_agent = self.config.get(
+            "max_active_delegations_per_agent",
+            DEFAULT_MAX_ACTIVE_DELEGATIONS_PER_AGENT,
         )
 
         logger.info("Initializing Task Delegation network mod (A2A-compatible)")
@@ -291,6 +304,141 @@ class TaskDelegationMod(BaseMod):
         """Create a standardized event response."""
         return EventResponse(success=success, message=message, data=data or {})
 
+    async def _validate_delegation_lineage(
+        self,
+        delegator_id: str,
+        assignee_id: str,
+        parent_task_id: Optional[str],
+    ) -> Tuple[Optional[EventResponse], Dict[str, Any]]:
+        """Validate a delegation against its lineage and derive chain metadata.
+
+        The delegation chain is derived server-side from the parent task in
+        the task store — clients only submit ``parent_task_id`` — so a client
+        cannot forge, truncate or omit the chain to sneak past cycle checks.
+
+        Returns:
+            Tuple of (error response or None, lineage metadata for the task)
+        """
+        delegator = normalize_agent_id(delegator_id)
+        assignee = normalize_agent_id(assignee_id)
+
+        def _error(code: str, message: str, **extra: Any) -> EventResponse:
+            return self._create_response(
+                success=False, message=message, data={"error": code, **extra}
+            )
+
+        if not delegator:
+            return _error("invalid_delegator", "delegator id is required"), {}
+
+        if delegator == assignee:
+            return (
+                _error(
+                    "self_delegation_rejected",
+                    f"Agent {delegator} cannot delegate a task to itself",
+                ),
+                {},
+            )
+
+        chain: List[str] = [delegator]
+        root_task_id: Optional[str] = None
+
+        if parent_task_id:
+            parent = await self.task_store.get_task(parent_task_id)
+            if parent is None:
+                return (
+                    _error(
+                        "parent_task_not_found",
+                        f"Parent task {parent_task_id} not found",
+                    ),
+                    {},
+                )
+            if parent.status.state in TERMINAL_STATES:
+                return (
+                    _error(
+                        "parent_task_terminal",
+                        f"Parent task {parent_task_id} is already "
+                        f"{parent.status.state.value}",
+                    ),
+                    {},
+                )
+
+            parent_delegation = (parent.metadata or {}).get("delegation", {})
+            parent_assignee = normalize_agent_id(
+                parent_delegation.get("assignee_id")
+            )
+            if parent_assignee != delegator:
+                return (
+                    _error(
+                        "delegator_not_parent_assignee",
+                        f"Agent {delegator} is not the assignee of parent "
+                        f"task {parent_task_id}",
+                    ),
+                    {},
+                )
+
+            parent_chain = parent_delegation.get("delegation_chain") or [
+                normalize_agent_id(parent_delegation.get("delegator_id")),
+                parent_assignee,
+            ]
+            chain = [normalize_agent_id(entry) for entry in parent_chain]
+            root_task_id = parent_delegation.get("root_task_id") or parent_task_id
+
+            if assignee in chain:
+                return (
+                    _error(
+                        "delegation_cycle_detected",
+                        f"Delegating to {assignee} would close a delegation "
+                        f"cycle: {' -> '.join(chain + [assignee])}",
+                        delegation_chain=chain,
+                    ),
+                    {},
+                )
+
+        new_chain = chain + [assignee]
+        depth = len(new_chain) - 1
+        if depth > self._max_delegation_depth:
+            return (
+                _error(
+                    "delegation_depth_exceeded",
+                    f"Delegation depth {depth} exceeds the maximum of "
+                    f"{self._max_delegation_depth}",
+                    delegation_chain=new_chain,
+                ),
+                {},
+            )
+
+        # Resource fuse: cap concurrent non-terminal delegations per delegator.
+        # Cycle detection cannot stop non-cyclic exponential fan-out.
+        active_count = 0
+        all_tasks = await self.task_store.list_tasks(limit=100000)
+        for existing in all_tasks:
+            if existing.status.state in TERMINAL_STATES:
+                continue
+            existing_delegator = normalize_agent_id(
+                (existing.metadata or {})
+                .get("delegation", {})
+                .get("delegator_id")
+            )
+            if existing_delegator == delegator:
+                active_count += 1
+        if active_count >= self._max_active_delegations_per_agent:
+            return (
+                _error(
+                    "delegation_limit_exceeded",
+                    f"Agent {delegator} already has {active_count} active "
+                    f"delegations (limit "
+                    f"{self._max_active_delegations_per_agent})",
+                ),
+                {},
+            )
+
+        return None, {
+            "parent_task_id": parent_task_id,
+            "root_task_id": root_task_id,
+            "delegation_chain": new_chain,
+            "delegation_depth": depth,
+        }
+
     @mod_event_handler("task.delegate")
     async def _handle_task_delegate(self, event: Event) -> Optional[EventResponse]:
         """Handle task delegation requests."""
@@ -324,6 +472,16 @@ class TaskDelegationMod(BaseMod):
                 data={"error": "timeout_seconds must be a positive number"},
             )
 
+        # Validate lineage (self-delegation, cycles, depth, fan-out limits)
+        # and derive the server-side delegation chain.
+        lineage_error, lineage = await self._validate_delegation_lineage(
+            delegator_id=delegator_id,
+            assignee_id=assignee_id,
+            parent_task_id=payload.get("parent_task_id"),
+        )
+        if lineage_error:
+            return lineage_error
+
         # Check if assignee is an external A2A agent
         is_external = (
             self._external_delegator
@@ -342,6 +500,7 @@ class TaskDelegationMod(BaseMod):
             timeout_seconds=int(timeout_seconds),
             is_external_assignee=is_external,
             assignee_url=external_url,
+            **lineage,
         )
 
         # Store the task
@@ -389,7 +548,9 @@ class TaskDelegationMod(BaseMod):
                     data={"error": str(e)},
                 )
         else:
-            # Local assignee - send notification
+            # Local assignee - send notification. Lineage fields let the
+            # assignee delegate follow-up work with parent_task_id=task_id so
+            # the server can track the chain.
             await self._send_notification(
                 "task.notification.assigned",
                 assignee_id,
@@ -399,6 +560,10 @@ class TaskDelegationMod(BaseMod):
                     "description": description,
                     "payload": payload.get("payload", {}),
                     "timeout_seconds": timeout_seconds,
+                    "parent_task_id": lineage.get("parent_task_id"),
+                    "root_task_id": lineage.get("root_task_id"),
+                    "delegation_chain": lineage.get("delegation_chain"),
+                    "delegation_depth": lineage.get("delegation_depth"),
                 },
             )
 
@@ -410,6 +575,8 @@ class TaskDelegationMod(BaseMod):
                 "task_id": task.id,
                 "status": task.status.state.value,
                 "created_at": delegation.get("created_at"),
+                "delegation_chain": delegation.get("delegation_chain"),
+                "delegation_depth": delegation.get("delegation_depth"),
             },
         )
 
@@ -1278,6 +1445,16 @@ class TaskDelegationMod(BaseMod):
         """Create and delegate a task after routing."""
         timeout_seconds = payload.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS)
 
+        # Routed tasks go through the same lineage validation as direct
+        # delegations — capability routing must not bypass cycle checks.
+        lineage_error, lineage = await self._validate_delegation_lineage(
+            delegator_id=delegator_id,
+            assignee_id=assignee_id,
+            parent_task_id=payload.get("parent_task_id"),
+        )
+        if lineage_error:
+            return lineage_error
+
         # Check if assignee is external
         is_external = (
             self._external_delegator
@@ -1296,6 +1473,7 @@ class TaskDelegationMod(BaseMod):
             timeout_seconds=int(timeout_seconds),
             is_external_assignee=is_external,
             assignee_url=external_url,
+            **lineage,
         )
 
         # Store the task
@@ -1348,6 +1526,10 @@ class TaskDelegationMod(BaseMod):
                     "payload": payload.get("payload", {}),
                     "timeout_seconds": timeout_seconds,
                     "routed_by_capability": True,
+                    "parent_task_id": lineage.get("parent_task_id"),
+                    "root_task_id": lineage.get("root_task_id"),
+                    "delegation_chain": lineage.get("delegation_chain"),
+                    "delegation_depth": lineage.get("delegation_depth"),
                 },
             )
 

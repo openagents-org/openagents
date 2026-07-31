@@ -190,6 +190,44 @@ class TestSendAndWaitCorrelation:
         assert reply is not None
         assert reply["content"]["text"] == "plain reply"
 
+    async def test_deadlock_notification_fails_fast(self):
+        """A network deadlock report aborts the wait before the timeout."""
+        workspace = make_workspace()
+        client = workspace.client
+
+        sent_events = []
+
+        async def capture_send(event):
+            sent_events.append(event)
+            return EventResponse(success=True, message="ok")
+
+        workspace.send_event = AsyncMock(side_effect=capture_send)
+
+        async def network_reports_deadlock():
+            while not sent_events:
+                await asyncio.sleep(0.01)
+            await client._handle_event(
+                Event(
+                    event_name="agent.wait.deadlock_detected",
+                    source_id="test-network",
+                    destination_id=AGENT_A,
+                    payload={
+                        "cycle": [AGENT_A, AGENT_B, AGENT_A],
+                        "request_ids": [sent_events[0].event_id],
+                    },
+                )
+            )
+
+        network_task = asyncio.create_task(network_reports_deadlock())
+        # Much shorter than the 5s timeout — the deadlock report unblocks us.
+        reply = await asyncio.wait_for(
+            workspace.agent(AGENT_B).send_and_wait("ping", timeout=5.0),
+            timeout=1.0,
+        )
+        await network_task
+
+        assert reply is None
+
     async def test_send_failure_returns_none_and_deregisters_waiter(self):
         workspace = make_workspace()
         workspace.send_event = AsyncMock(
