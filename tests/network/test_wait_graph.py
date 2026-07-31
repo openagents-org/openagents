@@ -157,6 +157,39 @@ class TestWaitGraphMonitor:
         assert len(request_ids) == 2
         assert unrelated.event_id not in request_ids
 
+    async def test_cycle_edges_removed_after_notification(self, monitor, delivered):
+        """The notified waiters return immediately, so a later one-way wait
+        between the same agents must not be reported again."""
+        await monitor.observe(blocking_request("alice", "bob"))
+        await monitor.observe(blocking_request("bob", "alice"))
+        assert len(delivered) == 2
+        delivered.clear()
+
+        # Both waits are gone; a fresh one-way wait is not a deadlock.
+        await monitor.observe(blocking_request("bob", "alice"))
+        assert delivered == []
+        assert monitor.waiting_targets("alice") == []
+        assert monitor.waiting_targets("bob") == ["alice"]
+
+    async def test_stringified_metadata_from_grpc_is_parsed(
+        self, monitor, delivered
+    ):
+        """gRPC transports metadata as map<string,string>; 'False' must not
+        count as a blocking wait and numeric strings must keep their value."""
+        stringly_false = blocking_request("alice", "bob")
+        stringly_false.metadata = {"blocking_wait": "False"}
+        await monitor.observe(stringly_false)
+        assert monitor.waiting_targets("alice") == []
+
+        stringly_true = blocking_request("alice", "bob")
+        stringly_true.metadata = {"blocking_wait": "True", "wait_timeout": "0.01"}
+        await monitor.observe(stringly_true)
+        assert monitor.waiting_targets("alice") == ["bob"]
+
+        await asyncio.sleep(0.05)
+        await monitor.observe(blocking_request("bob", "alice"))
+        assert delivered == []  # the 0.01s edge expired; no cycle
+
     async def test_no_false_positive_on_shared_target(self, monitor, delivered):
         await monitor.observe(blocking_request("alice", "bob"))
         await monitor.observe(blocking_request("charlie", "bob"))

@@ -33,6 +33,29 @@ from openagents.models.event_response import EventResponse
 logger = logging.getLogger(__name__)
 
 
+def internal_event_from_grpc(request, payload: Dict[str, Any]) -> Event:
+    """Build an internal Event from a gRPC Event message.
+
+    Correlation fields (requires_response / response_to) must survive the
+    transport — reply matching and wait-graph edge clearing depend on them.
+    getattr guards keep compatibility with clients built from an older proto
+    that lacks the fields.
+    """
+    return Event(
+        event_name=request.event_name,
+        source_id=request.source_id,
+        destination_id=request.target_agent_id or None,
+        payload=payload,
+        event_id=request.event_id,
+        timestamp=request.timestamp if request.timestamp else int(time.time()),
+        metadata=dict(request.metadata) if request.metadata else {},
+        visibility=request.visibility if request.visibility else "network",
+        secret=request.secret if hasattr(request, 'secret') else None,
+        requires_response=bool(getattr(request, "requires_response", False)),
+        response_to=getattr(request, "response_to", "") or None,
+    )
+
+
 class OpenAgentsGRPCServicer(agent_service_pb2_grpc.AgentServiceServicer):
     """gRPC servicer for the OpenAgents transport."""
 
@@ -50,17 +73,7 @@ class OpenAgentsGRPCServicer(agent_service_pb2_grpc.AgentServiceServicer):
             payload = self._extract_payload_from_protobuf(request.payload)
 
             # Create internal Event from gRPC Event
-            event = Event(
-                event_name=request.event_name,
-                source_id=request.source_id,
-                destination_id=request.target_agent_id or None,
-                payload=payload,
-                event_id=request.event_id,
-                timestamp=request.timestamp if request.timestamp else int(time.time()),
-                metadata=dict(request.metadata) if request.metadata else {},
-                visibility=request.visibility if request.visibility else "network",
-                secret=request.secret if hasattr(request, 'secret') else None,
-            )
+            event = internal_event_from_grpc(request, payload)
 
             # Route through unified handler
             event_response = await self._handle_sent_event(event)

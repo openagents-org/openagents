@@ -37,6 +37,8 @@ message Event {
   string visibility = 8;         // "local", "network", "external"
   string relevant_mod = 9;       // Specific mod to process this event (for MOD_ONLY visibility)
   string secret = 10;            // Authentication secret for the source agent
+  bool requires_response = 11;   // Whether this event expects a response
+  string response_to = 12;       // If this is a response, the original event_id
 }
 
 // Unified event response

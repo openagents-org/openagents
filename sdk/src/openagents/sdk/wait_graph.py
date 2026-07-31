@@ -45,6 +45,28 @@ DEFAULT_EDGE_TTL_SECONDS = 60.0
 MAX_EDGE_TTL_SECONDS = 3600.0
 
 
+def _metadata_flag(value) -> bool:
+    """Interpret a metadata value as a boolean.
+
+    Transports may stringify metadata (gRPC uses map<string,string>), so
+    "False"/"0" must not count as truthy.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+def _metadata_number(value) -> Optional[float]:
+    """Interpret a metadata value as a finite positive number, else None."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number <= 0 or number != number or number == float("inf"):
+        return None
+    return number
+
+
 def canonical_agent_id(agent_id: Optional[str]) -> str:
     """Normalize an agent id for wait-graph identity comparisons.
 
@@ -105,7 +127,7 @@ class WaitGraphMonitor:
         # Only explicitly-marked blocking waits become edges; a plain
         # requires_response request does not prove the sender is blocked.
         metadata = event.metadata or {}
-        if not metadata.get("blocking_wait"):
+        if not _metadata_flag(metadata.get("blocking_wait")):
             return
 
         waiter = canonical_agent_id(event.source_id)
@@ -119,8 +141,8 @@ class WaitGraphMonitor:
         if event.event_name.endswith(".notification"):
             return
 
-        ttl = metadata.get("wait_timeout")
-        if not isinstance(ttl, (int, float)) or ttl <= 0:
+        ttl = _metadata_number(metadata.get("wait_timeout"))
+        if ttl is None:
             ttl = self._edge_ttl
         ttl = min(ttl, MAX_EDGE_TTL_SECONDS)
 
@@ -194,6 +216,11 @@ class WaitGraphMonitor:
         cycle = [cycle_edges[0].waiter] + [e.target for e in cycle_edges]
         agents = list(dict.fromkeys(cycle))  # de-duplicate, keep order
         request_ids = [e.request_id for e in cycle_edges]
+        # The notified waiters return immediately, so their waits no longer
+        # exist — drop the edges now or they would keep "deadlocking" new
+        # requests until their original timeouts.
+        for edge in cycle_edges:
+            self._edges.pop(edge.request_id, None)
         logger.warning(
             f"Wait-for cycle detected between agents: {' -> '.join(cycle)}"
         )

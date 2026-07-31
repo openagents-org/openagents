@@ -219,9 +219,11 @@ class AgentConnection:
         # Mark the request as a blocking wait (with its deadline) so the
         # network's wait-graph can detect deadlocks. requires_response alone
         # would not prove we are blocked — continuation-style requests also
-        # set it.
-        wait_metadata = {"blocking_wait": True, "wait_timeout": timeout}
-        wait_metadata.update(kwargs.pop("metadata", None) or {})
+        # set it. The internal fields are applied last so caller-supplied
+        # metadata cannot disable detection or forge the deadline.
+        wait_metadata = dict(kwargs.pop("metadata", None) or {})
+        wait_metadata["blocking_wait"] = True
+        wait_metadata["wait_timeout"] = timeout
         request = self._build_direct_message(
             content, requires_response=True, metadata=wait_metadata, **kwargs
         )

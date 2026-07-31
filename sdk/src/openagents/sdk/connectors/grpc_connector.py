@@ -529,6 +529,8 @@ class GRPCNetworkConnector(NetworkConnector):
             visibility=event.visibility if hasattr(event, "visibility") else "network",
             relevant_mod=event.relevant_mod or "",
             secret=getattr(event, 'secret', '') or '',
+            requires_response=bool(event.requires_response),
+            response_to=event.response_to or "",
         )
 
         # Add metadata
