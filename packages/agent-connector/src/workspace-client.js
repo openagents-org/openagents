@@ -192,26 +192,29 @@ class WorkspaceClient {
   }
 
   /**
-   * Fetch the most recent N messages in a channel, returned oldest-to-newest.
-   * Used by adapters to rebuild context for a fresh Claude Code session
-   * when --resume of the previous session fails (the channel's chat history
-   * is the only thing that survives a session-storage rotation).
+   * Fetch N messages in a channel, returned oldest-to-newest. `sort` picks
+   * which end of the channel the window comes from: 'desc' (default) takes
+   * the most recent N, 'asc' takes the channel's opening N. Used by adapters
+   * to rebuild context for a fresh Claude Code session when --resume of the
+   * previous session fails (the channel's chat history is the only thing
+   * that survives a session-storage rotation).
    */
-  async getRecentMessages(workspaceId, channelName, token, limit = 30) {
+  async getRecentMessages(workspaceId, channelName, token, limit = 30, { sort = 'desc' } = {}) {
     try {
       const params = new URLSearchParams({
         network: workspaceId,
         channel: channelName,
         type: 'workspace.message',
-        sort: 'desc',
+        sort,
         limit: String(limit),
       });
       const data = await this._get(`/v1/events?${params}`, this._wsHeaders(token));
       const result = data.data || data;
       const events = (result && result.events) || [];
-      // Server returned newest-first; reverse so the caller can present them
-      // in chronological order without further fiddling.
-      return events.slice().reverse().map((e) => this._eventToMessage(e));
+      // A desc window arrives newest-first; reverse so the caller always gets
+      // chronological order. An asc window is already chronological.
+      const ordered = sort === 'asc' ? events.slice() : events.slice().reverse();
+      return ordered.map((e) => this._eventToMessage(e));
     } catch {
       return [];
     }
@@ -737,18 +740,18 @@ class WorkspaceClient {
 
   // ── Knowledge Base ──
 
-  async listKnowledge(workspaceId, token, { limit = 100 } = {}) {
+  async listKnowledge(workspaceId, token, { limit = 100, timeout } = {}) {
     const params = new URLSearchParams({
       network: workspaceId,
       limit: String(limit),
     });
-    const data = await this._get(`/v1/knowledge?${params}`, this._wsHeaders(token));
+    const data = await this._get(`/v1/knowledge?${params}`, this._wsHeaders(token), timeout);
     return data.data || data;
   }
 
-  async getKnowledge(workspaceId, token, entryId) {
+  async getKnowledge(workspaceId, token, entryId, { timeout } = {}) {
     const params = new URLSearchParams({ network: workspaceId });
-    const data = await this._get(`/v1/knowledge/${entryId}?${params}`, this._wsHeaders(token));
+    const data = await this._get(`/v1/knowledge/${entryId}?${params}`, this._wsHeaders(token), timeout);
     return data.data || data;
   }
 
