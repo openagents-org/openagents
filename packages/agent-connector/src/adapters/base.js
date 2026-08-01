@@ -853,6 +853,12 @@ class BaseAdapter {
           // Soft-deleted: still served by id, but dead for updates.
           delete cache[channel];
           // Fall through to list+match below.
+        } else if (entry && typeof entry.title === 'string' && entry.title !== titles[0]) {
+          // Renamed (e.g. archived): the id no longer owns the canonical
+          // title, so the pin must re-resolve — a fallback or a replacement
+          // entry has to win over the stale cache.
+          delete cache[channel];
+          // Fall through to list+match below.
         } else {
           return { available: true, state: 'found', entryId: cachedId, title: titles[0], content: (entry && entry.content) || '', error: false };
         }

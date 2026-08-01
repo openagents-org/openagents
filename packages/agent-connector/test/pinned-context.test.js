@@ -102,6 +102,47 @@ describe('BaseAdapter._fetchGlossary', () => {
     assert.equal(res.entryId, null);
   });
 
+  it('a renamed cached entry is dropped in favor of the fallback or a replacement', async () => {
+    const adapter = mkBase();
+    // Steady state: the channel glossary 'ch-g' is cached.
+    adapter._glossaryEntryIds.general = 'ch-g';
+    const byId = {
+      // …but it has since been renamed for archival.
+      'ch-g': { id: 'ch-g', title: 'Glossary for channel general (archived)', content: '- stale' },
+      'ws-g': { id: 'ws-g', title: WORKSPACE_GLOSSARY_TITLE, content: '- workspace terms' },
+      'ch-g2': { id: 'ch-g2', title: glossaryTitle('general'), content: '- fresh terms' },
+    };
+    const listed = [byId['ws-g']];
+    adapter.client = {
+      getKnowledge: async (ws, tok, id) => byId[id],
+      listKnowledge: async () => ({ entries: listed }),
+    };
+    // Rename → cache invalidated → the workspace fallback wins.
+    const first = await adapter._fetchGlossary('general');
+    assert.equal(first.entryId, 'ws-g');
+    assert.equal(first.scope, 'workspace');
+    assert.equal(adapter._glossaryEntryIds.general, undefined);
+    // A replacement canonical entry appears → it wins over the fallback.
+    listed.push(byId['ch-g2']);
+    const second = await adapter._fetchGlossary('general');
+    assert.equal(second.entryId, 'ch-g2');
+    assert.equal(second.content, '- fresh terms');
+    assert.equal(adapter._glossaryEntryIds.general, 'ch-g2');
+  });
+
+  it('a GET response without a title never invalidates the cache', async () => {
+    // Older backends may omit title on GET-by-id; that must not be read as
+    // a rename.
+    const adapter = mkBase();
+    adapter._glossaryEntryIds.general = 'g-1';
+    adapter.client = {
+      getKnowledge: async (ws, tok, id) => ({ id, content: '- terms' }),
+    };
+    const res = await adapter._fetchGlossary('general');
+    assert.equal(res.entryId, 'g-1');
+    assert.equal(adapter._glossaryEntryIds.general, 'g-1');
+  });
+
   it('uses a cache independent from the decision log', async () => {
     const adapter = mkBase();
     const gets = [];
