@@ -21,6 +21,12 @@ const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
 const { generateSessionTitle, SESSION_DEFAULT_RE } = require('./utils');
 const { defaultAgentWorkdir } = require('../paths');
 const {
+  decisionLogTitle,
+  glossaryTitle,
+  WORKSPACE_GLOSSARY_TITLE,
+  pickEntryByTitle,
+} = require('./decision-log');
+const {
   REASON,
   classifyJoinError,
   classifyHeartbeatError,
@@ -85,6 +91,22 @@ class BaseAdapter {
     // workspace flag must reconnect/restart to pick up the change (matches
     // the Python adapter behavior in workspace_prompt.py).
     this._browserEnabledCache = null;
+    // ── Knowledge pinning (decision log + glossary) ──
+    // Entry-id caches make the steady state a single GET per pinned entry;
+    // reads happen on EVERY message, so they get a hard short deadline
+    // instead of the client's default 15s — a workspace hiccup must cost the
+    // turn a couple of seconds, not half a minute.
+    this._decisionEntryIds = {}; // channel → knowledge entry id of its decision log
+    this._glossaryEntryIds = {}; // channel → knowledge entry id of its glossary
+    this._DECISION_FETCH_TIMEOUT_MS = 2000;
+    this._warnedKnowledgeDisabled = false;
+    this._pinnedStatusWarned = new Set(); // channels already told pinning is inactive
+    // Subclasses whose sync prompt builders consume pinnedPromptOpts() set
+    // this true; the channel worker then refreshes _pinnedContext before
+    // every _handleMessage call. Adapters with their own pinning flow
+    // (Claude) fetch directly instead and leave it false.
+    this._usesPinnedContext = false;
+    this._pinnedContext = {}; // channel → { decisions, glossary }
     // Wall-clock timestamp of adapter init, used by the `status` control
     // action to report uptime back to the channel. Reset on reinstantiation
     // (e.g. after a `restart` IPC bounce) so uptime tracks "time since last
@@ -747,6 +769,7 @@ class BaseAdapter {
   async _channelWorker(channel, msg) {
     this._channelBusy.add(channel);
     try {
+      await this._prefetchPinnedContext(channel);
       await this._handleMessage(msg);
     } catch (e) {
       this._log(`Error in channel worker for ${channel}: ${e.message}`);
@@ -762,6 +785,8 @@ class BaseAdapter {
         try { await this.sendStatus(channel, 'processing queued message', { queue_id: nextMsg._queueId, queue_status: 'processed' }); } catch {}
       }
       try {
+        // Pinned entries may have changed while this message waited.
+        await this._prefetchPinnedContext(channel);
         await this._handleMessage(nextMsg);
       } catch (e) {
         this._log(`Error processing queued message in ${channel}: ${e.message}`);
@@ -769,6 +794,168 @@ class BaseAdapter {
       }
     }
     this._channelBusy.delete(channel);
+  }
+
+  // ------------------------------------------------------------------
+  // Knowledge pinning (decision log + glossary)
+  // ------------------------------------------------------------------
+
+  /**
+   * Read one pinned knowledge entry with a short per-request deadline
+   * (worst case one list + one get, ~2x that budget). `titles` is tried in
+   * precedence order against a single listing; `cache` maps channel → entry
+   * id. Returns { available, state, entryId, content, error }:
+   * - available=false  → knowledge module disabled, pinning inactive
+   * - state 'found'    → the entry exists (entryId set; content null when a
+   *                      transient error hid it this turn)
+   * - state 'absent'   → a successful listing confirmed no entry exists
+   * - state 'unknown'  → fetch failed before existence could be confirmed;
+   *                      the prompt must NOT claim the entry is missing, or a
+   *                      recovered network mid-turn produces a duplicate
+   * - error=true       → transient failure; callers must NOT treat this as
+   *                      "entry changed/empty"
+   * The matched entry id is cached per channel so the steady state is a
+   * single GET; a 404 or a soft-deleted entry (the backend keeps deleted
+   * rows readable by id with status "deleted") invalidates the cache and
+   * falls back to list+match, which only sees active entries.
+   */
+  async _fetchPinnedEntry(channel, titles, cache, label) {
+    if ((this.disabledModules || new Set()).has('knowledge')) {
+      if (!this._warnedKnowledgeDisabled) {
+        this._warnedKnowledgeDisabled = true;
+        this._log(
+          'Knowledge module is disabled — decision-log pinning is INACTIVE. ' +
+          'Confirmed decisions will not survive context compaction or session resets.'
+        );
+      }
+      if (!this._pinnedStatusWarned.has(channel)) {
+        this._pinnedStatusWarned.add(channel);
+        try {
+          await this.sendStatus(
+            channel,
+            'Decision pinning inactive: the knowledge module is disabled for ' +
+            'this agent, so confirmed decisions and the shared glossary ' +
+            'cannot be pinned across session resets.'
+          );
+        } catch {}
+      }
+      return { available: false, state: 'unknown', entryId: null, content: null, error: false };
+    }
+
+    const timeout = this._DECISION_FETCH_TIMEOUT_MS;
+    const cachedId = cache[channel];
+    if (cachedId) {
+      try {
+        const entry = await this.client.getKnowledge(this.workspaceId, this.token, cachedId, { timeout });
+        if (entry && entry.status && entry.status !== 'active') {
+          // Soft-deleted: still served by id, but dead for updates.
+          delete cache[channel];
+          // Fall through to list+match below.
+        } else {
+          return { available: true, state: 'found', entryId: cachedId, content: (entry && entry.content) || '', error: false };
+        }
+      } catch (e) {
+        if (/not found|HTTP 404/i.test(e.message || '')) {
+          delete cache[channel];
+          // Entry is gone — fall through to list+match below.
+        } else {
+          this._log(`${label} read failed (${e.message}) — reusing last known state`);
+          return { available: true, state: 'found', entryId: cachedId, content: null, error: true };
+        }
+      }
+    }
+
+    try {
+      const data = await this.client.listKnowledge(this.workspaceId, this.token, { limit: 500, timeout });
+      const entries = (data && data.entries) || [];
+      let entry = null;
+      for (const title of titles) {
+        const picked = pickEntryByTitle(entries, title);
+        if (picked.duplicates > 0) {
+          this._log(
+            `${label} WARNING for ${channel} — ${picked.duplicates + 1} knowledge entries share the title ` +
+            `"${title}"; using the earliest. The duplicates should be merged manually.`
+          );
+        }
+        if (picked.entry) { entry = picked.entry; break; }
+      }
+      if (!entry) return { available: true, state: 'absent', entryId: null, content: null, error: false };
+      cache[channel] = entry.id;
+      const full = await this.client.getKnowledge(this.workspaceId, this.token, entry.id, { timeout });
+      if (full && full.status && full.status !== 'active') {
+        // Deleted between the listing and the read.
+        delete cache[channel];
+        return { available: true, state: 'absent', entryId: null, content: null, error: false };
+      }
+      return { available: true, state: 'found', entryId: entry.id, content: (full && full.content) || '', error: false };
+    } catch (e) {
+      this._log(`${label} fetch failed (${e.message}) — reusing last known state`);
+      const knownId = cache[channel] || null;
+      return { available: true, state: knownId ? 'found' : 'unknown', entryId: knownId, content: null, error: true };
+    }
+  }
+
+  /** Read the channel's decision log. See _fetchPinnedEntry for the contract. */
+  async _fetchDecisionLog(channel) {
+    return this._fetchPinnedEntry(channel, [decisionLogTitle(channel)], this._decisionEntryIds, 'Decision log');
+  }
+
+  /**
+   * Read the channel's glossary — the channel-specific entry when it exists,
+   * else the workspace-wide fallback. See _fetchPinnedEntry for the contract.
+   */
+  async _fetchGlossary(channel) {
+    return this._fetchPinnedEntry(
+      channel,
+      [glossaryTitle(channel), WORKSPACE_GLOSSARY_TITLE],
+      this._glossaryEntryIds,
+      'Glossary'
+    );
+  }
+
+  /** Fetch everything pinnable for a channel: { decisions, glossary }. */
+  async _fetchPinnedContext(channel) {
+    const decisions = await this._fetchDecisionLog(channel);
+    const glossary = await this._fetchGlossary(channel);
+    return { decisions, glossary };
+  }
+
+  /**
+   * Refresh the pinned context ahead of _handleMessage for adapters that
+   * opted in (_usesPinnedContext). Failures degrade to "no pins this turn".
+   */
+  async _prefetchPinnedContext(channel) {
+    if (!this._usesPinnedContext) return;
+    try {
+      this._pinnedContext[channel] = await this._fetchPinnedContext(channel);
+    } catch (e) {
+      this._log(`Pinned-context fetch failed (${e && e.message ? e.message : e}) — continuing without pins`);
+    }
+  }
+
+  /**
+   * Prompt-builder options ({ decisionLog, glossary }) derived from the last
+   * prefetch for the channel. Sync, so prompt builders can call it inline;
+   * returns {} when nothing was prefetched or nothing is usable.
+   */
+  pinnedPromptOpts(channel) {
+    const ctx = this._pinnedContext[channel];
+    if (!ctx) return {};
+    const opts = {};
+    const d = ctx.decisions;
+    if (d && d.available) {
+      opts.decisionLog = {
+        enabled: true,
+        state: d.state,
+        entryId: d.entryId,
+        content: d.error ? '' : (d.content || ''),
+      };
+    }
+    const g = ctx.glossary;
+    if (g && g.available && g.state === 'found' && g.content) {
+      opts.glossary = { enabled: true, entryId: g.entryId, content: g.content };
+    }
+    return opts;
   }
 
   // ------------------------------------------------------------------

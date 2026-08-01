@@ -19,7 +19,7 @@ const { execSync, spawn } = require('child_process');
 const BaseAdapter = require('./base');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd, workspaceSkillName } = require('./workspace-prompt');
-const { decisionLogTitle, decisionFingerprint, pickDecisionEntry, sampleRecap } = require('./decision-log');
+const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -45,12 +45,9 @@ class ClaudeAdapter extends BaseAdapter {
     // a new message starts processing in the channel.
     this._stopNoticeSent = new Set();
     this._persistentProcs = {}; // channel → { proc, lineBuffer, pendingLines, idleTimer, messageResolve }
-    this._decisionEntryIds = {}; // channel → knowledge entry id of its decision log
-    // Decision-log reads happen on EVERY message, so they get a hard short
-    // deadline instead of the client's default 15s — a workspace hiccup must
-    // cost the turn a couple of seconds, not half a minute.
-    this._DECISION_FETCH_TIMEOUT_MS = 2000;
-    this._warnedKnowledgeDisabled = false;
+    // Knowledge pinning (decision log + glossary) lives in BaseAdapter; this
+    // adapter fetches directly in _handleMessage because the result also
+    // drives the persistent-process staleness check.
     this._IDLE_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
     this._WATCHDOG_INTERVAL_MS = 15_000; // 15s between checks
     this._WATCHDOG_MAX_TIMEOUTS = 20;    // 20 * 15s = 5 min of silence → kill
@@ -262,85 +259,6 @@ class ClaudeAdapter extends BaseAdapter {
   }
 
   /**
-   * Read the channel's decision log (a knowledge entry) with a short
-   * per-request deadline (worst case one list + one get, ~2x that budget).
-   * Returns { available, state, entryId, content, error }:
-   * - available=false  → knowledge module disabled, pinning inactive
-   * - state 'found'    → the entry exists (entryId set; content null when a
-   *                      transient error hid it this turn)
-   * - state 'absent'   → a successful listing confirmed no entry exists
-   * - state 'unknown'  → fetch failed before existence could be confirmed;
-   *                      the prompt must NOT claim the log is missing, or a
-   *                      recovered network mid-turn produces a duplicate
-   * - error=true       → transient failure; callers must NOT treat this as
-   *                      "log changed/empty"
-   * The matched entry id is cached per channel so the steady state is a
-   * single GET; a 404 or a soft-deleted entry (the backend keeps deleted
-   * rows readable by id with status "deleted") invalidates the cache and
-   * falls back to list+match, which only sees active entries.
-   */
-  async _fetchDecisionLog(channel) {
-    if (this.disabledModules.has('knowledge')) {
-      if (!this._warnedKnowledgeDisabled) {
-        this._warnedKnowledgeDisabled = true;
-        this._log(
-          'Knowledge module is disabled — decision-log pinning is INACTIVE. ' +
-          'Confirmed decisions will not survive context compaction or session resets.'
-        );
-      }
-      return { available: false, state: 'unknown', entryId: null, content: null, error: false };
-    }
-
-    const timeout = this._DECISION_FETCH_TIMEOUT_MS;
-    const cachedId = this._decisionEntryIds[channel];
-    if (cachedId) {
-      try {
-        const entry = await this.client.getKnowledge(this.workspaceId, this.token, cachedId, { timeout });
-        if (entry && entry.status && entry.status !== 'active') {
-          // Soft-deleted: still served by id, but dead for updates.
-          delete this._decisionEntryIds[channel];
-          // Fall through to list+match below.
-        } else {
-          return { available: true, state: 'found', entryId: cachedId, content: (entry && entry.content) || '', error: false };
-        }
-      } catch (e) {
-        if (/not found|HTTP 404/i.test(e.message || '')) {
-          delete this._decisionEntryIds[channel];
-          // Entry is gone — fall through to list+match below.
-        } else {
-          this._log(`Decision log read failed (${e.message}) — reusing last known state`);
-          return { available: true, state: 'found', entryId: cachedId, content: null, error: true };
-        }
-      }
-    }
-
-    try {
-      const data = await this.client.listKnowledge(this.workspaceId, this.token, { limit: 500, timeout });
-      const entries = (data && data.entries) || [];
-      const { entry, duplicates } = pickDecisionEntry(entries, channel);
-      if (duplicates > 0) {
-        this._log(
-          `Decision log WARNING for ${channel} — ${duplicates + 1} knowledge entries share the title ` +
-          `"${decisionLogTitle(channel)}"; using the earliest. The duplicates should be merged manually.`
-        );
-      }
-      if (!entry) return { available: true, state: 'absent', entryId: null, content: null, error: false };
-      this._decisionEntryIds[channel] = entry.id;
-      const full = await this.client.getKnowledge(this.workspaceId, this.token, entry.id, { timeout });
-      if (full && full.status && full.status !== 'active') {
-        // Deleted between the listing and the read.
-        delete this._decisionEntryIds[channel];
-        return { available: true, state: 'absent', entryId: null, content: null, error: false };
-      }
-      return { available: true, state: 'found', entryId: entry.id, content: (full && full.content) || '', error: false };
-    } catch (e) {
-      this._log(`Decision log fetch failed (${e.message}) — reusing last known state`);
-      const knownId = this._decisionEntryIds[channel] || null;
-      return { available: true, state: knownId ? 'found' : 'unknown', entryId: knownId, content: null, error: true };
-    }
-  }
-
-  /**
    * Post "Execution stopped by user." at most once per channel for a given
    * stop. The control-action handler and the in-flight message handler both
    * race to announce a stop; without this guard the user sees it twice. The
@@ -476,7 +394,7 @@ class ClaudeAdapter extends BaseAdapter {
     return null;
   }
 
-  _buildClaudeCmd(prompt, channelName, { skipResume = false, browserEnabled = false, decisionLog = null } = {}) {
+  _buildClaudeCmd(prompt, channelName, { skipResume = false, browserEnabled = false, decisionLog = null, glossary = null } = {}) {
     const claudeBin = this._findClaudeBinary();
     if (!claudeBin) {
       throw new Error('claude CLI not found. Install with: curl -fsSL https://claude.ai/install.sh | bash');
@@ -493,6 +411,7 @@ class ClaudeAdapter extends BaseAdapter {
       browserEnabled,
       toolMode: this.toolMode,
       decisionLog,
+      glossary,
     });
 
     const cmd = [claudeBin, '-p', prompt, '--output-format', 'stream-json', '--verbose'];
@@ -582,6 +501,12 @@ class ClaudeAdapter extends BaseAdapter {
     if (!this.disabledModules.has('search')) {
       mcpTools.push(`${pfx}workspace_image_search`);
       mcpWriteTools.push(`${pfx}workspace_image_save`);
+    }
+    if (!this.disabledModules.has('knowledge')) {
+      // The decision-log/glossary protocol instructs these by name — they
+      // must be callable or the pinned knowledge silently stops updating.
+      mcpTools.push(`${pfx}workspace_list_knowledge`, `${pfx}workspace_read_knowledge`);
+      mcpWriteTools.push(`${pfx}workspace_write_knowledge`);
     }
     if (!this.disabledModules.has('browser')) {
       mcpTools.push(
@@ -1151,16 +1076,25 @@ class ClaudeAdapter extends BaseAdapter {
 
     await this.sendStatus(msgChannel, 'thinking...');
 
-    // Read the channel's decision log up front — the fast-path staleness
-    // check and any (re)spawn below both need it.
+    // Read the channel's pinned knowledge (decision log + glossary) up front
+    // — the fast-path staleness check and any (re)spawn below both need it.
     const decisions = await this._fetchDecisionLog(msgChannel);
-    // null fingerprint = fetch failed, current state unknown; never treat
+    const glossary = await this._fetchGlossary(msgChannel);
+    // null fingerprint = a fetch failed, current state unknown; never treat
     // that as a change (it would churn respawns on every workspace hiccup).
-    // The fingerprint covers entry id AND content — both are pinned into the
-    // prompt, and a recreated entry can change id without changing content.
-    const decisionHash = decisions.error ? null : decisionFingerprint(decisions.entryId, decisions.content);
+    // The fingerprint covers entry ids AND content — both are pinned into
+    // the prompt, and a recreated entry can change id without changing content.
+    const pinnedHash = (decisions.error || glossary.error)
+      ? null
+      : pinnedFingerprint([
+        { entryId: decisions.entryId, content: decisions.content },
+        { entryId: glossary.entryId, content: glossary.content },
+      ]);
     const decisionLogOpt = decisions.available
       ? { enabled: true, state: decisions.state, entryId: decisions.entryId, content: decisions.error ? '' : (decisions.content || '') }
+      : null;
+    const glossaryOpt = (glossary.available && glossary.state === 'found' && glossary.content)
+      ? { enabled: true, entryId: glossary.entryId, content: glossary.content }
       : null;
 
     // ── Persistent process fast-path ──
@@ -1172,17 +1106,17 @@ class ClaudeAdapter extends BaseAdapter {
       // system prompt AND the CLI permission flags (plan mode is read-only,
       // execute skips permissions) — so a process from the other mode can
       // never be reused. This check is deliberately independent of the
-      // decision fingerprint: a failed decision fetch must not keep a
+      // pinned fingerprint: a failed knowledge fetch must not keep a
       // read-only plan process serving execute requests.
       const modeStale = existingPP.spawnMode !== this._mode;
-      const decisionsStale = decisionHash !== null && existingPP.decisionHash !== decisionHash;
-      if (modeStale || decisionsStale) {
+      const pinnedStale = pinnedHash !== null && existingPP.pinnedHash !== pinnedHash;
+      if (modeStale || pinnedStale) {
         // Kill it and fall through to a fresh spawn: --resume keeps the
         // conversation (it lives in the CLI transcript), while the new spawn
-        // carries the current mode and re-pins the current decisions.
+        // carries the current mode and re-pins the current knowledge.
         this._log(modeStale
           ? `Mode changed to ${this._mode} for ${msgChannel} — respawning with resume`
-          : `Decision log changed for ${msgChannel} — respawning with resume to re-pin decisions`);
+          : `Pinned knowledge changed for ${msgChannel} — respawning with resume to re-pin it`);
         await this._killPersistentProc(msgChannel);
       } else {
         this._log(`Reusing persistent process for ${msgChannel}`);
@@ -1288,6 +1222,7 @@ class ClaudeAdapter extends BaseAdapter {
           skipResume: attempt > 0,
           browserEnabled,
           decisionLog: decisionLogOpt,
+          glossary: glossaryOpt,
         });
         cmd = built.cmd;
         mcpConfigFile = built.mcpConfigFile;
@@ -1299,11 +1234,14 @@ class ClaudeAdapter extends BaseAdapter {
       try {
         const pp = this._spawnPersistentProc(msgChannel, cmd, cleanEnv);
         // Remember the spawn-time configuration so the fast-path can detect
-        // staleness on later messages — the decision-log state and the mode
+        // staleness on later messages — the pinned knowledge and the mode
         // (which fixes both the system prompt and the permission flags).
-        pp.decisionHash = decisionLogOpt
-          ? decisionFingerprint(decisionLogOpt.entryId, decisionLogOpt.content)
-          : decisionFingerprint(null, null);
+        // When the fetch errored (pinnedHash null) hash what was actually
+        // pinned, so the next successful fetch triggers a re-pin.
+        pp.pinnedHash = pinnedHash !== null ? pinnedHash : pinnedFingerprint([
+          { entryId: decisionLogOpt && decisionLogOpt.entryId, content: decisionLogOpt && decisionLogOpt.content },
+          { entryId: glossaryOpt && glossaryOpt.entryId, content: glossaryOpt && glossaryOpt.content },
+        ]);
         pp.spawnMode = this._mode;
         this._log(`Spawned persistent process for ${msgChannel} (attempt ${attempt + 1})`);
 

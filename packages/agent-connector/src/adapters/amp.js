@@ -48,6 +48,8 @@ class AmpAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    // Pin the channel's decision log + glossary into the system prompt.
+    this._usesPinnedContext = true;
 
     // channel -> Amp thread id (for `amp threads continue <id>`)
     this._channelThreads = {};
@@ -181,6 +183,7 @@ class AmpAdapter extends BaseAdapter {
       mode: this._mode,
       disabledModules: this.disabledModules,
       browserEnabled,
+      ...this.pinnedPromptOpts(channelName),
     });
   }
 
