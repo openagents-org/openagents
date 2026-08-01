@@ -854,6 +854,10 @@ async function main() {
       const disabledModules = new Set();
       if (flags['disable-files']) disabledModules.add('files');
       if (flags['disable-browser']) disabledModules.add('browser');
+      // Without this the server still registers the knowledge tools, and in
+      // execute mode --dangerously-skip-permissions makes the allowlist a
+      // suggestion, not a boundary.
+      if (flags['disable-knowledge']) disabledModules.add('knowledge');
       runMcpServer({ workspaceId, channelName, agentName, endpoint, token, disabledModules });
     },
   };

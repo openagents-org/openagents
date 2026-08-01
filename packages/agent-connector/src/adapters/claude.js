@@ -550,6 +550,7 @@ class ClaudeAdapter extends BaseAdapter {
     ];
     if (this.disabledModules.has('files')) mcpArgs.push('--disable-files');
     if (this.disabledModules.has('browser')) mcpArgs.push('--disable-browser');
+    if (this.disabledModules.has('knowledge')) mcpArgs.push('--disable-knowledge');
 
     // Resolve the MCP server entry point
     let mcpCommand = this._findNodeBin();
@@ -1094,7 +1095,7 @@ class ClaudeAdapter extends BaseAdapter {
       ? { enabled: true, state: decisions.state, entryId: decisions.entryId, content: decisions.error ? '' : (decisions.content || '') }
       : null;
     const glossaryOpt = (glossary.available && glossary.state === 'found' && glossary.content)
-      ? { enabled: true, entryId: glossary.entryId, content: glossary.content }
+      ? { enabled: true, entryId: glossary.entryId, content: glossary.content, scope: glossary.scope || 'channel' }
       : null;
 
     // ── Persistent process fast-path ──

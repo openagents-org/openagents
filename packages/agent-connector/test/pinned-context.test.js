@@ -57,6 +57,7 @@ describe('BaseAdapter._fetchGlossary', () => {
     const res = await adapter._fetchGlossary('general');
     assert.equal(res.entryId, 'ch-g');
     assert.equal(res.content, 'content of ch-g');
+    assert.equal(res.scope, 'channel');
     assert.equal(adapter._glossaryEntryIds.general, 'ch-g');
   });
 
@@ -71,6 +72,26 @@ describe('BaseAdapter._fetchGlossary', () => {
     const res = await adapter._fetchGlossary('general');
     assert.equal(res.entryId, 'ws-g');
     assert.equal(res.state, 'found');
+    assert.equal(res.scope, 'workspace');
+    // The fallback must NOT be cached under the channel key, or the cached-id
+    // fast path would mask a channel glossary created later.
+    assert.equal(adapter._glossaryEntryIds.general, undefined);
+  });
+
+  it('a channel glossary created after a fallback hit wins on the next fetch', async () => {
+    const adapter = mkBase();
+    const entries = [{ id: 'ws-g', title: WORKSPACE_GLOSSARY_TITLE }];
+    adapter.client = {
+      listKnowledge: async () => ({ entries }),
+      getKnowledge: async (ws, tok, id) => ({ id, content: `content of ${id}` }),
+    };
+    const first = await adapter._fetchGlossary('general');
+    assert.equal(first.entryId, 'ws-g');
+    // Someone creates the channel-specific glossary afterwards…
+    entries.push({ id: 'ch-g', title: glossaryTitle('general') });
+    const second = await adapter._fetchGlossary('general');
+    assert.equal(second.entryId, 'ch-g');
+    assert.equal(second.scope, 'channel');
   });
 
   it('reports absent when neither glossary exists', async () => {
@@ -122,7 +143,26 @@ describe('pinnedPromptOpts / _prefetchPinnedContext', () => {
     await adapter._prefetchPinnedContext('general');
     const opts = adapter.pinnedPromptOpts('general');
     assert.deepEqual(opts.decisionLog, { enabled: true, state: 'found', entryId: 'd-1', content: '- decided' });
-    assert.deepEqual(opts.glossary, { enabled: true, entryId: 'g-1', content: '- defined' });
+    assert.deepEqual(opts.glossary, { enabled: true, entryId: 'g-1', content: '- defined', scope: 'channel' });
+  });
+
+  it('a transient failure keeps the last successful pin', async () => {
+    const adapter = mkBase();
+    adapter._usesPinnedContext = true;
+    let fail = false;
+    adapter._fetchDecisionLog = async () => fail
+      ? { available: true, state: 'found', entryId: 'd-1', content: null, error: true }
+      : { available: true, state: 'found', entryId: 'd-1', content: '- decided', error: false };
+    adapter._fetchGlossary = async () => fail
+      ? { available: true, state: 'unknown', entryId: null, content: null, error: true }
+      : { available: true, state: 'found', entryId: 'g-1', content: '- defined', error: false, scope: 'channel' };
+
+    await adapter._prefetchPinnedContext('general');
+    fail = true;
+    await adapter._prefetchPinnedContext('general');
+    const opts = adapter.pinnedPromptOpts('general');
+    assert.equal(opts.decisionLog.content, '- decided');
+    assert.equal(opts.glossary.content, '- defined');
   });
 
   it('does not prefetch unless the adapter opted in', async () => {
@@ -190,6 +230,13 @@ describe('buildGlossaryPrompt', () => {
     const readOnly = buildGlossaryPrompt({ entryId: 'g-1', content: '- x', writeAccess: false });
     assert.ok(!readOnly.includes('write it back'));
     assert.ok(readOnly.includes('BEGIN PINNED GLOSSARY (data)'));
+  });
+
+  it('the workspace-wide fallback is read-only for channel agents', () => {
+    const out = buildGlossaryPrompt({ entryId: 'ws-g', content: '- x', scope: 'workspace' });
+    assert.ok(out.includes('do NOT edit it yourself'));
+    assert.ok(!out.includes('write it back'));
+    assert.ok(out.includes('BEGIN PINNED GLOSSARY (data)'));
   });
 });
 
@@ -273,5 +320,46 @@ describe('Claude MCP allowlist covers the knowledge tools', () => {
   it('omits knowledge tools when the module is disabled', () => {
     const allowed = buildCmd({ disabledModules: new Set(['knowledge']) });
     assert.ok(!allowed.some((t) => t.includes('_knowledge')));
+  });
+
+  it('propagates the disable to the MCP server so the tools are not even registered', () => {
+    // allowedTools omission is not a boundary under
+    // --dangerously-skip-permissions; the server itself must drop the tools.
+    const mk = (disabled) => new ClaudeAdapter({
+      workspaceId: 'ws-1', channelName: 'general', token: 'tok', agentName: 'claude',
+      toolMode: 'mcp', disabledModules: disabled,
+    });
+    const readArgs = (adapter) => {
+      const { mcpConfigFile } = adapter._buildMcpCmd(['claude'], 'general');
+      const config = JSON.parse(fs.readFileSync(mcpConfigFile, 'utf-8'));
+      try { fs.unlinkSync(mcpConfigFile); } catch {}
+      return config.mcpServers['openagents-workspace'].args;
+    };
+    assert.ok(readArgs(mk(new Set(['knowledge']))).includes('--disable-knowledge'));
+    assert.ok(!readArgs(mk(new Set())).includes('--disable-knowledge'));
+  });
+});
+
+describe('Goose pins read-only into its per-turn system prompt', () => {
+  it('emits both sections without any write protocol', () => {
+    const GooseAdapter = require('../src/adapters/goose');
+    const adapter = new GooseAdapter({
+      workspaceId: `test-ws-${Math.random().toString(36).slice(2)}`,
+      channelName: 'general', token: 'tok', agentName: 'goose',
+    });
+    assert.equal(adapter._usesPinnedContext, true);
+    adapter._pinnedContext.general = {
+      decisions: { available: true, state: 'found', entryId: 'd-1', content: '- fields are snake_case', error: false },
+      glossary: { available: true, state: 'found', entryId: 'g-1', content: '- amount: minor units', error: false, scope: 'channel' },
+    };
+    const prompt = adapter._buildSystemPrompt('general');
+    assert.ok(prompt.includes('## Decision log'));
+    assert.ok(prompt.includes('- fields are snake_case'));
+    assert.ok(prompt.includes('## Shared glossary'));
+    assert.ok(prompt.includes('- amount: minor units'));
+    assert.ok(prompt.includes('cannot update this log'));
+    assert.ok(!prompt.includes('Update protocol'));
+    // Without a prefetch the prompt simply has no pinned sections.
+    assert.ok(!adapter._buildSystemPrompt('other').includes('## Decision log'));
   });
 });

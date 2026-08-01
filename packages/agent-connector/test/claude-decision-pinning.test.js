@@ -95,7 +95,7 @@ describe('_fetchDecisionLog', () => {
     };
 
     const res = await adapter._fetchDecisionLog('general');
-    assert.deepEqual(res, { available: true, state: 'found', entryId: 'e-1', content: '- pinned fact', error: false });
+    assert.deepEqual(res, { available: true, state: 'found', entryId: 'e-1', title: decisionLogTitle('general'), content: '- pinned fact', error: false });
     assert.equal(adapter._decisionEntryIds.general, 'e-1');
     // Short deadline on every request.
     for (const c of calls) assert.equal(c.at(-1).timeout, adapter._DECISION_FETCH_TIMEOUT_MS);

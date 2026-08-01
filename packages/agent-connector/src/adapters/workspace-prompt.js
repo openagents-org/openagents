@@ -799,7 +799,7 @@ function buildDecisionLogPrompt({ toolMode = 'mcp', channelName, entryId = null,
  * is deliberately no "create one" protocol here: the glossary is created
  * and curated by the team (or the master agent), not spawned ad hoc.
  */
-function buildGlossaryPrompt({ toolMode = 'mcp', entryId = null, content = '', mode = 'execute', writeAccess = true }) {
+function buildGlossaryPrompt({ toolMode = 'mcp', entryId = null, content = '', mode = 'execute', writeAccess = true, scope = 'channel' }) {
   const parts = [];
   parts.push('\n## Shared glossary\n');
   parts.push(
@@ -832,7 +832,17 @@ function buildGlossaryPrompt({ toolMode = 'mcp', entryId = null, content = '', m
     }
   }
 
-  if (writeAccess && mode !== 'plan' && entryId) {
+  if (scope === 'workspace') {
+    // The workspace-wide fallback serves EVERY channel. A channel-local
+    // clarification written into it would silently change the definitions
+    // other channels rely on, so agents never edit it directly.
+    parts.push(
+      '\nThis is the workspace-wide glossary shared by every channel — do ' +
+      'NOT edit it yourself. If the user confirms a definition change, ' +
+      'restate it in your reply and ask the user (or the master agent) to ' +
+      'apply it, since the change would affect all channels.\n'
+    );
+  } else if (writeAccess && mode !== 'plan' && entryId) {
     const { readTool, writeTool } = knowledgeToolPhrases(toolMode);
     parts.push(
       '\nWhen the user explicitly confirms a change to a definition, update ' +
@@ -879,6 +889,7 @@ function buildPinnedSections({ toolMode = 'mcp', channelName, mode = 'execute', 
       content: glossary.content || '',
       mode,
       writeAccess: glossary.writeAccess !== false,
+      scope: glossary.scope || 'channel',
     }));
   }
   return parts;

@@ -839,10 +839,12 @@ class BaseAdapter {
           );
         } catch {}
       }
-      return { available: false, state: 'unknown', entryId: null, content: null, error: false };
+      return { available: false, state: 'unknown', entryId: null, title: null, content: null, error: false };
     }
 
     const timeout = this._DECISION_FETCH_TIMEOUT_MS;
+    // Only highest-precedence matches are ever cached (see below), so a
+    // cached id always belongs to titles[0].
     const cachedId = cache[channel];
     if (cachedId) {
       try {
@@ -852,7 +854,7 @@ class BaseAdapter {
           delete cache[channel];
           // Fall through to list+match below.
         } else {
-          return { available: true, state: 'found', entryId: cachedId, content: (entry && entry.content) || '', error: false };
+          return { available: true, state: 'found', entryId: cachedId, title: titles[0], content: (entry && entry.content) || '', error: false };
         }
       } catch (e) {
         if (/not found|HTTP 404/i.test(e.message || '')) {
@@ -860,7 +862,7 @@ class BaseAdapter {
           // Entry is gone — fall through to list+match below.
         } else {
           this._log(`${label} read failed (${e.message}) — reusing last known state`);
-          return { available: true, state: 'found', entryId: cachedId, content: null, error: true };
+          return { available: true, state: 'found', entryId: cachedId, title: titles[0], content: null, error: true };
         }
       }
     }
@@ -869,6 +871,7 @@ class BaseAdapter {
       const data = await this.client.listKnowledge(this.workspaceId, this.token, { limit: 500, timeout });
       const entries = (data && data.entries) || [];
       let entry = null;
+      let matchedTitle = null;
       for (const title of titles) {
         const picked = pickEntryByTitle(entries, title);
         if (picked.duplicates > 0) {
@@ -877,21 +880,26 @@ class BaseAdapter {
             `"${title}"; using the earliest. The duplicates should be merged manually.`
           );
         }
-        if (picked.entry) { entry = picked.entry; break; }
+        if (picked.entry) { entry = picked.entry; matchedTitle = title; break; }
       }
-      if (!entry) return { available: true, state: 'absent', entryId: null, content: null, error: false };
-      cache[channel] = entry.id;
+      if (!entry) return { available: true, state: 'absent', entryId: null, title: null, content: null, error: false };
+      // Cache ONLY a highest-precedence match. Caching a fallback (e.g. the
+      // workspace glossary) under the channel key would let the cached-id
+      // fast path skip the precedence check forever, permanently masking a
+      // channel-specific entry created later. Fallback users pay one extra
+      // list per message instead.
+      if (matchedTitle === titles[0]) cache[channel] = entry.id;
       const full = await this.client.getKnowledge(this.workspaceId, this.token, entry.id, { timeout });
       if (full && full.status && full.status !== 'active') {
         // Deleted between the listing and the read.
         delete cache[channel];
-        return { available: true, state: 'absent', entryId: null, content: null, error: false };
+        return { available: true, state: 'absent', entryId: null, title: null, content: null, error: false };
       }
-      return { available: true, state: 'found', entryId: entry.id, content: (full && full.content) || '', error: false };
+      return { available: true, state: 'found', entryId: entry.id, title: matchedTitle, content: (full && full.content) || '', error: false };
     } catch (e) {
       this._log(`${label} fetch failed (${e.message}) — reusing last known state`);
       const knownId = cache[channel] || null;
-      return { available: true, state: knownId ? 'found' : 'unknown', entryId: knownId, content: null, error: true };
+      return { available: true, state: knownId ? 'found' : 'unknown', entryId: knownId, title: knownId ? titles[0] : null, content: null, error: true };
     }
   }
 
@@ -903,14 +911,19 @@ class BaseAdapter {
   /**
    * Read the channel's glossary — the channel-specific entry when it exists,
    * else the workspace-wide fallback. See _fetchPinnedEntry for the contract.
+   * The result carries scope 'channel' | 'workspace' (null when not found)
+   * so prompts can treat the shared fallback as read-only.
    */
   async _fetchGlossary(channel) {
-    return this._fetchPinnedEntry(
+    const res = await this._fetchPinnedEntry(
       channel,
       [glossaryTitle(channel), WORKSPACE_GLOSSARY_TITLE],
       this._glossaryEntryIds,
       'Glossary'
     );
+    res.scope = res.title === WORKSPACE_GLOSSARY_TITLE ? 'workspace'
+      : res.title ? 'channel' : null;
+    return res;
   }
 
   /** Fetch everything pinnable for a channel: { decisions, glossary }. */
@@ -922,14 +935,27 @@ class BaseAdapter {
 
   /**
    * Refresh the pinned context ahead of _handleMessage for adapters that
-   * opted in (_usesPinnedContext). Failures degrade to "no pins this turn".
+   * opted in (_usesPinnedContext). A transient read failure must not wipe
+   * the last successful pin — prompt-per-turn adapters would lose the
+   * authoritative definitions for that turn — so an errored entry keeps the
+   * previous good result; a thrown fetch keeps the previous context whole.
    */
   async _prefetchPinnedContext(channel) {
     if (!this._usesPinnedContext) return;
     try {
-      this._pinnedContext[channel] = await this._fetchPinnedContext(channel);
+      const fresh = await this._fetchPinnedContext(channel);
+      const prev = this._pinnedContext[channel];
+      if (prev) {
+        if (fresh.decisions && fresh.decisions.error && prev.decisions && !prev.decisions.error) {
+          fresh.decisions = prev.decisions;
+        }
+        if (fresh.glossary && fresh.glossary.error && prev.glossary && !prev.glossary.error) {
+          fresh.glossary = prev.glossary;
+        }
+      }
+      this._pinnedContext[channel] = fresh;
     } catch (e) {
-      this._log(`Pinned-context fetch failed (${e && e.message ? e.message : e}) — continuing without pins`);
+      this._log(`Pinned-context fetch failed (${e && e.message ? e.message : e}) — reusing the last pinned context`);
     }
   }
 
@@ -953,7 +979,7 @@ class BaseAdapter {
     }
     const g = ctx.glossary;
     if (g && g.available && g.state === 'found' && g.content) {
-      opts.glossary = { enabled: true, entryId: g.entryId, content: g.content };
+      opts.glossary = { enabled: true, entryId: g.entryId, content: g.content, scope: g.scope || 'channel' };
     }
     return opts;
   }
