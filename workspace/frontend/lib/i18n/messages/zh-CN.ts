@@ -612,7 +612,7 @@ export const messages: Messages = {
     resume: '继续会话',
     clarifyLabel: '先澄清需求,再开始执行',
     clarifyHint:
-      '推荐开启。在你确认需求之前,由一个智能体负责需求澄清;其他智能体可以被征询意见,但不能开始动手。',
+      '推荐开启。在你确认需求之前,由一个智能体负责需求澄清;其他智能体可以被征询意见,但会保持在规划模式。',
     clarifyOwnerLabel: '由谁负责需求?',
     clarifyOwnerPlaceholder: '选择一个智能体…',
     clarifyOwnerMaster: '{name}(工作区负责人)',

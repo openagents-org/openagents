@@ -201,7 +201,7 @@ class TestOwnerRepair:
         assert ch.phase_owner == "pm"
         assert ch.phase == PHASE_CLARIFYING
 
-    def test_removing_the_only_gatekeeper_opens_the_gate(self, db, gated_workspace):
+    def test_removing_the_only_gatekeeper_leaves_the_gate_unowned(self, db, gated_workspace):
         ws = gated_workspace["workspace"]
         ch = gated_workspace["channel"]
         ch.master_agent = None
@@ -218,12 +218,14 @@ class TestOwnerRepair:
         )
         _run(_handle_agent_remove(event, ctx))
         db.refresh(ch)
-        # Better an honestly open thread than one gated on a removed agent.
-        assert ch.phase == PHASE_OPEN
+        # The gate stays on — losing an agent is not the user deciding the
+        # requirement is settled — but nobody owns it, so routing holds
+        # everyone in plan mode until a human names a replacement.
+        assert ch.phase == PHASE_CLARIFYING
         assert ch.phase_owner is None
 
     def test_owner_who_is_also_master_leaves_nothing_stale_behind(self, db, gated_workspace):
-        """owner == master is the common shape. Opening the gate is not
+        """owner == master is the common shape. Clearing the owner is not
         enough: a stale master_agent keeps every later message routed at the
         agent that just walked out."""
         ws = gated_workspace["workspace"]
@@ -241,10 +243,11 @@ class TestOwnerRepair:
         _run(_handle_channel_leave(event, ctx))
         db.refresh(ch)
         assert ch.master_agent is None
-        assert ch.phase == PHASE_OPEN
+        assert ch.phase == PHASE_CLARIFYING   # only a human removes a gate
         assert ch.phase_owner is None
 
-        # The next human message must reach somebody who is still here.
+        # The next human message must reach somebody who is still here, and
+        # that somebody must not be free to start building.
         msg = _make_event("human:user", "so where are we?")
         out = _run(_handle_message_posted(
             msg,
@@ -254,6 +257,8 @@ class TestOwnerRepair:
         ))
         assert "pm" not in out.metadata["target_agents"]
         assert out.metadata["target_agents"] != ["__no_response__"]
+        for name in out.metadata["target_agents"]:
+            assert out.metadata["target_modes"][name] == "plan"
 
     def test_removing_the_master_promotes_a_survivor(self, db, gated_workspace):
         """Guards the query behind the repair: picking the next master over
@@ -294,9 +299,11 @@ class TestOwnerRepair:
 
 
 class TestChannelCreateGate:
-    def test_clarifying_without_a_valid_owner_is_created_open(self, db):
-        """Threads from the picker have no master; a gate asked for without
-        an owner must not be born in the unenforceable state."""
+    def test_clarifying_without_a_valid_owner_is_gated_but_unowned(self, db):
+        """Threads from the picker have no master. The gate is kept but left
+        unowned — routing then holds everyone in plan mode — rather than
+        silently creating the thread open, which would look protected while
+        the first message went to a builder."""
         ws = Workspace(name="Create WS", slug="create-ws", password_hash="t")
         db.add(ws)
         db.flush()
@@ -316,7 +323,7 @@ class TestChannelCreateGate:
         ch = db.execute(
             select(Channel).where(Channel.workspace_id == ws.id, Channel.name == "c-open")
         ).scalar_one()
-        assert ch.phase == PHASE_OPEN
+        assert ch.phase == PHASE_CLARIFYING, "an explicit gate request must never be dropped"
         assert ch.phase_owner is None
 
     def test_ghost_owner_in_the_participants_payload_is_refused(self, db):
@@ -346,7 +353,7 @@ class TestChannelCreateGate:
         ch = db.execute(
             select(Channel).where(Channel.workspace_id == ws.id, Channel.name == "c-ghost")
         ).scalar_one()
-        assert ch.phase == PHASE_OPEN
+        assert ch.phase == PHASE_CLARIFYING, "an explicit gate request must never be dropped"
         assert ch.phase_owner is None
 
     def test_owner_outside_the_participants_is_refused(self, db):
@@ -377,7 +384,7 @@ class TestChannelCreateGate:
         ch = db.execute(
             select(Channel).where(Channel.workspace_id == ws.id, Channel.name == "c-outsider")
         ).scalar_one()
-        assert ch.phase == PHASE_OPEN
+        assert ch.phase == PHASE_CLARIFYING, "an explicit gate request must never be dropped"
         assert ch.phase_owner is None
 
     def test_creating_without_a_phase_is_open(self, db):
@@ -404,6 +411,66 @@ class TestChannelCreateGate:
         ).scalar_one()
         assert ch.phase == PHASE_OPEN
         assert ch.phase_owner is None
+
+    def test_create_reports_what_was_persisted(self, db):
+        """Clients must render the gate from the response, not from what they
+        asked for — the two differ exactly when the owner went stale."""
+        ws = Workspace(name="Create WS8", slug="create-ws8", password_hash="t")
+        db.add(ws)
+        db.flush()
+        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online"))
+        db.flush()
+        event = Event(
+            type="network.channel.create",
+            source="human:user",
+            target="core",
+            payload={
+                "name": "c-report",
+                "participants": ["rd"],
+                "phase": "clarifying",
+                "phase_owner": "pm-that-just-left",
+            },
+            metadata={},
+        )
+        ctx = PipelineContext(
+            network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws,
+        )
+        out = _run(_handle_channel_create(event, ctx))
+        assert out.metadata["phase"] == PHASE_CLARIFYING
+        assert out.metadata["phase_owner"] is None
+
+    def test_unowned_gate_from_creation_still_blocks_building(self, db):
+        """The safety claim behind keeping an unowned gate: the first message
+        is answered, but nobody may implement."""
+        ws = Workspace(name="Create WS9", slug="create-ws9", password_hash="t")
+        db.add(ws)
+        db.flush()
+        for name in ("pm", "rd"):
+            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online"))
+        db.flush()
+        ctx = PipelineContext(
+            network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws,
+        )
+        _run(_handle_channel_create(Event(
+            type="network.channel.create",
+            source="human:user",
+            target="core",
+            payload={
+                "name": "c-unowned",
+                "participants": ["rd", "pm"],
+                "phase": "clarifying",
+                "phase_owner": "gone",
+            },
+            metadata={},
+        ), ctx))
+
+        out = _run(_handle_message_posted(
+            _make_event("human:user", "ship the sync feature", target="channel/c-unowned"),
+            ctx,
+        ))
+        assert out.metadata["target_agents"] != ["__no_response__"]
+        for name in out.metadata["target_agents"]:
+            assert out.metadata["target_modes"][name] == "plan"
 
     def test_gate_is_live_for_the_very_first_message(self, db):
         """The whole point of sending the phase with the create event: there
@@ -468,7 +535,7 @@ class TestChannelCreateGate:
         ch = db.execute(
             select(Channel).where(Channel.workspace_id == ws.id, Channel.name == "c-removed")
         ).scalar_one()
-        assert ch.phase == PHASE_OPEN
+        assert ch.phase == PHASE_CLARIFYING, "an explicit gate request must never be dropped"
         assert ch.phase_owner is None
 
     def test_clarifying_with_a_participant_owner_is_honoured(self, db):

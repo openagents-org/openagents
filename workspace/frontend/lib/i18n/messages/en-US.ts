@@ -629,7 +629,7 @@ export const messages = {
     resume: 'Resume Thread',
     clarifyLabel: 'Clarify requirements before execution',
     clarifyHint:
-      'Recommended. One agent owns the requirement until you confirm it — the others can be asked for input but cannot start building.',
+      'Recommended. One agent owns the requirement until you confirm it — the others can be asked for input, but are kept in planning mode.',
     clarifyOwnerLabel: 'Who owns the requirement?',
     clarifyOwnerPlaceholder: 'Select an agent…',
     clarifyOwnerMaster: '{name} (workspace leader)',

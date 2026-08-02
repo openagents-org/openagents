@@ -366,12 +366,25 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
             ).scalar_one_or_none()
             known = bool(owner_member) and (owner_member.status or "").lower() != "removed"
         if not resolved or resolved not in initial or not known:
+            # Do NOT quietly create this thread open. The caller explicitly
+            # asked for a gate, and the owner can go stale between the client
+            # listing agents and this handler running (removed, taken
+            # offline). Creating it open would leave the client believing the
+            # thread is protected while its very first message routes to a
+            # builder — the failure mode this whole feature exists to remove.
+            #
+            # Keep the gate and leave it unowned instead: routing degrades to
+            # "everyone answers in plan mode" (see `_apply_phase_gate`), so
+            # nothing can be built, and the thread renders as "Clarifying ·
+            # needs an owner" until a human names one. Rejecting the event
+            # outright would throw away the whole thread the user just set up.
             logger.warning(
                 "workspace_mod: channel.create asked for phase=clarifying with "
-                "owner %r not among participants %s — creating it open instead",
+                "owner %r not among live participants %s — creating it gated "
+                "but unowned (plan-only) so nothing starts building",
                 resolved, initial,
             )
-            phase, phase_owner = PHASE_OPEN, None
+            phase_owner = None
         else:
             phase_owner = resolved
 
@@ -434,6 +447,12 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
     # Enrich event with created channel info
     event.metadata["channel_id"] = str(channel.id)
     event.metadata["channel_name"] = channel.name
+    # What was actually persisted, which is not always what was asked for
+    # (an owner can go stale between the client reading the agent list and
+    # this handler running). Clients must render from these, never from the
+    # values they sent.
+    event.metadata["phase"] = channel.phase
+    event.metadata["phase_owner"] = channel.phase_owner
     event.target = f"channel/{channel.name}"
     return event
 
@@ -797,13 +816,17 @@ def _reassign_phase_owner(channel, db, workspace, leaving: Optional[str] = None)
     """Hand a channel's clarification gate to someone who can still hold it.
 
     Falls back to the channel master when that is a valid gatekeeper.
-    Otherwise the gate is OPENED (phase back to 'open', owner cleared) rather
-    than left pointing at an agent that is gone: a gate nobody owns silently
-    routes every message to nobody. Picking an arbitrary surviving
-    participant is deliberately not done — ownership of the requirement is a
-    human's call, and an opened gate is visible in the UI.
+    Otherwise the owner is cleared but THE GATE STAYS ON: routing then holds
+    every agent in plan mode (see `_apply_phase_gate`), so the thread keeps
+    answering without anyone building, and the UI shows it needs an owner.
+    Opening the gate here instead would silently undo a constraint the user
+    asked for — the same silent-ungating this feature exists to prevent —
+    just because an agent left. Only a human removes a gate.
 
-    Returns the new owner, or None when the gate was opened.
+    Picking an arbitrary surviving participant is deliberately not done:
+    ownership of the requirement is a human's call.
+
+    Returns the new owner, or None when the gate was left unowned.
     """
     master = channel.master_agent
     candidates = [n for n in (master,) if n and n != leaving]
@@ -818,10 +841,9 @@ def _reassign_phase_owner(channel, db, workspace, leaving: Optional[str] = None)
 
     channel.phase_owner = None
     if _channel_phase(channel) == PHASE_CLARIFYING:
-        channel.phase = PHASE_OPEN
         logger.warning(
             "phase gate: channel %s lost its owner %s and has no valid master — "
-            "phase reset to open",
+            "gate left on but unowned (plan-only) until a human names one",
             channel.name, leaving,
         )
     return None

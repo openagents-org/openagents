@@ -95,14 +95,24 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The owner must be one of the participants. Re-derive whenever the
-  // selection changes so deselecting the chosen owner cannot leave a stale
-  // name that the backend would reject on submit.
+  // The agents that would actually join: `selected` can name an agent that
+  // has since gone offline, and `handleCreate` filters participants against
+  // the CURRENT online list. Everything the gate decides — whether to offer
+  // it, who may own it, whether the owner is still valid — has to be derived
+  // from this same set, or the dialog offers a gate whose owner it then omits
+  // from the participants it submits.
+  const selectedOnline = agentNames.filter((n) => selected.has(n));
+  const selectedOnlineKey = selectedOnline.join(',');
+
+  // Re-derive the owner whenever that set changes — deselecting the chosen
+  // owner, or discovery reporting it offline, must not leave a stale name
+  // behind for submit.
   useEffect(() => {
+    const live = new Set(selectedOnline);
     setClarifyOwner((prev) =>
-      prev && selected.has(prev) ? prev : defaultClarifyOwner(onlineAgents, selected)
+      prev && live.has(prev) ? prev : defaultClarifyOwner(onlineAgents, live)
     );
-  }, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedOnlineKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleAgent = (name: string) => {
     setSelected((prev) => {
@@ -117,16 +127,17 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
   };
 
   // A gate only means anything once two agents can compete for the floor.
-  const showClarifyOption = selected.size >= 2;
-  // Checked but no owner chosen: the backend refuses a gate nobody holds, so
-  // block here rather than let the create fail after the dialog closes.
-  const needsOwner = showClarifyOption && clarifyFirst && !clarifyOwner;
+  const showClarifyOption = selectedOnline.length >= 2;
+  // Checked but no valid owner: the thread would be created gated-but-unowned
+  // (plan-only for everyone), so block here instead of shipping that state.
+  const needsOwner =
+    showClarifyOption && clarifyFirst && !selectedOnline.includes(clarifyOwner);
 
   const handleCreate = () => {
     // No leader is assigned at creation — the default "dynamic" mode doesn't
     // need one. A leader can be set later from the thread's agent menu (and is
     // only required by "master" orchestration mode).
-    const participants = agentNames.filter((n) => selected.has(n));
+    const participants = selectedOnline;
     // The phase travels with the create event rather than a PATCH afterwards:
     // a thread that is ungated for even a moment can have its first message
     // routed to a builder before the gate lands.
@@ -289,7 +300,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, onCreate
                     <SelectContent>
                       <SelectGroup>
                         {onlineAgents
-                          .filter((a) => selected.has(a.agentName))
+                          .filter((a) => selectedOnline.includes(a.agentName))
                           .map((a) => (
                             <SelectItem key={a.agentName} value={a.agentName}>
                               {a.role === 'master'

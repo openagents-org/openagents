@@ -59,7 +59,7 @@ export function PhaseControl({ session, agents, onChange }: Props) {
       <DropdownMenuLabel>{label}</DropdownMenuLabel>
       <p className="px-2 pb-1.5 text-[11px] text-muted-foreground leading-snug">
         This agent holds the floor. Others can be @mentioned for input, but they
-        answer in plan mode and cannot start implementing.
+        are kept in planning mode until you confirm the requirement.
       </p>
       <DropdownMenuSeparator />
       {agents.map((a) => (
@@ -101,8 +101,8 @@ export function PhaseControl({ session, agents, onChange }: Props) {
               )}
               title={
                 ownerless
-                  ? 'No agent owns this clarification, so nothing is being held back — pick an owner'
-                  : 'The requirement is still being clarified — other agents can be consulted but cannot start building'
+                  ? 'No agent owns this clarification — everyone is held in planning mode until you pick an owner'
+                  : 'The requirement is still being clarified — other agents can be consulted, but are kept in planning mode'
               }
             >
               {ownerless ? (

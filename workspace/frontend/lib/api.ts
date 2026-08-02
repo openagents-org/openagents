@@ -362,10 +362,11 @@ class WorkspaceApi {
       master: opts.master || null,
       orchestrationMode: 'dynamic',
       orchestrationInstruction: null,
-      // The backend refuses a gate it cannot enforce, so only reflect it
-      // locally when an owner went with it; discovery corrects this either way.
-      phase: opts.phase && opts.phaseOwner ? opts.phase : 'open',
-      phaseOwner: opts.phaseOwner || null,
+      // Read back what the backend persisted, never what we asked for: an
+      // owner can go stale between listing the agents and the create landing,
+      // and rendering the request would claim a gate the thread may not have.
+      phase: (event.metadata?.phase as string) || 'open',
+      phaseOwner: (event.metadata?.phase_owner as string) ?? null,
       createdAt: new Date(event.timestamp).toISOString(),
       lastEventAt: null,
     };
