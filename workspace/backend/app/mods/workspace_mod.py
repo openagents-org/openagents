@@ -15,7 +15,6 @@ Expects context.extra to contain:
 
 import logging
 import re
-import time
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
@@ -668,12 +667,13 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
     starts with the delegator; ``onward_delegates`` are additional agents the
     reply @mentions (an onward delegation, dual-routed so the delegator still
     sees the outcome). Returns ``None`` ONLY when the message is not an
-    authenticated receipt (or its E1 is past the TTL — see below), in which
-    case the caller falls through to normal routing. An authenticated receipt
-    whose delegator is undeliverable (left the channel, removed from the
-    workspace) or already served returns ``(onward, onward)`` — possibly
-    empty — so it can never re-enter master/LLM orchestration and be
-    misrouted back to a stale delegator.
+    authenticated receipt, in which case the caller falls through to normal
+    routing. An authenticated receipt whose delegator is undeliverable (left
+    the channel, removed from the workspace) or already served returns
+    ``(onward, onward)`` — possibly empty — so it can never re-enter
+    master/LLM orchestration and be misrouted back to a stale delegator.
+    Onward delegates are filtered the same way: a removed agent can never
+    become a deterministic target.
 
     Delivery to the delegator is at-most-once per (E1, replier): the first
     terminal receipt stamps E1 with ``receipt_from`` (under a row lock, so
@@ -687,7 +687,6 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
     cancelled claim the single terminal slot. If the delegator needs more
     work done it delegates again, creating a new E1.
     """
-    from app.config import config
     from app.models import EventRecord
 
     source = event.source or ""
@@ -756,45 +755,45 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
                 onward.append(m)
                 seen.add(m)
 
-    # Both ends must still be members of this channel — workspace membership
-    # alone would let a receipt re-target someone who already left the room.
-    if delegator not in participants or replier not in participants:
-        return list(onward), onward
-
-    # ... and of the workspace itself. ChannelMember rows are not cleaned up
-    # when a workspace member is removed (remove_member deletes only the
-    # WorkspaceMember row; network removal soft-deletes with status
-    # "removed"), so a stale channel participant could otherwise become a
-    # receipt target that can no longer poll the workspace.
+    # Everyone the receipt would target — the delegator AND any onward
+    # delegates — must be a live workspace member. ChannelMember rows are
+    # not cleaned up when a workspace member is removed (remove_member
+    # deletes only the WorkspaceMember row; network removal soft-deletes
+    # with status "removed") and mention parsing does not exclude removed
+    # members, so a stale channel participant could otherwise become a
+    # deterministic target that can no longer poll the workspace.
     from app.models import WorkspaceMember
+    names_to_check = list({delegator, replier, *onward})
     live_members = {
         m.agent_name for m in db.execute(
             select(WorkspaceMember).where(
                 WorkspaceMember.workspace_id == workspace.id,
-                WorkspaceMember.agent_name.in_([delegator, replier]),
+                WorkspaceMember.agent_name.in_(names_to_check),
             )
         ).scalars().all()
         if (m.status or "") != "removed"
     }
+    onward = [c for c in onward if c in live_members]
+
+    # Both ends must still be members of this channel and the workspace.
+    if delegator not in participants or replier not in participants:
+        return list(onward), onward
     if delegator not in live_members or replier not in live_members:
         return list(onward), onward
 
     already = e1_meta.get("receipt_from") or []
     if replier in already:
         # Duplicate terminal receipt: the delegator already got their one
-        # delivery (at-most-once holds regardless of E1 age, so this check
-        # sits before the TTL).
+        # delivery.
         return list(onward), onward
 
-    # TTL expiry deliberately falls back to NORMAL routing rather than
-    # suppression: at this point the delegator is verified alive and present,
-    # so best-effort orchestration (master star rule, LLM "reports back")
-    # can still deliver a long-running task's result — suppressing would
-    # guarantee the loss this feature exists to prevent. The TTL's job is
-    # only to stop stale E1s from FORCING deterministic routing.
-    ttl_ms = int(config.DELEGATION_RECEIPT_TTL_HOURS * 3600 * 1000)
-    if e1.timestamp and (int(time.time() * 1000) - int(e1.timestamp)) > ttl_ms:
-        return None
+    # No TTL gate: an authenticated receipt deterministically delivers once
+    # and claims the (E1, replier) slot regardless of E1's age. receipt_from
+    # already caps delivery at once, so an age cutoff would add nothing
+    # except a window where a LATE first result bypasses the claim — its
+    # duplicates would then be re-delivered forever via fallback routing.
+    # Long-running tasks finishing days later are the normal case this
+    # feature exists for, not abuse.
 
     # Claim the single terminal receipt — except for needs_input, which is
     # an intermediate "waiting on you" signal, not the turn's outcome.

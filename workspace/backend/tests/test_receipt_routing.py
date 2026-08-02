@@ -276,22 +276,27 @@ class TestReceiptRejected:
         assert out.metadata["target_agents"] == ["__no_response__"]
         mock_client.messages.create.assert_not_called()
 
-    def test_expired_delegation_falls_back_to_best_effort_routing(self, db, ws3):
-        """TTL expiry with a LIVE delegator falls through to normal routing:
-        the router may still deliver a long task's result best-effort.
-        Suppression here would guarantee the loss this feature prevents."""
+    def test_late_first_result_delivers_once_and_claims(self, db, ws3):
+        """No TTL gate: a result arriving days after the delegation still
+        delivers deterministically ONCE and claims the slot — otherwise a
+        late first result would bypass the claim and its duplicates would be
+        re-delivered forever via fallback routing."""
         ws = ws3["workspace"]
-        stale = _now_ms() - int(48 * 3600 * 1000)  # older than the 24h default TTL
+        stale = _now_ms() - int(72 * 3600 * 1000)
         e1 = _delegation_event(db, ws, timestamp=stale)
         client_patch, mock_client = _with_router("next:agent-a")
         with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
             out = _handle(db, ws, _reply(
-                "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
+                "openagents:agent-b", "done at last", in_reply_to=e1.id, reply_kind="result",
+            ))
+            out2 = _handle(db, ws, _reply(
+                "openagents:agent-b", "done at last (retry)", in_reply_to=e1.id, reply_kind="result",
             ))
         assert out.metadata["target_agents"] == ["agent-a"]
-        mock_client.messages.create.assert_called()
+        assert out2.metadata["target_agents"] == ["__no_response__"]
+        mock_client.messages.create.assert_not_called()
         db.refresh(e1)
-        assert "receipt_from" not in (e1.metadata_ or {})  # expired E1 never claimed
+        assert e1.metadata_["receipt_from"] == ["agent-b"]
 
     def test_duplicate_terminal_receipt_suppressed_without_router(self, db, ws3):
         """At-most-once: a duplicate must NOT fall back to the LLM router,
@@ -401,6 +406,56 @@ class TestReceiptRejected:
         assert out.metadata["target_agents"] == ["agent-c"]
         assert out.metadata["delegated_by"] == "agent-b"
 
+    def _soft_remove(self, db, ws, name):
+        from sqlalchemy import select
+        member = db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == ws.id,
+                WorkspaceMember.agent_name == name,
+            )
+        ).scalar_one()
+        member.status = "removed"
+        db.flush()
+
+    def test_soft_removed_onward_target_is_dropped(self, db, ws3):
+        """@C in a receipt must not create a deterministic delegation to a
+        soft-removed agent — ChannelMember and mention parsing both still
+        know the stale name."""
+        ws, e1 = ws3["workspace"], _delegation_event(db, ws3["workspace"])
+        self._soft_remove(db, ws, "agent-c")
+        out = _handle(db, ws, _reply(
+            "openagents:agent-b", "done — @agent-c could take over",
+            in_reply_to=e1.id, reply_kind="result",
+        ))
+        assert out.metadata["target_agents"] == ["agent-a"]
+        assert "delegated_by" not in out.metadata
+        assert "delegated_to" not in out.metadata
+
+    def test_removed_delegator_and_soft_removed_onward_gives_sentinel(self, db, ws3):
+        ws, e1 = ws3["workspace"], _delegation_event(db, ws3["workspace"])
+        self._soft_remove(db, ws, "agent-a")
+        self._soft_remove(db, ws, "agent-c")
+        client_patch, mock_client = _with_router("next:agent-c")
+        with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
+            out = _handle(db, ws, _reply(
+                "openagents:agent-b", "done — @agent-c could take over",
+                in_reply_to=e1.id, reply_kind="result",
+            ))
+        assert out.metadata["target_agents"] == ["__no_response__"]
+        assert "delegated_by" not in out.metadata
+        mock_client.messages.create.assert_not_called()
+
+    def test_duplicate_receipt_with_soft_removed_onward_gives_sentinel(self, db, ws3):
+        ws = ws3["workspace"]
+        e1 = _delegation_event(db, ws, receipt_from=("agent-b",))
+        self._soft_remove(db, ws, "agent-c")
+        out = _handle(db, ws, _reply(
+            "openagents:agent-b", "done again — @agent-c please verify",
+            in_reply_to=e1.id, reply_kind="result",
+        ))
+        assert out.metadata["target_agents"] == ["__no_response__"]
+        assert "delegated_by" not in out.metadata
+
     def test_consumed_receipt_with_removed_delegator_stays_suppressed(self, db, ws3):
         ws = ws3["workspace"]
         e1 = _delegation_event(db, ws, receipt_from=("agent-b",))
@@ -503,16 +558,22 @@ class TestMasterMode:
         ))
         assert out.metadata["target_agents"] == ["__no_response__"], how
 
-    def test_expired_receipt_in_master_mode_star_routes_to_live_master(self, db, master_ws):
-        """TTL fall-through in master mode: the star rule delivers the late
-        result to the (verified live) master — best-effort beats loss."""
+    def test_late_result_in_master_mode_delivers_once_then_suppressed(self, db, master_ws):
+        """A late result on an old E1 delivers to the master exactly once;
+        the duplicate is suppressed instead of riding the star rule back."""
         ws = master_ws["workspace"]
         stale = _now_ms() - int(48 * 3600 * 1000)
         e1 = _delegation_event(db, ws, timestamp=stale)
         out = _handle(db, ws, _reply(
             "openagents:agent-b", "done at last", in_reply_to=e1.id, reply_kind="result",
         ))
+        out2 = _handle(db, ws, _reply(
+            "openagents:agent-b", "done at last (dup)", in_reply_to=e1.id, reply_kind="result",
+        ))
         assert out.metadata["target_agents"] == ["agent-a"]
+        assert out2.metadata["target_agents"] == ["__no_response__"]
+        db.refresh(e1)
+        assert e1.metadata_["receipt_from"] == ["agent-b"]
 
     def test_plain_sub_agent_message_still_returns_to_master(self, db, master_ws):
         """Non-receipt agent chatter keeps the existing star behaviour."""
