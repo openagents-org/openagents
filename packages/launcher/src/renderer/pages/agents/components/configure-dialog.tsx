@@ -1,0 +1,557 @@
+import React, { useCallback, useEffect, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { KeyRound } from "lucide-react"
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@renderer/components/shadcn/dialog"
+import { Button } from "@renderer/components/shadcn/button"
+import {
+  AuthStatusBanner,
+  CliLoginBlock,
+  LoginStatusCard,
+} from "./auth-status"
+import { capture } from "@renderer/lib/analytics"
+import { PasswordInput } from "@renderer/components/ui-kit"
+import type { EnvField } from "@renderer/types"
+import type { ToastType } from "@renderer/hooks/useToast"
+
+export function ConfigureDialog({
+  open,
+  agentName,
+  agentType,
+  onClose,
+  showToast,
+  onSaved,
+}: {
+  open: boolean
+  agentName: string
+  agentType: string
+  onClose: () => void
+  showToast: (msg: string, type?: ToastType) => void
+  onSaved: () => void
+}): React.JSX.Element {
+  const { t } = useTranslation()
+  const [fields, setFields] = useState<EnvField[]>([])
+  const [values, setValues] = useState<Record<string, string>>({})
+  const [loginCmd, setLoginCmd] = useState<string | null>(null)
+  // Real sign-in state from an actual status probe: true / false / null (not yet
+  // checked). Never an optimistic guess — the badge only shows what we verified.
+  const [loggedIn, setLoggedIn] = useState<boolean | null>(null)
+  // Drives the manual login flow: idle (show status + Login) → awaiting (terminal
+  // opened, ask the user to confirm) → checking (re-reading status after confirm).
+  const [loginPhase, setLoginPhase] = useState<
+    "idle" | "awaiting" | "checking"
+  >("idle")
+  const [noConfig, setNoConfig] = useState(false)
+  // Auth readiness for agents whose sign-in the core can probe (e.g. Gemini's
+  // OAuth creds file). Drives an opt-in banner that distinguishes a Google
+  // account sign-in from an API key, or shows login guidance when neither is
+  // present — so Gemini is never demanded an API key it doesn't need.
+  const [authInfo, setAuthInfo] = useState<{
+    ready: boolean
+    authMode: string | null
+    message: string | null
+  } | null>(null)
+  // Registry-supplied, non-sensitive labels per auth_mode
+  // (check_ready.auth_detected_labels). Presence is the opt-in gate: the banner
+  // only renders for agents that declare these (today: Gemini).
+  const [authLabels, setAuthLabels] = useState<Record<string, string> | null>(
+    null,
+  )
+  const [loading, setLoading] = useState(true)
+  // Only tracks the in-flight state so the button can show "Testing…"; the
+  // actual result is surfaced via a toast, not inline in the dialog.
+  const [testStatus, setTestStatus] = useState<"idle" | "loading">("idle")
+  // Working directory (spawn cwd) of this agent instance. Only meaningful for
+  // an existing agent (agentName set); the type-level config has no cwd.
+  const [workDir, setWorkDir] = useState("")
+  const [workDirInitial, setWorkDirInitial] = useState("")
+  const [workDirSaving, setWorkDirSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setLoading(true)
+    setTestStatus("idle")
+    setNoConfig(false)
+    setLoginCmd(null)
+    setLoggedIn(null)
+    setLoginPhase("idle")
+    setAuthInfo(null)
+    setAuthLabels(null)
+    // Reset fields/values too: the dialog stays mounted across agents, and
+    // getEnvFields returns [] for login-only agents (Cursor/Hermes) so the
+    // `if (hasFields)` branch below never calls setFields for them. Without
+    // this reset they'd inherit the previously-configured agent's key fields
+    // (e.g. Claude's ANTHROPIC_API_KEY), making the render condition
+    // `loginCmd && fields.length === 0` false and wrongly showing an API-key
+    // form for an agent that only signs in via its CLI.
+    setFields([])
+    setValues({})
+    Promise.all([
+      window.api.getEnvFields(agentType),
+      window.api.getAgentEnv(agentType),
+      agentName
+        ? window.api.getAgentInstanceEnv(agentName)
+        : Promise.resolve({} as Record<string, string>),
+    ])
+      .then(([f, typeEnv, instanceEnv]) => {
+        const hasFields = !!f && f.length > 0
+        if (hasFields) {
+          setFields(f)
+          const merged = { ...(typeEnv || {}), ...(instanceEnv || {}) }
+          const initial: Record<string, string> = {}
+          f.forEach((field) => {
+            initial[field.name] = merged[field.name] || field.default || ""
+          })
+          setValues(initial)
+        }
+        // Always resolve a CLI login command. Hosted agents (Cursor/Hermes) have
+        // ONLY a login; dual-auth agents (Claude) have BOTH env fields AND a
+        // login — so this must run regardless of whether env fields exist, or
+        // Claude's Configure dialog would only ever show the API-key form.
+        window.api.getCatalog().then((catalog) => {
+          const entry = catalog.find((c) => c.name === agentType)
+          const cmd = entry?.check_ready?.login_command || null
+          // Opt-in auth banner: only agents that declare per-mode labels
+          // (e.g. Gemini) get the "Google account sign-in detected" / "API key
+          // detected" / login-guidance banner. Others are untouched.
+          const labels = entry?.check_ready?.auth_detected_labels || null
+          setAuthLabels(labels && Object.keys(labels).length ? labels : null)
+          if (cmd) {
+            setLoginCmd(cmd)
+            // Read the REAL sign-in state once on open (a fresh probe), so the
+            // badge reflects reality instead of an optimistic guess.
+            window.api
+              .refreshLogin(agentType)
+              .then((h) => {
+                // For dual-auth agents `logged_in` reflects the CLI sign-in
+                // specifically (`ready` can be true from an API key alone), so
+                // prefer it; fall back to `ready` for pure login agents.
+                const ok = h?.logged_in ?? h?.ready ?? false
+                setLoggedIn(ok)
+                setAuthInfo({
+                  ready: !!h?.ready,
+                  authMode: (h?.auth_mode as string) ?? null,
+                  message: (h?.message as string) ?? null,
+                })
+                // Already signed in via the browser session? Then any saved
+                // CURSOR_API_KEY/MODEL is stale leftover that conflicts with
+                // the login (and was breaking the workspace chat). Drop it
+                // once — clearLoginKey is a no-op when nothing's set, and a
+                // no-op for Claude/Gemini (they declare no keys to clear, so the
+                // API key is never wiped).
+                if (ok)
+                  window.api.clearLoginKey(agentType, agentName || undefined)
+              })
+              .catch(() => {
+                setLoggedIn(false)
+                setAuthInfo(null)
+              })
+          } else if (!hasFields) {
+            setNoConfig(true)
+          }
+        })
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+  }, [open, agentName, agentType])
+
+  // User-confirmed login check. The browser/terminal login has no completion
+  // callback, so rather than guess, we ask the user to confirm they finished —
+  // THEN read the real status. For Cursor we also clear any stale API key first,
+  // because the CLI prefers an explicit (here: invalid) key over its login
+  // session, which is what made the workspace chat fail with "API key invalid".
+  const confirmLogin = async (): Promise<void> => {
+    setLoginPhase("checking")
+    try {
+      await window.api.clearLoginKey(agentType, agentName || undefined)
+      const h = await window.api.refreshLogin(agentType)
+      const ok = !!h?.ready
+      setLoggedIn(ok)
+      setAuthInfo({
+        ready: ok,
+        authMode: (h?.auth_mode as string) ?? null,
+        message: (h?.message as string) ?? null,
+      })
+      onSaved()
+      showToast(
+        ok
+          ? t("agents.configureDialog.toast.signedInReady")
+          : t("agents.configureDialog.toast.couldntConfirm"),
+        ok ? "success" : "warning",
+      )
+    } catch {
+      setLoggedIn(false)
+      showToast(t("agents.configureDialog.toast.couldntReadStatus"), "error")
+    } finally {
+      setLoginPhase("idle")
+    }
+  }
+
+  // Load the agent's current working directory whenever the dialog opens for
+  // an existing instance. listAgents carries the per-agent `path` straight
+  // from daemon.yaml, so no extra IPC is needed.
+  useEffect(() => {
+    if (!open || !agentName) {
+      setWorkDir("")
+      setWorkDirInitial("")
+      return
+    }
+    let cancelled = false
+    window.api
+      .listAgents()
+      .then((list) => {
+        if (cancelled) return
+        const a = list.find((x) => x.name === agentName)
+        const p = a?.path || ""
+        setWorkDir(p)
+        setWorkDirInitial(p)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [open, agentName])
+
+  const browseWorkDir = async (): Promise<void> => {
+    try {
+      const picked = await window.api.selectDirectory(workDir || undefined)
+      if (picked) setWorkDir(picked)
+    } catch (err: unknown) {
+      showToast((err as Error).message, "error")
+    }
+  }
+
+  const saveWorkDir = async (): Promise<void> => {
+    const p = workDir.trim()
+    if (!p) {
+      showToast(t("agents.configureDialog.workdir.toast.required"), "warning")
+      return
+    }
+    setWorkDirSaving(true)
+    try {
+      await window.api.setAgentWorkingDir(agentName, p)
+      setWorkDirInitial(p)
+      showToast(
+        t("agents.configureDialog.workdir.toast.saved", { path: p }),
+        "success",
+      )
+      onSaved()
+    } catch (err: unknown) {
+      showToast(
+        t("agents.configureDialog.workdir.toast.error", {
+          message: (err as Error).message,
+        }),
+        "error",
+      )
+    } finally {
+      setWorkDirSaving(false)
+    }
+  }
+
+  const save = async (): Promise<void> => {
+    const missing = fields.find(
+      (f) => f.required && !(values[f.name] || "").trim(),
+    )
+    if (missing) {
+      showToast(
+        t("agents.configureDialog.fieldRequired", {
+          field: missing.description || missing.name,
+        }),
+        "warning",
+      )
+      return
+    }
+    try {
+      if (agentName) {
+        await window.api.saveAgentInstanceEnv(agentName, values)
+      } else {
+        await window.api.saveAgentEnv(agentType, values)
+      }
+      showToast(t("agents.configureDialog.toast.configurationSaved"), "success")
+      onSaved()
+      onClose()
+    } catch (err: unknown) {
+      showToast(
+        t("agents.configureDialog.toast.errorSaving", {
+          message: (err as Error).message,
+        }),
+        "error",
+      )
+    }
+  }
+
+  const testConnection = async (): Promise<void> => {
+    setTestStatus("loading")
+    try {
+      const result = await window.api.testLLM(values)
+      capture("llm_test_run", {
+        success: result.success,
+        model: result.model || null,
+      })
+      if (result.success) {
+        showToast(
+          t("agents.configureDialog.test.okResult", {
+            model: result.model,
+            response: result.response,
+          }),
+          "success",
+        )
+      } else {
+        showToast(
+          result.error || t("agents.configureDialog.test.unknownError"),
+          "error",
+        )
+      }
+    } catch (err: unknown) {
+      showToast((err as Error).message, "error")
+    } finally {
+      setTestStatus("idle")
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-2xl" showCloseButton={false}>
+      <DialogHeader className="pt-3 pb-1">
+        <DialogTitle className="mb-1.5">
+          {t("agents.configureDialog.title", { name: agentName || agentType })}
+        </DialogTitle>
+        {!loading && !noConfig && loginCmd && fields.length === 0 && (
+          <p className="hint m-0">
+            {t("agents.configureDialog.hintLoginOnly")} <code>{loginCmd}</code>
+            {t("agents.configureDialog.hintLoginOnlySuffix")}
+          </p>
+        )}
+        {!loading && !noConfig && !(loginCmd && fields.length === 0) && (
+          <p className="hint m-0">
+            {agentName
+              ? t("agents.configureDialog.hintInstance")
+              : t("agents.configureDialog.hintType")}
+          </p>
+        )}
+        {!loading && noConfig && (
+          <p className="hint m-0">{t("agents.configureDialog.hintNoConfig")}</p>
+        )}
+      </DialogHeader>
+
+      <DialogBody>
+        {!loading && agentName && (
+          <div className="form-group mb-0!">
+            <label
+              htmlFor="agent-config-workdir"
+              className="flex items-center gap-1.5"
+            >
+              {t("agents.configureDialog.workdir.label")}
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="agent-config-workdir"
+                type="text"
+                className="flex-1"
+                value={workDir}
+                onChange={(e) => setWorkDir(e.target.value)}
+                placeholder={t("agents.configureDialog.workdir.placeholder")}
+              />
+              <Button onClick={() => void browseWorkDir()}>
+                {t("agents.configureDialog.workdir.browse")}
+              </Button>
+              <Button
+                variant="default"
+                disabled={
+                  workDirSaving ||
+                  !workDir.trim() ||
+                  workDir.trim() === workDirInitial
+                }
+                onClick={() => void saveWorkDir()}
+              >
+                {workDirSaving
+                  ? t("agents.configureDialog.workdir.saving")
+                  : t("agents.configureDialog.workdir.save")}
+              </Button>
+            </div>
+            <p className="hint mt-1 mb-0">
+              {t("agents.configureDialog.workdir.hint")}
+            </p>
+          </div>
+        )}
+        {loading ? (
+          <p className="loading-text m-0">
+            {t("agents.configureDialog.loadingConfig")}
+          </p>
+        ) : noConfig ? null : loginCmd && fields.length === 0 ? (
+          <>
+            <AuthStatusBanner authInfo={authInfo} authLabels={authLabels} />
+            <LoginStatusCard loginPhase={loginPhase} loggedIn={loggedIn} />
+            {loginPhase === "awaiting" && (
+              <p className="hint m-0">
+                {t("agents.configureDialog.awaitingTerminalPrefix")}{" "}
+                <code>{loginCmd}</code>
+                {t("agents.configureDialog.awaitingTerminalSuffix")}
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <AuthStatusBanner authInfo={authInfo} authLabels={authLabels} />
+            {loginCmd && (
+              <>
+                <CliLoginBlock
+                  loginCmd={loginCmd}
+                  loginPhase={loginPhase}
+                  loggedIn={loggedIn}
+                  onOpenTerminal={async () => {
+                    try {
+                      await window.api.openTerminal(loginCmd)
+                      setLoginPhase("awaiting")
+                    } catch (err: unknown) {
+                      showToast(
+                        t("agents.configureDialog.toast.failedOpenTerminal", {
+                          message: (err as Error).message,
+                        }),
+                        "error",
+                      )
+                    }
+                  }}
+                  onConfirmLogin={confirmLogin}
+                  onCancelAwaiting={() => setLoginPhase("idle")}
+                />
+                <div className="flex items-center gap-2 text-2xs font-medium uppercase tracking-wide text-(--text-tertiary)">
+                  <span className="h-px flex-1 bg-(--border)" />
+                  <KeyRound className="h-3 w-3" />
+                  <span>{t("agents.configureDialog.orUseApiKey")}</span>
+                  <span className="h-px flex-1 bg-(--border)" />
+                </div>
+              </>
+            )}
+            <div>
+              {fields.map((f) => (
+                <div key={f.name} className="form-group mb-0">
+                  <label htmlFor={`agent-config-${f.name}`}>
+                    {f.description}
+                    {f.required && <span className="required"> *</span>}
+                  </label>
+                  {f.password ? (
+                    <PasswordInput
+                      id={`agent-config-${f.name}`}
+                      value={values[f.name] || ""}
+                      onChange={(e) =>
+                        setValues((prev) => ({
+                          ...prev,
+                          [f.name]: e.target.value,
+                        }))
+                      }
+                      placeholder={
+                        f.placeholder ||
+                        t("agents.configureDialog.enterField", { name: f.name })
+                      }
+                    />
+                  ) : (
+                    <input
+                      id={`agent-config-${f.name}`}
+                      type="text"
+                      value={values[f.name] || ""}
+                      onChange={(e) =>
+                        setValues((prev) => ({
+                          ...prev,
+                          [f.name]: e.target.value,
+                        }))
+                      }
+                      placeholder={
+                        f.placeholder ||
+                        t("agents.configureDialog.enterField", { name: f.name })
+                      }
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </DialogBody>
+
+      {!loading && (
+        <DialogFooter>
+          {noConfig ? (
+            <div className="form-actions mt-0">
+              <Button onClick={onClose}>
+                {t("agents.configureDialog.close")}
+              </Button>
+            </div>
+          ) : loginCmd && fields.length === 0 ? (
+            loginPhase === "awaiting" ? (
+              <div className="form-actions mt-0">
+                <Button variant="default" onClick={confirmLogin}>
+                  {t("agents.configureDialog.finishedSigningIn")}
+                </Button>
+                <Button onClick={() => setLoginPhase("idle")}>
+                  {t("agents.configureDialog.notYet")}
+                </Button>
+              </div>
+            ) : (
+              <div className="form-actions mt-0">
+                <Button
+                  variant="default"
+                  disabled={loginPhase === "checking"}
+                  onClick={async () => {
+                    try {
+                      await window.api.openTerminal(loginCmd)
+                      setLoginPhase("awaiting")
+                    } catch (err: unknown) {
+                      showToast(
+                        t("agents.configureDialog.toast.failedOpenTerminal", {
+                          message: (err as Error).message,
+                        }),
+                        "error",
+                      )
+                    }
+                  }}
+                >
+                  {loggedIn
+                    ? t("agents.configureDialog.reLogin")
+                    : t("agents.configureDialog.login")}
+                </Button>
+                <Button onClick={onClose}>
+                  {t("agents.configureDialog.close")}
+                </Button>
+              </div>
+            )
+          ) : (
+            <div className="form-actions mt-0">
+              <Button variant="default" data-testid="cfg-save" onClick={save}>
+                {t("agents.configureDialog.save")}
+              </Button>
+              <Button
+                onClick={testConnection}
+                disabled={testStatus === "loading"}
+              >
+                {testStatus === "loading"
+                  ? t("agents.configureDialog.testing")
+                  : t("agents.configureDialog.testConnection")}
+              </Button>
+              <Button onClick={onClose}>
+                {t("agents.configureDialog.cancel")}
+              </Button>
+            </div>
+          )}
+        </DialogFooter>
+      )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/**
+ * Opt-in auth-readiness banner for agents whose sign-in the core can probe
+ * (today: Gemini). Renders ONLY when the agent declares per-mode labels in
+ * check_ready.auth_detected_labels — so no other agent's Configure dialog is
+ * affected. When ready it names the detected method (Google account sign-in vs
+ * API key) so a logged-in user is never asked for a key; when not ready it
+ * surfaces the core's non-sensitive guidance message. Never shows a token,
+ * email, or path.
+ */
