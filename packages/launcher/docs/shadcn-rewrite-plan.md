@@ -1,6 +1,6 @@
 # Launcher shadcn 全量重写计划
 
-> 状态：P0–P4 已完成（地基 + 外壳 + 6 个页面树），下一步 P5 agents
+> 状态：**P0–P7 全部完成**。旧 `components/ui/` 与 `TopBar` 已删除，任意值 px 归零。
 > 最后更新：2026-08-02
 
 把 launcher 渲染层从手写 UI 全量迁移到 shadcn/ui，视觉参考 ReUI 的 `app-shell-10`（AI Agents console）。
@@ -74,16 +74,24 @@ Radix 拿不到锚点元素——实测通知气泡定位到 `y: -249`，即渲�
 - 页面结构：`index.tsx`（编排）+ `components/`（展示件）+ `use-*.ts`（页面级状态编排）。
 - **业务逻辑一律留在现有 `store/` 与 `hooks/`，页面不新增业务逻辑。**
 
-剩余超标文件（>300 行，2026-08-02 P4 收尾时）：
+剩余超标文件（>300 行，2026-08-02 收尾时）：
 
-| 文件 | 行数 | 归属 |
+| 文件 | 行数 | 判断 |
 | --- | --- | --- |
-| `pages/agents/index.tsx` | 1749 | P5 |
-| `components/onboarding/OnboardingFlow.tsx` | 1576 | P6 |
-| `pages/settings/index.tsx` | 794 | P4 尾巴（见下） |
+| `components/onboarding/OnboardingFlow.tsx` | 847 | **不再拆**（原 1576，已拆出 6 个文件） |
+| `pages/agents/index.tsx` | 571 | **不再拆**（原 1749，已拆出 4 个文件） |
+| `pages/agents/components/configure-dialog.tsx` | 557 | **不再拆** |
 | `pages/chat/index.tsx` | 483 | 功能定稿后再做 |
-| `components/agent-detail/AgentDetail.tsx` | 419 | P5 |
-| `components/notifications/NotificationCenter.tsx` | 381 | P7 |
+| `pages/agents/index.test.tsx` | 420 | 测试文件，不适用 |
+| `components/agent-detail/AgentDetail.tsx` | 406 | **不再拆** |
+| `components/notifications/NotificationCenter.tsx` | 381 | 死代码，待决定去留 |
+
+**为什么停在这里**：这几个都是流程状态机（5 步向导、配置表单、agent 生命周期），
+state 之间本质耦合。`settings` 能从 963 拆到 276，是因为它的 state 是一组互不相干的
+key-value，天然能收进 `values + update`。而向导的 20 多个 state 彼此依赖，
+强行抽 hook 只会制造大量 setter 透传 —— 那正是「显得过度封装」的反例，
+比一个长而内聚的文件更难维护。要继续拆，正确路径是把它们重构成 `useReducer`
+状态机，那属于重写而非迁移，应该单独立项。
 
 ### ② 禁止 Tailwind 任意值 + 固定 px
 
@@ -252,12 +260,31 @@ shadcn 的 `default` 就是强调色。批量把 `primary→default` 是对的�
 
 `OnboardingFlow` 1576 + `setup-wizard` + `GuidedTour`
 
-### P7 · 清理与收口
+### ✅ P5 · agents（已完成）
 
-- 删除 `components/ui/` 全部 19 个旧组件、旧 `Sidebar.tsx` / `TopBar.tsx`。
-- 任意值 grep 归零校验。
-- 补关键路径测试。
-- `--legacy-sidebar-width` 等过渡 token 下线。
+`pages/agents/index.tsx` 1749 → 571，拆出 `new-agent-dialog` / `configure-dialog` /
+`connect-workspace-dialog` / `auth-status`。agent-detail 全家桶（11 文件）同步迁完。
+420 行现有测试全程未改动就通过 —— 它按可访问名称选择元素，不依赖 DOM 结构。
+
+**踩到的坑**：shadcn 的 `DialogContent` 自带一个 "Close" 按钮，与 configure 对话框
+footer 里原有的 Close 撞名，`getByRole` 变歧义导致 2 个测试失败。该处用
+`showCloseButton={false}` 关掉内置的。
+
+### ✅ P6 · onboarding + setup-wizard（已完成）
+
+`OnboardingFlow` 1576 → 847，按自身步骤边界拆出 `onboarding-shared` /
+`onboarding-chrome` / `steps/` 下 5 个步骤组件。setup-wizard 的 Modal 转 Dialog。
+
+**注意**：`INSTALL_PHASE_IDS` 原本夹在两个 step 函数之间，机械切割会把它孤立，
+已移进 `onboarding-shared.ts`。
+
+### ✅ P7 · 清理与收口（已完成）
+
+- 删除 `components/ui/`（18 个旧组件）与 `TopBar.tsx`。
+- 任意值 px 全局归零（`shadcn/` 目录除外，那是 upstream 代码）。
+- `--legacy-sidebar-width` 已在 P1 下线。
+- **最后一处漏网**：`chat/MessageInput.tsx` 用单引号 import 旧 `Button`，
+  之前所有按双引号写的扫描都没匹配到。后续做类似批量迁移记得两种引号都扫。
 
 ---
 
