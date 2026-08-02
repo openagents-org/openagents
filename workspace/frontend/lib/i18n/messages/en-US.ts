@@ -627,6 +627,13 @@ export const messages = {
     resumeNone: 'New conversation (no context)',
     start: 'Start Thread',
     resume: 'Resume Thread',
+    clarifyLabel: 'Clarify requirements before execution',
+    clarifyHint:
+      'Recommended. One agent owns the requirement until you confirm it — the others can be asked for input but cannot start building.',
+    clarifyOwnerLabel: 'Who owns the requirement?',
+    clarifyOwnerPlaceholder: 'Select an agent…',
+    clarifyOwnerMaster: '{name} (workspace leader)',
+    clarifyOwnerRequired: 'Pick the agent that owns the requirement, or uncheck the option above.',
   },
 
   landing: {

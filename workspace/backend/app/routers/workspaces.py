@@ -536,7 +536,11 @@ def remove_member(
             WorkspaceMember.agent_name == agent_name,
         )
     ).scalar_one_or_none()
-    if not member:
+    # A `removed` row is a tombstone, not a member: removal is now a soft
+    # delete, so without this the second DELETE would find the row left by
+    # the first, emit another removal event and answer 200 — losing the 404
+    # this endpoint returned for an absent member back when it hard-deleted.
+    if not member or (member.status or "").lower() == "removed":
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
 
     # Go through the same `network.agent.remove` event as POST /v1/remove

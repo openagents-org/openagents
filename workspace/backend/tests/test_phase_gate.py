@@ -349,6 +349,99 @@ class TestChannelCreateGate:
         assert ch.phase == PHASE_OPEN
         assert ch.phase_owner is None
 
+    def test_owner_outside_the_participants_is_refused(self, db):
+        """The owner has to be in the thread it owns — the new-thread dialog
+        only offers selected agents, and the backend enforces the same rule."""
+        ws = Workspace(name="Create WS5", slug="create-ws5", password_hash="t")
+        db.add(ws)
+        db.flush()
+        for name in ("pm", "rd"):
+            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online"))
+        db.flush()
+        event = Event(
+            type="network.channel.create",
+            source="human:user",
+            target="core",
+            payload={
+                "name": "c-outsider",
+                "participants": ["rd"],          # pm was not selected
+                "phase": "clarifying",
+                "phase_owner": "pm",
+            },
+            metadata={},
+        )
+        ctx = PipelineContext(
+            network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws,
+        )
+        _run(_handle_channel_create(event, ctx))
+        ch = db.execute(
+            select(Channel).where(Channel.workspace_id == ws.id, Channel.name == "c-outsider")
+        ).scalar_one()
+        assert ch.phase == PHASE_OPEN
+        assert ch.phase_owner is None
+
+    def test_creating_without_a_phase_is_open(self, db):
+        """Unchecking "clarify first" sends no phase at all."""
+        ws = Workspace(name="Create WS6", slug="create-ws6", password_hash="t")
+        db.add(ws)
+        db.flush()
+        for name in ("pm", "rd"):
+            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online"))
+        db.flush()
+        event = Event(
+            type="network.channel.create",
+            source="human:user",
+            target="core",
+            payload={"name": "c-plain", "participants": ["pm", "rd"]},
+            metadata={},
+        )
+        ctx = PipelineContext(
+            network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws,
+        )
+        _run(_handle_channel_create(event, ctx))
+        ch = db.execute(
+            select(Channel).where(Channel.workspace_id == ws.id, Channel.name == "c-plain")
+        ).scalar_one()
+        assert ch.phase == PHASE_OPEN
+        assert ch.phase_owner is None
+
+    def test_gate_is_live_for_the_very_first_message(self, db):
+        """The whole point of sending the phase with the create event: there
+        must be no window in which the thread exists ungated and the first
+        request can be routed to a builder."""
+        ws = Workspace(name="Create WS7", slug="create-ws7", password_hash="t")
+        db.add(ws)
+        db.flush()
+        for name in ("pm", "rd"):
+            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online"))
+        db.flush()
+        ctx = PipelineContext(
+            network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws,
+        )
+        _run(_handle_channel_create(Event(
+            type="network.channel.create",
+            source="human:user",
+            target="core",
+            payload={
+                # rd first, so the ungated fallback would pick rd — the
+                # assertion below only holds if the gate is already live.
+                "name": "c-first",
+                "participants": ["rd", "pm"],
+                "phase": "clarifying",
+                "phase_owner": "pm",
+            },
+            metadata={},
+        ), ctx))
+
+        # No PATCH in between — straight to the opening request.
+        first = _make_event(
+            "human:user", "build me an order sync feature", target="channel/c-first",
+        )
+        out = _run(_handle_message_posted(first, ctx))
+        assert out.metadata["target_agents"] == ["pm"]
+        assert out.metadata["phase"] == PHASE_CLARIFYING
+        assert out.metadata["phase_owner"] == "pm"
+
     def test_removed_owner_at_creation_is_refused(self, db):
         ws = Workspace(name="Create WS4", slug="create-ws4", password_hash="t")
         db.add(ws)

@@ -329,6 +329,8 @@ class WorkspaceApi {
     master?: string;
     participants?: string[];
     resumeFrom?: string;
+    phase?: string;
+    phaseOwner?: string;
   } = {}): Promise<WorkspaceSession> {
     const event = await this.sendEvent({
       type: 'network.channel.create',
@@ -339,6 +341,11 @@ class WorkspaceApi {
         ...(opts.master && { master: opts.master }),
         ...(opts.participants && { participants: opts.participants }),
         ...(opts.resumeFrom && { resume_from: opts.resumeFrom }),
+        // Sent with the create event, never PATCHed afterwards: a thread that
+        // is ungated for even a moment can have its first message routed to a
+        // builder before the gate lands.
+        ...(opts.phase && { phase: opts.phase }),
+        ...(opts.phaseOwner && { phase_owner: opts.phaseOwner }),
       },
     });
 
@@ -355,8 +362,10 @@ class WorkspaceApi {
       master: opts.master || null,
       orchestrationMode: 'dynamic',
       orchestrationInstruction: null,
-      phase: 'open',
-      phaseOwner: null,
+      // The backend refuses a gate it cannot enforce, so only reflect it
+      // locally when an owner went with it; discovery corrects this either way.
+      phase: opts.phase && opts.phaseOwner ? opts.phase : 'open',
+      phaseOwner: opts.phaseOwner || null,
       createdAt: new Date(event.timestamp).toISOString(),
       lastEventAt: null,
     };

@@ -641,6 +641,19 @@ class TestRemoveMember:
         ).scalar_one()
         assert channel.phase_owner != "agent-pm"
 
+    def test_removing_twice_returns_404(self, client, workspace):
+        """The tombstone left by the first removal is not a member — the
+        endpoint's 404-for-absent contract has to survive soft deletion."""
+        client.post("/v1/join", json={
+            "agent_name": "agent-twice",
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+        url = f"/v1/workspaces/{workspace['id']}/members/agent-twice"
+        headers = {"X-Workspace-Token": workspace["token"]}
+        assert client.delete(url, headers=headers).status_code == 200
+        assert client.delete(url, headers=headers).status_code == 404
+
     def test_remove_nonexistent_member(self, client, workspace):
         """Removing nonexistent member returns 404."""
         resp = client.delete(
