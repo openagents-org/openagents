@@ -513,6 +513,38 @@ class TestReceiptRejected:
         db.refresh(ch)
 
     @pytest.mark.parametrize("how", ["left_channel", "hard", "soft"])
+    def test_departed_sender_plain_message_is_dropped(self, db, ws3, how):
+        """The sender gate must also cover PLAIN messages: a departed B could
+        otherwise skip the receipt fields entirely and still mint a
+        delegated_by=B mark via ordinary routing."""
+        ws = ws3["workspace"]
+        self._remove_replier(db, ws3, how)
+        client_patch, mock_client = _with_router("next:agent-c")
+        with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
+            out = _handle(db, ws, _reply(
+                "openagents:agent-b", "@agent-c please go do X",
+            ))
+        assert out.metadata["target_agents"] == ["__no_response__"], how
+        assert "delegated_by" not in out.metadata, how
+        assert "delegated_to" not in out.metadata, how
+        mock_client.messages.create.assert_not_called()
+
+    def test_plain_delegation_to_soft_removed_target_is_dropped(self, db, ws3):
+        """A live agent's ordinary "@C do X" must not route to or mark a
+        soft-removed C — mention parsing and the router candidate list both
+        still know the stale name."""
+        ws = ws3["workspace"]
+        self._soft_remove(db, ws, "agent-c")
+        client_patch, _ = _with_router("next:agent-c")  # router picks the stale name
+        with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
+            out = _handle(db, ws, _reply(
+                "openagents:agent-a", "@agent-c please go do X",
+            ))
+        assert out.metadata["target_agents"] == ["__no_response__"]
+        assert "delegated_by" not in out.metadata
+        assert "delegated_to" not in out.metadata
+
+    @pytest.mark.parametrize("how", ["left_channel", "hard", "soft"])
     def test_departed_replier_cannot_mint_onward_delegation(self, db, ws3, how):
         """The message entry point validates only token/session, so a removed
         B can still post against an old E1 — it must get nothing routed, and

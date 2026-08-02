@@ -1279,15 +1279,18 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     if message_type in ("thinking", "status", "todos"):
         return event
 
-    # Parse @mentions from message content (used for human message routing)
-    known_agents = [
+    # Parse @mentions from message content (used for human message routing).
+    # Soft-removed members are excluded up front: a removed agent must not be
+    # a mention candidate anywhere — not in routing, not in delegation marks.
+    live_agents = {
         m.agent_name for m in db.execute(
             select(WorkspaceMember).where(
                 WorkspaceMember.workspace_id == workspace.id,
             )
         ).scalars().all()
-    ]
-    mentions = _extract_mentions(content, known_agents)
+        if (m.status or "") != "removed"
+    }
+    mentions = _extract_mentions(content, sorted(live_agents))
 
     # Resolve channel (needed for both agent and human message routing)
     channel = None
@@ -1326,6 +1329,25 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         p for p in (channel.participants or [])
         if p.agent_name != "__no_response__"
     ]
+    participant_names = {p.agent_name for p in real_participants}
+
+    # ── Sender gate for agent messages ──
+    # The events entry point validates only the workspace token/session
+    # (_validate_session passes for missing and soft-removed members), so a
+    # departed agent can still post. Its messages must not enter routing at
+    # all — via the receipt path OR a plain "@C do X" — or it could keep
+    # minting server-marked delegations after removal. Live workspace
+    # membership AND current channel membership are both required (routine
+    # channels register their owner as a ChannelMember on creation).
+    if event.source.startswith("openagents:"):
+        _sender = event.source[len("openagents:"):]
+        if _sender not in live_agents or _sender not in participant_names:
+            logger.info(
+                "workspace_mod: dropped message from departed agent %s in %s",
+                _sender, channel.name,
+            )
+            event.metadata["target_agents"] = ["__no_response__"]
+            return event
 
     # ── Structured delegation receipt: deterministic return to delegator ──
     # Checked before the participant-count branch so a receipt still lands
@@ -1372,6 +1394,14 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # ── Single-agent channel ────────────────────────────────────────
     else:
         targets = _fallback_targets(event, channel, mentions, online_names)
+
+    # Agent-sourced routing may only target live, current participants: the
+    # mention fallback can name a live agent outside the channel, and the
+    # router/master candidate lists can include the stale ChannelMember row
+    # of a removed agent. Human messages keep the wider net — agents a human
+    # targets are auto-added to the channel below.
+    if event.source.startswith("openagents:") and targets:
+        targets = [t for t in targets if t in participant_names and t in live_agents]
 
     # ── Mark explicit delegations (server-owned metadata) ──
     # Only agent messages whose routed targets came from the sender's own
