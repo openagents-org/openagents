@@ -217,7 +217,7 @@ export function ConnectWorkspaceDialog({
               {t("agents.connectDialog.joinWithToken")}
             </button>
           </div>
-          <Button onClick={onClose} className="w-full mt-3">
+          <Button variant="outline" onClick={onClose} className="w-full mt-3">
             {t("agents.connectDialog.cancel")}
           </Button>
         </>
@@ -240,7 +240,7 @@ export function ConnectWorkspaceDialog({
             <Button variant="default" onClick={doCreate}>
               {t("agents.connectDialog.create")}
             </Button>
-            <Button onClick={onClose}>
+            <Button variant="outline" onClick={onClose}>
               {t("agents.connectDialog.cancel")}
             </Button>
           </div>
@@ -264,7 +264,7 @@ export function ConnectWorkspaceDialog({
             <Button variant="default" data-testid="ws-join" onClick={doJoinToken}>
               {t("agents.connectDialog.join")}
             </Button>
-            <Button onClick={onClose}>
+            <Button variant="outline" onClick={onClose}>
               {t("agents.connectDialog.cancel")}
             </Button>
           </div>

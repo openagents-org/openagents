@@ -1,7 +1,6 @@
 import React from "react"
 import { Trans, useTranslation } from "react-i18next"
-import { Modal, ModalTitle } from "../ui/Modal"
-import { Button } from "../ui/Button"
+import { ConfirmDialog } from "../ui-kit"
 import AgentIcon from "../AgentIcon"
 import { displayInstallCommand } from "../../../shared/npm-install-spec"
 import type { CatalogEntry } from "../../types"
@@ -57,35 +56,36 @@ export function InstallConfirmModal({
   const label = entry.label || entry.name
 
   return (
-    <Modal open={open} onClose={onCancel}>
-      <div className="flex flex-col items-center py-2">
-        <AgentIcon type={entry.name} size={40} />
-        <ModalTitle className="mt-3 text-center">
-          {t("agents.installConfirm.confirmTitle", { verb: verbLabel, name: label })}
-        </ModalTitle>
-        <p className="hint mt-3 mb-2 text-center max-w-90">
+    <ConfirmDialog
+      open={open}
+      icon={<AgentIcon type={entry.name} size={40} />}
+      title={t("agents.installConfirm.confirmTitle", {
+        verb: verbLabel,
+        name: label,
+      })}
+      description={
+        <>
           {installCmd ? (
             <>{t("agents.installConfirm.willRunCommand")}</>
           ) : (
             <Trans
               i18nKey="agents.installConfirm.willInstall"
               values={{ verb: verbLabel.toLowerCase(), name: label }}
-              components={{ 1: <strong /> }}
+              components={{ 1: <strong className="text-foreground" /> }}
             />
           )}
-        </p>
-        {installCmd && (
-          <code className="text-[11.5px] px-2.5 py-1.5 bg-(--bg-input) text-(--text-primary) font-mono rounded-(--radius) max-w-[min(420px,80vw)] whitespace-pre-wrap break-all text-center">
-            {installCmd}
-          </code>
-        )}
-        <div className="form-actions justify-center mt-5">
-          <Button variant="primary" data-testid="install-confirm" onClick={onConfirm}>
-            {verbLabel}
-          </Button>
-          <Button data-testid="install-cancel" onClick={onCancel}>{t("agents.installConfirm.cancel")}</Button>
-        </div>
-      </div>
-    </Modal>
+          {installCmd && (
+            <code className="mt-2 block rounded-md bg-muted px-2.5 py-1.5 text-center font-mono text-2xs break-all whitespace-pre-wrap text-foreground">
+              {installCmd}
+            </code>
+          )}
+        </>
+      }
+      confirmLabel={verbLabel}
+      cancelLabel={t("agents.installConfirm.cancel")}
+      destructive={false}
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    />
   )
 }

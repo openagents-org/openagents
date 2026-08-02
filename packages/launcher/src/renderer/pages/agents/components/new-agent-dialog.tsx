@@ -144,7 +144,7 @@ export function NewAgentDialog({
             >
               {t("agents.newDialog.goToInstall")}
             </Button>
-            <Button onClick={onClose}>{t("agents.newDialog.cancel")}</Button>
+            <Button variant="outline" onClick={onClose}>{t("agents.newDialog.cancel")}</Button>
           </div>
         </>
       ) : (
@@ -193,7 +193,7 @@ export function NewAgentDialog({
                 }}
                 placeholder={t("agents.newDialog.workingDirectoryPlaceholder")}
               />
-              <Button onClick={() => void browseFolder()}>
+              <Button variant="outline" onClick={() => void browseFolder()}>
                 {t("agents.newDialog.browse")}
               </Button>
             </div>
@@ -202,7 +202,7 @@ export function NewAgentDialog({
             <Button variant="default" data-testid="new-agent-create" onClick={doCreate}>
               {t("agents.newDialog.create")}
             </Button>
-            <Button onClick={onClose}>{t("agents.newDialog.cancel")}</Button>
+            <Button variant="outline" onClick={onClose}>{t("agents.newDialog.cancel")}</Button>
           </div>
         </>
       )}

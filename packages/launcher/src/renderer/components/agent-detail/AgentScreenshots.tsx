@@ -43,7 +43,7 @@ export function AgentScreenshots({
       {demoUrl && (
         <a
           href="#"
-          className="text-[12px]"
+          className="text-xs"
           onClick={(e) => { e.preventDefault(); window.api.openExternal(demoUrl) }}
         >
           {t("agents.screenshots.watchDemo")}

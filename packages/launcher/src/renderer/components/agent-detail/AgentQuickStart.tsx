@@ -73,18 +73,18 @@ export function AgentQuickStart({
           {commands.map((ex, i) => (
             <li key={`${ex.cmd}-${i}`} className="flex flex-col gap-1">
               {ex.description && (
-                <span className="text-[11px] text-(--text-tertiary)">
+                <span className="text-2xs text-(--text-tertiary)">
                   {ex.description}
                 </span>
               )}
               <div className="flex items-stretch gap-0 border border-(--border) rounded-(--radius) overflow-hidden">
-                <code className="flex-1 text-[11.5px] px-2.5 py-1.5 bg-(--bg-input) text-(--text-primary) font-mono whitespace-pre-wrap break-all">
+                <code className="flex-1 text-2xs px-2.5 py-1.5 bg-(--bg-input) text-(--text-primary) font-mono whitespace-pre-wrap break-all">
                   {ex.cmd}
                 </code>
                 <button
                   type="button"
                   onClick={() => copy(ex.cmd)}
-                  className="px-2.5 text-[11px] text-(--text-secondary) bg-(--bg-card) border-l border-(--border) cursor-pointer hover:text-(--text-primary) hover:bg-(--bg-card-hover) transition-colors"
+                  className="px-2.5 text-2xs text-(--text-secondary) bg-(--bg-card) border-l border-(--border) cursor-pointer hover:text-(--text-primary) hover:bg-(--bg-card-hover) transition-colors"
                   aria-label={t("agents.quickStart.copyCommand")}
                 >
                   {copied === ex.cmd ? t("agents.quickStart.copied") : t("agents.quickStart.copy")}
@@ -96,7 +96,7 @@ export function AgentQuickStart({
       )}
 
       {(docs || github) && (
-        <div className="mt-3 flex items-center gap-3 flex-wrap text-[11px]">
+        <div className="mt-3 flex items-center gap-3 flex-wrap text-2xs">
           {docs && (
             <a
               href="#"

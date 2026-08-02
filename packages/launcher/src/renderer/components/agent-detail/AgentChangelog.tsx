@@ -91,7 +91,7 @@ export function AgentChangelog({
         {homepage && (
           <a
             href="#"
-            className="text-[11px]"
+            className="text-2xs"
             onClick={(e) => { e.preventDefault(); window.api.openExternal(homepage) }}
           >
             {t("agents.changelog.viewOnNpm")}
@@ -115,12 +115,12 @@ export function AgentChangelog({
                 aria-expanded={expanded}
               >
                 <span className="font-mono text-(--text-primary) flex items-center gap-2">
-                  <span className="text-[10px] text-(--text-tertiary)">
+                  <span className="text-3xs text-(--text-tertiary)">
                     {expanded ? "▾" : "▸"}
                   </span>
                   v{v.version}
                   {isCurrent && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-(--radius) bg-(--accent-bg) text-(--accent) border border-(--accent-border)">
+                    <span className="text-3xs px-1.5 py-0.5 rounded-(--radius) bg-(--accent-bg) text-(--accent) border border-(--accent-border)">
                       {t("agents.changelog.installed")}
                     </span>
                   )}
@@ -133,7 +133,7 @@ export function AgentChangelog({
               </button>
 
               {expanded && (
-                <div className="pb-3 pl-4 pr-1 flex flex-col gap-2 text-[11.5px]">
+                <div className="pb-3 pl-4 pr-1 flex flex-col gap-2 text-2xs">
                   {v.date && (
                     <div className="text-(--text-tertiary)">
                       {t("agents.changelog.released", { date: new Date(v.date).toLocaleString() })}
@@ -150,7 +150,7 @@ export function AgentChangelog({
                         key={heading}
                         className="px-2.5 py-2 bg-(--bg-input) border border-(--border) rounded-(--radius)"
                       >
-                        <div className="text-[10px] uppercase tracking-wider text-(--text-tertiary) mb-1">
+                        <div className="text-3xs uppercase tracking-wider text-(--text-tertiary) mb-1">
                           {t(`agents.changelog.${heading}`)}
                         </div>
                         <div className="text-(--text-secondary)">

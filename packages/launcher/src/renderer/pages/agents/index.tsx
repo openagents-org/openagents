@@ -437,7 +437,7 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
                             : t("agents.list.start")}
                       </Button>
                       {agent.hasCli && (
-                        <Button
+                        <Button variant="outline"
                           size="sm"
                           onClick={() => void openAgentChat(agent)}
                         >
@@ -445,7 +445,7 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
                           {t("agents.list.chat")}
                         </Button>
                       )}
-                      <Button
+                      <Button variant="outline"
                         size="sm"
                         data-testid={`agent-configure-${agent.name}`}
                         onClick={() => {
@@ -460,13 +460,13 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
                       </Button>
                       {agent.network ? (
                         <>
-                          <Button
+                          <Button variant="outline"
                             size="sm"
                             onClick={() => disconnectAgent(agent.name)}
                           >
                             {t("agents.list.disconnect")}
                           </Button>
-                          <Button
+                          <Button variant="outline"
                             size="sm"
                             onClick={() => openWorkspace(agent)}
                           >
@@ -474,7 +474,7 @@ export default function Agents({ showToast }: AgentsProps): React.JSX.Element {
                           </Button>
                         </>
                       ) : (
-                        <Button
+                        <Button variant="outline"
                           size="sm"
                           data-testid={`agent-connect-${agent.name}`}
                           onClick={() => {

@@ -1,6 +1,6 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { Button } from "../ui/Button"
+import { Button } from "../shadcn/button"
 import type { CatalogEntry, InstalledAgentRecord } from "../../types"
 import type { InstallJob } from "../../store/install"
 import { isUpgradeAvailable } from "../../../shared/version-compare"
@@ -77,21 +77,21 @@ export function AgentInstallActions({
     <div className="flex flex-wrap items-center gap-1.5 shrink-0">
       {/* Not installed → single primary */}
       {!isInstalled && (
-        <Button size="default" variant="primary" onClick={onInstall} disabled={isBusy}>
+        <Button size="default" variant="default" onClick={onInstall} disabled={isBusy}>
           {isBusy ? busyLabel : t("agents.actions.install")}
         </Button>
       )}
 
       {/* Managed install with an actual update available */}
       {isInstalled && isManaged && hasUpdate && (
-        <Button size="default" variant="primary" onClick={onUpdate} disabled={isBusy}>
+        <Button size="default" variant="default" onClick={onUpdate} disabled={isBusy}>
           {isBusy ? busyLabel : t("agents.actions.updateToVersion", { version: latestVersion })}
         </Button>
       )}
 
       {/* Global / unmanaged install — surface a Reinstall instead of Update */}
       {isInstalled && !isManaged && (
-        <Button size="default" variant="primary" onClick={onInstall} disabled={isBusy}>
+        <Button size="default" variant="default" onClick={onInstall} disabled={isBusy}>
           {isBusy ? busyLabel : t("agents.actions.reinstall")}
         </Button>
       )}

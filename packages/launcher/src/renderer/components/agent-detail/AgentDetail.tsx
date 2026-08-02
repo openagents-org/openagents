@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react"
 import { Trans, useTranslation } from "react-i18next"
-import { Button } from "../ui/Button"
-import { Checkbox } from "../ui/Checkbox"
-import { Modal, ModalTitle } from "../ui/Modal"
+import { Button } from "../shadcn/button"
+import { Checkbox } from "../shadcn/checkbox"
+import { ConfirmDialog } from "../ui-kit"
 import AgentIcon from "../AgentIcon"
 import { useInstallStore } from "../../store/install"
 import { useAgentsStore } from "../../store/agents"
@@ -363,57 +363,44 @@ export default function AgentDetail({
         onCancel={() => setConfirmingInstall(null)}
       />
 
-      <Modal
+      <ConfirmDialog
         open={confirmingUninstall}
-        onClose={() => {
-          setConfirmingUninstall(false)
-          setWipeEnvOnUninstall(false)
-        }}
-      >
-        <div className="flex flex-col items-center py-2">
-          <AgentIcon type={entry.name} size={40} />
-          <ModalTitle className="mt-3 text-center">
-            {t("agents.detail.uninstallTitle", { name: entry.label || entry.name })}
-          </ModalTitle>
-          <p className="hint mt-3 mb-4 text-center">
+        icon={<AgentIcon type={entry.name} size={40} />}
+        title={t("agents.detail.uninstallTitle", {
+          name: entry.label || entry.name,
+        })}
+        description={
+          <>
             <Trans
               i18nKey="agents.detail.uninstallBody"
               values={{ name: entry.label || entry.name }}
-              components={{ 1: <strong /> }}
+              components={{ 1: <strong className="text-foreground" /> }}
             />
-          </p>
-          <button
-            type="button"
-            onClick={() => setWipeEnvOnUninstall((v) => !v)}
-            className="flex items-start gap-2.5 w-full mb-5 px-3 py-2.5 rounded-(--radius-sm) border border-(--border) bg-(--bg-input)/40 hover:border-(--border-hover) hover:bg-(--bg-input)/70 transition-colors text-left cursor-pointer"
-          >
-            <Checkbox
-              checked={wipeEnvOnUninstall}
-              onCheckedChange={setWipeEnvOnUninstall}
-              className="mt-0.5"
-            />
-            <span className="text-[12px] leading-snug text-(--text-secondary)">
-              {t("agents.detail.alsoRemoveEnv")}{" "}
-              <span className="text-(--text-tertiary)">
-                {t("agents.detail.alsoRemoveEnvHint")}
+            {/* A <label> makes the whole block clickable while the checkbox
+                stays the real control. */}
+            <label className="mt-4 flex cursor-pointer items-start gap-2.5 rounded-md border bg-muted/40 px-3 py-2.5 text-left transition-colors hover:bg-muted/70">
+              <Checkbox
+                checked={wipeEnvOnUninstall}
+                onCheckedChange={(v) => setWipeEnvOnUninstall(v === true)}
+                className="mt-0.5"
+              />
+              <span className="text-xs leading-snug">
+                {t("agents.detail.alsoRemoveEnv")}{" "}
+                <span className="opacity-70">
+                  {t("agents.detail.alsoRemoveEnvHint")}
+                </span>
               </span>
-            </span>
-          </button>
-          <div className="form-actions justify-center mt-0">
-            <Button variant="destructive" onClick={startUninstall}>
-              {t("agents.detail.uninstall")}
-            </Button>
-            <Button
-              onClick={() => {
-                setConfirmingUninstall(false)
-                setWipeEnvOnUninstall(false)
-              }}
-            >
-              {t("agents.detail.cancel")}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+            </label>
+          </>
+        }
+        confirmLabel={t("agents.detail.uninstall")}
+        cancelLabel={t("agents.detail.cancel")}
+        onConfirm={startUninstall}
+        onCancel={() => {
+          setConfirmingUninstall(false)
+          setWipeEnvOnUninstall(false)
+        }}
+      />
     </section>
   )
 }

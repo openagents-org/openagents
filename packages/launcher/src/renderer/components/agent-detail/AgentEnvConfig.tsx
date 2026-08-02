@@ -1,8 +1,8 @@
 import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Input } from "../ui/Input"
-import { PasswordInput } from "../ui/PasswordInput"
-import { Button } from "../ui/Button"
+import { Input } from "../shadcn/input"
+import { PasswordInput } from "../ui-kit"
+import { Button } from "../shadcn/button"
 import type { EnvField } from "../../types"
 import type { ToastType } from "../../hooks/useToast"
 
@@ -105,10 +105,10 @@ export function AgentEnvConfig({
         </p>
       )}
       <div className="form-actions mt-1">
-        <Button size="sm" variant="primary" onClick={saveEnv} disabled={saving}>
+        <Button size="sm" variant="default" onClick={saveEnv} disabled={saving}>
           {saving ? t("agents.envConfig.saving") : t("agents.envConfig.save")}
         </Button>
-        <Button size="sm" onClick={testConnection} disabled={testing}>
+        <Button variant="outline" size="sm" onClick={testConnection} disabled={testing}>
           {testing ? t("agents.envConfig.testing") : t("agents.envConfig.testConnection")}
         </Button>
       </div>

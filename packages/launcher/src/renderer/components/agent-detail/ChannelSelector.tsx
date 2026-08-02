@@ -31,7 +31,7 @@ export function ChannelSelector({
   const { t } = useTranslation()
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      <span className="text-[10px] uppercase tracking-wider text-(--text-tertiary)">
+      <span className="text-3xs uppercase tracking-wider text-(--text-tertiary)">
         {t("agents.channelSelector.updateChannel")}
       </span>
       <div
@@ -50,7 +50,7 @@ export function ChannelSelector({
               title={t(`agents.channelSelector.${opt.value}Description`)}
               onClick={() => onChange(opt.value)}
               className={cn(
-                "text-[11px] px-2.5 py-1 rounded-sm cursor-pointer transition-colors duration-150",
+                "text-2xs px-2.5 py-1 rounded-sm cursor-pointer transition-colors duration-150",
                 active
                   ? "bg-(--bg-card) text-(--text-primary) shadow-(--shadow-sm)"
                   : "text-(--text-secondary) hover:text-(--text-primary)",

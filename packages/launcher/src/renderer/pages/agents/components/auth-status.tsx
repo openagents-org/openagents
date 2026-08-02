@@ -161,7 +161,7 @@ export function CliLoginBlock({
             <Button variant="default" onClick={onConfirmLogin}>
               {t("agents.loginStatus.finishedSigningIn")}
             </Button>
-            <Button onClick={onCancelAwaiting}>
+            <Button variant="outline" onClick={onCancelAwaiting}>
               {t("agents.loginStatus.notYet")}
             </Button>
           </div>

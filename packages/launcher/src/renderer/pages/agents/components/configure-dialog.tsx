@@ -358,7 +358,7 @@ export function ConfigureDialog({
                 onChange={(e) => setWorkDir(e.target.value)}
                 placeholder={t("agents.configureDialog.workdir.placeholder")}
               />
-              <Button onClick={() => void browseWorkDir()}>
+              <Button variant="outline" onClick={() => void browseWorkDir()}>
                 {t("agents.configureDialog.workdir.browse")}
               </Button>
               <Button
@@ -479,7 +479,7 @@ export function ConfigureDialog({
         <DialogFooter>
           {noConfig ? (
             <div className="form-actions mt-0">
-              <Button onClick={onClose}>
+              <Button variant="outline" onClick={onClose}>
                 {t("agents.configureDialog.close")}
               </Button>
             </div>
@@ -489,7 +489,7 @@ export function ConfigureDialog({
                 <Button variant="default" onClick={confirmLogin}>
                   {t("agents.configureDialog.finishedSigningIn")}
                 </Button>
-                <Button onClick={() => setLoginPhase("idle")}>
+                <Button variant="outline" onClick={() => setLoginPhase("idle")}>
                   {t("agents.configureDialog.notYet")}
                 </Button>
               </div>
@@ -516,7 +516,7 @@ export function ConfigureDialog({
                     ? t("agents.configureDialog.reLogin")
                     : t("agents.configureDialog.login")}
                 </Button>
-                <Button onClick={onClose}>
+                <Button variant="outline" onClick={onClose}>
                   {t("agents.configureDialog.close")}
                 </Button>
               </div>
@@ -526,7 +526,7 @@ export function ConfigureDialog({
               <Button variant="default" data-testid="cfg-save" onClick={save}>
                 {t("agents.configureDialog.save")}
               </Button>
-              <Button
+              <Button variant="outline"
                 onClick={testConnection}
                 disabled={testStatus === "loading"}
               >
@@ -534,7 +534,7 @@ export function ConfigureDialog({
                   ? t("agents.configureDialog.testing")
                   : t("agents.configureDialog.testConnection")}
               </Button>
-              <Button onClick={onClose}>
+              <Button variant="outline" onClick={onClose}>
                 {t("agents.configureDialog.cancel")}
               </Button>
             </div>

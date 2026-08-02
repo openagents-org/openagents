@@ -89,7 +89,7 @@ export function AgentDependencies({
           <>
             <dt>{t("agents.dependencies.binary")}</dt>
             <dd>
-              <code className="text-[11.5px]">{binary}</code>
+              <code className="text-2xs">{binary}</code>
             </dd>
           </>
         )}
@@ -97,7 +97,7 @@ export function AgentDependencies({
           <>
             <dt>{t("agents.dependencies.install", { platform: platformKey })}</dt>
             <dd>
-              <code className="text-[11.5px] whitespace-pre-wrap break-all">
+              <code className="text-2xs whitespace-pre-wrap break-all">
                 {installCmd}
               </code>
             </dd>
