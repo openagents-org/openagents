@@ -117,42 +117,46 @@ export function AgentRow({
         )}
       </div>
 
-      <div className="flex shrink-0 gap-1.5" onClick={(e) => e.stopPropagation()}>
-        {isComingSoon ? (
-          <Button size="sm" variant="secondary" disabled>
-            {t("install.card.comingSoon")}
-          </Button>
-        ) : isBusy ? (
-          <Button size="sm" variant="secondary" disabled>
-            {verbLabel}
-          </Button>
-        ) : !isInstalled ? (
-          <Button
-            size="sm"
-            data-testid={`install-btn-${entry.name}`}
-            onClick={stop(onInstall)}
-          >
-            {t("install.card.install")}
-          </Button>
-        ) : isManaged ? (
-          <>
-            <Button size="sm" onClick={stop(onInstall)}>
-              {t("install.card.update")}
+      {/* No action strip for an unreleased agent: the status badge above already
+          says "coming soon", so a disabled button repeating it just rendered
+          the same label twice. */}
+      {!isComingSoon && (
+        <div
+          className="flex shrink-0 gap-1.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {isBusy ? (
+            <Button size="sm" variant="secondary" disabled>
+              {verbLabel}
             </Button>
+          ) : !isInstalled ? (
             <Button
               size="sm"
-              variant="destructive-ghost"
-              onClick={stop(onUninstall)}
+              data-testid={`install-btn-${entry.name}`}
+              onClick={stop(onInstall)}
             >
-              {t("install.card.uninstall")}
+              {t("install.card.install")}
             </Button>
-          </>
-        ) : (
-          <Button size="sm" onClick={stop(onInstall)}>
-            {t("install.card.reinstall")}
-          </Button>
-        )}
-      </div>
+          ) : isManaged ? (
+            <>
+              <Button size="sm" onClick={stop(onInstall)}>
+                {t("install.card.update")}
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive-ghost"
+                onClick={stop(onUninstall)}
+              >
+                {t("install.card.uninstall")}
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" onClick={stop(onInstall)}>
+              {t("install.card.reinstall")}
+            </Button>
+          )}
+        </div>
+      )}
     </Card>
   )
 }
