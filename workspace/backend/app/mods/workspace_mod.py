@@ -763,13 +763,22 @@ def _channel_phase(channel) -> str:
 
 def _valid_gatekeeper_names(channel, db, workspace, candidates: List[str]) -> List[str]:
     """Filter candidate gatekeepers down to ones that can actually take the
-    floor: a non-removed workspace member that is a participant of THIS
-    channel. Order is preserved.
+    floor right now: a participant of THIS channel that is live by the same
+    `_member_is_online` rule the rest of routing uses. Order is preserved.
 
-    Membership changes after the phase was set — an agent removed from the
-    workspace, or one that left the channel — so validating at write time is
-    not enough. Without this filter the gate happily redirects to a name
-    nobody answers to, and the message is stranded with no reply at all.
+    Liveness, not just membership. A crashed daemon leaves `status='online'`
+    in the database indefinitely, so a "still a member" check would keep
+    handing the floor to an agent with no connector behind it: the thread
+    looks gated and healthy while every message goes unanswered. Membership
+    also changes after the phase is set (agent removed, agent left the
+    channel), which write-time validation cannot cover.
+
+    Dropping an offline owner from the gatekeepers does not open the gate —
+    an unowned gate holds everyone in plan mode (see `_apply_phase_gate`), so
+    the thread keeps answering without anyone building, and ownership resumes
+    by itself once the owner's daemon heartbeats again. `phase_owner` is
+    deliberately left untouched in the database; it records who owns the
+    requirement, not who happens to be connected this second.
     """
     from app.models import WorkspaceMember
 
@@ -782,7 +791,7 @@ def _valid_gatekeeper_names(channel, db, workspace, candidates: List[str]) -> Li
             WorkspaceMember.agent_name.in_(candidates),
         )
     ).scalars().all()
-    live = {m.agent_name for m in rows if (m.status or "").lower() != "removed"}
+    live = {m.agent_name for m in rows if _member_is_online(m)}
     return [n for n in candidates if n in live and n in participants]
 
 
@@ -796,11 +805,10 @@ def _phase_gatekeepers(channel, db, workspace) -> List[str]:
     entry.
 
     Both are validated against live membership (see
-    `_valid_gatekeeper_names`). Returns [] when none survive, which makes the
-    gate inert: routing falls back to normal behaviour rather than handing
-    the turn to somebody who cannot answer. That is a deliberate fail-open —
-    an unenforced gate is visible in the logs and recoverable, a stranded
-    conversation is neither.
+    `_valid_gatekeeper_names`). Returns [] when none survive — the gate is
+    then UNOWNED, not off: `_apply_phase_gate` keeps whoever was targeted but
+    holds them all in plan mode, so the thread answers and nobody builds. It
+    never falls back to unrestricted routing; only a human takes a gate off.
     """
     owner = getattr(channel, "phase_owner", None)
     names = [n for n in (owner, channel.master_agent) if n]

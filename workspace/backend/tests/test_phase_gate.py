@@ -10,6 +10,7 @@ drive `_handle_message_posted` end-to-end for the deterministic modes and
 """
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import delete, select, update
@@ -41,6 +42,13 @@ def _make_event(source: str, content: str, target: str = "channel/session-test")
     )
 
 
+def _now():
+    """Fresh heartbeat. Routing treats a member with a stale (or missing)
+    heartbeat as offline — see `_member_is_online` — so a fixture agent that
+    is meant to be reachable has to look reachable."""
+    return datetime.now(timezone.utc)
+
+
 def _run(coro):
     loop = asyncio.new_event_loop()
     try:
@@ -56,9 +64,9 @@ def gated_workspace(db):
     db.add(ws)
     db.flush()
 
-    db.add(WorkspaceMember(workspace_id=ws.id, agent_name="pm", role="master", status="online"))
-    db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online"))
-    db.add(WorkspaceMember(workspace_id=ws.id, agent_name="qa", role="member", status="online"))
+    db.add(WorkspaceMember(workspace_id=ws.id, agent_name="pm", role="master", status="online", last_heartbeat=_now()))
+    db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online", last_heartbeat=_now()))
+    db.add(WorkspaceMember(workspace_id=ws.id, agent_name="qa", role="member", status="online", last_heartbeat=_now()))
     db.flush()
 
     ch = Channel(
@@ -155,6 +163,54 @@ class TestGatekeeperValidation:
         db.flush()
         db.refresh(ch)
         assert _phase_gatekeepers(ch, db, ws) == ["pm"]
+
+    def test_owner_with_a_stale_heartbeat_is_ignored(self, db, gated_workspace):
+        """A crashed daemon leaves status='online' in the database forever.
+        Handing the floor to it would make the thread look gated and healthy
+        while every message went unanswered."""
+        ch = gated_workspace["channel"]
+        ws = gated_workspace["workspace"]
+        ch.phase_owner = "qa"
+        db.execute(
+            update(WorkspaceMember)
+            .where(
+                WorkspaceMember.workspace_id == ws.id,
+                WorkspaceMember.agent_name == "qa",
+            )
+            .values(last_heartbeat=_now() - timedelta(hours=1))
+        )
+        db.flush()
+        assert _phase_gatekeepers(ch, db, ws) == ["pm"]
+
+    def test_offline_owner_falls_back_to_plan_only_not_silence(self, db, gated_workspace):
+        """With no live gatekeeper the thread must keep answering — in plan
+        mode — instead of routing into a dead agent's mailbox. Ownership is
+        left in the database and resumes when the daemon reconnects."""
+        ws = gated_workspace["workspace"]
+        ch = gated_workspace["channel"]
+        ch.master_agent = None
+        ch.orchestration_mode = "dynamic"
+        db.execute(
+            update(WorkspaceMember)
+            .where(
+                WorkspaceMember.workspace_id == ws.id,
+                WorkspaceMember.agent_name == "pm",
+            )
+            .values(last_heartbeat=_now() - timedelta(hours=1))
+        )
+        db.flush()
+
+        out = _run(_handle_message_posted(
+            _make_event("human:user", "can you build the sync feature?"),
+            PipelineContext(
+                network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws,
+            ),
+        ))
+        assert out.metadata["target_agents"] not in (["pm"], ["__no_response__"])
+        for name in out.metadata["target_agents"]:
+            assert out.metadata["target_modes"][name] == "plan"
+        db.refresh(ch)
+        assert ch.phase_owner == "pm", "ownership survives a disconnect"
 
     def test_no_valid_gatekeeper_never_targets_a_ghost(self, db, gated_workspace):
         """The end-to-end shape of the bug: routing must not emit a target
@@ -307,7 +363,7 @@ class TestChannelCreateGate:
         ws = Workspace(name="Create WS", slug="create-ws", password_hash="t")
         db.add(ws)
         db.flush()
-        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online"))
+        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online", last_heartbeat=_now()))
         db.flush()
         event = Event(
             type="network.channel.create",
@@ -332,7 +388,7 @@ class TestChannelCreateGate:
         ws = Workspace(name="Create WS3", slug="create-ws3", password_hash="t")
         db.add(ws)
         db.flush()
-        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online"))
+        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online", last_heartbeat=_now()))
         db.flush()
         event = Event(
             type="network.channel.create",
@@ -363,7 +419,7 @@ class TestChannelCreateGate:
         db.add(ws)
         db.flush()
         for name in ("pm", "rd"):
-            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online"))
+            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online", last_heartbeat=_now()))
         db.flush()
         event = Event(
             type="network.channel.create",
@@ -393,7 +449,7 @@ class TestChannelCreateGate:
         db.add(ws)
         db.flush()
         for name in ("pm", "rd"):
-            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online"))
+            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online", last_heartbeat=_now()))
         db.flush()
         event = Event(
             type="network.channel.create",
@@ -418,7 +474,7 @@ class TestChannelCreateGate:
         ws = Workspace(name="Create WS8", slug="create-ws8", password_hash="t")
         db.add(ws)
         db.flush()
-        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online"))
+        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online", last_heartbeat=_now()))
         db.flush()
         event = Event(
             type="network.channel.create",
@@ -446,7 +502,7 @@ class TestChannelCreateGate:
         db.add(ws)
         db.flush()
         for name in ("pm", "rd"):
-            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online"))
+            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online", last_heartbeat=_now()))
         db.flush()
         ctx = PipelineContext(
             network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws,
@@ -480,7 +536,7 @@ class TestChannelCreateGate:
         db.add(ws)
         db.flush()
         for name in ("pm", "rd"):
-            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online"))
+            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online", last_heartbeat=_now()))
         db.flush()
         ctx = PipelineContext(
             network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws,
@@ -513,8 +569,8 @@ class TestChannelCreateGate:
         ws = Workspace(name="Create WS4", slug="create-ws4", password_hash="t")
         db.add(ws)
         db.flush()
-        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="pm", role="member", status="removed"))
-        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online"))
+        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="pm", role="member", status="removed", last_heartbeat=_now()))
+        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online", last_heartbeat=_now()))
         db.flush()
         event = Event(
             type="network.channel.create",
@@ -543,7 +599,7 @@ class TestChannelCreateGate:
         db.add(ws)
         db.flush()
         for name in ("pm", "rd"):
-            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online"))
+            db.add(WorkspaceMember(workspace_id=ws.id, agent_name=name, role="member", status="online", last_heartbeat=_now()))
         db.flush()
         event = Event(
             type="network.channel.create",

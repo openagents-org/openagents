@@ -634,6 +634,12 @@ export const messages = {
     clarifyOwnerPlaceholder: 'Select an agent…',
     clarifyOwnerMaster: '{name} (workspace leader)',
     clarifyOwnerRequired: 'Pick the agent that owns the requirement, or uncheck the option above.',
+    gateBlockedOffline: {
+      one: "{count} selected agent is offline and won't join, leaving too few to clarify with. Wait for them, pick another agent, or uncheck the option above to start without the gate.",
+      other: "{count} selected agents are offline and won't join, leaving too few to clarify with. Wait for them, pick another agent, or uncheck the option above to start without the gate.",
+    },
+    gateBlockedTooFew:
+      'Two or more online agents are needed to clarify. Pick another agent, or uncheck the option above.',
   },
 
   landing: {

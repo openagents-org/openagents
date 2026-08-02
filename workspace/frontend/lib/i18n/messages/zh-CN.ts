@@ -617,6 +617,11 @@ export const messages: Messages = {
     clarifyOwnerPlaceholder: '选择一个智能体…',
     clarifyOwnerMaster: '{name}(工作区负责人)',
     clarifyOwnerRequired: '请选择负责需求的智能体,或取消勾选上面的选项。',
+    gateBlockedOffline: {
+      one: '有 {count} 个已选中的智能体处于离线状态、不会加入,剩下的人数不足以进行需求澄清。可以等它上线、改选其他智能体,或取消勾选上面的选项以不带澄清阶段直接开始。',
+      other: '有 {count} 个已选中的智能体处于离线状态、不会加入,剩下的人数不足以进行需求澄清。可以等它们上线、改选其他智能体,或取消勾选上面的选项以不带澄清阶段直接开始。',
+    },
+    gateBlockedTooFew: '需求澄清至少需要两个在线的智能体。请再选一个智能体,或取消勾选上面的选项。',
   },
 
   landing: {
