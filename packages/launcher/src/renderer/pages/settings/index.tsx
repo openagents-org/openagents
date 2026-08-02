@@ -18,13 +18,20 @@ import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
 import { SUPPORTED_LANGUAGES, changeLanguage, type LanguageCode } from "../../i18n"
 import { TopBar } from "../../components/TopBar"
-import { Switch } from "../../components/ui/Switch"
-import { Label } from "../../components/ui/Label"
-import { Separator } from "../../components/ui/Separator"
-import { Input } from "../../components/ui/Input"
-import { Select } from "../../components/ui/Select"
-import { Button } from "../../components/ui/Button"
-import { ConfirmDialog } from "../../components/ui/ConfirmDialog"
+import { Switch } from "../../components/shadcn/switch"
+import { SettingsCard, Row } from "./components/settings-card"
+import { LauncherUpdate } from "./components/launcher-update"
+import { Separator } from "../../components/shadcn/separator"
+import { Input } from "../../components/shadcn/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/shadcn/select"
+import { Button } from "../../components/shadcn/button"
+import { ConfirmDialog } from "../../components/ui-kit"
 import { useThemeStore, type ThemeMode } from "../../store/theme"
 import { useAgentsStore } from "../../store/agents"
 import { useNotificationsStore } from "../../store/notifications"
@@ -61,6 +68,9 @@ const SECTIONS: Array<{ id: SectionId; icon: React.JSX.Element }> = [
   { id: "runtime", icon: <Cpu className="w-4 h-4" /> },
   { id: "about", icon: <ExternalLink className="w-4 h-4" /> },
 ]
+
+/** Radix Select rejects an empty item value, so "no default" needs a sentinel. */
+const NO_DEFAULT_AGENT = "__none__"
 
 export default function Settings({ showToast }: SettingsProps): React.JSX.Element {
   const { t, i18n } = useTranslation()
@@ -354,11 +364,11 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
         subtitle={t("settings.subtitle")}
         actions={
           <>
-            <Button size="sm" onClick={importSettings} title={t("common.import")}>
+            <Button size="sm" variant="outline" onClick={importSettings} title={t("common.import")}>
               <ArrowUpFromLine className="w-3 h-3" />
               {t("common.import")}
             </Button>
-            <Button size="sm" onClick={exportSettings} title={t("common.export")}>
+            <Button size="sm" variant="outline" onClick={exportSettings} title={t("common.export")}>
               <ArrowDownToLine className="w-3 h-3" />
               {t("common.export")}
             </Button>
@@ -371,14 +381,14 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
       />
 
       <div className="flex flex-1 min-h-0 gap-5 px-9 py-6">
-        <aside className="w-[200px] shrink-0">
-          <div className="flex items-center gap-2 mb-2 px-2.5 py-1.5 rounded-sm bg-(--bg-input) text-[11px]">
+        <aside className="w-50 shrink-0">
+          <div className="flex items-center gap-2 mb-2 px-2.5 py-1.5 rounded-sm bg-(--bg-input) text-2xs">
             <Search className="w-3 h-3 text-(--text-tertiary)" />
             <input
               placeholder={t("settings.searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="bg-transparent border-0 outline-none flex-1 text-[12px]"
+              className="bg-transparent border-0 outline-none flex-1 text-xs"
             />
           </div>
           <ul className="m-0 p-0 list-none">
@@ -388,7 +398,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
                   type="button"
                   onClick={() => setSection(s.id)}
                   className={cn(
-                    "w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-left text-[12px] border-0 cursor-pointer mb-[2px]",
+                    "w-full flex items-center gap-2.5 px-3 py-2 rounded-sm text-left text-xs border-0 cursor-pointer mb-px",
                     section === s.id
                       ? "bg-(--accent) text-white"
                       : "bg-transparent text-(--text-secondary) hover:bg-(--bg-input)",
@@ -456,7 +466,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
                       type="button"
                       onClick={() => setThemeMode(m)}
                       className={cn(
-                        "px-3 py-1.5 rounded-sm text-[12px] border cursor-pointer",
+                        "px-3 py-1.5 rounded-sm text-xs border cursor-pointer",
                         themeMode === m
                           ? "border-(--accent) bg-(--accent-bg) text-(--accent) font-semibold"
                           : "border-(--border) bg-(--bg-card) text-(--text-secondary) hover:border-(--border-hover)",
@@ -477,20 +487,25 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
                 desc={t("settings.agents.defaultTypeDesc")}
               >
                 <Select
-                  value={defaultAgentType}
+                  value={defaultAgentType || NO_DEFAULT_AGENT}
                   disabled
-                  onChange={(e) => {
-                    setDefaultAgentType(e.target.value)
-                    void set("defaultAgentType", e.target.value)
+                  onValueChange={(v) => {
+                    const next = v === NO_DEFAULT_AGENT ? "" : v
+                    setDefaultAgentType(next)
+                    void set("defaultAgentType", next)
                   }}
-                  className="w-[200px]"
                 >
-                  <option value="">{t("common.none")}</option>
-                  {agentTypes.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
+                  <SelectTrigger size="sm" className="w-50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_DEFAULT_AGENT}>{t("common.none")}</SelectItem>
+                    {agentTypes.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </Row>
               <Separator />
@@ -547,7 +562,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
                 />
               </Row>
               <Separator />
-              <p className="text-[11px] text-(--text-tertiary) m-0 mt-2">
+              <p className="text-2xs text-(--text-tertiary) m-0 mt-2">
                 {t("settings.notifications.note")}
               </p>
             </SettingsCard>
@@ -565,15 +580,19 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
               >
                 <Select
                   value={downloadRegion}
-                  onChange={(e) => {
-                    setDownloadRegion(e.target.value)
-                    void set("downloadRegion", e.target.value)
+                  onValueChange={(v) => {
+                    setDownloadRegion(v)
+                    void set("downloadRegion", v)
                   }}
-                  className="w-[200px]"
                 >
-                  <option value="auto">{t("settings.network.regionAuto")}</option>
-                  <option value="cn">{t("settings.network.regionCn")}</option>
-                  <option value="global">{t("settings.network.regionGlobal")}</option>
+                  <SelectTrigger size="sm" className="w-50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">{t("settings.network.regionAuto")}</SelectItem>
+                    <SelectItem value="cn">{t("settings.network.regionCn")}</SelectItem>
+                    <SelectItem value="global">{t("settings.network.regionGlobal")}</SelectItem>
+                  </SelectContent>
                 </Select>
               </Row>
               <Separator />
@@ -628,7 +647,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
                   className="w-full"
                 />
               </Row>
-              <p className="text-[11px] text-(--text-tertiary) m-0 mt-3">
+              <p className="text-2xs text-(--text-tertiary) m-0 mt-3">
                 {t("settings.network.note")}
               </p>
             </SettingsCard>
@@ -651,10 +670,10 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
                       className="flex items-center justify-between gap-3 py-2.5 border-b border-(--border) last:border-b-0"
                     >
                       <div className="min-w-0">
-                        <div className="text-[12px] font-medium text-(--text-primary)">
+                        <div className="text-xs font-medium text-(--text-primary)">
                           {label}
                         </div>
-                        <div className="text-[11px] text-(--text-tertiary) truncate font-mono">
+                        <div className="text-2xs text-(--text-tertiary) truncate font-mono">
                           {p}
                         </div>
                       </div>
@@ -665,7 +684,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
                   ))}
                 </ul>
               ) : (
-                <p className="text-[12px] text-(--text-tertiary)">{t("common.loading")}</p>
+                <p className="text-xs text-(--text-tertiary)">{t("common.loading")}</p>
               )}
             </SettingsCard>
           )}
@@ -678,14 +697,18 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
               >
                 <Select
                   value={(i18n.resolvedLanguage ?? i18n.language) as LanguageCode}
-                  onChange={(e) => void changeLanguage(e.target.value as LanguageCode)}
-                  className="w-[200px]"
+                  onValueChange={(v) => void changeLanguage(v as LanguageCode)}
                 >
-                  {SUPPORTED_LANGUAGES.map((l) => (
-                    <option key={l.value} value={l.value}>
-                      {l.label}
-                    </option>
-                  ))}
+                  <SelectTrigger size="sm" className="w-50">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUPPORTED_LANGUAGES.map((l) => (
+                      <SelectItem key={l.value} value={l.value}>
+                        {l.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
               </Row>
             </SettingsCard>
@@ -722,7 +745,7 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
                 <div
                   key={row.label}
                   className={cn(
-                    "flex justify-between items-center py-2.5 text-[13px] border-b border-(--border)",
+                    "flex justify-between items-center py-2.5 text-sm border-b border-(--border)",
                     idx === runtimeRows.length - 1 && "border-b-0",
                   )}
                 >
@@ -735,10 +758,10 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
 
           {section === "about" && (
             <SettingsCard title={t("settings.about.title")}>
-              <p className="text-[13px] m-0 mb-2 flex items-center gap-1.5">
+              <p className="text-sm m-0 mb-2 flex items-center gap-1.5">
                 {t("settings.about.appLine", { version: launcherVersion })}
               </p>
-              <p className="text-[13px] m-0">
+              <p className="text-sm m-0">
                 <button
                   type="button"
                   className="bg-transparent border-0 p-0 text-(--accent) underline cursor-pointer"
@@ -767,197 +790,5 @@ export default function Settings({ showToast }: SettingsProps): React.JSX.Elemen
         onConfirm={performReset}
       />
     </section>
-  )
-}
-
-function LauncherUpdate({
-  state,
-  currentVersion,
-  onCheck,
-  onDownload,
-  onInstall,
-}: {
-  state: UpdaterState | null
-  currentVersion: string
-  onCheck: () => void | Promise<void>
-  onDownload: () => void | Promise<void>
-  onInstall: () => void | Promise<void>
-}): React.JSX.Element {
-  const { t } = useTranslation()
-  const status = state?.status ?? "idle"
-  const latest = state?.latestVersion ? `v${state.latestVersion}` : null
-
-  // There is deliberately no `!state.supported` special case. Unpackaged builds
-  // now check the real release feed too (see updater.ts / dev-app-update.yml),
-  // so every build renders the same states — and the idle state below is already
-  // exactly "Current version X · [Check for updates]".
-
-  // We handed this version to the installer at least twice and came back up on
-  // the old build both times — on Windows that is almost always a profile path
-  // the NSIS handoff can't represent. Offering "Restart & install" again would
-  // just repeat the no-op, so switch to a manual download. Main clears the flag
-  // as soon as a *different* version shows up, so this can't get stuck.
-  if (state?.installFailedVersion) {
-    return (
-      <Row
-        label={t("settings.updates.appUpdate")}
-        desc={t("settings.updates.installFailedDesc", {
-          version: state.installFailedVersion,
-          current: currentVersion,
-        })}
-      >
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() =>
-            window.api.openExternal(
-              state.downloadUrl ||
-                "https://github.com/openagents-org/openagents/releases",
-            )
-          }
-        >
-          {t("settings.updates.downloadPage")}
-        </Button>
-      </Row>
-    )
-  }
-
-  let statusText = t("settings.updates.currentVersion", { version: currentVersion })
-  if (status === "checking") statusText = t("settings.updates.checking")
-  else if (status === "available")
-    statusText = t("settings.updates.available", { version: latest ?? "" })
-  else if (status === "downloading")
-    statusText = t("settings.updates.downloading", { version: latest ?? "", percent: state?.percent ?? 0 })
-  else if (status === "downloaded")
-    statusText = t("settings.updates.downloaded", { version: latest ?? t("settings.updates.updateFallback") })
-  else if (status === "not-available")
-    statusText = t("settings.updates.upToDate", { version: currentVersion })
-  else if (status === "error")
-    statusText = t("settings.updates.error", { error: state?.error ?? t("settings.toasts.unknown") })
-
-  const busy = status === "checking" || status === "downloading"
-
-  let action: React.JSX.Element
-  if (status === "available") {
-    action = (
-      <Button variant="primary" size="sm" onClick={() => void onDownload()}>
-        {t("common.download")}
-      </Button>
-    )
-  } else if (status === "downloading") {
-    action = (
-      <Button variant="default" size="sm" disabled>
-        {t("settings.updates.actionDownloading")}
-      </Button>
-    )
-  } else if (status === "downloaded") {
-    action = (
-      <Button variant="primary" size="sm" onClick={() => void onInstall()}>
-        {t("settings.updates.actionRestartInstall")}
-      </Button>
-    )
-  } else {
-    action = (
-      <Button
-        variant="default"
-        size="sm"
-        disabled={busy}
-        onClick={() => void onCheck()}
-      >
-        {status === "checking" ? t("settings.updates.actionChecking") : t("settings.updates.actionCheck")}
-      </Button>
-    )
-  }
-
-  return (
-    <div className="flex flex-col gap-2 py-2.5">
-      <div className="flex items-center justify-between gap-4">
-        <span
-          className={cn(
-            "text-[13px] font-medium min-w-0 truncate",
-            status === "error"
-              ? "text-(--danger-text)"
-              : status === "available" || status === "downloaded"
-                ? "text-(--accent)"
-                : "text-(--text-primary)",
-          )}
-        >
-          {statusText}
-        </span>
-        <div className="shrink-0">{action}</div>
-      </div>
-      {status === "downloading" && (
-        <div className="h-1.5 w-full rounded-full bg-(--bg-input) overflow-hidden">
-          <div
-            className="h-full bg-(--accent) transition-[width] duration-200"
-            style={{ width: `${state?.percent ?? 0}%` }}
-          />
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SettingsCard({
-  title,
-  children,
-}: {
-  title: string
-  children: React.ReactNode
-}): React.JSX.Element {
-  return (
-    <div className="bg-(--bg-card) border border-(--border) rounded-(--radius) px-5 py-4 mb-4">
-      <h3 className="m-0 mb-3 text-[14px] font-semibold tracking-[-0.01em]">
-        {title}
-      </h3>
-      <div className="flex flex-col">{children}</div>
-    </div>
-  )
-}
-
-function Row({
-  label,
-  desc,
-  children,
-  stacked,
-}: {
-  label: string
-  desc?: string
-  children: React.ReactNode
-  /** Stack label above the control. Use for wide inputs / long descriptions
-   *  where the side-by-side layout would crush the label column. */
-  stacked?: boolean
-}): React.JSX.Element {
-  if (stacked) {
-    return (
-      <div className="flex flex-col gap-2 py-2.5">
-        <Label plain className="m-0 normal-case tracking-normal">
-          <span className="text-[13px] font-medium text-(--text-primary)">
-            {label}
-          </span>
-          {desc && (
-            <span className="block text-[11px] text-(--text-tertiary) font-normal mt-0.5">
-              {desc}
-            </span>
-          )}
-        </Label>
-        <div className="w-full">{children}</div>
-      </div>
-    )
-  }
-  return (
-    <div className="flex items-center justify-between gap-4 py-2.5">
-      <Label plain className="m-0 normal-case tracking-normal min-w-0">
-        <span className="text-[13px] font-medium text-(--text-primary)">
-          {label}
-        </span>
-        {desc && (
-          <span className="block text-[11px] text-(--text-tertiary) font-normal mt-0.5">
-            {desc}
-          </span>
-        )}
-      </Label>
-      <div className="shrink-0">{children}</div>
-    </div>
   )
 }
