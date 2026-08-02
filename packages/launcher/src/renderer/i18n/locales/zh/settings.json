@@ -113,6 +113,7 @@
     "bannerViewProgress": "查看进度",
     "bannerInstallFailed": "新版本 {{version}} 自动安装失败",
     "installFailedDesc": "v{{version}} 已下载，但安装程序未能替换应用，当前仍为 v{{current}}。请前往下载页手动安装。",
+    "installerDidNotStart": "安装程序未能在这台电脑上启动",
     "bannerDismiss": "稍后",
     "updateFallback": "更新",
     "appUpdate": "应用更新",
