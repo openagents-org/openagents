@@ -576,25 +576,39 @@ def _online_participant_names(db, workspace, channel) -> set:
         return set()
 
 
-def _fallback_targets(event, channel, mentions: List[str], online_names: set = None) -> List[str]:
+def _fallback_targets(event, channel, mentions: List[str], online_names: set = None,
+                      live: set = None) -> List[str]:
     """Determine target agents when LLM router is unavailable.
 
     Priority: explicit @mentions → master (for human/member msgs) → online
     participant → any participant. When ``online_names`` is provided, an online
     participant is chosen over an offline one so messages aren't stranded on a
     dead agent. An explicit @mention is always honored as-is (the user chose it).
+
+    When ``live`` is provided it is the set of non-removed workspace members:
+    the master and participant branches skip anyone outside it, because
+    ``channel.master_agent`` and ChannelMember rows both survive member
+    removal — without the filter a human message would be routed straight to
+    a deleted agent and never get handled.
     """
     if mentions:
-        return [mentions[0]]
-    if channel.master_agent:
+        picked = [m for m in mentions if live is None or m in live]
+        if picked:
+            return [picked[0]]
+    master = channel.master_agent
+    if master and (live is None or master in live):
         if event.source.startswith("openagents:"):
             sender = event.source[len("openagents:"):]
             # Master's own messages: no self-trigger
-            if sender == channel.master_agent:
+            if sender == master:
                 return []
-        return [channel.master_agent]
-    # No master — prefer an online participant, else the first participant.
-    participants = [p.agent_name for p in (channel.participants or [])]
+        return [master]
+    # No (live) master — prefer an online participant, else the first
+    # live participant.
+    participants = [
+        p.agent_name for p in (channel.participants or [])
+        if live is None or p.agent_name in live
+    ]
     if online_names:
         online_first = [p for p in participants if p in online_names]
         if online_first:
@@ -1009,6 +1023,15 @@ async def _route_with_llm(
             )
         ).scalars().all()
     }
+    # Removed members are never routing candidates: hard-deleted ones have no
+    # WorkspaceMember row at all, soft-deleted ones carry status="removed",
+    # and both can leave a stale ChannelMember row behind. Filtering here
+    # (rather than after the LLM picks) keeps the router from selecting a
+    # name that would then just be dropped.
+    participant_names = [
+        n for n in participant_names
+        if members.get(n) is not None and (members[n].status or "") != "removed"
+    ]
     # Only offer ONLINE participants to the router when any are online — an
     # offline agent (dead daemon) can't reply, so routing to it by
     # conversational continuity just strands the message. If none are online,
@@ -1128,7 +1151,9 @@ async def _route_with_llm(
         # router can silently drop a legitimate follow-up question like
         # "how about Julia?" after a previous "final answer" message.
         if (new_event.source or "").startswith("human:"):
-            fallback = _fallback_targets(new_event, channel, [], online_set)
+            fallback = _fallback_targets(
+                new_event, channel, [], online_set, live=set(participant_names),
+            )
             if fallback:
                 logger.info(
                     "LLM router returned stop/invalid for human message — "
@@ -1341,13 +1366,23 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # channels register their owner as a ChannelMember on creation).
     if event.source.startswith("openagents:"):
         _sender = event.source[len("openagents:"):]
-        if _sender not in live_agents or _sender not in participant_names:
+        if _sender not in live_agents:
+            # Rejecting (rather than routing to the sentinel) keeps the
+            # message out of persistence and push fan-out entirely — a
+            # zombie daemon of a removed agent must not keep writing
+            # visible messages or notifying humans. Same reason string as
+            # the join-path rejection so clients handle one code.
             logger.info(
-                "workspace_mod: dropped message from departed agent %s in %s",
+                "workspace_mod: rejected message from removed agent %s in %s",
                 _sender, channel.name,
             )
-            event.metadata["target_agents"] = ["__no_response__"]
-            return event
+            raise EventRejected("workspace_mod", "agent_removed")
+        if _sender not in participant_names:
+            logger.info(
+                "workspace_mod: rejected message from non-member %s in %s",
+                _sender, channel.name,
+            )
+            raise EventRejected("workspace_mod", "channel_membership_required")
 
     # ── Structured delegation receipt: deterministic return to delegator ──
     # Checked before the participant-count branch so a receipt still lands
@@ -1372,13 +1407,16 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         mode = (getattr(channel, "orchestration_mode", None) or "dynamic").lower()
 
         if mode == "master":
-            # Deterministic star topology — no LLM. If the channel somehow
-            # has no master, fall back to the generic mention/online logic
-            # so messages aren't stranded.
-            if channel.master_agent:
+            # Deterministic star topology — no LLM. If the channel has no
+            # master, or the recorded master is no longer a live workspace
+            # member (channel.master_agent survives member removal), fall
+            # back to the generic mention/online logic so messages aren't
+            # stranded on a deleted hub.
+            if channel.master_agent and channel.master_agent in live_agents:
                 targets = _master_targets(event, channel, mentions)
             else:
-                targets = _fallback_targets(event, channel, mentions, online_names)
+                targets = _fallback_targets(event, channel, mentions, online_names,
+                                            live=live_agents)
         elif mode == "workflow" and config.ROUTER_LLM_ENABLED and _get_router_api_key():
             # LLM router steered by the user's natural-language plan.
             targets = await _route_with_llm(
@@ -1390,18 +1428,24 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             targets = await _route_with_llm(channel, event, db, workspace)
         else:
             # LLM router not available — fallback to mention or master.
-            targets = _fallback_targets(event, channel, mentions, online_names)
+            targets = _fallback_targets(event, channel, mentions, online_names,
+                                        live=live_agents)
     # ── Single-agent channel ────────────────────────────────────────
     else:
-        targets = _fallback_targets(event, channel, mentions, online_names)
+        targets = _fallback_targets(event, channel, mentions, online_names,
+                                        live=live_agents)
 
-    # Agent-sourced routing may only target live, current participants: the
-    # mention fallback can name a live agent outside the channel, and the
-    # router/master candidate lists can include the stale ChannelMember row
-    # of a removed agent. Human messages keep the wider net — agents a human
-    # targets are auto-added to the channel below.
-    if event.source.startswith("openagents:") and targets:
-        targets = [t for t in targets if t in participant_names and t in live_agents]
+    # No routing result may target a removed agent, whatever the source —
+    # channel.master_agent and ChannelMember rows survive member removal, so
+    # master/router/fallback candidates can all carry stale names and a human
+    # message would otherwise be handed to an agent that can no longer poll.
+    # Agent-sourced messages are additionally confined to current channel
+    # participants; humans keep the wider net (their targets are auto-added
+    # to the channel below).
+    if targets:
+        targets = [t for t in targets if t in live_agents]
+        if event.source.startswith("openagents:"):
+            targets = [t for t in targets if t in participant_names]
 
     # ── Mark explicit delegations (server-owned metadata) ──
     # Only agent messages whose routed targets came from the sender's own

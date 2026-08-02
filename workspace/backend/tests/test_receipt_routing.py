@@ -20,7 +20,7 @@ from app.models import (
 )
 from app.mods.workspace_mod import _handle_message_posted
 from openagents.core.onm_events import Event
-from openagents.core.onm_mods import PipelineContext
+from openagents.core.onm_mods import EventRejected, PipelineContext
 
 
 def _run(coro):
@@ -512,21 +512,24 @@ class TestReceiptRejected:
         db.flush()
         db.refresh(ch)
 
-    @pytest.mark.parametrize("how", ["left_channel", "hard", "soft"])
-    def test_departed_sender_plain_message_is_dropped(self, db, ws3, how):
-        """The sender gate must also cover PLAIN messages: a departed B could
-        otherwise skip the receipt fields entirely and still mint a
-        delegated_by=B mark via ordinary routing."""
+    @pytest.mark.parametrize("how,reason", [
+        ("left_channel", "channel_membership_required"),
+        ("hard", "agent_removed"),
+        ("soft", "agent_removed"),
+    ])
+    def test_departed_sender_plain_message_is_rejected(self, db, ws3, how, reason):
+        """The sender gate must also cover PLAIN messages, and it must REJECT
+        rather than sentinel: a sentineled event still persists and pushes to
+        humans, so a zombie daemon could keep spamming the channel."""
         ws = ws3["workspace"]
         self._remove_replier(db, ws3, how)
         client_patch, mock_client = _with_router("next:agent-c")
         with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
-            out = _handle(db, ws, _reply(
-                "openagents:agent-b", "@agent-c please go do X",
-            ))
-        assert out.metadata["target_agents"] == ["__no_response__"], how
-        assert "delegated_by" not in out.metadata, how
-        assert "delegated_to" not in out.metadata, how
+            with pytest.raises(EventRejected) as exc:
+                _handle(db, ws, _reply(
+                    "openagents:agent-b", "@agent-c please go do X",
+                ))
+        assert exc.value.reason == reason, how
         mock_client.messages.create.assert_not_called()
 
     def test_plain_delegation_to_soft_removed_target_is_dropped(self, db, ws3):
@@ -544,24 +547,57 @@ class TestReceiptRejected:
         assert "delegated_by" not in out.metadata
         assert "delegated_to" not in out.metadata
 
-    @pytest.mark.parametrize("how", ["left_channel", "hard", "soft"])
-    def test_departed_replier_cannot_mint_onward_delegation(self, db, ws3, how):
+    @pytest.mark.parametrize("how,reason", [
+        ("left_channel", "channel_membership_required"),
+        ("hard", "agent_removed"),
+        ("soft", "agent_removed"),
+    ])
+    def test_departed_replier_receipt_is_rejected(self, db, ws3, how, reason):
         """The message entry point validates only token/session, so a removed
-        B can still post against an old E1 — it must get nothing routed, and
-        especially must not create a delegated_by=B onward delegation."""
+        B can still post against an old E1 — the sender gate rejects it before
+        any routing or delegation marking."""
         ws = ws3["workspace"]
         e1 = _delegation_event(db, ws)
         self._remove_replier(db, ws3, how)
         client_patch, mock_client = _with_router("next:agent-c")
         with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
-            out = _handle(db, ws, _reply(
-                "openagents:agent-b", "done — @agent-c take over",
-                in_reply_to=e1.id, reply_kind="result",
-            ))
-        assert out.metadata["target_agents"] == ["__no_response__"], how
-        assert "delegated_by" not in out.metadata, how
-        assert "delegated_to" not in out.metadata, how
+            with pytest.raises(EventRejected) as exc:
+                _handle(db, ws, _reply(
+                    "openagents:agent-b", "done — @agent-c take over",
+                    in_reply_to=e1.id, reply_kind="result",
+                ))
+        assert exc.value.reason == reason, how
         mock_client.messages.create.assert_not_called()
+
+    def test_human_message_not_routed_to_deleted_master(self, db, ws3):
+        """Stale channel.master_agent + ChannelMember must not receive a
+        human's message — routing falls back to a live participant."""
+        ws, ch = ws3["workspace"], ws3["channel"]
+        ch.master_agent = "agent-a"
+        ch.orchestration_mode = "master"
+        db.flush()
+        from sqlalchemy import select
+        member = db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == ws.id,
+                WorkspaceMember.agent_name == "agent-a",
+            )
+        ).scalar_one()
+        db.delete(member)  # hard delete; ChannelMember + master_agent remain
+        db.flush()
+        db.refresh(ch)
+        out = _handle(db, ws, _reply("human:user", "please handle this"))
+        assert out.metadata["target_agents"] == ["agent-b"]
+
+    def test_router_pick_of_removed_agent_falls_back_for_human(self, db, ws3):
+        """Router candidates exclude removed members; if the model still emits
+        a stale name, the human safety net routes to a live participant."""
+        ws = ws3["workspace"]
+        self._soft_remove(db, ws, "agent-a")
+        client_patch, _ = _with_router("next:agent-a")
+        with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
+            out = _handle(db, ws, _reply("human:user", "please handle this"))
+        assert out.metadata["target_agents"] == ["agent-b"]
 
     def test_consumed_receipt_with_removed_delegator_stays_suppressed(self, db, ws3):
         ws = ws3["workspace"]
