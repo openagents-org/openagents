@@ -199,11 +199,22 @@ function claudeAdapter(workDir, toolMode) {
   return adapter;
 }
 
+/**
+ * Run `fn` with a throwaway working directory AND a throwaway home.
+ *
+ * The MCP command builder writes its generated config under
+ * `os.homedir()/.openagents/mcp-configs`, so isolating only the working
+ * directory would leak files into the developer's real home and fail
+ * outright where HOME is read-only (sandboxed CI, containers).
+ */
 function withWorkDir(fn) {
   const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-phase-gate-'));
+  const realHomedir = os.homedir;
+  os.homedir = () => workDir;
   try {
     return fn(workDir);
   } finally {
+    os.homedir = realHomedir;
     fs.rmSync(workDir, { recursive: true, force: true });
   }
 }

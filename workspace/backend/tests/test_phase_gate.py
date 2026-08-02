@@ -99,9 +99,9 @@ class TestGatekeepers:
         ch.master_agent = None
         assert _phase_gatekeepers(ch, db, ws) == []
         event = _make_event("human:user", "build me a thing")
-        # Nothing to hand the floor to — routing must pass through untouched
-        # rather than swallow the message.
-        assert _apply_phase_gate(event, ch, ["rd"], [], db, ws) == (["rd"], {})
+        # Nothing to hand the floor to: the target is kept so the human gets
+        # an answer, but it cannot start building.
+        assert _apply_phase_gate(event, ch, ["rd"], [], db, ws) == (["rd"], {"rd": "plan"})
 
 
 class TestGatekeeperValidation:
@@ -115,8 +115,9 @@ class TestGatekeeperValidation:
         # Master survives, so the gate keeps working through it.
         assert _phase_gatekeepers(ch, db, ws) == ["pm"]
 
-    def test_ghost_owner_and_no_master_falls_open(self, db, gated_workspace):
-        """Fail-open: an unenforceable gate must not eat the message."""
+    def test_unenforceable_gate_answers_but_cannot_build(self, db, gated_workspace):
+        """An unenforceable gate must neither eat the message nor let the
+        builder loose: the target is kept, but downgraded to plan."""
         ch = gated_workspace["channel"]
         ws = gated_workspace["workspace"]
         ch.phase_owner = "typo-agent"
@@ -124,7 +125,7 @@ class TestGatekeeperValidation:
         event = _make_event("human:user", "write the sync code")
         targets, modes = _apply_phase_gate(event, ch, ["rd"], [], db, ws)
         assert targets == ["rd"]
-        assert modes == {}
+        assert modes == {"rd": "plan"}
 
     def test_removed_owner_is_ignored(self, db, gated_workspace):
         ch = gated_workspace["channel"]
@@ -171,6 +172,10 @@ class TestGatekeeperValidation:
         out = _run(_handle_message_posted(event, ctx))
         assert "ghost" not in out.metadata["target_agents"]
         assert out.metadata["target_agents"] != ["__no_response__"]
+        # Whoever picks it up must still be barred from implementing.
+        for name in out.metadata["target_agents"]:
+            assert out.metadata["target_modes"][name] == "plan"
+        assert out.metadata["phase"] == PHASE_CLARIFYING
 
 
 class TestOwnerRepair:
@@ -216,6 +221,39 @@ class TestOwnerRepair:
         # Better an honestly open thread than one gated on a removed agent.
         assert ch.phase == PHASE_OPEN
         assert ch.phase_owner is None
+
+    def test_owner_who_is_also_master_leaves_nothing_stale_behind(self, db, gated_workspace):
+        """owner == master is the common shape. Opening the gate is not
+        enough: a stale master_agent keeps every later message routed at the
+        agent that just walked out."""
+        ws = gated_workspace["workspace"]
+        ch = gated_workspace["channel"]
+        event = Event(
+            type="network.channel.leave",
+            source="human:user",
+            target="core",
+            payload={"channel": "session-test", "agent_name": "pm"},
+            metadata={},
+        )
+        ctx = PipelineContext(
+            network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws,
+        )
+        _run(_handle_channel_leave(event, ctx))
+        db.refresh(ch)
+        assert ch.master_agent is None
+        assert ch.phase == PHASE_OPEN
+        assert ch.phase_owner is None
+
+        # The next human message must reach somebody who is still here.
+        msg = _make_event("human:user", "so where are we?")
+        out = _run(_handle_message_posted(
+            msg,
+            PipelineContext(
+                network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws,
+            ),
+        ))
+        assert "pm" not in out.metadata["target_agents"]
+        assert out.metadata["target_agents"] != ["__no_response__"]
 
     def test_removing_the_master_promotes_a_survivor(self, db, gated_workspace):
         """Guards the query behind the repair: picking the next master over
@@ -277,6 +315,65 @@ class TestChannelCreateGate:
         _run(_handle_channel_create(event, ctx))
         ch = db.execute(
             select(Channel).where(Channel.workspace_id == ws.id, Channel.name == "c-open")
+        ).scalar_one()
+        assert ch.phase == PHASE_OPEN
+        assert ch.phase_owner is None
+
+    def test_ghost_owner_in_the_participants_payload_is_refused(self, db):
+        """The participants list is caller-supplied: appearing in it proves
+        nothing about the agent existing."""
+        ws = Workspace(name="Create WS3", slug="create-ws3", password_hash="t")
+        db.add(ws)
+        db.flush()
+        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online"))
+        db.flush()
+        event = Event(
+            type="network.channel.create",
+            source="human:user",
+            target="core",
+            payload={
+                "name": "c-ghost",
+                "participants": ["ghost", "rd"],
+                "phase": "clarifying",
+                "phase_owner": "ghost",
+            },
+            metadata={},
+        )
+        ctx = PipelineContext(
+            network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws,
+        )
+        _run(_handle_channel_create(event, ctx))
+        ch = db.execute(
+            select(Channel).where(Channel.workspace_id == ws.id, Channel.name == "c-ghost")
+        ).scalar_one()
+        assert ch.phase == PHASE_OPEN
+        assert ch.phase_owner is None
+
+    def test_removed_owner_at_creation_is_refused(self, db):
+        ws = Workspace(name="Create WS4", slug="create-ws4", password_hash="t")
+        db.add(ws)
+        db.flush()
+        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="pm", role="member", status="removed"))
+        db.add(WorkspaceMember(workspace_id=ws.id, agent_name="rd", role="member", status="online"))
+        db.flush()
+        event = Event(
+            type="network.channel.create",
+            source="human:user",
+            target="core",
+            payload={
+                "name": "c-removed",
+                "participants": ["pm", "rd"],
+                "phase": "clarifying",
+                "phase_owner": "pm",
+            },
+            metadata={},
+        )
+        ctx = PipelineContext(
+            network_id=str(ws.id), agent_address="human:user", db=db, workspace=ws,
+        )
+        _run(_handle_channel_create(event, ctx))
+        ch = db.execute(
+            select(Channel).where(Channel.workspace_id == ws.id, Channel.name == "c-removed")
         ).scalar_one()
         assert ch.phase == PHASE_OPEN
         assert ch.phase_owner is None

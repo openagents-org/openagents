@@ -643,10 +643,10 @@ function buildPhaseGateDirective({ role, owner, endpoint, workspaceId, channelNa
     return (
       '\n\n---\n' +
       '[Workspace phase: CLARIFYING — answer in PLAN mode]\n' +
-      `You were @mentioned while ${who} is still clarifying the requirement, ` +
-      'so answer what was actually asked: feasibility, risks, options, rough ' +
-      'effort, or questions of your own that need answering before this can be ' +
-      'built.\n' +
+      'You have been pulled in while the requirement in this channel is still ' +
+      `being clarified by ${who}. Answer what was actually asked: feasibility, ` +
+      'risks, options, rough effort, or questions of your own that need ' +
+      'answering before this can be built.\n' +
       'Do NOT start the work — no code, no file edits, no commands that change ' +
       'anything. The specification is not final, so anything built now would be ' +
       `built on guesses. ${who} advances the phase once the requirement is ` +

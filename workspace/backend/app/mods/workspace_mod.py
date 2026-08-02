@@ -327,7 +327,10 @@ async def _handle_ping(event: Event, ctx: PipelineContext) -> Optional[Event]:
 
 async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional[Event]:
     """network.channel.create → create Channel + initial ChannelMember rows."""
-    from app.models import Channel, ChannelMember, ChannelHumanMember, WorkspaceCollaborator
+    from app.models import (
+        Channel, ChannelMember, ChannelHumanMember, WorkspaceCollaborator,
+        WorkspaceMember,
+    )
 
     db = ctx.extra["db"]
     workspace = ctx.extra["workspace"]
@@ -350,7 +353,19 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
             if a and a != "__no_response__"
         ]
         resolved = phase_owner or payload.get("master")
-        if not resolved or resolved not in initial:
+        # The participants list is caller-supplied and unverified, so being
+        # named in it proves nothing — the owner must also be a real, live
+        # member of this workspace, exactly as PATCH requires.
+        known = False
+        if resolved:
+            owner_member = db.execute(
+                select(WorkspaceMember).where(
+                    WorkspaceMember.workspace_id == workspace.id,
+                    WorkspaceMember.agent_name == resolved,
+                )
+            ).scalar_one_or_none()
+            known = bool(owner_member) and (owner_member.status or "").lower() != "removed"
+        if not resolved or resolved not in initial or not known:
             logger.warning(
                 "workspace_mod: channel.create asked for phase=clarifying with "
                 "owner %r not among participants %s — creating it open instead",
@@ -552,10 +567,24 @@ async def _handle_channel_leave(event: Event, ctx: PipelineContext) -> Optional[
     if member:
         db.delete(member)
         db.flush()
+        db.refresh(channel)
+        # An agent that left the channel must stop being its master. Both
+        # `_master_targets` and `_fallback_targets` route to `master_agent`
+        # unconditionally, so leaving the field pointing at a departed agent
+        # sends every later message to someone who is no longer listening.
+        # Clearing it hands routing to the online-participant fallback.
+        # (Pre-existing on this path; it also decides where the phase gate
+        # below can hand the floor, so the two are repaired together.)
+        if channel.master_agent == agent_name:
+            channel.master_agent = None
+            db.flush()
+            logger.info(
+                "workspace_mod: %s left %s and was its master — master cleared",
+                agent_name, channel.name,
+            )
         # The agent that just left may have been holding the clarification
         # gate for this channel; hand it on (or open the thread) so routing
         # never points at a non-participant.
-        db.refresh(channel)
         if (getattr(channel, "phase_owner", None) or None) == agent_name:
             _reassign_phase_owner(channel, db, workspace, leaving=agent_name)
             db.flush()
@@ -828,12 +857,20 @@ def _apply_phase_gate(
 
     gatekeepers = _phase_gatekeepers(channel, db, workspace)
     if not gatekeepers:
+        # Nobody can hold the floor (owner removed mid-thread, legacy row).
+        # Neither extreme is acceptable here: passing routing through
+        # unchanged wakes the builder in execute mode — the exact behaviour
+        # this feature exists to prevent — and dropping every target strands
+        # the human with no reply. So keep whoever was targeted, but let
+        # nobody build: the thread stays responsive while the requirement is
+        # still officially unsettled.
         logger.warning(
             "phase gate: channel %s is clarifying but no gatekeeper can take the "
-            "floor (owner=%r, master=%r) — gate inert, routing unchanged",
-            channel.name, getattr(channel, "phase_owner", None), channel.master_agent,
+            "floor (owner=%r, master=%r) — keeping targets %s in plan mode",
+            channel.name, getattr(channel, "phase_owner", None),
+            channel.master_agent, targets,
         )
-        return targets, {}
+        return targets, {t: "plan" for t in targets}
 
     source = event.source or ""
     sender = source[len("openagents:"):] if source.startswith("openagents:") else None
@@ -1428,9 +1465,13 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # agent to PLAN for this message, and `phase`/`phase_owner` let every
     # woken agent state the phase in its own prompt.
     if _channel_phase(channel) == PHASE_CLARIFYING:
+        # Stamped even when no gatekeeper survives: in that state every
+        # target runs in plan mode, and the agent needs the phase in its
+        # prompt to understand why it must not build. `phase_owner` is
+        # simply absent then — the directive falls back to generic wording.
+        event.metadata["phase"] = PHASE_CLARIFYING
         gatekeepers = _phase_gatekeepers(channel, db, workspace)
         if gatekeepers:
-            event.metadata["phase"] = PHASE_CLARIFYING
             event.metadata["phase_owner"] = gatekeepers[0]
     if target_modes:
         event.metadata["target_modes"] = target_modes
