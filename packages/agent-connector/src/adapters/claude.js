@@ -489,7 +489,7 @@ class ClaudeAdapter extends BaseAdapter {
       agentName: this.agentName,
       workspaceId: this.workspaceId,
       channelName,
-      mode: this._mode,
+      mode: this._modeFor(channelName),
       browserEnabled,
       toolMode: this.toolMode,
       decisionLog,
@@ -526,7 +526,7 @@ class ClaudeAdapter extends BaseAdapter {
    * Skills mode: write a SKILL.md file and allow Bash + curl for workspace ops.
    */
   _buildSkillsCmd(cmd, channelName) {
-    if (this._mode === 'plan') {
+    if (this._modeFor(channelName) === 'plan') {
       cmd.push('--permission-mode', 'plan');
       cmd.push('--allowedTools', 'Read', 'Glob', 'Grep', 'Bash');
     } else {
@@ -607,7 +607,7 @@ class ClaudeAdapter extends BaseAdapter {
     mcpTools.push(`${pfx}workspace_get_todos`, `${pfx}workspace_list_timers`, `${pfx}workspace_list_routines`);
     mcpWriteTools.push(`${pfx}workspace_put_todos`, `${pfx}workspace_create_timer`, `${pfx}workspace_cancel_timer`, `${pfx}workspace_create_routine`, `${pfx}workspace_cancel_routine`);
 
-    if (this._mode === 'plan') {
+    if (this._modeFor(channelName) === 'plan') {
       cmd.push('--permission-mode', 'plan');
       cmd.push('--allowedTools', ...mcpTools, 'Read', 'Glob', 'Grep');
     } else {
@@ -1028,7 +1028,10 @@ class ClaudeAdapter extends BaseAdapter {
    * and the fresh-spawn path so their behavior can never drift.
    */
   _composeFinalResponse(pp) {
-    if (this._mode === 'plan') {
+    // The spawn-time mode, not the current one: a phase-gated turn ran in
+    // plan mode even though the agent's own mode is execute, and its plan
+    // file is what the user must see.
+    if ((pp.spawnMode || this._mode) === 'plan') {
       try {
         const planDir = path.join(this.workingDir || defaultAgentWorkdir(this.agentName), '.claude', 'plans');
         if (fs.existsSync(planDir)) {
@@ -1174,14 +1177,14 @@ class ClaudeAdapter extends BaseAdapter {
       // never be reused. This check is deliberately independent of the
       // decision fingerprint: a failed decision fetch must not keep a
       // read-only plan process serving execute requests.
-      const modeStale = existingPP.spawnMode !== this._mode;
+      const modeStale = existingPP.spawnMode !== this._modeFor(msgChannel);
       const decisionsStale = decisionHash !== null && existingPP.decisionHash !== decisionHash;
       if (modeStale || decisionsStale) {
         // Kill it and fall through to a fresh spawn: --resume keeps the
         // conversation (it lives in the CLI transcript), while the new spawn
         // carries the current mode and re-pins the current decisions.
         this._log(modeStale
-          ? `Mode changed to ${this._mode} for ${msgChannel} — respawning with resume`
+          ? `Mode changed to ${this._modeFor(msgChannel)} for ${msgChannel} — respawning with resume`
           : `Decision log changed for ${msgChannel} — respawning with resume to re-pin decisions`);
         await this._killPersistentProc(msgChannel);
       } else {
@@ -1304,7 +1307,7 @@ class ClaudeAdapter extends BaseAdapter {
         pp.decisionHash = decisionLogOpt
           ? decisionFingerprint(decisionLogOpt.entryId, decisionLogOpt.content)
           : decisionFingerprint(null, null);
-        pp.spawnMode = this._mode;
+        pp.spawnMode = this._modeFor(msgChannel);
         this._log(`Spawned persistent process for ${msgChannel} (attempt ${attempt + 1})`);
 
         const result = await this._sendToPersistentProc(pp, effectiveContent);

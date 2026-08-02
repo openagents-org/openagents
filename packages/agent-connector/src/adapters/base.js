@@ -19,6 +19,7 @@
 
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
 const { generateSessionTitle, SESSION_DEFAULT_RE } = require('./utils');
+const { buildPhaseGateDirective } = require('./workspace-prompt');
 const { defaultAgentWorkdir } = require('../paths');
 const {
   REASON,
@@ -75,6 +76,11 @@ class BaseAdapter {
     this._processedIds = new Set();
     this._titledSessions = new Set();
     this._mode = 'execute';
+    // Per-channel, per-message mode override set by the clarification phase
+    // gate (see _modeFor). Keyed by channel — the same channel is processed
+    // serially, but different channels run in parallel, so a single scalar
+    // would leak one channel's gate onto another.
+    this._modeOverrides = {};
     this._lastControlId = null;
     this._controlWake = null;
     // Per-channel task tracking for parallel execution
@@ -699,7 +705,53 @@ class BaseAdapter {
   // Channel dispatch
   // ------------------------------------------------------------------
 
+  /**
+   * Role this agent plays in an active clarification phase, from the routed
+   * message's metadata. Returns null when the channel isn't gated.
+   *
+   *   'plan'  → the backend downgraded this wake-up (target_modes): answer,
+   *             don't build
+   *   'owner' → this agent owns the phase and is the one who advances it
+   *   'member'→ phase is active, this agent is neither of the above
+   */
+  _phaseRole(msg) {
+    const meta = (msg && msg.metadata) || {};
+    if (meta.phase !== 'clarifying') return null;
+    const modes = meta.target_modes || {};
+    if (modes[this.agentName] === 'plan') return 'plan';
+    if (meta.phase_owner && meta.phase_owner === this.agentName) return 'owner';
+    return 'member';
+  }
+
+  /**
+   * Append the clarification-phase directive to a routed message.
+   *
+   * The backend gate decides who may be woken; this is what stops a woken
+   * builder from implementing against an unsettled spec. Done here rather
+   * than per adapter so every adapter type is covered by one code path, and
+   * appended (not prepended) so channel auto-titling still sees the user's
+   * own words first.
+   */
+  _applyPhaseGate(msg) {
+    const role = this._phaseRole(msg);
+    if (!role) return msg;
+    const directive = buildPhaseGateDirective({
+      role,
+      owner: (msg.metadata || {}).phase_owner,
+      endpoint: this.endpoint,
+      workspaceId: this.workspaceId,
+      channelName: msg.sessionId || this.channelName,
+    });
+    if (!directive) return msg;
+    this._log(`Phase gate active (${role}) for message ${msg.messageId || '?'}`);
+    return { ...msg, content: `${msg.content || ''}${directive}` };
+  }
+
   async _dispatchMessage(msg) {
+    // Carry the phase directive on the message itself so a queued message
+    // still holds the constraint it arrived under when it is finally run.
+    msg = this._applyPhaseGate(msg);
+
     // Use sessionId only if it looks like a channel, not an agent target
     let channel = this.channelName || 'general';
     if (msg.sessionId && !msg.sessionId.startsWith('openagents:') && !msg.sessionId.startsWith('agent:')) {
@@ -744,10 +796,39 @@ class BaseAdapter {
     return true;
   }
 
+  /**
+   * The mode this agent must run in for work on `channel` right now: the
+   * agent's own mode, unless the message being handled was gated into PLAN
+   * by the clarification phase. Adapters that enforce plan mode at the
+   * runtime level (read-only tools, no writes) should read this instead of
+   * `this._mode` so a gated wake-up genuinely cannot build.
+   */
+  _modeFor(channel) {
+    return this._modeOverrides[channel] || this._mode;
+  }
+
+  /**
+   * Run one message with its phase-gate mode override in effect. The
+   * override is per channel and cleared afterwards, so it applies to exactly
+   * the message it arrived with.
+   */
+  async _runMessage(channel, msg) {
+    if (this._phaseRole(msg) === 'plan') {
+      this._modeOverrides[channel] = 'plan';
+    } else {
+      delete this._modeOverrides[channel];
+    }
+    try {
+      await this._handleMessage(msg);
+    } finally {
+      delete this._modeOverrides[channel];
+    }
+  }
+
   async _channelWorker(channel, msg) {
     this._channelBusy.add(channel);
     try {
-      await this._handleMessage(msg);
+      await this._runMessage(channel, msg);
     } catch (e) {
       this._log(`Error in channel worker for ${channel}: ${e.message}`);
       try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
@@ -762,7 +843,7 @@ class BaseAdapter {
         try { await this.sendStatus(channel, 'processing queued message', { queue_id: nextMsg._queueId, queue_status: 'processed' }); } catch {}
       }
       try {
-        await this._handleMessage(nextMsg);
+        await this._runMessage(channel, nextMsg);
       } catch (e) {
         this._log(`Error processing queued message in ${channel}: ${e.message}`);
         try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}

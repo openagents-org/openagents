@@ -152,7 +152,7 @@ interface WorkspaceContextValue {
   addParticipant: (sessionId: string, agentName: string) => Promise<void>;
   removeParticipant: (sessionId: string, agentName: string) => Promise<void>;
   setSessionMaster: (sessionId: string, agentName: string) => Promise<void>;
-  setSessionOrchestration: (sessionId: string, updates: { mode?: string; instruction?: string | null }) => Promise<void>;
+  setSessionOrchestration: (sessionId: string, updates: { mode?: string; instruction?: string | null; phase?: string; phaseOwner?: string | null }) => Promise<void>;
   renameWorkspace: (name: string) => Promise<void>;
   refreshWorkspace: () => Promise<void>;
   refreshAgents: () => Promise<void>;
@@ -621,6 +621,8 @@ export function WorkspaceProvider({
               master: remote.master,
               orchestrationMode: remote.orchestrationMode,
               orchestrationInstruction: remote.orchestrationInstruction,
+              phase: remote.phase,
+              phaseOwner: remote.phaseOwner,
               lastEventAt: remote.lastEventAt,
               createdAt: remote.createdAt || s.createdAt,
               status: remote.status,
@@ -1347,7 +1349,7 @@ export function WorkspaceProvider({
 
   const setSessionOrchestration = useCallback(async (
     sessionId: string,
-    updates: { mode?: string; instruction?: string | null },
+    updates: { mode?: string; instruction?: string | null; phase?: string; phaseOwner?: string | null },
   ) => {
     // Optimistic: apply the mode/instruction locally, roll back on failure.
     // Snapshot the pre-update session inside the state updater so we read
@@ -1363,6 +1365,8 @@ export function WorkspaceProvider({
           orchestrationMode: updates.mode ?? s.orchestrationMode,
           orchestrationInstruction:
             updates.instruction !== undefined ? updates.instruction : s.orchestrationInstruction,
+          phase: updates.phase ?? s.phase,
+          phaseOwner: updates.phaseOwner !== undefined ? updates.phaseOwner : s.phaseOwner,
         };
       })
     );
@@ -1370,6 +1374,8 @@ export function WorkspaceProvider({
       await workspaceApi.updateChannel(sessionId, {
         ...(updates.mode !== undefined && { orchestrationMode: updates.mode }),
         ...(updates.instruction !== undefined && { orchestrationInstruction: updates.instruction }),
+        ...(updates.phase !== undefined && { phase: updates.phase }),
+        ...(updates.phaseOwner !== undefined && { phaseOwner: updates.phaseOwner }),
       });
     } catch {
       if (rollback.prev) {

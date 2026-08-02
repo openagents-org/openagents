@@ -21,6 +21,7 @@ import {
 import { ListTree, MessageSquare, CalendarClock, Square, ChevronLeft, X, Plus, Globe, Share2, Crown, AlertTriangle, Sparkles } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
 import { OrchestrationControl } from './orchestration-control';
+import { PhaseControl } from './phase-control';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { cn } from '@/lib/utils';
@@ -714,11 +715,18 @@ export function ChatView() {
             const sessionAgents = agents.filter((a) => participants.includes(a.agentName));
             if (sessionAgents.length < 2) return null;
             return (
-              <OrchestrationControl
-                session={currentSession}
-                agents={sessionAgents}
-                onChange={(updates) => setSessionOrchestration(currentSessionId!, updates)}
-              />
+              <>
+                <PhaseControl
+                  session={currentSession}
+                  agents={sessionAgents}
+                  onChange={(updates) => setSessionOrchestration(currentSessionId!, updates)}
+                />
+                <OrchestrationControl
+                  session={currentSession}
+                  agents={sessionAgents}
+                  onChange={(updates) => setSessionOrchestration(currentSessionId!, updates)}
+                />
+              </>
             );
           })()}
 

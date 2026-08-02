@@ -599,6 +599,71 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
 }
 
 /**
+ * Per-message directive for a channel whose requirement is still being
+ * clarified (the backend's phase gate, see `_apply_phase_gate` in
+ * workspace_mod.py).
+ *
+ * The gate already decides WHO gets woken; this is what makes the wake-up
+ * safe: an agent consulted mid-clarification answers the question instead of
+ * starting to build against a specification that isn't settled yet.
+ *
+ * `role` comes from the routed message's metadata:
+ *   'owner' → this agent holds the floor (phase owner / channel master)
+ *   'plan'  → this agent was @mentioned but must not build (target_modes)
+ *   other   → phase is active but this agent is neither; just state the phase
+ *
+ * Returns '' when there is nothing to say, so callers can concatenate
+ * unconditionally.
+ */
+function buildPhaseGateDirective({ role, owner, endpoint, workspaceId, channelName } = {}) {
+  if (!role) return '';
+  const who = owner || 'the phase owner';
+
+  if (role === 'owner') {
+    const base = endpoint ? String(endpoint).replace(/\/+$/, '') : '';
+    const patch = base && workspaceId && channelName
+      ? ` (no such tool? PATCH ${base}/v1/workspaces/${workspaceId}/channels/${channelName} ` +
+        'with {"phase":"building"} and your X-Workspace-Token header)'
+      : '';
+    return (
+      '\n\n---\n' +
+      '[Workspace phase: CLARIFYING — you own this phase]\n' +
+      'The requirement in this channel is not settled yet, and settling it is ' +
+      'your job. Ask what is still open, confirm your understanding, and record ' +
+      'what the user agrees to. While this phase is active no other agent can ' +
+      'start implementing — they can only be consulted.\n' +
+      'Once the user has confirmed the requirement, advance the phase: call ' +
+      `\`workspace_set_phase\` with phase="building"${patch}. ` +
+      'Nobody can start building until you do, so do not leave it behind — but ' +
+      'do not advance it on your own judgement either; wait for the user.\n'
+    );
+  }
+
+  if (role === 'plan') {
+    return (
+      '\n\n---\n' +
+      '[Workspace phase: CLARIFYING — answer in PLAN mode]\n' +
+      `You were @mentioned while ${who} is still clarifying the requirement, ` +
+      'so answer what was actually asked: feasibility, risks, options, rough ' +
+      'effort, or questions of your own that need answering before this can be ' +
+      'built.\n' +
+      'Do NOT start the work — no code, no file edits, no commands that change ' +
+      'anything. The specification is not final, so anything built now would be ' +
+      `built on guesses. ${who} advances the phase once the requirement is ` +
+      'confirmed, and implementation starts then.\n'
+    );
+  }
+
+  return (
+    '\n\n---\n' +
+    `[Workspace phase: CLARIFYING — owned by ${who}]\n` +
+    'The requirement in this channel is still being clarified. Keep your reply ' +
+    'to what helps settle it, and leave implementation until the phase ' +
+    'advances.\n'
+  );
+}
+
+/**
  * Guardrails shared across all adapter prompt builders.
  */
 function buildGuardrails() {
@@ -962,6 +1027,7 @@ module.exports = {
   buildBrowserDirective,
   buildCollaborationPrompt,
   buildModePrompt,
+  buildPhaseGateDirective,
   buildGuardrails,
   buildApiSkillsPrompt,
   buildClaudeMcpToolBlock,

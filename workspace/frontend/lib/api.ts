@@ -289,13 +289,16 @@ class WorkspaceApi {
     });
   }
 
-  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean; masterAgent?: string; orchestrationMode?: string; orchestrationInstruction?: string | null }): Promise<unknown> {
+  async updateChannel(channelName: string, updates: { title?: string; status?: string; starred?: boolean; masterAgent?: string; orchestrationMode?: string; orchestrationInstruction?: string | null; phase?: string; phaseOwner?: string | null }): Promise<unknown> {
     // Map camelCase fields → snake_case for the backend.
-    const { masterAgent, orchestrationMode, orchestrationInstruction, ...rest } = updates;
+    const { masterAgent, orchestrationMode, orchestrationInstruction, phase, phaseOwner, ...rest } = updates;
     const body: Record<string, unknown> = { ...rest };
     if (masterAgent !== undefined) body.master_agent = masterAgent;
     if (orchestrationMode !== undefined) body.orchestration_mode = orchestrationMode;
     if (orchestrationInstruction !== undefined) body.orchestration_instruction = orchestrationInstruction;
+    if (phase !== undefined) body.phase = phase;
+    // null clears the owner; the backend reads an empty string as "clear".
+    if (phaseOwner !== undefined) body.phase_owner = phaseOwner ?? '';
     return this.request(`/v1/workspaces/${this.workspaceId}/channels/${channelName}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
@@ -352,6 +355,8 @@ class WorkspaceApi {
       master: opts.master || null,
       orchestrationMode: 'dynamic',
       orchestrationInstruction: null,
+      phase: 'open',
+      phaseOwner: null,
       createdAt: new Date(event.timestamp).toISOString(),
       lastEventAt: null,
     };

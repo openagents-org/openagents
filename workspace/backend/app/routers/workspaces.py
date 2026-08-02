@@ -44,6 +44,7 @@ from app.access import (
     resolve_current_user,
     verify_workspace_access,
 )
+from app.mods.workspace_mod import CHANNEL_PHASES, PHASE_CLARIFYING
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _workspace_filter
 
@@ -90,6 +91,8 @@ class ChannelUpdateRequest(BaseModel):
     master_agent: Optional[str] = None  # Reassign channel master
     orchestration_mode: Optional[str] = None  # "dynamic" | "master" | "workflow"
     orchestration_instruction: Optional[str] = None  # free-text plan for "workflow" mode
+    phase: Optional[str] = None  # "open" | "clarifying" | "building"
+    phase_owner: Optional[str] = None  # agent owning the clarifying phase ("" clears)
     auto_title: bool = False  # When True, title update is from auto-titling (don't mark as manually set)
 
 class WorkspaceUpdateRequest(BaseModel):
@@ -181,6 +184,8 @@ def _format_channel(ch: Channel) -> dict:
         "masterAgent": ch.master_agent,
         "orchestrationMode": ch.orchestration_mode or "dynamic",
         "orchestrationInstruction": ch.orchestration_instruction,
+        "phase": ch.phase or "open",
+        "phaseOwner": ch.phase_owner,
         "resumeFrom": ch.resume_from,
         "status": ch.status,
         "starred": bool(ch.starred),
@@ -1321,6 +1326,19 @@ def update_channel(
     if body.orchestration_instruction is not None:
         # Empty string clears the plan; otherwise store the trimmed text.
         channel.orchestration_instruction = body.orchestration_instruction.strip() or None
+    if body.phase is not None:
+        phase = body.phase.strip().lower()
+        if phase not in CHANNEL_PHASES:
+            return json_response(ResponseCode.BAD_REQUEST, "Invalid phase")
+        channel.phase = phase
+        # Entering the gate with nobody to hold the floor would make it inert.
+        # Default the owner to the master so a one-click "start clarifying"
+        # from the UI always produces a working gate.
+        if phase == PHASE_CLARIFYING and not (body.phase_owner or channel.phase_owner):
+            channel.phase_owner = channel.master_agent
+    if body.phase_owner is not None:
+        # Empty string clears the owner (the gate then falls back to master).
+        channel.phase_owner = body.phase_owner.strip() or None
 
     db.commit()
     db.refresh(channel)

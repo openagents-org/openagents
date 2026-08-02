@@ -233,6 +233,63 @@ class TestChannelOrchestrationMode:
         assert resp.json()["data"]["orchestrationInstruction"] is None
 
 
+class TestChannelPhase:
+    """PATCH /v1/workspaces/{id}/channels/{name} — clarification phase gate."""
+
+    def _patch(self, client, workspace, body):
+        return client.patch(
+            f"/v1/workspaces/{workspace['id']}/channels/{workspace['channel']['name']}",
+            json=body,
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+
+    def test_default_phase_is_open(self, client, workspace):
+        assert workspace["channel"].get("phase") == "open"
+
+    def test_clarifying_defaults_owner_to_master(self, client, workspace):
+        """A one-click "start clarifying" must produce a working gate, not an
+        inert one with nobody holding the floor."""
+        resp = self._patch(client, workspace, {"phase": "clarifying"})
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["phase"] == "clarifying"
+        assert data["phaseOwner"] == data["masterAgent"] == "agent-alpha"
+
+    def test_explicit_owner_wins(self, client, workspace):
+        resp = self._patch(client, workspace, {
+            "phase": "clarifying",
+            "phase_owner": "agent-pm",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["data"]["phaseOwner"] == "agent-pm"
+
+    def test_empty_owner_clears_it(self, client, workspace):
+        self._patch(client, workspace, {"phase": "clarifying", "phase_owner": "agent-pm"})
+        resp = self._patch(client, workspace, {"phase_owner": "  "})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["phaseOwner"] is None
+
+    def test_advance_to_building(self, client, workspace):
+        self._patch(client, workspace, {"phase": "clarifying"})
+        resp = self._patch(client, workspace, {"phase": "building"})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["phase"] == "building"
+
+    def test_invalid_phase_rejected(self, client, workspace):
+        resp = self._patch(client, workspace, {"phase": "shipping"})
+        assert resp.status_code == 400
+
+    def test_phase_round_trips_via_get(self, client, workspace):
+        self._patch(client, workspace, {"phase": "clarifying", "phase_owner": "agent-pm"})
+        got = client.get(
+            f"/v1/workspaces/{workspace['id']}/channels/{workspace['channel']['name']}",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        data = got.json()["data"]
+        assert data["phase"] == "clarifying"
+        assert data["phaseOwner"] == "agent-pm"
+
+
 class TestGenerateMemberDescription:
     """POST /v1/workspaces/{id}/members/{name}/generate-description."""
 

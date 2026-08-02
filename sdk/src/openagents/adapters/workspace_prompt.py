@@ -104,6 +104,77 @@ def build_collaboration_prompt() -> str:
     )
 
 
+def build_phase_gate_directive(
+    role: Optional[str],
+    owner: Optional[str] = None,
+    endpoint: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    channel_name: Optional[str] = None,
+) -> str:
+    """Per-message directive for a channel that is still clarifying.
+
+    The backend's phase gate (``_apply_phase_gate`` in workspace_mod.py)
+    decides who may be woken; this is what makes the wake-up safe — an agent
+    consulted mid-clarification answers the question instead of building
+    against a specification that isn't settled.
+
+    ``role`` comes from the routed message's metadata: ``"owner"`` (holds the
+    floor), ``"plan"`` (mentioned, must not build), anything else (phase is
+    active but this agent is neither). Returns "" when there is nothing to
+    say, so callers can concatenate unconditionally.
+
+    Mirrors ``buildPhaseGateDirective`` in
+    packages/agent-connector/src/adapters/workspace-prompt.js.
+    """
+    if not role:
+        return ""
+    who = owner or "the phase owner"
+
+    if role == "owner":
+        patch = ""
+        if endpoint and workspace_id and channel_name:
+            base = endpoint.rstrip("/")
+            patch = (
+                f' (no such tool? PATCH {base}/v1/workspaces/{workspace_id}'
+                f'/channels/{channel_name} with {{"phase":"building"}} and your '
+                "X-Workspace-Token header)"
+            )
+        return (
+            "\n\n---\n"
+            "[Workspace phase: CLARIFYING — you own this phase]\n"
+            "The requirement in this channel is not settled yet, and settling it "
+            "is your job. Ask what is still open, confirm your understanding, and "
+            "record what the user agrees to. While this phase is active no other "
+            "agent can start implementing — they can only be consulted.\n"
+            "Once the user has confirmed the requirement, advance the phase: call "
+            f'`workspace_set_phase` with phase="building"{patch}. '
+            "Nobody can start building until you do, so do not leave it behind — "
+            "but do not advance it on your own judgement either; wait for the user.\n"
+        )
+
+    if role == "plan":
+        return (
+            "\n\n---\n"
+            "[Workspace phase: CLARIFYING — answer in PLAN mode]\n"
+            f"You were @mentioned while {who} is still clarifying the requirement, "
+            "so answer what was actually asked: feasibility, risks, options, rough "
+            "effort, or questions of your own that need answering before this can "
+            "be built.\n"
+            "Do NOT start the work — no code, no file edits, no commands that "
+            "change anything. The specification is not final, so anything built "
+            f"now would be built on guesses. {who} advances the phase once the "
+            "requirement is confirmed, and implementation starts then.\n"
+        )
+
+    return (
+        "\n\n---\n"
+        f"[Workspace phase: CLARIFYING — owned by {who}]\n"
+        "The requirement in this channel is still being clarified. Keep your "
+        "reply to what helps settle it, and leave implementation until the "
+        "phase advances.\n"
+    )
+
+
 def build_mode_prompt(mode: str) -> str:
     """Build mode-specific instructions."""
     if mode == "plan":

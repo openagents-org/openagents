@@ -16,7 +16,7 @@ Expects context.extra to contain:
 import logging
 import re
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import select
 
@@ -315,6 +315,14 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
     workspace = ctx.extra["workspace"]
     payload = event.payload or {}
 
+    # A thread can start gated (the creator already knows the requirement
+    # needs clarifying) instead of being PATCHed a moment after creation,
+    # which would leave a window where a builder could be woken.
+    phase = (payload.get("phase") or PHASE_OPEN).strip().lower()
+    if phase not in CHANNEL_PHASES:
+        phase = PHASE_OPEN
+    phase_owner = (payload.get("phase_owner") or "").strip() or None
+
     channel = Channel(
         workspace_id=workspace.id,
         name=payload.get("name", f"channel-{event.id[:8]}"),
@@ -322,6 +330,8 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
         created_by=event.source,
         master_agent=payload.get("master"),
         resume_from=payload.get("resume_from"),
+        phase=phase,
+        phase_owner=phase_owner,
         status="active",
     )
     db.add(channel)
@@ -638,6 +648,140 @@ def _master_targets(event, channel, mentions: List[str]) -> List[str]:
     return [master]
 
 
+# ---------------------------------------------------------------------------
+# Requirement-clarification phase gate
+#
+# Without it, routing is a stateless per-message decision that is biased
+# towards "somebody must answer now" — so a builder agent gets handed a
+# half-specified request and starts implementing while the requirement is
+# still being clarified. The gate makes "we are still clarifying" a state
+# the router has to obey rather than a convention agents are asked to honour.
+# ---------------------------------------------------------------------------
+
+PHASE_OPEN = "open"
+PHASE_CLARIFYING = "clarifying"
+PHASE_BUILDING = "building"
+CHANNEL_PHASES = (PHASE_OPEN, PHASE_CLARIFYING, PHASE_BUILDING)
+
+
+def _channel_phase(channel) -> str:
+    """Current phase of a channel, defaulting to the ungated 'open'."""
+    return (getattr(channel, "phase", None) or PHASE_OPEN).lower()
+
+
+def _phase_gatekeepers(channel) -> List[str]:
+    """Agents that keep the floor while the channel is clarifying.
+
+    The phase owner (the requirements/PM agent) comes first and is the
+    redirect target; the channel master is included too, so a thread whose
+    owner is unset — or whose master coordinates alongside the owner — still
+    has somewhere to route. Order matters: callers redirect to the first
+    entry. Returns [] when neither is set, which makes the gate inert.
+    """
+    owner = getattr(channel, "phase_owner", None)
+    names = [n for n in (owner, channel.master_agent) if n]
+    seen, ordered = set(), []
+    for n in names:
+        if n not in seen:
+            seen.add(n)
+            ordered.append(n)
+    return ordered
+
+
+def _apply_phase_gate(
+    event: Event, channel, targets: List[str], mentions: List[str],
+) -> Tuple[List[str], Dict[str, str]]:
+    """Constrain routing while the channel's requirement is being clarified.
+
+    Returns ``(targets, target_modes)``. ``target_modes`` maps an agent name
+    to the mode it must run in for THIS message; the connector downgrades a
+    ``"plan"`` target so it proposes and asks instead of building.
+
+    Rules while ``phase == 'clarifying'`` (no-op in any other phase):
+
+      • a gatekeeper target (owner / master) is passed through untouched —
+        clarification is their job;
+      • a non-gatekeeper that the sender explicitly @mentioned is kept, but
+        forced into PLAN mode. Naming an agent is a real request ("@rd is
+        this feasible?") and answering it is useful; starting to build off
+        an unconfirmed spec is not;
+      • any other non-gatekeeper target is dropped and the turn is handed to
+        the phase owner. This is the case that produces the reported bug —
+        the router picking the builder purely on topic match.
+
+    When every target is dropped and the owner is the one who just spoke, the
+    turn ends (empty list → the caller's ``__no_response__`` sentinel) rather
+    than looping the owner back onto itself.
+    """
+    if _channel_phase(channel) != PHASE_CLARIFYING:
+        return targets, {}
+
+    gatekeepers = _phase_gatekeepers(channel)
+    if not gatekeepers:
+        logger.info(
+            "phase gate: channel %s is clarifying but has no owner or master — gate inert",
+            channel.name,
+        )
+        return targets, {}
+
+    source = event.source or ""
+    sender = source[len("openagents:"):] if source.startswith("openagents:") else None
+    mention_set = set(mentions or [])
+
+    kept: List[str] = []
+    modes: Dict[str, str] = {}
+    dropped: List[str] = []
+    for name in targets:
+        if name in gatekeepers:
+            kept.append(name)
+        elif name in mention_set:
+            kept.append(name)
+            modes[name] = "plan"
+        else:
+            dropped.append(name)
+
+    if not kept:
+        # Hand the turn back to the owner — unless the owner is the sender,
+        # in which case there is nothing to hand back and the thread waits
+        # for the human.
+        redirect = next((g for g in gatekeepers if g != sender), None)
+        if redirect:
+            kept = [redirect]
+
+    if dropped:
+        logger.info(
+            "phase gate: channel %s clarifying — dropped %s, routing to %s",
+            channel.name, dropped, kept or ["(nobody)"],
+        )
+
+    return kept, {k: v for k, v in modes.items() if k in kept}
+
+
+def _phase_router_block(channel) -> str:
+    """Router-prompt block describing an active clarification phase.
+
+    The gate is authoritative either way, but telling the router about the
+    phase keeps its decisions (and the logged reasoning) consistent with what
+    the gate will allow, instead of having every turn overridden after the
+    fact.
+    """
+    if _channel_phase(channel) != PHASE_CLARIFYING:
+        return ""
+    gatekeepers = _phase_gatekeepers(channel)
+    if not gatekeepers:
+        return ""
+    owner = gatekeepers[0]
+    return (
+        "\nCURRENT PHASE: CLARIFYING (authoritative — this outranks the "
+        "guidance below).\n"
+        f"The requirement is still being clarified and {owner} owns that. "
+        f"Route to {owner} unless the latest message explicitly @mentions "
+        "another agent by name. Never hand the floor to an implementation "
+        "agent on topic match alone — the specification is not settled yet, "
+        "so work started now would be built on guesses.\n"
+    )
+
+
 _ROUTER_PROMPT = """\
 You are a conversation router for a multi-agent workspace. Decide which \
 agent should respond next to the LATEST message. Use judgment — read the \
@@ -646,7 +790,7 @@ message carefully and think about who is actually being addressed.
 Channel participants:
 {participants}
 Master agent: {master}
-{plan}
+{phase}{plan}
 Recent conversation (oldest → newest):
 {history}
 
@@ -850,6 +994,7 @@ async def _route_with_llm(
     prompt = _ROUTER_PROMPT.format(
         participants=participants_str,
         master=master,
+        phase=_phase_router_block(channel),
         plan=plan,
         history=history,
         sender=sender,
@@ -1038,6 +1183,11 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
       - "next:agent-name" → route to that agent
       - "stop" → no targeting, conversation rests until human speaks
     - Fallback (single-agent threads or router disabled): no routing needed.
+
+    Whatever the mode decides then passes through the phase gate: while the
+    channel is 'clarifying', only the phase owner / master keep the floor and
+    an explicitly @mentioned agent is downgraded to PLAN mode (see
+    `_apply_phase_gate`).
     """
     from app.models import Channel, WorkspaceMember
 
@@ -1145,6 +1295,11 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     else:
         targets = _fallback_targets(event, channel, mentions, online_names)
 
+    # Requirement-clarification gate. Applied AFTER the mode picked its
+    # targets so it constrains every mode uniformly — the gate is the last
+    # word on who may be woken while the spec is unsettled.
+    targets, target_modes = _apply_phase_gate(event, channel, targets, mentions)
+
     # ALWAYS set target_agents, even when nobody should respond.
     #
     # Use a non-empty sentinel list ["__no_response__"] instead of []
@@ -1155,6 +1310,17 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # name causes old clients to reject (they fail the includes check)
     # and new clients to treat it as "nobody" (the sentinel is ignored).
     event.metadata["target_agents"] = targets if targets else ["__no_response__"]
+
+    # Phase context for the connector: `target_modes` downgrades a gated
+    # agent to PLAN for this message, and `phase`/`phase_owner` let every
+    # woken agent state the phase in its own prompt.
+    if _channel_phase(channel) == PHASE_CLARIFYING:
+        gatekeepers = _phase_gatekeepers(channel)
+        if gatekeepers:
+            event.metadata["phase"] = PHASE_CLARIFYING
+            event.metadata["phase_owner"] = gatekeepers[0]
+    if target_modes:
+        event.metadata["target_modes"] = target_modes
 
     # Auto-add targeted agents as channel participants so they can poll
     # for messages on this channel. Three guards:

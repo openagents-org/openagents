@@ -389,10 +389,31 @@ class WorkspaceClient {
         titleManuallySet: result.titleManuallySet || false,
         resumeFrom: result.resumeFrom || null,
         status: result.status || 'active',
+        phase: result.phase || 'open',
+        phaseOwner: result.phaseOwner || null,
       };
     } catch {
-      return { sessionId: channelName, title: channelName, status: 'active' };
+      return { sessionId: channelName, title: channelName, status: 'active', phase: 'open', phaseOwner: null };
     }
+  }
+
+  /**
+   * Set a channel's clarification phase via PATCH
+   * /v1/workspaces/{id}/channels/{name}.
+   *
+   * Unlike updateSession this one throws: it backs an agent-facing tool, and
+   * silently failing to advance the phase would leave the thread gated with
+   * the agent believing it had opened it.
+   */
+  async setChannelPhase(workspaceId, channelName, token, { phase, owner } = {}) {
+    const body = { phase };
+    if (owner !== undefined) body.phase_owner = owner;
+    const data = await this._patch(
+      `/v1/workspaces/${workspaceId}/channels/${channelName}`,
+      body,
+      this._wsHeaders(token),
+    );
+    return (data && (data.data || data)) || {};
   }
 
   /**
