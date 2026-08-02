@@ -15,8 +15,9 @@ Expects context.extra to contain:
 
 import logging
 import re
+import time
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from sqlalchemy import select
 
@@ -638,6 +639,119 @@ def _master_targets(event, channel, mentions: List[str]) -> List[str]:
     return [master]
 
 
+# ---------------------------------------------------------------------------
+# Delegation receipts — deterministic "result returns to the delegator"
+# ---------------------------------------------------------------------------
+
+# reply_kind values a connector may stamp on a terminal reply. Anything else
+# (missing, empty, unknown) means the message is NOT a structured receipt and
+# must fall through to normal routing.
+_RECEIPT_REPLY_KINDS = frozenset({"result", "error", "needs_input", "cancelled"})
+
+# Metadata keys owned by this mod. Event metadata arrives verbatim from the
+# client, so an agent could submit a forged delegation chain; these keys are
+# stripped from every inbound message and only written back by the routing
+# logic below.
+_SERVER_OWNED_METADATA = ("delegated_by", "delegated_to", "receipt_from")
+
+
+def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) -> Optional[Tuple[List[str], List[str]]]:
+    """Deterministically route a structured receipt back to its delegator.
+
+    A receipt is an agent chat message stamped (by the connector) with
+    ``in_reply_to`` — the event id of the delegation message E1 — and a valid
+    ``reply_kind``. When every check below passes, the reply bypasses the LLM
+    router and is routed straight to the delegating agent, so a delegated
+    task's outcome can never be swallowed by a router "stop".
+
+    Returns ``(targets, onward_delegates)`` on a hit — ``targets`` always
+    starts with the delegator; ``onward_delegates`` are additional agents the
+    reply @mentions (an onward delegation, dual-routed so the delegator still
+    sees the outcome). Returns ``None`` when the message is not a valid
+    receipt, in which case the caller falls through to normal routing.
+
+    Each (E1, replier) pair gets exactly one receipt: on a hit E1 is stamped
+    with ``receipt_from`` so a later duplicate falls back to normal routing.
+    If the delegator needs more work done it delegates again, creating a new
+    E1.
+    """
+    from app.config import config
+    from app.models import EventRecord
+
+    source = event.source or ""
+    if not source.startswith("openagents:"):
+        return None
+    replier = source[len("openagents:"):]
+
+    meta = event.metadata or {}
+    if meta.get("reply_kind") not in _RECEIPT_REPLY_KINDS:
+        return None
+    ref = meta.get("in_reply_to")
+    if not ref or not isinstance(ref, str):
+        return None
+
+    e1 = db.execute(
+        select(EventRecord).where(
+            EventRecord.id == ref,
+            EventRecord.network_id == workspace.id,
+        )
+    ).scalar_one_or_none()
+    if e1 is None or e1.type != WorkspaceEventTypes.MESSAGE_POSTED:
+        return None
+    # Same channel only — a receipt must not redirect traffic across channels.
+    if e1.target != event.target:
+        return None
+
+    e1_meta = e1.metadata_ or {}
+    delegator = e1_meta.get("delegated_by")
+    # delegated_by is server-written, but still cross-check it against the
+    # stored source so a routing bug can't be amplified into a misdelivery.
+    if not delegator or e1.source != f"openagents:{delegator}":
+        return None
+    if delegator == replier:
+        return None
+    if replier not in (e1_meta.get("delegated_to") or []):
+        return None
+
+    # Both ends must still be members of this channel — workspace membership
+    # alone would let a receipt re-target someone who already left the room.
+    participants = {p.agent_name for p in (channel.participants or [])}
+    if delegator not in participants or replier not in participants:
+        return None
+
+    ttl_ms = int(config.DELEGATION_RECEIPT_TTL_HOURS * 3600 * 1000)
+    if e1.timestamp and (int(time.time() * 1000) - int(e1.timestamp)) > ttl_ms:
+        return None
+
+    already = e1_meta.get("receipt_from") or []
+    if replier in already:
+        return None
+
+    # Stamp E1 (single terminal receipt per replier). A fresh dict is
+    # assigned so SQLAlchemy detects the JSONB change.
+    stamped = dict(e1_meta)
+    stamped["receipt_from"] = already + [replier]
+    e1.metadata_ = stamped
+    db.flush()
+
+    # Onward delegation: mentions other than the original delegator. A "@A
+    # I'm done" style report must NOT count as a new delegation back to A —
+    # that would bounce A's acknowledgement to the replier and re-create the
+    # ping-pong this whole mechanism exists to prevent. In master mode the
+    # star topology stays authoritative: sub-agents cannot delegate onward,
+    # so mentions are ignored (matching _master_targets).
+    mode = (getattr(channel, "orchestration_mode", None) or "dynamic").lower()
+    onward: List[str] = []
+    if mode != "master":
+        seen = {delegator, replier}
+        for m in mentions:
+            if m not in seen and m in participants:
+                onward.append(m)
+                seen.add(m)
+
+    return [delegator] + onward, onward
+
+
 _ROUTER_PROMPT = """\
 You are a conversation router for a multi-agent workspace. Decide which \
 agent should respond next to the LATEST message. Use judgment — read the \
@@ -1047,6 +1161,13 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     content = payload.get("content", "")
     message_type = payload.get("message_type", "chat")
 
+    # Event metadata is client-supplied verbatim — drop any inbound values for
+    # the server-owned delegation keys so a forged delegation chain can never
+    # enter the routing logic. They are re-written below when this handler
+    # itself recognises an explicit delegation.
+    for _key in _SERVER_OWNED_METADATA:
+        event.metadata.pop(_key, None)
+
     # Reject posts from stale agent sessions. If the sender is an agent
     # and its claimed session_id does not match the current one in
     # WorkspaceMember, drop the event and flag it so the router can
@@ -1117,7 +1238,26 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         p for p in (channel.participants or [])
         if p.agent_name != "__no_response__"
     ]
-    if len(real_participants) >= 2:
+
+    # ── Structured delegation receipt: deterministic return to delegator ──
+    # Checked before the participant-count branch so a receipt still lands
+    # even when the channel has meanwhile shrunk around the pair (the helper
+    # itself verifies both ends are current participants).
+    receipt = None
+    receipt_onward: List[str] = []
+    # "error" is included: some adapters post terminal failures with
+    # message_type="error" (e.g. OpenCode's classified errors), and a failed
+    # delegation must still return to its delegator.
+    if message_type in ("chat", "error"):
+        receipt = _receipt_route(event, channel, mentions, db, workspace)
+
+    if receipt is not None:
+        targets, receipt_onward = receipt
+        logger.info(
+            "workspace_mod: receipt from %s routed to %s in %s",
+            event.source, targets, channel.name,
+        )
+    elif len(real_participants) >= 2:
         from app.config import config
         mode = (getattr(channel, "orchestration_mode", None) or "dynamic").lower()
 
@@ -1144,6 +1284,24 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # ── Single-agent channel ────────────────────────────────────────
     else:
         targets = _fallback_targets(event, channel, mentions, online_names)
+
+    # ── Mark explicit delegations (server-owned metadata) ──
+    # Only agent messages whose routed targets came from the sender's own
+    # @mentions count as delegations; router-inferred hops (e.g. "report to
+    # the master") are NOT marked, otherwise the recipient's acknowledgement
+    # would bounce back as a receipt. Inside a receipt, only the onward
+    # targets (mentions minus the original delegator) form a new delegation.
+    if event.source.startswith("openagents:") and targets:
+        sender = event.source[len("openagents:"):]
+        if receipt is not None:
+            delegates = [d for d in receipt_onward if d != sender]
+        elif mentions and all(t in mentions for t in targets):
+            delegates = [t for t in targets if t != sender]
+        else:
+            delegates = []
+        if delegates:
+            event.metadata["delegated_by"] = sender
+            event.metadata["delegated_to"] = delegates
 
     # ALWAYS set target_agents, even when nobody should respond.
     #

@@ -82,7 +82,7 @@ describe('Codex — failure detail selection', () => {
 describe('Codex — user-visible failure message', () => {
   async function capture(result) {
     const sent = [];
-    const fake = { sendError: async (channel, content) => { sent.push({ channel, content }); } };
+    const fake = { sendFinalError: async (trigger, channel, content) => { sent.push({ channel, content }); } };
     await CodexAdapter.prototype._sendRunFailure.call(fake, 'chan', result);
     return sent[0];
   }

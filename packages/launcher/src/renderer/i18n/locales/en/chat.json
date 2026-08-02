@@ -67,7 +67,13 @@
   },
   "bubble": {
     "unknownSender": "unknown",
-    "sending": "sending…"
+    "sending": "sending…",
+    "replyKind": {
+      "result": "returned",
+      "error": "failed",
+      "needs_input": "needs input",
+      "cancelled": "cancelled"
+    }
   },
   "toolCall": {
     "running": "Running…",

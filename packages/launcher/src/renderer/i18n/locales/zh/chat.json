@@ -67,7 +67,13 @@
   },
   "bubble": {
     "unknownSender": "未知",
-    "sending": "发送中…"
+    "sending": "发送中…",
+    "replyKind": {
+      "result": "已返回",
+      "error": "执行失败",
+      "needs_input": "需要输入",
+      "cancelled": "已取消"
+    }
   },
   "toolCall": {
     "running": "运行中…",

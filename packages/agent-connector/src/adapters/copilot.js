@@ -469,16 +469,16 @@ class CopilotAdapter extends BaseAdapter {
       }
 
       if (result.errorMessage) {
-        await this.sendError(channel, result.errorMessage);
+        await this.sendFinalError(msg, channel, result.errorMessage);
         return;
       }
       const text = (result.finalText || '').trim();
       if (text) {
-        await this.sendResponse(channel, text);
+        await this.sendFinalResult(msg, channel, text);
       } else if (result.timedOut) {
-        await this.sendError(channel, 'Copilot CLI timed out before producing a response.');
+        await this.sendFinalError(msg, channel, 'Copilot CLI timed out before producing a response.');
       } else {
-        await this.sendResponse(channel, 'No response generated. Please try again.');
+        await this.sendFinalError(msg, channel, 'No response generated. Please try again.');
       }
       return;
     }

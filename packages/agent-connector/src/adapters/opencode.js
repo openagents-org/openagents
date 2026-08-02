@@ -193,7 +193,7 @@ class OpenCodeAdapter extends BaseAdapter {
         delete this._channelQueues[channel];
         if (proc || hadQueuedWork) {
           try {
-            await this.sendResponse(channel, 'Execution stopped by user.');
+            await this.sendCancelled(this._inflightTurns[channel] || null, channel, 'Execution stopped by user.');
           } catch {}
         }
       } else {
@@ -344,7 +344,7 @@ class OpenCodeAdapter extends BaseAdapter {
       // is thrown with a category and handled in catch, so we no longer post a
       // generic "produced no response" that misattributes everything to auth.
       if (responseText) {
-        await this.sendResponse(msgChannel, responseText);
+        await this.sendFinalResult(msg, msgChannel, responseText);
       }
     } catch (e) {
       if (this._stoppingChannels.has(msgChannel)) {
@@ -354,7 +354,7 @@ class OpenCodeAdapter extends BaseAdapter {
       const category = (e && e.category) ? e.category : this._classifyErrno(e);
       const diagnostic = OpenCodeAdapter._redact((e && (e.diagnostic || e.message)) || '');
       this._log(`OpenCode failure [${category}] in ${msgChannel}: ${diagnostic.slice(0, 300)}`);
-      await this._sendClassifiedError(msgChannel, category, e && e.detail);
+      await this._sendClassifiedError(msgChannel, category, e && e.detail, msg);
     }
   }
 
@@ -642,7 +642,7 @@ class OpenCodeAdapter extends BaseAdapter {
       delete this._channelProcesses[channel];
       delete this._channelQueues[channel];
       try {
-        await this.sendResponse(channel, completionMessage);
+        await this.sendCancelled(this._inflightTurns[channel] || null, channel, completionMessage);
       } catch {}
     }
   }
@@ -976,7 +976,7 @@ class OpenCodeAdapter extends BaseAdapter {
    * Post a user-visible, de-identified, actionable error that is clearly NOT a
    * normal reply. Carries `error_category` in metadata so the UI can route it.
    */
-  async _sendClassifiedError(channel, category, detail) {
+  async _sendClassifiedError(channel, category, detail, triggerMsg) {
     const base = FAILURE_MESSAGES[category] || FAILURE_MESSAGES.unknown_error;
     const safe = detail ? OpenCodeAdapter._redact(detail).trim() : '';
     const body = safe ? `${base}\n\n> ${safe}` : base;
@@ -986,13 +986,13 @@ class OpenCodeAdapter extends BaseAdapter {
         senderType: 'agent',
         senderName: this.agentName,
         messageType: 'error',
-        metadata: { agent_mode: this._mode, error: true, error_category: category },
+        metadata: { agent_mode: this._mode, error: true, error_category: category, ...this._receiptMeta('error', triggerMsg) },
         sessionId: this._sessionId,
       });
     } catch {
       // Older backends may reject an unknown messageType/metadata — fall back to
       // the plain error path so the user still gets an actionable message.
-      try { await this.sendError(channel, content); } catch {}
+      try { await this.sendFinalError(triggerMsg, channel, content); } catch {}
     }
   }
 

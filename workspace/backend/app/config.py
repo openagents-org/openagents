@@ -78,6 +78,12 @@ class Config:
     CLOUD_AGENT_MAX_CONTEXT_MESSAGES: int = int(os.environ.get("CLOUD_AGENT_MAX_CONTEXT_MESSAGES", "10"))
     CLOUD_AGENT_MAX_DEPTH: int = int(os.environ.get("CLOUD_AGENT_MAX_DEPTH", "3"))
 
+    # Delegation receipts — how long a delegation message can be referenced by
+    # a structured receipt (in_reply_to + reply_kind) before it goes stale.
+    # Product policy, not a technical constant: raise it per deployment when
+    # agents run tasks longer than a day.
+    DELEGATION_RECEIPT_TTL_HOURS: float = float(os.environ.get("DELEGATION_RECEIPT_TTL_HOURS", "24"))
+
     # Google OAuth (for "Sign in with Google" Gemini integration)
     GOOGLE_OAUTH_CLIENT_ID: str = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
     GOOGLE_OAUTH_CLIENT_SECRET: str = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")

@@ -367,9 +367,10 @@ class GooseAdapter extends BaseAdapter {
       const result = await this._runGoose(content, msgChannel);
       if (result === null) return;
       if (result) {
-        await this.sendResponse(msgChannel, result);
+        await this.sendFinalResult(msg, msgChannel, result);
       } else {
-        await this.sendResponse(
+        await this.sendFinalError(
+          msg,
           msgChannel,
           'Goose ran but produced no response. This usually means no provider/model is '
           + 'configured — set GOOSE_PROVIDER and GOOSE_MODEL (and a key) for this agent, '

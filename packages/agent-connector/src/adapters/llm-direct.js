@@ -113,13 +113,13 @@ class LlmDirectAdapter extends BaseAdapter {
         if (this._conversationHistory.length > MAX_HISTORY * 2) {
           this._conversationHistory = this._conversationHistory.slice(-MAX_HISTORY * 2);
         }
-        await this.sendResponse(msgChannel, responseText);
+        await this.sendFinalResult(msg, msgChannel, responseText);
       } else {
-        await this.sendResponse(msgChannel, 'No response generated. Please try again.');
+        await this.sendFinalError(msg, msgChannel, 'No response generated. Please try again.');
       }
     } catch (e) {
       this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      await this.sendFinalError(msg, msgChannel, `Error processing message: ${e.message}`);
     }
   }
 

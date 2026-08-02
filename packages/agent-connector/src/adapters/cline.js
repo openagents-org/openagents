@@ -139,7 +139,7 @@ class ClineAdapter extends BaseAdapter {
         await this._stopProcess(this._channelProcesses[channel]);
         delete this._channelProcesses[channel];
         delete this._channelQueues[channel];
-        try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
+        try { await this.sendCancelled(this._inflightTurns[channel] || null, channel, 'Execution stopped by user.'); } catch {}
       } else {
         await this._stopAllProcesses('Execution stopped by user.');
       }
@@ -187,7 +187,7 @@ class ClineAdapter extends BaseAdapter {
       await this._stopProcess(proc);
       delete this._channelProcesses[channel];
       delete this._channelQueues[channel];
-      try { await this.sendResponse(channel, message); } catch {}
+      try { await this.sendCancelled(this._inflightTurns[channel] || null, channel, message); } catch {}
     }
   }
 
@@ -560,7 +560,7 @@ class ClineAdapter extends BaseAdapter {
       });
 
       const spawnStartMs = Date.now();
-      const result = await this._runCline(channel, clineBin, args, workingDir);
+      const result = await this._runCline(channel, clineBin, args, workingDir, msg);
 
       if (result.userStopped) return;
 
@@ -583,12 +583,12 @@ class ClineAdapter extends BaseAdapter {
 
       // Emit final response or a classified error.
       if (result.finalText) {
-        try { await this.sendResponse(channel, result.finalText); } catch {}
+        try { await this.sendFinalResult(msg, channel, result.finalText); } catch {}
       } else if (result.errorMessage) {
         const { kind, userMessage } = classifyClineError(result.errorMessage);
-        try { await this.sendError(channel, this._withAuthHint(userMessage, kind)); } catch {}
+        try { await this.sendFinalError(msg, channel, this._withAuthHint(userMessage, kind)); } catch {}
       } else if (!result.anyOutput) {
-        try { await this.sendResponse(channel, 'No response generated. Please try again.'); } catch {}
+        try { await this.sendFinalError(msg, channel, 'No response generated. Please try again.'); } catch {}
       }
       return;
     }
@@ -626,7 +626,7 @@ class ClineAdapter extends BaseAdapter {
    *   { ok, finalText, errorMessage, anyOutput, userStopped }
    * `ok` reflects run_result.finishReason === "completed".
    */
-  _runCline(channel, clineBin, args, workingDir) {
+  _runCline(channel, clineBin, args, workingDir, triggerMsg) {
     const cleanEnv = { ...(this.agentEnv || process.env) };
     const [cmd, ...spawnArgs] = this._spawnableCmd(clineBin, args);
 
@@ -727,7 +727,7 @@ class ClineAdapter extends BaseAdapter {
               state.anyOutput = true;
               {
                 const opts = e.options && e.options.length ? `\n\nOptions: ${e.options.join(' · ')}` : '';
-                try { await this.sendResponse(channel, `❓ ${e.question || 'The agent is asking for input.'}${opts}`); } catch {}
+                try { await this.sendNeedsInput(triggerMsg, channel, `❓ ${e.question || 'The agent is asking for input.'}${opts}`); } catch {}
               }
               break;
             case 'notice':

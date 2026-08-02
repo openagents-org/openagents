@@ -349,7 +349,11 @@ class ClaudeAdapter extends BaseAdapter {
   async _postStopNotice(channel) {
     if (!channel || this._stopNoticeSent.has(channel)) return;
     this._stopNoticeSent.add(channel);
-    try { await this.sendResponse(channel, 'Execution stopped by user.'); } catch {}
+    // The control-action stop has no inbound message of its own; the
+    // inflight-turn registry supplies the turn being cancelled so a
+    // delegating agent gets a `cancelled` receipt instead of silence.
+    const trigger = this._inflightTurns[channel] || null;
+    try { await this.sendCancelled(trigger, channel, 'Execution stopped by user.'); } catch {}
   }
 
   async _stopAllProcesses(completionMessage = 'Execution stopped.') {
@@ -365,7 +369,7 @@ class ClaudeAdapter extends BaseAdapter {
       delete this._channelProcesses[channel];
       delete this._channelQueues[channel];
       try {
-        await this.sendResponse(channel, completionMessage);
+        await this.sendCancelled(this._inflightTurns[channel] || null, channel, completionMessage);
       } catch {}
     }
   }
@@ -1076,18 +1080,18 @@ class ClaudeAdapter extends BaseAdapter {
    * error, or — when the CLI ended with neither — a session-reset notice so
    * the UI never hangs on "thinking…".
    */
-  async _postTurnOutcome(pp, msgChannel, finalResponse) {
+  async _postTurnOutcome(pp, msgChannel, finalResponse, triggerMsg) {
     if (finalResponse) {
-      try { await this.sendResponse(msgChannel, finalResponse); } catch {}
+      try { await this.sendFinalResult(triggerMsg, msgChannel, finalResponse); } catch {}
     } else if (pp.lastErrorText) {
-      try { await this.sendError(msgChannel, this._formatClaudeError(pp.lastErrorText)); } catch {}
+      try { await this.sendFinalError(triggerMsg, msgChannel, this._formatClaudeError(pp.lastErrorText)); } catch {}
     } else if (!pp.everPostedAnything) {
       if (this._channelSessions[msgChannel]) {
         delete this._channelSessions[msgChannel];
         try { this._saveSessions(); } catch {}
         this._log(`Empty-error result — cleared session for ${msgChannel}`);
       }
-      try { await this.sendError(msgChannel, 'The agent hit an error and could not respond. The session was reset — please send the message again.'); } catch {}
+      try { await this.sendFinalError(triggerMsg, msgChannel, 'The agent hit an error and could not respond. The session was reset — please send the message again.'); } catch {}
     }
   }
 
@@ -1196,7 +1200,7 @@ class ClaudeAdapter extends BaseAdapter {
             // so it rebuilds context from the channel recap.
             await this._resetSessionForPromptTooLong(msgChannel);
           } else {
-            await this._postTurnOutcome(existingPP, msgChannel, finalResponse);
+            await this._postTurnOutcome(existingPP, msgChannel, finalResponse, msg);
             this._resetIdleTimer(msgChannel);
             await this._queueTodoNudge(msgChannel, msg);
             return;
@@ -1331,9 +1335,9 @@ class ClaudeAdapter extends BaseAdapter {
           }
           if (!pp.everPostedAnything) {
             if (pp.lastErrorText) {
-              try { await this.sendError(msgChannel, this._formatClaudeError(pp.lastErrorText)); } catch {}
+              try { await this.sendFinalError(msg, msgChannel, this._formatClaudeError(pp.lastErrorText)); } catch {}
             } else {
-              try { await this.sendResponse(msgChannel, 'No response generated. Please try again.'); } catch {}
+              try { await this.sendFinalError(msg, msgChannel, 'No response generated. Please try again.'); } catch {}
             }
           }
           break;
@@ -1346,13 +1350,13 @@ class ClaudeAdapter extends BaseAdapter {
           continue;
         }
 
-        await this._postTurnOutcome(pp, msgChannel, finalResponse);
+        await this._postTurnOutcome(pp, msgChannel, finalResponse, msg);
         this._resetIdleTimer(msgChannel);
         await this._queueTodoNudge(msgChannel, msg);
         break;
       } catch (e) {
         this._log(`Error handling message: ${e.message}`);
-        await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+        await this.sendFinalError(msg, msgChannel, `Error processing message: ${e.message}`);
         break;
       }
     }

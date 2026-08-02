@@ -288,9 +288,9 @@ class AmpAdapter extends BaseAdapter {
     // spawn/runtime error the agent row may be showing.
     this._reportStatus(null);
     if (responseText) {
-      await this.sendResponse(msgChannel, responseText);
+      await this.sendFinalResult(msg, msgChannel, responseText);
     } else {
-      await this.sendResponse(msgChannel, 'No response generated. Please try again.');
+      await this.sendFinalError(msg, msgChannel, 'No response generated. Please try again.');
     }
   }
 

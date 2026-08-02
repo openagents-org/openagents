@@ -80,6 +80,12 @@ class BaseAdapter {
     // Per-channel task tracking for parallel execution
     this._channelBusy = new Set();
     this._channelQueues = {};
+    // Inbound message currently being handled per channel. Strict lifecycle:
+    // set right before _handleMessage, cleared right after. Consumed ONLY by
+    // cancellation paths (control "stop" has no trigger of its own) — never
+    // use it to attribute late/background output, which can arrive after the
+    // next message has already replaced the entry.
+    this._inflightTurns = {};
     // Cached workspace.browser_enabled. Populated lazily on first read so we
     // don't pay an HTTP roundtrip per message — adapters that toggle the
     // workspace flag must reconnect/restart to pick up the change (matches
@@ -746,11 +752,12 @@ class BaseAdapter {
 
   async _channelWorker(channel, msg) {
     this._channelBusy.add(channel);
+    this._inflightTurns[channel] = msg;
     try {
       await this._handleMessage(msg);
     } catch (e) {
       this._log(`Error in channel worker for ${channel}: ${e.message}`);
-      try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
+      try { await this.sendFinalError(msg, channel, `Agent error: ${e.message}`); } catch {}
     }
 
     // Drain queue
@@ -761,13 +768,15 @@ class BaseAdapter {
       if (nextMsg._queueId) {
         try { await this.sendStatus(channel, 'processing queued message', { queue_id: nextMsg._queueId, queue_status: 'processed' }); } catch {}
       }
+      this._inflightTurns[channel] = nextMsg;
       try {
         await this._handleMessage(nextMsg);
       } catch (e) {
         this._log(`Error processing queued message in ${channel}: ${e.message}`);
-        try { await this.sendError(channel, `Agent error: ${e.message}`); } catch {}
+        try { await this.sendFinalError(nextMsg, channel, `Agent error: ${e.message}`); } catch {}
       }
     }
+    delete this._inflightTurns[channel];
     this._channelBusy.delete(channel);
   }
 
@@ -842,6 +851,67 @@ class BaseAdapter {
       }
       throw e;
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Terminal replies (delegation receipts)
+  // ------------------------------------------------------------------
+  //
+  // Unlike sendResponse, these stamp the outgoing chat message with
+  // reply_kind + in_reply_to so the backend can deterministically route a
+  // delegated task's outcome back to the delegating agent instead of
+  // relying on the LLM router to guess "this is a report". `triggerMsg` is
+  // the inbound message that started the turn. Synthetic triggers
+  // (system:* senders, missing event id) degrade to a plain reply — the
+  // backend only honours receipts that reference a real delegation event,
+  // so over-stamping is harmless but under-stamping loses the receipt.
+
+  _receiptMeta(kind, triggerMsg) {
+    const meta = { reply_kind: kind };
+    const id = triggerMsg && triggerMsg.messageId;
+    const sender = (triggerMsg && triggerMsg.senderName) || '';
+    if (id && !sender.startsWith('system:')) meta.in_reply_to = id;
+    return meta;
+  }
+
+  async _sendTerminal(kind, triggerMsg, channel, content) {
+    try {
+      await this.client.sendMessage(this.workspaceId, channel, this.token, content, {
+        senderType: 'agent',
+        senderName: this.agentName,
+        metadata: this._receiptMeta(kind, triggerMsg),
+        sessionId: this._sessionId,
+      });
+    } catch (e) {
+      if (e instanceof SessionRevokedError) {
+        this._onSessionRevoked();
+        return;
+      }
+      // Result delivery failures must surface to the caller (matching
+      // sendResponse); error/cancel/needs-input paths swallow like sendError
+      // so a failing receipt can't mask the original problem.
+      if (kind === 'result') throw e;
+    }
+  }
+
+  /** The turn's final answer. */
+  async sendFinalResult(triggerMsg, channel, content) {
+    return this._sendTerminal('result', triggerMsg, channel, content);
+  }
+
+  /** The turn failed — the delegator must not wait forever. */
+  async sendFinalError(triggerMsg, channel, content) {
+    return this._sendTerminal('error', triggerMsg, channel, content);
+  }
+
+  /** The agent needs more input before it can continue. */
+  async sendNeedsInput(triggerMsg, channel, content) {
+    return this._sendTerminal('needs_input', triggerMsg, channel, content);
+  }
+
+  /** The turn was cancelled (user stop). */
+  async sendCancelled(triggerMsg, channel, content) {
+    return this._sendTerminal('cancelled', triggerMsg, channel, content);
   }
 
   async cleanupTodos(channel) {

@@ -65,7 +65,7 @@ class CursorAdapter extends BaseAdapter {
         await this._stopProcess(this._channelProcesses[channel]);
         delete this._channelProcesses[channel];
         delete this._channelQueues[channel];
-        try { await this.sendResponse(channel, 'Execution stopped.'); } catch {}
+        try { await this.sendCancelled(this._inflightTurns[channel] || null, channel, 'Execution stopped.'); } catch {}
       } else {
         await this._stopAllProcesses('Execution stopped.');
       }
@@ -163,7 +163,7 @@ class CursorAdapter extends BaseAdapter {
       await this._stopProcess(proc);
       delete this._channelProcesses[channel];
       delete this._channelQueues[channel];
-      try { await this.sendResponse(channel, completionMessage); } catch {}
+      try { await this.sendCancelled(this._inflightTurns[channel] || null, channel, completionMessage); } catch {}
     }
   }
 
@@ -610,7 +610,7 @@ class CursorAdapter extends BaseAdapter {
               this._saveSessions();
               resolve(true);
             } else if (fullResponse) {
-              try { await this.sendResponse(msgChannel, fullResponse); } catch {}
+              try { await this.sendFinalResult(msg, msgChannel, fullResponse); } catch {}
               resolve(false);
             } else {
               resolve(false);
@@ -622,7 +622,7 @@ class CursorAdapter extends BaseAdapter {
             resolve(true);
           } else {
             if (!everPostedAnything) {
-              try { await this.sendResponse(msgChannel, 'No response generated. Please try again.'); } catch {}
+              try { await this.sendFinalError(msg, msgChannel, 'No response generated. Please try again.'); } catch {}
             }
             resolve(false);
           }

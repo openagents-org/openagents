@@ -482,11 +482,13 @@ class AiderAdapter extends BaseAdapter {
     }
     const { text, error } = result;
     if (error) {
-      await this.sendError(msgChannel, error);
+      await this.sendFinalError(msg, msgChannel, error);
     } else if (text) {
-      await this.sendResponse(msgChannel, text);
+      await this.sendFinalResult(msg, msgChannel, text);
     } else {
-      await this.sendResponse(
+      // No text but the run succeeded (file edits were applied) — a result.
+      await this.sendFinalResult(
+        msg,
         msgChannel,
         'Aider finished with no textual output (any file changes were applied to the working directory).',
       );

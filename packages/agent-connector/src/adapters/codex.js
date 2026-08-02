@@ -264,11 +264,11 @@ class CodexAdapter extends BaseAdapter {
     await this.sendStatus(msgChannel, 'thinking...');
 
     if (this._useCliMode) {
-      await this._handleViaSubprocess(content, msgChannel);
+      await this._handleViaSubprocess(content, msgChannel, msg);
     } else if (this._directMode) {
-      await this._handleViaDirectApi(content, msgChannel);
+      await this._handleViaDirectApi(content, msgChannel, msg);
     } else {
-      await this.sendError(msgChannel, 'codex CLI not found. Install with: npm install -g @openai/codex\n\nOr configure OPENAI_API_KEY + OPENAI_BASE_URL for direct API mode.');
+      await this.sendFinalError(msg, msgChannel, 'codex CLI not found. Install with: npm install -g @openai/codex\n\nOr configure OPENAI_API_KEY + OPENAI_BASE_URL for direct API mode.');
     }
   }
 
@@ -276,7 +276,7 @@ class CodexAdapter extends BaseAdapter {
   // CLI subprocess mode (primary)
   // ------------------------------------------------------------------
 
-  async _handleViaSubprocess(content, msgChannel) {
+  async _handleViaSubprocess(content, msgChannel, triggerMsg) {
     const env = { ...(this.agentEnv || process.env) };
 
     // Set model via env if configured
@@ -315,7 +315,7 @@ class CodexAdapter extends BaseAdapter {
         const result = await this._spawnCodex(cmd, env, msgChannel, fullPrompt);
 
         if (result.responseText) {
-          await this.sendResponse(msgChannel, result.responseText);
+          await this.sendFinalResult(triggerMsg, msgChannel, result.responseText);
           return;
         } else if (result.exitCode !== 0 && threadId && attempt === 0) {
           // Stale thread — clear and retry fresh
@@ -327,12 +327,12 @@ class CodexAdapter extends BaseAdapter {
           // Surface the actual reason (turn.failed message, stderr, exit code)
           // instead of a generic "no response" — mirrors the OpenCode adapter
           // so auth/model/network problems are actionable from the chat.
-          await this._sendRunFailure(msgChannel, result);
+          await this._sendRunFailure(msgChannel, result, triggerMsg);
           return;
         }
       } catch (e) {
         this._log(`Error in subprocess: ${e.message}`);
-        await this.sendError(msgChannel, `⚠️ **Codex couldn't run** — ${CodexAdapter._redact(e.message)}`);
+        await this.sendFinalError(triggerMsg, msgChannel, `⚠️ **Codex couldn't run** — ${CodexAdapter._redact(e.message)}`);
         return;
       }
     }
@@ -470,12 +470,12 @@ class CodexAdapter extends BaseAdapter {
    * Post a user-visible failure carrying the actual reason a run produced no
    * reply, instead of a generic "No response generated".
    */
-  async _sendRunFailure(msgChannel, result) {
+  async _sendRunFailure(msgChannel, result, triggerMsg) {
     const detail = CodexAdapter._failureDetail(result);
     const body = detail
       ? `Codex failed to complete this run.\n\n> ${detail}`
       : 'Codex finished without producing a reply. Please try again.';
-    await this.sendError(msgChannel, `⚠️ **Codex couldn't run** — ${body}`);
+    await this.sendFinalError(triggerMsg, msgChannel, `⚠️ **Codex couldn't run** — ${body}`);
   }
 
   /**
@@ -510,7 +510,7 @@ class CodexAdapter extends BaseAdapter {
   // Direct HTTP mode (fallback when CLI not available)
   // ------------------------------------------------------------------
 
-  async _handleViaDirectApi(content, msgChannel) {
+  async _handleViaDirectApi(content, msgChannel, triggerMsg) {
     try {
       const responseText = await this._callCompletionApi(content, msgChannel);
       if (responseText) {
@@ -519,13 +519,13 @@ class CodexAdapter extends BaseAdapter {
         if (this._conversationHistory.length > MAX_HISTORY_ENTRIES * 2) {
           this._conversationHistory = this._conversationHistory.slice(-MAX_HISTORY_ENTRIES * 2);
         }
-        await this.sendResponse(msgChannel, responseText);
+        await this.sendFinalResult(triggerMsg, msgChannel, responseText);
       } else {
-        await this._sendRunFailure(msgChannel, {});
+        await this._sendRunFailure(msgChannel, {}, triggerMsg);
       }
     } catch (e) {
       this._log(`Error in direct API: ${e.message}`);
-      await this.sendError(msgChannel, `⚠️ **Codex couldn't run** — ${CodexAdapter._redact(e.message)}`);
+      await this.sendFinalError(triggerMsg, msgChannel, `⚠️ **Codex couldn't run** — ${CodexAdapter._redact(e.message)}`);
     }
   }
 
