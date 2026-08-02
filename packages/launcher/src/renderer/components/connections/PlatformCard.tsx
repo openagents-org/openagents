@@ -44,7 +44,7 @@ export function PlatformCard({
               {platform.label}
             </span>
             {platform.support === "planned" && (
-              <Badge variant="secondary" className="text-3xs">
+              <Badge variant="secondary" size="sm">
                 {t("connections.card.planned")}
               </Badge>
             )}

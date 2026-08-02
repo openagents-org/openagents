@@ -151,10 +151,7 @@ export function AgentCard({
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <Badge
-            variant={TONE_VARIANT[tone]}
-            className="gap-1.5 px-2 py-0 text-2xs"
-          >
+          <Badge variant={TONE_VARIANT[tone]} size="sm" className="gap-1.5">
             <StatusDot state={agent.state} className="size-1.5 ring-0" />
             {t(`agents.list.state.${tone}`)}
           </Badge>

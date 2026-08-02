@@ -8,10 +8,8 @@ import { Card } from "../ui/card"
 import { PlatformLogo } from "../connections/PlatformLogo"
 import { getPlatform } from "../connections/platforms"
 import { CredentialUsage } from "./CredentialUsage"
-import { cn } from "../../lib/utils"
 import type { CredentialSummary } from "../../types"
 
-const CHIP = "px-1.5 py-0 text-3xs"
 
 interface Props {
   cred: CredentialSummary
@@ -71,16 +69,16 @@ export function CredentialCard({
             <span className="truncate text-sm font-semibold tracking-tight">
               {cred.label}
             </span>
-            <Badge variant="secondary" className={CHIP}>
+            <Badge variant="secondary" size="sm">
               {cred.kind.replace("_", " ")}
             </Badge>
             {cred.shared && (
-              <Badge variant="outline" className={CHIP}>
+              <Badge variant="outline" size="sm">
                 {t("credentials.card.shared")}
               </Badge>
             )}
             {cred.scopes?.map((s) => (
-              <Badge key={s} variant="secondary" className={cn(CHIP, "text-(--text-link)")}>
+              <Badge key={s} variant="secondary" size="sm" className="text-(--text-link)">
                 {s}
               </Badge>
             ))}

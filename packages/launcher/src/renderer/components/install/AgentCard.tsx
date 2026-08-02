@@ -88,7 +88,7 @@ export function AgentCard({
           )}
         </div>
         {hasUpdate && (
-          <Badge variant="warning" className="text-3xs" title={t("install.card.updateAvailable")}>
+          <Badge variant="warning" title={t("install.card.updateAvailable")}>
             {t("install.card.updateBadge")}
           </Badge>
         )}
@@ -100,7 +100,7 @@ export function AgentCard({
 
       <div className="flex flex-wrap gap-1">
         {(entry.tags || []).slice(0, MAX_TAGS).map((tag) => (
-          <Badge key={tag} variant="secondary" className="px-1.5 py-0 text-3xs">
+          <Badge key={tag} variant="secondary" size="sm">
             {tag}
           </Badge>
         ))}
@@ -119,9 +119,7 @@ export function AgentCard({
               </Badge>
             )
           ) : (
-            <span className="text-muted-foreground">
-              {t("install.card.notInstalled")}
-            </span>
+            <Badge variant="warning">{t("install.card.notInstalled")}</Badge>
           )}
         </div>
         {isBusy && stage && (

@@ -35,7 +35,7 @@ export function ConnectionStatusBadge({
   const tone = TONE[status]
 
   return (
-    <Badge variant={tone} className={cn("gap-1.5 text-3xs", className)}>
+    <Badge variant={tone} size="sm" className={cn("gap-1.5", className)}>
       <span className={cn("inline-block size-1.5 rounded-full", DOT[tone])} />
       {t(`connections.status.${status}`)}
     </Badge>

@@ -41,7 +41,7 @@ export function WorkspaceAgentRow({
       <span className="min-w-0 flex-1 truncate text-xs font-medium">
         {agent.name}
       </span>
-      <Badge variant={TONE_VARIANT[tone]} className="gap-1.5 px-2 py-0 text-2xs">
+      <Badge variant={TONE_VARIANT[tone]} size="sm" className="gap-1.5">
         <StatusDot state={agent.state} className="size-1.5 ring-0" />
         {t(`workspaces.card.state.${tone}`)}
       </Badge>

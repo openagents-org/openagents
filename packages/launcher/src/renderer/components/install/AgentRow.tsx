@@ -84,7 +84,7 @@ export function AgentRow({
         )}
         <div className="mt-1 flex flex-wrap gap-1">
           {(entry.tags || []).slice(0, MAX_TAGS).map((tag) => (
-            <Badge key={tag} variant="secondary" className="px-1.5 py-0 text-3xs">
+            <Badge key={tag} variant="secondary" size="sm">
               {tag}
             </Badge>
           ))}
@@ -111,9 +111,7 @@ export function AgentRow({
           <Badge variant="warning">{t("install.card.notInstalled")}</Badge>
         )}
         {hasUpdate && (
-          <Badge variant="warning" className="px-1.5 py-0 text-3xs">
-            {t("install.card.updateBadge")}
-          </Badge>
+          <Badge variant="warning">{t("install.card.updateBadge")}</Badge>
         )}
       </div>
 

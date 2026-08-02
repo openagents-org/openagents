@@ -2,7 +2,6 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 
 import { Badge } from "../ui/badge"
-import { cn } from "../../lib/utils"
 
 export type WorkspaceHealthState =
   | "healthy"
@@ -32,10 +31,7 @@ export function WorkspaceHealth({
   const { t } = useTranslation()
 
   return (
-    <Badge
-      variant={VARIANT[state]}
-      className={cn("px-2 py-0 text-2xs", className)}
-    >
+    <Badge variant={VARIANT[state]} size="sm" className={className}>
       {t(`workspaces.health.${state}`)}
     </Badge>
   )

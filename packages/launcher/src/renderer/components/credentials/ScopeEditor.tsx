@@ -31,7 +31,7 @@ export function ScopeEditor({
       </FieldLabel>
       <div className="flex min-h-8.5 flex-wrap items-center gap-1.5 rounded-sm bg-muted px-2 py-1.5">
         {value.map((s) => (
-          <Badge key={s} variant="secondary" className="gap-1 px-1.5 py-0 text-2xs">
+          <Badge key={s} variant="secondary" size="sm" className="gap-1">
             {s}
             <button
               type="button"
