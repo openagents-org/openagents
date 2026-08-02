@@ -1296,7 +1296,7 @@ class ClaudeAdapter extends BaseAdapter {
         cmd = built.cmd;
         mcpConfigFile = built.mcpConfigFile;
       } catch (e) {
-        await this.sendError(msgChannel, e.message);
+        await this.sendFinalError(msg, msgChannel, e.message);
         return;
       }
 
