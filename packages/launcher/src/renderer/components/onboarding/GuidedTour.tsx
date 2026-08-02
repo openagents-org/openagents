@@ -182,7 +182,7 @@ export function GuidedTour(): React.JSX.Element | null {
 
       {/* Instruction bubble. */}
       <div
-        className="absolute w-[320px] rounded-xl bg-(--bg-card) text-(--text-primary) border border-(--border) shadow-2xl p-4"
+        className="absolute w-80 rounded-xl bg-(--bg-card) text-(--text-primary) border border-(--border) shadow-2xl p-4"
         style={{ top: bubbleTop, left: bubbleLeft }}
       >
         <div className="flex items-center gap-1.5 mb-2">
@@ -199,7 +199,7 @@ export function GuidedTour(): React.JSX.Element | null {
               }
             />
           ))}
-          <span className="ml-auto text-[11px] text-(--text-tertiary)">
+          <span className="ml-auto text-2xs text-(--text-tertiary)">
             {t("onboarding.tour.progress", {
               current: step + 1,
               total: STEPS.length,
@@ -207,10 +207,10 @@ export function GuidedTour(): React.JSX.Element | null {
           </span>
         </div>
 
-        <div className="text-[14px] font-semibold mb-1">
+        <div className="text-base font-semibold mb-1">
           {t(`onboarding.tour.steps.${current.key}.title`)}
         </div>
-        <div className="text-[12.5px] leading-relaxed text-(--text-secondary)">
+        <div className="text-xs leading-relaxed text-(--text-secondary)">
           {t(`onboarding.tour.steps.${current.key}.body`)}
         </div>
 
@@ -218,7 +218,7 @@ export function GuidedTour(): React.JSX.Element | null {
           <button
             type="button"
             onClick={() => finish(false)}
-            className="text-[12px] text-(--text-tertiary) hover:text-(--text-secondary) bg-transparent border-0 cursor-pointer"
+            className="text-xs text-(--text-tertiary) hover:text-(--text-secondary) bg-transparent border-0 cursor-pointer"
           >
             {t("onboarding.tour.skip")}
           </button>
@@ -227,7 +227,7 @@ export function GuidedTour(): React.JSX.Element | null {
               <button
                 type="button"
                 onClick={() => setStep((s) => s - 1)}
-                className="px-3 py-1.5 text-[12px] rounded-md border border-(--border) bg-transparent text-(--text-secondary) hover:text-(--text-primary) cursor-pointer"
+                className="px-3 py-1.5 text-xs rounded-md border border-(--border) bg-transparent text-(--text-secondary) hover:text-(--text-primary) cursor-pointer"
               >
                 {t("onboarding.tour.back")}
               </button>
@@ -235,7 +235,7 @@ export function GuidedTour(): React.JSX.Element | null {
             <button
               type="button"
               onClick={() => (isLast ? finish(true) : setStep((s) => s + 1))}
-              className="px-3.5 py-1.5 text-[12px] font-medium rounded-md border-0 bg-[#6366f1] text-white hover:bg-[#4f46e5] cursor-pointer"
+              className="px-3.5 py-1.5 text-xs font-medium rounded-md border-0 bg-[#6366f1] text-white hover:bg-[#4f46e5] cursor-pointer"
             >
               {isLast
                 ? t("onboarding.tour.getStarted")

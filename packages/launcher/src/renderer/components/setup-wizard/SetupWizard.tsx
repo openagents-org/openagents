@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Modal, ModalBody, ModalFooter, ModalHeader, ModalTitle } from "../ui/Modal"
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../shadcn/dialog"
 import AgentIcon from "../AgentIcon"
 import { cn } from "../../lib/utils"
 import { useUiStore } from "../../store/ui"
@@ -168,18 +175,14 @@ export default function SetupWizard({
   }
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      layout="panel"
-      className="!min-w-[480px] !max-w-[560px]"
-    >
-      <ModalHeader>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-xl">
+      <DialogHeader>
         <div className="flex items-center gap-3 mb-2">
           <AgentIcon type={entry.name} size={28} />
-          <ModalTitle className="m-0">
+          <DialogTitle className="m-0">
             {t("onboarding.wizard.title", { label: entry.label || entry.name })}
-          </ModalTitle>
+          </DialogTitle>
         </div>
         <p className="hint m-0 mb-3">{t("onboarding.wizard.subtitle")}</p>
 
@@ -194,9 +197,9 @@ export default function SetupWizard({
             </React.Fragment>
           ))}
         </div>
-      </ModalHeader>
+      </DialogHeader>
 
-      <ModalBody>
+      <DialogBody>
         {step === "configure" && (
           <SetupApiConfig {...configureProps} section="body" />
         )}
@@ -206,9 +209,9 @@ export default function SetupWizard({
         {step === "create" && (
           <SetupCreateInstance {...createProps} section="body" />
         )}
-      </ModalBody>
+      </DialogBody>
 
-      <ModalFooter>
+      <DialogFooter>
         {step === "configure" && (
           <SetupApiConfig {...configureProps} section="footer" />
         )}
@@ -218,7 +221,8 @@ export default function SetupWizard({
         {step === "create" && (
           <SetupCreateInstance {...createProps} section="footer" />
         )}
-      </ModalFooter>
-    </Modal>
+      </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

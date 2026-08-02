@@ -1,6 +1,6 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { Button } from "../ui/Button"
+import { Button } from "../shadcn/button"
 import { WizardStepShell } from "./WizardStepShell"
 
 interface SetupConnectionTestProps {
@@ -22,7 +22,7 @@ export function SetupConnectionTest({
   const { t } = useTranslation()
   const body = (
     <>
-      <p className={`text-[13px] m-0 ${ok ? "test-success" : "test-error"}`}>
+      <p className={`text-sm m-0 ${ok ? "test-success" : "test-error"}`}>
         {message}
       </p>
       <p className="hint m-0">
@@ -34,10 +34,10 @@ export function SetupConnectionTest({
   )
   const footer = (
     <div className="form-actions mt-0">
-      <Button variant="primary" onClick={onNext}>
+      <Button variant="default" onClick={onNext}>
         {t("onboarding.wizard.connectionTest.nextCreateAgent")}
       </Button>
-      <Button onClick={onBack}>
+      <Button variant="outline" onClick={onBack}>
         {t("onboarding.wizard.connectionTest.back")}
       </Button>
     </div>

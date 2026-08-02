@@ -7,9 +7,9 @@ import {
   Terminal,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Input } from "../ui/Input"
-import { PasswordInput } from "../ui/PasswordInput"
-import { Button } from "../ui/Button"
+import { Input } from "../shadcn/input"
+import { PasswordInput } from "../ui-kit"
+import { Button } from "../shadcn/button"
 import { translateTestError } from "../../lib/test-error"
 import type { EnvField } from "../../types"
 import { WizardStepShell } from "./WizardStepShell"
@@ -57,7 +57,7 @@ export function SetupApiConfig({
             <Terminal className="h-4 w-4" strokeWidth={2} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="m-0 text-[13px] font-semibold text-(--text-primary)">
+            <p className="m-0 text-sm font-semibold text-(--text-primary)">
               {t("onboarding.wizard.apiConfig.signInWithCli")}
             </p>
             <p className="hint m-0 mt-1 mb-0 leading-snug">
@@ -68,11 +68,11 @@ export function SetupApiConfig({
           </div>
         </div>
         <div className="form-actions mt-0 flex-wrap">
-          <Button variant="primary" onClick={onLogin}>
+          <Button variant="default" onClick={onLogin}>
             {t("onboarding.wizard.apiConfig.signIn")}
           </Button>
           {onContinueWithoutKey && (
-            <Button onClick={onContinueWithoutKey}>
+            <Button variant="outline" onClick={onContinueWithoutKey}>
               {t("onboarding.wizard.apiConfig.continueWithoutKey")}
             </Button>
           )}
@@ -81,7 +81,7 @@ export function SetupApiConfig({
     ) : null
 
   const apiKeyDivider = loginBlock ? (
-    <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-(--text-tertiary)">
+    <div className="flex items-center gap-2 text-2xs font-medium uppercase tracking-wide text-(--text-tertiary)">
       <span className="h-px flex-1 bg-(--border)" />
       <KeyRound className="h-3 w-3" />
       <span>{t("onboarding.wizard.apiConfig.orUseApiKey")}</span>
@@ -91,14 +91,14 @@ export function SetupApiConfig({
 
   const actionButtons = (
     <div className="form-actions mt-0">
-      <Button variant="primary" onClick={onSubmit} disabled={testing}>
+      <Button variant="default" onClick={onSubmit} disabled={testing}>
         {testing
           ? t("onboarding.wizard.apiConfig.testing")
           : fields.length === 0
             ? t("onboarding.wizard.apiConfig.continue")
             : t("onboarding.wizard.apiConfig.saveAndTest")}
       </Button>
-      <Button onClick={onSkip}>{t("onboarding.wizard.apiConfig.skip")}</Button>
+      <Button variant="outline" onClick={onSkip}>{t("onboarding.wizard.apiConfig.skip")}</Button>
     </div>
   )
 
@@ -181,11 +181,11 @@ function TestErrorCard({ message }: { message: string }): React.JSX.Element {
           strokeWidth={2}
         />
         <div className="flex-1 min-w-0">
-          <div className="text-[13px] font-semibold text-(--danger-text)">
+          <div className="text-sm font-semibold text-(--danger-text)">
             {title}
           </div>
           {hint && (
-            <div className="text-[12px] mt-1 text-(--text-secondary) leading-snug">
+            <div className="text-xs mt-1 text-(--text-secondary) leading-snug">
               {hint}
             </div>
           )}
@@ -194,7 +194,7 @@ function TestErrorCard({ message }: { message: string }): React.JSX.Element {
               <button
                 type="button"
                 onClick={() => setShowDetails((v) => !v)}
-                className="mt-1.5 inline-flex items-center gap-0.5 text-[11px] text-(--text-tertiary) hover:text-(--text-secondary) transition-colors cursor-pointer bg-transparent border-0 p-0"
+                className="mt-1.5 inline-flex items-center gap-0.5 text-2xs text-(--text-tertiary) hover:text-(--text-secondary) transition-colors cursor-pointer bg-transparent border-0 p-0"
               >
                 {showDetails ? (
                   <ChevronDown className="w-3 h-3" />
@@ -206,7 +206,7 @@ function TestErrorCard({ message }: { message: string }): React.JSX.Element {
                   : t("onboarding.wizard.apiConfig.showDetails")}
               </button>
               {showDetails && (
-                <pre className="mt-1.5 text-[11px] font-mono text-(--text-tertiary) whitespace-pre-wrap break-all max-h-32 overflow-auto bg-(--bg-input)/50 rounded-[4px] px-2 py-1.5 m-0">
+                <pre className="mt-1.5 text-2xs font-mono text-(--text-tertiary) whitespace-pre-wrap break-all max-h-32 overflow-auto bg-(--bg-input)/50 rounded-sm px-2 py-1.5 m-0">
                   {raw}
                 </pre>
               )}

@@ -1,7 +1,7 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { Input } from "../ui/Input"
-import { Button } from "../ui/Button"
+import { Input } from "../shadcn/input"
+import { Button } from "../shadcn/button"
 import { WizardStepShell } from "./WizardStepShell"
 
 interface SetupCreateInstanceProps {
@@ -47,7 +47,7 @@ export function SetupCreateInstance({
   const footer = (
     <div className="form-actions mt-0">
       <Button
-        variant="primary"
+        variant="default"
         onClick={onSubmit}
         disabled={submitting || !agentName.trim()}
       >
@@ -55,7 +55,7 @@ export function SetupCreateInstance({
           ? t("onboarding.wizard.createInstance.creating")
           : t("onboarding.wizard.createInstance.createAgent")}
       </Button>
-      <Button onClick={onCancel}>
+      <Button variant="outline" onClick={onCancel}>
         {t("onboarding.wizard.createInstance.finishLater")}
       </Button>
     </div>
