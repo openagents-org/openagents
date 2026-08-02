@@ -4,6 +4,7 @@ Tests for workspace CRUD endpoints.
 """
 
 import pytest
+from sqlalchemy import select
 from unittest.mock import patch, MagicMock
 
 
@@ -243,6 +244,14 @@ class TestChannelPhase:
             headers={"X-Workspace-Token": workspace["token"]},
         )
 
+    def _join(self, client, workspace, name):
+        resp = client.post("/v1/join", json={
+            "agent_name": name,
+            "token": workspace["token"],
+            "network": workspace["id"],
+        })
+        assert resp.status_code == 200
+
     def test_default_phase_is_open(self, client, workspace):
         assert workspace["channel"].get("phase") == "open"
 
@@ -256,6 +265,7 @@ class TestChannelPhase:
         assert data["phaseOwner"] == data["masterAgent"] == "agent-alpha"
 
     def test_explicit_owner_wins(self, client, workspace):
+        self._join(client, workspace, "agent-pm")
         resp = self._patch(client, workspace, {
             "phase": "clarifying",
             "phase_owner": "agent-pm",
@@ -263,8 +273,78 @@ class TestChannelPhase:
         assert resp.status_code == 200
         assert resp.json()["data"]["phaseOwner"] == "agent-pm"
 
-    def test_empty_owner_clears_it(self, client, workspace):
+    def test_owner_is_joined_to_the_channel(self, client, workspace):
+        """Naming an agent as owner means it must be able to receive the
+        thread's messages — otherwise the gate routes into a void."""
+        self._join(client, workspace, "agent-pm")
+        resp = self._patch(client, workspace, {
+            "phase": "clarifying",
+            "phase_owner": "agent-pm",
+        })
+        assert "agent-pm" in resp.json()["data"]["participants"]
+
+    def test_unknown_owner_rejected(self, client, workspace):
+        resp = self._patch(client, workspace, {
+            "phase": "clarifying",
+            "phase_owner": "typo-agent",
+        })
+        assert resp.status_code == 400
+
+    def test_removed_owner_rejected(self, client, workspace):
+        self._join(client, workspace, "agent-pm")
+        client.delete(
+            f"/v1/workspaces/{workspace['id']}/members/agent-pm",
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        resp = self._patch(client, workspace, {
+            "phase": "clarifying",
+            "phase_owner": "agent-pm",
+        })
+        assert resp.status_code == 400
+
+    def test_clarifying_without_any_owner_rejected(self, client, workspace, db):
+        """Threads created from the agent picker have no master. Entering the
+        gate there used to persist phase=clarifying with owner=None, which
+        renders as "Clarifying" while routing stays wide open."""
+        from app.models import Channel
+        channel = db.execute(
+            select(Channel).where(Channel.name == workspace["channel"]["name"])
+        ).scalar_one()
+        channel.master_agent = None
+        db.commit()
+
+        resp = self._patch(client, workspace, {"phase": "clarifying"})
+        assert resp.status_code == 400
+        db.refresh(channel)
+        assert channel.phase == "open"
+        assert channel.phase_owner is None
+
+    def test_clearing_the_owner_of_a_gated_thread_falls_back_to_master(self, client, workspace):
+        """Clearing the owner is allowed while the master can still hold the
+        floor — the gate stays enforceable, which is the only invariant."""
+        self._join(client, workspace, "agent-pm")
         self._patch(client, workspace, {"phase": "clarifying", "phase_owner": "agent-pm"})
+        resp = self._patch(client, workspace, {"phase_owner": "  "})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["phaseOwner"] == "agent-alpha"  # the master
+
+    def test_clearing_the_only_owner_of_a_gated_thread_rejected(self, client, workspace, db):
+        from app.models import Channel
+        self._patch(client, workspace, {"phase": "clarifying"})
+        channel = db.execute(
+            select(Channel).where(Channel.name == workspace["channel"]["name"])
+        ).scalar_one()
+        channel.master_agent = None
+        db.commit()
+
+        resp = self._patch(client, workspace, {"phase_owner": "  "})
+        assert resp.status_code == 400
+        db.refresh(channel)
+        assert channel.phase_owner == "agent-alpha"
+
+    def test_clearing_the_owner_is_fine_once_open(self, client, workspace):
+        self._patch(client, workspace, {"phase": "clarifying"})
+        self._patch(client, workspace, {"phase": "open"})
         resp = self._patch(client, workspace, {"phase_owner": "  "})
         assert resp.status_code == 200
         assert resp.json()["data"]["phaseOwner"] is None
@@ -280,6 +360,7 @@ class TestChannelPhase:
         assert resp.status_code == 400
 
     def test_phase_round_trips_via_get(self, client, workspace):
+        self._join(client, workspace, "agent-pm")
         self._patch(client, workspace, {"phase": "clarifying", "phase_owner": "agent-pm"})
         got = client.get(
             f"/v1/workspaces/{workspace['id']}/channels/{workspace['channel']['name']}",

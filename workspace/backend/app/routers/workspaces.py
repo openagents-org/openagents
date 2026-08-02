@@ -1326,19 +1326,58 @@ def update_channel(
     if body.orchestration_instruction is not None:
         # Empty string clears the plan; otherwise store the trimmed text.
         channel.orchestration_instruction = body.orchestration_instruction.strip() or None
-    if body.phase is not None:
-        phase = body.phase.strip().lower()
-        if phase not in CHANNEL_PHASES:
-            return json_response(ResponseCode.BAD_REQUEST, "Invalid phase")
+    # ── Clarification phase ──────────────────────────────────────────
+    # Phase and owner are validated together, before either is written: a
+    # channel must never persist `phase='clarifying'` with nobody able to
+    # hold the floor. That state renders as "Clarifying" in the UI while the
+    # gate is inert and every agent keeps answering as before — worse than
+    # having no gate at all, because it looks like one.
+    if body.phase is not None or body.phase_owner is not None:
+        phase = channel.phase or "open"
+        if body.phase is not None:
+            phase = body.phase.strip().lower()
+            if phase not in CHANNEL_PHASES:
+                return json_response(ResponseCode.BAD_REQUEST, "Invalid phase")
+
+        owner = channel.phase_owner
+        if body.phase_owner is not None:
+            owner = body.phase_owner.strip() or None
+        if phase == PHASE_CLARIFYING and not owner:
+            # Fall back to the master, which is what a one-click "clarify
+            # first" means on a thread that has a leader.
+            owner = channel.master_agent
+
+        if owner:
+            member = db.execute(
+                select(WorkspaceMember).where(
+                    WorkspaceMember.workspace_id == workspace.id,
+                    WorkspaceMember.agent_name == owner,
+                )
+            ).scalar_one_or_none()
+            if not member or (member.status or "").lower() == "removed":
+                return json_response(
+                    ResponseCode.BAD_REQUEST,
+                    f"Unknown phase_owner: {owner}",
+                )
+            # The owner has to be able to receive messages in this channel.
+            # Adding them is the intent of naming them, so join them rather
+            # than rejecting the request.
+            is_participant = any(
+                p.agent_name == owner for p in (channel.participants or [])
+            )
+            if not is_participant:
+                db.add(ChannelMember(channel_id=channel.id, agent_name=owner))
+                db.flush()
+
+        if phase == PHASE_CLARIFYING and not owner:
+            return json_response(
+                ResponseCode.BAD_REQUEST,
+                "phase_owner is required to start clarifying: this thread has "
+                "no master, so name the agent that owns the requirement",
+            )
+
         channel.phase = phase
-        # Entering the gate with nobody to hold the floor would make it inert.
-        # Default the owner to the master so a one-click "start clarifying"
-        # from the UI always produces a working gate.
-        if phase == PHASE_CLARIFYING and not (body.phase_owner or channel.phase_owner):
-            channel.phase_owner = channel.master_agent
-    if body.phase_owner is not None:
-        # Empty string clears the owner (the gate then falls back to master).
-        channel.phase_owner = body.phase_owner.strip() or None
+        channel.phase_owner = owner
 
     db.commit()
     db.refresh(channel)

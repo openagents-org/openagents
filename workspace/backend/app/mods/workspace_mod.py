@@ -223,12 +223,17 @@ async def _handle_agent_remove(event: Event, ctx: PipelineContext) -> Optional[E
 
     # If removed agent was master, promote the next available (non-removed) agent
     if was_master:
+        # `.scalars().first()`, not `.scalar_one_or_none()`: the query is a
+        # "pick the longest-serving survivor" over every remaining member, so
+        # two or more survivors made it raise MultipleResultsFound and the
+        # whole removal failed — which also aborted the phase-owner repair
+        # below.
         next_master = db.execute(
             select(WorkspaceMember).where(
                 WorkspaceMember.workspace_id == workspace.id,
                 WorkspaceMember.status != "removed",
             ).order_by(WorkspaceMember.joined_at.asc())
-        ).scalar_one_or_none()
+        ).scalars().first()
 
         if next_master:
             next_master.role = "master"
@@ -245,6 +250,19 @@ async def _handle_agent_remove(event: Event, ctx: PipelineContext) -> Optional[E
 
     for ch in channels:
         ch.master_agent = new_master_name
+    db.flush()
+
+    # Repair any clarification gate this agent was holding. Left alone, the
+    # gate would keep redirecting to a removed agent and every message in
+    # that thread would be routed to nobody.
+    owned = db.execute(
+        select(Channel).where(
+            Channel.workspace_id == workspace.id,
+            Channel.phase_owner == agent_name,
+        )
+    ).scalars().all()
+    for ch in owned:
+        _reassign_phase_owner(ch, db, workspace, leaving=agent_name)
     db.flush()
 
     event.metadata["removed_agent"] = agent_name
@@ -322,6 +340,25 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
     if phase not in CHANNEL_PHASES:
         phase = PHASE_OPEN
     phase_owner = (payload.get("phase_owner") or "").strip() or None
+    if phase == PHASE_CLARIFYING:
+        # A gate needs someone to hold the floor. The owner must be among the
+        # agents this channel is being created with, otherwise the channel
+        # would be born in the one state the gate cannot enforce — showing
+        # "clarifying" in the UI while routing behaves as if it were open.
+        initial = [
+            a for a in (payload.get("participants") or [])
+            if a and a != "__no_response__"
+        ]
+        resolved = phase_owner or payload.get("master")
+        if not resolved or resolved not in initial:
+            logger.warning(
+                "workspace_mod: channel.create asked for phase=clarifying with "
+                "owner %r not among participants %s — creating it open instead",
+                resolved, initial,
+            )
+            phase, phase_owner = PHASE_OPEN, None
+        else:
+            phase_owner = resolved
 
     channel = Channel(
         workspace_id=workspace.id,
@@ -515,6 +552,13 @@ async def _handle_channel_leave(event: Event, ctx: PipelineContext) -> Optional[
     if member:
         db.delete(member)
         db.flush()
+        # The agent that just left may have been holding the clarification
+        # gate for this channel; hand it on (or open the thread) so routing
+        # never points at a non-participant.
+        db.refresh(channel)
+        if (getattr(channel, "phase_owner", None) or None) == agent_name:
+            _reassign_phase_owner(channel, db, workspace, leaving=agent_name)
+            db.flush()
 
     return event
 
@@ -669,14 +713,46 @@ def _channel_phase(channel) -> str:
     return (getattr(channel, "phase", None) or PHASE_OPEN).lower()
 
 
-def _phase_gatekeepers(channel) -> List[str]:
+def _valid_gatekeeper_names(channel, db, workspace, candidates: List[str]) -> List[str]:
+    """Filter candidate gatekeepers down to ones that can actually take the
+    floor: a non-removed workspace member that is a participant of THIS
+    channel. Order is preserved.
+
+    Membership changes after the phase was set — an agent removed from the
+    workspace, or one that left the channel — so validating at write time is
+    not enough. Without this filter the gate happily redirects to a name
+    nobody answers to, and the message is stranded with no reply at all.
+    """
+    from app.models import WorkspaceMember
+
+    if not candidates:
+        return []
+    participants = {p.agent_name for p in (channel.participants or [])}
+    rows = db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.agent_name.in_(candidates),
+        )
+    ).scalars().all()
+    live = {m.agent_name for m in rows if (m.status or "").lower() != "removed"}
+    return [n for n in candidates if n in live and n in participants]
+
+
+def _phase_gatekeepers(channel, db, workspace) -> List[str]:
     """Agents that keep the floor while the channel is clarifying.
 
     The phase owner (the requirements/PM agent) comes first and is the
     redirect target; the channel master is included too, so a thread whose
     owner is unset — or whose master coordinates alongside the owner — still
     has somewhere to route. Order matters: callers redirect to the first
-    entry. Returns [] when neither is set, which makes the gate inert.
+    entry.
+
+    Both are validated against live membership (see
+    `_valid_gatekeeper_names`). Returns [] when none survive, which makes the
+    gate inert: routing falls back to normal behaviour rather than handing
+    the turn to somebody who cannot answer. That is a deliberate fail-open —
+    an unenforced gate is visible in the logs and recoverable, a stranded
+    conversation is neither.
     """
     owner = getattr(channel, "phase_owner", None)
     names = [n for n in (owner, channel.master_agent) if n]
@@ -685,11 +761,45 @@ def _phase_gatekeepers(channel) -> List[str]:
         if n not in seen:
             seen.add(n)
             ordered.append(n)
-    return ordered
+    return _valid_gatekeeper_names(channel, db, workspace, ordered)
+
+
+def _reassign_phase_owner(channel, db, workspace, leaving: Optional[str] = None) -> Optional[str]:
+    """Hand a channel's clarification gate to someone who can still hold it.
+
+    Falls back to the channel master when that is a valid gatekeeper.
+    Otherwise the gate is OPENED (phase back to 'open', owner cleared) rather
+    than left pointing at an agent that is gone: a gate nobody owns silently
+    routes every message to nobody. Picking an arbitrary surviving
+    participant is deliberately not done — ownership of the requirement is a
+    human's call, and an opened gate is visible in the UI.
+
+    Returns the new owner, or None when the gate was opened.
+    """
+    master = channel.master_agent
+    candidates = [n for n in (master,) if n and n != leaving]
+    valid = _valid_gatekeeper_names(channel, db, workspace, candidates)
+    if valid:
+        channel.phase_owner = valid[0]
+        logger.info(
+            "phase gate: channel %s owner %s is gone — handed to %s",
+            channel.name, leaving, valid[0],
+        )
+        return valid[0]
+
+    channel.phase_owner = None
+    if _channel_phase(channel) == PHASE_CLARIFYING:
+        channel.phase = PHASE_OPEN
+        logger.warning(
+            "phase gate: channel %s lost its owner %s and has no valid master — "
+            "phase reset to open",
+            channel.name, leaving,
+        )
+    return None
 
 
 def _apply_phase_gate(
-    event: Event, channel, targets: List[str], mentions: List[str],
+    event: Event, channel, targets: List[str], mentions: List[str], db, workspace,
 ) -> Tuple[List[str], Dict[str, str]]:
     """Constrain routing while the channel's requirement is being clarified.
 
@@ -716,11 +826,12 @@ def _apply_phase_gate(
     if _channel_phase(channel) != PHASE_CLARIFYING:
         return targets, {}
 
-    gatekeepers = _phase_gatekeepers(channel)
+    gatekeepers = _phase_gatekeepers(channel, db, workspace)
     if not gatekeepers:
-        logger.info(
-            "phase gate: channel %s is clarifying but has no owner or master — gate inert",
-            channel.name,
+        logger.warning(
+            "phase gate: channel %s is clarifying but no gatekeeper can take the "
+            "floor (owner=%r, master=%r) — gate inert, routing unchanged",
+            channel.name, getattr(channel, "phase_owner", None), channel.master_agent,
         )
         return targets, {}
 
@@ -757,7 +868,7 @@ def _apply_phase_gate(
     return kept, {k: v for k, v in modes.items() if k in kept}
 
 
-def _phase_router_block(channel) -> str:
+def _phase_router_block(channel, db, workspace) -> str:
     """Router-prompt block describing an active clarification phase.
 
     The gate is authoritative either way, but telling the router about the
@@ -767,7 +878,7 @@ def _phase_router_block(channel) -> str:
     """
     if _channel_phase(channel) != PHASE_CLARIFYING:
         return ""
-    gatekeepers = _phase_gatekeepers(channel)
+    gatekeepers = _phase_gatekeepers(channel, db, workspace)
     if not gatekeepers:
         return ""
     owner = gatekeepers[0]
@@ -994,7 +1105,7 @@ async def _route_with_llm(
     prompt = _ROUTER_PROMPT.format(
         participants=participants_str,
         master=master,
-        phase=_phase_router_block(channel),
+        phase=_phase_router_block(channel, db, workspace),
         plan=plan,
         history=history,
         sender=sender,
@@ -1298,7 +1409,9 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # Requirement-clarification gate. Applied AFTER the mode picked its
     # targets so it constrains every mode uniformly — the gate is the last
     # word on who may be woken while the spec is unsettled.
-    targets, target_modes = _apply_phase_gate(event, channel, targets, mentions)
+    targets, target_modes = _apply_phase_gate(
+        event, channel, targets, mentions, db, workspace,
+    )
 
     # ALWAYS set target_agents, even when nobody should respond.
     #
@@ -1315,7 +1428,7 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # agent to PLAN for this message, and `phase`/`phase_owner` let every
     # woken agent state the phase in its own prompt.
     if _channel_phase(channel) == PHASE_CLARIFYING:
-        gatekeepers = _phase_gatekeepers(channel)
+        gatekeepers = _phase_gatekeepers(channel, db, workspace)
         if gatekeepers:
             event.metadata["phase"] = PHASE_CLARIFYING
             event.metadata["phase_owner"] = gatekeepers[0]

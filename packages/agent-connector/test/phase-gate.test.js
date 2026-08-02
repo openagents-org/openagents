@@ -2,8 +2,12 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const BaseAdapter = require('../src/adapters/base');
+const ClaudeAdapter = require('../src/adapters/claude');
 const { buildPhaseGateDirective } = require('../src/adapters/workspace-prompt');
 
 function makeAdapter(agentName = 'rd') {
@@ -172,5 +176,92 @@ describe('BaseAdapter mode override', () => {
     assert.equal(a._modeFor('session-2'), 'execute');
     assert.equal(a._modeFor('session-1'), 'plan');
     await running;
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The gate has to survive contact with the actual CLI invocation: a directive
+// in the prompt is advice, the permission flags are enforcement. These assert
+// on the argv the adapter would spawn, which is what the earlier tests (mode
+// bookkeeping only) could not tell apart from a no-op.
+// ---------------------------------------------------------------------------
+
+function claudeAdapter(workDir, toolMode) {
+  const adapter = new ClaudeAdapter({
+    workspaceId: 'ws-1',
+    channelName: 'session-1',
+    token: 'tok',
+    agentName: 'rd',
+    workingDir: workDir,
+    toolMode,
+  });
+  adapter._log = () => {};
+  return adapter;
+}
+
+function withWorkDir(fn) {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-phase-gate-'));
+  try {
+    return fn(workDir);
+  } finally {
+    fs.rmSync(workDir, { recursive: true, force: true });
+  }
+}
+
+describe('ClaudeAdapter honours the phase-gate plan override', () => {
+  it('skills mode: gated channel gets plan permissions and no write tools', () => {
+    withWorkDir((workDir) => {
+      const adapter = claudeAdapter(workDir, 'skills');
+      adapter._modeOverrides['session-1'] = 'plan';
+
+      const cmd = [];
+      adapter._buildSkillsCmd(cmd, 'session-1');
+
+      assert.ok(cmd.includes('--permission-mode'), 'must pass --permission-mode');
+      assert.equal(cmd[cmd.indexOf('--permission-mode') + 1], 'plan');
+      assert.ok(!cmd.includes('--dangerously-skip-permissions'));
+      assert.ok(!cmd.includes('Write'));
+      assert.ok(!cmd.includes('Edit'));
+    });
+  });
+
+  it('skills mode: an ungated channel still runs with write tools', () => {
+    withWorkDir((workDir) => {
+      const adapter = claudeAdapter(workDir, 'skills');
+      const cmd = [];
+      adapter._buildSkillsCmd(cmd, 'session-1');
+
+      assert.ok(cmd.includes('--dangerously-skip-permissions'));
+      assert.ok(cmd.includes('Write'));
+      assert.ok(!cmd.includes('--permission-mode'));
+    });
+  });
+
+  it('mcp mode: gated channel gets plan permissions and no write MCP tools', () => {
+    withWorkDir((workDir) => {
+      const adapter = claudeAdapter(workDir, 'mcp');
+      adapter._modeOverrides['session-1'] = 'plan';
+
+      const cmd = [];
+      adapter._buildMcpCmd(cmd, 'session-1');
+
+      assert.equal(cmd[cmd.indexOf('--permission-mode') + 1], 'plan');
+      assert.ok(!cmd.includes('--dangerously-skip-permissions'));
+      assert.ok(!cmd.includes('Write'));
+      assert.ok(!cmd.some((a) => a.endsWith('workspace_write_file')));
+    });
+  });
+
+  it('the override is scoped to the gated channel only', () => {
+    withWorkDir((workDir) => {
+      const adapter = claudeAdapter(workDir, 'skills');
+      adapter._modeOverrides['session-1'] = 'plan';
+
+      const other = [];
+      adapter._buildSkillsCmd(other, 'session-2');
+
+      assert.ok(other.includes('--dangerously-skip-permissions'));
+      assert.ok(other.includes('Write'));
+    });
   });
 });

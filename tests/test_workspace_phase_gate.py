@@ -139,3 +139,68 @@ class TestModeOverride:
         asyncio.run(a._run_message("session-1", _msg(CLARIFYING)))
         # session-2 never carried a gate.
         assert a._mode_for("session-2") == "execute"
+
+
+class TestClaudeCommandEnforcement:
+    """The directive is advice; the CLI flags are enforcement. These assert on
+    the argv the adapter would actually spawn — mode bookkeeping alone cannot
+    tell a working gate apart from a no-op."""
+
+    def _adapter(self, tmp_path, monkeypatch):
+        from openagents.adapters.claude import ClaudeAdapter
+
+        # Contain the adapter's home-directory writes (session store, MCP
+        # config) inside the test's tmp dir.
+        monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+        monkeypatch.setattr(
+            "openagents.adapters.claude.shutil.which",
+            lambda name: f"/usr/bin/{name}",
+        )
+        return ClaudeAdapter(
+            workspace_id="ws-1",
+            channel_name="session-1",
+            token="tok",
+            agent_name="rd",
+            working_dir=str(tmp_path),
+        )
+
+    def test_gated_channel_gets_plan_permissions(self, tmp_path, monkeypatch):
+        adapter = self._adapter(tmp_path, monkeypatch)
+        adapter._mode_overrides["session-1"] = "plan"
+
+        cmd = adapter._build_claude_cmd("do the thing", "session-1")
+
+        assert "--permission-mode" in cmd
+        assert cmd[cmd.index("--permission-mode") + 1] == "plan"
+        assert "--dangerously-skip-permissions" not in cmd
+        assert "Write" not in cmd
+        assert "Edit" not in cmd
+        assert not any(a.endswith("workspace_write_file") for a in cmd)
+
+    def test_ungated_channel_keeps_write_tools(self, tmp_path, monkeypatch):
+        adapter = self._adapter(tmp_path, monkeypatch)
+
+        cmd = adapter._build_claude_cmd("do the thing", "session-1")
+
+        assert "--dangerously-skip-permissions" in cmd
+        assert "Write" in cmd
+        assert "--permission-mode" not in cmd
+
+    def test_override_is_scoped_to_the_gated_channel(self, tmp_path, monkeypatch):
+        adapter = self._adapter(tmp_path, monkeypatch)
+        adapter._mode_overrides["session-1"] = "plan"
+
+        cmd = adapter._build_claude_cmd("do the thing", "session-2")
+
+        assert "--dangerously-skip-permissions" in cmd
+        assert "Write" in cmd
+
+    def test_gated_channel_gets_plan_system_prompt(self, tmp_path, monkeypatch):
+        adapter = self._adapter(tmp_path, monkeypatch)
+        adapter._mode_overrides["session-1"] = "plan"
+
+        cmd = adapter._build_claude_cmd("do the thing", "session-1")
+        system_prompt = cmd[cmd.index("--append-system-prompt") + 1]
+
+        assert "You are in PLAN mode" in system_prompt
+        assert "Do not make edits" in system_prompt
