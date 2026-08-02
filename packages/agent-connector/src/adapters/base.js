@@ -862,15 +862,25 @@ class BaseAdapter {
   // delegated task's outcome back to the delegating agent instead of
   // relying on the LLM router to guess "this is a report". `triggerMsg` is
   // the inbound message that started the turn. Synthetic triggers
-  // (system:* senders, missing event id) degrade to a plain reply — the
-  // backend only honours receipts that reference a real delegation event,
-  // so over-stamping is harmless but under-stamping loses the receipt.
+  // (system:* senders, missing event id) degrade to a plain reply.
+  //
+  // reply_kind is only stamped when the trigger carries the SERVER-written
+  // delegation fields naming this agent: the UI renders its receipt badge
+  // purely from reply_kind, so stamping ordinary human-triggered replies
+  // would present them as delegation receipts. in_reply_to alone is kept
+  // for every real trigger — it is plain correlation data.
 
   _receiptMeta(kind, triggerMsg) {
-    const meta = { reply_kind: kind };
+    const meta = {};
     const id = triggerMsg && triggerMsg.messageId;
     const sender = (triggerMsg && triggerMsg.senderName) || '';
-    if (id && !sender.startsWith('system:')) meta.in_reply_to = id;
+    if (!id || sender.startsWith('system:')) return meta;
+    meta.in_reply_to = id;
+    const tm = (triggerMsg && triggerMsg.metadata) || {};
+    const delegatedTo = Array.isArray(tm.delegated_to) ? tm.delegated_to : [];
+    if (tm.delegated_by && delegatedTo.includes(this.agentName)) {
+      meta.reply_kind = kind;
+    }
     return meta;
   }
 

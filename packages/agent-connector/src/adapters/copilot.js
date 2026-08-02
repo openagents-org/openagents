@@ -417,7 +417,7 @@ class CopilotAdapter extends BaseAdapter {
     this._log(`Processing message from ${sender} in ${channel}: ${redactSensitive(content).slice(0, 80)}...`);
 
     if (!this._copilotBin) {
-      await this.sendError(channel,
+      await this.sendFinalError(msg, channel,
         'GitHub Copilot CLI not found. Install it with: npm install -g @github/copilot');
       return;
     }
@@ -427,7 +427,7 @@ class CopilotAdapter extends BaseAdapter {
     // "unknown option" failure on every run.
     const gate = this._checkVersionGate();
     if (gate.compatible === false) {
-      await this.sendError(channel,
+      await this.sendFinalError(msg, channel,
         `GitHub Copilot CLI ${gate.version} is too old — this integration requires ${MIN_VERSION} or newer. Upgrade with: copilot update (or npm install -g @github/copilot).`);
       return;
     }
@@ -435,7 +435,7 @@ class CopilotAdapter extends BaseAdapter {
     // Working directory must exist — never silently fall back to the repo cwd.
     const wd = this.workingDir;
     if (wd && !this._dirExists(wd)) {
-      await this.sendError(channel, `Working directory does not exist: ${wd}`);
+      await this.sendFinalError(msg, channel, `Working directory does not exist: ${wd}`);
       return;
     }
 
@@ -454,7 +454,7 @@ class CopilotAdapter extends BaseAdapter {
       try {
         result = await this._runTurn(channel, args);
       } catch (e) {
-        await this.sendError(channel, `Error: ${redactSensitive(e.message)}`);
+        await this.sendFinalError(msg, channel, `Error: ${redactSensitive(e.message)}`);
         return;
       }
 

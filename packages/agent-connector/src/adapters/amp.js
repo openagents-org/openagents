@@ -246,7 +246,7 @@ class AmpAdapter extends BaseAdapter {
     if (!this._ampBin) {
       const message = `Amp CLI not found — install with: ${ampInstallHint()}`;
       this._reportStatus(REASON.RUNTIME_MISSING, message);
-      await this.sendError(msgChannel, message);
+      await this.sendFinalError(msg, msgChannel, message);
       return;
     }
 
@@ -269,10 +269,11 @@ class AmpAdapter extends BaseAdapter {
         });
         this._log(message);
         this._reportStatus(reason, message);
-        await this.sendError(msgChannel, message);
+        await this.sendFinalError(msg, msgChannel, message);
       } else {
         this._log(`Error handling message: ${redactDiagnostic(e.message)}`);
-        await this.sendError(
+        await this.sendFinalError(
+          msg,
           msgChannel,
           `Error processing message: ${redactDiagnostic(e.message)}`,
         );

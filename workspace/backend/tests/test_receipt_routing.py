@@ -280,15 +280,86 @@ class TestReceiptRejected:
         ))
         assert out.metadata["target_agents"] == ["__no_response__"]
 
-    def test_duplicate_terminal_receipt(self, db, ws3):
+    def test_duplicate_terminal_receipt_suppressed_without_router(self, db, ws3):
+        """At-most-once: a duplicate must NOT fall back to the LLM router,
+        which could re-select the delegator — it is suppressed outright."""
         ws = ws3["workspace"]
         e1 = _delegation_event(db, ws, receipt_from=("agent-b",))
-        out, _ = self._stop_routed(db, ws, _reply(
-            "openagents:agent-b", "done again", in_reply_to=e1.id, reply_kind="result",
-        ))
+        client_patch, mock_client = _with_router("next:agent-a")  # router WOULD re-route
+        with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
+            out = _handle(db, ws, _reply(
+                "openagents:agent-b", "done again", in_reply_to=e1.id, reply_kind="result",
+            ))
         assert out.metadata["target_agents"] == ["__no_response__"]
+        mock_client.messages.create.assert_not_called()
         db.refresh(e1)
         assert e1.metadata_["receipt_from"] == ["agent-b"]  # unchanged
+
+    def test_duplicate_receipt_still_honours_onward_mention(self, db, ws3):
+        ws = ws3["workspace"]
+        e1 = _delegation_event(db, ws, receipt_from=("agent-b",))
+        out = _handle(db, ws, _reply(
+            "openagents:agent-b", "also @agent-c please verify",
+            in_reply_to=e1.id, reply_kind="result",
+        ))
+        assert out.metadata["target_agents"] == ["agent-c"]
+        assert out.metadata["delegated_by"] == "agent-b"
+        assert out.metadata["delegated_to"] == ["agent-c"]
+
+    def test_needs_input_is_non_consuming(self, db, ws3):
+        """An agent may ask a question mid-task and still owe the result:
+        needs_input routes to the delegator but does not claim the single
+        terminal receipt."""
+        ws, e1 = ws3["workspace"], _delegation_event(db, ws3["workspace"])
+        out = _handle(db, ws, _reply(
+            "openagents:agent-b", "which env?", in_reply_to=e1.id, reply_kind="needs_input",
+        ))
+        assert out.metadata["target_agents"] == ["agent-a"]
+        db.refresh(e1)
+        assert "receipt_from" not in (e1.metadata_ or {})
+        # The real terminal result afterwards still lands deterministically.
+        out2 = _handle(db, ws, _reply(
+            "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
+        ))
+        assert out2.metadata["target_agents"] == ["agent-a"]
+        db.refresh(e1)
+        assert e1.metadata_["receipt_from"] == ["agent-b"]
+
+    def test_delegator_removed_from_workspace_but_still_in_channel(self, db, ws3):
+        """ChannelMember rows outlive WorkspaceMember removal — a receipt must
+        not target an agent that can no longer poll the workspace."""
+        ws = ws3["workspace"]
+        e1 = _delegation_event(db, ws)
+        from sqlalchemy import select
+        member = db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == ws.id,
+                WorkspaceMember.agent_name == "agent-a",
+            )
+        ).scalar_one()
+        db.delete(member)
+        db.flush()
+        out, _ = self._stop_routed(db, ws, _reply(
+            "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
+        ))
+        assert out.metadata["target_agents"] == ["__no_response__"]
+
+    def test_delegator_soft_removed_from_workspace(self, db, ws3):
+        ws = ws3["workspace"]
+        e1 = _delegation_event(db, ws)
+        from sqlalchemy import select
+        member = db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == ws.id,
+                WorkspaceMember.agent_name == "agent-a",
+            )
+        ).scalar_one()
+        member.status = "removed"
+        db.flush()
+        out, _ = self._stop_routed(db, ws, _reply(
+            "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
+        ))
+        assert out.metadata["target_agents"] == ["__no_response__"]
 
     def test_ack_of_receipt_does_not_bounce(self, db, ws3):
         """A's reply to B's receipt references E2, which carries no

@@ -98,7 +98,8 @@ class LlmDirectAdapter extends BaseAdapter {
 
     try {
       if (!this._directMode) {
-        await this.sendError(
+        await this.sendFinalError(
+          msg,
           msgChannel,
           `${this._adapterLabel} direct API mode not configured. Set OPENAI_API_KEY + OPENAI_BASE_URL.`
         );

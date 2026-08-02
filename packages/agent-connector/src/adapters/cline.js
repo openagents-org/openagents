@@ -485,13 +485,13 @@ class ClineAdapter extends BaseAdapter {
     // back to the launcher/repo dir — return a clear error instead.
     const workingDir = this.workingDir || defaultAgentWorkdir(this.agentName);
     if (this.workingDir && !this._dirExists(this.workingDir)) {
-      await this.sendError(channel, `Working directory does not exist: ${this.workingDir}`);
+      await this.sendFinalError(msg, channel, `Working directory does not exist: ${this.workingDir}`);
       return;
     }
 
     const clineBin = this._findClineBinary();
     if (!clineBin) {
-      await this.sendError(channel,
+      await this.sendFinalError(msg, channel,
         'Cline CLI not found. Install it with: npm install -g cline');
       return;
     }
@@ -501,7 +501,7 @@ class ClineAdapter extends BaseAdapter {
     const ver = this._checkClineVersion(clineBin);
     if (ver.compatible === false) {
       this._log(`Refusing to start: Cline ${ver.version} < minimum ${MIN_CLINE_VERSION}`);
-      await this.sendError(channel,
+      await this.sendFinalError(msg, channel,
         `Cline CLI ${ver.version} is below the minimum supported version ${MIN_CLINE_VERSION}. ` +
         'Please upgrade with: npm install -g cline@latest');
       return;

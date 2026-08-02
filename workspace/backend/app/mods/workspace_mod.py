@@ -664,16 +664,23 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
     router and is routed straight to the delegating agent, so a delegated
     task's outcome can never be swallowed by a router "stop".
 
-    Returns ``(targets, onward_delegates)`` on a hit — ``targets`` always
+    Returns ``(targets, onward_delegates)`` on a hit — ``targets`` normally
     starts with the delegator; ``onward_delegates`` are additional agents the
     reply @mentions (an onward delegation, dual-routed so the delegator still
     sees the outcome). Returns ``None`` when the message is not a valid
     receipt, in which case the caller falls through to normal routing.
 
-    Each (E1, replier) pair gets exactly one receipt: on a hit E1 is stamped
-    with ``receipt_from`` so a later duplicate falls back to normal routing.
-    If the delegator needs more work done it delegates again, creating a new
-    E1.
+    Delivery to the delegator is at-most-once per (E1, replier): the first
+    terminal receipt stamps E1 with ``receipt_from`` (under a row lock, so
+    concurrent duplicates cannot both claim it), and a later duplicate is
+    still handled deterministically but with the delegator SUPPRESSED —
+    returning it to the LLM router could re-route to the delegator and break
+    the at-most-once guarantee. An explicit onward @mention in the duplicate
+    is still honoured. ``needs_input`` receipts are non-consuming: an agent
+    may surface a question mid-turn and still owe the real result (e.g.
+    Cline's ask event followed by the final text), so only result / error /
+    cancelled claim the single terminal slot. If the delegator needs more
+    work done it delegates again, creating a new E1.
     """
     from app.config import config
     from app.models import EventRecord
@@ -690,11 +697,16 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
     if not ref or not isinstance(ref, str):
         return None
 
+    # Row-lock E1 for the rest of the transaction: the duplicate check and
+    # the receipt_from stamp below are a read-modify-write, and two replies
+    # referencing the same E1 processed concurrently must not both claim the
+    # single terminal receipt. SQLite (tests) ignores FOR UPDATE; Postgres
+    # serializes the claim.
     e1 = db.execute(
         select(EventRecord).where(
             EventRecord.id == ref,
             EventRecord.network_id == workspace.id,
-        )
+        ).with_for_update()
     ).scalar_one_or_none()
     if e1 is None or e1.type != WorkspaceEventTypes.MESSAGE_POSTED:
         return None
@@ -719,20 +731,27 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
     if delegator not in participants or replier not in participants:
         return None
 
+    # ... and of the workspace itself. ChannelMember rows are not cleaned up
+    # when a workspace member is removed (remove_member deletes only the
+    # WorkspaceMember row; network removal soft-deletes with status
+    # "removed"), so a stale channel participant could otherwise become a
+    # receipt target that can no longer poll the workspace.
+    from app.models import WorkspaceMember
+    live_members = {
+        m.agent_name for m in db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == workspace.id,
+                WorkspaceMember.agent_name.in_([delegator, replier]),
+            )
+        ).scalars().all()
+        if (m.status or "") != "removed"
+    }
+    if delegator not in live_members or replier not in live_members:
+        return None
+
     ttl_ms = int(config.DELEGATION_RECEIPT_TTL_HOURS * 3600 * 1000)
     if e1.timestamp and (int(time.time() * 1000) - int(e1.timestamp)) > ttl_ms:
         return None
-
-    already = e1_meta.get("receipt_from") or []
-    if replier in already:
-        return None
-
-    # Stamp E1 (single terminal receipt per replier). A fresh dict is
-    # assigned so SQLAlchemy detects the JSONB change.
-    stamped = dict(e1_meta)
-    stamped["receipt_from"] = already + [replier]
-    e1.metadata_ = stamped
-    db.flush()
 
     # Onward delegation: mentions other than the original delegator. A "@A
     # I'm done" style report must NOT count as a new delegation back to A —
@@ -748,6 +767,22 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
             if m not in seen and m in participants:
                 onward.append(m)
                 seen.add(m)
+
+    already = e1_meta.get("receipt_from") or []
+    if replier in already:
+        # Duplicate terminal receipt: the delegator already got their one
+        # delivery. Suppress them deterministically (handing the message to
+        # the LLM router could pick the delegator again), but honour an
+        # explicit onward delegation. Empty targets → caller's sentinel.
+        return list(onward), onward
+
+    # Claim the single terminal receipt — except for needs_input, which is
+    # an intermediate "waiting on you" signal, not the turn's outcome.
+    if meta.get("reply_kind") != "needs_input":
+        stamped = dict(e1_meta)
+        stamped["receipt_from"] = already + [replier]
+        e1.metadata_ = stamped
+        db.flush()
 
     return [delegator] + onward, onward
 

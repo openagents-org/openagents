@@ -449,7 +449,7 @@ class AiderAdapter extends BaseAdapter {
 
     if (!this._aiderBin) this._aiderBin = this._findAiderBinary();
     if (!this._aiderBin) {
-      await this.sendError(msgChannel, `Aider CLI not found. Install with: ${aiderInstallHint()}`);
+      await this.sendFinalError(msg, msgChannel, `Aider CLI not found. Install with: ${aiderInstallHint()}`);
       return;
     }
 
@@ -458,7 +458,7 @@ class AiderAdapter extends BaseAdapter {
     // injects the key into the wrong provider).
     const resolution = this._resolveConfig();
     if (resolution.error) {
-      await this.sendError(msgChannel, `Configuration error: ${resolution.error}`);
+      await this.sendFinalError(msg, msgChannel, `Configuration error: ${resolution.error}`);
       return;
     }
 
@@ -472,7 +472,7 @@ class AiderAdapter extends BaseAdapter {
       result = await this._runAider(content, msgChannel);
     } catch (e) {
       this._log(`Error handling message: ${e.message}`);
-      await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+      await this.sendFinalError(msg, msgChannel, `Error processing message: ${e.message}`);
       return;
     }
 

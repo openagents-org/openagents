@@ -297,7 +297,7 @@ class GeminiAdapter extends BaseAdapter {
         const built = this._buildGeminiCmd(content, msgChannel, { skipResume: attempt > 0 });
         cmd = built.cmd;
       } catch (e) {
-        await this.sendError(msgChannel, e.message);
+        await this.sendFinalError(msg, msgChannel, e.message);
         return;
       }
 
@@ -460,7 +460,7 @@ class GeminiAdapter extends BaseAdapter {
         });
       } catch (e) {
         this._log(`Error handling message: ${e.message}`);
-        await this.sendError(msgChannel, `Error processing message: ${e.message}`);
+        await this.sendFinalError(msg, msgChannel, `Error processing message: ${e.message}`);
         break;
       }
       if (!_shouldRetry) break;

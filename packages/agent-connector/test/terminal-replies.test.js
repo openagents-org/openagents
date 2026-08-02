@@ -33,7 +33,12 @@ function mkAdapter(overrides = {}) {
   return adapter;
 }
 
-const TRIGGER = { messageId: 'evt-123', senderType: 'agent', senderName: 'delegator-a', content: 'do X' };
+// A server-marked delegation trigger: the backend wrote delegated_by/to onto
+// the routed event, naming this agent ('tester') as the delegate.
+const TRIGGER = {
+  messageId: 'evt-123', senderType: 'agent', senderName: 'delegator-a', content: 'do X',
+  metadata: { delegated_by: 'delegator-a', delegated_to: ['tester'] },
+};
 
 describe('terminal reply metadata', () => {
   it('stamps reply_kind and in_reply_to for a real trigger', async () => {
@@ -58,22 +63,53 @@ describe('terminal reply metadata', () => {
     for (const s of a.sent) assert.equal(s.opts.metadata.in_reply_to, 'evt-123');
   });
 
-  it('omits in_reply_to for synthetic system triggers', async () => {
+  it('stamps nothing for synthetic system triggers', async () => {
     const a = mkAdapter();
     await a.sendFinalResult(
       { messageId: 'evt-9', senderName: 'system:todos', content: 'nudge' },
       'general', 'done',
     );
     const meta = a.sent[0].opts.metadata;
-    assert.equal(meta.reply_kind, 'result');
+    assert.equal(meta.reply_kind, undefined);
     assert.equal(meta.in_reply_to, undefined);
   });
 
-  it('omits in_reply_to when the trigger is missing or has no event id', async () => {
+  it('stamps nothing when the trigger is missing or has no event id', async () => {
     const a = mkAdapter();
     await a.sendCancelled(null, 'general', 'stopped');
     await a.sendFinalError({ senderName: 'someone' }, 'general', 'boom');
-    for (const s of a.sent) assert.equal(s.opts.metadata.in_reply_to, undefined);
+    for (const s of a.sent) {
+      assert.equal(s.opts.metadata.in_reply_to, undefined);
+      assert.equal(s.opts.metadata.reply_kind, undefined);
+    }
+  });
+
+  it('keeps in_reply_to but omits reply_kind for non-delegated triggers', async () => {
+    // Ordinary human-triggered turns must not render as delegation receipts
+    // in the UI (the badge keys off reply_kind alone), but the correlation
+    // id is still useful.
+    const a = mkAdapter();
+    await a.sendFinalResult(
+      { messageId: 'evt-h1', senderType: 'human', senderName: 'alice', content: 'hi' },
+      'general', 'hello',
+    );
+    const meta = a.sent[0].opts.metadata;
+    assert.equal(meta.in_reply_to, 'evt-h1');
+    assert.equal(meta.reply_kind, undefined);
+  });
+
+  it('omits reply_kind when the delegation names a different agent', async () => {
+    const a = mkAdapter();
+    await a.sendFinalResult(
+      {
+        messageId: 'evt-x', senderType: 'agent', senderName: 'delegator-a', content: 'do X',
+        metadata: { delegated_by: 'delegator-a', delegated_to: ['someone-else'] },
+      },
+      'general', 'done',
+    );
+    const meta = a.sent[0].opts.metadata;
+    assert.equal(meta.in_reply_to, 'evt-x');
+    assert.equal(meta.reply_kind, undefined);
   });
 
   it('swallows send failures for error kind but propagates for result kind', async () => {
