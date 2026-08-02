@@ -120,6 +120,44 @@ describe('terminal reply metadata', () => {
   });
 });
 
+describe('claude build failure', () => {
+  it('posts an error receipt when _buildClaudeCmd throws on a delegated turn', async () => {
+    const ClaudeAdapter = require('../src/adapters/claude');
+    const a = new ClaudeAdapter({
+      workspaceId: 'ws-x', channelName: 'general', token: 'tok', agentName: 'tester',
+      disabledModules: new Set(['knowledge']),
+    });
+    const sent = [];
+    // Any client method the pre-build path touches resolves benignly; only
+    // sendMessage records what actually got posted.
+    a.client = new Proxy({}, {
+      get: (_t, prop) => prop === 'sendMessage'
+        ? async (_w, _c, _tok, content, opts) => { sent.push({ content, opts }); }
+        : async () => [],
+    });
+    a._saveSessions = () => {};
+    a.sendStatus = async () => {};
+    a.sendThinking = async () => {};
+    a.getRemainingTodos = async () => [];
+    a.getBrowserEnabled = async () => false;
+    a._resetIdleTimer = () => {};
+    a._titledSessions.add('general');
+    a._buildClaudeCmd = () => { throw new Error('Claude CLI not found'); };
+
+    await a._handleMessage({
+      messageId: 'evt-del-1', senderType: 'agent', senderName: 'delegator-a',
+      sessionId: 'general', content: 'do X',
+      metadata: { delegated_by: 'delegator-a', delegated_to: ['tester'] },
+    });
+
+    const receipt = sent.find((s) => s.opts && s.opts.metadata && s.opts.metadata.reply_kind);
+    assert.ok(receipt, 'expected a stamped terminal message');
+    assert.equal(receipt.opts.metadata.reply_kind, 'error');
+    assert.equal(receipt.opts.metadata.in_reply_to, 'evt-del-1');
+    assert.match(receipt.content, /Claude CLI not found/);
+  });
+});
+
 describe('inflight turn registry', () => {
   it('tracks the current message across the queue drain and clears at the end', async () => {
     const a = mkAdapter();

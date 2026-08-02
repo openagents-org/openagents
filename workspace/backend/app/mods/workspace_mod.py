@@ -667,8 +667,13 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
     Returns ``(targets, onward_delegates)`` on a hit — ``targets`` normally
     starts with the delegator; ``onward_delegates`` are additional agents the
     reply @mentions (an onward delegation, dual-routed so the delegator still
-    sees the outcome). Returns ``None`` when the message is not a valid
-    receipt, in which case the caller falls through to normal routing.
+    sees the outcome). Returns ``None`` ONLY when the message is not an
+    authenticated receipt (or its E1 is past the TTL — see below), in which
+    case the caller falls through to normal routing. An authenticated receipt
+    whose delegator is undeliverable (left the channel, removed from the
+    workspace) or already served returns ``(onward, onward)`` — possibly
+    empty — so it can never re-enter master/LLM orchestration and be
+    misrouted back to a stale delegator.
 
     Delivery to the delegator is at-most-once per (E1, replier): the first
     terminal receipt stamps E1 with ``receipt_from`` (under a row lock, so
@@ -725,11 +730,36 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
     if replier not in (e1_meta.get("delegated_to") or []):
         return None
 
+    # The delegation chain is authenticated from here on. Any further check
+    # that fails means the receipt is REAL but must not be delivered to the
+    # delegator — and it must NOT fall back into normal orchestration either:
+    # _master_targets would route a sub-agent's message straight back to a
+    # removed/stale master and the LLM router can re-select the delegator,
+    # bypassing exactly the guard that just failed. Those cases return
+    # (onward, onward): the delegator is suppressed (empty targets → the
+    # caller's no-response sentinel) while an explicit onward @mention is
+    # still honoured.
+    participants = {p.agent_name for p in (channel.participants or [])}
+
+    # Onward delegation: mentions other than the original delegator. A "@A
+    # I'm done" style report must NOT count as a new delegation back to A —
+    # that would bounce A's acknowledgement to the replier and re-create the
+    # ping-pong this whole mechanism exists to prevent. In master mode the
+    # star topology stays authoritative: sub-agents cannot delegate onward,
+    # so mentions are ignored (matching _master_targets).
+    mode = (getattr(channel, "orchestration_mode", None) or "dynamic").lower()
+    onward: List[str] = []
+    if mode != "master":
+        seen = {delegator, replier}
+        for m in mentions:
+            if m not in seen and m in participants:
+                onward.append(m)
+                seen.add(m)
+
     # Both ends must still be members of this channel — workspace membership
     # alone would let a receipt re-target someone who already left the room.
-    participants = {p.agent_name for p in (channel.participants or [])}
     if delegator not in participants or replier not in participants:
-        return None
+        return list(onward), onward
 
     # ... and of the workspace itself. ChannelMember rows are not cleaned up
     # when a workspace member is removed (remove_member deletes only the
@@ -747,34 +777,24 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
         if (m.status or "") != "removed"
     }
     if delegator not in live_members or replier not in live_members:
-        return None
-
-    ttl_ms = int(config.DELEGATION_RECEIPT_TTL_HOURS * 3600 * 1000)
-    if e1.timestamp and (int(time.time() * 1000) - int(e1.timestamp)) > ttl_ms:
-        return None
-
-    # Onward delegation: mentions other than the original delegator. A "@A
-    # I'm done" style report must NOT count as a new delegation back to A —
-    # that would bounce A's acknowledgement to the replier and re-create the
-    # ping-pong this whole mechanism exists to prevent. In master mode the
-    # star topology stays authoritative: sub-agents cannot delegate onward,
-    # so mentions are ignored (matching _master_targets).
-    mode = (getattr(channel, "orchestration_mode", None) or "dynamic").lower()
-    onward: List[str] = []
-    if mode != "master":
-        seen = {delegator, replier}
-        for m in mentions:
-            if m not in seen and m in participants:
-                onward.append(m)
-                seen.add(m)
+        return list(onward), onward
 
     already = e1_meta.get("receipt_from") or []
     if replier in already:
         # Duplicate terminal receipt: the delegator already got their one
-        # delivery. Suppress them deterministically (handing the message to
-        # the LLM router could pick the delegator again), but honour an
-        # explicit onward delegation. Empty targets → caller's sentinel.
+        # delivery (at-most-once holds regardless of E1 age, so this check
+        # sits before the TTL).
         return list(onward), onward
+
+    # TTL expiry deliberately falls back to NORMAL routing rather than
+    # suppression: at this point the delegator is verified alive and present,
+    # so best-effort orchestration (master star rule, LLM "reports back")
+    # can still deliver a long-running task's result — suppressing would
+    # guarantee the loss this feature exists to prevent. The TTL's job is
+    # only to stop stale E1s from FORCING deterministic routing.
+    ttl_ms = int(config.DELEGATION_RECEIPT_TTL_HOURS * 3600 * 1000)
+    if e1.timestamp and (int(time.time() * 1000) - int(e1.timestamp)) > ttl_ms:
+        return None
 
     # Claim the single terminal receipt — except for needs_input, which is
     # an intermediate "waiting on you" signal, not the turn's outcome.

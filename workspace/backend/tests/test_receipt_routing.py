@@ -252,8 +252,10 @@ class TestReceiptRejected:
         ))
         assert out.metadata["target_agents"] == ["__no_response__"]
 
-    def test_delegator_left_channel(self, db, ws3):
-        """Workspace membership isn't enough — A must still be in the channel."""
+    def test_delegator_left_channel_is_suppressed_not_rerouted(self, db, ws3):
+        """An authenticated receipt whose delegator left the channel must be
+        suppressed outright — falling back to orchestration could route it
+        straight back to the stale delegator."""
         ws, ch = ws3["workspace"], ws3["channel"]
         e1 = _delegation_event(db, ws)
         from sqlalchemy import select
@@ -266,19 +268,30 @@ class TestReceiptRejected:
         db.delete(member)
         db.flush()
         db.refresh(ch)
-        out, _ = self._stop_routed(db, ws, _reply(
-            "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
-        ))
+        client_patch, mock_client = _with_router("next:agent-a")
+        with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
+            out = _handle(db, ws, _reply(
+                "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
+            ))
         assert out.metadata["target_agents"] == ["__no_response__"]
+        mock_client.messages.create.assert_not_called()
 
-    def test_expired_delegation(self, db, ws3):
+    def test_expired_delegation_falls_back_to_best_effort_routing(self, db, ws3):
+        """TTL expiry with a LIVE delegator falls through to normal routing:
+        the router may still deliver a long task's result best-effort.
+        Suppression here would guarantee the loss this feature prevents."""
         ws = ws3["workspace"]
         stale = _now_ms() - int(48 * 3600 * 1000)  # older than the 24h default TTL
         e1 = _delegation_event(db, ws, timestamp=stale)
-        out, _ = self._stop_routed(db, ws, _reply(
-            "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
-        ))
-        assert out.metadata["target_agents"] == ["__no_response__"]
+        client_patch, mock_client = _with_router("next:agent-a")
+        with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
+            out = _handle(db, ws, _reply(
+                "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
+            ))
+        assert out.metadata["target_agents"] == ["agent-a"]
+        mock_client.messages.create.assert_called()
+        db.refresh(e1)
+        assert "receipt_from" not in (e1.metadata_ or {})  # expired E1 never claimed
 
     def test_duplicate_terminal_receipt_suppressed_without_router(self, db, ws3):
         """At-most-once: a duplicate must NOT fall back to the LLM router,
@@ -339,10 +352,13 @@ class TestReceiptRejected:
         ).scalar_one()
         db.delete(member)
         db.flush()
-        out, _ = self._stop_routed(db, ws, _reply(
-            "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
-        ))
+        client_patch, mock_client = _with_router("next:agent-a")
+        with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
+            out = _handle(db, ws, _reply(
+                "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
+            ))
         assert out.metadata["target_agents"] == ["__no_response__"]
+        mock_client.messages.create.assert_not_called()
 
     def test_delegator_soft_removed_from_workspace(self, db, ws3):
         ws = ws3["workspace"]
@@ -356,10 +372,54 @@ class TestReceiptRejected:
         ).scalar_one()
         member.status = "removed"
         db.flush()
-        out, _ = self._stop_routed(db, ws, _reply(
-            "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
-        ))
+        client_patch, mock_client = _with_router("next:agent-a")
+        with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
+            out = _handle(db, ws, _reply(
+                "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
+            ))
         assert out.metadata["target_agents"] == ["__no_response__"]
+        mock_client.messages.create.assert_not_called()
+
+    def test_undeliverable_receipt_still_honours_onward_mention(self, db, ws3):
+        """Suppressing a stale delegator must not swallow an explicit onward
+        delegation in the same reply."""
+        ws = ws3["workspace"]
+        e1 = _delegation_event(db, ws)
+        from sqlalchemy import select
+        member = db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == ws.id,
+                WorkspaceMember.agent_name == "agent-a",
+            )
+        ).scalar_one()
+        db.delete(member)
+        db.flush()
+        out = _handle(db, ws, _reply(
+            "openagents:agent-b", "done — @agent-c please review",
+            in_reply_to=e1.id, reply_kind="result",
+        ))
+        assert out.metadata["target_agents"] == ["agent-c"]
+        assert out.metadata["delegated_by"] == "agent-b"
+
+    def test_consumed_receipt_with_removed_delegator_stays_suppressed(self, db, ws3):
+        ws = ws3["workspace"]
+        e1 = _delegation_event(db, ws, receipt_from=("agent-b",))
+        from sqlalchemy import select
+        member = db.execute(
+            select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == ws.id,
+                WorkspaceMember.agent_name == "agent-a",
+            )
+        ).scalar_one()
+        db.delete(member)
+        db.flush()
+        client_patch, mock_client = _with_router("next:agent-a")
+        with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
+            out = _handle(db, ws, _reply(
+                "openagents:agent-b", "done again", in_reply_to=e1.id, reply_kind="result",
+            ))
+        assert out.metadata["target_agents"] == ["__no_response__"]
+        mock_client.messages.create.assert_not_called()
 
     def test_ack_of_receipt_does_not_bounce(self, db, ws3):
         """A's reply to B's receipt references E2, which carries no
@@ -404,6 +464,63 @@ class TestMasterMode:
         ))
         assert out.metadata["target_agents"] == ["agent-a"]
         assert "delegated_by" not in out.metadata
+
+    def _remove_master(self, db, master_ws, how):
+        from sqlalchemy import select
+        ws, ch = master_ws["workspace"], master_ws["channel"]
+        if how == "left_channel":
+            member = db.execute(
+                select(ChannelMember).where(
+                    ChannelMember.channel_id == ch.id,
+                    ChannelMember.agent_name == "agent-a",
+                )
+            ).scalar_one()
+            db.delete(member)
+        else:
+            member = db.execute(
+                select(WorkspaceMember).where(
+                    WorkspaceMember.workspace_id == ws.id,
+                    WorkspaceMember.agent_name == "agent-a",
+                )
+            ).scalar_one()
+            if how == "hard":
+                db.delete(member)
+            else:
+                member.status = "removed"
+        db.flush()
+        db.refresh(ch)
+
+    @pytest.mark.parametrize("how", ["left_channel", "hard", "soft"])
+    def test_stale_master_receipt_suppressed_not_star_routed(self, db, master_ws, how):
+        """The star rule "sub-agent spoke → back to master" must NOT resurrect
+        a receipt whose master is gone — channel.master_agent survives every
+        removal path."""
+        ws = master_ws["workspace"]
+        e1 = _delegation_event(db, ws)  # delegated while agent-a was master
+        self._remove_master(db, master_ws, how)
+        out = _handle(db, ws, _reply(
+            "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
+        ))
+        assert out.metadata["target_agents"] == ["__no_response__"], how
+
+    def test_expired_receipt_in_master_mode_star_routes_to_live_master(self, db, master_ws):
+        """TTL fall-through in master mode: the star rule delivers the late
+        result to the (verified live) master — best-effort beats loss."""
+        ws = master_ws["workspace"]
+        stale = _now_ms() - int(48 * 3600 * 1000)
+        e1 = _delegation_event(db, ws, timestamp=stale)
+        out = _handle(db, ws, _reply(
+            "openagents:agent-b", "done at last", in_reply_to=e1.id, reply_kind="result",
+        ))
+        assert out.metadata["target_agents"] == ["agent-a"]
+
+    def test_plain_sub_agent_message_still_returns_to_master(self, db, master_ws):
+        """Non-receipt agent chatter keeps the existing star behaviour."""
+        ws = master_ws["workspace"]
+        out = _handle(db, ws, _reply(
+            "openagents:agent-b", "making progress on the task",
+        ))
+        assert out.metadata["target_agents"] == ["agent-a"]
 
 
 class TestDelegationMarking:
