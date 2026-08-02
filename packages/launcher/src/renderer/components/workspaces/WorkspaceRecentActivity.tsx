@@ -38,7 +38,7 @@ export function WorkspaceRecentActivity({
   const { t } = useTranslation()
   if (!lastMessageAt) {
     return (
-      <div className="text-[11px] text-(--text-tertiary) italic">
+      <div className="text-2xs italic text-muted-foreground">
         {sessionCount > 0
           ? t("workspaces.recentActivity.noActivityWithSessions", {
               count: sessionCount,
@@ -49,12 +49,12 @@ export function WorkspaceRecentActivity({
   }
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="text-[10px] text-(--text-tertiary) uppercase tracking-wider">
+      <div className="text-3xs uppercase tracking-wider text-muted-foreground">
         {t("workspaces.recentActivity.lastMessage", {
           time: relativeTime(lastMessageAt, t),
         })}
       </div>
-      <div className="text-[11px] text-(--text-secondary) truncate">
+      <div className="truncate text-2xs text-muted-foreground">
         {lastMessagePreview || t("workspaces.recentActivity.noPreview")}
       </div>
     </div>

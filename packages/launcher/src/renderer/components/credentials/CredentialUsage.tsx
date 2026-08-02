@@ -18,18 +18,18 @@ export function CredentialUsage({
   const total = agents.length + conns.length
   if (total === 0) {
     return (
-      <div className="text-[11px] text-(--text-tertiary)">
+      <div className="text-2xs text-muted-foreground">
         {t("credentials.usage.notUsed")}
       </div>
     )
   }
   return (
-    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-(--text-tertiary)">
+    <div className="flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
       <span>{t("credentials.usage.usedBy")}</span>
       {agents.map((a) => (
         <span
           key={`agent:${a}`}
-          className="inline-flex items-center px-1.5 py-px rounded bg-(--bg-input) text-(--text-secondary)"
+          className="inline-flex items-center rounded-sm bg-muted px-1.5 py-px text-foreground"
         >
           {a}
         </span>
@@ -37,7 +37,7 @@ export function CredentialUsage({
       {conns.map((c) => (
         <span
           key={`conn:${c}`}
-          className="inline-flex items-center px-1.5 py-px rounded bg-(--accent-bg) text-(--text-link)"
+          className="inline-flex items-center rounded-sm bg-primary/10 px-1.5 py-px text-(--text-link)"
         >
           conn:{c.slice(0, 6)}
         </span>

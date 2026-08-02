@@ -59,7 +59,12 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
+          "fixed top-[50%] left-[50%] z-50 w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] rounded-lg border bg-background shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
+          // Project dialog rule: header and footer stay pinned, only the body
+          // scrolls, and it scrolls without a visible scrollbar. That needs a
+          // bounded column here (upstream shadcn ships an unbounded `grid` with
+          // its own padding) — each region supplies its own padding instead.
+          "flex max-h-(--dialog-max-h) flex-col overflow-hidden",
           className
         )}
         {...props}
@@ -83,7 +88,28 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+      className={cn(
+        "flex shrink-0 flex-col gap-2 border-b px-6 py-4 text-center sm:text-left",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+/**
+ * Scrollable middle region. Required whenever content can grow — without it the
+ * content stretches the flex column and gets clipped by `overflow-hidden`.
+ * Scrolls with no visible scrollbar, per the project dialog rule.
+ */
+function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-body"
+      className={cn(
+        "scrollbar-hide flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-4",
+        className
+      )}
       {...props}
     />
   )
@@ -101,7 +127,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        "flex shrink-0 flex-col-reverse gap-2 border-t px-6 py-4 sm:flex-row sm:justify-end",
         className
       )}
       {...props}
@@ -144,6 +170,7 @@ function DialogDescription({
 
 export {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,

@@ -16,6 +16,12 @@ const badgeVariants = cva(
           "bg-destructive text-white focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 [a&]:hover:bg-destructive/90",
         outline:
           "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
+        // Soft status tints. Added on top of upstream shadcn, which only ships
+        // the solid `destructive`; status chips in this app read better as a
+        // tinted background with legible text than as a solid block of colour.
+        success: "bg-(--success-bg) text-(--success-text)",
+        warning: "bg-(--warning-bg) text-(--warning-text)",
+        danger: "bg-(--danger-bg) text-(--danger-text)",
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
       },

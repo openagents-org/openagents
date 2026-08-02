@@ -1,16 +1,18 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { Copy, ExternalLink, Trash2, Star, Pencil } from "lucide-react"
-import { Badge } from "../ui/Badge"
-import { Button } from "../ui/Button"
-import StatusDot, { displayState } from "../ui/StatusDot"
-import AgentIcon from "../AgentIcon"
+import { Copy, ExternalLink, Pencil, Star, Trash2 } from "lucide-react"
+
+import { Badge } from "../shadcn/badge"
+import { Button } from "../shadcn/button"
+import { Card } from "../shadcn/card"
 import { WorkspaceHealth, type WorkspaceHealthState } from "./WorkspaceHealth"
+import { WorkspaceAgentRow } from "./WorkspaceAgentRow"
 import {
   WorkspaceRecentActivity,
   workspaceRelativeTime,
 } from "./WorkspaceRecentActivity"
 import { platformLabel } from "../connections/platforms"
+import { cn } from "../../lib/utils"
 import type { Agent, Workspace } from "../../types"
 import { workspaceDisplayHost } from "../../lib/workspace-urls"
 
@@ -25,6 +27,36 @@ export interface WorkspaceCardData {
   connectedPlatforms: string[]
 }
 
+interface Props {
+  data: WorkspaceCardData
+  pendingNames: Set<string>
+  favorite: boolean
+  onToggleFavorite: () => void
+  onCopyUrl: () => void
+  onOpen: () => void
+  onRename: () => void
+  onRemove: () => void
+  onToggleAgent: (a: Agent) => void
+  onOpenAgentLogs: (a: Agent) => void
+}
+
+function Stat({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <div>
+      <div className="mb-0.5 text-3xs uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div>{children}</div>
+    </div>
+  )
+}
+
 export function WorkspaceCard({
   data,
   pendingNames,
@@ -36,101 +68,91 @@ export function WorkspaceCard({
   onRemove,
   onToggleAgent,
   onOpenAgentLogs,
-}: {
-  data: WorkspaceCardData
-  pendingNames: Set<string>
-  favorite: boolean
-  onToggleFavorite: () => void
-  onCopyUrl: () => void
-  onOpen: () => void
-  onRename: () => void
-  onRemove: () => void
-  onToggleAgent: (a: Agent) => void
-  onOpenAgentLogs: (a: Agent) => void
-}): React.JSX.Element {
+}: Props): React.JSX.Element {
   const { t } = useTranslation()
-  const { ws, agents, health, lastActiveAt, lastMessageAt, lastMessagePreview, sessionCount, connectedPlatforms } = data
+  const {
+    ws,
+    agents,
+    health,
+    lastActiveAt,
+    lastMessageAt,
+    lastMessagePreview,
+    sessionCount,
+    connectedPlatforms,
+  } = data
   const slug = ws.slug || ws.id
 
   return (
-    <div className="flex flex-col bg-(--bg-card) border border-(--border) rounded-(--radius) px-[18px] py-4 mb-3 shadow-sm transition-all duration-200 hover:shadow-md hover:border-(--border-hover)">
-      <div className="flex items-start justify-between gap-3 mb-3">
+    <Card className="gap-3 px-4 py-4 transition-shadow hover:shadow-md">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="mb-1 flex items-center gap-2">
             <button
               type="button"
               onClick={onToggleFavorite}
-              title={favorite ? t("workspaces.card.unfavorite") : t("workspaces.card.favorite")}
-              className="bg-transparent border-0 p-0 cursor-pointer leading-none"
+              title={
+                favorite
+                  ? t("workspaces.card.unfavorite")
+                  : t("workspaces.card.favorite")
+              }
+              className="cursor-pointer border-0 bg-transparent p-0 leading-none"
             >
               <Star
-                className={`w-3.5 h-3.5 ${
-                  favorite ? "fill-(--warning) text-(--warning)" : "text-(--text-tertiary)"
-                }`}
+                className={cn(
+                  "size-3.5",
+                  favorite ? "fill-warning text-warning" : "text-muted-foreground",
+                )}
               />
             </button>
-            <span className="font-semibold text-[14px] tracking-tight truncate">
+            <span className="truncate text-base font-semibold tracking-tight">
               {ws.name || slug}
             </span>
             <WorkspaceHealth state={health} />
           </div>
-          <div className="text-[11px] text-(--text-tertiary) truncate">
+          <div className="truncate text-2xs text-muted-foreground">
             {workspaceDisplayHost(ws.endpoint)}/{slug}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex shrink-0 items-center gap-1.5">
           <Button size="icon" variant="ghost" onClick={onCopyUrl} title={t("workspaces.card.copyUrl")}>
-            <Copy className="w-3.5 h-3.5" />
+            <Copy />
           </Button>
           <Button size="icon" variant="ghost" onClick={onOpen} title={t("workspaces.card.openInBrowser")}>
-            <ExternalLink className="w-3.5 h-3.5" />
+            <ExternalLink />
           </Button>
           <Button size="icon" variant="ghost" onClick={onRename} title={t("workspaces.card.rename")}>
-            <Pencil className="w-3.5 h-3.5" />
+            <Pencil />
           </Button>
           <Button size="icon" variant="ghost" onClick={onRemove} title={t("workspaces.card.remove")}>
-            <Trash2 className="w-3.5 h-3.5" />
+            <Trash2 />
           </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3 mb-3 text-[11px]">
-        <div>
-          <div className="text-(--text-tertiary) text-[10px] uppercase tracking-wider mb-0.5">
-            {t("workspaces.card.agents")}
-          </div>
-          <div className="text-(--text-primary) font-semibold">{agents.length}</div>
-        </div>
-        <div>
-          <div className="text-(--text-tertiary) text-[10px] uppercase tracking-wider mb-0.5">
-            {t("workspaces.card.lastActive")}
-          </div>
-          <div className="text-(--text-primary)">{workspaceRelativeTime(lastActiveAt, t)}</div>
-        </div>
-        <div>
-          <div className="text-(--text-tertiary) text-[10px] uppercase tracking-wider mb-0.5">
-            {t("workspaces.card.platforms")}
-          </div>
-          <div className="text-(--text-primary)">
-            {connectedPlatforms.length > 0
-              ? t("workspaces.card.platformsLinked", { count: connectedPlatforms.length })
-              : t("workspaces.card.platformsNone")}
-          </div>
-        </div>
+      <div className="grid grid-cols-3 gap-3 text-2xs">
+        <Stat label={t("workspaces.card.agents")}>
+          <span className="font-semibold">{agents.length}</span>
+        </Stat>
+        <Stat label={t("workspaces.card.lastActive")}>
+          {workspaceRelativeTime(lastActiveAt, t)}
+        </Stat>
+        <Stat label={t("workspaces.card.platforms")}>
+          {connectedPlatforms.length > 0
+            ? t("workspaces.card.platformsLinked", { count: connectedPlatforms.length })
+            : t("workspaces.card.platformsNone")}
+        </Stat>
       </div>
 
-      <div className="mb-3">
-        <WorkspaceRecentActivity
-          lastMessageAt={lastMessageAt}
-          lastMessagePreview={lastMessagePreview}
-          sessionCount={sessionCount}
-        />
-      </div>
+      <WorkspaceRecentActivity
+        lastMessageAt={lastMessageAt}
+        lastMessagePreview={lastMessagePreview}
+        sessionCount={sessionCount}
+      />
 
       {connectedPlatforms.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-3">
+        <div className="flex flex-wrap gap-1">
           {connectedPlatforms.map((p) => (
-            <Badge key={p} variant="info" className="!text-[9px] !py-[1px] !px-[6px]">
+            <Badge key={p} variant="secondary" className="px-1.5 py-0 text-3xs">
               {platformLabel(p)}
             </Badge>
           ))}
@@ -138,54 +160,22 @@ export function WorkspaceCard({
       )}
 
       {agents.length > 0 ? (
-        <div className="border-t border-(--border) pt-3 flex flex-col gap-1.5">
-          {agents.map((a) => {
-            const isRunning = ["online", "running", "idle"].includes(a.state)
-            const isPending = pendingNames.has(a.name)
-            return (
-              <div
-                key={a.name}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-sm hover:bg-(--bg-input) transition-colors"
-              >
-                <AgentIcon type={a.type} size={18} />
-                <span className="text-[12px] font-medium truncate flex-1 min-w-0">
-                  {a.name}
-                </span>
-                <StatusDot state={a.state} />
-                <span className="text-[10px] text-(--text-tertiary) capitalize">
-                  {displayState(a.state)}
-                </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="!text-[10px] !px-2 !py-0.5"
-                  onClick={() => onOpenAgentLogs(a)}
-                  title={t("workspaces.card.viewLogs")}
-                >
-                  {t("workspaces.card.logs")}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="!text-[10px] !px-2 !py-0.5"
-                  onClick={() => onToggleAgent(a)}
-                  disabled={isPending}
-                >
-                  {isPending
-                    ? t("workspaces.card.pending")
-                    : isRunning
-                      ? t("workspaces.card.stop")
-                      : t("workspaces.card.start")}
-                </Button>
-              </div>
-            )
-          })}
+        <div className="flex flex-col gap-1.5 border-t pt-3">
+          {agents.map((a) => (
+            <WorkspaceAgentRow
+              key={a.name}
+              agent={a}
+              pending={pendingNames.has(a.name)}
+              onToggle={() => onToggleAgent(a)}
+              onOpenLogs={() => onOpenAgentLogs(a)}
+            />
+          ))}
         </div>
       ) : (
-        <div className="text-[11px] text-(--text-tertiary) text-center py-3 border-t border-(--border)">
+        <p className="border-t py-3 text-center text-2xs text-muted-foreground">
           {t("workspaces.card.noAgents")}
-        </div>
+        </p>
       )}
-    </div>
+    </Card>
   )
 }

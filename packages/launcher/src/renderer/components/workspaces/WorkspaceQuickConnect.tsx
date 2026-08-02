@@ -1,39 +1,32 @@
 import React, { useEffect, useState } from "react"
-import { useTranslation, Trans } from "react-i18next"
-import type { TFunction } from "i18next"
-import { ExternalLink, Globe } from "lucide-react"
-import { Modal, ModalActions } from "../ui/Modal"
-import { Button } from "../ui/Button"
-import { Input } from "../ui/Input"
-import { Tabs, TabsList, TabsTrigger } from "../ui/Tabs"
-import { Label } from "../ui/Label"
+import { useTranslation } from "react-i18next"
+
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../shadcn/dialog"
+import { Button } from "../shadcn/button"
+import { Field, FieldDescription, FieldLabel } from "../shadcn/field"
+import { Input } from "../shadcn/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../shadcn/tabs"
+import { QuickConnectBrowserTab } from "./QuickConnectBrowserTab"
+import { humanizeError } from "./humanize-error"
 import type { ToastType } from "../../hooks/useToast"
 import { capture } from "../../lib/analytics"
 
-function humanizeError(err: unknown, t: TFunction): string {
-  const raw = (err as Error)?.message ?? String(err)
-  if (/ERR_TLS_CERT_ALTNAME_INVALID|altnames/i.test(raw)) {
-    return t("workspaces.quickConnect.error.tls")
-  }
-  if (/ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(raw)) {
-    return t("workspaces.quickConnect.error.dns")
-  }
-  if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|timed out/i.test(raw)) {
-    return t("workspaces.quickConnect.error.timeout")
-  }
-  const cleaned = raw.replace(/^Error invoking remote method '[^']+':\s*/i, "")
-  return cleaned.length > 220 ? `${cleaned.slice(0, 220)}…` : cleaned
-}
+const WORKSPACE_SITE = "https://workspace.openagents.org/"
+const MODES = ["paste", "create", "browser"] as const
+type Mode = (typeof MODES)[number]
 
 /**
  * Quick-connect surface for stage.md §4.1 — supports:
  *   - paste URL auto-parse (extracts slug + ?token=…)
  *   - paste token auto-detect
  *   - create new workspace
- *
- * Deep-link / OAuth jumps are intentionally stubs for now; we expose a
- * "Connect with browser" button that just opens the workspace landing page —
- * once the workspace site supports a return scheme we can wire it up.
  */
 export function WorkspaceQuickConnect({
   open,
@@ -47,7 +40,7 @@ export function WorkspaceQuickConnect({
   showToast: (msg: string, type?: ToastType) => void
 }): React.JSX.Element {
   const { t } = useTranslation()
-  const [mode, setMode] = useState<"paste" | "create" | "browser">("paste")
+  const [mode, setMode] = useState<Mode>("paste")
   const [pasted, setPasted] = useState("")
   const [name, setName] = useState("")
   const [busy, setBusy] = useState(false)
@@ -91,16 +84,11 @@ export function WorkspaceQuickConnect({
     setBusy(true)
     try {
       const ws = await window.api.registerWorkspaceFromToken(
-        parsed.customUrl
-          ? { url: parsed.url }
-          : { url: parsed.url, token, slug },
+        parsed.customUrl ? { url: parsed.url } : { url: parsed.url, token, slug },
       )
       const label =
         ws.name || ws.slug || slug || t("workspaces.quickConnect.fallbackLabel")
-      showToast(
-        t("workspaces.quickConnect.toast.registered", { label }),
-        "success",
-      )
+      showToast(t("workspaces.quickConnect.toast.registered", { label }), "success")
       onCreated()
       onClose()
     } catch (err) {
@@ -134,128 +122,102 @@ export function WorkspaceQuickConnect({
   }
 
   const handleBrowser = (): void => {
-    window.api.openExternal("https://workspace.openagents.org/")
+    window.api.openExternal(WORKSPACE_SITE)
     showToast(t("workspaces.quickConnect.toast.browserOpened"), "info")
     setMode("paste")
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={t("workspaces.quickConnect.title")}>
-      <Tabs
-        value={mode}
-        onValueChange={(v) => setMode(v as typeof mode)}
-        className="mb-4 w-fit"
-      >
-        <TabsList>
-          {(["paste", "create", "browser"] as const).map((m) => (
-            <TabsTrigger key={m} value={m} className="px-3 py-1 text-[11px]">
-              {m === "paste"
-                ? t("workspaces.quickConnect.tabPaste")
-                : m === "create"
-                  ? t("workspaces.quickConnect.tabCreate")
-                  : t("workspaces.quickConnect.tabBrowser")}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("workspaces.quickConnect.title")}</DialogTitle>
+        </DialogHeader>
 
-      {mode === "paste" && (
-        <div className="flex flex-col gap-3">
-          <div>
-            <Label className="mb-1.5">{t("workspaces.quickConnect.pasteLabel")}</Label>
-            <Input
-              value={pasted}
-              onChange={(e) => setPasted(e.target.value)}
-              placeholder={t("workspaces.quickConnect.pastePlaceholder")}
-              autoFocus
-            />
-            <div className="text-[11px] text-(--text-tertiary) mt-1.5">
-              {t("workspaces.quickConnect.pasteHint")}
-            </div>
-          </div>
-        </div>
-      )}
+        <DialogBody>
+          <Tabs value={mode} onValueChange={(v) => setMode(v as Mode)}>
+            <TabsList className="w-fit">
+              {MODES.map((m) => (
+                <TabsTrigger key={m} value={m} className="text-2xs">
+                  {t(
+                    `workspaces.quickConnect.tab${m.charAt(0).toUpperCase()}${m.slice(1)}`,
+                  )}
+                </TabsTrigger>
+              ))}
+            </TabsList>
 
-      {mode === "create" && (
-        <div className="flex flex-col gap-3">
-          <div>
-            <Label className="mb-1.5">{t("workspaces.quickConnect.createLabel")}</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t("workspaces.quickConnect.createPlaceholder")}
-              autoFocus
-            />
-          </div>
-          {result?.token && (
-            <div className="px-3 py-2 bg-(--success-bg) text-(--success-text) rounded-sm text-[12px] break-all">
-              <div className="font-semibold mb-1">{t("workspaces.quickConnect.ready")}</div>
-              <div className="text-[11px]">{t("workspaces.quickConnect.readySlug", { slug: result.slug })}</div>
-              <div className="text-[11px]">{t("workspaces.quickConnect.readyToken", { token: result.token })}</div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {mode === "browser" && (
-        <div className="flex flex-col gap-4">
-          <div className="flex items-start gap-3 p-3 rounded-(--radius-sm) bg-(--bg-input) border border-(--border)">
-            <div className="shrink-0 mt-0.5 w-8 h-8 rounded-full bg-(--accent)/10 text-(--accent) flex items-center justify-center">
-              <Globe className="w-4 h-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-[12px] font-semibold text-(--text-primary) mb-0.5">
-                {t("workspaces.quickConnect.browserHeading")}
-              </div>
-              <div className="text-[11px] text-(--text-secondary) leading-relaxed break-all">
-                <Trans
-                  i18nKey="workspaces.quickConnect.browserBody"
-                  components={[<code className="inline-code" />]}
+            <TabsContent value="paste">
+              <Field>
+                <FieldLabel htmlFor="quick-connect-paste">
+                  {t("workspaces.quickConnect.pasteLabel")}
+                </FieldLabel>
+                <Input
+                  id="quick-connect-paste"
+                  value={pasted}
+                  onChange={(e) => setPasted(e.target.value)}
+                  placeholder={t("workspaces.quickConnect.pastePlaceholder")}
+                  autoFocus
                 />
-              </div>
-            </div>
-          </div>
+                <FieldDescription>
+                  {t("workspaces.quickConnect.pasteHint")}
+                </FieldDescription>
+              </Field>
+            </TabsContent>
 
-          <ol className="m-0 p-0 list-none flex flex-col gap-2">
-            {[
-              t("workspaces.quickConnect.step1"),
-              t("workspaces.quickConnect.step2"),
-              t("workspaces.quickConnect.step3"),
-            ].map((step, i) => (
-              <li
-                key={step}
-                className="flex items-start gap-2.5 text-[11px] text-(--text-secondary) leading-relaxed"
-              >
-                <span className="shrink-0 w-4.5 h-4.5 rounded-full bg-(--bg-input) text-(--text-primary) text-[10px] font-semibold flex items-center justify-center">
-                  {i + 1}
-                </span>
-                <span className="pt-px">{step}</span>
-              </li>
-            ))}
-          </ol>
+            <TabsContent value="create" className="flex flex-col gap-3">
+              <Field>
+                <FieldLabel htmlFor="quick-connect-name">
+                  {t("workspaces.quickConnect.createLabel")}
+                </FieldLabel>
+                <Input
+                  id="quick-connect-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t("workspaces.quickConnect.createPlaceholder")}
+                  autoFocus
+                />
+              </Field>
+              {result?.token && (
+                <div className="rounded-sm bg-(--success-bg) px-3 py-2 text-xs break-all text-(--success-text)">
+                  <div className="mb-1 font-semibold">
+                    {t("workspaces.quickConnect.ready")}
+                  </div>
+                  <div className="text-2xs">
+                    {t("workspaces.quickConnect.readySlug", { slug: result.slug })}
+                  </div>
+                  <div className="text-2xs">
+                    {t("workspaces.quickConnect.readyToken", { token: result.token })}
+                  </div>
+                </div>
+              )}
+            </TabsContent>
 
-          <Button variant="primary" onClick={handleBrowser} className="self-start">
-            <ExternalLink className="w-3.5 h-3.5" />
-            {t("workspaces.quickConnect.openSite")}
-          </Button>
-        </div>
-      )}
+            <TabsContent value="browser">
+              <QuickConnectBrowserTab onOpenSite={handleBrowser} />
+            </TabsContent>
+          </Tabs>
+        </DialogBody>
 
-      <ModalActions>
-        <Button variant="ghost" onClick={onClose} disabled={busy}>
-          {t("workspaces.quickConnect.close")}
-        </Button>
-        {mode === "paste" && (
-          <Button variant="primary" onClick={handlePasteConnect} disabled={busy}>
-            {busy ? t("workspaces.quickConnect.connecting") : t("workspaces.quickConnect.connect")}
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            {t("workspaces.quickConnect.close")}
           </Button>
-        )}
-        {mode === "create" && (
-          <Button variant="primary" onClick={handleCreate} disabled={busy}>
-            {busy ? t("workspaces.quickConnect.creating") : t("workspaces.quickConnect.createBtn")}
-          </Button>
-        )}
-      </ModalActions>
-    </Modal>
+          {mode === "paste" && (
+            <Button onClick={handlePasteConnect} disabled={busy}>
+              {busy
+                ? t("workspaces.quickConnect.connecting")
+                : t("workspaces.quickConnect.connect")}
+            </Button>
+          )}
+          {mode === "create" && (
+            <Button onClick={handleCreate} disabled={busy}>
+              {busy
+                ? t("workspaces.quickConnect.creating")
+                : t("workspaces.quickConnect.createBtn")}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

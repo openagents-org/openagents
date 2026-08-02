@@ -68,11 +68,13 @@ Radix 拿不到锚点元素——实测通知气泡定位到 `y: -249`，即渲�
 
 ### ① 组件不得冗余超长
 
-- 单文件**硬上限 150 行**，超出必须拆。
-- 页面结构统一为：`index.tsx`（只做编排，≤ 80 行）+ `components/`（展示件）+ `use-*.ts`（页面级状态编排）。
+- 单文件**上限 300 行**，超出必须拆。
+- **300 行以内不要为了凑行数而拆** —— 凭空多出的 props 透传层比长文件更糟。
+  拆分按职责边界走（逻辑 → `use-*.ts`，独立展示单元 → 自己的组件），不按行数走。
+- 页面结构：`index.tsx`（编排）+ `components/`（展示件）+ `use-*.ts`（页面级状态编排）。
 - **业务逻辑一律留在现有 `store/` 与 `hooks/`，页面不新增业务逻辑。**
 
-当前超标文件：
+当前超标文件（>300 行）：
 
 | 文件 | 行数 |
 | --- | --- |
@@ -82,6 +84,7 @@ Radix 拿不到锚点元素——实测通知气泡定位到 `y: -249`，即渲�
 | `pages/github/index.tsx` | 589 |
 | `pages/install/index.tsx` | 542 |
 | `pages/logs/index.tsx` | 516 |
+| `components/credentials/CredentialEditor.tsx` | 354 |
 
 ### ② 禁止 Tailwind 任意值 + 固定 px
 
@@ -99,6 +102,27 @@ grep -rnE '\-\[[0-9.]+px\]' --include="*.tsx" src/renderer/pages src/renderer/co
 ### ③ 代码简洁可靠
 
 每个 Phase 收尾必须 `typecheck` + `build` + `test` 三绿，并实际启动 Electron 肉眼验证，才进下一阶段。
+
+### ④ Dialog 规范（所有对话框，无例外）
+
+标题与底部按钮区**位置固定**，只有中间内容区滚动，且**不出现滚动条**。
+
+这条已内建进组件，调用方按三段式写就自动满足，不要在调用点自己加高度/滚动：
+
+```tsx
+<DialogContent>          {/* flex 列 + max-h-(--dialog-max-h) + overflow-hidden */}
+  <DialogHeader>…</DialogHeader>   {/* shrink-0 + 下边框 */}
+  <DialogBody>…</DialogBody>       {/* flex-1 + overflow-y-auto + scrollbar-hide */}
+  <DialogFooter>…</DialogFooter>   {/* shrink-0 + 上边框 */}
+</DialogContent>
+```
+
+- `DialogBody` 是本项目加的（upstream shadcn 没有）。**内容可能变长时必须用它**，
+  否则内容会撑开 flex 列并被 `overflow-hidden` 裁掉。
+- `DialogContent` 已移除 upstream 的 `p-6`，改由三个区各自带 padding —— 这样 Header/Footer 的
+  分隔线才能通栏。
+- 高度上限走 `--dialog-max-h` token（`min(80vh, 45rem)`），不要写 `max-h-[80vh]` 任意值。
+- `AlertDialog` 同样遵守（Footer 固定、Header 区吸收溢出），只是消息框天然短，没有独立 body。
 
 ---
 
@@ -162,9 +186,24 @@ grep -rnE '\-\[[0-9.]+px\]' --include="*.tsx" src/renderer/pages src/renderer/co
 实测验证（Electron + CDP 截图）：侧栏 210px、深色 `#0e1117`、7 项导航、badge、
 daemon 状态、字号 13px、命令面板、明暗主题均正常，控制台零错误。
 
-### P2 · 轻量页（验证模式是否成立）
+### ✅ P2 · 轻量页（已完成）
 
-`connections` 294 → `workspaces` 447 → `credentials` 279
+三页及其全部子组件（共 22 个文件）迁完，旧 `components/ui/` 引用归零、任意值 px 归零、无文件超 300 行。
+
+- **新增 `layout/page-header.tsx`** 替代 `TopBar`：同名 props（`title`/`subtitle`/`actions`/`showSearch`），
+  各页逐个换过去，P7 即可删掉 `TopBar`。
+- **Dialog 规范内建**（见第二节 ④）。新增 `DialogBody`，`Dialog`/`AlertDialog` 的 Content
+  改为受高度约束的 flex 列。
+- **`Badge` 增加 `success`/`warning`/`danger` 三个 soft variant** —— upstream 只有实心
+  `destructive`，而本项目的状态 chip 是淡底深字。`ConnectionStatusBadge` 的 7 个状态收敛到这 4 类。
+- 页面拆分：`connections` 294 → 212（+ toolbar / disconnect-dialog / use-disconnect）；
+  `workspaces` 447 → 218（+ `use-workspaces-data.ts` 承接装载与派生 + stats 条）；
+  `credentials` 279 → 282（+ remove-dialog；子组件 `CredentialEditor` 354 → 236 + form-fields）。
+- 顺手修掉 `CredentialApplyDialog` 里 `types.map((t) => …)` 遮蔽 i18n `t` 的隐患。
+- 删除 workspaces 页自建的「已复制」浮层 —— 它与 `showToast` 重复，会同时弹两个提示。
+
+实测：三页渲染正常，控制台零错误。注意 **credentials 没有侧栏入口**（走 Ctrl+5 或命令面板），
+验证时别用 `nav-credentials` 选择器。
 
 ### P3 · 中量页
 
@@ -240,8 +279,8 @@ env -u ELECTRON_RUN_AS_NODE npm run dev -- --remoteDebuggingPort=9222
 # 任意值债务检查
 grep -rnE '\-\[[0-9.]+px\]' --include="*.tsx" src/renderer/pages src/renderer/components
 
-# 超长文件检查
-find src/renderer -name "*.tsx" ! -path "*/shadcn/*" | xargs wc -l | sort -rn | head -20
+# 超长文件检查（阈值 300）
+find src/renderer -name "*.tsx" ! -path "*/shadcn/*" | xargs wc -l | sort -rn | awk '$1>300'
 ```
 
 ### C. 已装 shadcn 组件（35）

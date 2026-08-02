@@ -2,24 +2,38 @@ import React, { useEffect, useMemo, useState } from "react"
 import { Plus } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 import { useTranslation } from "react-i18next"
-import { Button } from "../../components/ui/Button"
-import { SearchInput } from "../../components/ui/SearchInput"
-import { Tabs, TabsList, TabsTrigger } from "../../components/ui/Tabs"
-import { TopBar } from "../../components/TopBar"
-import { CredentialCard } from "../../components/credentials/CredentialCard"
-import { CredentialEditor } from "../../components/credentials/CredentialEditor"
-import { CredentialApplyDialog } from "../../components/credentials/CredentialApplyDialog"
-import { ConfirmDialog } from "../../components/ui/ConfirmDialog"
-import { useAgentsStore } from "../../store/agents"
-import { useCredentialsStore } from "../../store/credentials"
-import { useConnectionsStore } from "../../store/connections"
-import { PLATFORMS, getPlatform } from "../../components/connections/platforms"
-import { PlatformLogo } from "../../components/connections/PlatformLogo"
-import type { CredentialSummary, ConnectionTestResult } from "../../types"
-import type { ToastType } from "../../hooks/useToast"
+
+import { PageHeader } from "@renderer/components/layout/page-header"
+import { Button } from "@renderer/components/shadcn/button"
+import { Card } from "@renderer/components/shadcn/card"
+import { Tabs, TabsList, TabsTrigger } from "@renderer/components/shadcn/tabs"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+} from "@renderer/components/shadcn/empty"
+import { SearchInput } from "@renderer/components/ui-kit"
+import { CredentialCard } from "@renderer/components/credentials/CredentialCard"
+import { CredentialEditor } from "@renderer/components/credentials/CredentialEditor"
+import { CredentialApplyDialog } from "@renderer/components/credentials/CredentialApplyDialog"
+import { PLATFORMS, getPlatform } from "@renderer/components/connections/platforms"
+import { RemoveCredentialDialog } from "./components/remove-credential-dialog"
+import { useAgentsStore } from "@renderer/store/agents"
+import { useCredentialsStore } from "@renderer/store/credentials"
+import { useConnectionsStore } from "@renderer/store/connections"
+import type { ConnectionTestResult, CredentialSummary } from "@renderer/types"
+import type { ToastType } from "@renderer/hooks/useToast"
 
 interface Props {
   showToast: (msg: string, type?: ToastType) => void
+}
+
+/** OS-specific name for where secrets actually live. */
+function keychainName(t: (k: string) => string): string {
+  if (navigator.platform.includes("Mac")) return t("credentials.storage.keychain.mac")
+  if (navigator.platform.includes("Win")) return t("credentials.storage.keychain.windows")
+  return t("credentials.storage.keychain.linux")
 }
 
 export default function Credentials({ showToast }: Props): React.JSX.Element {
@@ -31,7 +45,7 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
     useShallow((s) => ({ connections: s.connections, refresh: s.refresh })),
   )
   const [search, setSearch] = useState("")
-  const [providerFilter, setProviderFilter] = useState<string>("all")
+  const [providerFilter, setProviderFilter] = useState("all")
   const [editorOpen, setEditorOpen] = useState(false)
   const [editing, setEditing] = useState<CredentialSummary | null>(null)
   const [revealed, setRevealed] = useState<Record<string, string>>({})
@@ -51,20 +65,24 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
   // Cross-link credentials with their connection usage from connections state
   // (since the main-process store keeps `usedByConnections` lazily and this
   // gives the UI a fresh count without waiting for the next refresh).
-  const decorated = useMemo(() => {
-    return credentials.map((c) => {
-      const usedByConn = connections.filter((conn) => conn.credentialId === c.id).map((conn) => conn.id)
-      return {
-        ...c,
-        usedByConnections: usedByConn.length ? usedByConn : c.usedByConnections,
-      }
-    })
-  }, [credentials, connections])
+  const decorated = useMemo(
+    () =>
+      credentials.map((c) => {
+        const usedByConn = connections
+          .filter((conn) => conn.credentialId === c.id)
+          .map((conn) => conn.id)
+        return {
+          ...c,
+          usedByConnections: usedByConn.length ? usedByConn : c.usedByConnections,
+        }
+      }),
+    [credentials, connections],
+  )
 
-  const providers = useMemo(() => {
-    const set = new Set(credentials.map((c) => c.provider))
-    return Array.from(set).sort()
-  }, [credentials])
+  const providers = useMemo(
+    () => Array.from(new Set(credentials.map((c) => c.provider))).sort(),
+    [credentials],
+  )
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -79,7 +97,7 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
     })
   }, [decorated, search, providerFilter])
 
-  const handleReveal = async (id: string): Promise<void> => {
+  const toggleReveal = async (id: string): Promise<void> => {
     if (revealed[id]) {
       setRevealed((r) => {
         const n = { ...r }
@@ -90,28 +108,30 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
     }
     try {
       const r = await window.api.revealCredential(id)
-      if (r.ok && r.secret) {
-        setRevealed((prev) => ({ ...prev, [id]: r.secret! }))
-      } else {
-        showToast(r.error || t("credentials.toasts.revealFailed"), "error")
-      }
+      if (r.ok && r.secret) setRevealed((prev) => ({ ...prev, [id]: r.secret! }))
+      else showToast(r.error || t("credentials.toasts.revealFailed"), "error")
     } catch (err) {
-      showToast(t("credentials.toasts.error", { message: (err as Error).message }), "error")
+      showToast(
+        t("credentials.toasts.error", { message: (err as Error).message }),
+        "error",
+      )
     }
   }
 
   const performRemove = async (): Promise<void> => {
-    const cred = removeTarget
-    if (!cred) return
+    if (!removeTarget) return
     setRemoving(true)
     try {
-      await window.api.removeCredential(cred.id)
+      await window.api.removeCredential(removeTarget.id)
       await refresh()
       await refreshConnections()
       showToast(t("credentials.toasts.removed"), "success")
       setRemoveTarget(null)
     } catch (err) {
-      showToast(t("credentials.toasts.error", { message: (err as Error).message }), "error")
+      showToast(
+        t("credentials.toasts.error", { message: (err as Error).message }),
+        "error",
+      )
     } finally {
       setRemoving(false)
     }
@@ -134,7 +154,10 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
         r.ok ? "success" : "error",
       )
     } catch (err) {
-      showToast(t("credentials.toasts.error", { message: (err as Error).message }), "error")
+      showToast(
+        t("credentials.toasts.error", { message: (err as Error).message }),
+        "error",
+      )
     } finally {
       setTesting(null)
     }
@@ -146,91 +169,86 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
   }
 
   return (
-    <section className="flex flex-col h-full">
-      <TopBar
+    <section className="flex h-full flex-col">
+      <PageHeader
         title={t("credentials.title")}
         subtitle={t("credentials.subtitle")}
         actions={
-          <Button variant="primary" onClick={openAdd}>
-            <Plus className="w-3.5 h-3.5" />
+          <Button onClick={openAdd}>
+            <Plus />
             {t("credentials.addCredential")}
           </Button>
         }
       />
 
       <div className="flex-1 overflow-y-auto px-9 py-6">
-
-      <div className="flex items-center gap-2 mb-5 flex-wrap">
-        <SearchInput
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onClear={() => setSearch("")}
-          placeholder={t("credentials.searchPlaceholder")}
-          className="flex-1 min-w-[200px] max-w-[300px]"
-        />
-        <Tabs mode="filter" value={providerFilter} onValueChange={setProviderFilter}>
-          <TabsList className="flex-wrap">
-            <TabsTrigger value="all" className="px-2.5 py-1 text-[11px]">
-              {t("credentials.filterAll")}
-            </TabsTrigger>
-            {providers.map((p) => (
-              <TabsTrigger key={p} value={p} className="px-2.5 py-1 text-[11px]">
-                {getPlatform(p)?.label || p}
+        <div className="mb-5 flex flex-wrap items-center gap-2">
+          <SearchInput
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onClear={() => setSearch("")}
+            placeholder={t("credentials.searchPlaceholder")}
+            wrapperClassName="min-w-50 max-w-75 flex-1"
+          />
+          <Tabs value={providerFilter} onValueChange={setProviderFilter}>
+            <TabsList className="flex-wrap">
+              <TabsTrigger value="all" className="text-2xs">
+                {t("credentials.filterAll")}
               </TabsTrigger>
+              {providers.map((p) => (
+                <TabsTrigger key={p} value={p} className="text-2xs">
+                  {getPlatform(p)?.label || p}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
+
+        {visible.length === 0 ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyDescription>
+                {credentials.length === 0
+                  ? t("credentials.empty.none")
+                  : t("credentials.empty.noMatch", { query: search })}
+              </EmptyDescription>
+            </EmptyHeader>
+            {credentials.length === 0 && (
+              <EmptyContent>
+                <Button onClick={openAdd}>{t("credentials.empty.addFirst")}</Button>
+              </EmptyContent>
+            )}
+          </Empty>
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            {visible.map((c) => (
+              <CredentialCard
+                key={c.id}
+                cred={c}
+                revealed={revealed[c.id] || null}
+                testing={testing === c.id}
+                onEdit={() => {
+                  setEditing(c)
+                  setEditorOpen(true)
+                }}
+                onRemove={() => setRemoveTarget(c)}
+                onTest={() => handleTest(c)}
+                onReveal={() => toggleReveal(c.id)}
+                onApply={() => setApplyTarget(c)}
+              />
             ))}
-          </TabsList>
-        </Tabs>
-      </div>
+          </div>
+        )}
 
-      {visible.length === 0 ? (
-        <div className="card-legacy empty-state">
-          <p>
-            {credentials.length === 0
-              ? t("credentials.empty.none")
-              : t("credentials.empty.noMatch", { query: search })}
+        <Card className="mt-5 gap-2 px-4 py-4">
+          <h3 className="text-sm font-semibold">{t("credentials.storage.title")}</h3>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {t("credentials.storage.description", { keychain: keychainName(t) })}
           </p>
-          {credentials.length === 0 && (
-            <Button variant="primary" onClick={openAdd}>
-              {t("credentials.empty.addFirst")}
-            </Button>
-          )}
-        </div>
-      ) : (
-        <div>
-          {visible.map((c) => (
-            <CredentialCard
-              key={c.id}
-              cred={c}
-              revealed={revealed[c.id] || null}
-              testing={testing === c.id}
-              onEdit={() => {
-                setEditing(c)
-                setEditorOpen(true)
-              }}
-              onRemove={() => setRemoveTarget(c)}
-              onTest={() => handleTest(c)}
-              onReveal={() => handleReveal(c.id)}
-              onApply={() => setApplyTarget(c)}
-            />
-          ))}
-        </div>
-      )}
-
-      <div className="card-legacy mt-5">
-        <h3>{t("credentials.storage.title")}</h3>
-        <p className="text-[12px] text-(--text-secondary) mb-2 leading-relaxed">
-          {t("credentials.storage.description", {
-            keychain: navigator.platform.includes("Mac")
-              ? t("credentials.storage.keychain.mac")
-              : navigator.platform.includes("Win")
-                ? t("credentials.storage.keychain.windows")
-                : t("credentials.storage.keychain.linux"),
-          })}
-        </p>
-        <p className="text-[11px] text-(--text-tertiary) m-0">
-          {t("credentials.storage.platformsSupported", { count: PLATFORMS.length })}
-        </p>
-      </div>
+          <p className="text-2xs text-muted-foreground">
+            {t("credentials.storage.platformsSupported", { count: PLATFORMS.length })}
+          </p>
+        </Card>
       </div>
 
       <CredentialEditor
@@ -248,31 +266,15 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
         open={!!applyTarget}
         credential={applyTarget}
         onClose={() => setApplyTarget(null)}
-        onApplied={() => {
-          refresh()
-        }}
+        onApplied={refresh}
         showToast={showToast}
       />
 
-      <ConfirmDialog
-        open={!!removeTarget}
-        icon={
-          removeTarget && getPlatform(removeTarget.provider) ? (
-            <PlatformLogo platform={getPlatform(removeTarget.provider)!} size={40} />
-          ) : undefined
-        }
-        title={removeTarget ? t("credentials.remove.title", { label: removeTarget.label }) : ""}
-        description={
-          <>
-            {t("credentials.remove.descriptionPrefix")}{" "}
-            <strong>{t("credentials.remove.unauthorized")}</strong>
-            {t("credentials.remove.descriptionSuffix")}
-          </>
-        }
-        confirmLabel={t("credentials.remove.confirm")}
+      <RemoveCredentialDialog
+        target={removeTarget}
         busy={removing}
         onConfirm={performRemove}
-        onCancel={() => !removing && setRemoveTarget(null)}
+        onCancel={() => setRemoveTarget(null)}
       />
     </section>
   )

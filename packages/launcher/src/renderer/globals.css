@@ -73,6 +73,11 @@
 
     /* Misc */
     --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+    /* Dialog height ceiling — 80% of the viewport, but never taller than 45rem
+       so a dialog stays a panel instead of becoming a full-height sheet on
+       large displays. Held as a token so `max-h-(--dialog-max-h)` can express
+       it without an arbitrary value. */
+    --dialog-max-h: min(80vh, 45rem);
 
     /* shadcn HSL aliases (kept for utilities like bg-background etc.) */
     --background: 240 24% 95.9%;       /* #f2f2f7 */
