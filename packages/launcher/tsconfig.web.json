@@ -10,9 +10,12 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "composite": true,
-    "baseUrl": ".",
+    // See tsconfig.node.json — tsc type-checks only, electron-vite builds.
+    "noEmit": true,
+    // No `baseUrl`: it is deprecated in TS 6 and removed in TS 7. Path mappings
+    // resolve relative to this file when it is omitted.
     "paths": {
-      "@renderer/*": ["src/renderer/*"]
+      "@renderer/*": ["./src/renderer/*"]
     }
   },
   "include": ["src/shared/**/*", "src/renderer/**/*"]

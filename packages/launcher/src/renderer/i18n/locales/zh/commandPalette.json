@@ -1,5 +1,7 @@
 {
   "placeholder": "输入命令、智能体或页面…",
+  "title": "命令面板",
+  "description": "搜索命令、智能体或页面并跳转。",
   "empty": "没有匹配的命令。",
   "groups": {
     "navigation": "导航",

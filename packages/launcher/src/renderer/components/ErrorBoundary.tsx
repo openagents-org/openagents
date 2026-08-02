@@ -49,4 +49,8 @@ class ErrorBoundaryInner extends React.Component<ErrorBoundaryProps, State> {
   }
 }
 
-export const ErrorBoundary = withTranslation()(ErrorBoundaryInner)
+// The annotation is required, not cosmetic: without it the inferred type of the
+// `withTranslation()` HOC reaches into react-i18next's internal `helpers` module,
+// which tsc cannot name portably in a composite project (TS2742).
+export const ErrorBoundary: React.ComponentType<{ children: React.ReactNode }> =
+  withTranslation()(ErrorBoundaryInner)

@@ -10,6 +10,9 @@
     "hide": "Hide",
     "show": "Show"
   },
+  "searchInput": {
+    "clear": "Clear search"
+  },
   "topBar": {
     "openCommandPalette": "Open command palette",
     "searchPlaceholder": "Search agents, workspaces…"

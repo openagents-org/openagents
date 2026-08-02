@@ -5,11 +5,18 @@ import { useAgentsStore } from "./store/agents"
 import { useInstallStore } from "./store/install"
 import { useThemeStore } from "./store/theme"
 import { useNotificationsStore } from "./store/notifications"
-import Sidebar from "./components/Sidebar"
-import { ToastContainer } from "./components/ui/Toast"
-import { CommandPalette } from "./components/command-palette/CommandPalette"
-import { OnboardingFlow, shouldShowOnboarding } from "./components/onboarding/OnboardingFlow"
-import { GuidedTour, shouldShowGuidedTour } from "./components/onboarding/GuidedTour"
+import { AppShell } from "./components/layout/app-shell"
+import { SHORTCUT_TABS } from "./components/layout/nav-config"
+import { Toaster } from "./components/shadcn/sonner"
+import { CommandPalette } from "./components/command-palette"
+import {
+  OnboardingFlow,
+  shouldShowOnboarding,
+} from "./components/onboarding/OnboardingFlow"
+import {
+  GuidedTour,
+  shouldShowGuidedTour,
+} from "./components/onboarding/GuidedTour"
 import Dashboard from "./pages/dashboard"
 import Agents from "./pages/agents"
 import Workspaces from "./pages/workspaces"
@@ -23,7 +30,6 @@ import { InstallMiniBanner } from "./components/install-progress/StagedProgress"
 import { LauncherUpdateBanner } from "./components/LauncherUpdateBanner"
 import { useToasts } from "./hooks/useToast"
 import { useInstallProgress } from "./hooks/useInstallProgress"
-import { cn } from "./lib/utils"
 import { capture } from "./lib/analytics"
 
 export default function App(): React.JSX.Element {
@@ -98,23 +104,12 @@ export default function App(): React.JSX.Element {
   }, [currentTab])
 
   useEffect(() => {
-    const tabs = [
-      "dashboard",
-      "agents",
-      "workspaces",
-      "connections",
-      "credentials",
-      "github",
-      "install",
-      "logs",
-      "settings",
-    ]
     const handler = (e: KeyboardEvent): void => {
       if (e.ctrlKey && e.key >= "1" && e.key <= "9") {
         const idx = parseInt(e.key) - 1
-        if (idx < tabs.length) {
+        if (idx < SHORTCUT_TABS.length) {
           e.preventDefault()
-          useUiStore.getState().setCurrentTab(tabs[idx])
+          useUiStore.getState().setCurrentTab(SHORTCUT_TABS[idx])
         }
       }
     }
@@ -127,15 +122,8 @@ export default function App(): React.JSX.Element {
     .sort((a, b) => b.startedAt - a.startedAt)[0]
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[var(--bg-primary)]">
-      <Sidebar />
-
-      <main
-        className={cn(
-          "flex-1 min-w-0 bg-(--bg-primary)",
-          "overflow-hidden flex flex-col",
-        )}
-      >
+    <>
+      <AppShell>
         {currentTab === "dashboard" && (
           <Dashboard
             showToast={showToast}
@@ -152,7 +140,7 @@ export default function App(): React.JSX.Element {
         {currentTab === "install" && <Install showToast={showToast} />}
         {currentTab === "logs" && <Logs showToast={showToast} />}
         {currentTab === "settings" && <Settings showToast={showToast} />}
-      </main>
+      </AppShell>
 
       {activeJob && currentTab !== "install" && (
         <InstallMiniBanner
@@ -162,7 +150,7 @@ export default function App(): React.JSX.Element {
       )}
 
       <LauncherUpdateBanner />
-      <ToastContainer />
+      <Toaster position="bottom-right" />
       <CommandPalette />
       <OnboardingFlow
         open={onboardingOpen}
@@ -178,6 +166,6 @@ export default function App(): React.JSX.Element {
           mutually exclusive, and this guarantees the spotlight can never render
           on top of the wizard even if a stray startTour() slips through. */}
       {!onboardingOpen && <GuidedTour />}
-    </div>
+    </>
   )
 }
