@@ -164,6 +164,35 @@ class TestReceiptHit:
         assert "delegated_by" not in out.metadata
         assert "delegated_to" not in out.metadata
 
+    def test_needs_input_replay_is_bounded(self, db, ws3):
+        """needs_input never consumes the terminal slot, so it gets its own
+        bound: _NEEDS_INPUT_LIMIT deterministic wake-ups per (E1, replier),
+        after which the delegator is suppressed like a duplicate. The real
+        terminal result afterwards still delivers."""
+        from app.mods.workspace_mod import _NEEDS_INPUT_LIMIT
+        ws, e1 = ws3["workspace"], _delegation_event(db, ws3["workspace"])
+        for i in range(_NEEDS_INPUT_LIMIT):
+            out = _handle(db, ws, _reply(
+                "openagents:agent-b", f"question {i}?", in_reply_to=e1.id,
+                reply_kind="needs_input",
+            ))
+            assert out.metadata["target_agents"] == ["agent-a"], i
+        client_patch, mock_client = _with_router("next:agent-a")
+        with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
+            out = _handle(db, ws, _reply(
+                "openagents:agent-b", "one more question?", in_reply_to=e1.id,
+                reply_kind="needs_input",
+            ))
+        assert out.metadata["target_agents"] == ["__no_response__"]
+        mock_client.messages.create.assert_not_called()
+        db.refresh(e1)
+        assert e1.metadata_["needs_input_from"] == {"agent-b": _NEEDS_INPUT_LIMIT}
+        # Terminal slot is independent of the needs_input budget.
+        out2 = _handle(db, ws, _reply(
+            "openagents:agent-b", "done", in_reply_to=e1.id, reply_kind="result",
+        ))
+        assert out2.metadata["target_agents"] == ["agent-a"]
+
     def test_onward_mention_dual_routes(self, db, ws3):
         """Receipt that @mentions a third agent goes to both A and C, and the
         onward hop is marked as a new delegation by B."""
@@ -210,11 +239,13 @@ class TestReceiptRejected:
                 "delegated_by": "agent-b",
                 "delegated_to": ["agent-a"],
                 "receipt_from": ["agent-c"],
+                "needs_input_from": {"agent-b": 99},
             },
         ))
         assert "delegated_by" not in out.metadata
         assert "delegated_to" not in out.metadata
         assert "receipt_from" not in out.metadata
+        assert "needs_input_from" not in out.metadata
 
     def test_e1_missing(self, db, ws3):
         ws = ws3["workspace"]
@@ -455,6 +486,50 @@ class TestReceiptRejected:
         ))
         assert out.metadata["target_agents"] == ["__no_response__"]
         assert "delegated_by" not in out.metadata
+
+    def _remove_replier(self, db, ws3, how):
+        from sqlalchemy import select
+        ws, ch = ws3["workspace"], ws3["channel"]
+        if how == "left_channel":
+            member = db.execute(
+                select(ChannelMember).where(
+                    ChannelMember.channel_id == ch.id,
+                    ChannelMember.agent_name == "agent-b",
+                )
+            ).scalar_one()
+            db.delete(member)
+        else:
+            member = db.execute(
+                select(WorkspaceMember).where(
+                    WorkspaceMember.workspace_id == ws.id,
+                    WorkspaceMember.agent_name == "agent-b",
+                )
+            ).scalar_one()
+            if how == "hard":
+                db.delete(member)
+            else:
+                member.status = "removed"
+        db.flush()
+        db.refresh(ch)
+
+    @pytest.mark.parametrize("how", ["left_channel", "hard", "soft"])
+    def test_departed_replier_cannot_mint_onward_delegation(self, db, ws3, how):
+        """The message entry point validates only token/session, so a removed
+        B can still post against an old E1 — it must get nothing routed, and
+        especially must not create a delegated_by=B onward delegation."""
+        ws = ws3["workspace"]
+        e1 = _delegation_event(db, ws)
+        self._remove_replier(db, ws3, how)
+        client_patch, mock_client = _with_router("next:agent-c")
+        with ROUTER_PATCHES[0], ROUTER_PATCHES[1], client_patch:
+            out = _handle(db, ws, _reply(
+                "openagents:agent-b", "done — @agent-c take over",
+                in_reply_to=e1.id, reply_kind="result",
+            ))
+        assert out.metadata["target_agents"] == ["__no_response__"], how
+        assert "delegated_by" not in out.metadata, how
+        assert "delegated_to" not in out.metadata, how
+        mock_client.messages.create.assert_not_called()
 
     def test_consumed_receipt_with_removed_delegator_stays_suppressed(self, db, ws3):
         ws = ws3["workspace"]

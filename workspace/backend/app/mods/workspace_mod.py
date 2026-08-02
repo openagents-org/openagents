@@ -651,7 +651,17 @@ _RECEIPT_REPLY_KINDS = frozenset({"result", "error", "needs_input", "cancelled"}
 # client, so an agent could submit a forged delegation chain; these keys are
 # stripped from every inbound message and only written back by the routing
 # logic below.
-_SERVER_OWNED_METADATA = ("delegated_by", "delegated_to", "receipt_from")
+_SERVER_OWNED_METADATA = (
+    "delegated_by", "delegated_to", "receipt_from", "needs_input_from",
+)
+
+# How many deterministic needs_input wake-ups one delegation event may produce
+# per replier. needs_input is non-consuming (the real result must still be
+# deliverable afterwards), so without a bound a single stale E1 would be an
+# unlimited router bypass. Multiple questions within one turn are legitimate
+# (e.g. Cline can surface several asks); past the cap the delegator is
+# suppressed like a duplicate receipt.
+_NEEDS_INPUT_LIMIT = 3
 
 
 def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) -> Optional[Tuple[List[str], List[str]]]:
@@ -684,8 +694,14 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
     is still honoured. ``needs_input`` receipts are non-consuming: an agent
     may surface a question mid-turn and still owe the real result (e.g.
     Cline's ask event followed by the final text), so only result / error /
-    cancelled claim the single terminal slot. If the delegator needs more
-    work done it delegates again, creating a new E1.
+    cancelled claim the single terminal slot. needs_input is still bounded
+    (``_NEEDS_INPUT_LIMIT`` deterministic wake-ups per (E1, replier), tracked
+    in server-owned ``needs_input_from``) so a stale E1 cannot become an
+    unlimited router bypass. A replier that is itself no longer a live
+    channel + workspace member gets nothing at all — not even onward — since
+    the message entry point does not verify membership and a departed agent
+    must not mint new delegations. If the delegator needs more work done it
+    delegates again, creating a new E1.
     """
     from app.models import EventRecord
 
@@ -775,10 +791,17 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
     }
     onward = [c for c in onward if c in live_members]
 
-    # Both ends must still be members of this channel and the workspace.
-    if delegator not in participants or replier not in participants:
-        return list(onward), onward
-    if delegator not in live_members or replier not in live_members:
+    # A replier that is no longer a live channel + workspace member must not
+    # be able to mint new delegations from a stale E1: the message entry
+    # point validates only the workspace token/session, not membership
+    # (_validate_session passes for removed members). Suppress EVERYTHING,
+    # onward included.
+    if replier not in participants or replier not in live_members:
+        return [], []
+
+    # A gone delegator only loses their own delivery — the (valid, live)
+    # onward delegation in the same reply is still honoured.
+    if delegator not in participants or delegator not in live_members:
         return list(onward), onward
 
     already = e1_meta.get("receipt_from") or []
@@ -795,9 +818,20 @@ def _receipt_route(event: Event, channel, mentions: List[str], db, workspace) ->
     # Long-running tasks finishing days later are the normal case this
     # feature exists for, not abuse.
 
-    # Claim the single terminal receipt — except for needs_input, which is
-    # an intermediate "waiting on you" signal, not the turn's outcome.
-    if meta.get("reply_kind") != "needs_input":
+    if meta.get("reply_kind") == "needs_input":
+        # Non-consuming (the real result must still be deliverable), but
+        # bounded — see _NEEDS_INPUT_LIMIT.
+        asked = dict(e1_meta.get("needs_input_from") or {})
+        count = int(asked.get(replier, 0) or 0)
+        if count >= _NEEDS_INPUT_LIMIT:
+            return list(onward), onward
+        asked[replier] = count + 1
+        stamped = dict(e1_meta)
+        stamped["needs_input_from"] = asked
+        e1.metadata_ = stamped
+        db.flush()
+    else:
+        # Claim the single terminal receipt.
         stamped = dict(e1_meta)
         stamped["receipt_from"] = already + [replier]
         e1.metadata_ = stamped
