@@ -50,7 +50,9 @@ export function ConfirmDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={(o) => !o && !busy && onCancel()}>
-      <AlertDialogContent size="sm">
+      {/* Default width, not `sm`: these carry install commands and paths
+          that wrap badly at 20rem. */}
+      <AlertDialogContent>
         <AlertDialogHeader>
           {icon}
           <AlertDialogTitle>{title}</AlertDialogTitle>

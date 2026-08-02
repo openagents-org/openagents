@@ -2206,6 +2206,32 @@ function setupIPC(): void {
   ipcMain.handle("settings:export", () => {
     return JSON.stringify(store.get(), null, 2)
   })
+  // Writes through a native Save dialog so the user picks the destination and
+  // a cancel is reported as such — the renderer used to trigger an <a download>
+  // and claim success before any location had been chosen.
+  ipcMain.handle("settings:export-to-file", async () => {
+    const { dialog } = require("electron")
+    const win = BrowserWindow.getFocusedWindow() || mainWindow
+    const stamp = new Date().toISOString().slice(0, 10)
+    const opts = {
+      defaultPath: `openagents-settings-${stamp}.json`,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    }
+    const result = win
+      ? await dialog.showSaveDialog(win, opts)
+      : await dialog.showSaveDialog(opts)
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true }
+    try {
+      fs.writeFileSync(
+        result.filePath,
+        JSON.stringify(store.get(), null, 2),
+        "utf-8",
+      )
+      return { ok: true, path: result.filePath }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message }
+    }
+  })
   ipcMain.handle("settings:import", (_e, json: string) => {
     try {
       const parsed = JSON.parse(json)

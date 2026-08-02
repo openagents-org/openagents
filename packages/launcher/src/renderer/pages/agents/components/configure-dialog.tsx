@@ -478,23 +478,23 @@ export function ConfigureDialog({
       {!loading && (
         <DialogFooter>
           {noConfig ? (
-            <div className="form-actions mt-0">
+            <>
               <Button variant="outline" onClick={onClose}>
                 {t("agents.configureDialog.close")}
               </Button>
-            </div>
+            </>
           ) : loginCmd && fields.length === 0 ? (
             loginPhase === "awaiting" ? (
-              <div className="form-actions mt-0">
+              <>
                 <Button variant="default" onClick={confirmLogin}>
                   {t("agents.configureDialog.finishedSigningIn")}
                 </Button>
                 <Button variant="outline" onClick={() => setLoginPhase("idle")}>
                   {t("agents.configureDialog.notYet")}
                 </Button>
-              </div>
+              </>
             ) : (
-              <div className="form-actions mt-0">
+              <>
                 <Button
                   variant="default"
                   disabled={loginPhase === "checking"}
@@ -519,10 +519,10 @@ export function ConfigureDialog({
                 <Button variant="outline" onClick={onClose}>
                   {t("agents.configureDialog.close")}
                 </Button>
-              </div>
+              </>
             )
           ) : (
-            <div className="form-actions mt-0">
+            <>
               <Button variant="default" data-testid="cfg-save" onClick={save}>
                 {t("agents.configureDialog.save")}
               </Button>
@@ -537,7 +537,7 @@ export function ConfigureDialog({
               <Button variant="outline" onClick={onClose}>
                 {t("agents.configureDialog.cancel")}
               </Button>
-            </div>
+            </>
           )}
         </DialogFooter>
       )}

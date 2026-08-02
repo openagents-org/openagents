@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('api', {
   setSetting: (key: string, value: unknown) => ipcRenderer.invoke('settings:set', key, value),
   getAllSettings: () => ipcRenderer.invoke('settings:get-all'),
   exportSettings: () => ipcRenderer.invoke('settings:export'),
+  exportSettingsToFile: () => ipcRenderer.invoke('settings:export-to-file'),
   importSettings: (json: string) => ipcRenderer.invoke('settings:import', json),
   resetSettings: () => ipcRenderer.invoke('settings:reset'),
   listPaths: () => ipcRenderer.invoke('paths:list'),

@@ -446,6 +446,12 @@ declare global {
       setSetting(key: string, value: unknown): Promise<unknown>
       getAllSettings(): Promise<Record<string, unknown>>
       exportSettings(): Promise<string>
+      exportSettingsToFile(): Promise<{
+        ok: boolean
+        canceled?: boolean
+        path?: string
+        error?: string
+      }>
       importSettings(json: string): Promise<{ ok: boolean; error?: string }>
       resetSettings(): Promise<boolean>
       listPaths(): Promise<{

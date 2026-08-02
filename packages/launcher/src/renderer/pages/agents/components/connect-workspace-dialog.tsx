@@ -236,14 +236,6 @@ export function ConnectWorkspaceDialog({
               placeholder={t("agents.connectDialog.workspaceNamePlaceholder")}
             />
           </div>
-          <div className="form-actions">
-            <Button variant="default" onClick={doCreate}>
-              {t("agents.connectDialog.create")}
-            </Button>
-            <Button variant="outline" onClick={onClose}>
-              {t("agents.connectDialog.cancel")}
-            </Button>
-          </div>
         </>
       )}
       {view === "token" && (
@@ -260,17 +252,26 @@ export function ConnectWorkspaceDialog({
               placeholder={t("agents.connectDialog.pasteUrlPlaceholder")}
             />
           </div>
-          <div className="form-actions">
-            <Button variant="default" data-testid="ws-join" onClick={doJoinToken}>
-              {t("agents.connectDialog.join")}
-            </Button>
-            <Button variant="outline" onClick={onClose}>
-              {t("agents.connectDialog.cancel")}
-            </Button>
-          </div>
         </>
       )}
         </DialogBody>
+
+        {view !== "list" && (
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose}>
+              {t("agents.connectDialog.cancel")}
+            </Button>
+            {view === "create" ? (
+              <Button onClick={doCreate}>
+                {t("agents.connectDialog.create")}
+              </Button>
+            ) : (
+              <Button data-testid="ws-join" onClick={doJoinToken}>
+                {t("agents.connectDialog.join")}
+              </Button>
+            )}
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   )

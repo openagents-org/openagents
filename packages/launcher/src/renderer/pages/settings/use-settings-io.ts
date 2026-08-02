@@ -24,16 +24,16 @@ export function useSettingsIO(
 
   const exportSettings = async (): Promise<void> => {
     try {
-      const json = await window.api.exportSettings()
-      const url = URL.createObjectURL(new Blob([json], { type: "application/json" }))
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `openagents-settings-${new Date().toISOString().slice(0, 10)}.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      showToast(t("settings.toasts.exported"), "success")
+      // Goes through a native Save dialog in the main process. Cancelling is a
+      // normal outcome, not a failure — and definitely not a success.
+      const res = await window.api.exportSettingsToFile()
+      if (res.canceled) return
+      if (res.ok) showToast(t("settings.toasts.exported"), "success")
+      else
+        showToast(
+          t("settings.toasts.exportFailed", { error: res.error || "" }),
+          "error",
+        )
     } catch (e) {
       showToast(
         t("settings.toasts.exportFailed", { error: (e as Error).message }),

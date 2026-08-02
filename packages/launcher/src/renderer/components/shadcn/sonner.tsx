@@ -34,6 +34,25 @@ const Toaster = ({ ...props }: ToasterProps): React.JSX.Element => {
         error: <OctagonXIcon className="size-4" />,
         loading: <Loader2Icon className="size-4 animate-spin" />,
       }}
+      // Sonner ships one neutral surface for every type and only varies the
+      // icon, which made success/warning/error read identically. Each type gets
+      // the tint it already has elsewhere in the app; `!` is needed because
+      // Sonner's own `[data-sonner-toast]` rule sets the background.
+      toastOptions={{
+        classNames: {
+          success:
+            "bg-(--success-bg)! text-(--success-text)! border-(--success-text)/25!",
+          error:
+            "bg-(--danger-bg)! text-(--danger-text)! border-(--danger-text)/25!",
+          warning:
+            "bg-(--warning-bg)! text-(--warning-text)! border-(--warning-text)/25!",
+          info: "bg-(--bg-card)! text-(--text-primary)! border-(--border)!",
+          // Sonner colours the title itself, which would keep it neutral on
+          // top of a tinted surface — inherit so it follows the type.
+          title: "text-inherit!",
+          description: "text-inherit! opacity-80",
+        },
+      }}
       style={
         {
           "--normal-bg": "var(--bg-card)",

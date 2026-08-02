@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from "react"
+import React, { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { useUiStore } from "@renderer/store/ui"
+
 import {
   Dialog,
   DialogBody,
@@ -10,6 +10,16 @@ import {
   DialogTitle,
 } from "@renderer/components/shadcn/dialog"
 import { Button } from "@renderer/components/shadcn/button"
+import { Field, FieldLabel } from "@renderer/components/shadcn/field"
+import { Input } from "@renderer/components/shadcn/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@renderer/components/shadcn/select"
+import { useUiStore } from "@renderer/store/ui"
 import { randomAgentName } from "@renderer/utils/randomName"
 import type { CatalogEntry } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
@@ -53,9 +63,7 @@ export function NewAgentDialog({
         setCatalog(cat)
         setSupportedTypes(types || [])
         const supportedSet = new Set(types || [])
-        const installed = cat.filter(
-          (c) => c.installed && supportedSet.has(c.name),
-        )
+        const installed = cat.filter((c) => c.installed && supportedSet.has(c.name))
         if (installed.length > 0) setSelectedType(installed[0].name)
         setLoading(false)
       })
@@ -78,9 +86,7 @@ export function NewAgentDialog({
 
   const browseFolder = async (): Promise<void> => {
     try {
-      const picked = await window.api.selectDirectory(
-        agentPath || homeDir || undefined,
-      )
+      const picked = await window.api.selectDirectory(agentPath || homeDir || undefined)
       if (picked) {
         setFolderTouched(true)
         setAgentPath(picked)
@@ -94,6 +100,7 @@ export function NewAgentDialog({
   const supportedInstalled = catalog.filter(
     (c) => c.installed && supportedSet.has(c.name),
   )
+  const hasRuntimes = supportedInstalled.length > 0
 
   const doCreate = async (): Promise<void> => {
     const name = agentName.trim() || randomAgentName()
@@ -124,19 +131,83 @@ export function NewAgentDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
-      <DialogHeader>
-
-        <DialogTitle>{t("agents.newDialog.title")}</DialogTitle>
+        <DialogHeader>
+          <DialogTitle>{t("agents.newDialog.title")}</DialogTitle>
         </DialogHeader>
+
         <DialogBody>
-      {loading ? (
-        <p className="loading-text">{t("agents.newDialog.loadingTypes")}</p>
-      ) : supportedInstalled.length === 0 ? (
-        <>
-          <p className="hint">{t("agents.newDialog.noRuntimes")}</p>
-          <div className="form-actions">
+          {loading ? (
+            <p className="text-sm text-muted-foreground">
+              {t("agents.newDialog.loadingTypes")}
+            </p>
+          ) : !hasRuntimes ? (
+            <p className="text-sm text-muted-foreground">
+              {t("agents.newDialog.noRuntimes")}
+            </p>
+          ) : (
+            <>
+              <Field>
+                <FieldLabel>{t("agents.newDialog.agentType")}</FieldLabel>
+                <Select value={selectedType} onValueChange={setSelectedType}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {supportedInstalled.map((c) => (
+                      <SelectItem key={c.name} value={c.name}>
+                        {c.label || c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="agent-name">
+                  {t("agents.newDialog.agentName")}
+                </FieldLabel>
+                <Input
+                  id="agent-name"
+                  value={agentName}
+                  onChange={(e) => setAgentName(e.target.value)}
+                  placeholder="swift-lynx-37"
+                />
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="agent-working-directory">
+                  {t("agents.newDialog.workingDirectory")}
+                </FieldLabel>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="agent-working-directory"
+                    className="flex-1"
+                    value={agentPath}
+                    onChange={(e) => {
+                      setFolderTouched(true)
+                      setAgentPath(e.target.value)
+                    }}
+                    placeholder={t("agents.newDialog.workingDirectoryPlaceholder")}
+                  />
+                  <Button variant="outline" onClick={() => void browseFolder()}>
+                    {t("agents.newDialog.browse")}
+                  </Button>
+                </div>
+              </Field>
+            </>
+          )}
+        </DialogBody>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {t("agents.newDialog.cancel")}
+          </Button>
+          {hasRuntimes ? (
+            <Button data-testid="new-agent-create" onClick={doCreate} disabled={loading}>
+              {t("agents.newDialog.create")}
+            </Button>
+          ) : (
             <Button
-              variant="default"
               onClick={() => {
                 onClose()
                 setCurrentTab("install")
@@ -144,69 +215,8 @@ export function NewAgentDialog({
             >
               {t("agents.newDialog.goToInstall")}
             </Button>
-            <Button variant="outline" onClick={onClose}>{t("agents.newDialog.cancel")}</Button>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="form-group">
-            <label htmlFor="agent-type">
-              {t("agents.newDialog.agentType")}
-            </label>
-            <select
-              id="agent-type"
-              value={selectedType}
-              onChange={(e) => setSelectedType(e.target.value)}
-            >
-              {supportedInstalled.map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.label || c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label htmlFor="agent-name">
-              {t("agents.newDialog.agentName")}
-            </label>
-            <input
-              id="agent-name"
-              type="text"
-              value={agentName}
-              onChange={(e) => setAgentName(e.target.value)}
-              placeholder="swift-lynx-37"
-            />
-          </div>
-          <div className="form-group">
-            <label htmlFor="agent-working-directory">
-              {t("agents.newDialog.workingDirectory")}
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                id="agent-working-directory"
-                type="text"
-                className="flex-1"
-                value={agentPath}
-                onChange={(e) => {
-                  setFolderTouched(true)
-                  setAgentPath(e.target.value)
-                }}
-                placeholder={t("agents.newDialog.workingDirectoryPlaceholder")}
-              />
-              <Button variant="outline" onClick={() => void browseFolder()}>
-                {t("agents.newDialog.browse")}
-              </Button>
-            </div>
-          </div>
-          <div className="form-actions">
-            <Button variant="default" data-testid="new-agent-create" onClick={doCreate}>
-              {t("agents.newDialog.create")}
-            </Button>
-            <Button variant="outline" onClick={onClose}>{t("agents.newDialog.cancel")}</Button>
-          </div>
-        </>
-      )}
-        </DialogBody>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
